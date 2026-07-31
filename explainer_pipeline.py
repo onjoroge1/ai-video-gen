@@ -4325,11 +4325,17 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
     return best, best_g
 
 
-def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1.0) -> bool:
+def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 0.6) -> bool:
     """Burn the thumbnail onto the FIRST `hold` seconds of the video (audio untouched), so a Short's
     opening frame IS the thumbnail — YouTube Shorts can't take a custom thumbnail, so the feed/grid
     sample a frame. The spoken hook plays UNDER the card (no silent dead-air), runtime is preserved.
-    In-place, best-effort — returns False (and leaves the video untouched) on any failure."""
+    In-place, best-effort — returns False (and leaves the video untouched) on any failure.
+
+    The card MOVES and is SHORTER than it used to be. A 1.0s frozen card put a dead still on the single
+    most retention-critical second of the video (measured: frames 0-29 identical, then a hard 75-point
+    jump at t=1.0), which contradicts this pipeline's own 'frame-1 visible action' rule and tripped the
+    motion audit. Now: a slow push-in so the card is never frozen, 0.6s, and a short fade into the
+    footage instead of a jump cut."""
     import subprocess
     if not (thumb_path and os.path.exists(thumb_path) and os.path.exists(video_path)):
         return False
@@ -4341,9 +4347,16 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     except Exception:
         return False
     tmp = video_path + ".thumbfirst.mp4"
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path, "-i", thumb_path,
+    fade = min(0.25, hold * 0.4)                      # card fades out instead of jump-cutting away
+    frames = max(2, int(round(hold * 30)))
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path, "-loop", "1", "-i", thumb_path,
            "-filter_complex",
-           f"[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[t];"
+           # supersample -> slow push -> back to canvas, so the card is in motion the whole time
+           f"[1:v]scale={int(w*1.12)}:{int(h*1.12)}:force_original_aspect_ratio=increase,"
+           f"crop={int(w*1.12)}:{int(h*1.12)},fps=30,trim=end_frame={frames},"
+           f"zoompan=z='min(1.0+0.0016*on,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+           f"d=1:s={w}x{h}:fps=30,"
+           f"fade=t=out:st={max(0.0, hold-fade):.3f}:d={fade:.3f}:alpha=1,setsar=1[t];"
            f"[0:v][t]overlay=0:0:enable='lte(t,{hold})'[v]",
            "-map", "[v]", "-map", "0:a?", "-c:a", "copy", "-c:v", "libx264", "-preset", "medium",
            "-crf", "19", "-pix_fmt", "yuv420p", tmp]
