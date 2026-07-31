@@ -1,0 +1,41 @@
+{
+  "format": "physical_experiment_reversal",
+  "title": "Could Bolt Land on a Cloud?",
+  "duration_target_s": 20,
+  "narration": "Could Bolt land on a cloud? It looks solid enough. He hits the top… …and falls right through. Inside, he's soaked… …cold, and blind. But this cloud weighs a million pounds. So why can't it hold him? A cloud is just fog — too thin to hold anything, so he falls right through. So… could you ever land on a cloud?",
+  "narration_lines": [
+    "Could Bolt land on a cloud?",
+    "It looks solid enough.",
+    "He hits the top…",
+    "…and falls right through.",
+    "Inside, he's soaked…",
+    "…cold, and blind.",
+    "But this cloud weighs a million pounds.",
+    "So why can't it hold him?",
+    "A cloud is just fog — too thin to hold anything, so he falls right through.",
+    "So… could you ever land on a cloud?"
+  ],
+  "captions": [
+    "LAND ON A CLOUD?",
+    "LOOKS SOLID…",
+    "HE HITS THE TOP",
+    "…AND FALLS THROUGH",
+    "SOAKED",
+    "COLD • BLIND",
+    "1,000,000 LBS",
+    "SO WHY NOT?",
+    "IT'S JUST FOG",
+    "COULD YOU?"
+  ],
+  "hook": "Could Bolt land on a cloud? (he is already falling toward one)",
+  "first_payoff_s": 5.5,
+  "first_payoff": "he falls straight through the cloud",
+  "second_open_loop": "a million-pound cloud — so why can't it hold him?",
+  "climax": "a cloud is just fog: droplets too thin/spread to hold anything",
+  "ending_loop": "still falling toward the next cloud — matches frame 1",
+  "facts": [
+    "A large cumulus can hold ~1,000,000 lb of water (widely cited estimate).",
+    "A cloud is a suspension of tiny droplets in air; density ≈ air, no solid surface."
+  ],
+  "script_hash": "d3978d55343c9fdb"
+}

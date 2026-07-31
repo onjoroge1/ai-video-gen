@@ -1,0 +1,25 @@
+{
+  "bolt_model": "bolt_v1_hover_base",
+  "global_invariants": {
+    "altitude": "monotonically_decreasing",
+    "vertical_velocity_down": "constant",
+    "forbidden_true": [
+      "bolt_stands",
+      "bolt_walks",
+      "bolt_hovers",
+      "upward_move",
+      "mouth",
+      "boots",
+      "legs"
+    ]
+  },
+  "prohibited_features": [
+    "mouth",
+    "boots",
+    "legs",
+    "extra_limbs",
+    "costume_change",
+    "disappearing_antenna",
+    "disappearing_chest_panel"
+  ]
+}

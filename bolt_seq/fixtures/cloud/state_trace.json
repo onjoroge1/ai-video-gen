@@ -1,0 +1,72 @@
+[
+  {
+    "_block": "A",
+    "_kf": "start",
+    "altitude": 100,
+    "vertical_velocity_down": 1,
+    "inside_cloud": false
+  },
+  {
+    "_block": "A",
+    "_kf": "end",
+    "altitude": 70,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "B",
+    "_kf": "start",
+    "altitude": 70,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "B",
+    "_kf": "end",
+    "altitude": 50,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "C1",
+    "_kf": "start",
+    "altitude": 50,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "C1",
+    "_kf": "end",
+    "altitude": 38,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "C2",
+    "_kf": "start",
+    "altitude": 38,
+    "vertical_velocity_down": 1,
+    "inside_cloud": true
+  },
+  {
+    "_block": "C2",
+    "_kf": "end",
+    "altitude": 20,
+    "vertical_velocity_down": 1,
+    "inside_cloud": false
+  },
+  {
+    "_block": "D",
+    "_kf": "start",
+    "altitude": 20,
+    "vertical_velocity_down": 1,
+    "inside_cloud": false
+  },
+  {
+    "_block": "D",
+    "_kf": "end",
+    "altitude": 5,
+    "vertical_velocity_down": 1,
+    "inside_cloud": false
+  }
+]

@@ -1,0 +1,19 @@
+.env
+youtube_client_secret.json
+youtube_token.json
+
+# --- generated output (13GB of renders; regenerable) ---
+renders/
+*.mp4
+*.wav
+*.aiff
+__pycache__/
+.DS_Store
+myenv/
+
+# finished video media (5.2GB) — but KEEP the performance/metrics JSON
+finished_videos/*
+!finished_videos/index.json
+!finished_videos/video_metrics.json
+jobs/
+outputs/

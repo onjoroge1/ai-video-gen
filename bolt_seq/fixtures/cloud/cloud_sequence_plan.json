@@ -1,0 +1,158 @@
+{
+  "global_invariants": {
+    "altitude": "monotonically_decreasing",
+    "vertical_velocity_down": "constant",
+    "forbidden_true": [
+      "bolt_stands",
+      "bolt_walks",
+      "bolt_hovers",
+      "upward_move",
+      "mouth",
+      "boots",
+      "legs"
+    ]
+  },
+  "blocks": [
+    {
+      "id": "A",
+      "lines": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "plate": "plate_sky",
+      "bolt_h": 500,
+      "y0": 0.08,
+      "y1": 0.6,
+      "zoom": "in",
+      "wobble": 0.0,
+      "cloud_layer": false,
+      "beats": [
+        "falling",
+        "cloud grows",
+        "touch",
+        "break through"
+      ],
+      "start_state": {
+        "altitude": 100,
+        "vertical_velocity_down": 1,
+        "inside_cloud": false
+      },
+      "end_state": {
+        "altitude": 70,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      }
+    },
+    {
+      "id": "B",
+      "lines": [
+        4,
+        5
+      ],
+      "plate": "plate_inside",
+      "bolt_h": 430,
+      "y0": 0.14,
+      "y1": 0.62,
+      "zoom": "hold",
+      "wobble": 45.0,
+      "cloud_layer": false,
+      "beats": [
+        "droplets hit",
+        "visibility drops",
+        "tumble, still down"
+      ],
+      "start_state": {
+        "altitude": 70,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      },
+      "end_state": {
+        "altitude": 50,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      }
+    },
+    {
+      "id": "C1",
+      "lines": [
+        6,
+        7
+      ],
+      "plate": "plate_scale",
+      "bolt_h": 165,
+      "y0": 0.12,
+      "y1": 0.55,
+      "zoom": "out",
+      "wobble": 0.0,
+      "cloud_layer": false,
+      "beats": [
+        "reveal huge cloud",
+        "why can't it hold him"
+      ],
+      "start_state": {
+        "altitude": 50,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      },
+      "end_state": {
+        "altitude": 38,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      }
+    },
+    {
+      "id": "C2",
+      "lines": [
+        8
+      ],
+      "plate": "plate_droplets",
+      "bolt_h": 230,
+      "y0": 0.12,
+      "y1": 0.62,
+      "zoom": "out",
+      "wobble": 0.0,
+      "cloud_layer": false,
+      "beats": [
+        "droplets sparse across huge volume = the answer"
+      ],
+      "start_state": {
+        "altitude": 38,
+        "vertical_velocity_down": 1,
+        "inside_cloud": true
+      },
+      "end_state": {
+        "altitude": 20,
+        "vertical_velocity_down": 1,
+        "inside_cloud": false
+      }
+    },
+    {
+      "id": "D",
+      "lines": [
+        9
+      ],
+      "plate": "plate_exit",
+      "bolt_h": 480,
+      "y0": 0.1,
+      "y1": 0.6,
+      "zoom": "in",
+      "wobble": 0.0,
+      "cloud_layer": false,
+      "beats": [
+        "exit, next cloud below, loop to frame 1"
+      ],
+      "start_state": {
+        "altitude": 20,
+        "vertical_velocity_down": 1,
+        "inside_cloud": false
+      },
+      "end_state": {
+        "altitude": 5,
+        "vertical_velocity_down": 1,
+        "inside_cloud": false
+      }
+    }
+  ]
+}

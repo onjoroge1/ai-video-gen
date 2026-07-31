@@ -1,0 +1,54 @@
+{
+  "dive_pose": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/bolt_pose_library/dive_pose.png",
+    "passed": true,
+    "scores": {
+      "identity": 9.0,
+      "action_readability": 8.0,
+      "urgency": 8.0,
+      "directional_clarity": 8.0,
+      "silhouette": 7.0,
+      "neutral_pose_probability": 2.0
+    },
+    "reads_as": "head-first downward dive"
+  },
+  "tumble_pose": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/bolt_pose_library/tumble_pose.png",
+    "passed": false,
+    "scores": {
+      "identity": 9.0,
+      "action_readability": 7.0,
+      "urgency": 6.0,
+      "directional_clarity": 6.0,
+      "silhouette": 8.0,
+      "neutral_pose_probability": 4.0
+    },
+    "reads_as": "off-balance diagonal tumble"
+  },
+  "impact_pose": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/bolt_pose_library/impact_pose.png",
+    "passed": false,
+    "scores": {
+      "identity": 8.0,
+      "action_readability": 2.0,
+      "urgency": 1.0,
+      "directional_clarity": 1.0,
+      "silhouette": 4.0,
+      "neutral_pose_probability": 8.0
+    },
+    "reads_as": "resting flat, hands down, calm"
+  },
+  "exit_loop_pose": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/bolt_pose_library/exit_loop_pose.png",
+    "passed": false,
+    "scores": {
+      "identity": 9.0,
+      "action_readability": 6.0,
+      "urgency": 5.0,
+      "directional_clarity": 5.0,
+      "silhouette": 7.0,
+      "neutral_pose_probability": 4.0
+    },
+    "reads_as": "horizontal superman-style glide"
+  }
+}

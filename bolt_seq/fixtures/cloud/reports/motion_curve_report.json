@@ -1,0 +1,172 @@
+[
+  {
+    "block": "A",
+    "pose": "dive_pose",
+    "axis": "vertical",
+    "curve": "accel",
+    "dur": 5.44,
+    "y_frac": [
+      0.04,
+      0.046,
+      0.065,
+      0.096,
+      0.139,
+      0.195,
+      0.263,
+      0.344,
+      0.437,
+      0.542,
+      0.66
+    ],
+    "vel_step": [
+      0.0062,
+      0.0186,
+      0.031,
+      0.0434,
+      0.0558,
+      0.0682,
+      0.0806,
+      0.093,
+      0.1054,
+      0.1178
+    ],
+    "altitude_monotonic_down": true,
+    "velocity_increases": true
+  },
+  {
+    "block": "B",
+    "pose": "tumble_pose",
+    "axis": "vertical",
+    "curve": "linear",
+    "dur": 2.86,
+    "y_frac": [
+      0.1,
+      0.156,
+      0.212,
+      0.268,
+      0.324,
+      0.38,
+      0.436,
+      0.492,
+      0.548,
+      0.604,
+      0.66
+    ],
+    "vel_step": [
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056,
+      0.056
+    ],
+    "altitude_monotonic_down": true,
+    "velocity_increases": true
+  },
+  {
+    "block": "C1",
+    "pose": "dive_pose",
+    "axis": "vertical",
+    "curve": "linear",
+    "dur": 4.14,
+    "y_frac": [
+      0.14,
+      0.178,
+      0.216,
+      0.254,
+      0.292,
+      0.33,
+      0.368,
+      0.406,
+      0.444,
+      0.482,
+      0.52
+    ],
+    "vel_step": [
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038,
+      0.038
+    ],
+    "altitude_monotonic_down": true,
+    "velocity_increases": true
+  },
+  {
+    "block": "C2",
+    "pose": "dive_pose",
+    "axis": "vertical",
+    "curve": "linear",
+    "dur": 4.08,
+    "y_frac": [
+      0.12,
+      0.17,
+      0.22,
+      0.27,
+      0.32,
+      0.37,
+      0.42,
+      0.47,
+      0.52,
+      0.57,
+      0.62
+    ],
+    "vel_step": [
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05
+    ],
+    "altitude_monotonic_down": true,
+    "velocity_increases": true
+  },
+  {
+    "block": "D",
+    "pose": "exit_loop_pose",
+    "axis": "vertical",
+    "curve": "accel",
+    "dur": 2.54,
+    "y_frac": [
+      0.05,
+      0.056,
+      0.073,
+      0.101,
+      0.141,
+      0.193,
+      0.255,
+      0.329,
+      0.415,
+      0.512,
+      0.62
+    ],
+    "vel_step": [
+      0.0057,
+      0.0171,
+      0.0285,
+      0.0399,
+      0.0513,
+      0.0627,
+      0.0741,
+      0.0855,
+      0.0969,
+      0.1083
+    ],
+    "altitude_monotonic_down": true,
+    "velocity_increases": true
+  }
+]

@@ -1,0 +1,65 @@
+{
+  "bolt": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/bolt.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "plate_sky": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/plate_sky.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "plate_inside": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/plate_inside.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "plate_scale": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/plate_scale.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "plate_droplets": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/plate_droplets.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "plate_exit": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/plate_exit.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  },
+  "cloud_layer": {
+    "path": "/Users/obadiah/Documents/video/renders/bolt_cloud_experiment_package/phase2/assets/cloud_layer.png",
+    "passed": true,
+    "attempts": [
+      {
+        "reused": true
+      }
+    ]
+  }
+}
