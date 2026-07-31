@@ -178,7 +178,7 @@ I2V_PROVIDER  = os.environ.get("I2V_PROVIDER", "").strip().lower()   # "sora" | 
 I2V_FRACTION  = 0.35        # long-form target share of scenes animated (30-40% band)
 # Social shorts lean HARD on motion (autoplay feed + first-second retention) and are cheap to
 # animate (few scenes), so they get a higher share. Tunable; verify real Veo $/s before pushing up.
-I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.6"))
+I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.9"))
 # Shorts FRONT-LOAD their motion: ~this share of the clip budget goes to the OPENING scenes (retention
 # is won/lost in the first seconds of an autoplay feed), one clip is reserved for the finale/payoff,
 # and the rest are spaced across the back half. Cost-neutral vs. even/random placement.
@@ -1844,7 +1844,11 @@ def _find_font() -> str | None:
 from PIL import Image, ImageDraw, ImageFont, ImageFilter   # noqa: E402
 
 W, H = 1920, 1080
-FADE_DUR = 0.5   # crossfade length between scenes (seconds)
+FADE_DUR = 0.5   # crossfade length between scenes (seconds) — long-form
+# Shorts grammar is HARD CUTS. A 0.5s dissolve every ~3s spends a sixth of the runtime mushy and reads
+# as a slideshow transition; feed videos cut. Social therefore holds only a tiny tail (enough for the
+# last caption to clear) and concatenates without xfade.
+SOCIAL_TAIL = float(os.environ.get("SOCIAL_TAIL", "0.12"))
 
 
 def _pil_font(size: int):
@@ -2661,6 +2665,7 @@ def _assemble(
     tmp_dir: str,
     bg_music_path: str | None = None,
     sfx_path: str | None = None,
+    hard_cuts: bool = False,
 ) -> None:
     n = len(scene_videos)
     durations = [_audio_dur(a) for a in scene_audios]   # narration-only durations
@@ -2673,6 +2678,16 @@ def _assemble(
     # so the offset math is identical at both levels.
     if n == 1:
         concat_video = scene_videos[0]
+    elif hard_cuts:
+        # HARD CUTS (Shorts). Stream-copy concat: no re-encode, no dissolve, exact segment boundaries.
+        # Each segment is already (narration + SOCIAL_TAIL) long, so total = sum(narration) + n*tail.
+        concat_video = os.path.join(tmp_dir, "_concat_video.mp4")
+        vlist = os.path.join(tmp_dir, "_video_list.txt")
+        with open(vlist, "w") as f:
+            for v in scene_videos:
+                f.write(f"file '{v}'\n")
+        _run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", vlist,
+                     "-c", "copy", concat_video], timeout=600.0)
     else:
         BATCH = 20
         if n <= BATCH:
@@ -4107,7 +4122,13 @@ _PREMISE_FILLER = re.compile(
 # ADVISORY — they inform the regen note but don't hard-veto, because grade_short (hook/pacing) and the
 # render-side hook dry-run already cover them, and double-vetoing perma-blocks otherwise-good drafts.
 _PREMISE_VETO_FLAGS = {"answers_generic_question", "payoff_obvious_or_weak",
-                       "no_failed_workaround", "metaphor_over_budget"}
+                       "no_failed_workaround", "metaphor_over_budget",
+                       # over_length was ADVISORY, and that is how a 38s-target Short shipped at 55s:
+                       # the word budget said 102 words / 7 per scene and the script delivered ~145
+                       # (+42%). Runtime is a retention property, not a nitpick — the channel's own
+                       # data has the 37-52s shorts retaining best — so an over-long script now
+                       # forces the existing regeneration loop instead of just printing a warning.
+                       "over_length"}
 
 def build_premise_contract(question, cost_sink=None):
     """Gate -1: turn a Short's title/topic into a binding PremiseContract the script MUST deliver —
@@ -4670,7 +4691,8 @@ def run_explainer_pipeline(
         _make_scene_segment(
             r0["img"], r0["aud"], _smoke,
             scenes[0].get("text_overlay", ""), scenes[0].get("text_sub", ""),
-            motion=_pick_motion(scenes[0].get("shot_type", "medium"), 0), tail=FADE_DUR,
+            motion=_pick_motion(scenes[0].get("shot_type", "medium"), 0),
+            tail=(SOCIAL_TAIL if video_format == "social" else FADE_DUR),
             text_meta=scenes[0].get("text"), style_mode=style_mode,
             vw=vw, vh=vh, captions=cap_mode, word_times=_wt, bubble_side=_bs)
         log("Render smoke-test passed ✓ — generating the remaining scenes")
@@ -4861,7 +4883,7 @@ def run_explainer_pipeline(
                 scene.get("text_overlay", ""),
                 scene.get("text_sub", ""),
                 motion=motion,
-                tail=FADE_DUR,
+                tail=(SOCIAL_TAIL if video_format == "social" else FADE_DUR),
                 text_meta=scene.get("text"),
                 style_mode=style_mode,
                 vw=vw, vh=vh, captions=cap_mode, word_times=word_times,
@@ -4907,7 +4929,7 @@ def run_explainer_pipeline(
         import audio_bed
         _beats = audio_bed.sfx_beats_for_scenes(_rendered_scenes, rendered_durs)
         _sfx_path = audio_bed.build_sfx_bed(
-            _beats, sum(rendered_durs) + FADE_DUR, os.path.join(output_dir, "_sfx.wav"))
+            _beats, sum(rendered_durs) + (SOCIAL_TAIL * len(rendered_durs) if video_format == "social" else FADE_DUR), os.path.join(output_dir, "_sfx.wav"))
         if _sfx_path:
             log(f"sfx: {len(_beats)} cues (riser into peak, impacts on payoffs)"
                 + ("" if bg_music_path else " — no music bed"))
@@ -4916,7 +4938,8 @@ def run_explainer_pipeline(
 
     log("stage:Assembling final video...")
     output_path = os.path.join(output_dir, "explainer.mp4")
-    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path, _sfx_path)
+    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path, _sfx_path,
+              hard_cuts=(video_format == "social"))
 
     # 4b. Transcript + timed captions (.txt for description/auto-sync, .srt for YouTube subs).
     transcript_path, srt_path = _write_transcript(rendered_narr, rendered_durs, output_dir)
