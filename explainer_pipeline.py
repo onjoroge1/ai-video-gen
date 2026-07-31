@@ -2660,6 +2660,7 @@ def _assemble(
     output_path: str,
     tmp_dir: str,
     bg_music_path: str | None = None,
+    sfx_path: str | None = None,
 ) -> None:
     n = len(scene_videos)
     durations = [_audio_dur(a) for a in scene_audios]   # narration-only durations
@@ -2703,18 +2704,24 @@ def _assemble(
         concat_audio,
     ], timeout=180.0)
 
-    # 3. Optional BG music mix
+    # 3. Music + SFX mix, with REAL ducking.
+    #    Was: a static "volume=0.10" pad, and in practice no music at all because app.py never set
+    #    bg_music_path — every Short shipped as narration on silence. Now the narration KEYS a
+    #    sidechain compressor on the music, so the bed dips under speech and lifts in the gaps, and an
+    #    optional SFX track (riser into the peak, impact on payoffs) is mixed in. See audio_bed.py.
     if bg_music_path and os.path.exists(bg_music_path):
+        import audio_bed
+        has_sfx = bool(sfx_path and os.path.exists(sfx_path))
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
-        _run_ffmpeg([
-            "ffmpeg", "-y",
-            "-i", concat_audio,
-            "-stream_loop", "-1", "-i", bg_music_path,
-            "-filter_complex",
-            "[0:a]volume=1.0[vo];[1:a]volume=0.10[bg];[vo][bg]amix=inputs=2:duration=first[mix]",
-            "-map", "[mix]", "-c:a", "libmp3lame",
-            mixed,
-        ], timeout=180.0)
+        cmd = ["ffmpeg", "-y",
+               "-i", concat_audio,
+               "-stream_loop", "-1", "-i", bg_music_path]
+        if has_sfx:
+            cmd += ["-i", sfx_path]
+        cmd += ["-filter_complex",
+                audio_bed.music_filter_graph(has_sfx, mood=audio_bed.mood_of_path(bg_music_path)),
+                "-map", "[mix]", "-c:a", "libmp3lame", mixed]
+        _run_ffmpeg(cmd, timeout=240.0)
         final_audio = mixed
     else:
         final_audio = concat_audio
@@ -4859,10 +4866,37 @@ def run_explainer_pipeline(
     # Capture per-scene durations BEFORE the audio dir is reclaimed (for the transcript/SRT).
     rendered_durs = [_audio_dur(a) for a in scene_audios]
 
-    # 4. Assemble
+    # 4. Assemble — with a MUSIC BED and an SFX track.
+    # Music defaults ON: `bg_music_path` was never populated by app.py, so every Short shipped as
+    # narration on silence. Pass bg_music_path="none" to opt out.
+    _sfx_path = None
+    _rendered_scenes = [r["scene"] for r in usable]      # same order as scene_videos/scene_audios
+    _music_title = f"{question} {script.get('title', '')}"
+    if bg_music_path in (None, "", "auto"):
+        try:
+            import audio_bed
+            bg_music_path = audio_bed.music_for("auto", title=_music_title, scenes=_rendered_scenes)
+            if bg_music_path:
+                log(f"music: {os.path.basename(bg_music_path)} (auto-picked, ducked under narration)")
+        except Exception as e:
+            log(f"music: unavailable ({type(e).__name__}) — continuing without a bed")
+            bg_music_path = None
+    elif bg_music_path == "none":
+        bg_music_path = None
+    if bg_music_path:
+        try:
+            import audio_bed
+            _beats = audio_bed.sfx_beats_for_scenes(_rendered_scenes, rendered_durs)
+            _sfx_path = audio_bed.build_sfx_bed(
+                _beats, sum(rendered_durs) + FADE_DUR, os.path.join(output_dir, "_sfx.wav"))
+            if _sfx_path:
+                log(f"sfx: {len(_beats)} cues (riser into peak, impacts on payoffs)")
+        except Exception as e:
+            log(f"sfx: skipped ({type(e).__name__}: {e})")
+
     log("stage:Assembling final video...")
     output_path = os.path.join(output_dir, "explainer.mp4")
-    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path)
+    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path, _sfx_path)
 
     # 4b. Transcript + timed captions (.txt for description/auto-sync, .srt for YouTube subs).
     transcript_path, srt_path = _write_transcript(rendered_narr, rendered_durs, output_dir)
