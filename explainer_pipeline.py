@@ -184,7 +184,26 @@ I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.6"))
 # and the rest are spaced across the back half. Cost-neutral vs. even/random placement.
 I2V_FRONTLOAD_SOCIAL = float(os.environ.get("I2V_FRONTLOAD_SOCIAL", "0.65"))
 MAX_I2V_CLIPS = 12          # hard per-video cap (cost backstop, esp. long-form)
-I2V_SECONDS   = 4           # clip length requested (trimmed to scene length in ffmpeg)
+# 5, not 4: fal/Kling only accepts 5 or 10s, so a 4 was silently rounded UP to a paid 5s generation and
+# then trimmed to a ~3s scene — ~40% of every clip paid for and discarded. Ask for what we're billed for.
+I2V_SECONDS   = int(os.environ.get("I2V_SECONDS", "5"))
+# ---------------------------------------------------------------------------------------------------
+# i2v MOTION DIRECTIVE. The old code prefixed EVERY clip with "Subtle, restrained motion: locked-off
+# camera, very slow gentle drift... no camera shake" and then appended the scene's *image_prompt*. Two
+# bugs in one: (a) we paid Kling/Veo (up to v3-pro hero rates) to render a near-still, which is the main
+# reason "animated" Shorts still read as a slideshow; (b) it also overrode the AUTHORED per-scene motion
+# that sim_drop/quiz/health pass in positionally as `prompt`, fighting their own direction.
+#   action  (default) — the described movement actually happens and completes on screen. Camera stays
+#                       locked so identity/composition hold (that part of the old prompt was correct).
+#   ambient           — the old restrained look; keep for static cards/panels that must not move much.
+_MOTION_STYLE = {
+    "action": ("Real, visible movement: the described action actually happens and completes on screen. "
+               "Locked-off camera (no pan, tilt, zoom or shake), one continuous shot, no cuts, stable "
+               "composition, photoreal. The action: "),
+    "ambient": ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
+                "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
+                "camera shake; keep the composition stable and photoreal. "),
+}
 # LITERAL/GROUNDED imagery direction (packaging research + this channel's data: real-life Water short
 # hit 73% viewed, symbolic Light stalled at 2.4% CTR). When on, scene + thumbnail prompts steer to the
 # LITERAL real-world subject (documentary/lab look) and away from symbolic-metaphor/glowy imagery.
@@ -2365,14 +2384,16 @@ def _hero_i2v_indices(usable, sel) -> set:
 
 
 def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
-                 vw: int, vh: int, seconds: int, fal_model: str | None = None):
+                 vw: int, vh: int, seconds: int, fal_model: str | None = None,
+                 motion_style: str = "action", negative: str | None = None):
     """Generate ONE i2v clip with a SPECIFIC provider. Returns (ok, quota_hit, err_str).
-    fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only."""
+    fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only.
+    motion_style picks the directive prefix (see _MOTION_STYLE) — 'action' makes the movement actually
+    happen, 'ambient' keeps the old near-still look. `prompt` should describe the ACTION to perform.
+    negative is a provider negative_prompt (fal only; used to hold character anatomy/identity)."""
     size = _i2v_size(vw, vh)
     sw, sh = (int(x) for x in size.split("x"))
-    motion = ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
-              "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
-              "camera shake; keep the composition stable and photoreal. " + (prompt or "")).strip()[:900]
+    motion = (_MOTION_STYLE.get(motion_style, _MOTION_STYLE["action"]) + (prompt or "")).strip()[:900]
     ref = out_mp4 + ".ref.jpg"
     try:
         from PIL import Image, ImageOps
@@ -2412,8 +2433,10 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             uri = "data:image/jpeg;base64," + base64.b64encode(open(ref, "rb").read()).decode()
             dur = "10" if seconds > 5 else "5"            # Kling supports only 5 or 10s
             _model = fal_model or _FAL_MODEL              # hero beats pass a pricier model
-            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60,
-                           json={"prompt": motion, "image_url": uri, "duration": dur})
+            _payload = {"prompt": motion, "image_url": uri, "duration": dur}
+            if negative:                                 # holds character anatomy/identity (no legs, no twin, ...)
+                _payload["negative_prompt"] = negative
+            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60, json=_payload)
             low = sub.text.lower()
             if sub.status_code == 429 or "exhaust" in low or "balance" in low or "quota" in low:
                 return (False, True, f"fal quota/balance: {sub.text[:120]}")
@@ -2449,10 +2472,40 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             pass
 
 
+_ACTION_BY_TYPE = {
+    # scene_type -> what should visibly CHANGE in this beat when the script didn't author an action
+    "reveal":      "the hidden detail is revealed as the subject changes state",
+    "climax":      "the consequence peaks — the strongest visible change in the whole shot happens now",
+    "payoff":      "the result becomes visible and unmistakable",
+    "escalation":  "the effect intensifies and spreads further than before",
+    "mechanism":   "the parts move against each other so the mechanism is visible in motion",
+    "comparison":  "the difference between the two becomes visible as one of them changes",
+    "hook":        "the strange result is already happening as the shot opens",
+}
+
+
+def _i2v_action(scene: dict) -> str:
+    """Build the ACTION instruction for an i2v clip.
+
+    Prefers the script-authored `action` field (see the scene schema). Without one, derives a movement
+    instruction from scene_type + the image_prompt, because handing a provider a *static scene
+    description* is what made paid clips render as near-stills. Never returns empty."""
+    act = (scene.get("action") or scene.get("i2v_motion") or "").strip()
+    if act:
+        return act[:700]
+    desc = (scene.get("image_prompt") or "").strip()
+    hint = _ACTION_BY_TYPE.get((scene.get("scene_type") or "").lower().strip(), "")
+    if not hint:
+        subj = (scene.get("subject") or "the subject").strip()
+        hint = f"{subj} moves and the described effect visibly progresses"
+    return (f"{hint}. Scene: {desc}" if desc else hint)[:700]
+
+
 def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
                   cost_sink: list | None = None, seconds: int = I2V_SECONDS,
                   err_sink: list | None = None, exhausted: set | None = None,
-                  fal_model: str | None = None, rate: float | None = None) -> str | None:
+                  fal_model: str | None = None, rate: float | None = None,
+                  motion_style: str = "action", negative: str | None = None) -> str | None:
     """Generate a subtle image-to-video clip, trying the provider chain (_I2V_CHAIN, e.g.
     veo→sora) in order. When a provider hits quota it's added to `exhausted` so the rest of the
     run skips straight to the next provider. Returns the clip path, or None if EVERY provider
@@ -2461,7 +2514,8 @@ def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
         if exhausted is not None and provider in exhausted:
             continue
         ok, quota, err = _animate_one(provider, image_path, prompt, out_mp4, vw, vh, seconds,
-                                      fal_model=fal_model)
+                                      fal_model=fal_model, motion_style=motion_style,
+                                      negative=negative)
         if ok:
             if cost_sink is not None:
                 cost_sink.append(round(seconds * (rate if rate is not None else _RATE_I2V_SEC), 4))
@@ -2507,11 +2561,13 @@ def _make_scene_segment(
     # identical. If a real image-to-video clip (Veo) is supplied use it as the moving
     # background; otherwise ffmpeg Ken-Burns on the still.
     if motion_video and os.path.exists(motion_video):
-        # Already video — no supersample needed. stream_loop guards a clip shorter than dur
-        # (we trim to dur at output); -an-equivalent: we never map the clip's audio.
-        inputs = ["-stream_loop", "-1", "-i", motion_video]
+        # Already video — no supersample needed. A clip SHORTER than dur is FROZEN on its last frame
+        # (tpad=clone), not looped: -stream_loop restarted the motion mid-scene, which read as a visible
+        # jump-cut back to the clip's first frame. (quiz/sim_drop already used tpad; this matches them.)
+        # We never map the clip's audio.
+        inputs = ["-i", motion_video]
         bg_chain = (f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
-                    f"crop={vw}:{vh},fps={fps},setsar=1")
+                    f"crop={vw}:{vh},fps={fps},tpad=stop_mode=clone:stop_duration={dur:.3f},setsar=1")
     else:
         n_frames = max(1, int(dur * fps))
         z_expr, x_expr, y_expr = _motion(motion, n_frames)
@@ -4706,11 +4762,16 @@ def run_explainer_pipeline(
                 if os.path.exists(clip) and os.path.getsize(clip) > 0:   # resume: never re-pay
                     return k, clip, True
                 _is_hero = k in _hero
-                res = animate_scene(r["img"], r["scene"].get("image_prompt", ""), clip,
+                # Feed the i2v the AUTHORED ACTION for this beat when the script provides one. Falling
+                # back to image_prompt (a static scene description) is what made paid clips read as
+                # near-stills; _i2v_action() turns the description into a movement instruction.
+                _act = _i2v_action(r["scene"])
+                res = animate_scene(r["img"], _act, clip,
                                     vw, vh, cost_sink=i2v_costs, err_sink=i2v_errs,
                                     exhausted=i2v_exhausted,
                                     fal_model=_FAL_MODEL_HERO if _is_hero else None,
-                                    rate=_RATE_I2V_HERO_SEC if _is_hero else None)
+                                    rate=_RATE_I2V_HERO_SEC if _is_hero else None,
+                                    motion_style=r["scene"].get("motion_style", "action"))
                 return k, res, False
 
             # SERIAL: video APIs cap concurrent active generations — running 2 at once made the
