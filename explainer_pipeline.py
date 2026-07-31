@@ -2709,18 +2709,21 @@ def _assemble(
     #    bg_music_path — every Short shipped as narration on silence. Now the narration KEYS a
     #    sidechain compressor on the music, so the bed dips under speech and lifts in the gaps, and an
     #    optional SFX track (riser into the peak, impact on payoffs) is mixed in. See audio_bed.py.
-    if bg_music_path and os.path.exists(bg_music_path):
+    has_music = bool(bg_music_path and os.path.exists(bg_music_path))
+    has_sfx = bool(sfx_path and os.path.exists(sfx_path))
+    if has_music or has_sfx:
         import audio_bed
-        has_sfx = bool(sfx_path and os.path.exists(sfx_path))
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
-        cmd = ["ffmpeg", "-y",
-               "-i", concat_audio,
-               "-stream_loop", "-1", "-i", bg_music_path]
+        cmd = ["ffmpeg", "-y", "-i", concat_audio]
+        if has_music:
+            cmd += ["-stream_loop", "-1", "-i", bg_music_path]
         if has_sfx:
             cmd += ["-i", sfx_path]
-        cmd += ["-filter_complex",
-                audio_bed.music_filter_graph(has_sfx, mood=audio_bed.mood_of_path(bg_music_path)),
-                "-map", "[mix]", "-c:a", "libmp3lame", mixed]
+        if has_music:
+            graph = audio_bed.music_filter_graph(has_sfx, mood=audio_bed.mood_of_path(bg_music_path))
+        else:                                   # SFX-only: narration + cues, no bed to duck
+            graph = "[0:a][1:a]amix=inputs=2:duration=first:normalize=0[mix]"
+        cmd += ["-filter_complex", graph, "-map", "[mix]", "-c:a", "libmp3lame", mixed]
         _run_ffmpeg(cmd, timeout=240.0)
         final_audio = mixed
     else:
@@ -4885,27 +4888,31 @@ def run_explainer_pipeline(
     _sfx_path = None
     _rendered_scenes = [r["scene"] for r in usable]      # same order as scene_videos/scene_audios
     _music_title = f"{question} {script.get('title', '')}"
-    if bg_music_path in (None, "", "auto"):
+    # MUSIC IS OFF BY DEFAULT (human call, 2026-07-31: the bed hurt more than it helped — it competes
+    # with narration and reads as generic stock scoring). Opt IN with bg_music_path="auto" or a path.
+    # SFX (riser into the peak, impacts on payoffs) stay ON: they mark causes/consequences rather than
+    # laying a carpet under the whole video, which is what the production spec actually asks for.
+    if bg_music_path in ("", "none", None):
+        bg_music_path = None
+    elif bg_music_path == "auto":
         try:
             import audio_bed
             bg_music_path = audio_bed.music_for("auto", title=_music_title, scenes=_rendered_scenes)
             if bg_music_path:
-                log(f"music: {os.path.basename(bg_music_path)} (auto-picked, ducked under narration)")
+                log(f"music: {os.path.basename(bg_music_path)} (opt-in, ducked under narration)")
         except Exception as e:
             log(f"music: unavailable ({type(e).__name__}) — continuing without a bed")
             bg_music_path = None
-    elif bg_music_path == "none":
-        bg_music_path = None
-    if bg_music_path:
-        try:
-            import audio_bed
-            _beats = audio_bed.sfx_beats_for_scenes(_rendered_scenes, rendered_durs)
-            _sfx_path = audio_bed.build_sfx_bed(
-                _beats, sum(rendered_durs) + FADE_DUR, os.path.join(output_dir, "_sfx.wav"))
-            if _sfx_path:
-                log(f"sfx: {len(_beats)} cues (riser into peak, impacts on payoffs)")
-        except Exception as e:
-            log(f"sfx: skipped ({type(e).__name__}: {e})")
+    try:
+        import audio_bed
+        _beats = audio_bed.sfx_beats_for_scenes(_rendered_scenes, rendered_durs)
+        _sfx_path = audio_bed.build_sfx_bed(
+            _beats, sum(rendered_durs) + FADE_DUR, os.path.join(output_dir, "_sfx.wav"))
+        if _sfx_path:
+            log(f"sfx: {len(_beats)} cues (riser into peak, impacts on payoffs)"
+                + ("" if bg_music_path else " — no music bed"))
+    except Exception as e:
+        log(f"sfx: skipped ({type(e).__name__}: {e})")
 
     log("stage:Assembling final video...")
     output_path = os.path.join(output_dir, "explainer.mp4")
