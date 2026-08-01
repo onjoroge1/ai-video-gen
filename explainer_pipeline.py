@@ -4984,7 +4984,7 @@ def run_explainer_pipeline(
     #        The spoken hook still plays under it; runtime unchanged. Best-effort.
     if video_format == "social" and thumbnail_path:
         try:
-            if _overlay_opening_thumbnail(output_path, thumbnail_path, hold=1.0):
+            if _overlay_opening_thumbnail(output_path, thumbnail_path):   # hold: use the 0.6s default (1.0 froze the hook)
                 log("Opening frame set to the thumbnail (Shorts) ✓")
         except Exception as exc:
             log(f"⚠ Could not set opening thumbnail frame ({type(exc).__name__})")
