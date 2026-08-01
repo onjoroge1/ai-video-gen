@@ -28,7 +28,7 @@ import explainer_pipeline as ep
 import video_audit
 
 QUESTION = os.environ.get("TEST_QUESTION", "Why Can't You Remember Being A Baby?")
-DURATION = int(os.environ.get("TEST_DURATION", "38"))       # data: the 37-52s shorts retained best
+DURATION = int(os.environ.get("TEST_DURATION", "42"))       # data: the 37-52s shorts retained best
 CAP = float(os.environ.get("TEST_CAP_USD", "6.00"))
 OUT = os.path.abspath(os.environ.get("TEST_OUT", "renders/science_short_test"))
 

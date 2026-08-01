@@ -151,8 +151,28 @@ def _dur(p):
     return float(subprocess.run([FP, "-v", "error", "-show_entries", "format=duration", "-of",
                                  "default=nw=1:nk=1", p], capture_output=True, text=True).stdout.strip() or 0)
 
-def _still(img, out, d):
-    subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", "fps=30,format=yuv420p",
+def _still(img, out, d, drift=True):
+    """A card that DRIFTS instead of freezing.
+
+    These cards were `-loop 1` frozen PNGs, and a measured quiz short was 23.6% moving with a 4.2s
+    completely static stretch at t=27.9s. That matters: the quiz format is this channel's retention
+    FLOOR (15-20% stayed, one at 81.6% swiped away), and a dead-still late in a 32s Short is a very
+    plausible cause. A slow zoompan costs nothing (no API, same PNG) and keeps the frame alive.
+    Pass drift=False for a card that must not move.
+    """
+    if drift:
+        n = max(2, int(round(d * 30)))
+        # Rate is DERIVED from the card's length so the zoom spans the whole clip. A fixed increment
+        # with a 1.05 cap hit the ceiling in ~45 frames, so any card longer than ~1.5s froze for the
+        # remainder — which is exactly the 2.6s dead hold this change exists to remove.
+        step = 0.05 / n
+        # supersample first so the zoom has real pixels to eat into (avoids sub-pixel shimmer)
+        vf = (f"scale=1300:-1,fps=30,"
+              f"zoompan=z='min(1.0+{step:.6f}*on,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+              f":d=1:s={W}x{H}:fps=30,trim=end_frame={n},format=yuv420p")
+    else:
+        vf = "fps=30,format=yuv420p"
+    subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", vf,
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out], capture_output=True)
 
 def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
