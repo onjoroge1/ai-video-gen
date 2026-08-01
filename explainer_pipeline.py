@@ -2737,7 +2737,11 @@ def _assemble(
         if has_music:
             graph = audio_bed.music_filter_graph(has_sfx, mood=audio_bed.mood_of_path(bg_music_path))
         else:                                   # SFX-only: narration + cues, no bed to duck
-            graph = "[0:a][1:a]amix=inputs=2:duration=first:normalize=0[mix]"
+            # aformat on BOTH inputs: without it amix inherited the mono narration layout and the
+            # whole short shipped mono (caught by ffprobe on the v2 render: channels=1).
+            graph = ("[0:a]aformat=channel_layouts=stereo[vo];"
+                     "[1:a]aformat=channel_layouts=stereo[sx];"
+                     "[vo][sx]amix=inputs=2:duration=first:normalize=0[mix]")
         cmd += ["-filter_complex", graph, "-map", "[mix]", "-c:a", "libmp3lame", mixed]
         _run_ffmpeg(cmd, timeout=240.0)
         final_audio = mixed
