@@ -87,21 +87,30 @@ def _chip(d, x, y, w, h, accent, c, changed):
         d.rounded_rectangle([x-3, y-3, x+w+3, y+h+3], radius=12, outline=GOLD, width=3)
         d.polygon([(x-3,y+14),(x-3,y+30),(x+9,y+22)], fill=GOLD)   # little gold ▸ marker
 
-def render_board(state, out_path, w=1920, h=1080):
+def render_board(state, out_path, w=1920, h=1080, side="right"):
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
-    rail_x0 = 1206
+    # The rail can sit on either side. Everything below is written against rail_x0, so a left rail
+    # is the same geometry mirrored: panel at the margin, scrim falling away toward the picture.
+    RAIL_W = 688
+    rail_x0 = 26 if side == "left" else 1206
     # scrim so text is legible over any card
     sc = Image.new("RGBA", (w, h), (0,0,0,0)); sd = ImageDraw.Draw(sc)
-    for x in range(rail_x0-120, w):
-        a = int(150 * min(1, (x-(rail_x0-120))/120))
-        sd.line([(x,0),(x,h)], fill=(6,8,12,a))
+    if side == "left":
+        edge = rail_x0 + RAIL_W + 120
+        for x in range(0, edge):
+            a = int(150 * min(1, (edge - x) / 120))
+            sd.line([(x,0),(x,h)], fill=(6,8,12,a))
+    else:
+        for x in range(rail_x0-120, w):
+            a = int(150 * min(1, (x-(rail_x0-120))/120))
+            sd.line([(x,0),(x,h)], fill=(6,8,12,a))
     img = Image.alpha_composite(img, sc); d = ImageDraw.Draw(img)
     # glass panel
     gl = Image.new("RGBA", (w, h), (0,0,0,0)); gd = ImageDraw.Draw(gl)
-    gd.rounded_rectangle([rail_x0, 26, w-26, h-26], radius=18, fill=PANEL)
+    gd.rounded_rectangle([rail_x0, 26, rail_x0 + RAIL_W, h-26], radius=18, fill=PANEL)
     img = Image.alpha_composite(img, gl); d = ImageDraw.Draw(img)
 
-    px = rail_x0 + 40; rx = w - 66
+    px = rail_x0 + 40; rx = rail_x0 + RAIL_W - 40
     _track(d, (px, 54), state.get("title","STATE OF THE WAR"), _F(_COPPER, 36), GOLD, tr=5)
     if state.get("subtitle"):
         d.text((px, 108), state["subtitle"], font=_F(_ARIAL, 18), fill=MUTE)
