@@ -23,6 +23,22 @@ import board_pipeline as BP
 W, H = 1920, 1080
 OUT = "house-of-dragons/house_of_the_dragon_s3e3_complete_asset_pack/images/generated"
 SIG_GEN = f"{OUT}/sigils"   # generated heraldic emblems (gold on black); see hotd_gen_assets.py
+# Later episodes add their own emblems in their own pack. Cards resolve a sigil against every
+# registered directory, so an episode reuses earlier heraldry and only generates what is new.
+SIG_DIRS = [SIG_GEN]
+
+
+def register_sigil_dir(path):
+    if path not in SIG_DIRS:
+        SIG_DIRS.insert(0, path)
+
+
+def find_sigil(name):
+    for d in SIG_DIRS:
+        p = os.path.join(d, f"sig_{name}.png")
+        if os.path.exists(p):
+            return p
+    return None
 
 # Faction palettes — spec §9: "black/red-gold accents for Team Black and muted green-gold for
 # Hightower forces". Neutral factions get steel so they read as unaligned.
@@ -118,8 +134,21 @@ def sig_decoy(d, cx, cy, s, col):
     d.line([(cx - s * 0.86, cy + s * 0.86), (cx + s * 0.86, cy - s * 0.98)], fill=BP.RED, width=6)
 
 
+def sig_generic(d, cx, cy, s, col):
+    """Neutral mark for a house or figure with no drawn heraldry -- a plain lozenge and bar.
+
+    Later episodes introduce characters whose emblems are generated files, not code. If the emblem
+    is missing (still generating, or a commoner with no arms at all) the card must still render:
+    a missing sigil is a cosmetic gap, not a reason to fail the whole asset build.
+    """
+    d.polygon([(cx, cy - s * 0.82), (cx + s * 0.58, cy), (cx, cy + s * 0.82), (cx - s * 0.58, cy)],
+              outline=col, width=6)
+    d.line([(cx - s * 0.30, cy), (cx + s * 0.30, cy)], fill=col, width=6)
+
+
 SIGILS = {"targaryen": sig_targaryen, "hightower": sig_hightower, "velaryon": sig_velaryon,
-          "seven": sig_seven, "whisper": sig_whisper, "decoy": sig_decoy}
+          "seven": sig_seven, "whisper": sig_whisper, "decoy": sig_decoy,
+          "generic": sig_generic}
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -159,14 +188,14 @@ def character_card(name, faction, role, status, tone, sigil, out, note=""):
     # sigil — prefer the GENERATED emblem (gold on pure black), tinted to the faction accent.
     # Keying is trivial because the source is an emblem on true black: luminance IS the coverage mask,
     # so no alpha extraction is needed (the trap that ate days on the Bolt work).
-    gp = os.path.join(SIG_GEN, f"sig_{sigil}.png")
-    if os.path.exists(gp):
+    gp = find_sigil(sigil)
+    if gp:
         em = Image.open(gp).convert("RGB").resize((430, 430), Image.LANCZOS)
         mask = em.convert("L").point(lambda v: min(255, int(v * 1.25)))     # slight lift, keeps edges
         tint = Image.new("RGB", em.size, acc)
         im.paste(tint, (W // 2 - 215, 430 - 215), mask)
     else:
-        SIGILS[sigil](d, W // 2, 430, 200, acc)                            # code-drawn fallback
+        SIGILS.get(sigil, sig_generic)(d, W // 2, 430, 200, acc)          # code-drawn fallback
 
     # name
     fnt_n = BP._F(BP._COPPER, 104)
@@ -220,7 +249,71 @@ CHARACTERS = [
      "targaryen", "10_char_aegon_ii_missing", "His survival blocks the Faith's recognition"),
     ("Aemond Targaryen", "green", "Military threat · Vhagar", "missing", "bad",
      "targaryen", "11_char_aemond_missing", "Vhagar unaccounted for from Rhaenyra's view"),
+    # --- newly knighted dragonriders (Team Black) ---
+    ("Addam of Hull", "black", "Knighted dragonrider · Seasmoke", "raised by Rhaenyra", "good",
+     "velaryon", "19_char_addam_of_hull", "Corlys asks that he be acknowledged a Velaryon"),
+    ("Alyn of Hull", "black", "Proposed Velaryon heir", "claim unresolved", "neutral",
+     "velaryon", "20_char_alyn_of_hull", "The other son at the centre of Corlys's request"),
+    ("Hugh Hammer", "black", "Knighted dragonrider · Vermithor", "makes household requests", "neutral",
+     "targaryen", "21_char_hugh_hammer", "Elevated from smallfolk to sworn sword"),
+    ("Ulf White", "black", "Knighted dragonrider · Silverwing", "newly elevated", "neutral",
+     "targaryen", "22_char_ulf_white", "Elevated from smallfolk to sworn sword"),
+    # --- supporting ---
+    ("Helaena Targaryen", "green", "Prisoner with Alicent", "captive", "neutral",
+     "targaryen", "23_char_helaena", "Held in the Red Keep alongside her mother"),
+    ("Torrhen Manderly", "black", "Northern lord at council", "challenges the food plan", "neutral",
+     "seven", "24_char_torrhen_manderly", "Questions whether seizing stores can hold"),
+    ("Tyland Lannister", "green", "Master of coin · the treasury", "presumed dead by the court", "dead",
+     "hightower", "25_char_tyland_lannister", "SPEC NOTE: later episodes reveal he survived the Gullet"),
+    ("Rhaena Targaryen", "neutral", "Rides Sheepstealer", "unknown rider", "neutral",
+     "targaryen", "26_char_rhaena", "Her claim is NOT known to Rhaenyra's government"),
+    # --- memory / family context ---
+    ("Viserys I Targaryen", "neutral", "The late king", "memory · governing ideal", "neutral",
+     "targaryen", "27_char_viserys_memory", "Rhaenyra's model of rule by council and law"),
+    ("Queen Aemma Arryn", "neutral", "Rhaenyra's mother", "memory", "neutral",
+     "targaryen", "28_char_aemma_memory", "Invoked in Rhaenyra's grief"),
+    ("Jacaerys Velaryon", "black", "Rhaenyra's heir", "killed at the Gullet", "dead",
+     "velaryon", "29_char_jacaerys_memorial", "Grief and the parentage dispute"),
+    ("Lucerys Velaryon", "black", "Rhaenyra's son", "killed before the war turned", "dead",
+     "velaryon", "30_char_lucerys_memorial", "Family-loss context"),
+    ("Joffrey Velaryon", "black", "Rhaenyra's son", "parentage disputed", "neutral",
+     "velaryon", "31_char_joffrey", "At the centre of the legitimacy question"),
+    ("Laenor Velaryon", "black", "Legal father of Rhaenyra's sons", "memory", "neutral",
+     "velaryon", "32_char_laenor", "Accepted the boys as his own"),
+    ("Princess Rhaenys Targaryen", "black", "The Queen Who Never Was", "killed at Rook's Rest", "dead",
+     "targaryen", "33_char_rhaenys", "Corlys's wife; sacrifice context"),
+    ("Laena Velaryon", "black", "Corlys and Rhaenys's daughter", "memory", "neutral",
+     "velaryon", "34_char_laena", "Family diagram context"),
+    ("Otto Hightower", "green", "Former Hand", "burial request · treasury", "neutral",
+     "hightower", "35_char_otto_memorial", "Named in the treasury and burial threads"),
 ]
+
+# ---------------------------------------------------------------------------------------------------
+# DRAGONS. Same card grammar, but the status line carries the RIDER and whether the regime knows.
+# Spec §9: Tessarion must never sit in Team Black's possession; Sheepstealer's rider must read
+# "unknown rider", never "Rhaena".
+DRAGONS = [
+    ("Syrax",        "black",   "Rhaenyra's mount",      "ridden · at King's Landing", "key",     "36_dragon_syrax"),
+    ("Caraxes",      "black",   "Daemon's mount",        "ridden · in the field",      "key",     "37_dragon_caraxes"),
+    ("Vermithor",    "black",   "Hugh Hammer's mount",   "newly claimed",              "good",    "38_dragon_vermithor"),
+    ("Silverwing",   "black",   "Ulf White's mount",     "newly claimed",              "good",    "39_dragon_silverwing"),
+    ("Seasmoke",     "black",   "Addam of Hull's mount", "newly claimed",              "good",    "40_dragon_seasmoke"),
+    ("Sheepstealer", "neutral", "Rider unknown to the court", "unknown rider",         "neutral", "41_dragon_sheepstealer"),
+    ("Tessarion",    "green",   "Daeron's mount",        "with Hightower forces",      "bad",     "42_dragon_tessarion"),
+    ("Vhagar",       "green",   "Aemond's mount",        "missing",                    "bad",     "43_dragon_vhagar_missing"),
+]
+
+
+def build_dragons():
+    os.makedirs(OUT, exist_ok=True)
+    made = []
+    for name, fac, role, status, tone, stem in DRAGONS:
+        p = os.path.join(OUT, f"{stem}.png")
+        # a generated per-dragon emblem if present, else the house dragon device
+        sig = f"dragon_{name.lower()}" if find_sigil(f"dragon_{name.lower()}") else "targaryen"
+        character_card(name, fac, role, status, tone, sig, p, note="DRAGON")
+        made.append(p)
+    return made
 
 
 def build_characters():
@@ -357,3 +450,185 @@ def build_infographics():
     os.makedirs(OUT, exist_ok=True)
     return [graphic_strategic_map(os.path.join(OUT, "17_graphic_strategic_map.png")),
             graphic_deception_route(os.path.join(OUT, "18_graphic_ormund_deception_route.png"))]
+
+
+# ---------------------------------------------------------------------------------------------------
+# INFOGRAPHICS (the remaining 7 of manifest §7). All code-drawn: these carry exact labels, numbers and
+# causal order, which a generated image would invent.
+def _plate(title, subtitle="", label="SHOW CONFIRMED — Episode 3"):
+    im = Image.new("RGB", (W, H), (9, 11, 14))
+    d = ImageDraw.Draw(im, "RGBA")
+    for i in range(0, H, 4):
+        d.line([(0, i), (W, i)], fill=(255, 255, 255, 4))
+    d.rectangle([48, 48, W - 48, H - 48], outline=BP.GOLD, width=3)
+    BP._track(d, (84, 72), title.upper(), BP._F(BP._COPPER, 40), BP.GOLD, tr=6)
+    if subtitle:
+        d.text((84, 130), subtitle, font=BP._F(BP._ARIAL, 28), fill=(188, 194, 202))
+    d.line([(84, 176), (W - 84, 176)], fill=BP.GOLD, width=2)
+    if label:
+        d.text((84, H - 96), label, font=BP._F(BP._ARIAL_B, 24), fill=BP.GOLD)
+    return im, d
+
+
+def _bar(d, x, y, w, frac, col, h=30):
+    d.rounded_rectangle([x, y, x + w, y + h], radius=8, fill=(26, 30, 38, 255))
+    if frac > 0:
+        d.rounded_rectangle([x, y, x + max(10, int(w * frac)), y + h], radius=8, fill=col)
+    d.rounded_rectangle([x, y, x + w, y + h], radius=8, outline=(70, 78, 90), width=2)
+
+
+def graphic_government_dashboard(out):
+    im, d = _plate("Rhaenyra's government — what she actually controls",
+                   "Holding the capital is not the same as holding power")
+    rows = [("GOLD / TREASURY", 0.06, BP.RED, "empty — the crown has no money"),
+            ("FOOD SUPPLY", 0.22, BP.RED, "blockade + hoarding; relief is temporary"),
+            ("THE FAITH", 0.10, BP.RED, "will not anoint while a rival king lives"),
+            ("PUBLIC SUPPORT", 0.55, BP.GOLD, "petitions heard; goodwill is fragile"),
+            ("MILITARY / DRAGONS", 0.78, BP.GREEN, "strongest instrument she holds"),
+            ("INTELLIGENCE", 0.30, BP.RED, "enemies unlocated"),
+            ("ALLIES", 0.48, BP.GOLD, "Velaryon support has a price")]
+    fnt_l, fnt_n = BP._F(BP._ARIAL_B, 30), BP._F(BP._ARIAL, 25)
+    for i, (lab, frac, col, note) in enumerate(rows):
+        y = 236 + i * 96
+        d.text((92, y), lab, font=fnt_l, fill=BP.WHITE)
+        _bar(d, 470, y - 2, 620, frac, col)
+        d.text((1128, y + 2), note, font=fnt_n, fill=(178, 184, 192))
+    im.save(out); return out
+
+
+def graphic_three_powers(out):
+    im, d = _plate("Three forms of power", "The episode separates them — and she only has one")
+    cols = [("COERCIVE POWER", "Dragons and swords.\nShe has the most of this.", BP.GREEN, "STRONG"),
+            ("INSTITUTIONAL\nLEGITIMACY", "Anointing, recognition, law.\nThe Faith withholds it.", BP.RED, "BLOCKED"),
+            ("ADMINISTRATIVE\nCAPACITY", "Gold, food, records, officials.\nThe treasury is empty.", BP.RED, "HOLLOW")]
+    for i, (t, body, col, verdict) in enumerate(cols):
+        x = 130 + i * 560
+        d.rounded_rectangle([x, 240, x + 480, 760], radius=16, fill=(14, 17, 22, 240), outline=col, width=3)
+        yy = 276
+        for line in t.split("\n"):
+            BP._track(d, (x + 34, yy), line, BP._F(BP._COPPER, 32), BP.WHITE, tr=3); yy += 44
+        yy += 18
+        for line in body.split("\n"):
+            d.text((x + 34, yy), line, font=BP._F(BP._ARIAL, 26), fill=(184, 190, 198)); yy += 38
+        d.rounded_rectangle([x + 34, 668, x + 34 + 200, 720], radius=10, fill=(*BP.CHIP[:3], 240), outline=col, width=3)
+        BP._track(d, (x + 56, 682), verdict, BP._F(BP._ARIAL_B, 30), col, tr=3)
+    d.text((130, 800), "Rhaenyra wins the city with power 1 and cannot govern it without powers 2 and 3.",
+           font=BP._F(BP._ARIAL, 28), fill=(200, 206, 214))
+    im.save(out); return out
+
+
+def graphic_false_daeron_id(out):
+    im, d = _plate("The captive is not the prince", "Alicent identifies the decoy", "SHOW CONFIRMED — Episode 3")
+    for i, (lab, val, col) in enumerate([("PRESENTED AS", "Prince Daeron Targaryen", BP.STEEL),
+                                         ("ACTUALLY", "an impostor — a decoy", BP.RED),
+                                         ("EXPOSED BY", "Alicent Hightower", BP.GOLD),
+                                         ("REAL DAERON", "at large with Ormund; rides Tessarion", BP.RED),
+                                         ("STRATEGIC USE", "a false bargaining chip", BP.STEEL)]):
+        y = 250 + i * 104
+        d.text((104, y), lab, font=BP._F(BP._ARIAL_B, 26), fill=(140, 146, 156))
+        d.text((104, y + 36), val, font=BP._F(BP._GEO_B, 38), fill=col)
+        d.line([(104, y + 88), (W - 104, y + 88)], fill=(48, 54, 64), width=2)
+    gp = os.path.join(SIG_GEN, "sig_decoy.png")
+    if os.path.exists(gp):
+        em = Image.open(gp).convert("RGB").resize((300, 300), Image.LANCZOS)
+        im.paste(Image.new("RGB", em.size, BP.RED), (W - 420, 300), em.convert("L"))
+    im.save(out); return out
+
+
+def _chain(d, steps, y=430):
+    fnt = BP._F(BP._ARIAL_B, 26)
+    n = len(steps); bw = (W - 200 - (n - 1) * 46) // n
+    for i, (t, col) in enumerate(steps):
+        x = 100 + i * (bw + 46)
+        d.rounded_rectangle([x, y, x + bw, y + 190], radius=14, fill=(14, 17, 22, 242), outline=col, width=3)
+        yy = y + 34
+        for line in t.split("\n"):
+            tw = BP._tw(d, line, fnt)
+            d.text((x + (bw - tw) // 2, yy), line, font=fnt, fill=BP.WHITE); yy += 36
+        if i < n - 1:
+            ax = x + bw + 8
+            d.polygon([(ax, y + 82), (ax, y + 108), (ax + 28, y + 95)], fill=BP.GOLD)
+
+
+def graphic_rat_banquet_chain(out):
+    im, d = _plate("The rat banquet", "Why nobles were served vermin — the causal chain")
+    _chain(d, [("BLOCKADE\ncuts supply", BP.RED), ("NOBLES\nHOARD FOOD", BP.RED),
+               ("CITY\nSHORTAGE", BP.RED), ("GOLD CLOAKS\nRAID STORES", BP.GOLD),
+               ("RELIEF —\nTEMPORARY", BP.GREEN)])
+    d.text((100, 700), "The banquet is a demonstration, not a solution: it shames the hoarders and feeds the city once.",
+           font=BP._F(BP._ARIAL, 28), fill=(196, 202, 210))
+    d.text((100, 748), "Torrhen Manderly's objection stands — seizure cannot be repeated indefinitely.",
+           font=BP._F(BP._ARIAL, 28), fill=(150, 157, 166))
+    im.save(out); return out
+
+
+def graphic_daemon_vs_rhaenyra(out):
+    im, d = _plate("Two theories of rule", "Daemon argues fear. Rhaenyra argues institutions.")
+    for i, (who, sub, pts, col) in enumerate([
+            ("DAEMON", "rule through fear", ["Answer deception with force",
+                                             "Make an example of Tumbleton",
+                                             "Obedience now, legitimacy later"], BP.RED),
+            ("RHAENYRA", "rule through institutions", ["Hear petitions; be seen to be just",
+                                                       "Seek anointing and recognition",
+                                                       "Feed the city, then hold it"], BP.GOLD)]):
+        x = 110 + i * 900
+        d.rounded_rectangle([x, 236, x + 800, 720], radius=16, fill=(14, 17, 22, 240), outline=col, width=3)
+        BP._track(d, (x + 36, 272), who, BP._F(BP._COPPER, 46), BP.WHITE, tr=5)
+        d.text((x + 36, 336), sub, font=BP._F(BP._ARIAL, 28), fill=col)
+        for k, t in enumerate(pts):
+            yy = 404 + k * 78
+            d.ellipse([x + 40, yy + 10, x + 56, yy + 26], fill=col)
+            d.text((x + 78, yy), t, font=BP._F(BP._ARIAL, 27), fill=(196, 202, 210))
+    d.text((110, 760), "INTERPRETATION — the episode stages the argument; it does not declare a winner.",
+           font=BP._F(BP._ARIAL_B, 26), fill=BP.STEEL)
+    im.save(out); return out
+
+
+def graphic_show_vs_book(out):
+    im, d = _plate("Show vs book", "The adaptation reorders and compresses — label them separately",
+                   "SHOW CHANGE / BOOK CONFIRMED")
+    for i, (lane, col, rows) in enumerate([
+            ("TELEVISION", BP.GOLD, ["Rhaenyra takes King's Landing", "Ormund fakes a retreat",
+                                     "A decoy Daeron is captured", "The Faith refuses to anoint"]),
+            ("FIRE & BLOOD", BP.STEEL, ["The book records a different order", "Tumbleton falls in its own chapter",
+                                        "No direct equivalent to the decoy", "Testimony conflicts by source"])]):
+        y = 250 + i * 300
+        BP._track(d, (100, y), lane, BP._F(BP._COPPER, 34), col, tr=4)
+        d.line([(100, y + 58), (W - 100, y + 58)], fill=col, width=3)
+        for k, t in enumerate(rows):
+            x = 110 + k * 430
+            d.ellipse([x - 9, y + 49, x + 9, y + 67], fill=col, outline=BP.WHITE, width=2)
+            d.text((x - 6, y + 86), t, font=BP._F(BP._ARIAL, 24), fill=(190, 196, 204))
+    d.text((100, 860), "The book is an in-universe history compiled from conflicting sources — not a camera record.",
+           font=BP._F(BP._ARIAL, 27), fill=(150, 157, 166))
+    im.save(out); return out
+
+
+def graphic_winner_scoreboard(out):
+    im, d = _plate("Who actually won Episode 3?", "Tactical gain is not strategic gain")
+    rows = [("TACTICAL GAIN", "RHAENYRA", "holds the capital, the throne, the city's goodwill", BP.GREEN),
+            ("STRATEGIC GAIN", "THE HIGHTOWERS", "the real army struck Tumbleton; Daeron is free", BP.RED),
+            ("HER WEAKNESS", "LEGITIMACY + GOLD", "unanointed, unfunded, enemies unlocated", BP.RED),
+            ("THE OPEN QUESTION", "CAN SHE GOVERN?", "force took the city; administration must keep it", BP.GOLD)]
+    for i, (lab, who, why, col) in enumerate(rows):
+        y = 246 + i * 150
+        d.rounded_rectangle([96, y, W - 96, y + 122], radius=14, fill=(14, 17, 22, 240), outline=col, width=3)
+        d.text((128, y + 18), lab, font=BP._F(BP._ARIAL_B, 25), fill=(140, 146, 156))
+        BP._track(d, (128, y + 54), who, BP._F(BP._COPPER, 38), col, tr=4)
+        d.text((760, y + 48), why, font=BP._F(BP._ARIAL, 27), fill=(196, 202, 210))
+    im.save(out); return out
+
+
+def build_more_infographics():
+    os.makedirs(OUT, exist_ok=True)
+    return [graphic_government_dashboard(os.path.join(OUT, "44_graphic_government_dashboard.png")),
+            graphic_three_powers(os.path.join(OUT, "45_graphic_three_forms_of_power.png")),
+            graphic_false_daeron_id(os.path.join(OUT, "46_graphic_false_daeron_identity.png")),
+            graphic_rat_banquet_chain(os.path.join(OUT, "47_graphic_rat_banquet_causal_chain.png")),
+            graphic_daemon_vs_rhaenyra(os.path.join(OUT, "48_graphic_daemon_vs_rhaenyra_rule.png")),
+            graphic_show_vs_book(os.path.join(OUT, "49_graphic_show_vs_book.png")),
+            graphic_winner_scoreboard(os.path.join(OUT, "50_graphic_winner_scoreboard.png"))]
+
+
+def build_all():
+    return build_characters() + build_dragons() + build_infographics() + build_more_infographics()

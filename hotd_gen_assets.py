@@ -66,12 +66,46 @@ LOCATIONS = {
 }
 
 
+# 8 dragon emblems. Dragons are creatures, not likenesses, so these can be depicted directly. Canon
+# colour is the distinguishing feature and is what makes the cards readable at a glance.
+_DRAGON = ("Flat vector heraldic emblem of a single dragon in flight, side profile, wings spread, "
+           "symmetrical composition, centred on a pure black background, bold clean silhouette with "
+           "minimal internal detail, no text, no border, no people. Scale colour: ")
+DRAGONS = {
+    "syrax":        _DRAGON + "pale yellow gold",
+    "caraxes":      _DRAGON + "deep blood red, long serpentine neck",
+    "vermithor":     _DRAGON + "weathered bronze, very large and heavy-set",
+    "silverwing":   _DRAGON + "pale silver-white",
+    "seasmoke":     _DRAGON + "pale silvery grey",
+    "sheepstealer": _DRAGON + "muddy brown, lean and rangy",
+    "tessarion":    _DRAGON + "deep cobalt blue with copper edges",
+    "vhagar":       _DRAGON + "vast ancient greenish bronze, battle-scarred, immense",
+}
+
+# The remaining locations from manifest §5-6.
+LOCATIONS2 = {
+    "51_loc_red_keep": _PLATE + "a massive red sandstone castle on a hill above a medieval city, seven great drum towers, seen at golden hour",
+    "52_loc_oldtown_hightower": _PLATE + "a huge ancient lighthouse tower of pale stone rising above a walled harbour city at dusk, a beacon burning at its summit",
+    "53_loc_the_reach_farmland": _PLATE + "rolling fertile farmland and orchards in high summer, dirt roads, distant walled town, warm hazy light",
+    "54_loc_vale_of_arryn": _PLATE + "a high mountain valley with sheer grey peaks, a narrow switchback road, a small white castle perched impossibly high",
+    "55_loc_harrenhal": _PLATE + "an immense ruined castle of five melted blackened towers on a lake shore under a bruised sky",
+    "56_loc_riverlands": _PLATE + "a broad slow river valley with willows, water meadows and a stone bridge, grey overcast light",
+    "57_loc_dragonstone": _PLATE + "a black volcanic island fortress carved with dragon motifs, rough sea, storm light",
+    "58_loc_the_gullet": _PLATE + "a wide sea strait after a naval battle, broken ship timbers and sails drifting, smoke on the water at dawn",
+    "59_loc_small_council_chamber": _PLATE + "a medieval council chamber with a great carved table, maps and ledgers spread across it, high windows, empty chairs",
+    "60_loc_petition_hall": _PLATE + "a stone hall with common folk queuing to present grievances, plain clothes, shafts of window light, no faces visible",
+    "61_loc_food_distribution": _PLATE + "a medieval city square where grain sacks and barrels are being distributed from carts to a crowd, torchlight, dusk",
+}
+
+
 def run():
     costs = []
     os.makedirs(SIG_DIR, exist_ok=True)
     os.makedirs(LOC_DIR, exist_ok=True)
-    print(f"generating {len(SIGILS)} sigils + {len(LOCATIONS)} locations with {ep.IMAGE_MODEL}\n")
-    for name, prompt in SIGILS.items():
+    print(f"generating {len(SIGILS)+len(DRAGONS)} emblems + {len(LOCATIONS)+len(LOCATIONS2)} locations with {ep.IMAGE_MODEL}\n")
+    _all_sig = dict(SIGILS)
+    _all_sig.update({f"dragon_{k}": v for k, v in DRAGONS.items()})
+    for name, prompt in _all_sig.items():
         p = f"{SIG_DIR}/sig_{name}.png"
         if os.path.exists(p) and os.path.getsize(p) > 0:
             print(f"  sigil {name:11s} reuse"); continue
@@ -80,7 +114,8 @@ def run():
             print(f"  sigil {name:11s} ok")
         except Exception as e:
             print(f"  sigil {name:11s} FAIL {type(e).__name__}: {e}")
-    for stem, prompt in LOCATIONS.items():
+    _all_loc = dict(LOCATIONS); _all_loc.update(LOCATIONS2)
+    for stem, prompt in _all_loc.items():
         p = f"{LOC_DIR}/{stem}.png"
         if os.path.exists(p) and os.path.getsize(p) > 0:
             print(f"  {stem:26s} reuse"); continue
