@@ -1,0 +1,16 @@
+{
+ "_note": "AUTHORED fixture, not external evidence. It tests that the gates behave sensibly on a different domain - that the regexes do not misfire on unfamiliar subject matter. It is necessarily somewhat circular (written by the same person who set the thresholds) and is NOT proof the format generalises; only ref_cheddar_man.json is outside evidence. CONTROL: a deliberately NON-mystery explainer. It has no false belief and no reversal and must still pass, judged against default_explainer.",
+ "title": "control_blue_sky_explainer",
+ "format": "default_explainer",
+ "narration": [
+  "On a clear afternoon the sky is blue, and the reason is not that the air is blue or that it is reflecting the sea.",
+  "Sunlight arrives white, which is to say it arrives as every colour at once, travelling together until something interferes.",
+  "The air interferes. Molecules of nitrogen and oxygen are far smaller than the wavelength of light, and a molecule that small scatters short wavelengths far more strongly than long ones.",
+  "Blue is short, red is long, so blue gets thrown sideways across the whole sky while red carries straight on through. Looking up anywhere away from the sun, what reaches you is scattered blue.",
+  "At sunset the same physics runs the other way. The light is cutting through far more air to reach you, so the blue has been scattered out long before it arrives and what is left is the red that kept going.",
+  "Which is why a blue midday and a red sunset are the same effect, read at two different angles."
+ ],
+ "expect": {
+  "pass": true
+ }
+}

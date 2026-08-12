@@ -1,0 +1,66 @@
+{
+ "_note": "External reference (a0cb1265-*.MP4), verbatim. The ONLY strong fixture that is real outside evidence rather than something authored to satisfy these gates. It is expected to FAIL 'resolution': it is a Part 1 that never answers its own question. That is the gate working, not a bug - we deliberately require our own videos to resolve. It fails answer_position for the same reason it fails resolution: the video cuts off mid-sentence and never completes its causal answer.",
+ "title": "Why Did Ancient Humans Lose Their Dark Skin?",
+ "format": "evidence_led_mystery",
+ "narration": [
+  "There's a skeleton in a cave in southwest England that scientists got completely wrong for over a hundred years.",
+  "They found him in 1903 - nearly a full skeleton, 10,000 years old, the oldest complete human ever discovered in Britain. They named him after the cave: Cheddar Man.",
+  "For a century, every reconstruction of his face showed the same thing: pale skin, European features - the face you'd expect on a man who spent his whole life under gray British skies.",
+  "It made sense. It fit the story everybody already believed: that humans arrived in Europe dark-skinned and then fairly quickly turned pale to survive the weak northern sun.",
+  "Case closed. Nothing left to investigate.",
+  "Then, in 2018, scientists finally pulled DNA out of his skull, and the DNA said something the skeleton never could.",
+  "Cheddar Man's skin wasn't pale. It was dark - possibly dark enough to place him in the same range as someone from West Africa today.",
+  "And his eyes were blue. Read that again.",
+  "Ten thousand years ago, that single skull broke the timeline scientists had trusted for decades. Because if a man living in Britain, thousands of years after the first humans supposedly arrived there, still had dark skin, then whatever caused Europeans to go pale didn't happen when everyone assumed it did.",
+  "Something happened later. Something faster. Something that isn't fully explained. So, what actually flipped the switch?",
+  "Stay with me on this one, because the answer isn't really about skin at all. It's about a trade your ancestors were forced to make - one they didn't know they were making - with consequences written into your body right now.",
+  "Rewind past Cheddar Man, past Britain, and past Europe entirely. Every human being who has ever lived traces back to Africa, and every one of those early humans had dark skin.",
+  "Not most. Not the majority. All of them. There was no light skin anywhere on the planet. The trade hadn't been invented yet, biologically speaking.",
+  "And that wasn't an accident. It was a defense system. The skin makes a pigment called melanin, and melanin absorbs ultraviolet radiation before it can reach the DNA sitting in your cells.",
+  "Near the equator, under some of the harshest sun exposure on Earth, that protection wasn't optional. UV damage compounds. It causes mutations. Enough mutations in the wrong place, and you get skin cancer.",
+  "In the late 1970s, researchers Richard Branda and John Eaton noticed something strange in their blood samples. Strong sunlight seemed to correlate with lower levels of a specific nutrient: folate.",
+  "A B vitamin, your body needs folate to build DNA and, critically, to properly form a developing embryo's neural tube in the earliest weeks of pregnancy."
+ ],
+ "beat_roles": [
+  "anomaly",
+  "credential",
+  "false_belief",
+  "false_belief",
+  "seal",
+  "reversal",
+  "reversal",
+  "reversal",
+  "consequence",
+  "consequence",
+  "personal_bridge",
+  "scope_shift",
+  "scope_shift",
+  "mechanism",
+  "mechanism",
+  "second_revelation",
+  "second_revelation"
+ ],
+ "topic_terms": [
+  "skin",
+  "dark skin",
+  "pale",
+  "cheddar man"
+ ],
+ "mechanism_terms": [
+  "melanin",
+  "pigment",
+  "ultraviolet",
+  "uv"
+ ],
+ "central_answer_terms": [
+  "folate breaks down",
+  "trade your ancestors"
+ ],
+ "expect": {
+  "pass": false,
+  "fail": [
+   "beat_order: required beat 'resolution'",
+   "answer_position"
+  ]
+ }
+}

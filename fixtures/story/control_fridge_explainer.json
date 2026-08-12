@@ -1,0 +1,16 @@
+{
+ "_note": "AUTHORED fixture, not external evidence. It tests that the gates behave sensibly on a different domain - that the regexes do not misfire on unfamiliar subject matter. It is necessarily somewhat circular (written by the same person who set the thresholds) and is NOT proof the format generalises; only ref_cheddar_man.json is outside evidence. CONTROL: a deliberately NON-mystery explainer. It has no false belief and no reversal and must still pass, judged against default_explainer.",
+ "title": "control_fridge_explainer",
+ "format": "default_explainer",
+ "narration": [
+  "Your fridge does not make cold. There is no such thing as cold to make; there is only heat, and the fridge moves it.",
+  "Inside the walls runs a loop of fluid chosen because it boils at a uselessly low temperature. That is the whole trick, and everything else is plumbing built around it.",
+  "In the compartment where your food sits, that fluid is allowed to expand. Expanding cools it well below the air around it, so heat flows out of your milk and into the fluid, which is the only direction heat ever flows.",
+  "The fluid, now carrying that heat, is pumped to the coils on the back and squeezed hard. Compressing it drives its temperature above room temperature, which means the heat can finally leave into your kitchen.",
+  "Put your hand behind the fridge and you can feel it arriving. Those warm coils are your dinner's heat, relocated.",
+  "So the loop repeats, ferrying heat from a cold place to a warm one, which nature will not do unaided. The compressor is what you are paying for, and the electricity bill is the price of pushing heat uphill."
+ ],
+ "expect": {
+  "pass": true
+ }
+}

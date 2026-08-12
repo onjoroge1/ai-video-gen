@@ -835,6 +835,10 @@
   .t-topic { color: var(--text); font-weight:600; max-width: 360px; line-height:1.4; }
   .t-suggested { color: var(--blue); font-size:11.5px; font-weight:600; margin-top:3px; }
   .t-queued { display:inline-block; background:var(--blue,#3a86ff); color:#fff; font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; margin-right:6px; vertical-align:middle; letter-spacing:.3px; }
+  /* Which PROVEN MOULD a suggestion instantiates. Green like .pt-proven because a mould is, by
+     definition, a shape we already measured — the operator should be able to see at a glance that
+     a row came off the mould table rather than out of thin air. */
+  .t-mould { display:inline-block; background: rgba(82,183,136,.14); color: var(--green); font-family: var(--mono); font-size:10px; padding:1px 6px; border-radius:4px; margin-right:6px; vertical-align:middle; white-space:nowrap; }
   .t-why { color: var(--text-dim); font-size:11px; margin-top:3px; }
   .t-winners { color: var(--text-mid); font-size:10.5px; font-family: var(--mono); margin-top:5px; line-height:1.55; }
   .t-num { font-family: var(--mono); color: var(--text-mid); white-space:nowrap; text-align:right; }
@@ -1498,6 +1502,17 @@
       <textarea id="expl-question" rows="3"
         placeholder="What is gravity?  /  How does the internet work?  /  Why is the sky blue?"></textarea>
 
+      <!-- suggest_titles() writes a click-optimised title per topic and this form has NO title
+           field — the question box is what drives generation, and for the simulation lane its
+           phrasing is load-bearing (the sim lane and the maths engine trigger off it), so the
+           suggested title must never overwrite it. It used to be dropped on the floor at the
+           moment the operator clicked "Use →"; surface it here, copyable, instead. -->
+      <div id="expl-suggested" style="display:none; margin-top:10px; align-items:center; gap:8px;">
+        <span style="font-size:11.5px;">🏷️</span>
+        <span class="t-suggested" id="expl-suggested-text" style="margin:0;"></span>
+        <button class="copy-btn" type="button" onclick="copyText('expl-suggested-text', this)">Copy title</button>
+      </div>
+
       <!-- Example chips (rotating pool — populated by JS) -->
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
         <span class="field-hint" style="margin:0;">Trending questions — click to use</span>
@@ -1512,7 +1527,7 @@
       <div class="options-grid">
         <div class="field">
           <label>Duration</label>
-          <select id="expl-duration">
+          <select id="expl-duration" onchange="refreshExplEstimate()">
             <option value="45">~45 sec (social)</option>
             <option value="60">~1 min</option>
             <option value="90">~1.5 min</option>
@@ -1557,6 +1572,15 @@
         <textarea id="expl-direction" class="input-field" rows="3"
           placeholder="Extra guidance layered onto the script prompt — tone, angle, audience, emphasis, things to avoid. e.g. 'dry, deadpan narration; open on the strangest consequence; avoid jargon'"></textarea>
         <span class="field-hint">Enriches the system prompt. Applied only where it doesn't conflict with the format, structure, or safety/accuracy rules (those always win). Leave blank for none.</span>
+      </div>
+
+      <div class="field" id="story-format-field" style="margin-top:14px;">
+        <label>Story structure <span style="opacity:.6;">(long-form)</span></label>
+        <select id="expl-story-format" class="input-field">
+          <option value="">Standard — cold consequence, fast answer, distributed payoffs</option>
+          <option value="evidence_led_mystery">Evidence-led mystery — build a belief, break it, explain last</option>
+        </select>
+        <span class="field-hint">Evidence-led opens on a concrete anomaly, spends the first quarter building the answer a reasonable person would give, overturns it with evidence, and holds the causal explanation until ~45–70%. Best for topics with a real prior belief to overturn; falls back to Standard for topics without one.</span>
       </div>
 
       <div class="field" style="margin-top:14px;">
@@ -1608,10 +1632,22 @@
       </div>
 
       <div class="field" id="i2v-field" style="margin-top:14px;">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="expl-i2v" /> AI motion on long-form too (Veo)
-        </label>
-        <span class="field-hint">Shorts already get Veo motion clips. Check to also animate long-form (~35% of scenes, capped at 12 ≈ +$5 and a few extra minutes).</span>
+        <label>Motion</label>
+        <div class="toggle-group">
+          <button type="button" class="toggle-btn" id="mot-none"
+                  onclick="setExplMotion('none')">Stills</button>
+          <button type="button" class="toggle-btn active" id="mot-standard"
+                  onclick="setExplMotion('standard')">Standard</button>
+          <button type="button" class="toggle-btn" id="mot-full"
+                  onclick="setExplMotion('full')">Full video</button>
+        </div>
+        <span class="field-hint" id="mot-hint">Standard: motion front-loaded into the opening, then spread across the rest.</span>
+      </div>
+      <div class="field" id="cap-field" style="margin-top:14px;">
+        <label for="expl-cap">Max spend (USD)</label>
+        <input type="number" id="expl-cap" value="8.00" min="0.50" step="0.50"
+               oninput="refreshExplEstimate()" />
+        <span class="field-hint" id="expl-est">&nbsp;</span>
       </div>
     </div>
 
@@ -2620,7 +2656,50 @@
   let explFormat = 'landscape';   // 'landscape' (16:9) | 'social' (9:16 + karaoke captions)
   const explLog = document.getElementById('expl-log');
 
-  function setExplFormat(fmt) {
+  let explMotion = 'standard';
+const MOTION_HINTS = {
+  none:     'Stills only. Free and fast — use it to test a script before paying for motion.',
+  standard: 'Motion front-loaded into the opening, then spread across the rest.',
+  full:     'Every scene gets a clip, bounded by your spend cap.',
+};
+
+function setExplMotion(m) {
+  explMotion = m;
+  ['none','standard','full'].forEach(function (k) {
+    document.getElementById('mot-' + k).classList.toggle('active', k === m);
+  });
+  document.getElementById('mot-hint').textContent = MOTION_HINTS[m];
+  refreshExplEstimate();
+}
+
+let _estTimer = null;
+let _estSeq = 0;          // only the newest response may paint: without this an earlier in-flight
+                          // request could resolve last and show the PREVIOUS preset's numbers,
+                          // which is exactly what happened in testing.
+function refreshExplEstimate() {
+  clearTimeout(_estTimer);
+  _estTimer = setTimeout(async function () {
+    const el = document.getElementById('expl-est');
+    const seq = ++_estSeq;
+    try {
+      const r = await fetch('/api/explainer/estimate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          duration_sec: parseInt(document.getElementById('expl-duration').value) || 90,
+          video_format: explFormat, motion: explMotion }) });
+      const d = await r.json();
+      if (seq !== _estSeq) return;                 // a newer request has already been issued
+      const cap = parseFloat(document.getElementById('expl-cap').value) || 0;
+      const over = d.total_usd > cap;
+      el.innerHTML = (d.clips ? ('&approx;' + d.clips + ' clips · ') : 'no motion clips · ')
+        + '&approx;$' + d.total_usd.toFixed(2) + ' total (' + d.note + ')'
+        + (over ? ' — <strong style="color:#e08">over your cap, the job will refuse</strong>' : '');
+    } catch (e) { if (seq === _estSeq) el.textContent = ''; }
+  }, 250);
+}
+
+function setExplFormat(fmt) {
+  setTimeout(refreshExplEstimate, 0);
     explFormat = fmt;
     document.getElementById('fmt-landscape').classList.toggle('active', fmt === 'landscape');
     document.getElementById('fmt-social').classList.toggle('active', fmt === 'social');
@@ -2673,8 +2752,12 @@
     return a;
   }
 
-  // question text → YouTube-validated market metrics (opportunity/outlier/views), for chip badges
+  // question text → the full researched topic (market metrics, mould, template, suggested title).
+  // Populated for EVERY topic the research returns, not only the YouTube-validated ones.
   let explMeta = {};
+
+  // MOULDS keys are snake_case on the server ("suspicious_coincidence"); spell them out for a badge.
+  function _mouldLabel(k) { return String(k || '').replace(/_/g, ' '); }
 
   function _fmtViews(n) {
     if (!n) return '0';
@@ -2697,7 +2780,11 @@
       if (r.ok) {
         const d = await r.json();
         const items = (d.questions || []).filter(q => q && q.question);
-        items.forEach(q => { if (q.validated) explMeta[q.question] = q; });
+        // Keep metadata for EVERY topic, not only the validated ones. Mould topics arrive
+        // unvalidated (no YouTube lookup ran on them) but still carry the template + suggested_title
+        // + mould the Create form needs, and validated-only meant clicking those chips silently
+        // dropped all three. The badge and pool logic below still gates on q.validated.
+        items.forEach(q => { explMeta[q.question] = q; });
         curiosityPool = items.map(q => q.question);
         explValidatedPool = items.filter(q => q.validated)
                                  .sort((a, b) => (b.opportunity || 0) - (a.opportunity || 0))
@@ -2705,10 +2792,14 @@
       }
     } catch (e) { /* offline / not ready → use the built-in pool */ }
     if (explValidatedPool.length) {
-      // top-by-opportunity as the visible subset; rest (lower-opp + unvalidated) wait in reserve
+      // top-by-opportunity as the visible subset; rest (lower-opp + unvalidated) wait in reserve.
+      // The reserve tail tests membership of the VALIDATED pool, not of explMeta — explMeta now
+      // holds every topic, so `!explMeta[q]` would match nothing and the unvalidated tail would
+      // vanish from the reserve.
+      const validated = new Set(explValidatedPool);
       explShownChips = explValidatedPool.slice(0, EXPL_VISIBLE);
       explReserve    = explValidatedPool.slice(EXPL_VISIBLE)
-                         .concat(curiosityPool.filter(q => !explMeta[q]));
+                         .concat(curiosityPool.filter(q => !validated.has(q)));
     } else {
       pool = _shuffle(curiosityPool.length ? curiosityPool : pool);
       explShownChips = pool.slice(0, EXPL_VISIBLE);
@@ -2724,25 +2815,37 @@
       const chip = document.createElement('span');
       chip.className = 'example-chip';
       const m = explMeta[q];
+      const tips = [];
       if (m && (m.opportunity != null)) {
         // Validated against real YouTube data → show an opportunity + outlier badge.
         const badge = document.createElement('span');
         badge.style.cssText = 'opacity:.85;font-weight:600;margin-right:6px;font-size:.85em';
         const out = (m.outlier && m.outlier >= 3) ? ' \u{1F525}' + m.outlier + '×' : '';
         badge.textContent = '⚡' + m.opportunity + out;
-        const tip = [`Opportunity ${m.opportunity}/100`,
-                     `${_fmtViews(m.median_views)} median views`,
-                     (m.outlier ? `${m.outlier}× best outlier (views÷subs)` : ''),
-                     (m.recency_days != null ? `top result ${m.recency_days}d old` : ''),
-                     `${m.competition || 0} competing videos`].filter(Boolean).join(' · ');
-        chip.title = tip + (m.winning_titles && m.winning_titles.length
-                       ? '\n\nWinners:\n• ' + m.winning_titles.slice(0, 3).join('\n• ') : '');
+        tips.push([`Opportunity ${m.opportunity}/100`,
+                   `${_fmtViews(m.median_views)} median views`,
+                   (m.outlier ? `${m.outlier}× best outlier (views÷subs)` : ''),
+                   (m.recency_days != null ? `top result ${m.recency_days}d old` : ''),
+                   `${m.competition || 0} competing videos`].filter(Boolean).join(' · ')
+                  + (m.winning_titles && m.winning_titles.length
+                       ? '\n\nWinners:\n• ' + m.winning_titles.slice(0, 3).join('\n• ') : ''));
         chip.appendChild(badge);
-        chip.appendChild(document.createTextNode(q));
-      } else {
-        chip.textContent = q;
       }
-      chip.onclick = () => { document.getElementById('expl-question').value = q; };
+      if (m && m.mould) {
+        // Same badge grammar as ⚡opportunity so a chip carrying both still reads as one strip.
+        // Worth the width: the mould is the stable unit (template grouping flips on one video),
+        // so which mould a suggestion came off is the single most useful thing about it.
+        const mb = document.createElement('span');
+        mb.style.cssText = 'opacity:.75;font-weight:600;margin-right:6px;font-size:.85em;color:var(--green)';
+        mb.textContent = '🧬 ' + _mouldLabel(m.mould);
+        tips.push('Mould: ' + _mouldLabel(m.mould) + (m.short_template ? ' · ' + m.short_template + ' lane' : ''));
+        chip.appendChild(mb);
+      }
+      chip.appendChild(document.createTextNode(q));
+      if (tips.length) chip.title = tips.join('\n\n');
+      // Carry the WHOLE topic across, not just the question text: a simulation-shaped chip used to
+      // land on the form with whatever template happened to be selected.
+      chip.onclick = () => applyTopicToForm(m || q);
       wrap.appendChild(chip);
     });
   }
@@ -2839,12 +2942,18 @@
         const trCls = done ? ' class="t-done"' : '';
         const actions = `<button class="t-use" data-idx="${idx}">Use →</button>`
           + `<button class="t-donebtn${done ? ' is-done' : ''}" data-idx="${idx}" title="${done ? 'Click to un-mark — bring it back into generation' : 'Mark done — exclude from future generated questions (do this once you have made every video you want from this topic)'}">${done ? '✓ done' : 'done?'}</button>`;
+        // Which proven shape the suggestion instantiates. Sits with the question rather than in the
+        // Pattern column: Pattern is a market read (proven/untapped/saturated), the mould is OUR
+        // measured structure, and conflating the two would hide that the row is off the mould table.
+        const mould = q.mould
+          ? `<span class="t-mould" title="Proven mould: ${_esc(_mouldLabel(q.mould))}${q.short_template ? ` · ${_esc(q.short_template)} lane` : ''}">🧬 ${_esc(_mouldLabel(q.mould))}</span>`
+          : '';
         if (q.validated) {
           const winners = (q.winning_titles || []).slice(0, 2).map(w => '• ' + _esc(w)).join('<br>');
           html += `<tr${trCls}>
             <td><div class="opp-cell ${_oppClass(q.opportunity)}">${q.opportunity}</div></td>
             <td><span class="ptag pt-${q.pattern || 'weak'}">${q.pattern || '—'}</span></td>
-            <td><div class="t-topic">${q.queued ? '<span class="t-queued">📌 QUEUED</span>' : ''}${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}${winners ? `<div class="t-winners">${winners}</div>` : ''}</td>
+            <td><div class="t-topic">${q.queued ? '<span class="t-queued">📌 QUEUED</span>' : ''}${mould}${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}${winners ? `<div class="t-winners">${winners}</div>` : ''}</td>
             <td class="t-num">${q.outlier ? q.outlier + '×' : '—'}</td>
             <td class="t-num">${_fmtViews(q.median_views)}</td>
             <td class="t-num">${q.competition || 0}</td>
@@ -2855,7 +2964,7 @@
           html += `<tr${trCls}>
             <td><div class="opp-cell opp-lo">—</div></td>
             <td><span class="ptag pt-weak">unvalidated</span></td>
-            <td><div class="t-topic">${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}</td>
+            <td><div class="t-topic">${mould}${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}</td>
             <td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td>
             <td class="t-num">${q.curiosity_gap || '—'}</td>
             <td class="t-actions">${actions}</td></tr>`;
@@ -2865,13 +2974,49 @@
     });
     body.innerHTML = html;
     body.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => sortTopics(th.dataset.k));
-    body.querySelectorAll('.t-use').forEach(b => b.onclick = () => useTopic(topicsFlat[+b.dataset.idx].question));
+    // Hand over the WHOLE topic, not `.question`. The row already knows the template and the
+    // click-optimised title; passing the string threw both away at the last step.
+    body.querySelectorAll('.t-use').forEach(b => b.onclick = () => useTopic(topicsFlat[+b.dataset.idx]));
     body.querySelectorAll('.t-donebtn').forEach(b => b.onclick = () => markTopicDone(+b.dataset.idx));
   }
 
-  function useTopic(q) {
+  // Load a researched topic into the Create form. Shared by the chips and the Topics table so a
+  // suggestion always arrives with its TEMPLATE attached — before this, a simulation-shaped topic
+  // rendered with whatever template happened to be left in the select. Accepts a bare question
+  // string too, for older call sites.
+  function applyTopicToForm(t) {
+    const topic = (typeof t === 'string') ? (explMeta[t] || { question: t }) : (t || {});
     const inp = document.getElementById('expl-question');
-    if (inp) inp.value = q;
+    if (inp) inp.value = topic.question || '';
+
+    // Set the template even while #template-field is hidden (it is social-only) so the right value
+    // is already in place the moment the operator flips the format to 9:16.
+    // Read `short_template` — the GENERATION LANE the backend computed for this exact title — never
+    // `template`, which is the mould's retention-grouping label. Three of the five moulds carry
+    // template="simulation" while their titles have no clock in them, and forcing the sim lane on
+    // those put the climbing-number beat map on a video with an empty authoritative-number ladder.
+    const sel = document.getElementById('expl-template');
+    if (sel) {
+      const lane = topic.short_template;
+      sel.value = ['explainer', 'simulation', 'quiz'].includes(lane) ? lane : 'auto';
+      // Dispatch rather than re-implementing the inline onchange — that handler owns the
+      // quiz-items visibility, and a second copy of it would drift.
+      sel.dispatchEvent(new Event('change'));
+    }
+
+    // suggested_title must NOT replace the question: the question box is what generation reads,
+    // and on the simulation lane its phrasing is load-bearing (sim lane + maths engine trigger off
+    // it). There is no title field on this form, so show it as a copyable hint instead.
+    const hint = document.getElementById('expl-suggested');
+    const hintText = document.getElementById('expl-suggested-text');
+    if (hint && hintText) {
+      hintText.textContent = topic.suggested_title || '';
+      hint.style.display = topic.suggested_title ? 'flex' : 'none';
+    }
+  }
+
+  function useTopic(q) {
+    applyTopicToForm(q);
     switchTab('explainer');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -2970,11 +3115,17 @@
       fact_check:     document.getElementById('expl-factcheck').checked,
       video_format:   explFormat,
       speech_bubble:  document.getElementById('expl-bubble').checked,
-      i2v:            document.getElementById('expl-i2v').checked ? true : null,
+      motion:         explMotion,
+      // Deferred to the preset on purpose. The preset->i2v mapping lives in one place
+      // (explainer_pipeline.run_explainer_pipeline); sending null here documents that this field was
+      // not dropped by accident, which is how "standard" silently meant "no motion" on long-form.
+      i2v:            null,
+      max_cost_usd:   parseFloat(document.getElementById('expl-cap').value) || 8.0,
       series:         document.getElementById('expl-series').value.trim(),
       short_template: document.getElementById('expl-template').value,
       n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
       operator_direction: document.getElementById('expl-direction').value.trim(),
+      story_format: (document.getElementById('expl-story-format') || {}).value || '',
     };
 
     let res;
@@ -3026,7 +3177,16 @@
     try {
       const script = await (await fetch(`/api/explainer/script/${jobId}`)).json();
       document.getElementById('expl-result-title').textContent = script.title || '';
-      document.getElementById('expl-scene-count').textContent = `${script.scenes?.length ?? 0} scenes`;
+      const req = script.i2v_requested || 0, anim = script.i2v_animated || 0;
+      let motionTxt = '';
+      if (req > 0) {
+        motionTxt = ` · ${anim} of ${req} animated`;
+        if (anim < req) motionTxt += ' ⚠';
+      }
+      const costTxt = script.actual_cost ? ` · $${Number(script.actual_cost).toFixed(2)}` : '';
+      const el = document.getElementById('expl-scene-count');
+      el.textContent = `${script.scenes?.length ?? 0} scenes${motionTxt}${costTxt}`;
+      el.style.color = (req > 0 && anim < req) ? '#e0a800' : '';
       document.getElementById('expl-hook').textContent = script.hook || '';
       document.getElementById('expl-download-btn').href = `/api/explainer/download/${jobId}`;
       document.getElementById('expl-srt-btn').href = `/api/explainer/captions/${jobId}`;
@@ -3170,5 +3330,6 @@
   // Populate the rotating question chips on load.
   initExplChips();
 </script>
+<script>window.addEventListener('load', function(){ try{ refreshExplEstimate(); }catch(e){} });</script>
 </body>
 </html>

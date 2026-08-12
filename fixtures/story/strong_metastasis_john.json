@@ -1,0 +1,42 @@
+{
+ "_note": "AUTHORED fixture, not external evidence. It tests that the gates behave sensibly on a different domain - that the regexes do not misfire on unfamiliar subject matter. It is necessarily somewhat circular (written by the same person who set the thresholds) and is NOT proof the format generalises; only ref_cheddar_man.json is outside evidence.",
+ "title": "strong_metastasis_john",
+ "format": "evidence_led_mystery",
+ "narration": [
+  "John's surgeon removed the tumour from his stomach, and the scans afterward came back clean. Eleven months later, new tumours appeared in his liver.",
+  "The biopsy settled what the scans could not. The growth in his liver was not liver cancer. It was stomach cancer, the same cells in the wrong organ.",
+  "John had understood the operation the way most of us would: the tumour was the disease, the surgeon had taken the tumour out, and what was gone could not come back.",
+  "The margins were clear. The scans agreed. On paper he was cured.",
+  "But the cells in his liver were not new. They had left his stomach before the operation, and they had been sitting there, alive and quiet, while every scan called him cancer-free.",
+  "That reframes what a clean scan can promise. It was never evidence that no cancer existed, only that none had grown large enough to see, and the gap between those two statements is where most cancer deaths happen.",
+  "Cells break loose from tissue in your body constantly, and almost every one of them dies within minutes. The difference between that and what happened to John is a matter of odds, not of kind.",
+  "To make the journey a cell has to dissolve the mesh holding it in place, squeeze through a vessel wall, and then survive a bloodstream that kills the overwhelming majority within a day.",
+  "The few that make it must push back out into tissue that is chemically hostile to them, and go quiet until the surrounding cells stop objecting.",
+  "Dormancy is the part that defeats treatment. Chemotherapy kills cells that are dividing, so a cell that has stopped dividing is not resistant to the drug. It is invisible to it.",
+  "And it can wait years.",
+  "John's liver tumour was never a second cancer. It was the ending of a journey that began in his stomach while he was being told he was well, which is why the cell that has already left matters more than the tumour anyone can see."
+ ],
+ "expect": {
+  "pass": true
+ },
+ "beat_roles": [
+  "anomaly",
+  "credential",
+  "false_belief",
+  "seal",
+  "reversal",
+  "consequence",
+  "personal_bridge",
+  "mechanism",
+  "mechanism",
+  "second_revelation",
+  "second_revelation",
+  "resolution"
+ ],
+ "central_answer_terms": [
+  "dissolve the mesh",
+  "survive a bloodstream",
+  "go quiet until surrounding cells stop objecting",
+  "dormancy defeats chemotherapy"
+ ]
+}

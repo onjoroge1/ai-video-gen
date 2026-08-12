@@ -1,0 +1,42 @@
+{
+ "_note": "AUTHORED fixture, not external evidence. It tests that the gates behave sensibly on a different domain - that the regexes do not misfire on unfamiliar subject matter. It is necessarily somewhat circular (written by the same person who set the thresholds) and is NOT proof the format generalises; only ref_cheddar_man.json is outside evidence.",
+ "title": "strong_oklo_reactor",
+ "format": "evidence_led_mystery",
+ "narration": [
+  "In 1972, a technician at a French fuel plant weighed a batch of uranium ore and found some of it was simply missing.",
+  "The shortfall was six hundredths of a percent. Tiny. But the measurement had been repeated, and the ore had all come from one mine at Oklo, in Gabon.",
+  "Every uranium sample ever measured, from any mine on Earth or any meteorite that fell onto it, carries the same fraction of uranium-235. That ratio was treated as a constant of nature, as dependable as the mass of the atom itself.",
+  "Ore is ore. Nobody expected a mine to disagree with the solar system.",
+  "The Oklo ore disagreed. Its uranium-235 had been depleted, and depleted in precisely the pattern you would see in fuel that had already been burned inside a reactor.",
+  "But that reading was taken two decades before anyone built a reactor anywhere near Gabon. Something had consumed the fuel long before there was anyone to consume it. The constant was not a constant.",
+  "The same physics sits in your smoke detector and in every hospital scanner you have walked past, and what happened at Oklo is why we can predict how those materials behave across a human lifetime.",
+  "Roughly 1.7 billion years ago that seam was far richer, because uranium-235 decays faster than uranium-238 and there was simply more of it left. Groundwater seeped through the rock and slowed the neutrons just enough to sustain a chain reaction.",
+  "The rock had assembled a working nuclear reactor out of nothing but ore and rain.",
+  "It never ran away. As the reaction heated the seam the water boiled off, the neutrons sped back up, and everything stalled until the rock cooled and the water returned.",
+  "Three hours on. Thirty minutes off. For a few hundred thousand years.",
+  "So the missing uranium was never missing. It had been spent, in a reactor that built and regulated itself a billion years before the first cell, and the technician in 1972 was reading a fuel receipt."
+ ],
+ "expect": {
+  "pass": true
+ },
+ "beat_roles": [
+  "anomaly",
+  "credential",
+  "false_belief",
+  "seal",
+  "reversal",
+  "consequence",
+  "personal_bridge",
+  "mechanism",
+  "mechanism",
+  "second_revelation",
+  "second_revelation",
+  "resolution"
+ ],
+ "central_answer_terms": [
+  "natural nuclear reactor",
+  "chain reaction",
+  "groundwater slowed the neutrons",
+  "uranium-235 was richer"
+ ]
+}
