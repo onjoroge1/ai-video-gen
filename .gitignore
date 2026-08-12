@@ -17,3 +17,10 @@ finished_videos/*
 !finished_videos/video_metrics.json
 jobs/
 outputs/
+
+# third-party clone with its own .git -- reference only, never embedded
+ShortGPT/
+
+# superseded generated assets kept on disk for comparison, not history
+simulations/*/images_midair/
+simulations/*/images/_nofigure/
