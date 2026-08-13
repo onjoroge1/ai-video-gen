@@ -123,11 +123,30 @@ def generate(sim, scenes=None, cap_usd=6.0, seconds=DEFAULT_SECONDS, model=KLING
         except Exception as e:
             ok, err = False, f"{type(e).__name__}: {e}"
         if not (ok and os.path.exists(out) and os.path.getsize(out) > 10000):
-            with lock:
-                spent -= price_per_clip      # not billed for a call that produced nothing
-                failures.append((sc.id, str(err)[:160]))
-            progress(f"  {sc.id:16s} FAIL {str(err)[:70]}")
-            return
+            # fal exhausted its balance mid-batch three builds in a row. When the error is the
+            # BALANCE (not the prompt, not a timeout on a healthy account), the job is routed to
+            # the self-hosted Wan pod instead of dying -- slower and serial, but it finishes the
+            # video tonight instead of after the next top-up.
+            balance_locked = any(t in str(err) for t in ("Exhausted balance", "TOP_UP",
+                                                         "User is locked"))
+            from . import wan as WAN
+            if balance_locked and WAN.available():
+                with lock:
+                    spent -= price_per_clip          # fal charged nothing; wan bills pod-time
+                if WAN.ensure_up(progress=progress):
+                    progress(f"  {sc.id:16s} fal exhausted -> wan pod")
+                    wok, werr = WAN.generate(sim.asset(sc.image), prompt, out,
+                                             negative=negative, progress=progress)
+                    if wok and os.path.exists(out) and os.path.getsize(out) > 10000:
+                        err = None
+                        ok = True
+            if not (ok and os.path.exists(out) and os.path.getsize(out) > 10000):
+                with lock:
+                    if not balance_locked:
+                        spent -= price_per_clip  # not billed for a call that produced nothing
+                    failures.append((sc.id, str(err)[:160]))
+                progress(f"  {sc.id:16s} FAIL {str(err)[:70]}")
+                return
         m = clip_motion(out)
         # The gate premise is "the plate is empty, so nothing new may appear". That is a property
         # of the SCENE, not of its negatives: inferring it from wildlife negatives rejected seven
@@ -171,6 +190,7 @@ def generate(sim, scenes=None, cap_usd=6.0, seconds=DEFAULT_SECONDS, model=KLING
             manifest[sc.id] = out
         progress(f"  {sc.id:16s} ok  mean {m['per_frame_mean']:5.2f} local {m['local_frac']:.2f}")
 
+    from . import wan as _wan
     with ThreadPoolExecutor(max_workers=workers) as ex:
         list(ex.map(one, todo))
 
@@ -178,4 +198,5 @@ def generate(sim, scenes=None, cap_usd=6.0, seconds=DEFAULT_SECONDS, model=KLING
                "model": model, "seconds": seconds},
               open(os.path.join(outdir, "manifest.json"), "w"), indent=2)
     progress(f"  animated {len(manifest)}/{len(todo)}, ${spent:.2f} of ${cap_usd:.2f}")
+    _wan.shutdown(progress=progress)   # no-op unless the fallback started the pod
     return manifest, failures, spent
