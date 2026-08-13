@@ -1034,6 +1034,15 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     if video_format == "social":
         budget_dur = min(duration_sec, n_scenes * 3)   # n_scenes already capped at 24 (≈72s)
         total_words = int(budget_dur * 2.7)
+        # The `n_scenes * 3` term pins EVERY social scene to ~3s ≈ 8 words, which is exactly why both
+        # existing shorts measure 0% sentences over 15 words: at an 8-word budget a long line is
+        # arithmetically impossible, and no prompt can ask its way out of that. The evidence-led short
+        # needs ~7 beats of one sentence each, so it gets fewer scenes held LONGER (~4.5s) for the
+        # same runtime -- the image cadence loosens, the sentences get room. This is the one place
+        # where that trade is deliberate; every other social lane keeps the 3s cadence.
+        if (story_format or "").strip().lower() == "evidence_led_short":
+            n_scenes = max(7, min(n_scenes, round(duration_sec / 4.5)))
+            total_words = int(duration_sec * 2.7)
     else:
         total_words = int(duration_sec * 2.7)          # non-chunked landscape: was 3.2 -> ~21% long
     # The wpm FLOOR is also part of the cadence bug: max(12,…) forced >=12 words/scene (~4.5s) even
@@ -1064,7 +1073,18 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     # Template routing (social only): explicit override wins; "auto" uses the title heuristic.
     _use_sim = (short_template == "simulation"
                 or (short_template not in ("explainer", "simulation") and _is_simulation_short(question)))
-    if video_format == "social" and _use_sim:
+    # An explicitly requested evidence-led short replaces the beat map below. It is NOT the social
+    # default: the simulation lane stays untouched (its climbing-number engine is a different and
+    # proven shape), and the compression from a 2:58 reference to 40s has never been rendered, so
+    # the standard beat map remains what you get unless you ask for this by name.
+    _short_fmt = story_engine.get(story_format) if story_format else None
+    _el_short = bool(_short_fmt is not None and _short_fmt.name == "evidence_led_short")
+    if (video_format == "social" and _short_fmt is not None
+            and _short_fmt.name == "evidence_led_short"):
+        _sw = total_words          # must match the LENGTH rule, or the prompt fights itself
+        social_block = story_engine.social_block(_short_fmt, n_scenes=n_scenes, words=_sw)
+        print(f"[script] story format: {_short_fmt.name} ({n_scenes} lines, ~{_sw} words)")
+    elif video_format == "social" and _use_sim:
         social_block = _SIM_SOCIAL_BLOCK + _sim_ladder_block(question)
     elif video_format == "social":
         social_block = (
@@ -1231,8 +1251,12 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         wpm=wpm,
         # Social floors lower (4) so the per-scene range stays coherent at the 6-word social floor;
         # long-form keeps the 8-word minimum. Always <= wpm so the range can't invert.
-        wpm_lo=min(wpm, max(4 if video_format == "social" else 8, wpm - 3)),
-        wpm_max=wpm + 3,
+        # The per-scene band is normally wpm±3, which for a 12-word budget is 9-15 -- that
+        # forbids BOTH a 5-word punch and an 18-word explanation, so the LENGTH rule silently
+        # cancels the evidence-led short's variance instruction. Widen it for that format only:
+        # the TOTAL still holds the runtime, and only the per-scene uniformity is relaxed.
+        wpm_lo=(3 if _el_short else min(wpm, max(4 if video_format == "social" else 8, wpm - 3))),
+        wpm_max=(max(20, wpm + 8) if _el_short else wpm + 3),
         mascot_name=MASCOT_NAME,
         mascot_desc=MASCOT_DESC,
         theme_block=theme_block,
@@ -3271,7 +3295,25 @@ _SHORT_GRADE_WEIGHTS = {"first_second_hook": 3, "story_coherence": 2, "conceit_c
                         "rewatch_potential": 1, "visual_surprise": 1, "bolt_activity": 1}
 
 
-def grade_short(script: dict, cost_sink: list | None = None):
+def _short_grade_weights(story_format: str = "") -> dict:
+    """Weights for the social grader, adjusted for the running format.
+
+    A format that supplies its own spine (evidence_led_short) skips enforce_conceit, so
+    `conceit_consistency` is scoring a pass that never ran. Left at weight 2 it drags the overall
+    below _SHORT_GATE_PASS and triggers regeneration for failing to do something we deliberately
+    disabled. Its weight moves to story_coherence, which is what the structure actually claims."""
+    try:
+        fmt = story_engine.get(story_format) if story_format else None
+    except Exception:
+        fmt = None
+    if fmt is None or not fmt.skip_conceit:
+        return dict(_SHORT_GRADE_WEIGHTS)
+    w = dict(_SHORT_GRADE_WEIGHTS)
+    w["story_coherence"] = w.get("story_coherence", 2) + w.pop("conceit_consistency", 0)
+    return w
+
+
+def grade_short(script: dict, cost_sink: list | None = None, story_format: str = ""):
     """Ruthless self-grade of a social-short SCRIPT against the short-form checklist.
     Returns {'scores':{...}, 'overall':int, 'notes':str} or None (best-effort)."""
     scenes = script.get("scenes", [])
@@ -3336,8 +3378,9 @@ def grade_short(script: dict, cost_sink: list | None = None):
         if not (isinstance(o, dict) and isinstance(o.get("scores"), dict)):
             return None
         sc = o["scores"]
-        wsum = sum(_SHORT_GRADE_WEIGHTS.values())
-        tot = sum(_SHORT_GRADE_WEIGHTS.get(k, 1) * int(sc.get(k, 0) or 0) for k in _SHORT_GRADE_KEYS)
+        _w = _short_grade_weights(story_format)
+        wsum = sum(_w.values())
+        tot = sum(_w.get(k, 0) * int(sc.get(k, 0) or 0) for k in _SHORT_GRADE_KEYS if k in _w)
         o["overall"] = round(100 * tot / (10 * wsum))   # retention-weighted; overrides model's number
         # HARD veto: a short that poses two competing questions / opens answer-first / is incoherent
         # (story_coherence<=4) CANNOT pass the gate, no matter how strong its hook/visuals — cap it
@@ -5214,7 +5257,7 @@ def _premise_regen_note(contract, pg):
 
 def generate_graded_short(question, duration_sec, style, image_guidance, series,
                           cost_sink=None, log=lambda m: None, short_template="auto",
-                          operator_direction: str = ""):
+                          operator_direction: str = "", story_format: str = ""):
     """Social gate (the shorts equivalent of generate_graded_script): generate → enforce_conceit →
     grade_short, and regenerate a weak draft (targeting the grader's 'biggest fix') up to
     _SCRIPT_GATE_RETRIES, keeping the best by grade_short overall. Returns (script, short_grade).
@@ -5240,13 +5283,23 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
         cand = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                                video_format="social", series=series, improve_note=note,
                                short_template=short_template, operator_direction=operator_direction,
-                               premise_contract=contract)
-        try:
-            cand, _conceit, _cc = enforce_conceit(cand, question, cost_sink=cost_sink)
-            if _conceit and i == 0:
-                log(f"Central conceit enforced: {_conceit}")
-        except Exception:
+                               premise_contract=contract, story_format=story_format)
+        # The conceit engine rewrites ALL narration around a single framing metaphor. That is a
+        # competing SPINE, not a complement: run it over an evidence-led short and you get a script
+        # that is neither, because the metaphor pass will happily dissolve the false belief the
+        # reversal needs. Skip it for any format that declares skip_conceit.
+        _sfmt = story_engine.get(story_format) if story_format else None
+        if _sfmt is not None and _sfmt.skip_conceit:
             _conceit = ""
+            if i == 0:
+                log(f"Conceit pass skipped ({_sfmt.name} supplies its own spine)")
+        else:
+            try:
+                cand, _conceit, _cc = enforce_conceit(cand, question, cost_sink=cost_sink)
+                if _conceit and i == 0:
+                    log(f"Central conceit enforced: {_conceit}")
+            except Exception:
+                _conceit = ""
         # State-once pass on social too (long-form already runs it): kills the "same reveal
         # repeated 3-5×" that makes a short feel like a fact-list (e.g. "the bone glowed" ×5).
         try:
@@ -5257,7 +5310,7 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
                 cost_sink.append(_dc)
         except Exception:
             pass
-        g = grade_short(cand, cost_sink=cost_sink)
+        g = grade_short(cand, cost_sink=cost_sink, story_format=story_format)
         if g is None:
             best = best or cand
             break
@@ -5435,7 +5488,8 @@ def run_explainer_pipeline(
             script, short_grade = generate_graded_short(question, duration_sec, style, image_guidance,
                                                         series, cost_sink=aux_costs, log=log,
                                                         short_template=short_template,
-                                                        operator_direction=operator_direction)
+                                                        operator_direction=operator_direction,
+                                                        story_format=story_format)
         else:
             # Engagement gate: grade hook/story/ending + regenerate weak drafts BEFORE we spend a
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.

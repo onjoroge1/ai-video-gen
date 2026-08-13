@@ -276,7 +276,42 @@ DEFAULT_EXPLAINER = StoryFormat(
     requires={},
 )
 
-FORMATS = {f.name: f for f in (DEFAULT_EXPLAINER, EVIDENCE_LED_MYSTERY)}
+# The 40s compression. NOT the long-form format with smaller numbers -- a short is a different
+# physical object and two measurements force the differences:
+#   1. Social runs 1.0 sentences per scene (long-form 2.4), so cadence is decided entirely by the
+#      per-scene word budget. A 40s short is ~105 words over ~9 scenes = ~12 words each, and you
+#      cannot write a 15-word sentence into a 12-word scene. Inheriting the long-form long_band
+#      (25-55%) would fail every short that has ever been written here, structurally.
+#   2. Seven beats is the ceiling, not eight: at one sentence per beat there is no room for
+#      credential, scope_shift, second_revelation or a separate personal_bridge.
+# CALIBRATION WARNING: unlike the long-form bands, these are NOT derived from a measured reference.
+# The Cheddar Man transcript is 2:58 and needs 47s just to reach its reversal, so it says nothing
+# about what a 40s version should look like. Treat every number here as provisional until a real
+# evidence-led short has been rendered and watched.
+EVIDENCE_LED_SHORT = StoryFormat(
+    name="evidence_led_short",
+    roles=("anomaly", "false_belief", "seal", "reversal", "consequence", "mechanism", "resolution"),
+    required=("anomaly", "false_belief", "reversal", "resolution"),
+    bands={
+        "anomaly":      (0.0, 15.0),
+        "false_belief": (10.0, 35.0),
+        "seal":         (25.0, 45.0),
+        "reversal":     (35.0, 60.0),
+        "consequence":  (55.0, 75.0),
+        "mechanism":    (60.0, 90.0),
+        "resolution":   (85.0, 100.0),
+    },
+    # Provisional. Our two existing socials sit at long 12% / short 0% -- no punch lines at all,
+    # which is the defect to fix; the floor is set just above them rather than at the long-form 25%.
+    long_band=(0.10, 0.45),
+    short_band=(0.15, 0.55),
+    max_short_run=3,
+    opening_shape="evidence_led",
+    skip_conceit=True,
+    requires={"no_roadmap": True, "gate_central_answer": True, "require_resolution": True},
+)
+
+FORMATS = {f.name: f for f in (DEFAULT_EXPLAINER, EVIDENCE_LED_MYSTERY, EVIDENCE_LED_SHORT)}
 
 # The evidence-led beat-sheet prompt. This REPLACES the default prompt wholesale rather than being
 # appended to it -- the two doctrines contradict each other (default IRON RULE 4: "NEVER hoard the
@@ -368,6 +403,52 @@ def beat_sheet_prompt(fmt: StoryFormat, question: str, style: str, n_scenes: int
         steer=(f' Theme/setting steer: "{image_guidance}".' if image_guidance else ""),
         n_scenes=n_scenes, roles="|".join(fmt.roles), arch=_arch_text(fmt),
         eligibility=ELIGIBILITY)
+
+
+_SHORT_BLOCK = """
+SOCIAL SHORT — EVIDENCE-LED MYSTERY. This OVERRIDES the beat map, the central-conceit rule and the \
+withheld-signature-reveal ladder above. Do not use those; use this.
+
+THE SHAPE — a real thing that does not add up, the obvious answer, then the evidence that kills it.
+You have roughly {n_scenes} lines and about {words} words TOTAL. That is one sentence per beat and \
+no room to waste. Every line must do a job.
+
+BEATS, in order:
+1. ANOMALY (line 1, UNDER 10 WORDS) — one concrete, specific thing that is WRONG. A real case, a \
+place, ideally a date. NOT a question, NOT "have you ever wondered", NOT the topic announced. \
+"A skeleton in a British cave was wrong for a century." The viewer supplies the question themselves.
+2. FALSE BELIEF (1-2 lines) — what any reasonable person would assume, stated AS IF TRUE and \
+sympathetically. This is the load-bearing beat: with nothing to overturn there is no short. It can \
+be a viewer's own assumption -- often the most honest option.
+3. SEAL (1 line) — close it. "It made sense." / "Case closed."
+4. REVERSAL (1-2 lines) — the evidence that breaks it. This is the payoff and it is an OBSERVATION, \
+not the explanation. Land it by about halfway. Compress hard: "It was dark. The eyes were blue."
+5. MECHANISM (1-2 lines) — only now, WHY. One causal step, no jargon dump.
+6. RESOLUTION (final line) — answer the opening and land it. The last line should echo or answer \
+line 1 so the video loops cleanly. NEVER a sign-off, NEVER "subscribe".
+
+RULES:
+- NEVER announce structure. No "here's how it works", no "three things", no "let me explain".
+- NEVER invent a date, a study, a researcher or a belief that did not happen. If the topic has no \
+real reversal, write the honest version rather than a fabricated controversy.
+- CADENCE — SCENE LENGTHS MUST VARY, AND THIS IS THE RULE MOST OFTEN IGNORED. Every scene gets the \
+same word budget, so the lazy solution is nine lines of the same length; that is exactly what makes a \
+short sound like a list being read out. Deliberately spend the budget UNEVENLY:
+    · TWO OR THREE lines must be VERY SHORT — five words or fewer. Put them AT the reversal and the \
+final beat. "It was dark." "They never left."
+    · TWO OR THREE lines must RUN LONG — 15 to 20 words, one unbroken sentence carrying a whole \
+causal step. Put these in the false belief and the mechanism, where the viewer needs the reasoning.
+    · The rest sit in between. Borrow the words: a 5-word punch pays for an 18-word explanation.
+- ONE open question at a time. Do not open a second.
+"""
+
+
+def social_block(fmt: StoryFormat, n_scenes: int = 10, words: int = 110) -> str:
+    """The social-lane block for an evidence-led short. "" for any other format, so the existing
+    social beat map and the simulation lane are untouched."""
+    if fmt.name != "evidence_led_short":
+        return ""
+    return _SHORT_BLOCK.format(n_scenes=n_scenes, words=words)
 
 
 def cadence_block(fmt: StoryFormat, answer_terms=None) -> str:
