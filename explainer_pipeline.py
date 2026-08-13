@@ -1017,10 +1017,9 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         # preview what is coming", which is the agenda slide the evidence-led format bans, and it is
         # the LAST word on every opening.
         _before = sc
-        sc, _hc = _ensure_hook_names_subject(sc, question, shape=story_engine.get(
-            os.getenv("STORY_FORMAT", "") or story_format).opening_shape)
-        sc = story_engine.guard(_before, sc, story_engine.get(
-            os.getenv("STORY_FORMAT", "") or story_format))
+        _sf = story_engine.resolve(story_format, video_format)
+        sc, _hc = _ensure_hook_names_subject(sc, question, shape=_sf.opening_shape)
+        sc = story_engine.guard(_before, sc, _sf)
         if _hc:
             sc["_script_cost_usd"] = round(float(sc.get("_script_cost_usd") or 0.0) + _hc, 4)
         return sc
@@ -1606,7 +1605,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # A non-default story format REPLACES beat_prompt rather than appending to it: the doctrines
     # contradict (default RULE 4 "NEVER hoard the answer" vs evidence-led "hoard the causal answer"),
     # and shipping both would leave the model to choose. When unset, beat_prompt above is untouched.
-    story_fmt = story_engine.get(os.getenv("STORY_FORMAT", "") or story_format)
+    _beat_prompt_default = beat_prompt          # kept verbatim for the eligibility fallback
+    story_fmt = story_engine.resolve(story_format, "landscape")
     _alt = story_engine.beat_sheet_prompt(story_fmt, question=question, style=style,
                                           n_scenes=n_scenes, duration_sec=duration_sec,
                                           image_guidance=image_guidance)
@@ -1618,6 +1618,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                              + _operator_block(operator_direction)}])
     plan, rc = _parse_script_json(o.content[0].text); cost += rc
     cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+
+    # ELIGIBILITY FALLBACK. Now that evidence-led is the long-form DEFAULT it lands on every topic,
+    # including ones with no genuine prior belief to overturn -- and a format that demands a false
+    # belief on a topic that has none is an instruction to invent one. The beat sheet judges its own
+    # eligibility and we take it at its word when it says no: a straight explainer on a topic with no
+    # real reversal beats a fabricated controversy. Costs one extra beat-sheet call ONLY when the
+    # topic is genuinely unsuitable. Note `is False` -- a missing field must not trigger this.
+    if _alt and plan.get("eligible") is False:
+        _why = _s(plan.get("ineligible_reason")) or "no defensible prior belief to overturn"
+        print(f"[script] evidence-led declined for this topic ({_why}) — using default_explainer")
+        story_fmt = story_engine.get("default_explainer")
+        o = _claude().messages.create(model="claude-opus-4-8", max_tokens=12000,
+                                      system=_SCRIPT_SYSTEM,
+                                      messages=[{"role": "user",
+                                                 "content": _beat_prompt_default + _series_block(series)
+                                                 + _operator_block(operator_direction)}])
+        plan, rc = _parse_script_json(o.content[0].text); cost += rc
+        cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]

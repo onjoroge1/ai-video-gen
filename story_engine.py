@@ -290,12 +290,12 @@ beats GRANULAR: ONE micro-move each (a single consequence, number, or image), NO
 several. Aim NEAR {n_scenes}; returning somewhat fewer is fine ONLY if the topic truly lacks that \
 many DISTINCT beats — never pad with filler or repetition.
 
-THE FORMAT — an EVIDENCE-LED MYSTERY. Doctrine: DISTRIBUTED DISCOVERIES, DELAYED CAUSAL RESOLUTION.
+{eligibility}THE FORMAT — an EVIDENCE-LED MYSTERY. Doctrine: DISTRIBUTED DISCOVERIES, DELAYED CAUSAL RESOLUTION.
 Give the viewer concrete evidence early. Resolve the opening OBSERVATION by 25-35%. Use that answer \
 to open a bigger contradiction. Delay the COMPLETE CAUSAL EXPLANATION until the viewer understands \
 why the contradiction matters — then explain it fully and RESOLVE the opening mystery before the end.
 
-Return ONLY JSON: {{"title","hook","throughline","style_mode"(educational|scientific|cinematic|fun),\
+Return ONLY JSON: {{"eligible":<true|false, per the five questions above>,"ineligible_reason":<one sentence, "" when eligible>,"title","hook","throughline","style_mode"(educational|scientific|cinematic|fun),\
 "topic_terms":[the plain nouns naming the SUBJECT — say these early and often, the viewer must know \
 what the video is about within two lines],"mechanism_terms":[technical vocabulary a viewer would \
 have to look up],"central_answer_terms":[3-8 short PHRASES that together state the complete causal \
@@ -366,7 +366,8 @@ def beat_sheet_prompt(fmt: StoryFormat, question: str, style: str, n_scenes: int
     return _EVIDENCE_LED_PROMPT.format(
         minutes=max(1, duration_sec // 60), question=question, style=style,
         steer=(f' Theme/setting steer: "{image_guidance}".' if image_guidance else ""),
-        n_scenes=n_scenes, roles="|".join(fmt.roles), arch=_arch_text(fmt))
+        n_scenes=n_scenes, roles="|".join(fmt.roles), arch=_arch_text(fmt),
+        eligibility=ELIGIBILITY)
 
 
 def cadence_block(fmt: StoryFormat, answer_terms=None) -> str:
@@ -424,6 +425,46 @@ def opening_block(fmt: StoryFormat) -> str:
         'question. Do NOT preview what is coming. Do NOT name or explain any mechanism in this batch. '
         'Let sentences RUN — carry a whole causal chain in one line, and save the short punch for a '
         'reveal.')
+
+
+#: Long-form now defaults to the evidence-led mystery. Social does NOT: compressing an 8-beat
+#: structure into 30-40s is unproven (the reference needs 47s just to reach its reversal), and the
+#: social lane has its own conflicting doctrine.
+LONGFORM_DEFAULT = "evidence_led_mystery"
+
+
+def resolve(requested: str, video_format: str = "landscape") -> StoryFormat:
+    """Which format actually runs, given an explicit request and the video format.
+
+    Precedence: explicit request > STORY_FORMAT env > per-format default. An explicit
+    "default_explainer" is honoured as a real choice, which is the opt-out -- otherwise there would
+    be no way back to the old doctrine once the default flipped.
+    """
+    name = (requested or "").strip().lower() or os.getenv("STORY_FORMAT", "").strip().lower()
+    if name:
+        return get(name)
+    return get(LONGFORM_DEFAULT) if video_format != "social" else DEFAULT_EXPLAINER
+
+
+# The eligibility questions. Forcing a mystery onto a topic with no genuine prior belief is an
+# instruction to invent one -- a straw-man consensus, a fabricated controversy, a plausible fake
+# date. That risk was acceptable while the format was opt-in and a human chose it per video; as the
+# default it is not, so the beat sheet must declare eligibility and we fall back when it cannot.
+ELIGIBILITY = (
+    "Before planning, judge whether this topic can honestly carry an evidence-led mystery. Answer "
+    "these five, then set \"eligible\" true ONLY if at least four are yes:\n"
+    "  1. Is there a concrete person, object, event or observation to anchor it?\n"
+    "  2. Is there a reasonable expectation or documented prior belief that was genuinely held? "
+    "(A viewer's or patient's sensible assumption COUNTS and is often the honest answer. A belief "
+    "you would have to invent does NOT.)\n"
+    "  3. Is there real evidence that contradicts it?\n"
+    "  4. Does the contradiction materially change the explanation?\n"
+    "  5. Can the opening mystery be COMPLETELY resolved inside this runtime?\n"
+    "If fewer than four are yes, set \"eligible\": false and give \"ineligible_reason\". Say false "
+    "rather than manufacturing a controversy: a straight explainer on a topic with no real reversal "
+    "is far better than a fabricated one. NEVER invent a date, a study, a researcher or a "
+    "discredited belief that did not happen.\n\n"
+)
 
 
 def get(name: str) -> StoryFormat:
