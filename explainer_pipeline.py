@@ -14,6 +14,7 @@ Steps:
 import os
 import story_engine
 import re
+import io
 import time
 import json
 import base64
@@ -175,12 +176,34 @@ FORMATS = {
 
 def transcribe_words(audio_path: str) -> list:
     """Word-level timestamps for our own TTS, for karaoke captions.
-    Returns [(word, start, end), ...]; [] on failure (caller falls back)."""
+    Returns [(word, start, end), ...]; [] on failure (caller falls back).
+
+    The retry used to be guaranteed to fail. It closed over ONE open file handle, so the SDK read it
+    to EOF on the first attempt and every retry uploaded zero bytes -- measured: 119808, then 0, then
+    0. A single transient blip therefore cost up to four 90s client timeouts plus backoff (~6 min) per
+    scene, produced nothing, and across 64 scenes read as a hung render that needed a resume. The
+    bytes are now read once and each attempt gets a fresh stream, so a retry can actually succeed.
+
+    Captions are also not worth stalling a paid render for: `budget_s` caps the total wall clock, and
+    on exhaustion we return [] so align_caption_phrases falls back to even-split timing. A slightly
+    less precise karaoke line is a far better outcome than a job that hangs.
+    """
+    budget_s = float(os.getenv("WHISPER_BUDGET_S", "150"))
+    t0 = time.time()
     try:
-        with open(audio_path, "rb") as f:
-            r = _retry(lambda: _openai().audio.transcriptions.create(
-                model="whisper-1", file=f, response_format="verbose_json",
-                timestamp_granularities=["word"]), label="whisper transcription")
+        with open(audio_path, "rb") as fh:
+            raw = fh.read()                       # read ONCE; retries get a fresh stream below
+
+        def _call():
+            if time.time() - t0 > budget_s:
+                raise TimeoutError(f"whisper budget {budget_s:.0f}s exhausted")
+            buf = io.BytesIO(raw)
+            buf.name = os.path.basename(audio_path)   # the SDK infers the format from the name
+            return _openai().audio.transcriptions.create(
+                model="whisper-1", file=buf, response_format="verbose_json",
+                timestamp_granularities=["word"])
+
+        r = _retry(_call, tries=3, label="whisper transcription")
         words = getattr(r, "words", None) or []
         out = []
         for w in words:
@@ -304,7 +327,7 @@ def _resolve_i2v_rate() -> float:
             pass
     primary = I2V_PROVIDER.split(",")[0].strip()
     # fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
-    return {"sora": 0.10, "veo": 0.15, "fal": 0.056}.get(primary, 0.15)
+    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.02}.get(primary, 0.15)
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
@@ -2739,6 +2762,32 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             if not vurl:
                 return (False, False, f"fal no video: {str(res)[:120]}")
             open(out_mp4, "wb").write(_rq.get(vurl, timeout=120).content)
+        elif provider == "wan":
+            # Self-hosted Wan 2.2 pod via the local api_server (local_wrapper/api_server.py in the
+            # Wan2.2 repo). Flat ~5s clips (81f) like Kling's 5s tier; server auto-starts the pod,
+            # so the FIRST clip of a batch can take several extra minutes — budget accordingly.
+            import time as _t, requests as _rq
+            base = os.environ.get("WAN_API_URL", "http://127.0.0.1:8787")
+            try:
+                sub = _rq.post(f"{base}/generate", timeout=30,
+                               json={"image_path": os.path.abspath(ref), "prompt": motion,
+                                     "draft": os.environ.get("WAN_DRAFT", "") == "1"})
+            except Exception as e:
+                return (False, False, f"wan api unreachable: {type(e).__name__} (start api_server.py?)")
+            if sub.status_code != 202:
+                return (False, False, f"wan submit {sub.status_code}: {sub.text[:120]}")
+            j = sub.json()
+            waited, budget = 0, 1500          # pod cold-start (~5 min) + render (~4 min) headroom
+            while waited < budget:
+                _t.sleep(10); waited += 10
+                st = _rq.get(f"{base}{j['status_url']}", timeout=30).json()
+                if st.get("status") == "done":
+                    break
+                if st.get("status") == "error":
+                    return (False, False, f"wan job error: {st.get('error', '?')[:140]}")
+            else:
+                return (False, False, f"wan timeout after {budget}s")
+            open(out_mp4, "wb").write(_rq.get(f"{base}{j['result_url']}", timeout=180).content)
         else:
             return (False, False, f"unknown provider '{provider}'")
         ok = os.path.exists(out_mp4) and _clip_is_real(out_mp4)

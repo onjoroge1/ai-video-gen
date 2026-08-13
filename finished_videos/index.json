@@ -1769,5 +1769,30 @@
   "question": "How does cancer spread?",
   "template": "scientific",
   "video_format": "landscape"
+ },
+ "c2f5b4f7": {
+  "title": "Why Does Cancer Come Back After Treatment?",
+  "status": "done",
+  "scene_count": 35,
+  "actual_cost": 2.75,
+  "question": "Why Does Cancer Come Back After Treatment?",
+  "template": "explainer",
+  "video_format": "landscape",
+  "path": "/Users/obadiah/Documents/video/finished_videos/c2f5b4f7.mp4",
+  "txt_path": "/Users/obadiah/Documents/video/finished_videos/c2f5b4f7.txt",
+  "srt_path": "/Users/obadiah/Documents/video/finished_videos/c2f5b4f7.srt",
+  "desc_path": "/Users/obadiah/Documents/video/finished_videos/c2f5b4f7.desc",
+  "thumb_path": "/Users/obadiah/Documents/video/finished_videos/c2f5b4f7.thumb"
+ },
+ "b1a53dfd": {
+  "title": "Why Does Cancer Come Back After Treatment?",
+  "status": "done",
+  "scene_count": 36,
+  "actual_cost": 3.5,
+  "question": "Why Does Cancer Come Back After Treatment?",
+  "template": "explainer",
+  "video_format": "landscape",
+  "story_format": "evidence_led_mystery",
+  "path": "/Users/obadiah/Documents/video/finished_videos/b1a53dfd.mp4"
  }
 }
