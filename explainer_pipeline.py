@@ -1285,8 +1285,23 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         _scn, _dc = _dedupe_narration(script.get("scenes", []), [], _s(script.get("throughline", "")))
         script["scenes"] = _scn
         _cost += _dc
-    script, _hc = _ensure_hook_names_subject(script, question)   # zero-friction: subject named by line 2
+    # Same guard the long-form path uses, and for the same reason: this pass is the LAST word on
+    # every opening and its default rewrite makes line 2 "the central QUESTION stated plainly" --
+    # i.e. the title asked as a question, which the evidence-led block explicitly bans. Without the
+    # shape argument the social lane was silently getting the default shape, which is how an earlier
+    # draft ended up opening "Why does cancer come back after treatment?" one line under an anomaly.
+    _sfmt = story_engine.get(story_format) if story_format else None
+    _before_hook = script
+    script, _hc = _ensure_hook_names_subject(
+        script, question, shape=(_sfmt.opening_shape if _sfmt else "prime_question_intrigue"))
+    if _sfmt is not None:
+        script = story_engine.guard(_before_hook, script, _sfmt)
     script["_script_cost_usd"] = round(_cost + _hc, 4)
+    # Label the script itself. app.py falls back to the request field when writing the metrics index,
+    # so the INDEX was right -- but the script carried nothing, so check() judged every social script
+    # as default_explainer and the structure report could never see the real format.
+    if _sfmt is not None:
+        script["_story_format"] = _sfmt.name
     return script
 
 
