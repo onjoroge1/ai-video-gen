@@ -301,14 +301,21 @@ EVIDENCE_LED_SHORT = StoryFormat(
         "mechanism":    (60.0, 90.0),
         "resolution":   (85.0, 100.0),
     },
-    # Provisional. Our two existing socials sit at long 12% / short 0% -- no punch lines at all,
-    # which is the defect to fix; the floor is set just above them rather than at the long-form 25%.
-    long_band=(0.10, 0.45),
+    # long_frac is UNGATED for shorts, and that is a correction rather than a concession. A
+    # deliberately well-written 8-line short measures lengths [9,6,11,2,7,4,4,10,13] -- longest line
+    # 13 words, long_frac 0%. At ~100 words over ~9 lines a single 15-word sentence would be a sixth
+    # of the entire script, so the floor is not reachable by good writing at this length; it was the
+    # wrong measure carried over from a 466-word reference. short_frac stays gated because punch
+    # lines ARE reachable and their absence is the real defect (both BAU shorts sit at 0%).
+    long_band=(0.0, 1.0),
     short_band=(0.15, 0.55),
     max_short_run=3,
     opening_shape="evidence_led",
     skip_conceit=True,
-    requires={"no_roadmap": True, "gate_central_answer": True, "require_resolution": True},
+    # require_loop is short-only: a 3-minute explainer does not have to close back on its first
+    # line, but a short lives or dies on feeling complete in one scroll.
+    requires={"no_roadmap": True, "gate_central_answer": True, "require_resolution": True,
+              "require_loop": True},
 )
 
 FORMATS = {f.name: f for f in (DEFAULT_EXPLAINER, EVIDENCE_LED_MYSTERY, EVIDENCE_LED_SHORT)}
@@ -409,39 +416,50 @@ _SHORT_BLOCK = """
 SOCIAL SHORT — EVIDENCE-LED MYSTERY. This OVERRIDES the beat map, the central-conceit rule and the \
 withheld-signature-reveal ladder above. Do not use those; use this.
 
-THE SHAPE — a real thing that does not add up, the obvious answer, then the evidence that kills it.
-You have roughly {n_scenes} lines and about {words} words TOTAL. That is one sentence per beat and \
-no room to waste. Every line must do a job.
+THIS IS A COMPLETE STORY, NOT AN EXCERPT. It must have a start, a middle and an end, and it must \
+close back on itself. A viewer who sees only this and nothing else should feel they got a whole \
+thing. If your script would only make sense to someone who had already watched a longer video, it \
+has failed.
+
+You have about {n_scenes} lines and {words} words TOTAL — one sentence per beat, nothing wasted.
 
 BEATS, in order:
-1. ANOMALY (line 1, UNDER 10 WORDS) — one concrete, specific thing that is WRONG. A real case, a \
-place, ideally a date. NOT a question, NOT "have you ever wondered", NOT the topic announced. \
-"A skeleton in a British cave was wrong for a century." The viewer supplies the question themselves.
-2. FALSE BELIEF (1-2 lines) — what any reasonable person would assume, stated AS IF TRUE and \
-sympathetically. This is the load-bearing beat: with nothing to overturn there is no short. It can \
-be a viewer's own assumption -- often the most honest option.
-3. SEAL (1 line) — close it. "It made sense." / "Case closed."
-4. REVERSAL (1-2 lines) — the evidence that breaks it. This is the payoff and it is an OBSERVATION, \
-not the explanation. Land it by about halfway. Compress hard: "It was dark. The eyes were blue."
-5. MECHANISM (1-2 lines) — only now, WHY. One causal step, no jargon dump.
-6. RESOLUTION (final line) — answer the opening and land it. The last line should echo or answer \
-line 1 so the video loops cleanly. NEVER a sign-off, NEVER "subscribe".
+
+1. THE HOOK — this line is BOTH your retention hook AND your anomaly, and hook comes FIRST. A cold \
+viewer mid-scroll, with zero context, must instantly grasp WHO or WHAT this is about and feel \
+something is wrong. Write a complete micro-scene: a person, an object, a place, a number, a date. \
+   COLD-OPEN TEST — apply it before you continue: could a stranger who has never heard of this \
+topic understand line 1 on its own? If it needs anything you have not yet said, it is not a hook.
+   INTRODUCE your subject, never refer back to one. "A woman's scan came back clean." / "In 1889 a \
+surgeon noticed the same organs failing." NOT "The chemo killed nearly every cell" or "These cells \
+survived" — a definite "the"/"these"/"they" pointing at something you have not established reads \
+like a line lifted from the middle of another video, and the viewer scrolls.
+   Do NOT open with the title as a question. Do NOT open with "have you ever wondered".
+
+2. FALSE BELIEF (1-2 lines) — what any reasonable person would assume, stated AS IF TRUE. Without \
+something to overturn there is no short. A viewer's or a patient's own assumption counts and is \
+usually the honest one.
+
+3. SEAL (1 line) — close it hard. "It made sense." / "Case closed."
+
+4. REVERSAL (1-2 lines) — the evidence that breaks it, landing by roughly halfway. This is a \
+resolved OBSERVATION, not the explanation. Compress: "It was dark. The eyes were blue."
+
+5. MECHANISM (1-2 lines) — only now, WHY. One causal step. No jargon dump.
+
+6. THE LOOP (final line) — answer the exact thing line 1 opened, reusing its key words so the video \
+closes and can restart seamlessly. If line 1 was about a woman whose scan was clean, the last line \
+returns to her scan. The viewer should feel the circle shut. NEVER a sign-off, NEVER "subscribe", \
+NEVER a new topic.
 
 RULES:
 - NEVER announce structure. No "here's how it works", no "three things", no "let me explain".
 - NEVER invent a date, a study, a researcher or a belief that did not happen. If the topic has no \
-real reversal, write the honest version rather than a fabricated controversy.
-- CADENCE — SCENE LENGTHS MUST VARY, AND THIS IS THE RULE MOST OFTEN IGNORED. Every scene gets the \
-same word budget, so the lazy solution is nine lines of the same length; that is exactly what makes a \
-short sound like a list being read out. Deliberately spend the budget UNEVENLY:
-    · TWO OR THREE lines must be VERY SHORT — five words or fewer. Put them AT the reversal and the \
-final beat. "It was dark." "They never left."
-    · TWO OR THREE lines must RUN LONG — 15 to 20 words, one unbroken sentence carrying a whole \
-causal step. Put these in the false belief and the mechanism, where the viewer needs the reasoning.
-    · The rest sit in between. Borrow the words: a 5-word punch pays for an 18-word explanation.
-- ONE open question at a time. Do not open a second.
+real reversal, write the honest version instead of a fabricated controversy.
+- CADENCE: most lines 8-14 words, with at least two SHORT lines of five words or fewer placed AT \
+the reversal. Uniform line length is what makes a short sound like a list being read.
+- ONE open question at a time.
 """
-
 
 def social_block(fmt: StoryFormat, n_scenes: int = 10, words: int = 110) -> str:
     """The social-lane block for an evidence-led short. "" for any other format, so the existing
@@ -669,6 +687,37 @@ def check(script, fmt=None, strict: bool = False) -> dict:
         review.append(f"cadence: {mx} consecutive <=5-word sentences")
     if max(lens) > 34:
         review.append(f"cadence: longest sentence {max(lens)} words -- check it survives TTS")
+
+    # -- cold open + loop closure. A short is a COMPLETE object, not a clip: it has to open on
+    # something a scrolling stranger understands with zero context, and it has to close back on
+    # itself. Both were failing silently.
+    #
+    # cold_open catches the exact defect that produced "The chemo killed nearly every cancer cell":
+    # a definite article or pronoun pointing at something never established, which reads as a line
+    # lifted from the middle of a longer video. Measured across the three shorts and the reference,
+    # ONLY that line trips it -- the others introduce their subject ("A tumor that...", "A single
+    # cancer cell...", "There's a skeleton...").
+    #
+    # loop_closure is a defect across the WHOLE corpus, not just this format: content-word overlap
+    # between the first and last line measures 0, 0, 1, 0. The existing social beat map has demanded
+    # "last line ECHOES the opening line almost verbatim" the entire time and it has never happened,
+    # because nothing measured it.
+    if fmt.requires.get("require_loop") and lines:
+        first_l, last_l = lines[0], lines[-1]
+        if re.match(r"^\s*(?:the|these|those|this|that|they|them|it|its|he|she|his|her)\b",
+                    first_l, re.I):
+            fail.append("cold_open: line 1 opens on a definite reference to something never "
+                        "established -- it reads as a clip from the middle of another video")
+        fw = {_stem_tok(w) for w in _words(first_l)
+              if w not in _PHRASE_STOP and len(w) > 2}
+        lw = {_stem_tok(w) for w in _words(last_l) if w not in _PHRASE_STOP and len(w) > 2}
+        overlap = len(fw & lw)
+        meas["loop_overlap_words"] = overlap
+        if fw and not overlap:
+            fail.append("loop_closure: the last line shares no subject with the first -- the short "
+                        "never closes back and cannot restart cleanly")
+        elif overlap < 2:
+            review.append(f"loop_closure: only {overlap} shared word between first and last line")
 
     # -- agenda slide. Announcing the structure is the tell that turns a story into a syllabus.
     hits = _AGENDA_FAIL.findall(full)

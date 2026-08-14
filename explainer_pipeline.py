@@ -327,7 +327,7 @@ def _resolve_i2v_rate() -> float:
             pass
     primary = I2V_PROVIDER.split(",")[0].strip()
     # fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
-    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.02}.get(primary, 0.15)
+    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.01}.get(primary, 0.15)
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
@@ -2834,18 +2834,34 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
                 return (False, False, f"wan api unreachable: {type(e).__name__} (start api_server.py?)")
             if sub.status_code != 202:
                 return (False, False, f"wan submit {sub.status_code}: {sub.text[:120]}")
-            j = sub.json()
-            waited, budget = 0, 1500          # pod cold-start (~5 min) + render (~4 min) headroom
-            while waited < budget:
-                _t.sleep(10); waited += 10
-                st = _rq.get(f"{base}{j['status_url']}", timeout=30).json()
-                if st.get("status") == "done":
+            # Budget covers pod cold-start (~5 min with retries) + render + queueing behind
+            # other clips when I2V_CONCURRENCY > pod count. The api_server requeues infra
+            # failures itself, so "error" here is a real generation failure.
+            _last = ""
+            for _attempt in range(2):                  # a retry costs ~3 cents; a fallback costs the scene
+                if _attempt:
+                    sub = _rq.post(f"{base}/generate", timeout=30,
+                                   json={"image_path": os.path.abspath(ref), "prompt": motion,
+                                         "draft": os.environ.get("WAN_DRAFT", "") == "1"})
+                    if sub.status_code != 202:
+                        return (False, False, f"wan resubmit {sub.status_code}")
+                j = sub.json()
+                waited, budget = 0, 2400
+                while waited < budget:
+                    _t.sleep(10); waited += 10
+                    st = _rq.get(f"{base}{j['status_url']}", timeout=30).json()
+                    if st.get("status") == "done":
+                        open(out_mp4, "wb").write(_rq.get(f"{base}{j['result_url']}", timeout=180).content)
+                        break
+                    if st.get("status") == "error":
+                        _last = f"wan job error: {st.get('error', '?')[:140]}"
+                        break
+                else:
+                    _last = f"wan timeout after {budget}s"
+                if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 0:
                     break
-                if st.get("status") == "error":
-                    return (False, False, f"wan job error: {st.get('error', '?')[:140]}")
             else:
-                return (False, False, f"wan timeout after {budget}s")
-            open(out_mp4, "wb").write(_rq.get(f"{base}{j['result_url']}", timeout=180).content)
+                return (False, False, _last or "wan failed twice")
         else:
             return (False, False, f"unknown provider '{provider}'")
         ok = os.path.exists(out_mp4) and _clip_is_real(out_mp4)
@@ -5879,9 +5895,11 @@ def run_explainer_pipeline(
                                     motion_style=r["scene"].get("motion_style", "action"))
                 return k, res, False
 
-            # SERIAL: video APIs cap concurrent active generations — running 2 at once made the
-            # first-submitted clip (the opener) fail repeatedly. One at a time is reliable.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            # Commercial video APIs cap concurrent generations (2 at once made the opener fail
+            # repeatedly), so the default stays 1. Self-hosted wan has no such cap: set
+            # I2V_CONCURRENCY to the number of pods in the api_server pool.
+            _i2v_par = max(1, int(os.environ.get("I2V_CONCURRENCY", "1") or 1))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=_i2v_par) as ex:
                 for k, res, reused in ex.map(_anim, sorted(sel)):
                     if res:
                         i2v_clips[k] = res
@@ -5909,6 +5927,16 @@ def run_explainer_pipeline(
             elif n_ok < i2v_requested and quota_hit:
                 log(f"⚠ i2v: only {n_ok}/{i2v_requested} animated — provider quota ran out partway; "
                     "raise quota or rely on the fallback provider.")
+            _fb_pct = 100.0 * (i2v_requested - n_ok) / max(1, i2v_requested)
+            if 0 < _fb_pct:
+                log(f"⚠ i2v fallback rate: {_fb_pct:.0f}% of animated scenes are Ken Burns stills.")
+            _abort_pct = float(os.environ.get("I2V_FALLBACK_ABORT_PCT", "0") or 0)
+            if _abort_pct and _fb_pct > _abort_pct:
+                raise RuntimeError(
+                    f"i2v fallback rate {_fb_pct:.0f}% exceeds I2V_FALLBACK_ABORT_PCT="
+                    f"{_abort_pct:.0f}% — aborting BEFORE assembly so a degraded video "
+                    "doesn't ship silently. Clips already rendered are cached and reused "
+                    "on the next run (resume logic).")
 
     # 3. Render per-scene segments
     log("stage:Rendering scenes...")

@@ -1810,5 +1810,35 @@
     "desc_path": "/Users/obadiah/Documents/video/finished_videos/cfb174af.desc",
     "thumb_path": "/Users/obadiah/Documents/video/finished_videos/cfb174af.thumb",
     "grade_path": "/Users/obadiah/Documents/video/finished_videos/cfb174af.grade"
+  },
+  "6ed2f163": {
+    "title": "Why Does Cancer Come Back After Treatment?",
+    "status": "done",
+    "scene_count": 100,
+    "actual_cost": 9.18,
+    "question": "Why Does Cancer Come Back After Treatment?",
+    "template": "explainer",
+    "story_format": "evidence_led_mystery",
+    "video_format": "landscape",
+    "path": "/Users/obadiah/Documents/video/finished_videos/6ed2f163.mp4",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/6ed2f163.txt",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/6ed2f163.srt",
+    "desc_path": "/Users/obadiah/Documents/video/finished_videos/6ed2f163.desc",
+    "thumb_path": "/Users/obadiah/Documents/video/finished_videos/6ed2f163.thumb"
+  },
+  "977a16d7": {
+    "title": "Why Does Cancer Come Back After Treatment?",
+    "status": "done",
+    "scene_count": 100,
+    "actual_cost": 8.93,
+    "question": "Why Does Cancer Come Back After Treatment?",
+    "template": "explainer",
+    "story_format": "evidence_led_mystery",
+    "video_format": "landscape",
+    "path": "/Users/obadiah/Documents/video/finished_videos/977a16d7.mp4",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/977a16d7.txt",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/977a16d7.srt",
+    "desc_path": "/Users/obadiah/Documents/video/finished_videos/977a16d7.desc",
+    "thumb_path": "/Users/obadiah/Documents/video/finished_videos/977a16d7.thumb"
   }
 }
