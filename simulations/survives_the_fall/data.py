@@ -104,10 +104,11 @@ PLATE_JOBS = [
 ]
 
 
-def _s(key, sid, stem, secs, narration, motion, onscreen="", prohibited=(), animate=True):
+def _s(key, sid, stem, secs, narration, motion, onscreen="", prohibited=(), animate=True,
+       empty_frame=False):
     return Scene(id=sid, image=stem, narration=narration, seconds=secs,
                  chips=_chips(key) if key else (), onscreen=onscreen, motion=motion,
-                 prohibited=tuple(prohibited), animate=animate)
+                 prohibited=tuple(prohibited), animate=animate, empty_frame=empty_frame)
 
 
 # STRUCTURE AFTER THE 48/100 REVIEW. Verified against the file before acting:

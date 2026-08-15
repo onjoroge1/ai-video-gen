@@ -67,6 +67,10 @@ def build(sim, direction=None, plate_jobs=None, references=None, ambient=None,
 
     if plate_jobs:
         _hdr("4. plates (~$0.04 each)", progress)
+        if references and any(getattr(sc, "ambient", "") or (sim.meta or {}).get("ambient")
+                              for sc in sim.scenes):
+            from . import figure as FG
+            references = FG.references_for(sim, references)
         man, fails = P.generate(plate_jobs, sim.images, sim.locked, references=references,
                                 cap_usd=min(cap_usd, 1.5),
                                 progress=lambda m: progress("  " + m.strip()))
@@ -110,6 +114,31 @@ def build(sim, direction=None, plate_jobs=None, references=None, ambient=None,
         clips.update(man)
         rep["clip_failures"] = fails
         rep["spent_usd"] += round(spent, 2)
+
+    # 7b. hero compositing (free, deterministic). Scenes that declare Scene.hero get the physics
+    # subject drawn by sim/drop.py OVER the provider clip (whose prompt excluded its own version).
+    # Runs whether the clip came back or not: with no clip the compositor rides the still plate,
+    # which the background-motion gate will then report honestly.
+    heroes = [sc for sc in sim.scenes if getattr(sc, "hero", None)]
+    if heroes:
+        _hdr("7b. hero subjects (free -- deterministic compositor)", progress)
+        from . import drop as DR
+        for sc in heroes:
+            h = dict(sc.hero)
+            label = (sc.onscreen or "").upper()
+            declared = "SLOW" in label or ("SPEED" in label and "1/" in label)
+            if h.get("slow_mo", 1) > 1 and not declared:
+                raise GateFailed(f"{sc.id}: hero drop plays at 1/{h['slow_mo']} speed but the "
+                                 f"on-screen text does not declare it -- undeclared slow motion "
+                                 f"is a lie about the measured speed")
+            frames = int(round(getattr(sc, "_dur", sc.seconds) * sim.fps))
+            out_p = os.path.join(sim.work, "clips", f"{sc.id}.hero.mp4")
+            r = DR.render_scene(sim.asset(sc.image), out_p, frames=frames, fps=sim.fps,
+                                ambient_mp4=clips.get(sc.id),
+                                out_wh=(sim.W, sim.H), **h)
+            clips[sc.id] = out_p
+            progress(f"  {sc.id:10s} drop {r['drop_px'][0]}px wide, {r['px_per_frame']}px/frame, "
+                     f"impact f{r['impact_frame']}")
 
     _hdr("8. render + post-render gates (free)", progress)
     out = R.main(sim, clips=clips or None, progress=lambda m: None)

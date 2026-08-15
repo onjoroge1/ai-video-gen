@@ -47,6 +47,9 @@ def build_prompt(continuity, action, shot=""):
 
 def generate(scenes, out_dir, continuity, size="1024x1536", cap_usd=3.0, price=0.042,
              workers=3, references=None, progress=print):
+    # `references` is either a list (same refs for every plate) or a dict keyed by plate stem
+    # (per-scene graded refs from sim.figure.references_for). The dict form exists because one
+    # neutral reference under five different skies was the compositing tell reviewers caught first.
     """scenes: list of (stem, action, shot). Returns (manifest, failures). Never raises.
 
     `references` are character reference images. When given, generate_image switches to image-edit
@@ -78,7 +81,9 @@ def generate(scenes, out_dir, continuity, size="1024x1536", cap_usd=3.0, price=0
             spent += price
         try:
             epl.generate_image(build_prompt(continuity, action, shot), p,
-                               reference_paths=references, cost_sink=costs, size=size)
+                               reference_paths=(references.get(stem) if isinstance(references, dict)
+                                                else references),
+                               cost_sink=costs, size=size)
         except Exception as e:
             with lock:
                 spent -= price

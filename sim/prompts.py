@@ -34,6 +34,12 @@ STANDING_NEGATIVE = (
 def build(scene, locked, style, extra_negative=""):
     """-> (prompt, negative). Deterministic: same scene in, same prompt out."""
     action = (scene.motion or "").strip().rstrip(".")
+    # A scene with a deterministic hero subject (sim/drop.py) must stop the provider drawing its
+    # own version of it -- otherwise the frame carries two: ours at the physics scale and the
+    # model's cartoon one at icon scale. The prompt takes the exclusion; the negative reinforces.
+    if getattr(scene, "hero", None):
+        action += (". Background precipitation only, far behind the subject; no large foreground "
+                   "raindrop, no close-up drop")
     camera = ("The camera is completely locked off and does not move, pan, tilt or zoom at any "
               "point; a single continuous shot with no cuts")
     cont = ", ".join(f"{k}: {v}" for k, v in locked.items())
@@ -41,6 +47,8 @@ def build(scene, locked, style, extra_negative=""):
     if len(prompt) > 700:                 # never truncate mid-sentence; drop the style tail first
         prompt = f"{action}. {camera}. Unchanged: {cont}."[:700]
     neg = STANDING_NEGATIVE
+    if getattr(scene, "hero", None):
+        neg = "giant raindrop, large foreground drop, teardrop, close-up water drop, " + neg
     if scene.prohibited:
         neg = ", ".join(scene.prohibited) + ", " + neg
     if extra_negative:

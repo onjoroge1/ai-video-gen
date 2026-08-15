@@ -186,6 +186,51 @@ def datum_band(axis, magnitude):
             return i, label, cues
     return None
 
+# ---------------------------------------------------------------------------------------------
+# RULES FROM THE RAIN NEGATIVE VALIDATION (55 findings, 5 lenses -- tool-results/b5havgc9k.txt).
+# Each of these is a failure class that SHIPPED because nothing owned it. The one-off frame fixes
+# stay in that file; what lives here is only what makes the next video unable to repeat them.
+
+# The model equates "dramatic burst" with explosion vocabulary. A 12 mm drop carries about a
+# tablespoon; the shipped video gave it a body-height geyser and a building-scale cauliflower
+# plume, brighter than the sky that supposedly lit it. Ejecta can never exceed what arrived.
+SPLASH_RULE = ("A splash redistributes only the liquid that arrived: no geysers, no plumes, no "
+               "mushroom clouds, no smoke, no explosions. A small drop makes a small crown")
+SPLASH_BANNED = ("geyser", "plume", "mushroom", "explosion", "erupt", "eruption", "pyroclastic",
+                 "smoke", "blast")
+
+# i2v drifts away from the plate's phenomenon over the clip: the virga existed in one of three
+# sampled frames of the very beat whose caption said EVAPORATES MID-AIR. A claim is only shown if
+# the motion prompt RENEWS it for the full shot -- the same class as the exit rule, applied to
+# phenomena instead of subjects.
+RENEWAL_TERMS = ("throughout", "continuously", "for the entire shot", "for the whole shot",
+                 "constantly", "keeps ", "the whole time", "new drops entering", "one band after "
+                 "another", "keep forming")
+
+# Reactions shipped as stock poses: a flinch facing away from the burst, a relaxed sun-visor
+# "salute" against stinging dust, a palm impact with no blink and no wrist give. A reaction is
+# legible only as a stimulus -> vector -> response chain, so a prompt that names a reaction must
+# also name what it reacts to and where the body points.
+REACTION_VERBS = ("flinch", "recoil", "shield", "dodge", "duck", "wince", "brace", "startl",
+                  "steps aside", "step aside", "jump back", "jumps back")
+STIMULUS_NOUNS = ("drop", "burst", "splash", "rain", "dust", "wind", "gust", "spray", "impact",
+                  "grit", "sand", "streak")
+VECTOR_TERMS = ("toward", "away from", "eyes on", "eyes snap", "watching", "tracking", "looking at",
+                "turns from", "turned away", "into the", "at the")
+
+# Reference conditioning imports the reference's STUDIO LIGHTING along with the wardrobe: the same
+# man read clean neutral-white on Titan (all-orange ambient), Venus (sulfur yellow) and Mars (no
+# shadow at all, beside pebbles casting crisp ones). Plates that contain the figure must NAME his
+# lighting and his contact shadow, because a named thing is what the generator draws.
+INTEGRATION_RULE = ("The person is lit by this scene's own ambient light -- their skin and clothes "
+                    "carry its colour cast -- and a soft contact shadow pools under their feet")
+INTEGRATION_TERMS = ("contact shadow", "ambient light", "colour cast", "color cast", "scene's light",
+                     "lit by the")
+# Matched with word boundaries: "he " as a substring lives inside "the ", which made every plate
+# read as person-bearing and flagged the two deliberately unmanned ones.
+PERSON_RE = re.compile(r"\b(man|woman|person|figure|he|she|his|her)\b")
+
+
 PARALLEL_EXPERIMENT_V1 = Direction(
     name="PARALLEL EXPERIMENT V1",
     look=("Photoreal, grounded, natural light for that condition. Identical framing, identical "
@@ -197,10 +242,12 @@ PARALLEL_EXPERIMENT_V1 = Direction(
         "No malformed anatomy, no extra limbs, no duplicated subject, no morphing",
         "No text, no letters, no numbers, no logos, no watermark",
         ZERO_RULE,
+        SPLASH_RULE,
     ),
     negative=("mid-air start, already airborne, floating, no ground visible, "
               "camera pan, camera zoom, camera shake, moving camera, cut, "
               "magic, glowing energy, fantasy effect, "
+              "explosion, mushroom cloud, geyser, pyroclastic plume, smoke plume, "
               "deformed, malformed, extra limbs, extra hands, duplicated subject, morphing, "
               "cartoon, illustration, anime, text, letters, numbers, watermark, logo"),
     # The camera is LOCKED here on purpose: the variable is the condition, not time. This is the
@@ -406,6 +453,52 @@ def check(sim, direction, recurring_object=None, protagonist=None, plate_jobs=No
         if thin:
             fails.append(f"subject exits frame with nothing left moving, so the shot freezes after "
                          f"the exit: {thin}. Name what keeps moving (cloud, grit, haze)")
+
+    # --- splash energy: ejecta vocabulary that exceeds what arrived (negative validation, class 4)
+    for sc in scenes:
+        text = f"{sc.motion} {sc.onscreen}".lower()
+        hits = [w for w in SPLASH_BANNED if w in text]
+        if hits:
+            fails.append(f"{sc.id}: motion asks for {hits} -- a splash never exceeds the liquid "
+                         f"that arrived (SPLASH_RULE)")
+
+    # --- renewal: an animated scene whose phenomenon is the claim must renew it for the full shot
+    # (negative validation, class 5: the virga existed in one of three sampled frames of its beat)
+    if direction.motion_mode == "action":
+        stale = [sc.id for sc in scenes
+                 if sc.animate and sc.motion
+                 and not any(t in sc.motion.lower() for t in RENEWAL_TERMS)]
+        if stale:
+            fails.append(f"motion prompt does not renew its phenomenon, so i2v can let it die "
+                         f"mid-clip: {stale}. Add renewal language ('throughout', 'new X entering', "
+                         f"'one band after another')")
+
+    # --- reactions: a named reaction needs its stimulus and a body vector in the same prompt
+    # (negative validation, class 3: a flinch facing away from the burst, a salute against dust)
+    for sc in scenes:
+        m = (sc.motion or "").lower()
+        verbs = [v for v in REACTION_VERBS if v in m]
+        if verbs:
+            if not any(s in m for s in STIMULUS_NOUNS):
+                fails.append(f"{sc.id}: reaction {verbs} has no named stimulus -- the pose will be "
+                             f"generic (stock-pose class)")
+            elif not any(v in m for v in VECTOR_TERMS):
+                fails.append(f"{sc.id}: reaction {verbs} has no body vector (toward/away/eyes on) "
+                             f"-- the reaction will not point at its cause")
+
+    # --- figure integration: person-bearing plates must name scene lighting and contact shadow
+    # (negative validation, class 2: studio-lit man on three worlds, hovering feet on all of them)
+    if plate_jobs:
+        unlit = []
+        for j in plate_jobs:
+            text = " ".join(str(x) for x in j[1:]).lower()
+            if PERSON_RE.search(text):
+                if not any(t in text for t in INTEGRATION_TERMS):
+                    unlit.append(j[0])
+        if unlit:
+            fails.append(f"person in plate with no integration language: {unlit} -- the reference "
+                         f"image's studio lighting will be imported verbatim (INTEGRATION_RULE); "
+                         f"name the ambient cast and the contact shadow")
 
     # --- motion mode: a direction declares the motion its content needs
     notes["motion_mode"] = direction.motion_mode

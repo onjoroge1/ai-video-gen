@@ -94,6 +94,18 @@ TOPICS = [
           status="shipped", slug="jump_every_world",
           notes="launch plates rewritten to satisfy the zero rule; not yet regenerated"),
 
+    Topic("rain_worlds", "What would rain look like on other planets", "parallel_world",
+          "Titan's drops reach ~12 mm falling at walking pace; Venus's rain has never once "
+          "reached the ground; Jupiter's falls forever with no ground to reach",
+          "max drop size (Weber breakup) and terminal velocity, calibrated to Earth's 6 mm / 9 m/s",
+          reuses="fly.physics rho+g, fall drag law, water triple point",
+          datum=("ground", "rock", "cloud deck"),
+          beats=("titan-hook", "earth", "mars", "venus", "jupiter", "titan", "close"),
+          status="shipped", slug="rain_every_world",
+          notes="First topic chosen FOR the engine: rain fills its own frames, so the "
+                "empty-scene invention class cannot occur. Audio easter egg: impact sound only "
+                "on the two worlds where rain lands."),
+
     # ---------------------------------------------------------------- next up
     Topic("survives_fall", "What survives a fall from the same height", "parallel_subject",
           "An ant is unhurt and a horse is not, and the reason is that terminal velocity falls as "
@@ -102,7 +114,7 @@ TOPICS = [
           reuses="",           # needs a drag solver; air density constants come from the fly topic
           datum=("ledge", "ground", "the edge"),
           beats=("ant", "mouse", "cat", "human", "horse"),
-          status="building", slug="survives_the_fall",
+          status="shipped", slug="survives_the_fall",
           notes="Haldane's observation is the whole video: a mouse walks away, a horse splashes. "
                 "One environment for all five plates, which is why it is cheap despite a new solver."),
     Topic("armstrong_limit", "How high can you go before your blood boils", "escalation",

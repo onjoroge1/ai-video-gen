@@ -31,6 +31,17 @@ class Scene:
     # carried a no-animals negative, the gate inferred "empty" from it, and rejected seven clips of
     # rain for containing rain -- $2.45 of correct output refused by a wrong premise.
     empty_frame: bool = False
+    # Named ambient (sim/figure.AMBIENTS) this scene's light belongs to. Used to grade the character
+    # reference BEFORE generation -- prompt language does not beat a studio-lit reference; the
+    # pixels win. Empty means inherit meta["ambient"], or neutral if that is absent too.
+    ambient: str = ""
+    # Deterministic hero subject composited by sim/drop.py AFTER the provider clip returns:
+    # {"d_m": 0.012, "v_ms": 1.5, "px_per_m": 1400, ...}. Declaring it does two things at once:
+    # the provider's prompt gains "background rain only, no large foreground drop" (it must not
+    # draw the subject we own), and the build post-passes the clip through the compositor. One
+    # flag, both halves -- because the failure mode of doing them separately is a frame with TWO
+    # hero drops, ours and the model's cartoon one.
+    hero: dict = None
     # Where this beat sits on the escalation axis named by meta["datum_axis"] (metres, m/s, ...).
     # Only escalation formats need it: a parallel comparison holds magnitude fixed by definition and
     # declares meta["datum"] instead. direction.datum_check reads it to pick the right datum band.
