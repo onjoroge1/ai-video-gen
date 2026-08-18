@@ -1,0 +1,37 @@
+{
+ "_note": "Copied verbatim from job 9fba3da8. Lecture shape: names the answer early, announces its own structure, median sentence ~6-7 words.",
+ "title": "How One Cancer Cell Escapes and Spreads",
+ "format": "evidence_led_mystery",
+ "narration": [
+  "A single cancer cell can leave a tumor and start a whole new tumor somewhere else in the body.",
+  "So how does cancer spread through a process called metastasis?",
+  "First the cell hits the basement membrane, a thin sheet of collagen and other proteins surrounding the tumor.",
+  "The cell secretes MMP enzymes, molecular scissors that cut protein.",
+  "These enzymes chew the basement membrane into a ragged hole.",
+  "The cell crawls through the gap toward a nearby blood vessel.",
+  "It slips between vessel-lining cells and enters the bloodstream.",
+  "This entry step is called intravasation into circulation.",
+  "But blood flow shear forces batter the loose cell hard.",
+  "Immune cells and shear stress kill most within a day.",
+  "One survivor uses a trick to hide from the immune system.",
+  "It grabs platelets, the clotting cells, from the blood.",
+  "The platelets clump into a shield masking it from immune attack.",
+  "Cloaked, it drifts until flow slows in a tiny vessel.",
+  "It lodges in a narrow capillary too small to pass.",
+  "It pushes back out through the wall \u2014 called extravasation.",
+  "It anchors to the new tissue using surface adhesion molecules.",
+  "That one cell can divide, seeding a micrometastasis.",
+  "A brand-new tumor grows far from its origin.",
+  "Here's the strangest part of the story.",
+  "The odds against any one cell are staggeringly steep \u2014 fewer than one in ten thousand cells succeed.",
+  "Only rare cells, some aided by platelet cloaking, slip past the body's defenses.",
+  "From that single hidden survivor, a whole second tumor arose.",
+  "So the deadliest journey a cell takes is this quiet escape."
+ ],
+ "expect": {
+  "pass": false,
+  "fail": [
+   "cadence"
+  ]
+ }
+}

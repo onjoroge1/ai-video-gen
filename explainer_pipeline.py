@@ -12,7 +12,9 @@ Steps:
 """
 
 import os
+import story_engine
 import re
+import io
 import time
 import json
 import base64
@@ -102,6 +104,14 @@ def _gemini():
     return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
+# Transient-failure signatures for _run_ffmpeg. 196 == AVERROR(ETIMEDOUT) & 0xFF (errno 60,
+# "Operation timed out"); 244 == AVERROR(ENOMEM) & 0xFF. Both are conditions that clear on their own.
+_FFMPEG_TRIES = 3
+_FFMPEG_RETRY_CODES = (196, 244)
+_FFMPEG_RETRY_STDERR = ("Operation timed out", "Input/output error",
+                        "Resource temporarily unavailable", "Cannot allocate memory")
+
+
 def _run_ffmpeg(cmd: list, timeout: float = 180.0):
     """Run an ffmpeg command safely.
 
@@ -109,11 +119,42 @@ def _run_ffmpeg(cmd: list, timeout: float = 180.0):
     - detaches stdin (DEVNULL) for the same reason
     - bounds runtime with a timeout so a hung encode raises (and the caller's
       per-scene fail-safe skips it) instead of stalling the whole job forever
+    - RETRIES transient I/O failures. Job 333b7df5 lost a finished 55-scene long-form render at the
+      assembly step: ffmpeg exited 196, which is AVERROR(ETIMEDOUT) (errno 60) as an unsigned exit
+      byte -- the filesystem timed out serving the scene files while the job was writing a 56 MB
+      batch and a 66 MB SFX wav against a volume at 92% capacity. The identical command, inputs
+      untouched, succeeded on retry. Without a retry a transient read stall discards every dollar
+      already spent on generation, which is the expensive failure mode this exists to prevent.
+    - surfaces ffmpeg's stderr in the raised error. It was captured and then thrown away, so the
+      failure above reached the user as a bare command line with no diagnostic -- it read like a bad
+      filter graph when it was a disk stall.
     """
     if cmd and cmd[0] == "ffmpeg" and "-nostdin" not in cmd:
         cmd = [cmd[0], "-nostdin", *cmd[1:]]
-    return subprocess.run(cmd, check=True, capture_output=True,
-                          stdin=subprocess.DEVNULL, timeout=timeout)
+    last = None
+    for attempt in range(_FFMPEG_TRIES):
+        try:
+            return subprocess.run(cmd, check=True, capture_output=True,
+                                  stdin=subprocess.DEVNULL, timeout=timeout)
+        except subprocess.CalledProcessError as e:
+            last = e
+            err = (e.stderr or b"")
+            err = err.decode("utf-8", "replace") if isinstance(err, bytes) else str(err)
+            # Only transient I/O gets another go. A malformed filter graph or a missing input fails
+            # identically every time, and retrying it just burns the timeout three times over.
+            transient = (e.returncode in _FFMPEG_RETRY_CODES
+                         or any(s in err for s in _FFMPEG_RETRY_STDERR))
+            if not transient or attempt == _FFMPEG_TRIES - 1:
+                tail = "\n".join(err.strip().splitlines()[-12:])
+                raise RuntimeError(
+                    f"ffmpeg failed (exit {e.returncode}"
+                    f"{', transient I/O — retried ' + str(_FFMPEG_TRIES) + 'x' if transient else ''})"
+                    f"\ncmd: {' '.join(str(c) for c in cmd[:6])} … [{len(cmd)} args]"
+                    f"\nstderr:\n{tail}") from e
+            print(f"[ffmpeg] transient I/O failure (exit {e.returncode}) — "
+                  f"retry {attempt + 1}/{_FFMPEG_TRIES - 1} in {2 ** attempt}s")
+            time.sleep(2 ** attempt)
+    raise last  # unreachable; keeps static analysis honest
 
 
 # ── Channel mascot (branded host, reused across every video) ────────────────────
@@ -135,12 +176,34 @@ FORMATS = {
 
 def transcribe_words(audio_path: str) -> list:
     """Word-level timestamps for our own TTS, for karaoke captions.
-    Returns [(word, start, end), ...]; [] on failure (caller falls back)."""
+    Returns [(word, start, end), ...]; [] on failure (caller falls back).
+
+    The retry used to be guaranteed to fail. It closed over ONE open file handle, so the SDK read it
+    to EOF on the first attempt and every retry uploaded zero bytes -- measured: 119808, then 0, then
+    0. A single transient blip therefore cost up to four 90s client timeouts plus backoff (~6 min) per
+    scene, produced nothing, and across 64 scenes read as a hung render that needed a resume. The
+    bytes are now read once and each attempt gets a fresh stream, so a retry can actually succeed.
+
+    Captions are also not worth stalling a paid render for: `budget_s` caps the total wall clock, and
+    on exhaustion we return [] so align_caption_phrases falls back to even-split timing. A slightly
+    less precise karaoke line is a far better outcome than a job that hangs.
+    """
+    budget_s = float(os.getenv("WHISPER_BUDGET_S", "150"))
+    t0 = time.time()
     try:
-        with open(audio_path, "rb") as f:
-            r = _retry(lambda: _openai().audio.transcriptions.create(
-                model="whisper-1", file=f, response_format="verbose_json",
-                timestamp_granularities=["word"]), label="whisper transcription")
+        with open(audio_path, "rb") as fh:
+            raw = fh.read()                       # read ONCE; retries get a fresh stream below
+
+        def _call():
+            if time.time() - t0 > budget_s:
+                raise TimeoutError(f"whisper budget {budget_s:.0f}s exhausted")
+            buf = io.BytesIO(raw)
+            buf.name = os.path.basename(audio_path)   # the SDK infers the format from the name
+            return _openai().audio.transcriptions.create(
+                model="whisper-1", file=buf, response_format="verbose_json",
+                timestamp_granularities=["word"])
+
+        r = _retry(_call, tries=3, label="whisper transcription")
         words = getattr(r, "words", None) or []
         out = []
         for w in words:
@@ -178,13 +241,60 @@ I2V_PROVIDER  = os.environ.get("I2V_PROVIDER", "").strip().lower()   # "sora" | 
 I2V_FRACTION  = 0.35        # long-form target share of scenes animated (30-40% band)
 # Social shorts lean HARD on motion (autoplay feed + first-second retention) and are cheap to
 # animate (few scenes), so they get a higher share. Tunable; verify real Veo $/s before pushing up.
-I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.6"))
+I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.9"))
 # Shorts FRONT-LOAD their motion: ~this share of the clip budget goes to the OPENING scenes (retention
 # is won/lost in the first seconds of an autoplay feed), one clip is reserved for the finale/payoff,
 # and the rest are spaced across the back half. Cost-neutral vs. even/random placement.
 I2V_FRONTLOAD_SOCIAL = float(os.environ.get("I2V_FRONTLOAD_SOCIAL", "0.65"))
-MAX_I2V_CLIPS = 12          # hard per-video cap (cost backstop, esp. long-form)
-I2V_SECONDS   = 4           # clip length requested (trimmed to scene length in ffmpeg)
+MAX_I2V_CLIPS = int(os.environ.get("MAX_I2V_CLIPS", "0"))   # 0 = scale with runtime (see below)
+
+
+def max_i2v_clips_for(duration_s: float, video_format: str = "landscape") -> int:
+    """Clip ceiling scaled to RUNTIME rather than a flat number.
+
+    12 was tuned on ~90s shorts, where twelve 5s clips cover 67% of the video. On a 434s long-form
+    the same twelve cover 14%, and I2V_FRACTION had already asked for 22 -- so the CAP, not the
+    fraction, was starving long-form of motion. One clip per ~20s holds coverage roughly constant
+    across formats. Setting MAX_I2V_CLIPS in the environment still overrides this outright.
+    """
+    if MAX_I2V_CLIPS > 0:
+        return MAX_I2V_CLIPS
+    # One clip per ~20s suits long-form, whose scenes run 8-15s. A Short's scenes are ~4.5s and
+    # I2V_FRACTION_SOCIAL is 0.9 -- nearly every scene is meant to move -- so the same divisor caps a
+    # 50s Short at 8 clips when the fraction is asking for 10. Cap by the format's own scene rhythm.
+    per = 5.0 if video_format == "social" else 20.0
+    lo = 6 if video_format == "social" else 8
+    return int(max(lo, min(40, round(duration_s / per))))
+# 5, not 4: fal/Kling only accepts 5 or 10s, so a 4 was silently rounded UP to a paid 5s generation and
+# then trimmed to a ~3s scene — ~40% of every clip paid for and discarded. Ask for what we're billed for.
+I2V_SECONDS   = int(os.environ.get("I2V_SECONDS", "5"))
+# ---------------------------------------------------------------------------------------------------
+# i2v MOTION DIRECTIVE. The old code prefixed EVERY clip with "Subtle, restrained motion: locked-off
+# camera, very slow gentle drift... no camera shake" and then appended the scene's *image_prompt*. Two
+# bugs in one: (a) we paid Kling/Veo (up to v3-pro hero rates) to render a near-still, which is the main
+# reason "animated" Shorts still read as a slideshow; (b) it also overrode the AUTHORED per-scene motion
+# that sim_drop/quiz/health pass in positionally as `prompt`, fighting their own direction.
+#   action  (default) — the described movement actually happens and completes on screen. Camera stays
+#                       locked so identity/composition hold (that part of the old prompt was correct).
+#   ambient           — the old restrained look; keep for static cards/panels that must not move much.
+_MOTION_STYLE = {
+    "action": ("Real, visible movement: the described action actually happens and completes on screen. "
+               "Locked-off camera (no pan, tilt, zoom or shake), one continuous shot, no cuts, stable "
+               "composition, photoreal. The action: "),
+    # Fast SUBJECT TRAVEL. The other two modes both hold the world still and differ only in how much
+    # the subject fidgets -- neither can express "this person is moving at speed", which is why a
+    # video about accelerating to 3,600 mph rendered as a man walking in a breeze. Here the camera
+    # MATCHES the subject: he stays put in frame while the world rips past him.
+    "travel": ("Fast lateral travel. The camera tracks alongside the subject at his exact speed, so "
+               "he stays in the same part of the frame while the BACKGROUND rips past behind him "
+               "with heavy horizontal motion blur and streaking. Real speed, not slow motion: "
+               "everything not attached to the subject moves fast. Hair and clothing are pinned "
+               "flat backwards by the airflow. One continuous tracking shot, no cuts. "
+               "The action: "),
+    "ambient": ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
+                "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
+                "camera shake; keep the composition stable and photoreal. "),
+}
 # LITERAL/GROUNDED imagery direction (packaging research + this channel's data: real-life Water short
 # hit 73% viewed, symbolic Light stalled at 2.4% CTR). When on, scene + thumbnail prompts steer to the
 # LITERAL real-world subject (documentary/lab look) and away from symbolic-metaphor/glowy imagery.
@@ -217,7 +327,7 @@ def _resolve_i2v_rate() -> float:
             pass
     primary = I2V_PROVIDER.split(",")[0].strip()
     # fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
-    return {"sora": 0.10, "veo": 0.15, "fal": 0.056}.get(primary, 0.15)
+    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.01}.get(primary, 0.15)
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
@@ -238,6 +348,27 @@ _FAL_HYBRID   = os.environ.get("FAL_HYBRID", "1") == "1"
 
 def _fal_key() -> str:
     return os.environ.get("FAL_KEY", "").strip()
+
+
+SECS_PER_SCENE = {"social": 4.5, "landscape": 8.5}   # measured this session, used for dry-run only
+
+
+def estimate_i2v_cost(n_scenes: int, video_format: str, motion: str = "standard",
+                      seconds: int | None = None) -> dict:
+    """Projected motion spend. Pure arithmetic -- no network, no script, safe to call from the UI."""
+    secs = seconds or I2V_SECONDS
+    frac, max_clips = motion_coverage(motion, video_format, n_scenes)
+    if frac == 0.0:
+        return {"clips": 0, "usd": 0.0}
+    if frac is None:
+        frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
+    est_s = n_scenes * SECS_PER_SCENE.get(video_format, 8.5)
+    cap = max_clips if max_clips is not None else max_i2v_clips_for(est_s, video_format)
+    clips = max(0, min(cap, max(1, round(n_scenes * frac))))
+    usd = clips * secs * _RATE_I2V_SEC
+    if video_format == "social" and _FAL_HYBRID and "fal" in _I2V_CHAIN:
+        usd += min(2, clips) * secs * (_RATE_I2V_HERO_SEC - _RATE_I2V_SEC)
+    return {"clips": clips, "usd": round(usd, 2)}
 
 
 def estimate_cost(n_scenes: int, host_count: int = 0, narration_chars: int = 0) -> float:
@@ -859,7 +990,8 @@ def _premise_block(contract: dict | None) -> str:
 def generate_script(question: str, duration_sec: int = 90, style: str = "engaging and scientific",
                     image_guidance: str = "", video_format: str = "landscape",
                     series: str = "", improve_note: str = "", short_template: str = "auto",
-                    operator_direction: str = "", premise_contract: dict | None = None) -> dict:
+                    operator_direction: str = "", premise_contract: dict | None = None,
+                    story_format: str = "") -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -879,8 +1011,15 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
             n_scenes = min(n_scenes, 11)
     else:
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
-                                      series, improve_note, operator_direction)
-        sc, _hc = _ensure_hook_names_subject(sc, question)   # zero-friction: subject named by line 2
+                                      series, improve_note, operator_direction, story_format)
+        # Zero-friction opening. story_engine.guard keeps the rewrite ONLY if it broke no structure
+        # gate the draft passed: this pass hardcodes "line 2 = the title as a question, line 3 =
+        # preview what is coming", which is the agenda slide the evidence-led format bans, and it is
+        # the LAST word on every opening.
+        _before = sc
+        _sf = story_engine.resolve(story_format, video_format)
+        sc, _hc = _ensure_hook_names_subject(sc, question, shape=_sf.opening_shape)
+        sc = story_engine.guard(_before, sc, _sf)
         if _hc:
             sc["_script_cost_usd"] = round(float(sc.get("_script_cost_usd") or 0.0) + _hc, 4)
         return sc
@@ -895,6 +1034,15 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     if video_format == "social":
         budget_dur = min(duration_sec, n_scenes * 3)   # n_scenes already capped at 24 (≈72s)
         total_words = int(budget_dur * 2.7)
+        # The `n_scenes * 3` term pins EVERY social scene to ~3s ≈ 8 words, which is exactly why both
+        # existing shorts measure 0% sentences over 15 words: at an 8-word budget a long line is
+        # arithmetically impossible, and no prompt can ask its way out of that. The evidence-led short
+        # needs ~7 beats of one sentence each, so it gets fewer scenes held LONGER (~4.5s) for the
+        # same runtime -- the image cadence loosens, the sentences get room. This is the one place
+        # where that trade is deliberate; every other social lane keeps the 3s cadence.
+        if (story_format or "").strip().lower() == "evidence_led_short":
+            n_scenes = max(7, min(n_scenes, round(duration_sec / 4.5)))
+            total_words = int(duration_sec * 2.7)
     else:
         total_words = int(duration_sec * 2.7)          # non-chunked landscape: was 3.2 -> ~21% long
     # The wpm FLOOR is also part of the cadence bug: max(12,…) forced >=12 words/scene (~4.5s) even
@@ -925,7 +1073,18 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     # Template routing (social only): explicit override wins; "auto" uses the title heuristic.
     _use_sim = (short_template == "simulation"
                 or (short_template not in ("explainer", "simulation") and _is_simulation_short(question)))
-    if video_format == "social" and _use_sim:
+    # An explicitly requested evidence-led short replaces the beat map below. It is NOT the social
+    # default: the simulation lane stays untouched (its climbing-number engine is a different and
+    # proven shape), and the compression from a 2:58 reference to 40s has never been rendered, so
+    # the standard beat map remains what you get unless you ask for this by name.
+    _short_fmt = story_engine.get(story_format) if story_format else None
+    _el_short = bool(_short_fmt is not None and _short_fmt.name == "evidence_led_short")
+    if (video_format == "social" and _short_fmt is not None
+            and _short_fmt.name == "evidence_led_short"):
+        _sw = total_words          # must match the LENGTH rule, or the prompt fights itself
+        social_block = story_engine.social_block(_short_fmt, n_scenes=n_scenes, words=_sw)
+        print(f"[script] story format: {_short_fmt.name} ({n_scenes} lines, ~{_sw} words)")
+    elif video_format == "social" and _use_sim:
         social_block = _SIM_SOCIAL_BLOCK + _sim_ladder_block(question)
     elif video_format == "social":
         social_block = (
@@ -1092,8 +1251,12 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         wpm=wpm,
         # Social floors lower (4) so the per-scene range stays coherent at the 6-word social floor;
         # long-form keeps the 8-word minimum. Always <= wpm so the range can't invert.
-        wpm_lo=min(wpm, max(4 if video_format == "social" else 8, wpm - 3)),
-        wpm_max=wpm + 3,
+        # The per-scene band is normally wpm±3, which for a 12-word budget is 9-15 -- that
+        # forbids BOTH a 5-word punch and an 18-word explanation, so the LENGTH rule silently
+        # cancels the evidence-led short's variance instruction. Widen it for that format only:
+        # the TOTAL still holds the runtime, and only the per-scene uniformity is relaxed.
+        wpm_lo=(3 if _el_short else min(wpm, max(4 if video_format == "social" else 8, wpm - 3))),
+        wpm_max=(max(20, wpm + 8) if _el_short else wpm + 3),
         mascot_name=MASCOT_NAME,
         mascot_desc=MASCOT_DESC,
         theme_block=theme_block,
@@ -1122,8 +1285,23 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         _scn, _dc = _dedupe_narration(script.get("scenes", []), [], _s(script.get("throughline", "")))
         script["scenes"] = _scn
         _cost += _dc
-    script, _hc = _ensure_hook_names_subject(script, question)   # zero-friction: subject named by line 2
+    # Same guard the long-form path uses, and for the same reason: this pass is the LAST word on
+    # every opening and its default rewrite makes line 2 "the central QUESTION stated plainly" --
+    # i.e. the title asked as a question, which the evidence-led block explicitly bans. Without the
+    # shape argument the social lane was silently getting the default shape, which is how an earlier
+    # draft ended up opening "Why does cancer come back after treatment?" one line under an anomaly.
+    _sfmt = story_engine.get(story_format) if story_format else None
+    _before_hook = script
+    script, _hc = _ensure_hook_names_subject(
+        script, question, shape=(_sfmt.opening_shape if _sfmt else "prime_question_intrigue"))
+    if _sfmt is not None:
+        script = story_engine.guard(_before_hook, script, _sfmt)
     script["_script_cost_usd"] = round(_cost + _hc, 4)
+    # Label the script itself. app.py falls back to the request field when writing the metrics index,
+    # so the INDEX was right -- but the script carried nothing, so check() judged every social script
+    # as default_explainer and the structure report could never see the real format.
+    if _sfmt is not None:
+        script["_story_format"] = _sfmt.name
     return script
 
 
@@ -1257,7 +1435,22 @@ def _subject_terms(title: str) -> list:
     return [w for w in words if w.lower() not in _HOOK_STOP and len(w) > 2]
 
 
-def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tuple[dict, float]:
+# The default rewrite shape hardcodes "line 2 = the title spoken as a question, line 3 = preview of
+# what is coming" -- which IS the agenda slide, applied after generation as the last word on every
+# opening. An evidence-led draft names a concrete anchor (skeleton / cave / 1903) rather than the
+# title's abstract subject, so the pre-filter at the top of this function does not fire and the
+# rewrite would run. This is the alternative shape it uses instead.
+_EVIDENCE_OPENING = (
+    'line 1 = ONE concrete, specific thing that is WRONG or does not fit — a real case, ideally dated '
+    'and located — with the subject NAMED in plain words (the real noun from the title); line 2 = who '
+    'found it, when, or why that case mattered — a CREDENTIAL, a plain declarative, NOT a question; '
+    'line 3 = what everyone reasonably believed about it, stated sympathetically AS IF IT WERE TRUE. '
+    'Do NOT ask the title as a question. Do NOT preview what is coming. Do NOT name or explain any '
+    'mechanism. NEVER invent a date, a study or a belief that did not happen.')
+
+
+def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None,
+                               shape: str = "prime_question_intrigue") -> tuple[dict, float]:
     """Guarantee the opening NAMES the subject (zero-friction). Deterministic pre-filter first (no
     cost when the literal subject terms already appear in lines 1-3); otherwise an LLM judge either
     confirms a synonym names it ('planes' for 'airplanes') or surgically rewrites ONLY lines 1-3 to
@@ -1285,11 +1478,12 @@ def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tupl
            'Judge: do lines 1-2 NAME that subject in plain words, so a cold viewer instantly knows '
            'the topic? A close synonym that unambiguously names it counts ("planes" for "airplanes"); '
            'an implied or euphemistic reference does NOT. If YES, return {"ok":true}. If NO, REWRITE '
-           'lines 1-3 ONLY so: line 1 = a COLD CONSEQUENCE — the strangest VISIBLE RESULT of the '
+           'lines 1-3 ONLY so: ' + (_EVIDENCE_OPENING if shape == "evidence_led" else
+           'line 1 = a COLD CONSEQUENCE — the strangest VISIBLE RESULT of the '
            'scenario, stated so the subject is NAMED in plain words (the real noun from the title), with '
            'NO definition and NO exact number; line 2 = the central QUESTION stated plainly WITH THE '
            'SUBJECT NAMED (basically the title spoken as a question); line 3 = reject the obvious answer '
-           'and pose a quick prediction or preview of what is coming. Keep them short spoken lines, do '
+           'and pose a quick prediction or preview of what is coming.') + ' Keep them short spoken lines, do '
            'NOT answer the question, do NOT open a second question, keep lines 4+ untouched, and match '
            'the existing voice. Return ONLY JSON {"ok":false,"lines":[l1,l2,l3]}.')
     try:
@@ -1313,8 +1507,19 @@ def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tupl
         return script, 0.0
 
 
+def _terms_of(plan: dict, key: str) -> list:
+    """Declared term groups off the beat sheet. Lowercased + deduped, order preserved. Empty when the
+    format did not ask for them, which story_engine reports as a review rather than a silent pass."""
+    out, seen = [], set()
+    for x in (plan.get(key) or []):
+        t = _s(x).strip().lower()
+        if t and t not in seen:
+            seen.add(t); out.append(t)
+    return out
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
-                             improve_note="", operator_direction="") -> dict:
+                             improve_note="", operator_direction="", story_format="") -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -1436,11 +1641,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if improve_note:
         beat_prompt += ("\nPRIORITY FIX — the previous draft scored weak here; fix this FIRST in the "
                         "beat sheet while keeping everything else: " + improve_note)
+    # A non-default story format REPLACES beat_prompt rather than appending to it: the doctrines
+    # contradict (default RULE 4 "NEVER hoard the answer" vs evidence-led "hoard the causal answer"),
+    # and shipping both would leave the model to choose. When unset, beat_prompt above is untouched.
+    _beat_prompt_default = beat_prompt          # kept verbatim for the eligibility fallback
+    story_fmt = story_engine.resolve(story_format, "landscape")
+    _alt = story_engine.beat_sheet_prompt(story_fmt, question=question, style=style,
+                                          n_scenes=n_scenes, duration_sec=duration_sec,
+                                          image_guidance=image_guidance)
+    if _alt:
+        beat_prompt = _alt
+        print(f"[script] story format: {story_fmt.name}")
     o = _claude().messages.create(model="claude-opus-4-8", max_tokens=12000, system=_SCRIPT_SYSTEM,
                                   messages=[{"role": "user", "content": beat_prompt + _series_block(series)
                                              + _operator_block(operator_direction)}])
     plan, rc = _parse_script_json(o.content[0].text); cost += rc
     cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+
+    # ELIGIBILITY FALLBACK. Now that evidence-led is the long-form DEFAULT it lands on every topic,
+    # including ones with no genuine prior belief to overturn -- and a format that demands a false
+    # belief on a topic that has none is an instruction to invent one. The beat sheet judges its own
+    # eligibility and we take it at its word when it says no: a straight explainer on a topic with no
+    # real reversal beats a fabricated controversy. Costs one extra beat-sheet call ONLY when the
+    # topic is genuinely unsuitable. Note `is False` -- a missing field must not trigger this.
+    if _alt and plan.get("eligible") is False:
+        _why = _s(plan.get("ineligible_reason")) or "no defensible prior belief to overturn"
+        print(f"[script] evidence-led declined for this topic ({_why}) — using default_explainer")
+        story_fmt = story_engine.get("default_explainer")
+        o = _claude().messages.create(model="claude-opus-4-8", max_tokens=12000,
+                                      system=_SCRIPT_SYSTEM,
+                                      messages=[{"role": "user",
+                                                 "content": _beat_prompt_default + _series_block(series)
+                                                 + _operator_block(operator_direction)}])
+        plan, rc = _parse_script_json(o.content[0].text); cost += rc
+        cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
@@ -1465,11 +1700,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                       if isinstance(p, (int, float)) and 1 <= int(p) <= n_scenes})
     stages = [_s(x).strip() for x in (plan.get("stages") or []) if _s(x).strip()]
 
+    # Evidence-led replaces the opening instructions entirely; empty for the default format.
+    _open_alt = story_engine.opening_block(story_fmt)
+    # Injected into EVERY batch: the first run proved a stage-1-only fix does nothing to prose.
+    _cadence_alt = story_engine.cadence_block(story_fmt, _terms_of(plan, "central_answer_terms"))
+
     # The whole beat sheet, visible to EVERY expansion batch → no batch re-teaches another's beat.
     sheet = "\n".join(f'{b["n"]}. [{_s(b.get("role")) or "beat"}|{_s(b.get("bolt_mode")) or "experience"}] '
                       f'{_s(b.get("beat"))}' for b in beats)
-    roadmap = (' The escalating STAGES (name them for the viewer and signal progress through them): '
-               + " -> ".join(stages) + "." if stages else "")
+    roadmap = ("" if story_fmt.requires.get("no_roadmap") else
+               (' The escalating STAGES (name them for the viewer and signal progress through them): '
+                + " -> ".join(stages) + "." if stages else ""))
     payoff_line = (' Payoff scenes (each must land a concrete, pictureable answer): '
                    + ", ".join(map(str, payoffs)) + "." if payoffs else "")
     sheet_block = ('\n\nFULL BEAT SHEET for the whole video (every scene is already assigned ONE beat; '
@@ -1517,7 +1758,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
-            + (' This batch contains the OPENING — get to a real ANSWER FAST; do NOT stack hooks. Scene '
+            + _cadence_alt
+            + (_open_alt if (is_first and _open_alt) else '')
+            + ('' if (is_first and _open_alt) else
+               ' This batch contains the OPENING — get to a real ANSWER FAST; do NOT stack hooks. Scene '
                '1 = COLD CONSEQUENCE: open on the single most VISCERAL, high-stakes result the viewer '
                'clicked to see (the DRAMATIC thing, NOT an atmospheric/poetic detail like a subtly '
                'changing shadow) and NAME THE SUBJECT with the actual topic noun (say the real thing, '
@@ -1541,15 +1785,27 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
         part, rc = _parse_script_json(c.content[0].text); cost += rc
         cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
-        for s in (part.get("scenes") or []):
+        _returned = part.get("scenes") or []
+        # Stamp the beat ROLE onto the scene it became. Only on an exact length match: a misaligned
+        # role would make the structure gates report on the wrong scenes, which is worse than not
+        # checking at all. On a mismatch the role is simply absent and story_engine raises a review.
+        _aligned = (len(_returned) == len(batch))
+        for _j, s in enumerate(_returned):
             s["mascot_present"] = True
             s.setdefault("bolt_mode", "experience")
+            if _aligned:
+                s["_role"] = _s(batch[_j].get("role"))
             all_scenes.append(s)
         bi += per_batch
 
-    # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
-    all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
+    # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats. Guarded: the
+    # dedup editor treats a deliberately restated belief as repetition, which is exactly the
+    # false_belief -> seal shape. Keep its output only if it broke no gate the draft passed.
+    _pre = {"scenes": all_scenes, "_story_format": story_fmt.name}
+    _deduped, dc = _dedupe_narration(all_scenes, beats, throughline)
     cost += dc
+    all_scenes = story_engine.guard(_pre, {"scenes": _deduped,
+                                           "_story_format": story_fmt.name}, story_fmt)["scenes"]
 
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1
@@ -1563,6 +1819,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "_peak_scene": peak,
         "_payoffs": payoffs,
         "_stages": stages,
+        # The beat sheet used to die here: "_beats" was len(beats) and nothing anywhere read
+        # _peak_scene/_payoffs/_stages. Roles were generated, printed into a prompt, and discarded,
+        # so no gate downstream could see the structure the model was asked for. Persist the whole
+        # sheet plus the declared term groups -- they are the join between plan and delivery.
+        "_beat_sheet": [{"n": b.get("n"), "pct": b.get("pct"), "role": _s(b.get("role")),
+                         "beat": _s(b.get("beat"))} for b in beats],
+        "_story_format": story_fmt.name,
+        "_topic_terms": _terms_of(plan, "topic_terms"),
+        "_mechanism_terms": _terms_of(plan, "mechanism_terms"),
+        "_central_answer_terms": _terms_of(plan, "central_answer_terms"),
     }
 
 
@@ -1773,13 +2039,21 @@ def make_fallback_frame(output_path: str, headline: str = "", w: int = 1920, h: 
 
 # ── TTS generation ─────────────────────────────────────────────────────────────
 
-def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
+def generate_tts(text: str, output_path: str, voice: str = "echo", speed: float = 1.0) -> str:
+    """speed is OpenAI's delivery rate (0.25-4.0). Default 1.0 leaves every existing caller
+    unchanged. It exists because specs state a words-per-minute target and this voice does not hit
+    it: measured at 1.0 the delivery is ~137 wpm, so a spec asking for 175-185 runs ~35% long and
+    blows both the runtime band and any per-scene pacing cap."""
     def _call():
+        kw = {}
+        if abs(speed - 1.0) > 1e-6:
+            kw["speed"] = max(0.25, min(4.0, float(speed)))
         resp = _openai().audio.speech.create(
             model="tts-1-hd",
             voice=voice,
             input=text,
             response_format="mp3",
+            **kw,
         )
         with open(output_path, "wb") as f:
             for chunk in resp.iter_bytes():
@@ -1792,12 +2066,29 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _audio_dur(path: str) -> float:
-    r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
-        capture_output=True, text=True, check=True,
-        stdin=subprocess.DEVNULL, timeout=30.0,
-    )
-    return float(json.loads(r.stdout)["format"]["duration"])
+    """Duration of a rendered TTS segment, in seconds.
+
+    Retried, because a single 30s ffprobe timeout used to kill a render that had already paid for
+    every image and every audio segment. ffprobe on a 90KB mp3 is normally instantaneous; it timed
+    out once here purely from machine contention while image-generation retries were saturating the
+    box, and the same probe returned 5.64s immediately afterwards. A transient scheduling hiccup
+    must not throw away a completed, paid-for asset set.
+    """
+    last = None
+    for attempt in range(3):
+        try:
+            r = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
+                capture_output=True, text=True, check=True,
+                stdin=subprocess.DEVNULL, timeout=90.0,
+            )
+            return float(json.loads(r.stdout)["format"]["duration"])
+        except subprocess.TimeoutExpired as e:
+            last = e
+            print(f"[audio] ffprobe timed out on {os.path.basename(path)} "
+                  f"(attempt {attempt + 1}/3) — retrying")
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 
 # Fun ROUNDED bold first (the branded headline look), with plain-bold fallbacks.
@@ -1825,7 +2116,48 @@ def _find_font() -> str | None:
 from PIL import Image, ImageDraw, ImageFont, ImageFilter   # noqa: E402
 
 W, H = 1920, 1080
-FADE_DUR = 0.5   # crossfade length between scenes (seconds)
+FADE_DUR = 0.5   # crossfade length between scenes (seconds) — long-form
+
+# A generated clip is 5s (Kling emits only 5 or 10); a narration scene averages ~8.4s. Something has
+# to cover the difference, and every strategy trades a different artifact — so it is a SETTING, not a
+# constant someone picked once:
+#
+#   "image"    cut to a second still for the tail, Ken-Burns drifted.  +$0.04/scene.
+#              Motion stops mid-scene, but nothing moves wrongly, and it adds a cut.
+#   "pingpong" clip + its reverse, looped. Free, seamless at the seam — but the motion REVERSES,
+#              which on directional action (water draining, a ship settling) reads as rewinding.
+#   "loop"     plain repeat. Free, but jump-cuts back to frame 1 at the seam.
+#   "freeze"   hold the last frame. Free, and measurably dead — this is what picture_freeze_gate
+#              was written to catch.
+#   "extend"   ask the provider for 10s so there is no tail at all. +$0.28/scene, no artifact.
+#              Handled at REQUEST time (see i2v_seconds_for), not here.
+#
+# Default is "image": nearly free, and it never shows the viewer motion that is not real.
+TAIL_FILL = os.environ.get("TAIL_FILL", "image").strip().lower()
+TAIL_FILL_CHOICES = ("image", "pingpong", "loop", "freeze", "extend")
+
+
+def i2v_seconds_for(scene: dict, default: int | None = None) -> int:
+    """How many seconds of video to BUY for this scene.
+
+    Only meaningful under TAIL_FILL="extend": a scene whose narration outruns a 5s clip gets a 10s
+    one so there is no tail to cover at all. Kling emits 5 or 10 and nothing between, so this is the
+    only lever that removes the mismatch rather than hiding it.
+
+    Length is estimated from the narration at the voice's MEASURED rate (162 wpm for tts-1-hd/echo),
+    not the 145-155 that specs assume -- using the spec figure would over-buy on every scene.
+    """
+    base = default if default is not None else I2V_SECONDS
+    if TAIL_FILL != "extend":
+        return base
+    words = len((scene or {}).get("narration", "").split())
+    if not words:
+        return base
+    return 10 if (words / 162.0 * 60.0) > 5.2 else 5
+# Shorts grammar is HARD CUTS. A 0.5s dissolve every ~3s spends a sixth of the runtime mushy and reads
+# as a slideshow transition; feed videos cut. Social therefore holds only a tiny tail (enough for the
+# last caption to clear) and concatenates without xfade.
+SOCIAL_TAIL = float(os.environ.get("SOCIAL_TAIL", "0.12"))
 
 
 def _pil_font(size: int):
@@ -2271,8 +2603,27 @@ def _i2v_size(vw: int, vh: int) -> str:
     return "720x1280" if vh > vw else "1280x720"
 
 
+def motion_coverage(motion: str, video_format: str, n_scenes: int):
+    """(fraction, max_clips) for a UI motion preset.
+
+    The knobs that decide coverage -- I2V_FRACTION, I2V_FRACTION_SOCIAL, MAX_I2V_CLIPS -- are all
+    read from the environment at import time, so changing them needs a server restart. A preset has
+    to work per-request, so it returns overrides instead of mutating globals.
+
+    "full" asks for every scene; the caller's budget_clips still clamps it to what the spend cap
+    affords, so Full degrades to "as many as you paid for" rather than failing.
+    """
+    m = (motion or "standard").strip().lower()
+    if m == "none":
+        return (0.0, 0)
+    if m == "full":
+        return (1.0, max(1, n_scenes))
+    return (None, None)                       # standard: use the configured defaults
+
+
 def _select_i2v_indices(scenes: list, question: str, video_format: str,
-                        budget_clips: int) -> frozenset:
+                        budget_clips: int, frac: float | None = None,
+                        max_clips: int | None = None) -> frozenset:
     """Deterministic, seeded pick of ~I2V_FRACTION of scenes to animate. ALWAYS includes scene 0
     (the opener), favours the hook/twist/loop/metaphor beats, then fills evenly. Capped at
     min(MAX_I2V_CLIPS, budget_clips). Same (question, format, n) → same picks (resume-stable)."""
@@ -2280,28 +2631,53 @@ def _select_i2v_indices(scenes: list, question: str, video_format: str,
     n = len(scenes)
     if n == 0 or budget_clips <= 0:
         return frozenset()
-    frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
-    target = min(budget_clips, MAX_I2V_CLIPS, max(1, round(n * frac)))
+    if frac is None:
+        frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
+    _est_s = sum(max(0.8, len((sc or {}).get("narration", "").split()) / 162.0 * 60.0)
+                 for sc in scenes)
+    cap = max_clips if max_clips is not None else max_i2v_clips_for(_est_s, video_format)
+    if cap <= 0 or frac <= 0:
+        return frozenset()
+    target = min(budget_clips, cap, max(1, round(n * frac)))
 
     # FRONT-LOAD motion into the OPENING (viewers — feed OR long-form — decide in the first seconds),
     # keep one clip for the FINALE (payoff/loop — for sims that's the climax), and space the rest across
     # the back half so it isn't all stills. Applies to BOTH formats now (long-form i2v is off by default,
     # but WHEN it's on, front-loading beats the old even spread). Cost-neutral — just better placement.
     if n >= 4 and target >= 2:
-        mid = max(2, (n + 1) // 2)                    # scenes [0, mid) = the "first half"
-        picks = {0}                                   # opener, always
-        first_target = max(1, round(target * I2V_FRONTLOAD_SOCIAL))
-        i = 1
-        while sum(1 for p in picks if p < mid) < first_target and i < mid:
-            picks.add(i); i += 1                      # densely animate the earliest scenes
+        # TWO ZONES, and the distinction matters more than it looks.
+        #
+        # Zone A -- the OPENING -- is filled with CONSECUTIVE scenes so the first ~minute is mostly
+        # real video, not stills with occasional video. Spreading the same clips evenly across the
+        # first half instead dropped opening video coverage from 67% to 22%: every clip still landed
+        # "early", but with 25s of Ken Burns between each one the opening no longer READ as animated.
+        # Front-loading motion means density, not merely earliness.
+        #
+        # Zone B -- the remainder -- is spaced by TIME, because scenes run 3-15s and spacing by index
+        # left a 168-second stretch with no clip at all.
+        secs = [max(0.8, len((sc or {}).get("narration", "").split()) / 162.0 * 60.0)
+                for sc in scenes]
+        total_s = sum(secs) or 1.0
+        start_t, t = [], 0.0
+        for d in secs:
+            start_t.append(t); t += d
+
+        picks, i = {0}, 1
+        n_front = max(1, round(target * I2V_FRONTLOAD_SOCIAL))
+        while len(picks) < n_front and i < n - 1:          # contiguous run from the opener
+            picks.add(i); i += 1
         if target - len(picks) >= 1 and n >= 3:
-            picks.add(n - 1)                          # reserve the finale/payoff
+            picks.add(n - 1)                               # reserve the finale/payoff
         remaining = target - len(picks)
-        back = [j for j in range(mid, n - 1) if j not in picks]
-        if back and remaining > 0:
-            step = len(back) / remaining              # spread the leftover evenly across the back half
+        if remaining > 0:
+            zone_b0 = start_t[i] if i < n else total_s     # where the dense opening ended
             for k in range(remaining):
-                picks.add(back[min(len(back) - 1, int(k * step))])
+                want = zone_b0 + (total_s - zone_b0) * (k + 0.5) / remaining
+                cand = min((j for j in range(i, n - 1) if j not in picks),
+                           key=lambda j: abs(start_t[j] - want), default=None)
+                if cand is None:
+                    break
+                picks.add(cand)
         return frozenset(sorted(picks)[:target])
 
     # LONG-FORM (and tiny shorts): original seeded pick — opener + twist/loop/metaphor + even fill.
@@ -2365,14 +2741,16 @@ def _hero_i2v_indices(usable, sel) -> set:
 
 
 def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
-                 vw: int, vh: int, seconds: int, fal_model: str | None = None):
+                 vw: int, vh: int, seconds: int, fal_model: str | None = None,
+                 motion_style: str = "action", negative: str | None = None):
     """Generate ONE i2v clip with a SPECIFIC provider. Returns (ok, quota_hit, err_str).
-    fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only."""
+    fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only.
+    motion_style picks the directive prefix (see _MOTION_STYLE) — 'action' makes the movement actually
+    happen, 'ambient' keeps the old near-still look. `prompt` should describe the ACTION to perform.
+    negative is a provider negative_prompt (fal only; used to hold character anatomy/identity)."""
     size = _i2v_size(vw, vh)
     sw, sh = (int(x) for x in size.split("x"))
-    motion = ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
-              "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
-              "camera shake; keep the composition stable and photoreal. " + (prompt or "")).strip()[:900]
+    motion = (_MOTION_STYLE.get(motion_style, _MOTION_STYLE["action"]) + (prompt or "")).strip()[:900]
     ref = out_mp4 + ".ref.jpg"
     try:
         from PIL import Image, ImageOps
@@ -2412,8 +2790,10 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             uri = "data:image/jpeg;base64," + base64.b64encode(open(ref, "rb").read()).decode()
             dur = "10" if seconds > 5 else "5"            # Kling supports only 5 or 10s
             _model = fal_model or _FAL_MODEL              # hero beats pass a pricier model
-            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60,
-                           json={"prompt": motion, "image_url": uri, "duration": dur})
+            _payload = {"prompt": motion, "image_url": uri, "duration": dur}
+            if negative:                                 # holds character anatomy/identity (no legs, no twin, ...)
+                _payload["negative_prompt"] = negative
+            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60, json=_payload)
             low = sub.text.lower()
             if sub.status_code == 429 or "exhaust" in low or "balance" in low or "quota" in low:
                 return (False, True, f"fal quota/balance: {sub.text[:120]}")
@@ -2421,7 +2801,12 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
                 return (False, False, f"fal submit {sub.status_code}: {sub.text[:120]}")
             j = sub.json(); su, ru = j.get("status_url"), j.get("response_url")
             waited = 0
-            while waited < 360:
+            # Patience must scale with what we asked for. This was a flat 360s, tuned when every
+            # request was 5s; a 10s Kling generation routinely runs past six minutes, so under
+            # TAIL_FILL="extend" every single clip timed out at ~372s and silently fell back to
+            # ffmpeg motion -- twelve failures in a row before anyone looked.
+            _budget = max(360, int(seconds) * 90)
+            while waited < _budget:
                 _t.sleep(6); waited += 6
                 st = _rq.get(su, headers=hdr, timeout=30).json().get("status")
                 if st == "COMPLETED":
@@ -2429,12 +2814,54 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
                 if st in ("FAILED", "ERROR"):
                     return (False, False, f"fal job {st}")
             else:
-                return (False, False, "fal timeout")
+                return (False, False, f"fal timeout after {_budget}s (requested {seconds}s)")
             res = _rq.get(ru, headers=hdr, timeout=30).json()
             vurl = (res.get("video") or {}).get("url")
             if not vurl:
                 return (False, False, f"fal no video: {str(res)[:120]}")
             open(out_mp4, "wb").write(_rq.get(vurl, timeout=120).content)
+        elif provider == "wan":
+            # Self-hosted Wan 2.2 pod via the local api_server (local_wrapper/api_server.py in the
+            # Wan2.2 repo). Flat ~5s clips (81f) like Kling's 5s tier; server auto-starts the pod,
+            # so the FIRST clip of a batch can take several extra minutes — budget accordingly.
+            import time as _t, requests as _rq
+            base = os.environ.get("WAN_API_URL", "http://127.0.0.1:8787")
+            try:
+                sub = _rq.post(f"{base}/generate", timeout=30,
+                               json={"image_path": os.path.abspath(ref), "prompt": motion,
+                                     "draft": os.environ.get("WAN_DRAFT", "") == "1"})
+            except Exception as e:
+                return (False, False, f"wan api unreachable: {type(e).__name__} (start api_server.py?)")
+            if sub.status_code != 202:
+                return (False, False, f"wan submit {sub.status_code}: {sub.text[:120]}")
+            # Budget covers pod cold-start (~5 min with retries) + render + queueing behind
+            # other clips when I2V_CONCURRENCY > pod count. The api_server requeues infra
+            # failures itself, so "error" here is a real generation failure.
+            _last = ""
+            for _attempt in range(2):                  # a retry costs ~3 cents; a fallback costs the scene
+                if _attempt:
+                    sub = _rq.post(f"{base}/generate", timeout=30,
+                                   json={"image_path": os.path.abspath(ref), "prompt": motion,
+                                         "draft": os.environ.get("WAN_DRAFT", "") == "1"})
+                    if sub.status_code != 202:
+                        return (False, False, f"wan resubmit {sub.status_code}")
+                j = sub.json()
+                waited, budget = 0, 2400
+                while waited < budget:
+                    _t.sleep(10); waited += 10
+                    st = _rq.get(f"{base}{j['status_url']}", timeout=30).json()
+                    if st.get("status") == "done":
+                        open(out_mp4, "wb").write(_rq.get(f"{base}{j['result_url']}", timeout=180).content)
+                        break
+                    if st.get("status") == "error":
+                        _last = f"wan job error: {st.get('error', '?')[:140]}"
+                        break
+                else:
+                    _last = f"wan timeout after {budget}s"
+                if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 0:
+                    break
+            else:
+                return (False, False, _last or "wan failed twice")
         else:
             return (False, False, f"unknown provider '{provider}'")
         ok = os.path.exists(out_mp4) and _clip_is_real(out_mp4)
@@ -2449,10 +2876,40 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             pass
 
 
+_ACTION_BY_TYPE = {
+    # scene_type -> what should visibly CHANGE in this beat when the script didn't author an action
+    "reveal":      "the hidden detail is revealed as the subject changes state",
+    "climax":      "the consequence peaks — the strongest visible change in the whole shot happens now",
+    "payoff":      "the result becomes visible and unmistakable",
+    "escalation":  "the effect intensifies and spreads further than before",
+    "mechanism":   "the parts move against each other so the mechanism is visible in motion",
+    "comparison":  "the difference between the two becomes visible as one of them changes",
+    "hook":        "the strange result is already happening as the shot opens",
+}
+
+
+def _i2v_action(scene: dict) -> str:
+    """Build the ACTION instruction for an i2v clip.
+
+    Prefers the script-authored `action` field (see the scene schema). Without one, derives a movement
+    instruction from scene_type + the image_prompt, because handing a provider a *static scene
+    description* is what made paid clips render as near-stills. Never returns empty."""
+    act = (scene.get("action") or scene.get("i2v_motion") or "").strip()
+    if act:
+        return act[:700]
+    desc = (scene.get("image_prompt") or "").strip()
+    hint = _ACTION_BY_TYPE.get((scene.get("scene_type") or "").lower().strip(), "")
+    if not hint:
+        subj = (scene.get("subject") or "the subject").strip()
+        hint = f"{subj} moves and the described effect visibly progresses"
+    return (f"{hint}. Scene: {desc}" if desc else hint)[:700]
+
+
 def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
                   cost_sink: list | None = None, seconds: int = I2V_SECONDS,
                   err_sink: list | None = None, exhausted: set | None = None,
-                  fal_model: str | None = None, rate: float | None = None) -> str | None:
+                  fal_model: str | None = None, rate: float | None = None,
+                  motion_style: str = "action", negative: str | None = None) -> str | None:
     """Generate a subtle image-to-video clip, trying the provider chain (_I2V_CHAIN, e.g.
     veo→sora) in order. When a provider hits quota it's added to `exhausted` so the rest of the
     run skips straight to the next provider. Returns the clip path, or None if EVERY provider
@@ -2461,7 +2918,8 @@ def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
         if exhausted is not None and provider in exhausted:
             continue
         ok, quota, err = _animate_one(provider, image_path, prompt, out_mp4, vw, vh, seconds,
-                                      fal_model=fal_model)
+                                      fal_model=fal_model, motion_style=motion_style,
+                                      negative=negative)
         if ok:
             if cost_sink is not None:
                 cost_sink.append(round(seconds * (rate if rate is not None else _RATE_I2V_SEC), 4))
@@ -2483,6 +2941,8 @@ def _make_scene_segment(
     text_sub: str,
     motion: str = "kenburns_in",
     tail: float = 0.0,
+    tail_fill: str | None = None,      # override TAIL_FILL for this scene
+    tail_image: str | None = None,     # second still, used when tail_fill == "image"
     text_meta: dict | None = None,
     style_mode: str = "educational",
     vw: int = 1920,
@@ -2507,11 +2967,45 @@ def _make_scene_segment(
     # identical. If a real image-to-video clip (Veo) is supplied use it as the moving
     # background; otherwise ffmpeg Ken-Burns on the still.
     if motion_video and os.path.exists(motion_video):
-        # Already video — no supersample needed. stream_loop guards a clip shorter than dur
-        # (we trim to dur at output); -an-equivalent: we never map the clip's audio.
-        inputs = ["-stream_loop", "-1", "-i", motion_video]
-        bg_chain = (f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
-                    f"crop={vw}:{vh},fps={fps},setsar=1")
+        # The clip is shorter than the scene; TAIL_FILL decides what covers the difference. See the
+        # note on TAIL_FILL for what each mode costs the viewer.
+        mode = (tail_fill or TAIL_FILL)
+        clip_s = _clip_dur(motion_video)
+        needs_tail = clip_s + 0.05 < dur
+        if mode == "image" and needs_tail and tail_image and os.path.exists(tail_image):
+            # clip plays out in full, then a hard cut to a second still for the remainder
+            tail_s = max(0.30, dur - clip_s)
+            tframes = max(1, int(tail_s * fps))
+            tz, tx, ty = _motion(motion, tframes)
+            SS = 2; cw, ch = vw * SS, vh * SS
+            inputs = ["-i", motion_video, "-loop", "1", "-i", tail_image]
+            bg_chain = None
+            pre = (f"[0:v]scale={vw}:{vh}:force_original_aspect_ratio=increase,crop={vw}:{vh},"
+                   f"fps={fps},trim=duration={clip_s:.3f},setpts=PTS-STARTPTS,setsar=1[m0];"
+                   f"[1:v]scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch},"
+                   f"zoompan=z='{tz}':x='{tx}':y='{ty}':d={tframes}:s={vw}x{vh}:fps={fps},"
+                   f"trim=duration={tail_s:.3f},setpts=PTS-STARTPTS,setsar=1[m1];"
+                   f"[m0][m1]concat=n=2:v=1:a=0")
+        else:
+            if mode == "image" and needs_tail:
+                # Asked for an image tail and none was supplied. Falling through to freeze here
+                # would silently pick the WORST option -- the exact failure this setting exists to
+                # stop -- so say so and use a loop instead.
+                print(f"    [tail] no tail image for {os.path.basename(output_path)}; "
+                      f"{dur - clip_s:.1f}s to cover -> falling back to loop", flush=True)
+                mode = "loop"
+            if mode == "pingpong":
+                src, loop = _pingpong(motion_video), ["-stream_loop", "-1"]
+            elif mode == "loop":
+                src, loop = motion_video, ["-stream_loop", "-1"]
+            else:                                   # "freeze", or a clip that already coversit
+                src, loop = motion_video, []
+            inputs = loop + ["-i", src]
+            pad = "" if loop else f"tpad=stop_mode=clone:stop_duration={max(0.0, dur-clip_s)+0.5:.3f},"
+            pre = None
+            bg_chain = (f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
+                        f"crop={vw}:{vh},fps={fps},{pad}trim=duration={dur:.3f},"
+                        f"setpts=PTS-STARTPTS,setsar=1")
     else:
         n_frames = max(1, int(dur * fps))
         z_expr, x_expr, y_expr = _motion(motion, n_frames)
@@ -2535,7 +3029,9 @@ def _make_scene_segment(
     want_headline = captions in ("headline", "headline_karaoke")
     want_phrases  = bool(captions in ("karaoke", "bubble", "headline_karaoke") and word_times)
 
-    parts = [f"[0:v]{bg_chain}[v0]"]
+    # When the tail is a second image the background is a two-input concat built above, so the
+    # chain is already complete and just needs its output label.
+    parts = [f"{pre}[v0]"] if bg_chain is None else [f"[0:v]{bg_chain}[v0]"]
     prev, nidx = "v0", 1
 
     if want_headline:
@@ -2598,12 +3094,51 @@ def _xfade_concat(videos: list[str], durations: list[float], out: str, tmp_dir: 
     ], timeout=600.0)
 
 
+
+def _clip_dur(path: str) -> float:
+    """Seconds of a generated clip. Needed to size the tail, so it must be measured, not assumed --
+    fal returns 5.04s for a '5' request and the rounding is what the tail has to absorb."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "csv=p=0", path], capture_output=True, text=True).stdout.strip()
+        return float(out)
+    except Exception:
+        return 0.0
+
+
+def _pingpong(clip: str) -> str:
+    """clip + reversed(clip) -> a file that loops seamlessly.
+
+    The join is seamless at BOTH ends by construction: the forward pass ends on the last frame and
+    the reverse pass begins on it, and the reverse pass ends on the first frame, which is where the
+    next loop starts. So -stream_loop produces continuous motion with no jump-cut, which is what
+    both -stream_loop alone and tpad=clone failed to do.
+
+    Cached beside the source clip: it is deterministic, so it is built once.
+    """
+    out = os.path.splitext(clip)[0] + ".pp.mp4"
+    if os.path.exists(out) and os.path.getsize(out) > 10000:
+        return out
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", clip,
+             "-filter_complex",
+             "[0:v]split=2[f][b];[b]reverse,trim=start_frame=1[r];[f][r]concat=n=2:v=1[v]",
+             "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+             "-pix_fmt", "yuv420p", out],
+            check=True, capture_output=True)
+        return out
+    except Exception:
+        return clip            # a failed ping-pong must not lose the scene; fall back to the clip
+
 def _assemble(
     scene_videos: list[str],
     scene_audios: list[str],
     output_path: str,
     tmp_dir: str,
     bg_music_path: str | None = None,
+    sfx_path: str | None = None,
+    hard_cuts: bool = False,
 ) -> None:
     n = len(scene_videos)
     durations = [_audio_dur(a) for a in scene_audios]   # narration-only durations
@@ -2616,6 +3151,16 @@ def _assemble(
     # so the offset math is identical at both levels.
     if n == 1:
         concat_video = scene_videos[0]
+    elif hard_cuts:
+        # HARD CUTS (Shorts). Stream-copy concat: no re-encode, no dissolve, exact segment boundaries.
+        # Each segment is already (narration + SOCIAL_TAIL) long, so total = sum(narration) + n*tail.
+        concat_video = os.path.join(tmp_dir, "_concat_video.mp4")
+        vlist = os.path.join(tmp_dir, "_video_list.txt")
+        with open(vlist, "w") as f:
+            for v in scene_videos:
+                f.write(f"file '{v}'\n")
+        _run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", vlist,
+                     "-c", "copy", concat_video], timeout=600.0)
     else:
         BATCH = 20
         if n <= BATCH:
@@ -2647,18 +3192,31 @@ def _assemble(
         concat_audio,
     ], timeout=180.0)
 
-    # 3. Optional BG music mix
-    if bg_music_path and os.path.exists(bg_music_path):
+    # 3. Music + SFX mix, with REAL ducking.
+    #    Was: a static "volume=0.10" pad, and in practice no music at all because app.py never set
+    #    bg_music_path — every Short shipped as narration on silence. Now the narration KEYS a
+    #    sidechain compressor on the music, so the bed dips under speech and lifts in the gaps, and an
+    #    optional SFX track (riser into the peak, impact on payoffs) is mixed in. See audio_bed.py.
+    has_music = bool(bg_music_path and os.path.exists(bg_music_path))
+    has_sfx = bool(sfx_path and os.path.exists(sfx_path))
+    if has_music or has_sfx:
+        import audio_bed
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
-        _run_ffmpeg([
-            "ffmpeg", "-y",
-            "-i", concat_audio,
-            "-stream_loop", "-1", "-i", bg_music_path,
-            "-filter_complex",
-            "[0:a]volume=1.0[vo];[1:a]volume=0.10[bg];[vo][bg]amix=inputs=2:duration=first[mix]",
-            "-map", "[mix]", "-c:a", "libmp3lame",
-            mixed,
-        ], timeout=180.0)
+        cmd = ["ffmpeg", "-y", "-i", concat_audio]
+        if has_music:
+            cmd += ["-stream_loop", "-1", "-i", bg_music_path]
+        if has_sfx:
+            cmd += ["-i", sfx_path]
+        if has_music:
+            graph = audio_bed.music_filter_graph(has_sfx, mood=audio_bed.mood_of_path(bg_music_path))
+        else:                                   # SFX-only: narration + cues, no bed to duck
+            # aformat on BOTH inputs: without it amix inherited the mono narration layout and the
+            # whole short shipped mono (caught by ffprobe on the v2 render: channels=1).
+            graph = ("[0:a]aformat=channel_layouts=stereo[vo];"
+                     "[1:a]aformat=channel_layouts=stereo[sx];"
+                     "[vo][sx]amix=inputs=2:duration=first:normalize=0[mix]")
+        cmd += ["-filter_complex", graph, "-map", "[mix]", "-c:a", "libmp3lame", mixed]
+        _run_ffmpeg(cmd, timeout=240.0)
         final_audio = mixed
     else:
         final_audio = concat_audio
@@ -2768,7 +3326,25 @@ _SHORT_GRADE_WEIGHTS = {"first_second_hook": 3, "story_coherence": 2, "conceit_c
                         "rewatch_potential": 1, "visual_surprise": 1, "bolt_activity": 1}
 
 
-def grade_short(script: dict, cost_sink: list | None = None):
+def _short_grade_weights(story_format: str = "") -> dict:
+    """Weights for the social grader, adjusted for the running format.
+
+    A format that supplies its own spine (evidence_led_short) skips enforce_conceit, so
+    `conceit_consistency` is scoring a pass that never ran. Left at weight 2 it drags the overall
+    below _SHORT_GATE_PASS and triggers regeneration for failing to do something we deliberately
+    disabled. Its weight moves to story_coherence, which is what the structure actually claims."""
+    try:
+        fmt = story_engine.get(story_format) if story_format else None
+    except Exception:
+        fmt = None
+    if fmt is None or not fmt.skip_conceit:
+        return dict(_SHORT_GRADE_WEIGHTS)
+    w = dict(_SHORT_GRADE_WEIGHTS)
+    w["story_coherence"] = w.get("story_coherence", 2) + w.pop("conceit_consistency", 0)
+    return w
+
+
+def grade_short(script: dict, cost_sink: list | None = None, story_format: str = ""):
     """Ruthless self-grade of a social-short SCRIPT against the short-form checklist.
     Returns {'scores':{...}, 'overall':int, 'notes':str} or None (best-effort)."""
     scenes = script.get("scenes", [])
@@ -2833,8 +3409,9 @@ def grade_short(script: dict, cost_sink: list | None = None):
         if not (isinstance(o, dict) and isinstance(o.get("scores"), dict)):
             return None
         sc = o["scores"]
-        wsum = sum(_SHORT_GRADE_WEIGHTS.values())
-        tot = sum(_SHORT_GRADE_WEIGHTS.get(k, 1) * int(sc.get(k, 0) or 0) for k in _SHORT_GRADE_KEYS)
+        _w = _short_grade_weights(story_format)
+        wsum = sum(_w.values())
+        tot = sum(_w.get(k, 0) * int(sc.get(k, 0) or 0) for k in _SHORT_GRADE_KEYS if k in _w)
         o["overall"] = round(100 * tot / (10 * wsum))   # retention-weighted; overrides model's number
         # HARD veto: a short that poses two competing questions / opens answer-first / is incoherent
         # (story_coherence<=4) CANNOT pass the gate, no matter how strong its hook/visuals — cap it
@@ -3046,6 +3623,267 @@ _CURIOSITY_SYSTEM = (
 )
 
 
+
+_TOPIC_STOP = {
+    "what","if","you","your","the","a","an","is","are","was","were","do","does","did","how","why",
+    "when","where","which","who","every","each","all","of","on","in","to","for","from","with","and",
+    "or","but","it","its","this","that","these","those","would","could","will","can","happens",
+    "happen","really","actually","single","one","1","percent","%","shorts","short","all","any",
+    "get","got","make","made","take","took","goes","go","not","never","cannot",
+}
+
+
+def _topic_stem(w: str) -> str:
+    """Crude suffix strip so planet/planets and lose/loses collapse together. A real stemmer is
+    overkill here -- we only need plural and simple verb agreement to stop counting as different.
+
+    Named `_topic_stem`, not `_stem`: there is a SECOND module-level `_stem` further down (the
+    YouTube-relevance stemmer) that was defined after this one and silently shadowed it, so every
+    edit to the function documented here did nothing and topic_key ran on the other stemmer. Two
+    module-level defs of one name is a trap regardless of which behaviour you want; the two callers
+    now name the one they mean."""
+    for suf in ("ing", "ies", "es", "ed", "s"):
+        if len(w) > 4 and w.endswith(suf):
+            return w[: -len(suf)] + ("y" if suf == "ies" else "")
+    return w
+
+
+def topic_key(question: str) -> str:
+    """Normalised SUBJECT key for near-duplicate detection.
+
+    Exact lowercase matching was the only dedupe, so "What If You Lost 1% of Your Water Every Day?"
+    and "Every Water Source Loses 1% a Day" both survived — different strings, same video. Stripping
+    the interrogative frame and the stopwords leaves the subject nouns; sorting them makes word order
+    irrelevant.
+    """
+    import re
+    words = re.findall(r"[a-z0-9]+", (question or "").lower())
+    core = sorted({_topic_stem(w) for w in words if w not in _TOPIC_STOP and len(w) > 2})
+    return " ".join(core)
+
+
+def _key_near_duplicate(k: str, existing_keys: set) -> bool:
+    """The comparison half of is_near_duplicate, on an ALREADY-NORMALISED key.
+
+    Split out because the mould lane compares SUBJECT keys (a mould's frame words stripped off both
+    sides) rather than whole-title keys, and re-running topic_key over an already-stemmed token
+    string would stem twice."""
+    if not k:
+        return False
+    if k in existing_keys:
+        return True
+    kw = set(k.split())
+    if not kw:
+        return False
+    for ek in existing_keys:
+        ew = set(ek.split())
+        if not ew:
+            continue
+        # 0.60, not 0.70: the real pair that motivated this -- "What If You Lost 1% of Your Water
+        # Every Day" vs "Every Water Source Loses 1% a Day" -- scores 0.667. A stricter bar let the
+        # exact duplicate this whole function exists to catch pass straight through.
+        overlap = len(kw & ew) / max(1, min(len(kw), len(ew)))
+        if overlap >= 0.60:
+            return True
+    return False
+
+
+def is_near_duplicate(question: str, existing_keys: set) -> bool:
+    """True when the candidate shares its subject key, or overlaps >=60% of subject words, with
+    anything already generated. The overlap arm catches 'drop your phone on every planet' against
+    'drop a phone on all the planets' where one stray word changes the exact key."""
+    return _key_near_duplicate(topic_key(question), existing_keys)
+
+
+# --- measured performance from this channel, fed into topic generation --------------------------
+# The topic prompts previously received nothing from our own results: a market-proven quiz scored
+# identically to a market-average simulation despite quizzes running at a third of the retention.
+#
+# Grouped by MOULD, not by template. Template grouping proved unstable -- "Why Earth Is
+# Suspiciously Perfect For Life" (65.5%) reads as an explainer by title syntax and as a what-if by
+# structure, and moving that one video flips the ranking of two of the three templates. The mould is
+# what actually repeats.
+# `template` here is a metrics_import.classify() RETENTION label — the bucket this mould's videos
+# were counted in when the numbers were measured. It is NOT a generation-lane selector: three of
+# these five carry template="simulation" while their proven titles do not trigger
+# _is_simulation_short() at all, so routing a video by this field lands it in the climbing-number
+# sim beat map with an EMPTY authoritative-number ladder. Use short_template_for() for routing.
+#
+# `frame` is the mould's skeleton — the words every faithful instantiation SHARES. It is data, not
+# derivable: a faithful subject swap keeps the frame and changes everything else, so measuring
+# duplicate-overlap across the frame flagged on-brief titles ("Drop an Egg on Every Planet" vs the
+# proven "Drop Your Phone on Every Planet", 0.667) as duplicates of the very mould they instantiate.
+# Stripping it leaves the SUBJECT, which is the only thing that should decide "same video twice".
+MOULDS = {
+    "object_every_planet":    {"stayed": 51.2, "template": "simulation",
+                               "shape": "one concrete object subjected to every planet in turn",
+                               "frame": "every planet",
+                               "proven": "Drop Your Phone on Every Planet"},
+    "one_percent_daily":      {"stayed": 56.0, "template": "simulation",
+                               "shape": "a small recurring loss compounding over time",
+                               "frame": "lost 1% a day",
+                               "proven": "What If Every Water Source Lost 1% a Day"},
+    "suspicious_coincidence": {"stayed": 65.5, "template": "explainer",
+                               "shape": "a familiar thing is improbably well-suited; why",
+                               "frame": "suspiciously perfect",
+                               "proven": "Why Earth Is Suspiciously Perfect For Life"},
+    "depth_escalation":       {"stayed": 42.3, "template": "simulation",
+                               "shape": "push one variable until a body fails, in named stages",
+                               "frame": "how deep before crushes",
+                               "proven": "How Deep Before the Ocean Crushes You"},
+    "older_than_expected":    {"stayed": 37.2, "template": "explainer",
+                               "shape": "a familiar thing predates something you assume is older",
+                               "frame": "older than",
+                               "proven": "Why Sharks Are Older Than Trees"},
+}
+
+
+def _mould_subject_key(question: str, mould_key: str) -> str:
+    """The tokens a title adds to its mould's frame — i.e. its SUBJECT, the only part a faithful
+    instantiation changes. '' when the title is nothing but the frame (the model reworded the
+    proven title instead of swapping its subject), which is the one case the mould lane must reject.
+    """
+    m = MOULDS.get(mould_key) or {}
+    frame = set(topic_key(m.get("frame") or "").split())
+    return " ".join(sorted(set(topic_key(question).split()) - frame))
+
+
+def dedupe_state(existing: list | None = None) -> dict:
+    """Opaque state for near-duplicate detection that understands MOULD FRAMES, seeded with the
+    already-used questions in `existing`.
+
+    One implementation for both callers. generate_mould_topics filters its own batch and app's
+    _mix_topics filters ACROSS the two generators, and when the second one used the frame-blind
+    is_near_duplicate it silently undid the first: two faithful instantiations of one mould ("...Every
+    Forest Lost 1% a Day" and "...Every Ocean Lost 1% a Day") share the frame, score 0.667 on whole
+    titles, and the mix layer threw the second away after the generator had correctly kept it.
+    """
+    ex = [x for x in (existing or []) if _s(x).strip()]
+    return {"whole": {topic_key(x) for x in ex} - {""},
+            # Per mould, because the frame stripped off differs per mould — one shared set would be
+            # comparing subjects measured against different skeletons.
+            "subj": {k: {_mould_subject_key(x, k) for x in ex} - {""} for k in MOULDS}}
+
+
+def dedupe_is_dup(state: dict, question: str, mould: str = "") -> bool:
+    """True when `question` is the same video as something already in `state`.
+
+    With a known mould we compare SUBJECTS (frame stripped from both sides), because every faithful
+    instantiation shares the frame by construction; an empty subject means the title IS the frame,
+    i.e. the model reworded the proven video instead of swapping its subject. Without a mould there
+    is no frame to strip and the whole title is the subject."""
+    if mould in MOULDS:
+        subj = _mould_subject_key(question, mould)
+        return (not subj) or _key_near_duplicate(subj, state.get("subj", {}).get(mould, set()))
+    return _key_near_duplicate(topic_key(question), state.get("whole") or set())
+
+
+def dedupe_add(state: dict, question: str) -> None:
+    """Record an accepted question. Indexed under EVERY mould's frame as well as whole — a subject
+    taken by one lane is taken for all of them, whichever lane produced it."""
+    k = topic_key(question)
+    if k:
+        state.setdefault("whole", set()).add(k)
+    for mk in MOULDS:
+        s = _mould_subject_key(question, mk)
+        if s:
+            state.setdefault("subj", {}).setdefault(mk, set()).add(s)
+
+
+def short_template_for(question: str) -> str:
+    """The GENERATION LANE a title would actually be produced in, in generate_script's vocabulary.
+
+    "simulation" ONLY when the sim lane can also be handed authoritative numbers: _SIM_SOCIAL_BLOCK
+    demands "a LADDER OF CLIMBING CHECKPOINTS on an accelerating clock" and tells the model it is
+    "unreliable at this arithmetic", so forcing that block onto a title _sim_ladder_block() cannot
+    parse ("Drop Your Phone on Every Planet" — no clock, no number) asks the model for exactly the
+    numbers the prompt says it will get wrong. generate_simulation_topics already refuses to suggest
+    such a title; this is the same guarantee for the mould lane and for the dashboard's dropdown.
+    """
+    try:
+        if _is_simulation_short(question) and _sim_ladder_block(question):
+            return "simulation"
+    except Exception:
+        pass
+    return "explainer"
+
+
+def _channel_metrics() -> list:
+    """Imported YouTube numbers, if any. Never raises -- topic generation must work with an empty
+    metrics table, which is the state every fresh install is in."""
+    try:
+        import db
+        rows = db.metrics_all() or []
+        if rows:
+            return rows
+    except Exception:
+        pass
+    # The DB is optional (no DATABASE_URL on a local run), and the JSON mirror is then the only
+    # store the CSV importer wrote to. Without this fallback the measured numbers silently vanish
+    # from the prompt and we would be back to market data alone.
+    for path in ("finished_videos/video_metrics.json", "renders/video_metrics.json"):
+        try:
+            with open(path) as fh:
+                rows = json.load(fh)
+            if rows:
+                return rows
+        except Exception:
+            continue
+    return []
+
+
+def _row_template(r: dict) -> str:
+    """The lane bucket a MEASURED row belongs to. One keying for every consumer of the numbers
+    (performance_block's prompt text and _channel_fit_table's score), classified from the title so a
+    candidate — which has only a title — can be keyed the identical way."""
+    t = _s(r.get("title")).strip()
+    if t:
+        try:
+            import metrics_import
+            return metrics_import.classify(t)
+        except Exception:
+            pass
+    return _s(r.get("template")).strip().lower() or "explainer"
+
+
+def performance_block(rows: list | None = None) -> str:
+    """Compose the channel-results section injected into both topic system prompts.
+
+    Falls back to the mould table alone when no metrics have been imported, so the prompt is never
+    malformed and never asserts numbers we do not have."""
+    lines = ["", "THIS CHANNEL'S MEASURED RESULTS (stayed-to-watch, view-weighted).",
+             "These are OUR numbers, not market estimates. Weight them above novelty:"]
+    if rows:
+        agg = {}
+        for r in rows:
+            # classify(title) first, stored column only as the fallback for a title-less row — the
+            # same keying _channel_fit_table() uses. The stored column disagrees on 3 of 31 live
+            # rows and they are the big ones (57% of the "explainer" bucket's views are "What If ..."
+            # titles), so grouping the PROMPT one way and the SCORE another told the model one thing
+            # about a lane while the opportunity formula believed another.
+            t = _row_template(r)
+            v, st = (r.get("views") or 0), r.get("stayed_pct")
+            if st is None or not v:
+                continue
+            a = agg.setdefault(t, [0.0, 0])
+            a[0] += float(st) * v
+            a[1] += v
+        for t, (num, den) in sorted(agg.items(), key=lambda kv: -(kv[1][0] / max(1, kv[1][1]))):
+            pct = num / den if den else 0
+            note = "  <- do NOT propose these" if pct < 25 else ""
+            lines.append(f"  {t:12s} {pct:4.1f}%{note}")
+    lines.append("")
+    lines.append("PROVEN MOULDS, best first. Prefer instantiating one of these with a FRESH concrete")
+    lines.append("subject over inventing a new shape:")
+    for name, m in sorted(MOULDS.items(), key=lambda kv: -kv[1]["stayed"]):
+        lines.append(f"  [{name}] {m['stayed']:.0f}% - {m['shape']}  (proven: \"{m['proven']}\")")
+    lines.append("")
+    lines.append("A mould is instantiated by swapping the SUBJECT, never by rewording the title.")
+    lines.append("\"Drop a phone on every planet\" and \"Light a match on every planet\" are two good")
+    lines.append("videos. \"Drop a phone on all the planets\" is the same video twice - never do that.")
+    return "\n".join(lines)
+
+
 def generate_curiosity_topics(niche: str = "science, technology & history explainers",
                               n: int = 14, min_score: int = 8,
                               cost_sink: list | None = None,
@@ -3056,11 +3894,16 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
     `exclude` = questions already used/published (from the DB) — the model is told to avoid these
     AND any close paraphrase, and we hard-filter the output against them, so the 12h refresh stops
     resurfacing topics that already became videos."""
+    # Our own measured results, ahead of the market data the rest of the prompt carries.
+    try:
+        _perf = performance_block(_channel_metrics())
+    except Exception:
+        _perf = ""
     excl = [(_s(e)).strip() for e in (exclude or []) if _s(e).strip()]
     excl_block = ""
     if excl:
         excl_block = ("\n\nDO NOT propose any of these already-covered questions or a close "
-                      "paraphrase / same-subject angle of them:\n- " + "\n- ".join(excl[:60]))
+                      "paraphrase / same-subject angle of them:\n- " + "\n- ".join(excl[:140]))
     prompt = (f"Niche: {niche}.\nGenerate {max(n * 2, 24)} candidate video questions, then grade "
               "each. Strongly favour SPECIFIC, weird, high-stakes, curiosity-gap angles; AVOID "
               "generic 'how does X work' / 'what is X'. Vary subjects widely. Return the JSON."
@@ -3068,7 +3911,7 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
     try:
         r = _claude().messages.create(
             model="claude-opus-4-8", max_tokens=3500,
-            system=_CURIOSITY_SYSTEM,
+            system=(_CURIOSITY_SYSTEM + _perf),
             messages=[{"role": "user", "content": prompt}],
         )
         if cost_sink is not None:
@@ -3082,7 +3925,16 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
         out = [q for q in out if q["curiosity_gap"] >= min_score]
         if excl:                                   # hard-filter any exact/near-duplicate that slipped through
             _seen = {e.lower() for e in excl}
-            out = [q for q in out if q["question"].lower() not in _seen]
+            # Exact-string matching let paraphrases straight through ("What If You Lost 1% of
+            # Your Water Every Day" vs "Every Water Source Loses 1% a Day"). Reject on subject key.
+            _keys = {topic_key(x) for x in (exclude or [])}
+            _kept = []
+            for q in out:
+                if q["question"].lower() in _seen or is_near_duplicate(q["question"], _keys):
+                    continue
+                _keys.add(topic_key(q["question"]))     # also dedupe WITHIN this batch
+                _kept.append(q)
+            out = _kept
         out.sort(key=lambda q: -q["curiosity_gap"])
         return out[:n]
     except Exception:
@@ -3130,15 +3982,20 @@ def generate_simulation_topics(n: int = 10, min_score: int = 8, cost_sink: list 
     every surfaced title must trigger `_is_simulation_short` AND yield a non-empty `_sim_ladder_block`
     (a parseable linear rate). This guarantees the dashboard never suggests a title that would render
     with wrong/uncomputable numbers (the whole point of the math engine)."""
+    # Our own measured results, ahead of the market data the rest of the prompt carries.
+    try:
+        _perf = performance_block(_channel_metrics())
+    except Exception:
+        _perf = ""
     excl = [(_s(e)).strip() for e in (exclude or []) if _s(e).strip()]
     excl_block = ("\n\nDO NOT propose any of these already-covered titles or a close paraphrase:\n- "
-                  + "\n- ".join(excl[:60])) if excl else ""
+                  + "\n- ".join(excl[:140])) if excl else ""
     prompt = (f"Generate {max(n * 2, 20)} candidate simulation-short titles, then grade each. Vary the "
               "measured dimension widely (height, weight, speed, size, IQ, temperature, age, money, "
               "loudness). Return the JSON." + excl_block)
     try:
         r = _claude().messages.create(model="claude-opus-4-8", max_tokens=3500,
-                                      system=_SIM_TOPIC_SYSTEM,
+                                      system=(_SIM_TOPIC_SYSTEM + _perf),
                                       messages=[{"role": "user", "content": prompt}])
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
@@ -3153,8 +4010,161 @@ def generate_simulation_topics(n: int = 10, min_score: int = 8, cost_sink: list 
         out = [q for q in out if _is_simulation_short(q["question"]) and _sim_ladder_block(q["question"])]
         if excl:
             _seen = {e.lower() for e in excl}
-            out = [q for q in out if q["question"].lower() not in _seen]
+            # Exact-string matching let paraphrases straight through ("What If You Lost 1% of
+            # Your Water Every Day" vs "Every Water Source Loses 1% a Day"). Reject on subject key.
+            _keys = {topic_key(x) for x in (exclude or [])}
+            _kept = []
+            for q in out:
+                if q["question"].lower() in _seen or is_near_duplicate(q["question"], _keys):
+                    continue
+                _keys.add(topic_key(q["question"]))     # also dedupe WITHIN this batch
+                _kept.append(q)
+            out = _kept
         out.sort(key=lambda q: -q["curiosity_gap"])
+        return out[:n]
+    except Exception:
+        return []
+
+
+_MOULD_SYSTEM = (
+    "You are a YouTube SHORTS packaging strategist. You do NOT invent new video shapes — you "
+    "INSTANTIATE proven ones. A mould is a shape that already worked on this channel; you are handed "
+    "the mould and you supply a FRESH CONCRETE SUBJECT for it.\n"
+    "THE ONE RULE: swap the SUBJECT, never reword the title. 'Drop a phone on every planet' and "
+    "'Light a match on every planet' are two different videos and both are good. 'Drop a phone on all "
+    "the planets' is the same video twice and is worth nothing.\n"
+    "For each mould you are asked for N titles: give N DIFFERENT subjects, each VISUALLY distinct from "
+    "the others, each with a real physical/biological/historical payoff the numbers actually support — "
+    "no fantasy, no invented science. Vary the subject domain hard across the batch (household objects, "
+    "the body, food, animals, weather, machines, money, buildings, history).\n"
+    "Score each 0-10 on curiosity_gap (SPECIFIC + forced open loop + STAKES + FRESH). Be a harsh "
+    "grader: a tired subject in a proven mould is still a tired video.\n"
+    "Return ONLY JSON: {\"questions\":[{\"mould\":\"<the exact mould key you were given>\",\"question\":"
+    "\"<the title>\",\"curiosity_gap\":int,\"why\":\"the subject swap + the real payoff in one short "
+    "phrase\"}]}."
+)
+
+
+def _mould_slots(n: int) -> list:
+    """Split n topic slots across MOULDS in proportion to each mould's measured stayed-to-watch,
+    best mould first. Returns [(mould_key, count), ...] omitting moulds that got nothing.
+
+    Largest-remainder, computed HERE rather than asked of the model, so the counts always sum to
+    exactly n and the same n always yields the same split — the mix is a fact you can print and
+    assert on, not something the model decided that batch. Moulds that round to zero simply sit out
+    (at n=2 only the two best moulds run, which is what you want when slots are scarce).
+    """
+    n = max(0, int(n or 0))
+    if not n:
+        return []
+    total = sum(m["stayed"] for m in MOULDS.values()) or 1.0
+    exact  = {k: n * m["stayed"] / total for k, m in MOULDS.items()}
+    counts = {k: int(v) for k, v in exact.items()}
+    # Leftover slots go to the biggest fractional remainders; ties broken by measured rate then key
+    # so the split never depends on dict-iteration luck.
+    left  = n - sum(counts.values())
+    order = sorted(exact, key=lambda k: (-(exact[k] - counts[k]), -MOULDS[k]["stayed"], k))
+    for k in order[:max(0, left)]:
+        counts[k] += 1
+    return [(k, c) for k, c in sorted(counts.items(),
+                                      key=lambda kv: (-MOULDS[kv[0]]["stayed"], kv[0])) if c]
+
+
+def generate_mould_topics(n: int = 10, min_score: int = 8, cost_sink: list | None = None,
+                          exclude: list | None = None, niche: str = "") -> list[dict]:
+    """Instantiate the PROVEN MOULDS with fresh concrete subjects. Same output shape as the other two
+    generators ({question, curiosity_gap, why}) so it flows through validation/dashboard/db unchanged,
+    plus {mould, mould_stayed, short_template} — `short_template` is the GENERATION LANE, computed per
+    TITLE by short_template_for(), never copied from MOULDS[...]["template"] (that is a retention
+    label and stamping it as a lane routed ladderless titles into the climbing-number sim prompt).
+    Best-effort ([] on fail).
+
+    Why a third generator: the other two ask for NEW shapes and get a fresh gamble every time, while
+    the five moulds are the only things on this channel that have repeated. This one spends the batch
+    on the shapes we have already measured and varies only the subject.
+    """
+    slots = _mould_slots(n)
+    if not slots:
+        return []
+    # Our own measured results, ahead of the market data the rest of the prompt carries.
+    try:
+        _perf = performance_block(_channel_metrics())
+    except Exception:
+        _perf = ""
+    excl = [(_s(e)).strip() for e in (exclude or []) if _s(e).strip()]
+    excl_block = ("\n\nDO NOT propose any of these already-covered titles or a close paraphrase / "
+                  "same-subject angle of them:\n- " + "\n- ".join(excl[:140])) if excl else ""
+    ask = []
+    for key, k in slots:
+        m = MOULDS[key]
+        # Ask for 2x the slots: the near-duplicate filter below genuinely throws output away, and a
+        # mould that came back short would otherwise silently forfeit its share to nothing.
+        ask.append(f'[{key}] give {k * 2} titles — shape: {m["shape"]}; proven example, do NOT reuse '
+                   f'its subject: "{m["proven"]}"')
+    prompt = ((f"Niche: {niche}.\n" if _s(niche).strip() else "")
+              + "Instantiate each mould below with fresh concrete subjects, then grade each title. "
+                "Put the EXACT mould key in the `mould` field. Return the JSON.\n\n"
+              + "\n".join(ask) + excl_block)
+    try:
+        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=3500,
+                                      system=(_MOULD_SYSTEM + _perf),
+                                      messages=[{"role": "user", "content": prompt}])
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(r.usage))
+        data, _ = _parse_script_json(r.content[0].text)
+        qs = data.get("questions", []) if isinstance(data, dict) else []
+        cand = []
+        for q in qs:
+            if not isinstance(q, dict):
+                continue
+            key = _s(q.get("mould")).strip().lower()
+            # An unrecognised mould key has no measured prior behind it — that is a fresh invention
+            # wearing the label, not an instantiation. Drop it rather than stamp it with a
+            # `mould_stayed` we never measured (the number is the whole reason this lane exists).
+            if key not in MOULDS or not _s(q.get("question")).strip():
+                continue
+            m = MOULDS[key]
+            title = _s(q.get("question")).strip()
+            cand.append({"question": title,
+                         "curiosity_gap": int(q.get("curiosity_gap", 0) or 0),
+                         "why": _s(q.get("why")).strip(),
+                         "mould": key, "mould_stayed": m["stayed"],
+                         # The lane this exact title can actually be rendered in — NOT m["template"].
+                         "short_template": short_template_for(title)})
+        cand = [q for q in cand if q["curiosity_gap"] >= min_score]
+        # Same exclusion discipline as the other two generators — reject on SUBJECT (not the exact
+        # string) and keep deduping WITHIN the batch — but measured on the mould's SUBJECT KEY, with
+        # the frame stripped from BOTH sides.
+        #
+        # Comparing whole-title keys here rejected the exact thing _MOULD_SYSTEM asks for. topic_key
+        # leaves ~3 content words, two of which are the frame, so any faithful subject swap scores
+        # 0.667 against its own proven title — over the 0.60 bar. Measured on 15 titles that obeyed
+        # "swap the SUBJECT, never reword the title", 9 were thrown away as duplicates and the two
+        # highest-weighted moulds (one_percent_daily, object_every_planet) returned ZERO, because
+        # their proven titles have only one subject word among their content words. The lane only
+        # ever filled up when the model DISOBEYED its own prompt and reworded instead.
+        #
+        # What the proven titles genuinely protect against still holds, in two guards: a title that
+        # is nothing but the frame has an empty subject key and is dropped, and the proven subjects
+        # seed the key set, so "Drop Your Phone on Every Moon" (proven subject retained, frame word
+        # swapped) still scores 1.0 against {drop, phon} and is rejected.
+        _seen = {e.lower() for e in excl}
+        # The proven titles are already videos on this channel. Without them in the state the model
+        # can hand back "Drop Your Phone on Every Planet" as a brand-new instantiation whenever the
+        # caller's `exclude` is empty (DB down, fresh install).
+        _st = dedupe_state(list(exclude or []) + [m["proven"] for m in MOULDS.values()])
+        cap, taken, out = dict(slots), {}, []
+        for q in sorted(cand, key=lambda q: -q["curiosity_gap"]):
+            if taken.get(q["mould"], 0) >= cap.get(q["mould"], 0):
+                continue                      # this mould's proportional share is already full
+            if q["question"].lower() in _seen or dedupe_is_dup(_st, q["question"], q["mould"]):
+                continue
+            dedupe_add(_st, q["question"])
+            taken[q["mould"]] = taken.get(q["mould"], 0) + 1
+            out.append(q)
+        # Measured prior first, model's own grade only as the tiebreak — the grade is an opinion,
+        # the stayed rate is a number. (validate_topics_youtube re-ranks on opportunity anyway.)
+        out.sort(key=lambda q: (-q["mould_stayed"], -q["curiosity_gap"]))
         return out[:n]
     except Exception:
         return []
@@ -3344,19 +4354,100 @@ def youtube_validation_active() -> bool:
     return bool(YOUTUBE_API_KEY)
 
 
+# --- channel fit: our own retention, alongside the market's demand ------------------------------
+# Every term in the `opportunity` score is COMPETITOR data — it answers "does anyone want this",
+# which is a different question from "can WE hold it". Measured over the 28-day Studio export the
+# second answer differs enormously by template: explainer 47.9%, simulation 43.5%, quiz 16.9%
+# view-weighted stayed-to-watch. A quiz proven for a 5M-sub channel was therefore scoring level with
+# a simulation while retaining barely a third as well, and the trending list kept surfacing them.
+_FIT_MIN_VIEWS = 200      # same bar metrics_import.summarise() uses to call a row "strong"
+
+
+def _channel_fit_table(rows: list | None = None) -> dict:
+    """{template: fit} where fit is that template's view-weighted stayed-to-watch RELATIVE to the
+    channel's overall rate, clamped to [-1, +1]. 0.0 = exactly at par.
+
+    Relative, not absolute, so the term is self-calibrating: it says "this lane holds better/worse
+    than we normally do", never "44% is good". Returns {} — meaning perfectly neutral, every template
+    at par — whenever we cannot say that honestly:
+      * no metrics at all (fresh install, DB down, importer never run)
+      * fewer than two templates with >= _FIT_MIN_VIEWS behind them, since with one template the
+        baseline IS that template and every fit would be 0 anyway
+    Never raises; the opportunity score must survive an empty metrics table unchanged.
+    """
+    try:
+        rows = _channel_metrics() if rows is None else rows
+        if not rows:
+            return {}
+        # Reuse the importer's aggregation rather than restating it — that view-weighting (an average
+        # over videos lets a 41-view fluke outrank a 1,500-view result) is the same computation the
+        # prompts already consume, and two copies of it would drift.
+        import metrics_import
+        # ...but re-key it first. summarise() groups on the STORED `template` column, while a
+        # candidate has no stored template and can only be keyed by classify(title). On the live
+        # table 3 of 31 rows disagree, and they are big ones: 57% of the "explainer" bucket's views
+        # are "What If ..." titles that classify() calls simulation, which moved explainer's fit
+        # credit by 3 opportunity points. Scoring a candidate in one vocabulary and recording its
+        # outcome in another is a feedback loop that never converges, so both sides use classify().
+        # The `title` default is not cosmetic: summarise() builds its best/worst lists with an
+        # unguarded r["title"], so one title-less row used to take the WHOLE fit term to neutral.
+        rows = [dict(r, title=(r.get("title") or ""), template=_row_template(r)) for r in rows]
+        agg = (metrics_import.summarise(rows) or {}).get("by_template") or {}
+    except Exception:
+        return {}
+    try:
+        usable = {(_s(t).strip().lower() or "explainer"): a for t, a in agg.items()
+                  if (a.get("views") or 0) >= _FIT_MIN_VIEWS and a.get("stayed") is not None}
+        if len(usable) < 2:
+            return {}
+        tot_v = sum(a["views"] for a in usable.values())
+        base  = sum(float(a["stayed"]) * a["views"] for a in usable.values()) / max(1, tot_v)
+        if base <= 0:
+            return {}
+        return {t: max(-1.0, min(1.0, (float(a["stayed"]) - base) / base))
+                for t, a in usable.items()}
+    except Exception:
+        return {}
+
+
+def _topic_template(q: dict) -> str:
+    """The bucket a candidate's OUTCOME will be counted in, so the fit lookup can be keyed the same
+    way the measured rates are.
+
+    Always classify(title), never a stamped field. It used to prefer q["template"] when present,
+    which meant a mould topic was scored against the mould's retention label while its finished video
+    would be counted under classify() — three of the five moulds disagree, and each was quietly
+    collecting a fit bonus for a bucket it would never land in. _channel_fit_table() re-keys the
+    metric rows through the same classify() call; both sides must move together or not at all."""
+    try:
+        import metrics_import
+        return metrics_import.classify(_s(q.get("question")))
+    except Exception:
+        return _s(q.get("template")).strip().lower()
+
+
 def validate_topics_youtube(questions: list[dict]) -> list[dict]:
     """Enrich each candidate with real YouTube demand/outlier metrics + an `opportunity`
     score (0-100), then RE-RANK by opportunity (validated first, then by score, curiosity as
     tiebreak). No-op (validated=False on every item) when YOUTUBE_API_KEY is unset or the API
     is unreachable, so topic refresh never breaks. Mutates + returns the list."""
     import math
+    # ONCE per call, not per topic — it hits the DB. Empty dict = no usable metrics = neutral.
+    fit_table = _channel_fit_table()
     if not YOUTUBE_API_KEY:
         for q in questions:
             q.setdefault("validated", False)
+            # Still exposed on the unvalidated path so the dashboard can explain a ranking even
+            # with no YouTube key: this number comes from our own numbers, not the market's.
+            q.setdefault("channel_fit", round(fit_table.get(_topic_template(q), 0.0), 3))
         return questions
     n_ok = 0
     quota_hit = False
     for q in questions:
+        # Stamped BEFORE the market lookup so it survives every early exit below (quota exhausted,
+        # no market data). It comes from our own numbers, not the API's, so there is no path on
+        # which we have a topic and cannot say what its channel fit is.
+        q.setdefault("channel_fit", round(fit_table.get(_topic_template(q), 0.0), 3))
         if quota_hit:
             q["validated"] = False
             continue
@@ -3393,8 +4484,15 @@ def validate_topics_youtube(questions: list[dict]) -> list[dict]:
         # proven, evidence full at rc>=3) BEFORE saturation bites (penalty grows to rc>=10).
         # Previously competition never entered the score, so saturated topics out-ranked untapped.
         saturation = min(1.0, m.get("competition", 0) / 10.0)
+        # CHANNEL FIT: the one term that is OUR data. Added to the competitor terms, never replacing
+        # them — demand and fit are different questions and a topic needs both. +-0.18 caps its swing
+        # at +-18 points, enough to sink a market-proven quiz (16.9% stayed vs explainer 47.9% /
+        # simulation 43.5%) below an equally-proven simulation without letting it overrule demand
+        # outright. Exactly 0.0 until we have >=2 templates with real views of our own, so a fresh
+        # install scores identically to before this term existed.
+        fit = fit_table.get(_topic_template(q), 0.0)
         opp = round(100 * (0.28 * cur + (0.32 * outlier_s + 0.22 * demand_s) * evidence
-                           + 0.10 * recency_s - 0.12 * saturation))
+                           + 0.10 * recency_s - 0.12 * saturation + 0.18 * fit))
         opp = max(0, opp)
         # Decision label for the dashboard. "proven"/"saturated" require REAL demand depth (≥3
         # on-topic videos AND high median) — 1-2 videos is too thin to call proven, so a strong
@@ -3411,6 +4509,9 @@ def validate_topics_youtube(questions: list[dict]) -> list[dict]:
             "competition": m["competition"], "relevant_count": rc,
             "total_results": m.get("total_results", 0), "recency_days": rec,
             "winning_titles": m.get("top_titles", []),
+            # Surfaced so the dashboard can say WHY a topic moved: negative = this lane holds worse
+            # than our channel average, positive = better, 0.0 = no measurement to go on.
+            "channel_fit": round(fit, 3),
         })
     questions.sort(key=lambda q: (q.get("validated", False), q.get("opportunity", -1),
                                   q.get("curiosity_gap", 0)), reverse=True)
@@ -3984,6 +5085,7 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
 
 
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
+                           story_format="",
                            cost_sink=None, log=lambda m: None, operator_direction: str = "") -> dict:
     """Generate a script, engagement-grade it, and ELEVATE a sub-target draft by surgically revising
     its weakest axis (up to `_SCRIPT_GATE_RETRIES` passes), keeping the best-scoring version. Returns
@@ -3992,6 +5094,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     climbs toward the PASS target instead of gambling on a new roll."""
     import copy
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
+                           story_format=story_format,
                            video_format=video_format, series=series, operator_direction=operator_direction)
     best_g = grade_script(best, cost_sink=cost_sink)
     if best_g is not None:
@@ -4041,7 +5144,13 @@ _PREMISE_FILLER = re.compile(
 # ADVISORY — they inform the regen note but don't hard-veto, because grade_short (hook/pacing) and the
 # render-side hook dry-run already cover them, and double-vetoing perma-blocks otherwise-good drafts.
 _PREMISE_VETO_FLAGS = {"answers_generic_question", "payoff_obvious_or_weak",
-                       "no_failed_workaround", "metaphor_over_budget"}
+                       "no_failed_workaround", "metaphor_over_budget",
+                       # over_length was ADVISORY, and that is how a 38s-target Short shipped at 55s:
+                       # the word budget said 102 words / 7 per scene and the script delivered ~145
+                       # (+42%). Runtime is a retention property, not a nitpick — the channel's own
+                       # data has the 37-52s shorts retaining best — so an over-long script now
+                       # forces the existing regeneration loop instead of just printing a warning.
+                       "over_length"}
 
 def build_premise_contract(question, cost_sink=None):
     """Gate -1: turn a Short's title/topic into a binding PremiseContract the script MUST deliver —
@@ -4179,7 +5288,7 @@ def _premise_regen_note(contract, pg):
 
 def generate_graded_short(question, duration_sec, style, image_guidance, series,
                           cost_sink=None, log=lambda m: None, short_template="auto",
-                          operator_direction: str = ""):
+                          operator_direction: str = "", story_format: str = ""):
     """Social gate (the shorts equivalent of generate_graded_script): generate → enforce_conceit →
     grade_short, and regenerate a weak draft (targeting the grader's 'biggest fix') up to
     _SCRIPT_GATE_RETRIES, keeping the best by grade_short overall. Returns (script, short_grade).
@@ -4205,13 +5314,23 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
         cand = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                                video_format="social", series=series, improve_note=note,
                                short_template=short_template, operator_direction=operator_direction,
-                               premise_contract=contract)
-        try:
-            cand, _conceit, _cc = enforce_conceit(cand, question, cost_sink=cost_sink)
-            if _conceit and i == 0:
-                log(f"Central conceit enforced: {_conceit}")
-        except Exception:
+                               premise_contract=contract, story_format=story_format)
+        # The conceit engine rewrites ALL narration around a single framing metaphor. That is a
+        # competing SPINE, not a complement: run it over an evidence-led short and you get a script
+        # that is neither, because the metaphor pass will happily dissolve the false belief the
+        # reversal needs. Skip it for any format that declares skip_conceit.
+        _sfmt = story_engine.get(story_format) if story_format else None
+        if _sfmt is not None and _sfmt.skip_conceit:
             _conceit = ""
+            if i == 0:
+                log(f"Conceit pass skipped ({_sfmt.name} supplies its own spine)")
+        else:
+            try:
+                cand, _conceit, _cc = enforce_conceit(cand, question, cost_sink=cost_sink)
+                if _conceit and i == 0:
+                    log(f"Central conceit enforced: {_conceit}")
+            except Exception:
+                _conceit = ""
         # State-once pass on social too (long-form already runs it): kills the "same reveal
         # repeated 3-5×" that makes a short feel like a fact-list (e.g. "the bone glowed" ×5).
         try:
@@ -4222,7 +5341,7 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
                 cost_sink.append(_dc)
         except Exception:
             pass
-        g = grade_short(cand, cost_sink=cost_sink)
+        g = grade_short(cand, cost_sink=cost_sink, story_format=story_format)
         if g is None:
             best = best or cand
             break
@@ -4262,11 +5381,17 @@ def generate_graded_short(question, duration_sec, style, image_guidance, series,
     return best, best_g
 
 
-def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1.0) -> bool:
+def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 0.6) -> bool:
     """Burn the thumbnail onto the FIRST `hold` seconds of the video (audio untouched), so a Short's
     opening frame IS the thumbnail — YouTube Shorts can't take a custom thumbnail, so the feed/grid
     sample a frame. The spoken hook plays UNDER the card (no silent dead-air), runtime is preserved.
-    In-place, best-effort — returns False (and leaves the video untouched) on any failure."""
+    In-place, best-effort — returns False (and leaves the video untouched) on any failure.
+
+    The card MOVES and is SHORTER than it used to be. A 1.0s frozen card put a dead still on the single
+    most retention-critical second of the video (measured: frames 0-29 identical, then a hard 75-point
+    jump at t=1.0), which contradicts this pipeline's own 'frame-1 visible action' rule and tripped the
+    motion audit. Now: a slow push-in so the card is never frozen, 0.6s, and a short fade into the
+    footage instead of a jump cut."""
     import subprocess
     if not (thumb_path and os.path.exists(thumb_path) and os.path.exists(video_path)):
         return False
@@ -4278,9 +5403,16 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     except Exception:
         return False
     tmp = video_path + ".thumbfirst.mp4"
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path, "-i", thumb_path,
+    fade = min(0.25, hold * 0.4)                      # card fades out instead of jump-cutting away
+    frames = max(2, int(round(hold * 30)))
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path, "-loop", "1", "-i", thumb_path,
            "-filter_complex",
-           f"[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[t];"
+           # supersample -> slow push -> back to canvas, so the card is in motion the whole time
+           f"[1:v]scale={int(w*1.12)}:{int(h*1.12)}:force_original_aspect_ratio=increase,"
+           f"crop={int(w*1.12)}:{int(h*1.12)},fps=30,trim=end_frame={frames},"
+           f"zoompan=z='min(1.0+0.0016*on,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+           f"d=1:s={w}x{h}:fps=30,"
+           f"fade=t=out:st={max(0.0, hold-fade):.3f}:d={fade:.3f}:alpha=1,setsar=1[t];"
            f"[0:v][t]overlay=0:0:enable='lte(t,{hold})'[v]",
            "-map", "[v]", "-map", "0:a?", "-c:a", "copy", "-c:v", "libx264", "-preset", "medium",
            "-crf", "19", "-pix_fmt", "yuv420p", tmp]
@@ -4301,6 +5433,7 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
 def run_explainer_pipeline(
     question: str,
     output_dir: str,
+    story_format: str = "",
     duration_sec: int = 90,
     voice: str = "echo",
     style: str = "engaging and scientific",
@@ -4312,6 +5445,7 @@ def run_explainer_pipeline(
     max_cost_usd: float = MAX_COST_USD,
     resume: bool = False,
     i2v: bool | None = None,
+    motion: str = "standard",       # UI preset: none | standard | full (overrides coverage)
     series: str = "",
     short_template: str = "auto",   # social only: auto | explainer | simulation
     operator_direction: str = "",   # optional per-video/channel creative direction (subordinate to rules)
@@ -4327,6 +5461,18 @@ def run_explainer_pipeline(
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     # Image-to-video variability: default ON for social shorts (cheap, ~3 clips), OFF for
     # long-form (cost); only active when a provider+key is configured (I2V_PROVIDER).
+    # A preset is a deliberate instruction from the operator and must map to an explicit i2v
+    # decision. Wiring only the "none" branch left "standard"/"full" falling through to the legacy
+    # per-format default (social on, long-form OFF) -- so a long-form job with Motion: Standard
+    # rendered 55 Ken Burns scenes and never contacted a provider. Social kept working by accident,
+    # which is why it surfaced only on long-form. See test_motion_presets.py.
+    _m = (motion or "standard").strip().lower()
+    if _m == "none":
+        i2v = False
+    elif _m in ("standard", "full"):
+        i2v = True                    # explicit preset -- do NOT inherit the per-format default
+    # any other value: leave `i2v` as passed, so direct API callers that never send `motion` keep
+    # the historical behaviour.
     i2v_on = (i2v if i2v is not None else (video_format == "social")) and bool(I2V_PROVIDER)
     # Landscape + speech_bubble → Bolt "talks" via a synced phrase bubble (replaces headline).
     if video_format == "landscape" and speech_bubble:
@@ -4373,22 +5519,53 @@ def run_explainer_pipeline(
             script, short_grade = generate_graded_short(question, duration_sec, style, image_guidance,
                                                         series, cost_sink=aux_costs, log=log,
                                                         short_template=short_template,
-                                                        operator_direction=operator_direction)
+                                                        operator_direction=operator_direction,
+                                                        story_format=story_format)
         else:
             # Engagement gate: grade hook/story/ending + regenerate weak drafts BEFORE we spend a
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
             script = generate_graded_script(question, duration_sec, style, image_guidance,
-                                            video_format, series, cost_sink=aux_costs, log=log,
+                                            video_format, series, story_format=story_format,
+                                            cost_sink=aux_costs, log=log,
                                             operator_direction=operator_direction)
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
+
+        # Structure report. Runs on EVERY long-form script, whatever format was selected, because a
+        # gate whose result nobody can see is decorative: an audit confirmed `failures` and
+        # `requires_review` were never logged, persisted or displayed anywhere. On the default lane
+        # the structural bands are inert by design, but the cadence and agenda measurements are still
+        # real numbers about this script, and they are how you find out the default lane is drifting.
+        # Best-effort: a broken gate must never stop a render that already produced a script.
+        if scenes and video_format != "social":
+            try:
+                _fmt = story_engine.get(script.get("_story_format", ""))
+                _rep = story_engine.check(script, _fmt)
+                script["_story_gate"] = _rep
+                _m = _rep["measurements"]
+                log(f"Structure [{_fmt.name}]: long {_m['long_frac']:.0%} · short {_m['short_frac']:.0%} "
+                    f"· agenda {_m['agenda_hits']} · you/100w {_m['second_person_per_100w']}"
+                    + (f" · answer @{_m['answer_position_pct']:.0f}%" if _m.get("answer_position_pct")
+                       is not None else ""))
+                for _f in _rep["failures"]:
+                    log(f"  ✗ {_f}")
+                for _r in _rep["requires_review"][:4]:
+                    log(f"  ? {_r}")
+            except Exception as _e:
+                print(f"[story] structure report skipped: {_e}")
         log(f"Style mode: {style_mode}")
 
         # 1b. Fact-check pass — verify the science, correct errors before rendering.
         if fact_check and scenes:
             log("stage:Fact-checking script...")
+            # Guarded: accuracy corrections must never silently restructure the story. If a
+            # correction breaks a structure gate the draft passed, the draft wins -- a factual fix
+            # that deletes the reversal is not a fix. Accuracy-only edits change nothing here.
+            _pre_fc = script
             script, fc_notes, fc_cost = factcheck_script(script, question)
+            script = story_engine.guard(_pre_fc, script,
+                                        story_engine.get(script.get("_story_format", "")))
             script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
             if fc_notes:
                 log(f"Fact-check: {len(fc_notes)} correction(s) applied")
@@ -4485,11 +5662,8 @@ def run_explainer_pipeline(
     est = estimate_cost(len(scenes), host_count, narration_chars)
     if i2v_on:   # i2v (Veo/Sora) isn't in estimate_cost — add the expected motion-clip spend so the
                  # estimate (and the pre-spend cap guard) reflect reality instead of undercounting.
-        _frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
-        _clips = min(MAX_I2V_CLIPS, max(1, round(len(scenes) * _frac)))
-        est = round(est + _clips * I2V_SECONDS * _RATE_I2V_SEC, 2)
-        if video_format == "social" and _FAL_HYBRID and "fal" in _I2V_CHAIN:   # ~2 hero beats at v3 (2×)
-            est = round(est + min(2, _clips) * I2V_SECONDS * (_RATE_I2V_HERO_SEC - _RATE_I2V_SEC), 2)
+        _e = estimate_i2v_cost(len(scenes), video_format, motion)
+        est = round(est + _e["usd"], 2)
     log(f"Estimated cost: ${est:.2f} (cap ${max_cost_usd:.2f})")
     if est > max_cost_usd:
         raise ValueError(
@@ -4591,7 +5765,8 @@ def run_explainer_pipeline(
         _make_scene_segment(
             r0["img"], r0["aud"], _smoke,
             scenes[0].get("text_overlay", ""), scenes[0].get("text_sub", ""),
-            motion=_pick_motion(scenes[0].get("shot_type", "medium"), 0), tail=FADE_DUR,
+            motion=_pick_motion(scenes[0].get("shot_type", "medium"), 0),
+            tail=(SOCIAL_TAIL if video_format == "social" else FADE_DUR),
             text_meta=scenes[0].get("text"), style_mode=style_mode,
             vw=vw, vh=vh, captions=cap_mode, word_times=_wt, bubble_side=_bs)
         log("Render smoke-test passed ✓ — generating the remaining scenes")
@@ -4682,7 +5857,8 @@ def run_explainer_pipeline(
     if i2v_on:
         spent = (sum(img_costs) + sum(tts_costs) + sum(aux_costs)
                  + float(script.get("_script_cost_usd", 0.0) or 0.0))
-        budget_clips = int(max(0, max_cost_usd - spent) // (I2V_SECONDS * _RATE_I2V_SEC))
+        _plan_secs = 10 if TAIL_FILL == "extend" else I2V_SECONDS   # extend may buy 10s clips
+        budget_clips = int(max(0, max_cost_usd - spent) // (_plan_secs * _RATE_I2V_SEC))
         sel = _select_i2v_indices([r["scene"] for r in usable], question, video_format, budget_clips)
         i2v_requested = len(sel)
         if sel:
@@ -4706,16 +5882,24 @@ def run_explainer_pipeline(
                 if os.path.exists(clip) and os.path.getsize(clip) > 0:   # resume: never re-pay
                     return k, clip, True
                 _is_hero = k in _hero
-                res = animate_scene(r["img"], r["scene"].get("image_prompt", ""), clip,
+                # Feed the i2v the AUTHORED ACTION for this beat when the script provides one. Falling
+                # back to image_prompt (a static scene description) is what made paid clips read as
+                # near-stills; _i2v_action() turns the description into a movement instruction.
+                _act = _i2v_action(r["scene"])
+                _secs = i2v_seconds_for(r["scene"])
+                res = animate_scene(r["img"], _act, clip,
                                     vw, vh, cost_sink=i2v_costs, err_sink=i2v_errs,
-                                    exhausted=i2v_exhausted,
+                                    exhausted=i2v_exhausted, seconds=_secs,
                                     fal_model=_FAL_MODEL_HERO if _is_hero else None,
-                                    rate=_RATE_I2V_HERO_SEC if _is_hero else None)
+                                    rate=_RATE_I2V_HERO_SEC if _is_hero else None,
+                                    motion_style=r["scene"].get("motion_style", "action"))
                 return k, res, False
 
-            # SERIAL: video APIs cap concurrent active generations — running 2 at once made the
-            # first-submitted clip (the opener) fail repeatedly. One at a time is reliable.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            # Commercial video APIs cap concurrent generations (2 at once made the opener fail
+            # repeatedly), so the default stays 1. Self-hosted wan has no such cap: set
+            # I2V_CONCURRENCY to the number of pods in the api_server pool.
+            _i2v_par = max(1, int(os.environ.get("I2V_CONCURRENCY", "1") or 1))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=_i2v_par) as ex:
                 for k, res, reused in ex.map(_anim, sorted(sel)):
                     if res:
                         i2v_clips[k] = res
@@ -4743,6 +5927,16 @@ def run_explainer_pipeline(
             elif n_ok < i2v_requested and quota_hit:
                 log(f"⚠ i2v: only {n_ok}/{i2v_requested} animated — provider quota ran out partway; "
                     "raise quota or rely on the fallback provider.")
+            _fb_pct = 100.0 * (i2v_requested - n_ok) / max(1, i2v_requested)
+            if 0 < _fb_pct:
+                log(f"⚠ i2v fallback rate: {_fb_pct:.0f}% of animated scenes are Ken Burns stills.")
+            _abort_pct = float(os.environ.get("I2V_FALLBACK_ABORT_PCT", "0") or 0)
+            if _abort_pct and _fb_pct > _abort_pct:
+                raise RuntimeError(
+                    f"i2v fallback rate {_fb_pct:.0f}% exceeds I2V_FALLBACK_ABORT_PCT="
+                    f"{_abort_pct:.0f}% — aborting BEFORE assembly so a degraded video "
+                    "doesn't ship silently. Clips already rendered are cached and reused "
+                    "on the next run (resume logic).")
 
     # 3. Render per-scene segments
     log("stage:Rendering scenes...")
@@ -4777,7 +5971,7 @@ def run_explainer_pipeline(
                 scene.get("text_overlay", ""),
                 scene.get("text_sub", ""),
                 motion=motion,
-                tail=FADE_DUR,
+                tail=(SOCIAL_TAIL if video_format == "social" else FADE_DUR),
                 text_meta=scene.get("text"),
                 style_mode=style_mode,
                 vw=vw, vh=vh, captions=cap_mode, word_times=word_times,
@@ -4798,10 +5992,77 @@ def run_explainer_pipeline(
     # Capture per-scene durations BEFORE the audio dir is reclaimed (for the transcript/SRT).
     rendered_durs = [_audio_dur(a) for a in scene_audios]
 
-    # 4. Assemble
+    # 4. Assemble — with a MUSIC BED and an SFX track.
+    # Music defaults ON: `bg_music_path` was never populated by app.py, so every Short shipped as
+    # narration on silence. Pass bg_music_path="none" to opt out.
+    _sfx_path = None
+    _rendered_scenes = [r["scene"] for r in usable]      # same order as scene_videos/scene_audios
+    _music_title = f"{question} {script.get('title', '')}"
+    # MUSIC IS OFF BY DEFAULT (human call, 2026-07-31: the bed hurt more than it helped — it competes
+    # with narration and reads as generic stock scoring). Opt IN with bg_music_path="auto" or a path.
+    # SFX (riser into the peak, impacts on payoffs) stay ON: they mark causes/consequences rather than
+    # laying a carpet under the whole video, which is what the production spec actually asks for.
+    if bg_music_path in ("", "none", None):
+        bg_music_path = None
+    elif bg_music_path == "auto":
+        try:
+            import audio_bed
+            bg_music_path = audio_bed.music_for("auto", title=_music_title, scenes=_rendered_scenes)
+            if bg_music_path:
+                log(f"music: {os.path.basename(bg_music_path)} (opt-in, ducked under narration)")
+        except Exception as e:
+            log(f"music: unavailable ({type(e).__name__}) — continuing without a bed")
+            bg_music_path = None
+    try:
+        import audio_bed
+        _beats = audio_bed.sfx_beats_for_scenes(_rendered_scenes, rendered_durs)
+        _sfx_path = audio_bed.build_sfx_bed(
+            _beats, sum(rendered_durs) + (SOCIAL_TAIL * len(rendered_durs) if video_format == "social" else FADE_DUR), os.path.join(output_dir, "_sfx.wav"))
+        if _sfx_path:
+            log(f"sfx: {len(_beats)} cues (riser into peak, impacts on payoffs)"
+                + ("" if bg_music_path else " — no music bed"))
+    except Exception as e:
+        log(f"sfx: skipped ({type(e).__name__}: {e})")
+
+    # PREVIEW before the expensive pass. scene_videos at this point are the still-derived shots, so
+    # assembling them costs nothing and shows the real cut: timing, captions, order, audio. The sim
+    # pipeline had this same capability latent in its renderer and never named it as a step, so
+    # nobody looked at a cut before paying for it. Written beside the final file, never overwritten.
+    if os.environ.get("EXPLAINER_PREVIEW", "1") != "0":
+        try:
+            preview_path = os.path.join(output_dir, "preview_stills.mp4")
+            _assemble(scene_videos, scene_audios, preview_path, output_dir, bg_music_path,
+                      _sfx_path, hard_cuts=(video_format == "social"))
+            log(f"preview (free, from stills): {preview_path}")
+        except Exception as e:
+            log(f"preview: skipped ({type(e).__name__}: {e})")
+
     log("stage:Assembling final video...")
     output_path = os.path.join(output_dir, "explainer.mp4")
-    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path)
+    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path, _sfx_path,
+              hard_cuts=(video_format == "social"))
+
+    # POST-RENDER GATES. These existed, were self-tested against known-bad renders, and had ZERO
+    # call sites outside their own definitions -- every quality gate in this pipeline fired on the
+    # script or a single frame, and nothing ever looked at the finished MP4. That is how a 619-frame
+    # short with 10% real motion passed every check and shipped as a slideshow. Reported, not fatal:
+    # a gate that aborts a paid render is worse than one that tells you what you just made.
+    try:
+        import video_audit as _va
+        _mr = _va.motion_density_gate(output_path)
+        log(f"gate:motion {'PASS' if _mr.passed else 'FAIL'} — {_mr.frac_moving*100:.0f}% moving, "
+            f"longest held run {_mr.max_static_run}f")
+        for _f in _mr.failures:
+            log(f"  motion: {_f}")
+        _audit = {"motion": _mr.as_dict()}
+        try:
+            import json as _json
+            _json.dump(_audit, open(os.path.join(output_dir, "post_render_audit.json"), "w"),
+                       indent=2, default=str)
+        except Exception:
+            pass
+    except Exception as e:
+        log(f"gate:motion skipped ({type(e).__name__}: {e})")
 
     # 4b. Transcript + timed captions (.txt for description/auto-sync, .srt for YouTube subs).
     transcript_path, srt_path = _write_transcript(rendered_narr, rendered_durs, output_dir)
@@ -4842,7 +6103,7 @@ def run_explainer_pipeline(
     #        The spoken hook still plays under it; runtime unchanged. Best-effort.
     if video_format == "social" and thumbnail_path:
         try:
-            if _overlay_opening_thumbnail(output_path, thumbnail_path, hold=1.0):
+            if _overlay_opening_thumbnail(output_path, thumbnail_path):   # hold: use the 0.6s default (1.0 froze the hook)
                 log("Opening frame set to the thumbnail (Shorts) ✓")
         except Exception as exc:
             log(f"⚠ Could not set opening thumbnail frame ({type(exc).__name__})")

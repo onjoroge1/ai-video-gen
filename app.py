@@ -8,6 +8,7 @@ Exposes:
 """
 
 import os
+import time
 from dotenv import load_dotenv
 load_dotenv(override=True)   # override so .env edits (e.g. I2V_PROVIDER) reliably take on reload
 import uuid
@@ -52,8 +53,12 @@ class SharedSecretMiddleware:
 
 # CORS: default to localhost only (a wildcard let any site a browser visits POST here). Override
 # with ALLOWED_ORIGINS (comma list; "*" to truly open for dev).
+# The port is not always 8000: with autoPort the harness picks a free one and passes it in PORT, so
+# hardcoding 8000 here would leave the browser preview blocked by CORS on any other port.
+_PORT = os.environ.get("PORT", "8000")
+_DEFAULT_ORIGINS = ",".join(f"http://{h}:{_PORT}" for h in ("localhost", "127.0.0.1"))
 _ALLOWED_ORIGINS = [o.strip() for o in os.environ.get(
-    "ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",") if o.strip()]
+    "ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
 
 # Order matters (Starlette wraps last-added = OUTERMOST): add auth FIRST (inner), CORS LAST so CORS
 # stays outermost and even a 401 carries CORS headers (a cross-origin client can read the error).
@@ -76,6 +81,26 @@ stateboard_jobs: dict[str, dict] = {}
 # Finished explainer videos are copied here with a small index, so a dev-server
 # reload (which wipes the in-memory job store) can't orphan a completed video.
 FINISHED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finished_videos")
+# Working dirs for UI jobs. Persisted (not tempfile) so a finished video can be REPAIRED rather than
+# regenerated -- see the note at the mkdtemp call site.
+JOBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renders", "_ui_jobs")
+os.makedirs(JOBS_DIR, exist_ok=True)
+JOBS_KEEP_DAYS = float(os.environ.get("JOBS_KEEP_DAYS", "14"))
+
+
+def _sweep_old_jobs(keep_days: float = None):
+    """Delete job dirs older than JOBS_KEEP_DAYS. Persisting working dirs trades disk for the
+    ability to repair a finished video, so the disk has to be reclaimed on a timer instead."""
+    import shutil as _sh
+    import time as _t
+    cutoff = _t.time() - (keep_days if keep_days is not None else JOBS_KEEP_DAYS) * 86400
+    try:
+        for name in os.listdir(JOBS_DIR):
+            d = os.path.join(JOBS_DIR, name)
+            if os.path.isdir(d) and os.path.getmtime(d) < cutoff:
+                _sh.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
 _FINISHED_INDEX = os.path.join(FINISHED_DIR, "index.json")
 
 # Curiosity-gap "trending questions" cache — populated by the topic engine (manually, on startup,
@@ -149,6 +174,91 @@ def _load_trending() -> dict:
         return {"questions": [], "channels": [], "generated_at": None}
 
 
+# Share of every refresh spent instantiating a PROVEN mould rather than inventing a new shape. The
+# five moulds are the only structures that have repeated on this channel, so most of the batch should
+# exploit them — but a channel that only ever re-cuts its own winners goes stale, and the exploratory
+# remainder is the only place a SIXTH mould can come from. 70/30 is the split agreed with the user.
+_MOULD_SHARE = 0.7
+
+# Spare candidates requested per lane beyond what will be accepted, so a cross-source duplicate is
+# absorbed rather than costing a topic. 2 covers the collision rate seen in testing without asking
+# for a batch so long the model starts padding it with weak ideas.
+_MIX_OVERASK = 2
+
+
+def _mix_topics(mould_fn, explore_fn, n: int, exclude: list | None = None) -> tuple[list, dict]:
+    """Fill n topic slots ~70% from the proven-mould generator and ~30% from the channel's own
+    exploratory generator, deduping ACROSS the two sources. Returns (topics, mix stats).
+
+    Both callables take (n, exclude) and return the generators' usual [{question, ...}]. Both are
+    best-effort: whatever the mould lane cannot fill (Claude failure, everything deduped away) falls
+    through to the exploratory lane, so a refresh NEVER returns fewer topics because the new path
+    broke — the exploratory generator alone is exactly the old behaviour.
+
+    Cross-source dedupe is the other reason this is a function and not two calls. Each generator
+    already filters within its own batch and against `exclude`, but neither can see the other, so
+    "Why Sharks Are Older Than Trees" from the mould lane and "Why Sharks Predate Trees" from the
+    curiosity lane both survived into the same refresh. Accepted questions are also appended to the
+    `exclude` handed to the SECOND generator, so the collision is usually avoided before it is paid
+    for rather than filtered after.
+    """
+    import explainer_pipeline as ep
+    n = max(0, int(n or 0))
+    stats = {"mould": 0, "explore": 0, "dupes": 0}
+    if not n:
+        return [], stats
+    used = [str(e).strip() for e in (exclude or []) if str(e).strip()]
+    # ep's dedupe state, not a bare key set: it strips a mould's FRAME before comparing, so two
+    # faithful instantiations of one mould are not read as the same video. Comparing whole titles
+    # here threw away topics the generator had already correctly kept — every one_percent_daily
+    # title shares "lost ... a day" and scores 0.667 against its own siblings.
+    prior = ep.dedupe_state(used)      # already-used topics (from `exclude`)
+    mix = ep.dedupe_state()            # accepted THIS refresh, so the count below is honestly
+    out = []                           # "cross-source", not "collided with an old video"
+
+    def _fill(fn, want: int, source: str) -> int:
+        """Ask `fn` for `want` topics and keep the ones that aren't a near-duplicate of anything
+        already used or already accepted. Returns how many were accepted. Never raises — a dead
+        generator is a zero here, which the caller absorbs."""
+        if want <= 0:
+            return 0
+        try:
+            # Ask for a couple MORE than we will accept. Neither generator can see the other, so a
+            # cross-source collision used to cost a slot outright — a refresh returned 9 where the
+            # old single-generator path returned 10. The over-ask is free: it is the same ONE Claude
+            # call either way, only a slightly longer reply, and _MIX_OVERASK spare candidates cover
+            # the collisions instead of a second top-up call.
+            qs = fn(want + _MIX_OVERASK, list(used)) or []
+        except Exception as e:
+            print(f"[trending] {source} topics failed: {e}")
+            return 0
+        got = 0
+        for q in qs:
+            if got >= want:
+                break
+            if not isinstance(q, dict):
+                continue
+            question = str(q.get("question") or "").strip()
+            if not question:
+                continue
+            mould = str(q.get("mould") or "")
+            if ep.dedupe_is_dup(mix, question, mould):
+                stats["dupes"] += 1     # the other lane already produced this same video
+                continue
+            if ep.dedupe_is_dup(prior, question, mould):
+                continue                # already-used topic; each generator should have caught this
+            ep.dedupe_add(mix, question)
+            used.append(question)       # so the NEXT generator is told about it up front
+            q.setdefault("source", source)
+            out.append(q)
+            got += 1
+        return got
+
+    stats["mould"] = _fill(mould_fn, min(n, int(round(n * _MOULD_SHARE))), "mould")
+    stats["explore"] = _fill(explore_fn, n - stats["mould"], "explore")
+    return out, stats
+
+
 def _refresh_trending() -> dict:
     """Regenerate curiosity-gap topics for every channel, market-validate them, and cache.
     Blocking (~10-15s/channel Claude call + YouTube). Coalesced (a second concurrent caller
@@ -171,12 +281,31 @@ def _refresh_trending() -> dict:
                     exclude = db.used_questions(ch["label"])
             except Exception as e:
                 print(f"[trending] used-topic exclusion skipped for {ch['label']}: {e}")
+            # 70% proven moulds / 30% the channel's own exploratory generator, deduped across both.
+            # The exploratory lane stays the SAME generator as before (simulation vs curiosity) so
+            # novelty does not disappear when the mould lane starts eating most of the batch.
             if ch.get("engine") == "simulation":
-                qs = ep.generate_simulation_topics(n=10, exclude=exclude)
+                _explore = lambda k, ex: ep.generate_simulation_topics(n=k, exclude=ex)
             else:
-                qs = ep.generate_curiosity_topics(niche=ch["niche"], n=10, exclude=exclude)
+                _explore = lambda k, ex: ep.generate_curiosity_topics(niche=ch["niche"], n=k, exclude=ex)
+            qs, mix = _mix_topics(
+                lambda k, ex: ep.generate_mould_topics(n=k, exclude=ex, niche=ch["niche"]),
+                _explore, n=10, exclude=exclude)
+            # Print the mix that was ACHIEVED, not the one that was asked for — the mould lane
+            # silently falling back to exploratory is exactly the failure this line exists to expose.
+            print(f"[trending] {ch['label']}: {mix['mould']} mould + {mix['explore']} exploratory"
+                  f" of 10, {mix['dupes']} cross-dupes dropped")
             for q in qs:
                 q["channel"] = ch["label"]
+            # `short_template`/`mould` only exist on mould topics and only the mould lane can produce
+            # them. Snapshot them now so they can be restored after the enrichment passes below:
+            # `short_template` is what routes a topic into the simulation lane AND `mould` is what
+            # joins it to a measured prior, and a pass that ever rebuilt its dicts instead of
+            # mutating them would drop both silently.
+            _mould_fields = {str(q.get("question") or "").strip().lower():
+                             {k: q[k] for k in ("mould", "short_template", "mould_stayed", "source")
+                              if k in q}
+                             for q in qs}
             # Validate against real YouTube market data (demand/outlier/competition) and re-rank
             # by opportunity. No-op when YOUTUBE_API_KEY is unset; never lets an API blip kill the
             # refresh — on any error we keep the curiosity-ranked list.
@@ -184,12 +313,25 @@ def _refresh_trending() -> dict:
                 qs = ep.validate_topics_youtube(qs)
             except Exception as e:
                 print(f"[trending] youtube validation skipped for {ch['label']}: {e}")
+            for q in qs:                                # no-op while validation mutates in place
+                for k, v in _mould_fields.get(str(q.get("question") or "").strip().lower(), {}).items():
+                    q.setdefault(k, v)
             # Add a click-optimized suggested_title per topic (separate from question). Best-effort.
-            # SKIP for the simulation lane: the "…Every Second?" phrasing IS the title and must stay
-            # verbatim so the sim lane + math engine keep triggering off it.
-            if ch.get("engine") != "simulation":
+            # SKIP the simulation lane: the "…Every Second?" phrasing IS the title and must stay
+            # verbatim so the sim lane + math engine keep triggering off it. That is a PER-TOPIC
+            # decision as well as a per-channel one, but it must be decided by the phrasing itself —
+            # keying it off a stamped label skipped four titles per channel that do NOT trigger
+            # _is_simulation_short at all, silently dropping 40% of the suggested titles to protect
+            # phrasing nothing was reading.
+            # Purely per-topic now. The old per-CHANNEL skip is subsumed: everything the simulation
+            # channel's generator emits is sim-shaped by construction (it hard-filters on exactly
+            # this test), while the mould topics that channel also carries are NOT, and the channel
+            # gate was denying those a title for a lane they were never going to run in.
+            _reframe = [q for q in qs
+                        if ep.short_template_for(str(q.get("question") or "")) != "simulation"]
+            if _reframe:
                 try:
-                    qs = ep.suggest_titles(qs)
+                    ep.suggest_titles(_reframe)       # mutates the same dicts qs holds
                 except Exception as e:
                     print(f"[trending] title reframe skipped for {ch['label']}: {e}")
             # Persist to Neon (dedup + history) — best-effort; a DB outage never breaks the refresh.
@@ -300,13 +442,51 @@ def _get_inprogress(job_id: str):
         return None
 
 
+def _effective_template(request, result: dict | None = None) -> str:
+    """Which lane a finished video was ACTUALLY produced in ("explainer" | "simulation" | "quiz").
+
+    This is the ROUTING fact — what beat map generate_script used — recorded so an outcome can be
+    traced back to the machinery that produced it. It is deliberately NOT the same question as
+    metrics_import.classify(), which reads the shipped TITLE's shape; the two disagree on real rows
+    and the measured aggregations (performance_block, _channel_fit_table) therefore key on classify()
+    and fall back to this column only for a title-less row. Recording the routing fact is still the
+    more useful of the two here, because it is the only record of it that survives the job sweep.
+
+    `short_template` is the OPERATOR's request and is "auto" for most jobs; auto resolves through the
+    very heuristic the script generator routes on (ep._is_simulation_short), so what gets recorded is
+    what actually ran, not what was asked for. Long-form has no template switch — it is always the
+    explainer beat map. Returns "" rather than raising: a missing join key must never fail a render
+    that already succeeded."""
+    try:
+        fmt = ((result or {}).get("video_format") or getattr(request, "video_format", "") or "").strip()
+        if fmt != "social":
+            return "explainer"
+        want = (getattr(request, "short_template", "") or "auto").strip().lower()
+        if want in ("explainer", "simulation", "quiz"):
+            return want
+        import explainer_pipeline as ep
+        return "simulation" if ep._is_simulation_short(getattr(request, "question", "") or "") else "explainer"
+    except Exception:
+        return ""
+
+
 def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None = None) -> str:
-    """Copy a finished video (+ optional transcript/srt) to the stable dir and index it."""
+    """Copy a finished video (+ optional transcript/srt) to the stable dir and index it.
+
+    `meta` carries the JOIN KEY — question / template / video_format. Measured: of the 27 rows in the
+    28-day Studio export, 0 could be traced back to the topic that produced them, because this index
+    stored only the title and the job dirs holding the rest are swept at 14 days. Title matching is
+    not a join (Studio titles pick up hashtags and emoji, and get edited after upload). The three keys
+    are written empty rather than omitted when a caller has nothing, so "not recorded" is
+    distinguishable from "never had one"; every entry written BEFORE this change simply lacks them,
+    so readers must keep using .get()."""
     os.makedirs(FINISHED_DIR, exist_ok=True)
     dest = os.path.join(FINISHED_DIR, f"{job_id}.mp4")
     try:
         shutil.copy(src_path, dest)
         entry = {**meta, "path": dest}
+        for k in ("question", "template", "video_format"):
+            entry.setdefault(k, "")
         for ext, p in (extra or {}).items():   # e.g. {"txt": ..., "srt": ...}
             if p and os.path.exists(p):
                 d = os.path.join(FINISHED_DIR, f"{job_id}.{ext}")
@@ -382,7 +562,14 @@ async def run_pipeline(job_id: str, request: GenerateRequest):
 
     try:
         job["status"] = "running"
-        output_dir = tempfile.mkdtemp(prefix=f"yt_job_{job_id}_")
+        # Keep the working directory. tempfile.mkdtemp put it under /var/folders, where it was
+        # destroyed on completion -- so a finished video could never be re-assembled, only
+        # regenerated from scratch. That cost a $7.66 long-form re-render to fix a 3-second freeze,
+        # and made an otherwise-good Short unsalvageable once its scene images were gone.
+        # Scene images, per-scene audio and i2v clips are the expensive artifacts; keeping them makes
+        # every later fix an ffmpeg operation instead of a re-buy.
+        output_dir = os.path.join(JOBS_DIR, f"job_{job_id}")
+        os.makedirs(output_dir, exist_ok=True)
 
         # ── Stage 1: Script ──────────────────────────────────────────────────
         if request.script_mode == "custom" and request.custom_script:
@@ -972,11 +1159,14 @@ class ExplainerRequest(BaseModel):
     fact_check: bool = True
     video_format: str = "landscape"   # "landscape" (16:9 YouTube) | "social" (9:16 + karaoke captions)
     speech_bubble: bool = False       # landscape only: Bolt "talks" via a synced phrase bubble
+    motion: str = "standard"          # UI preset: none | standard | full
+    max_cost_usd: float | None = None # was never sent, so every job silently used the $25 default
     i2v: bool | None = None           # image-to-video motion (Veo/Sora). None=default (social on,
                                       # long-form off); True/False forces it for ANY length
     series: str = ""                  # format-series mode: a recurring series name/pattern
     short_template: str = "auto"      # social only: "auto" (title heuristic) | "explainer"
                                       # (curiosity-gap mystery) | "simulation" (you-change escalation)
+    story_format: str = ""
     n_items: int = 3                  # quiz template only: number of guess rounds (clamped 2-6)
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
@@ -1022,9 +1212,13 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     video_format=request.video_format,
                     speech_bubble=request.speech_bubble,
                     i2v=request.i2v,
+                    motion=getattr(request, "motion", "standard"),
+                    **({"max_cost_usd": request.max_cost_usd}
+                       if getattr(request, "max_cost_usd", None) else {}),
                     series=request.series,
                     short_template=request.short_template,
                     operator_direction=request.operator_direction,
+                    story_format=request.story_format,
                     resume=resume,
                     progress_cb=push,
                 ),
@@ -1043,6 +1237,10 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "video_format": result.get("video_format"),
             "est_cost":    result.get("est_cost"),
             "actual_cost": result.get("actual_cost"),
+            # The pipeline reports these two; the app used to discard them, which is why a run
+            # that lost half its clips still looked like a success in the browser.
+            "i2v_requested": result.get("i2v_requested", 0),
+            "i2v_animated":  result.get("i2v_animated", 0),
             "dropped":     result.get("dropped", 0),
             "filler":      result.get("filler", 0),
             "duration_sec": result.get("duration_sec"),
@@ -1059,6 +1257,20 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             _persist_finished(job_id, result["output_path"], {
                 "title": result["title"], "status": job["status"],
                 "scene_count": result["scene_count"], "actual_cost": result.get("actual_cost"),
+                # The join key back to the topic engine. Without these three an imported Studio row
+                # can only be matched on title, which matched 0 of 27 rows on the 28-day export.
+                # (Quiz jobs put the CATEGORY in `question` — that is still the string the operator
+                # picked the video from, so it is still the right key to store.)
+                "question": request.question,
+                "template": _effective_template(request, result),
+                # The NARRATIVE structure, recorded separately from the routing lane. Long-form
+                # always reports template="explainer", so without this an evidence-led render is
+                # indistinguishable from a default one in the retention data and the A/B is
+                # unmeasurable. Read off the script (what actually ran) before the request (what was
+                # asked for), because the env var can override the request.
+                "story_format": (result.get("script") or {}).get("_story_format")
+                                or getattr(request, "story_format", "") or "",
+                "video_format": result.get("video_format") or request.video_format,
             }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
                       "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
                       "grade": result.get("grade_path")})
@@ -1103,6 +1315,15 @@ def _sweep_old_temp(prefix: str, max_age_hours: float = 6.0):
                 shutil.rmtree(d, ignore_errors=True)
         except OSError:
             pass
+
+
+# --- House of the Dragon pipeline (hotd/ package) --------------------------------------------
+# The UI and the CLI call the same functions, so they cannot drift apart.
+try:
+    from hotd_api import mount as _mount_hotd
+    _mount_hotd(app)
+except Exception as _e:                      # the rest of the API must still start
+    print(f"[hotd] endpoints unavailable: {type(_e).__name__}: {_e}")
 
 
 @app.get("/api/explainer/config")
@@ -1287,6 +1508,36 @@ async def metrics_save(req: MetricsRequest):
     return {"ok": True, "db": db_ok}
 
 
+@app.post("/api/metrics/import-csv")
+async def metrics_import_csv(file: UploadFile = File(...)):
+    """Ingest a YouTube Studio CSV export into `video_metrics`.
+
+    Hand-entry was the only path before this, which is why the table held 4 rows while the channel
+    had 27 videos -- and why topic generation had no performance signal at all. Reports matched and
+    unmatched rows rather than failing quietly on a title mismatch."""
+    import metrics_import
+    raw = await file.read()
+    tmp = os.path.join(JOBS_DIR, f"_metrics_{int(time.time())}.csv")
+    os.makedirs(JOBS_DIR, exist_ok=True)
+    with open(tmp, "wb") as fh:
+        fh.write(raw)
+    try:
+        rep = metrics_import.run(tmp)
+        for r in rep["rows"]:                       # mirror locally so a DB outage is not data loss
+            try:
+                _metrics_json_upsert({k: v for k, v in r.items() if not k.startswith("_")})
+            except Exception:
+                pass
+        return {"ok": True, "parsed": rep["parsed"], "saved": rep["saved"],
+                "topic_matched": rep["rows_enriched"], "topic_inferred": rep["unmatched_to_job"],
+                "summary": rep["summary"], "failed": rep["failed"][:10]}
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
 @app.get("/api/metrics/list")
 async def metrics_list():
     """All logged videos + derived rates (percent-viewed, sub-rate). DB is source of truth; falls
@@ -1317,6 +1568,36 @@ async def metrics_list():
 class DescPreviewRequest(BaseModel):
     question: str = ""
     video_format: str = "landscape"     # landscape | social
+
+
+class EstimateRequest(BaseModel):
+    duration_sec: int = 90
+    video_format: str = "landscape"
+    motion: str = "standard"
+
+
+@app.post("/api/explainer/estimate")
+async def explainer_estimate(req: EstimateRequest):
+    """Price a job WITHOUT running it. No network, no script, no spend.
+
+    Honest limitation: an exact figure needs the scene count, which needs the script, which costs
+    money. Before the script exists the scene count is approximated from duration using measured
+    seconds-per-scene, so the number is labelled approximate. The exact estimate still appears in
+    the run log once the script lands.
+    """
+    import explainer_pipeline as ep
+    per = ep.SECS_PER_SCENE.get(req.video_format, 8.5)
+    n_scenes = max(1, round(req.duration_sec / per))
+    motion_est = ep.estimate_i2v_cost(n_scenes, req.video_format, req.motion)
+    base = ep.estimate_cost(n_scenes, n_scenes // 2, req.duration_sec * 16)  # ~16 chars/s of speech
+    return {
+        "scenes_approx": n_scenes,
+        "clips": motion_est["clips"],
+        "motion_usd": motion_est["usd"],
+        "base_usd": round(base, 2),
+        "total_usd": round(base + motion_est["usd"], 2),
+        "note": "approximate until the script is written",
+    }
 
 
 @app.post("/api/explainer/preview-description")
@@ -1374,9 +1655,14 @@ def _start_trending_scheduler():
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
-    _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]
-    output_dir = tempfile.mkdtemp(prefix=f"expl_{job_id}_")
+    # Persisted, not tempfile. This is the path BOTH the explainer and the quiz use, so a killed or
+    # finished job keeps its scene images, per-scene audio and i2v clips -- the expensive artifacts.
+    # Losing them is what turned a 3-second fix into a $7.66 regeneration and made a stuck quiz
+    # unrecoverable. _sweep_old_jobs() below reclaims disk instead of tempfile's cleanup.
+    output_dir = os.path.join(JOBS_DIR, f"expl_{job_id}")
+    os.makedirs(output_dir, exist_ok=True)
+    _sweep_old_jobs()
     explainer_jobs[job_id] = {
         "id": job_id, "status": "queued", "events": [],
         "output_path": None, "script": None,
@@ -1616,7 +1902,14 @@ async def explainer_script(job_id: str):
     script = job.get("script")
     if not script:
         raise HTTPException(status_code=400, detail="Script not yet generated")
-    return script
+    # Attach what actually happened to the motion budget. Without this the browser has no way to
+    # tell a fully-animated render from one that lost every clip -- both looked like success.
+    out = dict(script) if isinstance(script, dict) else {"scenes": script}
+    out["i2v_requested"] = job.get("i2v_requested", 0)
+    out["i2v_animated"] = job.get("i2v_animated", 0)
+    out["actual_cost"] = job.get("actual_cost")
+    out["quality"] = job.get("quality")
+    return out
 
 
 # ─── Serve frontend ─────────────────────────────────────────────────────────────
@@ -1630,6 +1923,14 @@ def _serve_index():
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
+
+# Mounted BEFORE the static catch-all: `app.mount("/")` swallows every unmatched route, so any
+# router added after it is unreachable.
+try:
+    import finished_api
+    finished_api.mount(app)
+except Exception as _e:
+    print(f"finished_api not mounted: {type(_e).__name__}: {_e}")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

@@ -78,21 +78,32 @@ def upsert_topics(channel: str, topics: list) -> int:
                 pass
 
 
-def used_questions(channel: str, limit: int = 200) -> list:
-    """Questions the USER has marked finished (status done/used/published) for a channel — fed back
-    to the topic generator as an exclusion list so it stops resurfacing covered topics and generates
-    NEWER angles. Marking is manual (a topic may become BOTH a long-form and a short, so it's not
-    auto-marked on render). Best-effort: returns [] on any failure (DB never blocks a refresh)."""
+def used_questions(channel: str, limit: int = 600, all_channels: bool = True) -> list:
+    """EVERY topic already generated — the exclusion list fed to the topic generator.
+
+    This used to filter to `status IN ('done','used','published','queued')`, i.e. only topics the
+    user had MANUALLY marked. But `upsert_topics` records every generation (times_seen += 1), so a
+    topic suggested twenty times and never marked was never excluded and came back forever. That
+    filter was the single biggest driver of "we get the same questions often".
+
+    `all_channels` defaults True because the niche strings overlap: "Bolt explains the world" and
+    "Bolt explains Airplanes" both carry survival-system-failure instructions and collide on GPS,
+    power grid, refrigeration and pollinators.
+
+    Ordered by times_seen DESC so the most-repeated offenders survive any prompt-side truncation.
+    Best-effort: returns [] on any failure (the DB never blocks a refresh)."""
     conn = None
     try:
         conn = _conn()
         if conn is None:
             return []
         cur = conn.cursor()
-        cur.execute(
-            "SELECT question FROM topics WHERE channel=%s AND status IN ('done','used','published','queued') "
-            "ORDER BY last_seen DESC LIMIT %s",
-            (channel, limit))
+        if all_channels:
+            cur.execute("SELECT question FROM topics ORDER BY times_seen DESC, last_seen DESC "
+                        "LIMIT %s", (limit,))
+        else:
+            cur.execute("SELECT question FROM topics WHERE channel=%s "
+                        "ORDER BY times_seen DESC, last_seen DESC LIMIT %s", (channel, limit))
         return [r[0] for r in cur.fetchall() if r and r[0]]
     except Exception as e:
         print(f"[db] used_questions failed: {e}")
@@ -173,7 +184,7 @@ def mark_topic_status(channel: str, question: str, status: str) -> bool:
 _METRICS_COLS = ("slug", "title", "format", "template", "question", "published_at", "video_len_sec",
                  "views", "engaged_views", "stayed_pct", "avg_view_dur_sec", "subs_gained",
                  "watch_hours", "notes", "tags", "shown_in_feed", "feed_pct", "search_pct",
-                 "impressions", "ctr")
+                 "impressions", "ctr", "pct_viewed")
 
 
 def _ensure_metrics_table(cur) -> None:
@@ -199,12 +210,15 @@ def _ensure_metrics_table(cur) -> None:
             search_pct       numeric,
             impressions      bigint,
             ctr              numeric,
+            pct_viewed       numeric,
             updated_at       timestamptz DEFAULT now()
         )""")
     # Migrate an existing table (created before the tags/traffic/impression fields) — idempotent.
     for col, typ in (("tags", "text"), ("shown_in_feed", "bigint"),
                      ("feed_pct", "numeric"), ("search_pct", "numeric"),
-                     ("impressions", "bigint"), ("ctr", "numeric")):
+                     ("impressions", "bigint"), ("ctr", "numeric"),
+                     # stayed_pct measures the hook; pct_viewed measures whether it holds.
+                     ("pct_viewed", "numeric")):
         cur.execute(f"ALTER TABLE video_metrics ADD COLUMN IF NOT EXISTS {col} {typ}")
 
 
@@ -263,3 +277,80 @@ def metrics_all() -> list:
                 conn.close()
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------- render scenes
+# One row per SCENE per render. The point is the join: scenes carry what we asked for (prompt,
+# on-screen text, transcript, timing) and video_metrics carries what happened (retention, views).
+# Neither alone tells you what works. Kept deliberately wide and denormalised -- this is an analysis
+# table, not an application schema, and a scene row must stay readable years after its render dir is
+# deleted.
+def _ensure_scenes_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS render_scenes (
+            id            BIGSERIAL PRIMARY KEY,
+            render_id     TEXT NOT NULL,
+            slug          TEXT NOT NULL,
+            title         TEXT,
+            format        TEXT,
+            scene_idx     INT  NOT NULL,
+            scene_id      TEXT NOT NULL,
+            image_stem    TEXT,
+            start_s       REAL,
+            dur_s         REAL,
+            words         INT,
+            chips         TEXT,
+            onscreen      TEXT,
+            narration     TEXT,
+            plate_action  TEXT,
+            plate_shot    TEXT,
+            plate_prompt  TEXT,
+            motion_intent TEXT,
+            i2v_prompt    TEXT,
+            i2v_negative  TEXT,
+            i2v_model     TEXT,
+            motion_style  TEXT,
+            motion_measured REAL,
+            animated      BOOLEAN,
+            cost_usd      REAL,
+            created_at    TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (render_id, scene_idx)
+        )
+    """)
+
+
+def scenes_upsert(rows: list) -> int:
+    """Write one render's scenes. Idempotent on (render_id, scene_idx)."""
+    if not db_enabled() or not rows:
+        return 0
+    cols = ["render_id","slug","title","format","scene_idx","scene_id","image_stem","start_s",
+            "dur_s","words","chips","onscreen","narration","plate_action","plate_shot",
+            "plate_prompt","motion_intent","i2v_prompt","i2v_negative","i2v_model","motion_style",
+            "motion_measured","animated","cost_usd"]
+    ph = ",".join(["%s"] * len(cols))
+    upd = ",".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in ("render_id", "scene_idx"))
+    n = 0
+    with _conn() as cn, cn.cursor() as cur:
+        _ensure_scenes_table(cur)
+        for r in rows:
+            cur.execute(f"INSERT INTO render_scenes ({','.join(cols)}) VALUES ({ph}) "
+                        f"ON CONFLICT (render_id, scene_idx) DO UPDATE SET {upd}",
+                        [r.get(c) for c in cols])
+            n += 1
+        cn.commit()
+    return n
+
+
+def scenes_all(slug: str | None = None, limit: int = 2000) -> list:
+    if not db_enabled():
+        return []
+    with _conn() as cn, cn.cursor() as cur:
+        _ensure_scenes_table(cur)
+        if slug:
+            cur.execute("SELECT * FROM render_scenes WHERE slug=%s ORDER BY render_id, scene_idx "
+                        "LIMIT %s", (slug, limit))
+        else:
+            cur.execute("SELECT * FROM render_scenes ORDER BY created_at DESC, scene_idx LIMIT %s",
+                        (limit,))
+        names = [d[0] for d in cur.description]
+        return [dict(zip(names, row)) for row in cur.fetchall()]
