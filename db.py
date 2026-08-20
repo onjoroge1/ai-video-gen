@@ -5,6 +5,8 @@ every function swallows errors and degrades to a no-op. Gated on the DATABASE_UR
 """
 import os
 import json
+import hashlib
+from pathlib import Path
 
 
 def db_enabled() -> bool:
@@ -257,6 +259,138 @@ def metrics_all() -> list:
     except Exception as e:
         print(f"[db] metrics_all failed: {e}")
         return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# ── Render release bundles ────────────────────────────────────────────────────
+
+def _ensure_published_videos_table(cur) -> None:
+    """Create the durable release-bundle table without requiring a migration runner."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS published_videos (
+            slug                text PRIMARY KEY,
+            title               text NOT NULL,
+            format              text NOT NULL,
+            status              text NOT NULL DEFAULT 'ready',
+            video_filename      text NOT NULL,
+            video_mime_type     text NOT NULL DEFAULT 'video/mp4',
+            video_data          bytea NOT NULL,
+            video_size_bytes    bigint NOT NULL,
+            video_sha256        text NOT NULL,
+            description_filename text NOT NULL,
+            description_text    text NOT NULL,
+            captions_filename   text NOT NULL,
+            captions_srt        text NOT NULL,
+            transcript_filename text,
+            transcript_text     text,
+            duration_sec        numeric,
+            metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at          timestamptz NOT NULL DEFAULT now(),
+            updated_at          timestamptz NOT NULL DEFAULT now()
+        )""")
+
+
+def publish_video_bundle(*, slug: str, title: str, video_path: str,
+                         description_path: str, captions_path: str,
+                         transcript_path: str | None = None,
+                         video_format: str = "quiz", duration_sec: float | None = None,
+                         metadata: dict | None = None) -> bool:
+    """Upsert one self-contained release bundle, including the MP4 and its text documents.
+
+    Storing the binary in Postgres is intentional here: a release remains recoverable even when
+    local ``outputs/`` files are cleaned. Large-scale production should move media to object storage
+    and retain its immutable URL/checksum in this table.
+    """
+    slug = (slug or "").strip()
+    title = (title or "").strip()
+    if not slug or not title:
+        return False
+    paths = [Path(video_path), Path(description_path), Path(captions_path)]
+    if not all(path.is_file() for path in paths):
+        return False
+    transcript = Path(transcript_path) if transcript_path else None
+    if transcript and not transcript.is_file():
+        return False
+
+    import psycopg2
+
+    video_bytes = paths[0].read_bytes()
+    description = paths[1].read_text(encoding="utf-8")
+    captions = paths[2].read_text(encoding="utf-8")
+    transcript_text = transcript.read_text(encoding="utf-8") if transcript else None
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return False
+        cur = conn.cursor()
+        _ensure_published_videos_table(cur)
+        cur.execute("""
+            INSERT INTO published_videos (
+                slug, title, format, video_filename, video_data, video_size_bytes,
+                video_sha256, description_filename, description_text, captions_filename,
+                captions_srt, transcript_filename, transcript_text, duration_sec, metadata
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+            ON CONFLICT (slug) DO UPDATE SET
+                title=EXCLUDED.title, format=EXCLUDED.format, status='ready',
+                video_filename=EXCLUDED.video_filename, video_data=EXCLUDED.video_data,
+                video_size_bytes=EXCLUDED.video_size_bytes, video_sha256=EXCLUDED.video_sha256,
+                description_filename=EXCLUDED.description_filename,
+                description_text=EXCLUDED.description_text,
+                captions_filename=EXCLUDED.captions_filename,
+                captions_srt=EXCLUDED.captions_srt,
+                transcript_filename=EXCLUDED.transcript_filename,
+                transcript_text=EXCLUDED.transcript_text,
+                duration_sec=EXCLUDED.duration_sec, metadata=EXCLUDED.metadata, updated_at=now()
+        """, (
+            slug, title, video_format, paths[0].name, psycopg2.Binary(video_bytes),
+            len(video_bytes), hashlib.sha256(video_bytes).hexdigest(), paths[1].name,
+            description, paths[2].name, captions, transcript.name if transcript else None,
+            transcript_text, duration_sec, json.dumps(metadata or {}),
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] publish_video_bundle failed: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def published_video_manifest(slug: str) -> dict | None:
+    """Return publication metadata for verification without downloading the MP4 blob."""
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        _ensure_published_videos_table(cur)
+        cur.execute("""
+            SELECT slug, title, format, status, video_filename, video_size_bytes,
+                   video_sha256, description_filename, captions_filename,
+                   transcript_filename, duration_sec, metadata, created_at, updated_at
+            FROM published_videos WHERE slug=%s
+        """, ((slug or "").strip(),))
+        row = cur.fetchone()
+        if not row:
+            return None
+        keys = ("slug", "title", "format", "status", "video_filename", "video_size_bytes",
+                "video_sha256", "description_filename", "captions_filename",
+                "transcript_filename", "duration_sec", "metadata", "created_at", "updated_at")
+        return dict(zip(keys, row))
+    except Exception as e:
+        print(f"[db] published_video_manifest failed: {e}")
+        return None
     finally:
         if conn:
             try:

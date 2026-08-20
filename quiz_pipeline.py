@@ -11,11 +11,18 @@ Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then three 
 
 Standalone module; reuses explainer_pipeline for image/TTS gen + the mascot. Best-effort throughout.
 """
-import os, re, shutil, subprocess, wave, math, json
+import os, re, shutil, subprocess, wave, math, json, base64
+from io import BytesIO
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 import explainer_pipeline as ep
-from bolt_video.formats.quiz import QUIZ_V2, clamp_quiz_items, round_narration
+from bolt_video.formats.quiz import (
+    QUIZ_V2,
+    clamp_quiz_items,
+    clue_zoom,
+    final_reveal_narration,
+    round_narration,
+)
 from font_utils import load_font
 
 FF = os.environ.get("FFMPEG_BIN") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
@@ -44,11 +51,13 @@ _QUIZ_SYSTEM = (
     "plain silhouette that is just an unguessable circle or blob. Make the TITLE match the clue style you "
     "chose (only say 'shadow'/'silhouette' if you actually used silhouettes).\n"
     "DIFFICULTY LADDER — order items MEDIUM -> HARD -> EXPERT and set each item's \"difficulty\". Item 1 "
-    "must create real thought immediately — never use an obvious elephant/apple-style opener. The final "
+    "must create real thought immediately. NEVER choose silhouette clichés such as elephant, giraffe, "
+    "kangaroo, rabbit, camel, flamingo, seahorse, butterfly, shark, dolphin, cat, dog, horse, lion, zebra, "
+    "or snake. Choose animals a broad audience knows, but whose PARTIAL outline is not instantly obvious. The final "
     "item is EXPERT: genuinely tricky or slightly deceptive. Each spoken line SHORT and punchy.\n"
-    "CONSISTENT REVEALS: keep EVERY reveal the SAME isolated style — the subject centered on a clean SOLID "
-    "colorful studio background, NO habitat/scene/water (don't put one animal underwater and another on "
-    "white). \"reaction\" is a 2-4 word reveal punch flavored by difficulty ('Too easy!' / 'Tricky one!' / "
+    "CONSISTENT REVEALS: keep EVERY reveal the SAME isolated style AND the EXACT SAME profile, pose, scale, "
+    "and composition as its clue so the black shape can fill with color. Use a clean SOLID colorful studio "
+    "background, NO habitat/scene/water. \"reaction\" is a 2-4 word reveal punch flavored by difficulty ('Too easy!' / 'Tricky one!' / "
     "'Almost nobody gets this!').\n"
     "Return ONLY JSON: {\"title\":\"clickable title, e.g. 'Can You Name All 3 From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
@@ -115,39 +124,147 @@ def _font(s): return load_font(FONT, s, bold=True)
 def _t(d, xy, s, sz, fill, anchor="mm", stroke=10, sc=NAVY):
     d.text(xy, s, font=_font(sz), fill=fill, anchor=anchor, stroke_width=stroke, stroke_fill=sc)
 
+
+def _save_png_atomic(image, path):
+    tmp = path + ".tmp.png"
+    image.save(tmp, format="PNG")
+    os.replace(tmp, path)
+
 _DIFF_COLORS = {"medium": (80, 200, 120), "hard": (245, 180, 60), "expert": (240, 80, 80)}
 
-def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=None, subscribe=False):
+def _fit_text_size(text, maximum, width, minimum=34):
+    size = maximum
+    while size > minimum and _font(size).getlength(text) > width:
+        size -= 4
+    return size
+
+
+def _paste_bolt_badge(canvas, xy=(70, 1210), size=190):
+    """Small reveal-only brand cue; never delays frame-zero gameplay."""
+    try:
+        mascot = Image.open(ep.MASCOT_REF).convert("RGB")
+        w, h = mascot.size
+        head = mascot.crop((int(w * .27), int(h * .01), int(w * .73), int(h * .72)))
+        head = ImageOps.fit(head, (size, size), method=Image.Resampling.LANCZOS)
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).ellipse((4, 4, size - 4, size - 4), fill=255)
+        badge = Image.new("RGBA", (size, size), (*NAVY, 255))
+        badge.paste(head.convert("RGBA"), (0, 0), mask)
+        ImageDraw.Draw(badge).ellipse((3, 3, size - 4, size - 4), outline=(*CYAN, 255), width=8)
+        canvas.alpha_composite(badge, xy)
+    except Exception:
+        pass
+
+
+def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=None,
+              subscribe=False, round_label=None, bolt=False):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
-    if subscribe:                                          # YouTube-style subscribe CTA (teaser beat)
-        sw = int(_font(78).getlength("SUBSCRIBE")) + 190; cyp = int(H * 0.72)
-        d.rounded_rectangle([W//2-sw//2, cyp-72, W//2+sw//2, cyp+72], radius=38, fill=(230, 33, 42, 255))
-        tri = W//2 - sw//2 + 66                             # white play-triangle
-        d.polygon([(tri, cyp-34), (tri, cyp+34), (tri+58, cyp)], fill=(255, 255, 255, 255))
-        _t(d, (W//2 + 46, cyp), "SUBSCRIBE", 78, WHITE, stroke=4)
+    if subscribe:                                          # integrated CTA, not a standalone scene
+        top = top or "NEW QUIZ DAILY · SUBSCRIBE"
     if top:
-        d.rounded_rectangle([40, 70, W-40, 240], radius=30, fill=(*NAVY, 255)); _t(d, (W//2, 155), top, 70, WHITE, stroke=6)
-    if difficulty:                                          # difficulty ladder badge (EASY/HARD/EXPERT)
+        d.rounded_rectangle([55, 155, W-55, 335], radius=32, fill=(*NAVY, 245))
+        title_size = _fit_text_size(top, 70, W - 170)
+        _t(d, (W//2, 225), top, title_size, WHITE, stroke=6)
+    if round_label:
         dc = _DIFF_COLORS.get(difficulty.lower(), (245, 180, 60)); lbl = difficulty.upper()
-        bw = int(_font(54).getlength(lbl)) + 72
-        d.rounded_rectangle([W//2-bw//2, 258, W//2+bw//2, 344], radius=24, fill=(*dc, 255)); _t(d, (W//2, 301), lbl, 54, WHITE, stroke=5)
-    if cd_left is not None:                                 # 3-segment timer bar — keeps the CLUE unobstructed
-        segw = (W-200)//3; y0 = H-500
-        for k in range(3):
-            x0 = 100 + k*segw + 8; col = CYAN if k < cd_left else (60, 66, 84)
-            d.rounded_rectangle([x0, y0, x0+segw-16, y0+48], radius=16, fill=(*col, 255), outline=(*NAVY, 255), width=4)
+        sub = f"{round_label} · {lbl}"
+        sub_size = _fit_text_size(sub, 42, W - 250)
+        sw = int(_font(sub_size).getlength(sub)) + 70
+        d.rounded_rectangle([W//2-sw//2, 278, W//2+sw//2, 360], radius=22, fill=(*dc, 255))
+        _t(d, (W//2, 319), sub, sub_size, WHITE, stroke=4)
+    elif difficulty:                                       # compatibility for any standalone caller
+        dc = _DIFF_COLORS.get(difficulty.lower(), (245, 180, 60)); lbl = difficulty.upper()
+        bw = int(_font(48).getlength(lbl)) + 64
+        d.rounded_rectangle([W//2-bw//2, 278, W//2+bw//2, 360], radius=22, fill=(*dc, 255))
+        _t(d, (W//2, 319), lbl, 48, WHITE, stroke=4)
+    if cd_left is not None:                                 # unmistakable single countdown bar + numeral
+        x0, x1, y0 = 155, W - 185, H - 610
+        d.rounded_rectangle([x0, y0, x1, y0+52], radius=20, fill=(60, 66, 84, 235),
+                            outline=(*NAVY, 255), width=4)
+        fill_x = x0 + int((x1 - x0) * max(0, min(3, cd_left)) / 3)
+        d.rounded_rectangle([x0, y0, fill_x, y0+52], radius=20, fill=(*CYAN, 255))
+        d.ellipse([W-160, y0-25, W-65, y0+75], fill=(*NAVY, 255), outline=(*CYAN, 255), width=5)
+        _t(d, (W-112, y0+25), str(cd_left), 58, WHITE, stroke=4)
     if answer:
-        d.rounded_rectangle([40, H-360, W-40, H-200], radius=30, fill=(*NAVY, 255), outline=(*CYAN, 255), width=6); _t(d, (W//2, H-280), answer, 92, CYAN, stroke=8)
+        if bolt:
+            _paste_bolt_badge(im)
+        x0 = 285 if bolt else 70
+        y0, y1 = H-650, H-475
+        d.rounded_rectangle([x0, y0, W-70, y1], radius=30, fill=(*NAVY, 248),
+                            outline=(*CYAN, 255), width=6)
+        answer_size = _fit_text_size(answer, 88, W - x0 - 130)
+        _t(d, ((x0 + W - 70)//2, (y0+y1)//2), answer, answer_size, CYAN, stroke=7)
     if score:
         d.rounded_rectangle([W-330, 280, W-40, 400], radius=26, fill=(*RED, 255)); _t(d, (W-185, 340), score, 74, WHITE, stroke=6)
-    im.save(path)
+    _save_png_atomic(im, path)
 
 def _fit(src, out, mode="fit", bg=(0, 0, 0)):
     im = Image.open(src).convert("RGB")
-    (ImageOps.pad(im, (W, H), color=bg) if mode == "pad" else ImageOps.fit(im, (W, H))).save(out)
+    fitted = ImageOps.pad(im, (W, H), color=bg) if mode == "pad" else ImageOps.fit(im, (W, H))
+    _save_png_atomic(fitted, out)
+
+
+def _edge_background(src):
+    """Median generated edge color for seamless portrait padding."""
+    im = Image.open(src).convert("RGB")
+    a = np.asarray(im)
+    k = max(4, min(im.size)//80)
+    border = np.concatenate([a[:k].reshape(-1, 3), a[-k:].reshape(-1, 3),
+                             a[:, :k].reshape(-1, 3), a[:, -k:].reshape(-1, 3)])
+    return tuple(int(v) for v in np.median(border, axis=0))
+
+
+def _progressive_crop(src, out, zoom):
+    """Reveal a centered detail first, then widen to the full clue across the three ticks."""
+    im = Image.open(src).convert("RGB")
+    zoom = max(1.0, float(zoom))
+    cw, ch = max(2, int(im.width / zoom)), max(2, int(im.height / zoom))
+    left, top = (im.width - cw) // 2, (im.height - ch) // 2
+    crop = im.crop((left, top, left + cw, top + ch)).resize((W, H), Image.Resampling.LANCZOS)
+    _save_png_atomic(crop, out)
+
+
+def _vision_image(path):
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((512, 910), Image.Resampling.LANCZOS)
+    buf = BytesIO(); im.save(buf, format="JPEG", quality=82)
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                           "data": base64.b64encode(buf.getvalue()).decode()}}
+
+
+def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_sink=None):
+    """Blind-ish mobile QA for difficulty, fairness, identity, anatomy, and pose continuity."""
+    try:
+        r = ep._claude().messages.create(
+            model="claude-opus-4-8", max_tokens=450,
+            system=(
+                "You are a ruthless QA grader for a fast mobile animal quiz. You receive: IMAGE 1, the "
+                "first partial clue shown for 0.8 seconds; IMAGE 2, the full final silhouette clue; IMAGE 3, "
+                "the color answer reveal. The intended answer and difficulty are supplied. Judge at PHONE "
+                "SIZE. The first crop should create uncertainty; the full clue must still be fair; the reveal "
+                "must unmistakably be the answer with correct anatomy and roughly the same pose/composition. "
+                "Return ONLY JSON: {\"first_crop_confidence\":0-100,\"first_guess\":\"...\","
+                "\"too_easy\":bool,\"full_clue_fair\":bool,\"reveal_matches_answer\":bool,"
+                "\"anatomy_ok\":bool,\"pose_continuity\":bool,\"biggest_fix\":\"...\"}. "
+                "For medium, too_easy means confidence above 80; hard above 65; expert above 50."
+            ),
+            messages=[{"role": "user", "content": [
+                _vision_image(first_crop), _vision_image(full_clue), _vision_image(reveal),
+                {"type": "text", "text": f'Answer: "{answer}". Intended difficulty: {difficulty}.'},
+            ]}],
+        )
+        if cost_sink is not None:
+            cost_sink.append(ep._msg_cost(r.usage))
+        result, _ = ep._parse_script_json(r.content[0].text)
+        return result if isinstance(result, dict) else None
+    except Exception as exc:
+        return {"qa_error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+
 
 def _composite(base, textpng, out):
-    Image.alpha_composite(Image.open(base).convert("RGBA"), Image.open(textpng).convert("RGBA")).convert("RGB").save(out)
+    composite = Image.alpha_composite(Image.open(base).convert("RGBA"),
+                                      Image.open(textpng).convert("RGBA")).convert("RGB")
+    _save_png_atomic(composite, out)
 
 def _dur(p):
     return float(subprocess.run([FP, "-v", "error", "-show_entries", "format=duration", "-of",
@@ -164,8 +281,54 @@ def _still(img, out, d, drift=True):
               f"trim=end_frame={n},format=yuv420p")
     else:
         vf = f"fps={FPS},format=yuv420p"
-    subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", vf,
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out], capture_output=True)
+    try:
+        os.remove(out)
+    except OSError:
+        pass
+    cmd = [FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", vf,
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0 or _dur(out) < max(0.1, d - 0.08):
+        # Encoding occasionally left a zero-byte MP4 while the old pipeline continued and produced a
+        # deceptively "successful" 1.6-second final. Retry deterministically, then fail hard.
+        fallback_vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},format=yuv420p"
+        result = subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an",
+                                 "-vf", fallback_vf, "-c:v", "libx264", "-preset", "veryfast",
+                                 "-crf", "20", out], capture_output=True)
+    if result.returncode != 0 or _dur(out) < max(0.1, d - 0.08):
+        raise RuntimeError(f"quiz clip encode failed: {os.path.basename(out)}")
+
+
+def _render_sequence(specs, out, expected_duration):
+    """Encode all cards in one FFmpeg process; avoids fragile twelve-MP4 concat intermediates."""
+    inputs = []; filters = []; labels = []
+    for i, (path, duration, is_video) in enumerate(specs):
+        if is_video:
+            inputs += ["-i", path]
+            vf = (f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                  f"fps={FPS},trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
+        else:
+            inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", path]
+            frames = max(2, int(round(duration * FPS)))
+            step = 0.05 / frames
+            vf = (f"[{i}:v]scale=1300:-1,zoompan=z='min(1.0+{step:.6f}*on,1.05)':"
+                  f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
+                  f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
+        filters.append(vf); labels.append(f"[v{i}]")
+    filters.append("".join(labels) + f"concat=n={len(specs)}:v=1:a=0,format=yuv420p[out]")
+    try:
+        os.remove(out)
+    except OSError:
+        pass
+    result = subprocess.run(
+        [FF, "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
+         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(FPS), out],
+        capture_output=True)
+    actual = _dur(out)
+    if result.returncode != 0 or actual < expected_duration - 0.2:
+        err = result.stderr.decode(errors="replace")[-400:] if result.stderr else ""
+        raise RuntimeError(f"quiz sequence render failed: expected {expected_duration:.2f}s, "
+                           f"got {actual:.2f}s; {err}")
 
 def _fal_countdown_opener(clean_img, overlays, outputs, segment_d, i2v_sink=None):
     """Animate the first clue once with fal, then split it under the changing 3-2-1 overlays.
@@ -237,8 +400,10 @@ _QUIZ_DESC_SYSTEM = (
     "Register: vivid, confident, curiosity-driven, direct 2nd-person ('YOU'), specific, ZERO fluff — no "
     "'get ready to test your knowledge' filler. The arc is the escalating CHALLENGE and a dare to the "
     "viewer.\n"
-    "STRUCTURE: (a) 'body' = TWO short punchy paragraphs — para 1 sets the challenge and frames the "
-    "HARDEST/last round as the one that 'stumps almost everyone'; para 2 escalates the difficulty ladder "
+    "DIFFICULTY INTEGRITY: honor the supplied medium/hard/expert labels. Never call a medium round easy or "
+    "a warm-up, and never make unsupported percentage/popularity claims.\n"
+    "STRUCTURE: (a) 'body' = TWO short punchy paragraphs — para 1 sets the challenge and clearly saves "
+    "the HARDEST round for last; para 2 escalates the difficulty ladder "
     "and lands a direct participation dare ('how many did YOU get?') plus a comment prompt. (b) "
     "'hashtags' = 5-6 (WITHOUT the # sign). (c) 'tags' = 15-18 in this ORDER: 5 EXACT-PREMISE (mirror the "
     "title + how people search this quiz), 5 CONSEQUENCE/CONTENT (the challenge, silhouette/clue "
@@ -270,7 +435,12 @@ def generate_quiz_description(category, title, items, hook, out_dir, cost_sink=N
         o, _ = ep._parse_script_json(r.content[0].text)
         if not isinstance(o, dict) or not ep._s(o.get("body")).strip():
             return ""
-        parts = [ep._s(o.get("body")).strip()]
+        body = ep._s(o.get("body")).strip()
+        # Models can echo tempting but unsupported challenge clichés despite the system rule. Keep
+        # difficulty and popularity claims honest before metadata reaches YouTube.
+        body = re.sub(r"\bmedium\s+warm[- ]?up\b", "medium opener", body, flags=re.I)
+        body = re.sub(r"\bstumps?\s+almost\s+everyone\b", "is the hardest of the three", body, flags=re.I)
+        parts = [body]
         hashtags = [ep._s(h).strip().lstrip("#").strip() for h in (o.get("hashtags") or []) if ep._s(h).strip()]
         if hashtags:
             parts.append(" ".join("#" + h.replace(" ", "") for h in hashtags[:6]))
@@ -309,6 +479,39 @@ def _safe_image(prompt, path, size, cost_sink, fallback_label="", **kw):
     except Exception:
         pass
     ep.make_fallback_frame(path, fallback_label, w=w, h=h)
+
+
+def _generate_reveal(answer, clue_visual, clue_path, output_path, size, cost_sink,
+                     reference_first=True, strict=False):
+    """Prefer silhouette-guided image edit, but never turn an edit incompatibility into a blank reveal."""
+    pose = _SIL_STRIP.sub("", ep._s(clue_visual)).strip() or ep._s(clue_visual)
+    ref_prompt = (
+        f"Transform the attached black silhouette into an unmistakable, anatomically correct full-color "
+        f"3D {answer}. Keep the exact same outline, profile/pose, scale, position, framing, and flat "
+        "background. Add detail inside the existing shape only. No habitat, props, text, or watermark."
+    )
+    text_prompt = (
+        f"An unmistakable, anatomically correct full-color 3D {answer}, {pose}. Match that exact profile, "
+        "pose, scale, and framing on a flat clean colorful background. The entire animal must be visible "
+        "with correct species-defining anatomy. Premium cohesive 3D cartoon, no habitat, props, text, "
+        "letters, or watermark."
+    )
+    if strict:
+        text_prompt += f" It must clearly read as {answer} in one second on a phone."
+    if reference_first:
+        try:
+            ep.generate_image(ref_prompt, output_path, size=size, cost_sink=cost_sink,
+                              reference_paths=[clue_path])
+            return "reference_edit"
+        except Exception:
+            pass
+    try:
+        ep.generate_image(text_prompt, output_path, size=size, cost_sink=cost_sink)
+        return "text_fallback" if reference_first else "text_regeneration"
+    except Exception:
+        w, h = (int(x) for x in str(size).lower().split("x"))
+        ep.make_fallback_frame(output_path, answer, w=w, h=h)
+        return "local_fallback"
 
 
 # ── SILHOUETTE ("name it from the shadow") clue rendering ───────────────────────────────────────────
@@ -357,7 +560,26 @@ def _silhouette_clean(src, out, bg_rgb, lo=45.0, hi=95.0):
     dist = np.sqrt(((a - bg) ** 2).sum(axis=2))
     alpha = np.clip((dist - lo) / (hi - lo), 0.0, 1.0)[..., None]      # 1 = subject, 0 = background
     res = (1.0 - alpha) * np.array(bg_rgb, dtype=np.float32)           # subject→black, bg→bg_rgb
-    Image.fromarray(res.astype(np.uint8)).save(out)
+    _save_png_atomic(Image.fromarray(res.astype(np.uint8)), out)
+
+
+def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
+    """Normalize every clue's subject scale so expert/wide animals do not look tiny."""
+    im = Image.open(src).convert("RGB")
+    a = np.asarray(im)
+    bg = np.array(bg_rgb, dtype=np.int32)
+    mask = np.sqrt(((a.astype(np.int32) - bg) ** 2).sum(axis=2)) > 45
+    ys, xs = np.where(mask)
+    if not len(xs):
+        return
+    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    subject = im.crop((x0, y0, x1, y1))
+    scale = min(im.width * max_fill / subject.width, im.height * max_fill / subject.height)
+    nw, nh = max(2, int(subject.width * scale)), max(2, int(subject.height * scale))
+    subject = subject.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", im.size, bg_rgb)
+    canvas.paste(subject, ((im.width - nw)//2, (im.height - nh)//2))
+    _save_png_atomic(canvas, out)
 
 
 def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
@@ -368,6 +590,7 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
     _safe_image(_sil_prompt(clue_visual, name), dst, size, cost_sink)   # fallback_label="" → never leak the answer
     try:
         _silhouette_clean(dst, dst, rgb)
+        _normalize_silhouette(dst, dst, rgb)
     except Exception:
         pass
     return rgb
@@ -402,11 +625,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     for i, it in enumerate(items, 1):
         q_texts[i] = round_narration(category, i, len(items))
         ep.generate_tts(q_texts[i], f"{A}/n_q{i}.mp3", voice=voice)
-        r_texts[i] = f"{ep._s(it.get('answer'))}!"
+        r_texts[i] = (final_reveal_narration(ep._s(it.get("answer"))) if i == len(items)
+                      else f"{ep._s(it.get('answer'))}!")
         ep.generate_tts(r_texts[i], f"{A}/n_r{i}.mp3", voice=voice)
 
     CDN = QUIZ_V2.guess_window_sec / 3
-    clips = []; audio = []; caps = []; t = 0.0; fal_opener = []
+    clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
 
     for i, it in enumerate(items, 1):
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
@@ -417,39 +641,70 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         else:
             _safe_image(ep._s(it.get("clue_visual")) + ", centered with margin, on a flat bright "
                         "background, bold clean shape, no text." + STY, clue, "1024x1536", costs)
-        _safe_image(ep._s(it.get("reveal_visual")) + ", centered, clean bright background, appealing, sharp." + STY,
-                    rev, "1024x1536", costs, fallback_label=ep._s(it.get("answer")))
-        _fit(clue, f"{A}/clue{i}_b.png", "pad", bg=bg); _fit(rev, f"{A}/rev{i}_b.png", "fit")
+        answer = ep._s(it.get("answer"))
+        reveal_mode = _generate_reveal(answer, it.get("clue_visual"), clue, rev, "1024x1536", costs)
+        _fit(clue, f"{A}/clue{i}_b.png", "pad", bg=bg)
+        _fit(rev, f"{A}/rev{i}_b.png", "pad", bg=_edge_background(rev))
         diff = ep._s(it.get("difficulty")).lower() or ("medium" if i == 1 else "expert" if i == len(items) else "hard")
         # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
         # removing ~1.5-2 seconds of setup from every round.
         audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
         caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
         audio.append(("CD", t, "cd"))
-        countdown_overlays = []; countdown_outputs = []
-        for k in (3, 2, 1):
-            _text_png(f"{A}/cd{i}_{k}_t.png", top=f"ROUND {i}/{len(items)} · GUESS", difficulty=diff, cd_left=k)
+        countdown_overlays = []; countdown_outputs = []; countdown_bases = []
+        for stage, k in enumerate((3, 2, 1)):
+            stage_base = f"{A}/clue{i}_stage{stage}.png"
+            _progressive_crop(f"{A}/clue{i}_b.png", stage_base, clue_zoom(diff, stage))
+            countdown_bases.append(stage_base)
+            _text_png(f"{A}/cd{i}_{k}_t.png", top="CAN YOU GET 3/3?", difficulty=diff,
+                      round_label=f"ANIMAL {i}/{len(items)}", cd_left=k)
             countdown_overlays.append(f"{A}/cd{i}_{k}_t.png")
             countdown_outputs.append(f"{A}/c{i}1_{k}.mp4")
-        used_fal = i == 1 and FAL_OPENER and _fal_countdown_opener(
+        grade = grade_quiz_visuals(countdown_bases[0], f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png",
+                                   answer, diff, costs) or {}
+        grade["round"] = i; grade["answer"] = answer; grade["difficulty"] = diff
+        grade["reveal_generation_mode"] = reveal_mode
+        if grade.get("too_easy"):
+            _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[0], clue_zoom(diff, 0) * 1.25)
+            grade["crop_deepened"] = True
+            log(f"Round {i} difficulty QA deepened the opening crop")
+        if grade.get("reveal_matches_answer") is False or grade.get("anatomy_ok") is False:
+            grade["repair_generation_mode"] = _generate_reveal(
+                answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
+                reference_first=False, strict=True)
+            _fit(rev, f"{A}/rev{i}_b.png", "pad", bg=_edge_background(rev))
+            grade["reveal_regenerated"] = True
+            log(f"Round {i} identity QA regenerated the answer reveal")
+        visual_qa.append(grade)
+
+        # Progressive crops and generative silhouette motion are deliberately separate experiments:
+        # combining them would let Kling morph the clue while the crop changes, making the quiz unfair.
+        used_fal = i == 1 and FAL_OPENER and not QUIZ_V2.progressive_clues and _fal_countdown_opener(
             f"{A}/clue{i}_b.png", countdown_overlays, countdown_outputs, CDN, fal_opener)
         if used_fal:
             costs.append(5 * FAL_OPENER_RATE_SEC)
+            render_specs.extend((out, CDN, True) for out in countdown_outputs)
+            clips.extend(countdown_outputs)
         else:
-            for k, overlay, out in zip((3, 2, 1), countdown_overlays, countdown_outputs):
-                _composite(f"{A}/clue{i}_b.png", overlay, f"{A}/cd{i}_{k}.png")
-                _still(f"{A}/cd{i}_{k}.png", out, CDN)
-        clips.extend(countdown_outputs)
+            for k, base, overlay, out in zip((3, 2, 1), countdown_bases, countdown_overlays, countdown_outputs):
+                card = f"{A}/cd{i}_{k}.png"
+                _composite(base, overlay, card)
+                render_specs.append((card, CDN, False)); clips.append(card)
         t += CDN * 3
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
-        final_prompt = "COMMENT SCORE" if i == len(items) else None
-        _text_png(f"{A}/r{i}_t.png", top=final_prompt,
-                  answer=ep._s(it.get("answer")).upper() + "!")
+        is_final = i == len(items)
+        final_prompt = "NEW QUIZ DAILY · SUBSCRIBE" if is_final else None
+        _text_png(f"{A}/r{i}_t.png", top=final_prompt, subscribe=is_final, bolt=True,
+                  answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
-        dr = min(QUIZ_V2.reveal_max_sec,
-                 max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
-        _still(f"{A}/r{i}.png", f"{A}/c{i}2_r.mp4", dr); clips.append(f"{A}/c{i}2_r.mp4")
+        if is_final:
+            dr = min(QUIZ_V2.final_reveal_max_sec,
+                     max(QUIZ_V2.final_reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.12))
+        else:
+            dr = min(QUIZ_V2.reveal_max_sec,
+                     max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
+        render_specs.append((f"{A}/r{i}.png", dr, False)); clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
     TOTAL = t
 
@@ -472,10 +727,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         log(f"caption write skipped: {e}"); srt_path = transcript_path = None
 
     log("stage:Assembling final video...")
-    lst = f"{A}/list.txt"; open(lst, "w").write("".join(f"file '{c}'\n" for c in clips))
+    missing_cards = [os.path.basename(path) for path, _, _ in render_specs if not os.path.exists(path)]
+    if missing_cards:
+        raise RuntimeError("quiz assembly blocked by missing cards: " + ", ".join(missing_cards))
     vsil = f"{A}/video_silent.mp4"
-    subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", lst, "-an", "-c:v", "libx264",
-                    "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30", vsil], capture_output=True)
+    _render_sequence(render_specs, vsil, TOTAL)
     # sfx
     cdsfx = f"{A}/cdsfx.wav"      # 3 ticks matching the 2.4s countdown (0/0.8/1.6s), rising pitch, NO ding
     subprocess.run([FF, "-y", "-filter_complex",
@@ -497,12 +753,19 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     mix = "".join(f"[s{i}]" for i in range(idx)) + ("[mus]" if music_ok else "")
     parts.append(f"{mix}amix=inputs={idx + (1 if music_ok else 0)}:normalize=0,alimiter=limit=0.95,loudnorm=I=-12:TP=-1.5,aresample=48000[aout]")   # target -12: single-pass undershoots ~2 LU -> lands ~-14
     faud = f"{A}/full_audio.m4a"
-    subprocess.run([FF, "-y", *ins, "-filter_complex", ";".join(parts), "-map", "[aout]", "-t", f"{TOTAL}",
-                    "-c:a", "aac", "-b:a", "192k", faud], capture_output=True)
+    audio_result = subprocess.run(
+        [FF, "-y", *ins, "-filter_complex", ";".join(parts), "-map", "[aout]", "-t", f"{TOTAL}",
+         "-c:a", "aac", "-b:a", "192k", faud], capture_output=True)
+    if audio_result.returncode != 0 or _dur(faud) < TOTAL - 0.2:
+        raise RuntimeError(f"quiz audio assembly failed: expected {TOTAL:.2f}s, got {_dur(faud):.2f}s")
 
     out_mp4 = os.path.join(output_dir, "quiz.mp4")
-    subprocess.run([FF, "-y", "-i", vsil, "-i", faud, "-c:v", "copy", "-c:a", "aac", "-shortest",
-                    "-movflags", "+faststart", out_mp4], capture_output=True)
+    mux_result = subprocess.run(
+        [FF, "-y", "-i", vsil, "-i", faud, "-c:v", "copy", "-c:a", "aac", "-shortest",
+         "-movflags", "+faststart", out_mp4], capture_output=True)
+    actual_duration = _dur(out_mp4)
+    if mux_result.returncode != 0 or actual_duration < TOTAL - 0.2:
+        raise RuntimeError(f"quiz final mux failed: expected {TOTAL:.2f}s, got {actual_duration:.2f}s")
 
     # Ready-to-paste YouTube description + tags (best-effort). Runs BEFORE the cost sum so its cost is
     # counted; the app persists description_path → {job}.desc exactly like the explainer path.
@@ -524,6 +787,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "script": quiz, "hook": q_texts.get(1, ""), "video_format": "social",
             "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
             "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
+            "progressive_clues": QUIZ_V2.progressive_clues,
+            "subscribe_cta": "integrated_final_reveal", "visual_qa": visual_qa,
             "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc

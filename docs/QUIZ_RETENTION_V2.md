@@ -1,4 +1,4 @@
-# Quiz Short Retention V2 — Rapid Reveal
+# Quiz Short Retention V2.1 — Progressive Rapid Reveal
 
 ## Measured failure
 
@@ -16,17 +16,24 @@ The retention curve has two different problems:
 The middle declines steadily because each round serializes “Number N. What is it?”, a 2.4-second timer,
 and a reaction reveal. Easy-first clues plus repeated setup make the interaction feel slower than it is.
 
-## V2 creative contract
+## V2.1 creative contract
 
 - The **first clue is frame zero**. No mascot intro or logo hold.
 - Three rounds maximum: **medium → hard → expert**. The opener cannot be trivial.
 - Voice and timer run concurrently over the clue; no separate “What is it?” card.
-- Guess window: 2.4 seconds. Reveal: 0.8–1.2 seconds, answer only.
+- Each 2.4-second guess progressively widens from a tight detail to the complete clue every 0.8 seconds.
+- Reveal: 0.8–1.2 seconds; the final reveal may run up to 2.4 seconds for the integrated daily CTA.
+- A vision QA pass grades first-crop difficulty, full-clue fairness, answer identity, anatomy, and pose.
+- Overly easy openings are cropped tighter; incorrect/anatomically weak reveals regenerate once.
+- Critical headers, timers, answers, and CTA remain inside the Shorts safe zone.
 - Every card has subtle duration-aware motion; no frozen multi-second PNG.
 - Optional `QUIZ_FAL_OPENER=1` uses one fal/Kling clip behind the first countdown only. This isolates
-  the value of generative motion at the swipe/stay decision without paying to animate every card.
-- The final answer carries “COMMENT SCORE”; there is no outro or subscribe teaser.
-- Expected duration is roughly **10–11 seconds**, designed to invite an immediate replay.
+  the value of generative motion at the swipe/stay decision without paying to animate every card. It is
+  not combined with progressive crops because generative silhouette morphing can make a clue unfair.
+- Bolt appears as a small reveal badge, never as an intro.
+- The final answer carries “NEW QUIZ DAILY · SUBSCRIBE” with a short spoken CTA over the payoff itself.
+  There is no separate outro or subscription card.
+- Expected duration is roughly **11 seconds**, designed to invite an immediate replay.
 
 ## Why this is a creative change, not only a trim
 
@@ -43,16 +50,16 @@ Primary gates after at least 500 Shorts-feed impressions:
 
 | Metric | Baseline | V2 minimum | Strong result |
 |---|---:|---:|---:|
-| Stayed to watch | 19% | 30% | 40%+ |
+| Stayed to watch | 19% | 30% | 50%+ |
 | Average percentage viewed | ~48% | 85% | 110%+ |
 | Average view duration | 16s / 33s | 9s / ~11s | 12s+ / ~11s |
 | End-of-video retention | ~5% | 50% | 70%+ |
 
-If stayed-to-watch remains below 30%, test the next first-frame mechanic rather than adding more pacing:
+If stayed-to-watch remains below 30%, test the next first-frame mechanic rather than adding more length:
 
-1. **Progressive crop:** start on an eye/texture/detail and reveal one larger crop every 0.6 seconds.
-2. **Two-shadow choice:** show A/B silhouettes and ask which one matches the named animal.
-3. **Odd-one-out:** three visual clues, one does not belong; reveal the causal reason.
+1. **Two-shadow choice:** show A/B silhouettes and ask which one matches the named animal.
+2. **Odd-one-out:** three visual clues, one does not belong; reveal the causal reason.
+3. **Texture/detail:** replace the shadow with fur, skin, feather, eye, or footprint crops.
 
-Do not restore a standalone host intro, spoken CTA, or post-game subscription card. Those can be tested in
-metadata, pinned comments, or a small non-blocking brand mark without delaying gameplay.
+Do not restore a standalone host intro or post-game subscription card. The CTA belongs inside the final
+answer reward; branding stays a small non-blocking reveal mark.
