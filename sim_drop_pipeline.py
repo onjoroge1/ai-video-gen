@@ -17,7 +17,6 @@ FF = qp.FF
 W, H, FPS = qp.W, qp.H, qp.FPS
 NAVY, WHITE, CYAN, YEL, RED = qp.NAVY, qp.WHITE, qp.CYAN, qp.YEL, qp.RED
 GREEN = (72, 200, 120); AMBER = (245, 190, 60); DKRED = (210, 55, 55); GREY = (150, 155, 170)
-MUSIC = qp.MUSIC
 _dur, _still, _safe_image, _composite, _fit, _motion_clip = (
     qp._dur, qp._still, qp._safe_image, qp._composite, qp._fit, qp._motion_clip)
 
@@ -446,9 +445,10 @@ def run_drop_pipeline(obj: str, output_dir: str, script: dict, voice: str = "ech
         ins += ["-i", src]; ms = int(off * 1000)
         vol = {"narr": 1.0, "sfx": 0.5, "amb": 1.0, "riser": 0.55, "boom": 0.85}.get(kind, 0.5)
         parts.append(f"[{ix}:a]adelay={ms}|{ms},volume={vol}[s{ix}]"); ix += 1
-    mus = ix; music_ok = os.path.exists(MUSIC)
+    music_path = qp.get_music_path("upbeat", progress_cb=log)
+    mus = ix; music_ok = bool(music_path)
     if music_ok:
-        ins += ["-stream_loop", "-1", "-i", MUSIC]
+        ins += ["-stream_loop", "-1", "-i", music_path]
         parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.10,afade=t=in:st=0:d=0.4,afade=t=out:st={max(0,TOTAL-1.3):.2f}:d=1.3[mus]")
     mix = "".join(f"[s{k}]" for k in range(ix)) + ("[mus]" if music_ok else "")
     # master to ~-14 LUFS (the pipeline previously never normalized, so sim-drop shipped conspicuously quiet)

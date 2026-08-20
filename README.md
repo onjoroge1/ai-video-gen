@@ -43,6 +43,13 @@ tests/                    Phase 0/1 contract and regression tests
 
 `GET /api/formats` returns the canonical format registry.
 
+Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
+the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately
+not stored in Postgres or bundled into the Vercel function. Run `python scripts/sync_music_assets.py`
+once with `DATABASE_URL` set to seed the metadata table. A first render also creates/updates its track's
+row automatically. `MUSIC_<MOOD>_URL` and `MUSIC_<MOOD>_SHA256` can point a track at Vercel Blob or
+another CDN without a code change.
+
 ## Prompt and simulation guarantees
 
 Prompt precedence is explicit: safety, output schema, deterministic facts, format rules, then creative

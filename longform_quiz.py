@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageOps
 import explainer_pipeline as ep
 import quiz_pipeline as qp
 
-FF, FP, MUSIC = qp.FF, qp.FP, qp.MUSIC
+FF, FP = qp.FF, qp.FP
 LW, LH, FPS = 1920, 1080, 30
 NAVY, WHITE, CYAN, YEL, RED = qp.NAVY, qp.WHITE, qp.CYAN, qp.YEL, qp.RED
 GREEN = (80, 200, 120)
@@ -344,9 +344,10 @@ def run_longform_quiz_pipeline(theme: str, output_dir: str, n_rounds: int = 12, 
         src = cdsfx if kind == "cd" else (ding if kind == "ding" else f)
         ins += ["-i", src]; ms = int(off*1000); vol = 1.0 if kind == "narr" else 0.7
         parts.append(f"[{idx}:a]adelay={ms}|{ms},volume={vol}[s{idx}]"); idx += 1
-    mus = idx; music_ok = os.path.exists(MUSIC)
+    music_path = qp.get_music_path("upbeat", progress_cb=log)
+    mus = idx; music_ok = bool(music_path)
     if music_ok:
-        ins += ["-stream_loop", "-1", "-i", MUSIC]
+        ins += ["-stream_loop", "-1", "-i", music_path]
         parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.09,afade=t=out:st={max(0,TOTAL-1.3):.2f}:d=1.3[mus]")
     mix = "".join(f"[s{i}]" for i in range(idx)) + ("[mus]" if music_ok else "")
     parts.append(f"{mix}amix=inputs={idx+(1 if music_ok else 0)}:normalize=0,alimiter=limit=0.95,loudnorm=I=-12:TP=-1.5,aresample=48000[aout]")   # target -12: single-pass undershoots ~2 LU -> lands ~-14
@@ -413,4 +414,3 @@ def _lf_desc(title, theme, rounds, max_score, tiers, chapters, out_dir, cost_sin
     except Exception as e:
         print(f"[lfquiz] desc skipped: {e}")
         return ""
-

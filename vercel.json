@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app.py": {
+      "excludeFiles": "{tests/**,bolt_seq/tests/**,bolt_seq/fixtures/**,_e2e_final/**,requirements-dev.txt}"
+    }
+  }
+}

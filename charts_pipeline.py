@@ -5,15 +5,15 @@ Flow:
   1. Claude plans the video AND generates/locates the data
   2. Data fetched from World Bank API  — OR — generated from Claude's knowledge
   3. bar_chart_race renders the animation
-  4. CC0 background music downloaded + mixed in with ffmpeg
+  4. CC-BY background music fetched from object storage + mixed in with ffmpeg
   5. Returns final MP4 + YouTube metadata (title, description, tags)
 
 Free data sources:
   - World Bank Open Data API  (no key — GDP, population, CO2, life expectancy …)
   - Claude's training knowledge (billionaires, music, sports, companies …)
 
-Free audio:
-  - Kevin MacLeod CC0 music via freepd.com (downloaded on first use)
+Music:
+  - Kevin MacLeod CC-BY tracks via externally stored, checksum-verified assets
 """
 
 import os
@@ -24,6 +24,8 @@ from io import StringIO
 import requests
 import pandas as pd
 import anthropic
+
+from music_assets import MUSIC_CREDIT, get_music_path
 
 _client = None
 
@@ -46,43 +48,9 @@ def _ep():
     return ep
 
 
-# ── Music (Kevin MacLeod via the Internet Archive — stable URLs) ──────────────
-# Moved off freepd.com (all its URLs started 404'ing → every chart shipped SILENT). The Internet
-# Archive's "KevinMacLeod" item is a stable mirror; these are PRE-CACHED in static/music/ so renders
-# need no network. Kevin MacLeod's catalog is CC-BY 4.0, so we append a credit to the description
-# (see MUSIC_CREDIT) — that's the only difference from the old CC0 freepd tracks.
-_ARCHIVE_BASE = "https://archive.org/download/KevinMacLeod/"
-MUSIC_TRACKS = {
-    "energetic":  _ARCHIVE_BASE + "Funk/Funkorama.mp3",
-    "dramatic":   _ARCHIVE_BASE + "Soundtrack/Achilles.mp3",
-    "corporate":  _ARCHIVE_BASE + "Contemporary/Bright%20Wish.mp3",
-    "nostalgic":  _ARCHIVE_BASE + "Contemporary/Autumn%20Day.mp3",
-    "upbeat":     _ARCHIVE_BASE + "Funk/Funky%20One.mp3",
-    "tense":      _ARCHIVE_BASE + "Soundtrack/Ambush.mp3",
-}
-MUSIC_CREDIT = "Music: Kevin MacLeod (incompetech.com), licensed under Creative Commons BY 4.0."
-
-MUSIC_DIR = os.path.join(os.path.dirname(__file__), "static", "music")
-
-
 def _ensure_music(mood: str) -> str | None:
-    """Return a local track path (pre-cached in static/music/), downloading on first use. VALIDATES
-    that the bytes are actually audio before caching — the old freepd breakage silently cached HTML
-    404 pages as '.mp3', so we check the magic bytes and a plausible size."""
-    os.makedirs(MUSIC_DIR, exist_ok=True)
-    mood = mood if mood in MUSIC_TRACKS else "corporate"
-    path = os.path.join(MUSIC_DIR, f"{mood}.mp3")
-    if os.path.exists(path) and os.path.getsize(path) > 50_000:   # cached + plausibly a real track
-        return path
-    try:
-        r = requests.get(MUSIC_TRACKS[mood], timeout=60, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code == 200 and r.content[:3] in (b"ID3", b"\xff\xfb", b"\xff\xf3"):
-            with open(path, "wb") as f:
-                f.write(r.content)
-            return path
-    except Exception:
-        pass
-    return None
+    """Compatibility wrapper around the shared object-storage resolver."""
+    return get_music_path(mood)
 
 
 # ── World Bank API ─────────────────────────────────────────────────────────────
