@@ -25,6 +25,10 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="YouTube Pipeline API")
 
+BASE_DIR = Path(__file__).resolve().parent
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+STATIC_DIR = BASE_DIR / "static"
+
 
 @app.get("/api/formats")
 async def format_catalog():
@@ -80,9 +84,13 @@ chart_jobs: dict[str, dict] = {}
 explainer_jobs: dict[str, dict] = {}
 stateboard_jobs: dict[str, dict] = {}
 
-# Finished explainer videos are copied here with a small index, so a dev-server
-# reload (which wipes the in-memory job store) can't orphan a completed video.
-FINISHED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finished_videos")
+# Finished explainer videos are copied here with a small index, so a dev-server reload (which wipes
+# the in-memory job store) can't orphan a completed video. Vercel's deployment bundle is read-only;
+# /tmp is writable but ephemeral, so durable production artifacts must ultimately live in object
+# storage + Postgres rather than this compatibility path.
+_default_data_dir = (Path(tempfile.gettempdir()) / "reelforge" / "finished_videos"
+                     if IS_VERCEL else BASE_DIR / "finished_videos")
+FINISHED_DIR = os.environ.get("REELFORGE_DATA_DIR", str(_default_data_dir))
 _FINISHED_INDEX = os.path.join(FINISHED_DIR, "index.json")
 
 # Curiosity-gap "trending questions" cache — populated by the topic engine (manually, on startup,
@@ -1359,6 +1367,11 @@ async def explainer_preview_description(req: DescPreviewRequest):
 def _start_trending_scheduler():
     """Built-in 12-hour 'cron': seed the trending pool on boot if empty, then refresh every 12h for
     as long as the server runs (no external crontab needed; survives across reloads)."""
+    # A sleeping daemon thread is not a scheduler in a serverless runtime and would be recreated on
+    # cold starts. Use a Vercel Cron route (or the external render worker) for production refreshes.
+    if IS_VERCEL:
+        return
+
     import threading, time
 
     def _loop():
@@ -1645,12 +1658,12 @@ def _serve_index():
     # Serve the SPA shell with no-cache so a browser never shows a stale UI after an
     # edit (a cached index.html made a newly-added form field look "removed"). Other
     # static assets below keep normal caching. Registered before the mount so it wins for "/".
-    resp = FileResponse("static/index.html", media_type="text/html")
+    resp = FileResponse(str(STATIC_DIR / "index.html"), media_type="text/html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
 
 if __name__ == "__main__":
