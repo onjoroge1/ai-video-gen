@@ -11,6 +11,32 @@ dynamic = ["dependencies"]
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 
+# This is an application repository with two real package trees plus several root-level modules.
+# Explicit discovery prevents setuptools from treating assets/static/runtime-data folders as
+# namespace packages when Vercel asks uv to build the local project.
+[tool.setuptools]
+py-modules = [
+    "app",
+    "audit_pending",
+    "board_pipeline",
+    "charts_pipeline",
+    "db",
+    "explainer_pipeline",
+    "font_utils",
+    "health_pipeline",
+    "highlights",
+    "longform_quiz",
+    "overlays",
+    "pipeline",
+    "quiz_pipeline",
+    "sim_drop_pipeline",
+    "stateboard_pipeline",
+]
+
+[tool.setuptools.packages.find]
+include = ["bolt_video*", "bolt_seq*"]
+exclude = ["bolt_seq.tests*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "bolt_seq/tests"]
 addopts = "-q"
