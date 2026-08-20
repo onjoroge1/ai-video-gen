@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Offline bolt_seq compositing and validation utilities still use scipy.ndimage.
+# Keep it out of the Vercel production bundle while preserving the full local toolchain.
+scipy>=1.13.0
+pytest>=8.0.0

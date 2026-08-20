@@ -263,3 +263,86 @@ def metrics_all() -> list:
                 conn.close()
             except Exception:
                 pass
+
+
+# ── Music assets (object-store metadata; MP3 bytes stay out of Postgres) ────────────
+_MUSIC_ASSET_COLS = ("slug", "filename", "object_url", "sha256", "size_bytes", "mime_type",
+                     "storage_provider", "license")
+
+
+def _ensure_music_assets_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS music_assets (
+            slug             text PRIMARY KEY,
+            filename         text NOT NULL,
+            object_url       text NOT NULL,
+            sha256           text,
+            size_bytes       bigint,
+            mime_type        text DEFAULT 'audio/mpeg',
+            storage_provider text,
+            license          text,
+            active           boolean DEFAULT true,
+            updated_at       timestamptz DEFAULT now()
+        )""")
+
+
+def music_asset_upsert(asset: dict) -> bool:
+    """Create/update one external music asset metadata row. Best-effort."""
+    slug = (asset.get("slug") or "").strip()
+    filename = (asset.get("filename") or "").strip()
+    object_url = (asset.get("object_url") or "").strip()
+    if not (slug and filename and object_url):
+        return False
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return False
+        cur = conn.cursor()
+        _ensure_music_assets_table(cur)
+        vals = [asset.get(column) for column in _MUSIC_ASSET_COLS]
+        placeholders = ",".join(["%s"] * len(_MUSIC_ASSET_COLS))
+        updates = ",".join(f"{column}=EXCLUDED.{column}" for column in _MUSIC_ASSET_COLS
+                           if column != "slug")
+        cur.execute(
+            f"INSERT INTO music_assets ({','.join(_MUSIC_ASSET_COLS)}) VALUES ({placeholders}) "
+            f"ON CONFLICT (slug) DO UPDATE SET {updates}, active=true, updated_at=now()",
+            vals,
+        )
+        conn.commit()
+        return True
+    except Exception as exc:
+        print(f"[db] music_asset_upsert failed: {exc}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def music_asset_get(slug: str) -> dict | None:
+    """Return active metadata for a music slug, or ``None`` on any failure."""
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        _ensure_music_assets_table(cur)
+        cur.execute(
+            f"SELECT {','.join(_MUSIC_ASSET_COLS)} FROM music_assets WHERE slug=%s AND active=true",
+            ((slug or "").strip(),),
+        )
+        row = cur.fetchone()
+        return dict(zip(_MUSIC_ASSET_COLS, row)) if row else None
+    except Exception as exc:
+        print(f"[db] music_asset_get failed: {exc}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass

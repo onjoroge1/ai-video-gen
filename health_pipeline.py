@@ -11,7 +11,7 @@ evidence-based reason, then a recap + comment CTA. Bolt hosts on a bright kitche
      adversarial safety pass (evidence / harm-contraindication / overstatement / policy lenses) is what
      actually ships. Do NOT ship a health video that skipped the verification pass.
 
-Reuses quiz_pipeline primitives (_dur/_still/_safe_image/_composite/_fit/_motion_clip/_t/_font/MUSIC) +
+Reuses quiz_pipeline primitives (_dur/_still/_safe_image/_composite/_fit/_motion_clip/_t/_font) +
 explainer_pipeline (TTS / i2v / mascot). Best-effort throughout. Portrait 9:16.
 """
 import os, json, subprocess
@@ -23,7 +23,6 @@ FF = qp.FF
 W, H, FPS = qp.W, qp.H, qp.FPS
 NAVY, WHITE, CYAN, YEL, RED = qp.NAVY, qp.WHITE, qp.CYAN, qp.YEL, qp.RED
 GREEN = (72, 190, 120)
-MUSIC = qp.MUSIC
 _dur, _still, _safe_image, _composite, _fit, _motion_clip = (
     qp._dur, qp._still, qp._safe_image, qp._composite, qp._fit, qp._motion_clip)
 
@@ -306,9 +305,10 @@ def run_health_pipeline(topic: str, output_dir: str, n: int = 5, voice: str = "e
         src = pop if kind == "pop" else f
         ins += ["-i", src]; ms = int(off * 1000); vol = 1.0 if kind == "narr" else 0.5
         parts.append(f"[{i}:a]adelay={ms}|{ms},volume={vol}[s{i}]"); i += 1
-    mus = i; music_ok = os.path.exists(MUSIC)
+    music_path = qp.get_music_path("upbeat", progress_cb=log)
+    mus = i; music_ok = bool(music_path)
     if music_ok:
-        ins += ["-stream_loop", "-1", "-i", MUSIC]
+        ins += ["-stream_loop", "-1", "-i", music_path]
         parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.08,afade=t=out:st={max(0,TOTAL-1.3):.2f}:d=1.3[mus]")
     mix = "".join(f"[s{k}]" for k in range(i)) + ("[mus]" if music_ok else "")
     parts.append(f"{mix}amix=inputs={i + (1 if music_ok else 0)}:normalize=0,alimiter=limit=0.95,aresample=48000[aout]")

@@ -2,7 +2,7 @@
 Sports highlight detection pipeline.
 
 Steps:
-  1. Extract audio → find crowd-noise energy peaks (scipy)
+  1. Extract audio → find crowd-noise energy peaks (NumPy)
   2. Extract a frame at each peak → Claude Vision confirms type + excitement score
   3. Cut clips around confirmed moments (ffmpeg, fast re-encode)
 
@@ -16,8 +16,6 @@ import subprocess
 import wave
 
 import numpy as np
-from scipy import signal
-from scipy.ndimage import uniform_filter1d
 import anthropic
 
 _client = None
@@ -85,6 +83,73 @@ def _cut_clip(video_path: str, start: float, end: float, out_path: str,
 
 # ── Audio analysis ─────────────────────────────────────────────────────────────
 
+def _uniform_filter(values: np.ndarray, size: int) -> np.ndarray:
+    """NumPy equivalent of scipy.ndimage.uniform_filter1d's defaults.
+
+    ``symmetric`` padding matches SciPy's default ``reflect`` boundary behavior,
+    including the left-of-centre alignment used for even window sizes.
+    """
+    values = np.asarray(values)
+    if values.ndim != 1:
+        raise ValueError("values must be one-dimensional")
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    if values.size == 0 or size == 1:
+        return values.copy()
+
+    before = size // 2
+    after = size - 1 - before
+    padded = np.pad(values, (before, after), mode="symmetric")
+    kernel = np.full(size, 1.0 / size, dtype=np.float64)
+    # SciPy preserves the input dtype. Matching that avoids tiny rounding changes
+    # around the percentile threshold used by the highlight detector.
+    return np.convolve(padded, kernel, mode="valid").astype(values.dtype, copy=False)
+
+
+def _find_peaks(values: np.ndarray,
+                min_height: float,
+                min_distance: int) -> tuple[np.ndarray, np.ndarray]:
+    """Find local maxima using the subset of SciPy semantics this pipeline needs.
+
+    Flat peaks resolve to their midpoint. When peaks are too close, the taller
+    one wins; the returned indices remain chronological.
+    """
+    values = np.asarray(values)
+    if values.ndim != 1:
+        raise ValueError("values must be one-dimensional")
+
+    candidates: list[int] = []
+    i = 1
+    while i < values.size - 1:
+        if values[i] > values[i - 1]:
+            right = i + 1
+            while right < values.size and values[right] == values[i]:
+                right += 1
+            if right < values.size and values[i] > values[right]:
+                candidates.append((i + right - 1) // 2)
+            i = right
+        else:
+            i += 1
+
+    peaks = np.asarray(candidates, dtype=np.int64)
+    if peaks.size == 0:
+        return peaks, np.asarray([], dtype=values.dtype)
+
+    peaks = peaks[values[peaks] >= min_height]
+    distance = max(1, int(min_distance))
+    if distance > 1 and peaks.size > 1:
+        # Stable sorting plus reversal matches scipy.signal.find_peaks' tie
+        # behavior while making the normal (non-tied) case straightforward.
+        priority = np.argsort(values[peaks], kind="stable")[::-1]
+        kept: list[int] = []
+        for position in priority:
+            candidate = int(peaks[position])
+            if all(abs(candidate - other) >= distance for other in kept):
+                kept.append(candidate)
+        peaks = np.asarray(sorted(kept), dtype=np.int64)
+
+    return peaks, values[peaks]
+
 def _find_energy_peaks(wav_path: str,
                        chunk_sec: float = 0.5,
                        min_gap_sec: float = 20.0,
@@ -106,16 +171,16 @@ def _find_energy_peaks(wav_path: str,
     ])
     times = np.arange(n_chunks) * chunk_sec + chunk_sec / 2.0
 
-    smoothed = uniform_filter1d(energies, size=20)
+    smoothed = _uniform_filter(energies, size=20)
     threshold = np.percentile(smoothed, 78)
     min_dist = max(1, int(min_gap_sec / chunk_sec))
-    peaks, props = signal.find_peaks(smoothed, height=threshold, distance=min_dist)
+    peaks, peak_heights = _find_peaks(smoothed, min_height=threshold, min_distance=min_dist)
 
     if len(peaks) == 0:
         return []
 
     # Take top_n by height, return sorted by time
-    top_idx = np.argsort(props["peak_heights"])[::-1][:top_n]
+    top_idx = np.argsort(peak_heights)[::-1][:top_n]
     selected = sorted(peaks[top_idx].tolist())
     return [float(times[i]) for i in selected]
 

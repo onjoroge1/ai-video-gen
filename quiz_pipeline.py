@@ -16,10 +16,10 @@ import os, re, subprocess, wave, math, json
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import explainer_pipeline as ep
+from music_assets import get_music_path
 
 FF = "/opt/homebrew/bin/ffmpeg"; FP = "/opt/homebrew/bin/ffprobe"
 FONT = os.environ.get("QUIZ_FONT", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
-MUSIC = os.path.join(os.path.dirname(__file__), "static", "music", "upbeat.mp3")
 W, H, FPS = 1080, 1920, 30
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
@@ -480,9 +480,10 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         src = cdsfx if kind == "cd" else (ding if kind == "ding" else f)
         ins += ["-i", src]; ms = int(off * 1000); vol = 1.0 if kind == "narr" else 0.7
         parts.append(f"[{idx}:a]adelay={ms}|{ms},volume={vol}[s{idx}]"); idx += 1
-    mus = idx; music_ok = os.path.exists(MUSIC)
+    music_path = get_music_path("upbeat", progress_cb=log)
+    mus = idx; music_ok = bool(music_path)
     if music_ok:
-        ins += ["-stream_loop", "-1", "-i", MUSIC]
+        ins += ["-stream_loop", "-1", "-i", music_path]
         parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.11,afade=t=out:st={max(0,TOTAL-1.3):.2f}:d=1.3[mus]")
     mix = "".join(f"[s{i}]" for i in range(idx)) + ("[mus]" if music_ok else "")
     parts.append(f"{mix}amix=inputs={idx + (1 if music_ok else 0)}:normalize=0,alimiter=limit=0.95,loudnorm=I=-12:TP=-1.5,aresample=48000[aout]")   # target -12: single-pass undershoots ~2 LU -> lands ~-14
