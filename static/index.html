@@ -1592,11 +1592,11 @@
           <option value="simulation">Simulation — drop the viewer into an escalating what-if</option>
           <option value="quiz">Quiz — Bolt hosts "What is it?" (Question = a CATEGORY)</option>
         </select>
-        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz = Bolt hosts a guess-the-answer game with a countdown + score — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments"). Auto detects from the title.</span>
+        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz = a rapid frame-zero guessing game with three clues and no intro/outro tail — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments").</span>
         <div class="field" id="quiz-items-field" style="display:none; margin-top:10px;">
           <label>Quiz rounds</label>
-          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="6" step="1" value="3" />
-          <span class="field-hint">How many items to guess (2–6). Default 3.</span>
+          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="3" step="1" value="3" />
+          <span class="field-hint">How many items to guess (2–3). Three is the controlled V2 format.</span>
         </div>
       </div>
 

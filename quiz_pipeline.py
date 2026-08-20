@@ -1,23 +1,25 @@
 """QUIZ social-short pipeline — a third format alongside explainer/simulation.
 
-Bolt hosts a "What is it?" quiz: a hook, then N rounds of [AI-safe visual clue -> 3-2-1 countdown ->
-answer reveal + running score], then a comment-bait outro. Design decisions proven in prototypes:
+Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then three rounds of
+[AI-safe visual clue + timer -> answer reveal]. There is no standalone intro, outro, or subscribe card.
   - AI-SAFE items only (silhouettes / clear photos of animals, planets, objects) — NEVER flags, logos,
     signs, or maps, because gpt-image garbles baked-in text/symbols and a wrong clue breaks the quiz.
   - Answers are FACT-CHECKED (a wrong answer destroys trust).
   - SINGLE audio timeline (narration placed at exact beat offsets) so audio locks to the visuals.
   - Tick on each countdown second + a ding on each reveal + a low music bed.
-  - Bolt hook/outro use a LIVELY animated game-show stage (Kling i2v motion, Ken-Burns fallback) —
-    chosen over a static talking-head-with-mouth because the energetic stage reads far more engaging.
+  - Every clue/reveal drifts subtly; cards never freeze for multi-second stretches.
 
 Standalone module; reuses explainer_pipeline for image/TTS gen + the mascot. Best-effort throughout.
 """
-import os, re, subprocess, wave, math, json
+import os, re, shutil, subprocess, wave, math, json
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 import explainer_pipeline as ep
+from bolt_video.formats.quiz import QUIZ_V2, clamp_quiz_items, round_narration
+from font_utils import load_font
 
-FF = "/opt/homebrew/bin/ffmpeg"; FP = "/opt/homebrew/bin/ffprobe"
+FF = os.environ.get("FFMPEG_BIN") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+FP = os.environ.get("FFPROBE_BIN") or shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
 FONT = os.environ.get("QUIZ_FONT", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
 MUSIC = os.path.join(os.path.dirname(__file__), "static", "music", "upbeat.mp3")
 W, H, FPS = 1080, 1920, 30
@@ -39,19 +41,17 @@ _QUIZ_SYSTEM = (
     "colour/pattern (e.g. a planet's actual banded, colored surface; a fruit's cross-section) — NEVER a "
     "plain silhouette that is just an unguessable circle or blob. Make the TITLE match the clue style you "
     "chose (only say 'shadow'/'silhouette' if you actually used silhouettes).\n"
-    "DIFFICULTY LADDER — this is what keeps viewers watching: order items EASY -> HARD -> EXPERT and set "
-    "each item's \"difficulty\". Item 1 is EASY but NOT trivially obvious — it should need ~1 second of "
-    "thought (e.g. camel/rhino/flamingo, NOT elephant; a pear/pomegranate, NOT a red apple). The final "
+    "DIFFICULTY LADDER — order items MEDIUM -> HARD -> EXPERT and set each item's \"difficulty\". Item 1 "
+    "must create real thought immediately — never use an obvious elephant/apple-style opener. The final "
     "item is EXPERT: genuinely tricky or slightly deceptive. Each spoken line SHORT and punchy.\n"
     "CONSISTENT REVEALS: keep EVERY reveal the SAME isolated style — the subject centered on a clean SOLID "
     "colorful studio background, NO habitat/scene/water (don't put one animal underwater and another on "
     "white). \"reaction\" is a 2-4 word reveal punch flavored by difficulty ('Too easy!' / 'Tricky one!' / "
     "'Almost nobody gets this!').\n"
     "Return ONLY JSON: {\"title\":\"clickable title, e.g. 'Can You Name All 3 From the Shadow?'\","
-    "\"category\":\"e.g. animals\",\"hook\":\"one tight spoken line that flows straight into round one AND "
-    "promises the last is hardest, e.g. 'Guess all three from their shadows — the last one is nearly "
-    "impossible.'\",\"outro\":\"a short spoken comment-bait line\",\"items\":[{\"subject\":\"camel\","
-    "\"difficulty\":\"easy|hard|expert\",\"clue_visual\":\"a clean bold black silhouette of a camel in "
+    "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
+    "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
+    "\"difficulty\":\"medium|hard|expert\",\"clue_visual\":\"a clean bold black silhouette of a camel in "
     "profile\",\"reveal_visual\":\"a cute friendly 3D camel centered on a clean solid background\","
     "\"answer\":\"CAMEL\",\"reaction\":\"Too easy!\",\"fact\":\"one short fun fact\","
     "\"color\":\"gold|teal|lavender|coral|sky|mint|amber|rose\"}]}."
@@ -109,11 +109,11 @@ def factcheck_quiz(quiz: dict, cost_sink: list | None = None) -> tuple[dict, lis
 
 
 # ── render helpers ─────────────────────────────────────────────────────────────
-def _font(s): return ImageFont.truetype(FONT, s)
+def _font(s): return load_font(FONT, s, bold=True)
 def _t(d, xy, s, sz, fill, anchor="mm", stroke=10, sc=NAVY):
     d.text(xy, s, font=_font(sz), fill=fill, anchor=anchor, stroke_width=stroke, stroke_fill=sc)
 
-_DIFF_COLORS = {"easy": (80, 200, 120), "hard": (245, 180, 60), "expert": (240, 80, 80)}
+_DIFF_COLORS = {"medium": (80, 200, 120), "hard": (245, 180, 60), "expert": (240, 80, 80)}
 
 def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=None, subscribe=False):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
@@ -151,8 +151,18 @@ def _dur(p):
     return float(subprocess.run([FP, "-v", "error", "-show_entries", "format=duration", "-of",
                                  "default=nw=1:nk=1", p], capture_output=True, text=True).stdout.strip() or 0)
 
-def _still(img, out, d):
-    subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", "fps=30,format=yuv420p",
+def _still(img, out, d, drift=True):
+    """Keep cards alive with a duration-aware 5% drift; never hit a zoom cap and freeze early."""
+    if drift:
+        n = max(2, int(round(d * FPS)))
+        step = 0.05 / n
+        vf = (f"scale=1300:-1,fps={FPS},"
+              f"zoompan=z='min(1.0+{step:.6f}*on,1.05)':x='iw/2-(iw/zoom/2)':"
+              f"y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
+              f"trim=end_frame={n},format=yuv420p")
+    else:
+        vf = f"fps={FPS},format=yuv420p"
+    subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", vf,
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out], capture_output=True)
 
 def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
@@ -188,7 +198,7 @@ def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
 
 _QUIZ_DESC_SYSTEM = (
     "You are a YouTube Shorts packaging editor. Write the DESCRIPTION for a QUIZ / guessing-game Short "
-    "(host mascot 'Bolt' shows a clue, a 5-second countdown runs, then the answer is revealed). "
+    "(the first clue appears on frame zero, a rapid timer runs, then the answer is revealed). "
     "Register: vivid, confident, curiosity-driven, direct 2nd-person ('YOU'), specific, ZERO fluff — no "
     "'get ready to test your knowledge' filler. The arc is the escalating CHALLENGE and a dare to the "
     "viewer.\n"
@@ -336,6 +346,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
     A = output_dir; costs = []
+    n_items = clamp_quiz_items(n_items)
     log("stage:Writing quiz...")
     quiz = generate_quiz(category, n_items, cost_sink=costs, operator_direction=operator_direction)
     if not quiz or not quiz.get("items"):
@@ -346,44 +357,21 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     log(f"Quiz: \"{title}\" — {len(items)} items")
 
     STY = " Polished 3D cartoon, vibrant, high production value, vertical 9:16, no text or letters."
-    BOLT = ("Use the attached reference image: keep Bolt the rounded matte-white robot with mint-green "
-            "accents. ")
-    mascot = [ep.MASCOT_REF] if os.path.exists(ep.MASCOT_REF) else None
-
-    # LIVELY game-show stage Bolt for an animated hook + outro (Kling motion — more engaging than a
-    # static talking-head; user preferred the energetic stage look over exact mouth-sync).
+    # The old format bought two extra host images and optional i2v, then spent the first ~4-6 seconds
+    # showing a generic stage before the game began. 81% swiped. V2 spends frame zero on the first clue.
     log("stage:Generating images & voiceover...")
-    _safe_image(BOLT + "Bolt stands on a colorful glowing game-show quiz stage like an excited host, "
-                "one arm raised presenting, a big glowing question mark beside him, spotlights and "
-                "confetti, energetic and fun." + STY, f"{A}/hook_img.png", "1024x1536", costs,
-                reference_paths=mascot)
-    _safe_image(BOLT + "Bolt gives a big two-thumbs-up toward the viewer on the colorful game-show "
-                "stage, confetti bursting, celebratory and lively." + STY, f"{A}/outro_img.png",
-                "1024x1536", costs, reference_paths=mascot)
-    _fit(f"{A}/hook_img.png", f"{A}/hook_b.png", "fit"); _fit(f"{A}/outro_img.png", f"{A}/outro_b.png", "fit")
 
-    # narration (keep the exact spoken TEXT so the .srt is built deterministically — no transcription)
-    hook_text = ep._s(quiz.get("hook")) or f"Can you guess these {category}?"
-    outro_text = ep._s(quiz.get("outro")) or "How many did you get? Comment below!"
-    n_hook = f"{A}/n_hook.mp3"; ep.generate_tts(hook_text, n_hook, voice=voice)
-    n_out = f"{A}/n_out.mp3"; ep.generate_tts(outro_text, n_out, voice=voice)
+    # Narration is deliberately subordinate to the visual game. The timer starts immediately; there is
+    # no "Number one. What is it?" pre-roll before each countdown and no reaction sentence after reveal.
     q_texts = {}; r_texts = {}
     for i, it in enumerate(items, 1):
-        q_texts[i] = f"Number {['one','two','three','four','five','six'][i-1]}. What is it?"
+        q_texts[i] = round_narration(category, i, len(items))
         ep.generate_tts(q_texts[i], f"{A}/n_q{i}.mp3", voice=voice)
-        react = ep._s(it.get("reaction")) or "Nice!"        # punchy reveal reaction (was the long fact → dragged)
-        r_texts[i] = f"{ep._s(it.get('answer'))}! {react}"
+        r_texts[i] = f"{ep._s(it.get('answer'))}!"
         ep.generate_tts(r_texts[i], f"{A}/n_r{i}.mp3", voice=voice)
 
-    CDN = 0.8                                                # per-number countdown tick (0.8*3 = 2.4s, snappier)
-    clips = []; audio = []; caps = []; t = 0.0; i2v_flags = []   # caps = (start_sec, dur_sec, text) for the .srt
-
-    # HOOK (lively animated game-show Bolt) — trimmed so gameplay starts fast
-    _text_png(f"{A}/hook_t.png", top=f"GUESS THE {category.upper()}", answer="THE LAST IS HARDEST")
-    hook_d = _dur(n_hook) + 0.4
-    HOOKD = _motion_clip(f"{A}/hook_b.png", f"{A}/hook_t.png", f"{A}/c00_hook.mp4", hook_d,
-                         "the robot host points confidently at the viewer then gestures to the puzzle, confetti drifts", i2v_sink=i2v_flags)
-    clips.append(f"{A}/c00_hook.mp4"); audio.append((n_hook, t, "narr")); caps.append((t, _dur(n_hook), hook_text)); t += HOOKD
+    CDN = QUIZ_V2.guess_window_sec / 3
+    clips = []; audio = []; caps = []; t = 0.0
 
     for i, it in enumerate(items, 1):
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
@@ -397,50 +385,27 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         _safe_image(ep._s(it.get("reveal_visual")) + ", centered, clean bright background, appealing, sharp." + STY,
                     rev, "1024x1536", costs, fallback_label=ep._s(it.get("answer")))
         _fit(clue, f"{A}/clue{i}_b.png", "pad", bg=bg); _fit(rev, f"{A}/rev{i}_b.png", "fit")
-        diff = ep._s(it.get("difficulty")).lower() or ("easy" if i == 1 else "expert" if i == len(items) else "hard")
-        # question (difficulty ladder badge; countdown timer will be a bottom bar, not a number over the clue)
-        _text_png(f"{A}/q{i}_t.png", top=f"#{i}  WHAT IS IT?", difficulty=diff)
-        _composite(f"{A}/clue{i}_b.png", f"{A}/q{i}_t.png", f"{A}/q{i}.png")
-        dq = _dur(f"{A}/n_q{i}.mp3") + 0.4
-        _still(f"{A}/q{i}.png", f"{A}/c{i}0_q.mp4", dq); clips.append(f"{A}/c{i}0_q.mp4")
-        audio.append((f"{A}/n_q{i}.mp3", t, "narr")); caps.append((t, _dur(f"{A}/n_q{i}.mp3"), q_texts[i])); t += dq
-        # countdown — 3-segment bar depletes over the CLUE (animal stays the hero); ticks in the audio
+        diff = ep._s(it.get("difficulty")).lower() or ("medium" if i == 1 else "expert" if i == len(items) else "hard")
+        # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
+        # removing ~1.5-2 seconds of setup from every round.
+        audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
+        caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
         audio.append(("CD", t, "cd"))
         for k in (3, 2, 1):
-            _text_png(f"{A}/cd{i}_{k}_t.png", top=f"#{i}  WHAT IS IT?", difficulty=diff, cd_left=k)
+            _text_png(f"{A}/cd{i}_{k}_t.png", top=f"ROUND {i}/{len(items)} · GUESS", difficulty=diff, cd_left=k)
             _composite(f"{A}/clue{i}_b.png", f"{A}/cd{i}_{k}_t.png", f"{A}/cd{i}_{k}.png")
             _still(f"{A}/cd{i}_{k}.png", f"{A}/c{i}1_{k}.mp4", CDN); clips.append(f"{A}/c{i}1_{k}.mp4")
         t += CDN * 3
-        # reveal — punchy reaction + score, kept SHORT
-        _text_png(f"{A}/r{i}_t.png", answer=ep._s(it.get("answer")).upper() + "!", score=f"{i}/{len(items)}")
+        # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
+        # does not grow a post-game tail that viewers abandon.
+        final_prompt = "COMMENT SCORE" if i == len(items) else None
+        _text_png(f"{A}/r{i}_t.png", top=final_prompt,
+                  answer=ep._s(it.get("answer")).upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
-        dr = _dur(f"{A}/n_r{i}.mp3") + 0.4
+        dr = min(QUIZ_V2.reveal_max_sec,
+                 max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
         _still(f"{A}/r{i}.png", f"{A}/c{i}2_r.mp4", dr); clips.append(f"{A}/c{i}2_r.mp4")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
-
-    # OUTRO (lively animated game-show Bolt) — trimmed
-    _text_png(f"{A}/out_t.png", top="HOW MANY?", answer="COMMENT YOUR SCORE")
-    out_d = _dur(n_out) + 0.4
-    OUTD = _motion_clip(f"{A}/outro_b.png", f"{A}/out_t.png", f"{A}/c99_out.mp4", out_d,
-                        "the robot host cheers with a big thumbs up, confetti bursts, celebratory", i2v_sink=i2v_flags)
-    clips.append(f"{A}/c99_out.mp4"); audio.append((n_out, t, "narr")); caps.append((t, _dur(n_out), outro_text)); t += OUTD
-
-    # LOOP TEASER — a mystery clue for the NEXT episode (promotes the series + loops the viewer)
-    try:
-        sing = category[:-1] if category.endswith("s") else category
-        tbg = make_silhouette_clue(f"a surprising, hard-to-guess {sing}", f"{A}/teaser.png",
-                                   "1024x1536", costs, idx=len(items))
-        _fit(f"{A}/teaser.png", f"{A}/teaser_b.png", "pad", bg=tbg)
-        _text_png(f"{A}/teaser_t.png", top="CAN YOU GUESS THIS?", subscribe=True)
-        _composite(f"{A}/teaser_b.png", f"{A}/teaser_t.png", f"{A}/teaser_c.png")
-        n_teaser = f"{A}/n_teaser.mp3"
-        teaser_text = "Could you guess this one? Subscribe for a new quiz every day!"
-        ep.generate_tts(teaser_text, n_teaser, voice=voice)
-        td = _dur(n_teaser) + 0.4
-        _still(f"{A}/teaser_c.png", f"{A}/c99b_teaser.mp4", td); clips.append(f"{A}/c99b_teaser.mp4")
-        audio.append((n_teaser, t, "narr")); caps.append((t, _dur(n_teaser), teaser_text)); t += td
-    except Exception as e:
-        log(f"teaser skipped: {e}")
     TOTAL = t
 
     # captions (.srt) + transcript — built DETERMINISTICALLY from the narration timeline (exact text +
@@ -497,21 +462,21 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     # Ready-to-paste YouTube description + tags (best-effort). Runs BEFORE the cost sum so its cost is
     # counted; the app persists description_path → {job}.desc exactly like the explainer path.
     log("stage:Writing description...")
-    description_path = generate_quiz_description(category, title, items, quiz.get("hook"), A, cost_sink=costs)
+    description_path = generate_quiz_description(category, title, items, q_texts.get(1), A, cost_sink=costs)
     if description_path:
         log("YouTube description written")
     cost = round(sum(costs), 3)
-    _n_fb = i2v_flags.count(False)
-    _deg = ([f"{_n_fb} of {len(i2v_flags)} hero clips (hook/outro) fell back to a static Ken-Burns still"]
-            if _n_fb else [])
+    _deg = []
     if not os.path.exists(out_mp4):
         _deg = ["final video file was not produced — assembly failed"] + _deg
-    log(f"Complete — quiz short assembled · ${cost}" + (f" · {_n_fb} static fallback(s)" if _n_fb else ""))
+    log(f"Complete — rapid quiz assembled · ${cost} · first clue at 0.0s · {TOTAL:.1f}s planned")
     # Shape matches run_explainer_pipeline so the app's save/index path consumes it unchanged.
     return {"output_path": out_mp4, "title": title, "category": quiz.get("category", category),
             "scene_count": len(clips), "duration_sec": round(_dur(out_mp4), 1),
             "items": [{"answer": it.get("answer"), "fact": it.get("fact")} for it in items],
-            "script": quiz, "hook": ep._s(quiz.get("hook")), "video_format": "social",
+            "script": quiz, "hook": q_texts.get(1, ""), "video_format": "social",
+            "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
+            "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc
             "status": ("degraded" if _deg else "ok"), "degraded_reasons": _deg,
