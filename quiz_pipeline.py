@@ -23,6 +23,8 @@ FP = os.environ.get("FFPROBE_BIN") or shutil.which("ffprobe") or "/opt/homebrew/
 FONT = os.environ.get("QUIZ_FONT", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
 MUSIC = os.path.join(os.path.dirname(__file__), "static", "music", "upbeat.mp3")
 W, H, FPS = 1080, 1920, 30
+FAL_OPENER = os.environ.get("QUIZ_FAL_OPENER", "0") == "1"
+FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
            "sky":(120,180,230),"mint":(150,210,180),"amber":(240,170,60),"rose":(225,130,160)}
@@ -164,6 +166,39 @@ def _still(img, out, d, drift=True):
         vf = f"fps={FPS},format=yuv420p"
     subprocess.run([FF, "-y", "-loop", "1", "-i", img, "-t", f"{d}", "-an", "-vf", vf,
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out], capture_output=True)
+
+def _fal_countdown_opener(clean_img, overlays, outputs, segment_d, i2v_sink=None):
+    """Animate the first clue once with fal, then split it under the changing 3-2-1 overlays.
+
+    This is opt-in because Kling bills a five-second minimum. The visible output uses only the first
+    2.4 seconds, and any provider/key failure cleanly returns False for the local drift fallback.
+    """
+    raw = outputs[0] + ".fal.raw.mp4"
+    ok, _, err = ep._animate_one(
+        "fal", clean_img,
+        "A very slow camera push with subtle depth. Preserve the subject's exact outline, identity, "
+        "colors, pose, and composition. No morphing, no new objects, no cuts, no text.",
+        raw, W, H, 5,
+    )
+    used = bool(ok and os.path.exists(raw))
+    if i2v_sink is not None:
+        i2v_sink.append({"used": used, "error": "" if used else err})
+    if not used:
+        return False
+
+    for index, (overlay, out) in enumerate(zip(overlays, outputs)):
+        start = index * segment_d
+        subprocess.run([
+            FF, "-y", "-ss", f"{start:.3f}", "-i", raw, "-loop", "1", "-i", overlay,
+            "-filter_complex",
+            f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS}[v];"
+            "[v][1:v]overlay=0:0,format=yuv420p[o]",
+            "-map", "[o]", "-an", "-t", f"{segment_d}", "-c:v", "libx264",
+            "-preset", "veryfast", "-crf", "20", out,
+        ], capture_output=True)
+        if not os.path.exists(out) or _dur(out) <= 0:
+            return False
+    return True
 
 def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
     """LIVELY hook/outro: Kling-animate the game-show Bolt scene, overlay static text. Falls back to a
@@ -371,7 +406,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         ep.generate_tts(r_texts[i], f"{A}/n_r{i}.mp3", voice=voice)
 
     CDN = QUIZ_V2.guess_window_sec / 3
-    clips = []; audio = []; caps = []; t = 0.0
+    clips = []; audio = []; caps = []; t = 0.0; fal_opener = []
 
     for i, it in enumerate(items, 1):
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
@@ -391,10 +426,20 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
         caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
         audio.append(("CD", t, "cd"))
+        countdown_overlays = []; countdown_outputs = []
         for k in (3, 2, 1):
             _text_png(f"{A}/cd{i}_{k}_t.png", top=f"ROUND {i}/{len(items)} · GUESS", difficulty=diff, cd_left=k)
-            _composite(f"{A}/clue{i}_b.png", f"{A}/cd{i}_{k}_t.png", f"{A}/cd{i}_{k}.png")
-            _still(f"{A}/cd{i}_{k}.png", f"{A}/c{i}1_{k}.mp4", CDN); clips.append(f"{A}/c{i}1_{k}.mp4")
+            countdown_overlays.append(f"{A}/cd{i}_{k}_t.png")
+            countdown_outputs.append(f"{A}/c{i}1_{k}.mp4")
+        used_fal = i == 1 and FAL_OPENER and _fal_countdown_opener(
+            f"{A}/clue{i}_b.png", countdown_overlays, countdown_outputs, CDN, fal_opener)
+        if used_fal:
+            costs.append(5 * FAL_OPENER_RATE_SEC)
+        else:
+            for k, overlay, out in zip((3, 2, 1), countdown_overlays, countdown_outputs):
+                _composite(f"{A}/clue{i}_b.png", overlay, f"{A}/cd{i}_{k}.png")
+                _still(f"{A}/cd{i}_{k}.png", out, CDN)
+        clips.extend(countdown_outputs)
         t += CDN * 3
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
@@ -469,13 +514,16 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     _deg = []
     if not os.path.exists(out_mp4):
         _deg = ["final video file was not produced — assembly failed"] + _deg
-    log(f"Complete — rapid quiz assembled · ${cost} · first clue at 0.0s · {TOTAL:.1f}s planned")
+    fal_used = any(event.get("used") for event in fal_opener)
+    log(f"Complete — rapid quiz assembled · ${cost} · first clue at 0.0s · {TOTAL:.1f}s planned"
+        + (" · fal opener" if fal_used else ""))
     # Shape matches run_explainer_pipeline so the app's save/index path consumes it unchanged.
     return {"output_path": out_mp4, "title": title, "category": quiz.get("category", category),
             "scene_count": len(clips), "duration_sec": round(_dur(out_mp4), 1),
             "items": [{"answer": it.get("answer"), "fact": it.get("fact")} for it in items],
             "script": quiz, "hook": q_texts.get(1, ""), "video_format": "social",
             "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
+            "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
             "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc

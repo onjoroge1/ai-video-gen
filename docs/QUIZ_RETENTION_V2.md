@@ -23,6 +23,8 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
 - Voice and timer run concurrently over the clue; no separate “What is it?” card.
 - Guess window: 2.4 seconds. Reveal: 0.8–1.2 seconds, answer only.
 - Every card has subtle duration-aware motion; no frozen multi-second PNG.
+- Optional `QUIZ_FAL_OPENER=1` uses one fal/Kling clip behind the first countdown only. This isolates
+  the value of generative motion at the swipe/stay decision without paying to animate every card.
 - The final answer carries “COMMENT SCORE”; there is no outro or subscribe teaser.
 - Expected duration is roughly **10–11 seconds**, designed to invite an immediate replay.
 
