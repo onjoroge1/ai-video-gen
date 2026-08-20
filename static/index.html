@@ -980,7 +980,7 @@
     <button class="tab-btn" id="tab-highlights" onclick="switchTab('highlights')">Highlights</button>
     <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">Charts</button>
     <button class="tab-btn" id="tab-explainer" onclick="switchTab('explainer')">Explainer</button>
-    <button class="tab-btn" id="tab-stateboard" onclick="switchTab('stateboard')">State Board</button>
+    <button class="tab-btn" id="tab-stateboard" onclick="switchTab('stateboard')">TV Review</button>
     <button class="tab-btn" id="tab-topics" onclick="switchTab('topics')">Topics</button>
     <button class="tab-btn" id="tab-metrics" onclick="switchTab('metrics')">Metrics</button>
   </nav>
@@ -1686,13 +1686,28 @@
 
   </div><!-- /explainer-section -->
 
-  <!-- ═══════════════ STATE BOARD TAB ═══════════════ -->
+  <!-- ═══════════════ TV REVIEW TAB ═══════════════ -->
   <div id="stateboard-section" style="display:none">
     <div class="field">
       <label>Video topic / title</label>
       <input type="text" id="sb-topic" class="input-field"
-             placeholder="e.g. The Rivalry: House A vs House B — Season Finale, Explained" />
-      <span class="field-hint">Drives the title card and gives the board its context.</span>
+             placeholder="e.g. Why the season finale changes everything" />
+      <span class="field-hint">Your review headline and title-card copy.</span>
+    </div>
+    <div style="display:grid; grid-template-columns:2fr 1fr 1fr; gap:12px; margin-top:14px;">
+      <div class="field"><label>Show name</label><input id="sb-show" class="input-field" placeholder="e.g. Severance" /></div>
+      <div class="field"><label>Season</label><input id="sb-season" class="input-field" type="number" min="1" placeholder="2" /></div>
+      <div class="field"><label>Episode</label><input id="sb-episode" class="input-field" type="number" min="1" placeholder="10" /></div>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px;">
+      <div class="field"><label>Spoiler scope</label><select id="sb-spoilers" class="input-field">
+        <option value="episode">This episode only</option><option value="season">Through this season</option>
+        <option value="series">Full-series spoilers</option><option value="none">Spoiler-free</option>
+      </select></div>
+      <div class="field"><label>Review angle</label><select id="sb-angle" class="input-field">
+        <option value="analysis">Story analysis</option><option value="character">Character study</option>
+        <option value="theories">Theories &amp; mysteries</option><option value="verdict">Review &amp; verdict</option>
+      </select></div>
     </div>
     <div class="field" style="margin-top:14px;">
       <label>Kicker <span style="opacity:.6;">(optional)</span></label>
@@ -1716,7 +1731,7 @@
     </div>
 
     <button class="btn-generate" id="sb-btn" onclick="startStateBoard()">
-      Generate State Board Video
+      Generate TV Review Video
     </button>
 
     <div class="error-panel" id="sb-error-panel" style="display:none">
@@ -1726,7 +1741,7 @@
 
     <div class="progress-panel" id="sb-progress-panel" style="display:none">
       <div class="progress-header">
-        <span class="progress-title">Building State Board</span>
+        <span class="progress-title">Building TV Review</span>
         <span class="job-id" id="sb-job-id-badge"></span>
       </div>
       <div class="stages">
@@ -1827,6 +1842,26 @@
   </div><!-- /metrics-section -->
 
 <script>
+  // APP_SHARED_SECRET support: attach it to mutating requests and retry once after a 401.
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const method = (init.method || 'GET').toUpperCase();
+    if (['GET','HEAD','OPTIONS'].includes(method)) return nativeFetch(input, init);
+    const send = (secret) => {
+      const headers = new Headers(init.headers || {});
+      if (secret) headers.set('X-App-Secret', secret);
+      return nativeFetch(input, { ...init, headers });
+    };
+    let secret = localStorage.getItem('reelforgeAppSecret') || '';
+    let response = await send(secret);
+    if (response.status === 401) {
+      secret = window.prompt('This ReelForge server requires its app secret:') || '';
+      if (secret) localStorage.setItem('reelforgeAppSecret', secret);
+      response = await send(secret);
+    }
+    return response;
+  };
+
   /* ─────────────────────────────── Tab switching ── */
   function switchTab(tab) {
     document.getElementById('create-section').style.display     = tab === 'create'     ? '' : 'none';
@@ -3081,7 +3116,7 @@
     document.getElementById('expl-btn').disabled = false;
   }
 
-  /* ─────────────────────────────── State Board tab ─────────────────────────── */
+  /* ─────────────────────────────── TV Review tab ─────────────────────────── */
   let sbJobId = null;
   const sbLog = () => document.getElementById('sb-log');
   function sbStage(name) {
@@ -3111,12 +3146,17 @@
     sbLog().innerHTML = '';
     let res;
     try {
-      res = await fetch('/api/stateboard/generate', {
+      res = await fetch('/api/tv-review/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic, script,
           subtitle: document.getElementById('sb-subtitle').value.trim(),
           voice: document.getElementById('sb-voice').value,
+          show_name: document.getElementById('sb-show').value.trim(),
+          season: Number(document.getElementById('sb-season').value) || null,
+          episode: Number(document.getElementById('sb-episode').value) || null,
+          spoiler_scope: document.getElementById('sb-spoilers').value,
+          review_angle: document.getElementById('sb-angle').value,
         })
       });
     } catch (e) { showError('sb-error-panel','sb-error-msg','Network error: ' + e); document.getElementById('sb-btn').disabled = false; return; }
@@ -3125,7 +3165,7 @@
     sbJobId = job_id;
     document.getElementById('sb-job-id-badge').textContent = '#' + job_id;
 
-    const es = new EventSource(`/api/stateboard/status/${job_id}`);
+    const es = new EventSource(`/api/tv-review/status/${job_id}`);
     es.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'stage') {
@@ -3150,11 +3190,11 @@
     document.querySelectorAll('#stateboard-section .stage-item').forEach(s => s.classList.add('done'));
     const p = document.getElementById('sb-result-panel');
     document.getElementById('sb-result-title').textContent = document.getElementById('sb-topic').value.trim();
-    document.getElementById('sb-meta').textContent = 'State board video ready';
-    document.getElementById('sb-download-btn').href = `/api/stateboard/download/${jobId}`;
-    const tb = document.getElementById('sb-thumb-btn'); tb.href = `/api/stateboard/thumbnail/${jobId}`;
+    document.getElementById('sb-meta').textContent = 'TV review video ready';
+    document.getElementById('sb-download-btn').href = `/api/tv-review/download/${jobId}`;
+    const tb = document.getElementById('sb-thumb-btn'); tb.href = `/api/tv-review/thumbnail/${jobId}`;
     const tp = document.getElementById('sb-thumb-preview');
-    tp.src = `/api/stateboard/thumbnail/${jobId}?t=` + Date.now(); tp.style.display = '';
+    tp.src = `/api/tv-review/thumbnail/${jobId}?t=` + Date.now(); tp.style.display = '';
     tp.onerror = () => { tp.style.display = 'none'; tb.style.display = 'none'; };
     p.style.display = '';
     document.getElementById('sb-btn').disabled = false;

@@ -9,7 +9,11 @@ renders/
 *.aiff
 __pycache__/
 .DS_Store
+.pytest_cache/
+*.pyc
 myenv/
+.venv/
+.claude/scheduled_tasks.lock
 
 # finished video media (5.2GB) — but KEEP the performance/metrics JSON
 finished_videos/*

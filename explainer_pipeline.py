@@ -536,38 +536,37 @@ def _series_block(series: str) -> str:
 
 def _is_simulation_short(title: str) -> bool:
     """Detect the 'you change every second' Shorts lane (BoneLab-style viewer-as-character sims).
-    These need a DIFFERENT structure than the standard curiosity-gap beat map (a climbing-number
+    These need a DIFFERENT structure than the standard curiosity-gap beat map (a timed-checkpoint
     ladder that never withholds), so generate_script swaps in _SIM_SOCIAL_BLOCK for them."""
     t = (title or "").lower()
     return any(p in t for p in ("every second", "every minute", "every hour", "every day"))
 
 
 # Simulation lane (social only) — the viral "What If You + number + every second?" format. Replaces
-# the anchor/corruption/withheld-reveal beat map with a climbing-number checkpoint ladder: the rising
-# number IS the engine, one persistent POV, light mechanism, punchy button. Numbers live in the
+# the anchor/corruption/withheld-reveal beat map with a deterministic checkpoint ladder: the changing
+# total state is the engine, one persistent POV, light mechanism, punchy button. Numbers live in the
 # NARRATION (they become karaoke captions) — never baked into the image (the model garbles them).
 _SIM_SOCIAL_BLOCK = (
     "\nSOCIAL SHORT — SIMULATION LANE (\"you change every second\"). This title simulates a change "
     "happening to YOU on a clock. OVERRIDE the standard beat map with THIS structure (it is what makes "
     "this exact title type go viral) — do NOT use the anchor/corruption/withheld-reveal ladder:\n"
-    "\n*** THE ENGINE: A CLIMBING NUMBER ***\n"
-    "The whole video rides ONE number that visibly CLIMBS every scene. Say the new number OUT LOUD in "
-    "the narration every beat (it becomes the on-screen caption). The viewer stays to watch the number "
-    "get absurd. If the number stops climbing or you drift into a fact-list, the video dies.\n"
+    "\n*** THE ENGINE: A CHANGING TOTAL STATE ***\n"
+    "The whole video rides ONE total-state number. It rises for growth/gain and falls for shrink/loss/"
+    "cooling. Say the new TOTAL out loud every beat (it becomes the on-screen caption). Never present "
+    "the per-period delta as though it were the total.\n"
     "\n*** STRUCTURE ***\n"
     "- SCENE 1 = HOOK (<8 words): speak the TITLE almost verbatim as a question addressed to YOU "
     "(\"What if you gained one kilogram every second?\"). Show YOU at the ordinary starting state.\n"
-    "- BODY = a LADDER OF CLIMBING CHECKPOINTS on an accelerating clock, one per scene: e.g. \"One "
-    "minute in — sixty kilos heavier.\" -> \"One hour — 3,600.\" -> \"One day — over 80,000.\" -> \"One "
+    "- BODY = a LADDER OF TIME CHECKPOINTS on an accelerating clock, one per scene: e.g. \"One "
+    "minute in — 130 kilos total.\" -> \"One hour — 3,670 total.\" -> \"One day — over 86,000.\" -> \"One "
     "week...\" -> \"One month...\". EACH scene: (a) state the CHECKPOINT (time) + the NEW NUMBER out "
     "loud, short and punchy; then (b) ONE concrete, visceral CONSEQUENCE at that magnitude. The number "
-    "MUST rise every scene and the consequence MUST escalate in scope: your body -> the room/furniture "
-    "-> the building -> the street -> the planet.\n"
-    "- GROUNDED: the numbers must be REAL math for the title's rule (linear or compounding exactly as "
-    "stated — sanity-check the arithmetic), and every consequence must be REAL science exaggerated for "
-    "drama, NEVER invented. Absurd premise, real physics.\n"
+    "MUST progress in the title's direction. Escalate consequences only as far as the compiled magnitude "
+    "supports; never force a city, planetary, or cosmic outcome.\n"
+    "- GROUNDED: use only the code-compiled linear figures supplied below. Do not recalculate them or "
+    "invent consequences for drama. Absurd premise, conservative real physics.\n"
     "- LIGHT ON MECHANISM: at MOST one short \"why\" line in the ENTIRE video; spend everything else on "
-    "the climbing number + escalating consequence. This is a thrill ride, not a lecture.\n"
+    "the changing total + escalating consequence. This is a thrill ride, not a lecture.\n"
     "- THE CLOCK ONLY MOVES FORWARD: the time checkpoints must appear in strictly INCREASING order and "
     "never rewind. Do NOT drop a mechanism/aside line BETWEEN two checkpoints out of sequence — fold any "
     "\"why\" into the checkpoint line at the moment that threshold is first crossed, so the timeline never "
@@ -577,16 +576,16 @@ _SIM_SOCIAL_BLOCK = (
     "A skyscraper of you.\"). Prefer fragments over full sentences; cut every filler word. This "
     "OVERRIDES any words-per-scene target above. ~2.5-3s of speech per scene keeps the Short snappy and "
     "on-length; long explanatory lines are the #1 thing that makes a sim Short drag.\n"
-    "- SECOND-TO-LAST = the single most absurd/extreme checkpoint (the biggest number, the wildest "
+    "- SECOND-TO-LAST = the single most extreme supported checkpoint (largest or smallest total, the "
     "consequence) — the peak of the ride.\n"
     "- LAST scene = THE LESSON (answer the what-if): land the ONE real takeaway in a single punchy, "
     "memorable line with a slightly dark or witty edge. It must TEACH (this is \"Bolt EXPLAINS\") and "
     "answer the title's question — not just a joke. CRITICAL: the lesson is the REAL limiting science "
     "for THIS scenario — the actual physical wall that ends it — NOT an invented cosmic fate. Examples: "
     "GROWTH → the SQUARE-CUBE LAW (mass grows as the CUBE of height, so you collapse under your own "
-    "weight and your heart can't pump blood upward LONG before you get huge); weight-GAIN → you sink and "
-    "seize up immovably; SHRINK → the QUANTUM floor (you can't be smaller than uncertainty allows); "
-    "COOLING → ABSOLUTE ZERO (-273 degrees C, atoms stop). Do NOT end on 'black hole', 'a star', "
+    "weight and your heart can't pump blood upward LONG before you get huge); weight-GAIN → mobility and "
+    "structural limits; SHRINK → stop when the human-body model ceases to apply; COOLING → ABSOLUTE ZERO "
+    "(-273.15 degrees C; quantum zero-point motion remains). Do NOT end on 'black hole', 'a star', "
     "'bending spacetime' or 'bigger than the Sun' unless the authoritative numbers actually reach that "
     "scale. Then loop by echoing the Scene-1 question.\n"
     "- ONE OPEN QUESTION only (the title). Never open a second question.\n"
@@ -595,11 +594,11 @@ _SIM_SOCIAL_BLOCK = (
     "stand-in for YOU, visibly UNDERGOING the change (getting heavier/bigger/etc.) and physically "
     "REACTING each scene (straining, buckling, bracing, overwhelmed). Give him an ACTION per scene; "
     "never a passive bystander.\n"
-    "- Escalate the CONTEXT around him scene to scene (his room -> crushed furniture -> collapsing "
-    "building -> city -> orbit) so the rising number is FELT visually, not just heard.\n"
+    "- Escalate the CONTEXT only when the compiled scale supports it. Keep a room, body, or lab setting "
+    "when the totals never justify a building, city, or orbital view.\n"
     "- SHOW THE MAGNITUDE — CALIBRATE THE PICTURE TO THE NUMBER (the #1 rule for this format; today's "
     "test failed here): EVERY image_prompt MUST draw {mascot_name} visibly AT this scene's current "
-    "magnitude — proportionally bigger / heavier / denser than the previous scene — AND include a "
+    "magnitude — transformed in the correct direction from the previous scene — AND include a "
     "CONSTANT real-world SCALE REFERENCE in frame (a human, a car, a house, then the city skyline) so "
     "the change READS in half a second. The picture MUST agree with the spoken number: audio says "
     "house-sized -> draw him dwarfing a tiny car; audio says crushing the floor -> show him sunk into a "
@@ -618,7 +617,7 @@ _SIM_SOCIAL_BLOCK = (
 ).format(mascot_name=MASCOT_NAME)
 
 
-# ── Simulation math/scale engine ──────────────────────────────────────────────────
+# ── Legacy display helpers (the active math compiler is bolt_video.simulation) ─────
 # LLMs are unreliable at "1cm/s x 86,400s" (a real render said 1 day = 1,800 m; it is 864 m). So we
 # COMPUTE the checkpoint values in code (linear: rate x elapsed) and hand the model authoritative
 # numbers + a fixed size-comparison ladder, so BOTH the narration and each image_prompt stay accurate
@@ -720,12 +719,11 @@ def _sim_decreasing_rows(rate_per_s: float, kind: str, unit_raw: str, title: str
         rows.append(f"- ~{_fmt_dur(start / rate_per_s)} (a sudden final second): you plunge through every "
                     "remaining scale — a dust speck, then a single CELL (Brownian motion hurls you "
                     "around), a virus (van der Waals forces glue you to surfaces), a molecule, then one ATOM")
-        rows.append("- FLOOR: at atomic scale, quantum uncertainty takes over — 'you' no longer have a "
-                    "definite position and stop being a thing at all")
+        rows.append("- MODEL LIMIT: stop before microscopic scales; a scaled human-body model no longer "
+                    "describes matter or biology reliably")
         note = ("DECREASING (shrink) sim: you stay roughly visible for MOST of the runtime, then cross all "
                 "the microscopic scales in a sudden final-second plunge — lean into that slow-then-gone "
-                "reveal. The climax/lesson is the QUANTUM floor (you can't be smaller than uncertainty "
-                "allows), NOT a black hole or anything cosmic.")
+                "reveal. Stop when the human-body model fails; do not invent a quantum floor for a person.")
         return rows, note
     if kind == "mass":                      # LOSE WEIGHT — from ~70 kg down to nothing
         start = 70.0
@@ -742,7 +740,7 @@ def _sim_decreasing_rows(rate_per_s: float, kind: str, unit_raw: str, title: str
                 "failure, NOT a cosmic event.")
         return rows, note
     if ("degree" in t or "temperature" in t) and any(w in t for w in ("cold", "colder", "cool", "cooler", "cooled")):
-        start, floor = 37.0, -273.0         # COOLING — body temp down to absolute zero
+        start, floor = 37.0, -273.15        # COOLING — body temp down to absolute zero
         rows = []
         for c, desc in [(35, "shivering starts — hypothermia sets in"),
                         (28, "confusion, your heartbeat turns erratic"),
@@ -751,10 +749,10 @@ def _sim_decreasing_rows(rate_per_s: float, kind: str, unit_raw: str, title: str
             tt = (start - c) / rate_per_s
             if tt > 0:
                 rows.append(f"- {_fmt_dur(tt)}: {c:.0f} degrees C — {desc}")
-        rows.append(f"- ~{_fmt_dur((start - floor) / rate_per_s)}: absolute zero, -273 degrees C — atoms "
-                    "stop moving entirely; this is the FLOOR, nothing can ever be colder")
-        note = ("DECREASING (cooling) sim: the climax/floor is ABSOLUTE ZERO (-273 degrees C), the coldest "
-                "temperature physically possible — never go below it.")
+        rows.append(f"- ~{_fmt_dur((start - floor) / rate_per_s)}: absolute zero, -273.15 degrees C — "
+                    "the thermodynamic floor; quantum zero-point motion remains")
+        note = ("DECREASING (cooling) sim: the limiting value is ABSOLUTE ZERO (-273.15 degrees C); "
+                "never go below it or claim that all microscopic motion stops.")
         return rows, note
     # generic decreasing count (speed/brightness/loudness/etc.): fall linearly toward zero
     rows = [f"- {label}: -{rate_per_s * secs:,.0f} {unit_raw}" for label, secs in _SIM_CHECKPOINTS[:6]]
@@ -764,51 +762,9 @@ def _sim_decreasing_rows(rate_per_s: float, kind: str, unit_raw: str, title: str
 
 
 def _sim_ladder_block(title: str) -> str:
-    """Compute an authoritative checkpoint ladder from a 'you [verb] N<unit> every <period>' title, as a
-    prompt block the model must use verbatim. Handles INCREASING (count up to a huge scale) and
-    DECREASING (count down to a real floor) sims. Returns '' if unparseable or compounding (%)."""
-    import re
-    t = (title or "").lower()
-    m = re.search(r'(\d+(?:\.\d+)?)\s*([a-z%]+)\b.*?\bevery\s+(second|minute|hour|day)', t)
-    if not m:
-        return ""
-    val, unit, period = float(m.group(1)), m.group(2), _SIM_PERIOD_S.get(m.group(3), 1)
-    if "%" in unit or "percent" in unit:
-        return ""   # compounding explodes; leave to the prompt
-    if unit in _SIM_LEN_M:
-        base, kind = _SIM_LEN_M[unit], "len"
-    elif unit in _SIM_MASS_KG:
-        base, kind = _SIM_MASS_KG[unit], "mass"
-    else:
-        base, kind = 1.0, "count"
-    rate_per_s = val * base / period
-    if _sim_decreasing(title):
-        rows, climax = _sim_decreasing_rows(rate_per_s, kind, m.group(2), title)
-    else:
-        rows = []
-        for label, secs in _SIM_CHECKPOINTS:
-            amt = rate_per_s * secs
-            if kind == "len":
-                rows.append(f"- {label}: +{_fmt_len(amt)} ({_cmp_len(amt)})")
-            elif kind == "mass":
-                rows.append(f"- {label}: +{_fmt_mass(amt)} ({_cmp_mass(amt)})")
-            else:
-                rows.append(f"- {label}: +{amt:,.0f} {m.group(2)}")
-        climax = ("The FINAL checkpoint above IS the climax. Do NOT invent LATER timestamps (10 years, a "
-                  "century, etc.) or sizes beyond this list, and do NOT claim you become a BLACK HOLE / a "
-                  "STAR / bend spacetime / grow bigger than a planet — at one unit per second the numbers "
-                  "never reach those regimes, and saying so is the exact false-science that destroys "
-                  "credibility.")
-    if not rows:
-        return ""
-    return (
-        "\n*** AUTHORITATIVE NUMBERS — USE THESE EXACT FIGURES (the math is already done for you; you are "
-        "unreliable at this arithmetic, so do NOT compute or invent your own — a wrong number kills the "
-        "video's credibility). Build the ladder around these checkpoints IN THIS ORDER; every quantity "
-        "you SAY must come from this list (you may add a consequence beat between checkpoints, but never a "
-        "new number). For EACH scene's image_prompt, draw " + MASCOT_NAME + " at EXACTLY the stated "
-        "size/state next to a real comparison so the scale reads and STAYS consistent scene to scene: "
-        "***\n" + "\n".join(rows) + "\n" + climax + "\n")
+    """Return the deterministic contract; invalid rules fail before a paid LLM call."""
+    from bolt_video.simulation import build_simulation_prompt_block
+    return build_simulation_prompt_block(title, mascot_name=MASCOT_NAME)
 
 
 def _operator_block(direction: str) -> str:
