@@ -1,142 +1,75 @@
-# REELFORGE — AI YouTube Video Pipeline
+# ReelForge — Bolt AI Video Studio
 
-Turn a single text prompt into a complete, ready-to-upload YouTube video.
+ReelForge turns a topic or narration script into a packaged YouTube video. It currently supports:
 
-**Pipeline:** Claude (script) → Google Cloud TTS (voiceover) → Pexels + DALL·E (visuals) → MoviePy (assembly) → MP4
+- **Short** — vertical curiosity-gap explainers.
+- **Explainer** — beat-sheet-driven long-form videos with quality gates and resumable work.
+- **Simulation** — vertical “change by N every period” stories whose math is compiled in code.
+- **TV Review** — spoiler-scoped reviews with original location art and an evolving story board.
 
----
+The former House of the Dragon / State Board workflow is now the general TV Review format. Legacy
+`/api/stateboard/*` routes remain as deprecated aliases; new clients use `/api/tv-review/*`.
 
-## Prerequisites
+## Quick start
 
-- Python 3.10+
-- FFmpeg installed and on your PATH
-- API keys for: Anthropic, Google Cloud, Pexels, OpenAI
-
----
-
-## 1. Install FFmpeg
-
-**macOS:**
-```bash
-brew install ffmpeg
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install ffmpeg
-```
-
-**Windows:**
-Download from https://ffmpeg.org/download.html and add to PATH.
-
----
-
-## 2. Install Python dependencies
+Requirements: Python 3.10+, FFmpeg/ffprobe, and credentials for the providers you enable.
 
 ```bash
-cd yt-pipeline
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
----
-
-## 3. Set up API Keys
-
-### Anthropic (Claude)
-1. Get key from https://console.anthropic.com
-2. Set env variable: `export ANTHROPIC_API_KEY=sk-ant-...`
-
-### Google Cloud TTS
-1. Go to https://console.cloud.google.com
-2. Create a project, enable the **Cloud Text-to-Speech API**
-3. Create a **Service Account** → download the JSON key file
-4. Set: `export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json`
-
-### Pexels (free)
-1. Sign up at https://www.pexels.com/api/
-2. Get your free API key
-3. Set: `export PEXELS_API_KEY=your-key-here`
-
-### OpenAI (DALL·E 3 — optional if using Pexels only)
-1. Get key from https://platform.openai.com
-2. Set: `export OPENAI_API_KEY=sk-...`
-
----
-
-## 4. Run the server
-
-```bash
+cp .env.example .env
 python app.py
 ```
 
-Open your browser at: **http://localhost:8000**
+Open <http://localhost:8000>. Set `APP_SHARED_SECRET` before exposing the server beyond localhost;
+the web UI requests it on the first protected operation.
 
----
+## Architecture
 
-## 5. Using the UI
-
-1. Type a video topic in the prompt box
-2. Set duration (1–15 minutes)
-3. Choose visual source (Pexels+DALL·E recommended)
-4. Pick a voice
-5. Hit **Generate Video** — watch the pipeline run in real-time
-6. When done, download the MP4 or view the full script
-
----
-
-## Project Structure
-
-```
-yt-pipeline/
-├── app.py           # FastAPI server + SSE streaming
-├── pipeline.py      # Core pipeline: script, audio, visuals, assembly
-├── requirements.txt
-├── static/
-│   └── index.html   # Web UI
-└── README.md
+```text
+app.py                    FastAPI routes, SSE job status, static UI
+explainer_pipeline.py     active Short, Explainer, and Simulation orchestration
+stateboard_pipeline.py    TV Review assembly (legacy module name)
+board_pipeline.py         portable story-board renderer and timeline extraction
+bolt_video/
+  core/                   shared output contracts and format registry
+  prompts/                ordered prompt construction with explicit precedence
+  simulation/             Decimal-based parser, compiler, and prompt contract
+bolt_seq/                 experimental/deterministic Bolt motion toolchain
+static/index.html         browser studio
+tests/                    Phase 0/1 contract and regression tests
 ```
 
----
+`GET /api/formats` returns the canonical format registry.
 
-## Customisation Tips
+## Prompt and simulation guarantees
 
-### Change the voice
-In `pipeline.py → generate_audio()`, update `voice.name` to any Google Cloud TTS voice.
-Full list: https://cloud.google.com/text-to-speech/docs/voices
+Prompt precedence is explicit: safety, output schema, deterministic facts, format rules, then creative
+direction. Simulation titles are parsed before the script model is called. Supported linear units are
+length (`mm`, `cm`, `m`, `km`), mass (`g`, `kg`, `lb`, `tonne`), Celsius, and explicit count units.
+Percent/compound rules, unknown units, and missing rates fail closed instead of handing arithmetic to
+an LLM.
 
-### Adjust video quality
-In `pipeline.py → assemble_video()`, change `bitrate` (e.g. `"8000k"` for higher quality)
-or `preset` (`"slow"` for better compression, `"ultrafast"` for speed).
+Every checkpoint includes both the **delta** and the **total state from a stated baseline**. Decreasing
+quantities stop at a defined floor and include scientific-boundary warnings.
 
-### Add background music
-In `assemble_video()`, load an audio file with `AudioFileClip` and use
-`CompositeAudioClip([narration, music.volumex(0.15)])` before writing.
+## TV Review input contract
 
-### Add captions (subtitles)
-After generating audio, run OpenAI Whisper on the final MP3 to get word-level
-timestamps, then use MoviePy's `TextClip` to overlay them frame-by-frame.
+Provide a title and narration split into at least two blank-line-separated chapters. Optional metadata
+includes show name, season, episode, spoiler scope, and review angle. The extractor may track characters,
+groups, plotlines, theories, mysteries, control, and genuinely countable assets. It uses only the pasted
+narration and spoiler scope. Background art is generic and original; the board uses text chips instead
+of actor likenesses or show footage.
 
----
+## Configuration and verification
 
-## Troubleshooting
+Copy `.env.example` and fill only the credentials for enabled providers. Do not commit credentials,
+provider tokens, licensed music, or local absolute artifact paths.
 
-| Error | Fix |
-|---|---|
-| `GOOGLE_APPLICATION_CREDENTIALS not set` | Export the path to your GCP service account JSON |
-| `FFmpeg not found` | Install FFmpeg and ensure it's in your system PATH |
-| `moviepy.error: No file found` | Check Pexels API key is valid and has quota remaining |
-| `DALL-E quota exceeded` | Switch visual mode to "Pexels only" in the UI |
-| Port 8000 in use | Change port in `app.py`: `uvicorn.run(..., port=8080)` |
+```bash
+python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py
+pytest tests bolt_seq/tests/test_state.py
+```
 
----
-
-## Roadmap
-
-- [ ] Auto-upload to YouTube via YouTube Data API v3
-- [ ] AI-generated thumbnail (DALL·E → overlay title text)
-- [ ] OpenAI Whisper captions burned into video
-- [ ] Background music track selection
-- [ ] Batch generation (multiple videos from a list of prompts)
-- [ ] Voice cloning via ElevenLabs swap-in
+GitHub Actions runs these focused checks on pushes and pull requests.

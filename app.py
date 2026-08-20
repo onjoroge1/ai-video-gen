@@ -16,14 +16,21 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="YouTube Pipeline API")
+
+
+@app.get("/api/formats")
+async def format_catalog():
+    """Phase-1 format discovery contract for UI and future workers."""
+    from bolt_video.core.registry import list_formats
+    return {"formats": list_formats()}
 
 # Opt-in shared-secret auth. When APP_SHARED_SECRET is set, every MUTATING request (non GET/HEAD/
 # OPTIONS — the credit-spending /generate, the file upload, refresh) must carry a matching
@@ -1457,6 +1464,11 @@ class StateBoardRequest(BaseModel):
     script: str                    # pasted narration; chapters separated by a blank line
     voice: str = "onyx"            # OpenAI TTS voice
     subtitle: str = ""             # optional kicker line on the title card
+    show_name: str = ""
+    season: Optional[int] = Field(default=None, ge=1)
+    episode: Optional[int] = Field(default=None, ge=1)
+    spoiler_scope: Literal["none", "episode", "season", "series"] = "episode"
+    review_angle: Literal["analysis", "character", "theories", "verdict"] = "analysis"
 
 
 async def run_stateboard_task(job_id: str, request: StateBoardRequest, output_dir: str):
@@ -1477,7 +1489,10 @@ async def run_stateboard_task(job_id: str, request: StateBoardRequest, output_di
             lambda: sbp.run_stateboard_pipeline(
                 topic=request.topic, script_text=request.script,
                 output_dir=output_dir, voice=request.voice,
-                subtitle=request.subtitle, progress_cb=push),
+                subtitle=request.subtitle, progress_cb=push,
+                review_context={"show_name": request.show_name, "season": request.season,
+                                "episode": request.episode, "spoiler_scope": request.spoiler_scope,
+                                "review_angle": request.review_angle}),
         )
         job.update({
             "status": "degraded" if result.get("status") == "degraded" else "done",
@@ -1492,7 +1507,8 @@ async def run_stateboard_task(job_id: str, request: StateBoardRequest, output_di
         job["events"].append({"type": "error", "data": str(e)})
 
 
-@app.post("/api/stateboard/generate")
+@app.post("/api/tv-review/generate")
+@app.post("/api/stateboard/generate", deprecated=True)
 async def stateboard_generate(request: StateBoardRequest, background_tasks: BackgroundTasks):
     if not request.topic.strip() or not request.script.strip():
         raise HTTPException(status_code=400, detail="topic and script are required")
@@ -1505,7 +1521,8 @@ async def stateboard_generate(request: StateBoardRequest, background_tasks: Back
     return {"job_id": job_id}
 
 
-@app.get("/api/stateboard/status/{job_id}")
+@app.get("/api/tv-review/status/{job_id}")
+@app.get("/api/stateboard/status/{job_id}", deprecated=True)
 async def stateboard_status_stream(job_id: str):
     if job_id not in stateboard_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1526,16 +1543,18 @@ async def stateboard_status_stream(job_id: str):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/api/stateboard/download/{job_id}")
+@app.get("/api/tv-review/download/{job_id}")
+@app.get("/api/stateboard/download/{job_id}", deprecated=True)
 async def stateboard_download(job_id: str):
     job = stateboard_jobs.get(job_id)
     if not job or not job.get("output_path") or not os.path.exists(job["output_path"]):
         raise HTTPException(status_code=404, detail="Job not found")
-    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in job.get("title", "stateboard"))
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in job.get("title", "tv-review"))
     return FileResponse(job["output_path"], media_type="video/mp4", filename=f"{safe}.mp4")
 
 
-@app.get("/api/stateboard/thumbnail/{job_id}")
+@app.get("/api/tv-review/thumbnail/{job_id}")
+@app.get("/api/stateboard/thumbnail/{job_id}", deprecated=True)
 async def stateboard_thumbnail(job_id: str):
     job = stateboard_jobs.get(job_id)
     if not job or not job.get("thumbnail_path") or not os.path.exists(job["thumbnail_path"]):

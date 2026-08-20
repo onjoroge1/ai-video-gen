@@ -1,5 +1,5 @@
 """
-State Board pipeline (standalone) — pasted narration -> a "state of the war" recap video:
+TV Review pipeline (legacy name: State Board) — pasted review narration -> an evolving story board:
 an always-on code-drawn faction/status rail (board_pipeline.render_board) over ORIGINAL
 per-chapter location backdrops, with voiceover. Section-snapping: the board holds, then
 snaps to a new state each chapter.
@@ -13,12 +13,12 @@ is the user's own text, voiced verbatim.
 import os, re, subprocess
 import explainer_pipeline as ep       # generate_tts, generate_image
 import board_pipeline as bp           # render_board, extract_state_timeline
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from font_utils import load_font
 
 _SUP = "/System/Library/Fonts/Supplemental"
 def _F(p, s, i=0):
-    try: return ImageFont.truetype(p, s, index=i)
-    except Exception: return ImageFont.truetype(f"{_SUP}/Georgia Bold.ttf", s)
+    return load_font(p, s, index=i, bold="Bold" in p or p.endswith(".ttc"))
 
 _LOC_SUFFIX = (" Cinematic matte painting, dramatic volumetric light, rich depth, moody, high detail. "
                "NO people, NO faces, NO text, NO letters, NO logos, NO watermark. Entirely ORIGINAL "
@@ -95,7 +95,7 @@ def _pad_states(states, n):
     return out
 
 def run_stateboard_pipeline(topic, script_text, output_dir, voice="onyx",
-                            subtitle="", progress_cb=None):
+                            subtitle="", progress_cb=None, review_context=None):
     log = progress_cb or (lambda m: None)
     output_dir = os.path.abspath(output_dir); os.makedirs(output_dir, exist_ok=True)
 
@@ -106,7 +106,7 @@ def run_stateboard_pipeline(topic, script_text, output_dir, voice="onyx",
     blocks = [{"title": f"Chapter {i+1}", "narration": c} for i, c in enumerate(chapters)]
 
     log("stage:Building the state board…")
-    states = bp.extract_state_timeline(blocks, topic=topic)
+    states = bp.extract_state_timeline(blocks, topic=topic, review_context=review_context)
     degraded = []
     if not states:
         raise ValueError("Could not build a state board from this script (extraction failed).")
@@ -164,7 +164,7 @@ def run_stateboard_pipeline(topic, script_text, output_dir, voice="onyx",
     log("stage:Assembling final video…")
     title_png = os.path.join(output_dir, "_title.png"); _title_overlay(topic, subtitle, title_png)
     DUR = _dur(body); out_fade = max(0.1, DUR-1.5); a_fade = max(0.1, DUR-1.2)
-    final = os.path.join(output_dir, "stateboard.mp4")
+    final = os.path.join(output_dir, "tv_review.mp4")
     vf = (f"[2:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1,fade=t=out:st=9.3:d=1.2:alpha=1[ttl];"
           f"[0:v][ttl]overlay=0:0:enable='between(t,0,10.5)',"
           f"fade=t=in:st=0:d=1.0,fade=t=out:st={out_fade:.2f}:d=1.5[v];"

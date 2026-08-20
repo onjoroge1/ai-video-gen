@@ -9,6 +9,9 @@ pillow==10.4.0
 numpy==1.26.4
 python-multipart==0.0.9
 pydantic==2.9.2
+python-dotenv>=1.0.1
+psycopg2-binary>=2.9.9
+google-genai>=1.0.0
 scipy>=1.13.0
 yt-dlp>=2024.1.0
 bar_chart_race>=0.1.0

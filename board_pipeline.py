@@ -1,5 +1,5 @@
 """
-State-board renderer for "explained" recap videos.
+Story-board renderer for TV episode review videos.
 
 Draws an always-on, code-drawn "state" rail (transparent PNG, right side) that composites
 over any full-fidelity location card. Characters are text chips (name/role/status) — never
@@ -9,26 +9,24 @@ control bar are original vector marks. One PNG per chapter -> section-snapping v
 render_board(state, out_path) -> transparent 1920x1080 RGBA overlay.
 
 state = {
-  "title": "STATE OF THE WAR",
-  "subtitle": "House of the Dragon · S3E2 “Queen's Landing”",
-  "left":  {"name": "THE BLACKS", "accent": "steel", "chips": [chip, ...]},
-  "right": {"name": "THE GREENS", "accent": "green", "chips": [chip, ...]},
-  "control": {"label": "KING'S LANDING", "held_by": "greens|contested|blacks", "text": "..."},
-  "dragons": {"left": 3, "right": 2, "right_dim": 1},   # right_dim = how many of right are missing/dimmed
+  "title": "EPISODE REVIEW",
+  "subtitle": "Example Show · S1E2 · Full spoilers",
+  "left":  {"name": "SIDE A", "accent": "steel", "chips": [chip, ...]},
+  "right": {"name": "SIDE B", "accent": "green", "chips": [chip, ...]},
+  "control": {"label": "THE STAKES", "held_by": "left|contested|right", "text": "..."},
+  "assets": {"left": 3, "right": 2, "right_dim": 1},
   "footer": "CH 2 / 12 · Where everyone stands",
   "changed": ["Aegon", "control", "dragons"],           # highlight what moved this chapter
 }
 chip = {"name","role","tag","tone"}  tone in {good, bad, neutral, dead, key}
 """
 import os, json, re
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from font_utils import load_font
 
 _SUP = "/System/Library/Fonts/Supplemental"
 def _F(path, size, index=0):
-    try:
-        return ImageFont.truetype(path, size, index=index)
-    except Exception:
-        return ImageFont.truetype(f"{_SUP}/Georgia Bold.ttf", size)
+    return load_font(path, size, index=index, bold="Bold" in path or path.endswith(".ttc"))
 _COPPER = f"{_SUP}/Copperplate.ttc"; _GEO_B = f"{_SUP}/Georgia Bold.ttf"
 _ARIAL = f"{_SUP}/Arial.ttf"; _ARIAL_B = f"{_SUP}/Arial Bold.ttf"
 
@@ -102,7 +100,7 @@ def render_board(state, out_path, w=1920, h=1080):
     img = Image.alpha_composite(img, gl); d = ImageDraw.Draw(img)
 
     px = rail_x0 + 40; rx = w - 66
-    _track(d, (px, 54), state.get("title","STATE OF THE WAR"), _F(_COPPER, 36), GOLD, tr=5)
+    _track(d, (px, 54), state.get("title","EPISODE REVIEW"), _F(_COPPER, 36), GOLD, tr=5)
     if state.get("subtitle"):
         d.text((px, 108), state["subtitle"], font=_F(_ARIAL, 18), fill=MUTE)
     d.line([(px, 144),(rx, 144)], fill=GOLD, width=2)
@@ -128,11 +126,11 @@ def render_board(state, out_path, w=1920, h=1080):
         _track(d, (px, by), ctrl.get("label","KING'S LANDING"), _F(_COPPER, 22), GOLD, tr=3)
         bar = [px, by+34, rx, by+34+38]
         d.rounded_rectangle(bar, radius=9, fill=(28,32,40))
-        held = ctrl.get("held_by","greens")
-        if held == "blacks":
-            d.rounded_rectangle(bar, radius=9, fill=(46,58,74))            # steel = Blacks
-        elif held == "greens":
-            d.rounded_rectangle(bar, radius=9, fill=(40,74,44))            # green = Greens
+        held = {"blacks": "left", "greens": "right"}.get(ctrl.get("held_by"), ctrl.get("held_by", "contested"))
+        if held == "left":
+            d.rounded_rectangle(bar, radius=9, fill=(46,58,74))
+        elif held == "right":
+            d.rounded_rectangle(bar, radius=9, fill=(40,74,44))
         else:  # contested — split
             mid = (bar[0]+bar[2])//2
             d.rounded_rectangle([bar[0],bar[1],mid+10,bar[3]], radius=9, fill=(46,58,74))
@@ -143,15 +141,15 @@ def render_board(state, out_path, w=1920, h=1080):
         d.text(((bar[0]+bar[2])//2 - _tw(d,t,tf)//2, bar[1]+8), t, font=tf, fill=WHITE)
         by = bar[3] + 26
 
-    dr = state.get("dragons")
+    dr = state.get("assets") or state.get("dragons")  # legacy manifests remain renderable
     if dr:
-        _track(d, (px, by), dr.get("label", "DRAGONS IN PLAY"), _F(_COPPER, 22), GOLD, tr=3)
-        if "dragons" in changed:
+        _track(d, (px, by), dr.get("label", "ASSETS IN PLAY"), _F(_COPPER, 22), GOLD, tr=3)
+        if "assets" in changed or "dragons" in changed:
             d.polygon([(px-14,by+4),(px-14,by+18),(px-4,by+11)], fill=GOLD)
         dy = by + 40
-        d.text((px, dy-2), "BLACKS", font=_F(_ARIAL_B, 17), fill=STEEL)
+        d.text((px, dy-2), L["name"][:12], font=_F(_ARIAL_B, 17), fill=STEEL)
         for k in range(dr.get("left",0)): _dragon(d, px+104+k*30, dy+8, 9, STEEL)
-        d.text((c2, dy-2), "GREENS", font=_F(_ARIAL_B, 17), fill=GREEN)
+        d.text((c2, dy-2), R["name"][:12], font=_F(_ARIAL_B, 17), fill=GREEN)
         rn = dr.get("right",0); rdim = dr.get("right_dim",0)
         for k in range(rn):
             _dragon(d, c2+104+k*30, dy+8, 9, DIM if k >= rn-rdim else GREEN)
@@ -165,9 +163,10 @@ def render_board(state, out_path, w=1920, h=1080):
 
 
 # ─── Auto-extraction (for a UI mode): narration -> per-chapter state timeline ──────
-_EXTRACT_SYSTEM = """You turn a recap/explainer narration into a per-chapter STATE-BOARD timeline for
-a "state of the conflict" side panel. The board tracks TWO sides and a small fixed roster of the key
-recurring players, showing each one's CURRENT status as it changes chapter to chapter.
+_EXTRACT_SYSTEM = """You turn a TV-review narration into a per-chapter STORY-BOARD timeline.
+The panel should help a viewer follow the review's argument: two meaningful sides, theories, groups,
+or story threads and a small fixed roster of key characters. Do not force a faction conflict when the
+episode is better represented by two plotlines or competing interpretations.
 
 STRICT RULES — accuracy over completeness:
 - Use ONLY facts stated in the narration. NEVER invent a status, outcome, or fact. If a player's
@@ -178,8 +177,10 @@ STRICT RULES — accuracy over completeness:
   good=survived/gained; key=pivotal move this recap; neutral=in play / unchanged.
 - "changed" per chapter = the player NAMES (and "control"/"assets") whose status CHANGED vs the previous
   chapter. First chapter: [].
-- control (optional): a contested place/resource with held_by ∈ {left,right,contested} + short text.
-- assets (optional): a countable force per side (e.g. armies, ships, dragons) with a label.
+- control (optional): a place, goal, mystery, relationship, or advantage with held_by ∈
+  {left,right,contested} + short text. Omit it when the script does not support it.
+- assets (optional): only a genuinely countable item per side. Omit rather than estimate.
+- Respect the supplied SPOILER SCOPE. Do not introduce facts beyond the pasted narration or scope.
 
 Return STRICT JSON, no prose, no code fences:
 {"title": "...", "subtitle": "...",
@@ -198,7 +199,21 @@ The chapters array MUST have exactly one entry per input chapter, in order.
 Keep a FIXED roster: choose the key players ONCE and show the SAME names every chapter (status changes,
 the lineup does not). Limit "changed" to the 1-2 things that actually moved this chapter."""
 
-def extract_state_timeline(blocks, topic="", model="claude-opus-4-8", cost_sink=None):
+
+def build_tv_review_extraction_prompt():
+    """Render extraction instructions with the same precedence contract as simulations."""
+    from bolt_video.prompts.builder import PromptBuilder, PromptPriority
+    return (PromptBuilder("Extract a spoiler-scoped TV-review story-board timeline.")
+            .add("Safety and accuracy", "Use only the supplied narration. Never invent events, statuses, "
+                 "spoilers, actor likenesses, copyrighted location designs, or count estimates.",
+                 PromptPriority.SAFETY)
+            .add("Output contract", "Return strict JSON only. The chapters array must contain exactly "
+                 "one entry per input chapter, in the original order.", PromptPriority.OUTPUT_CONTRACT)
+            .add("Format rules", _EXTRACT_SYSTEM, PromptPriority.FORMAT)
+            .render())
+
+def extract_state_timeline(blocks, topic="", model="claude-opus-4-8", cost_sink=None,
+                           review_context=None):
     """Best-effort: read narration blocks -> list of render_board() state dicts.
     Returns None on failure. Intended for a UI mode; validate output before trusting it."""
     import anthropic
@@ -206,8 +221,10 @@ def extract_state_timeline(blocks, topic="", model="claude-opus-4-8", cost_sink=
     chapters = "\n\n".join(f"[CHAPTER {i+1}] {b.get('title','')}\n{b.get('narration','')}"
                            for i, b in enumerate(blocks))
     resp = client.messages.create(
-        model=model, max_tokens=8000, system=_EXTRACT_SYSTEM,
-        messages=[{"role": "user", "content": f"TOPIC: {topic}\n\n{chapters}"}])
+        model=model, max_tokens=8000, system=build_tv_review_extraction_prompt(),
+        messages=[{"role": "user", "content":
+                   f"REVIEW CONTEXT: {json.dumps(review_context or {}, ensure_ascii=False)}\n"
+                   f"TOPIC: {topic}\n\n{chapters}"}])
     txt = resp.content[0].text.strip()
     m = re.search(r"\{.*\}", txt, re.S)
     if not m:
@@ -216,7 +233,7 @@ def extract_state_timeline(blocks, topic="", model="claude-opus-4-8", cost_sink=
         data = json.loads(m.group(0))
     except Exception:
         return None
-    title = data.get("title", "STATE OF THE WAR"); sub = data.get("subtitle", topic)
+    title = data.get("title", "EPISODE REVIEW"); sub = data.get("subtitle", topic)
     left_meta = data.get("left", {"name": "SIDE A", "accent": "steel"})
     right_meta = data.get("right", {"name": "SIDE B", "accent": "green"})
     states = []
@@ -232,7 +249,7 @@ def extract_state_timeline(blocks, topic="", model="claude-opus-4-8", cost_sink=
                              "held_by": ch["control"].get("held_by", "contested"),
                              "text": ch["control"].get("text", "")}
         if ch.get("assets"):
-            st["dragons"] = {**ch["assets"], "label": data.get("assets_label", "FORCES IN PLAY")}
+            st["assets"] = {**ch["assets"], "label": data.get("assets_label", "ASSETS IN PLAY")}
         st["_location_art"] = ch.get("location", "")
         states.append(st)
     return states
