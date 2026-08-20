@@ -984,7 +984,7 @@ class ExplainerRequest(BaseModel):
     series: str = ""                  # format-series mode: a recurring series name/pattern
     short_template: str = "auto"      # social only: "auto" (title heuristic) | "explainer"
                                       # (curiosity-gap mystery) | "simulation" (you-change escalation)
-    n_items: int = 3                  # quiz template only: number of guess rounds (clamped 2-6)
+    n_items: int = 3                  # rapid quiz is deliberately capped at 3 rounds
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
 
@@ -1012,7 +1012,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 None,
                 lambda: qp.run_quiz_pipeline(
                     category=request.question, output_dir=output_dir,
-                    n_items=max(2, min(6, request.n_items or 3)),
+                    n_items=max(2, min(3, request.n_items or 3)),
                     voice=request.voice, operator_direction=request.operator_direction, progress_cb=push),
             )
         else:

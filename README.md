@@ -5,6 +5,7 @@ ReelForge turns a topic or narration script into a packaged YouTube video. It cu
 - **Short** — vertical curiosity-gap explainers.
 - **Explainer** — beat-sheet-driven long-form videos with quality gates and resumable work.
 - **Simulation** — vertical “change by N every period” stories whose math is compiled in code.
+- **Rapid Quiz** — frame-zero clues, fast timers, and immediate reveals with no post-game tail.
 - **TV Review** — spoiler-scoped reviews with original location art and an evolving story board.
 
 The former House of the Dragon / State Board workflow is now the general TV Review format. Legacy
