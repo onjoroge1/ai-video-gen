@@ -22,8 +22,10 @@ cp .env.example .env
 python app.py
 ```
 
-Open <http://localhost:8000>. Set `APP_SHARED_SECRET` before exposing the server beyond localhost;
-the web UI requests it on the first protected operation.
+Open <http://localhost:8000>. Local development remains open when `APP_PASSWORD` is unset. On
+Vercel the application fails closed and shows `/login` until `APP_USERNAME`, `APP_PASSWORD`, and a
+preferably separate `APP_SESSION_SECRET` are configured. Sessions use a signed HttpOnly, Secure,
+SameSite cookie; credentials are never stored in browser local storage.
 
 ## Architecture
 
@@ -43,12 +45,32 @@ tests/                    Phase 0/1 contract and regression tests
 
 `GET /api/formats` returns the canonical format registry.
 
+## Production persistence
+
+Set `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` before starting a paid render on Vercel. Production
+renders fail before provider spend when either is missing. Completed MP4s, captions, transcripts,
+descriptions, grades and thumbnails are uploaded to Vercel Blob; Postgres stores their searchable
+metadata. The authenticated `/finished` library survives cold starts and links back from the studio
+navigation. Blob objects use random-suffixed public CDN URLs for efficient video playback; the
+library and all generation APIs remain behind the studio login.
+
+`GET /api/production-readiness` reports configuration booleans without exposing any credential.
+
 Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
 the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately
 not stored in Postgres or bundled into the Vercel function. Run `python scripts/sync_music_assets.py`
 once with `DATABASE_URL` set to seed the metadata table. A first render also creates/updates its track's
 row automatically. `MUSIC_<MOOD>_URL` and `MUSIC_<MOOD>_SHA256` can point a track at Vercel Blob or
 another CDN without a code change.
+
+## Topic ROI v2
+
+Topic research is aligned to three Bolt lanes—Earth, Physics, and Space—and generates separate Short
+and long-form candidates. YouTube validation compares equivalent duration buckets and scores
+age-normalized views/day, logarithmic outlier demand, competition and recency. The rank also includes
+the channel's stored retention/subscriber outcomes, visual promise, production feasibility, fact
+confidence and novelty. Close paraphrases are removed across lanes. A GET never starts paid research;
+use the protected **Refresh research** action explicitly.
 
 ## Prompt and simulation guarantees
 

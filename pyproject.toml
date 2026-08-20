@@ -17,11 +17,13 @@ dependencies = {file = ["requirements.txt"]}
 [tool.setuptools]
 py-modules = [
     "app",
+    "artifact_store",
     "audit_pending",
     "board_pipeline",
     "charts_pipeline",
     "db",
     "explainer_pipeline",
+    "finished_api",
     "font_utils",
     "health_pipeline",
     "highlights",
@@ -29,9 +31,11 @@ py-modules = [
     "music_assets",
     "overlays",
     "pipeline",
+    "private_access",
     "quiz_pipeline",
     "sim_drop_pipeline",
     "stateboard_pipeline",
+    "topic_roi",
 ]
 
 [tool.setuptools.packages.find]

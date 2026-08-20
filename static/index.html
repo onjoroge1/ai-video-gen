@@ -829,9 +829,11 @@
   .opp-lo  { color: var(--text-mid); background: var(--surface2); }
   .ptag { font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.03em; padding:2px 7px; border-radius:4px; white-space:nowrap; }
   .pt-proven    { color: var(--green); background: rgba(82,183,136,.14); }
+  .pt-promising { color: var(--teal);  background: rgba(42,157,143,.14); }
   .pt-untapped  { color: var(--amber); background: rgba(244,162,97,.14); }
   .pt-saturated { color: var(--blue);  background: rgba(74,144,217,.14); }
   .pt-weak      { color: var(--text-dim); background: var(--surface2); }
+  .pt-format    { color: var(--text-mid); background: var(--surface2); }
   .t-topic { color: var(--text); font-weight:600; max-width: 360px; line-height:1.4; }
   .t-suggested { color: var(--blue); font-size:11.5px; font-weight:600; margin-top:3px; }
   .t-queued { display:inline-block; background:var(--blue,#3a86ff); color:#fff; font-size:10px; font-weight:800; padding:1px 6px; border-radius:4px; margin-right:6px; vertical-align:middle; letter-spacing:.3px; }
@@ -983,6 +985,8 @@
     <button class="tab-btn" id="tab-stateboard" onclick="switchTab('stateboard')">TV Review</button>
     <button class="tab-btn" id="tab-topics" onclick="switchTab('topics')">Topics</button>
     <button class="tab-btn" id="tab-metrics" onclick="switchTab('metrics')">Metrics</button>
+    <a class="tab-btn" href="/finished">Finished</a>
+    <button class="tab-btn" onclick="logoutApp()">Log out</button>
   </nav>
 
   <!-- ═══════════════════════════════════════════════════════════════
@@ -1778,10 +1782,12 @@
         <button class="btn-refresh" id="topics-refresh" onclick="refreshTopics()">↻ Refresh research</button>
       </div>
       <div class="topics-legend">
-        <span><b>⚡ Opp</b> 0–100 blended score</span>
-        <span><b>🔥 Outlier</b> best views÷subs (small-channel demand)</span>
-        <span><b>Median</b> typical views of on-topic videos</span>
+        <span><b>⚡ ROI</b> market + retention + visual/production fit</span>
+        <span><b>Velocity</b> median age-normalized views/day</span>
+        <span><b>Own fit</b> similarity-weighted performance on this channel</span>
+        <span><b>Format</b> scored against comparable Shorts or 4–20m videos</span>
         <span><span class="ptag pt-proven">proven</span> make it
+              <span class="ptag pt-promising">promising</span> test it
               <span class="ptag pt-untapped">untapped</span> risky bet
               <span class="ptag pt-saturated">saturated</span> big channels own it
               <span class="ptag pt-weak">weak</span> little signal</span>
@@ -1842,25 +1848,10 @@
   </div><!-- /metrics-section -->
 
 <script>
-  // APP_SHARED_SECRET support: attach it to mutating requests and retry once after a 401.
-  const nativeFetch = window.fetch.bind(window);
-  window.fetch = async (input, init = {}) => {
-    const method = (init.method || 'GET').toUpperCase();
-    if (['GET','HEAD','OPTIONS'].includes(method)) return nativeFetch(input, init);
-    const send = (secret) => {
-      const headers = new Headers(init.headers || {});
-      if (secret) headers.set('X-App-Secret', secret);
-      return nativeFetch(input, { ...init, headers });
-    };
-    let secret = localStorage.getItem('reelforgeAppSecret') || '';
-    let response = await send(secret);
-    if (response.status === 401) {
-      secret = window.prompt('This ReelForge server requires its app secret:') || '';
-      if (secret) localStorage.setItem('reelforgeAppSecret', secret);
-      response = await send(secret);
-    }
-    return response;
-  };
+  async function logoutApp() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.replace('/login');
+  }
 
   /* ─────────────────────────────── Tab switching ── */
   function switchTab(tab) {
@@ -2777,7 +2768,10 @@
       } else {
         chip.textContent = q;
       }
-      chip.onclick = () => { document.getElementById('expl-question').value = q; };
+      chip.onclick = () => {
+        document.getElementById('expl-question').value = q;
+        if (m) setExplFormat(m.content_format === 'short' ? 'social' : 'landscape');
+      };
       wrap.appendChild(chip);
     });
   }
@@ -2829,12 +2823,8 @@
         + (topicsData.generated_at ? ` · updated ${topicsData.generated_at.replace('T', ' ')}` : '');
     }
     renderTopics();
-    // First boot: cache is still seeding server-side (background refresh) → auto-retry once so
-    // the user isn't stranded on the empty state while real data lands ~tens of seconds later.
-    if (topicsData && !(topicsData.channels || []).length && !topicsRetried) {
-      topicsRetried = true;
-      body.innerHTML = '<div class="topics-empty">Researching topics… auto-refreshing in ~15s.</div>';
-      setTimeout(() => initTopicsPage(true), 15000);
+    if (topicsData && !(topicsData.channels || []).length) {
+      body.innerHTML = '<div class="topics-empty">No research cache yet. Click “Refresh research” to run the protected ROI scan.</div>';
     }
   }
 
@@ -2864,10 +2854,11 @@
       const qs = (g.questions || []).slice().sort(cmp);
       html += `<div class="tgrp"><div class="tgrp-title">${_esc(g.label)} <span class="count">${qs.length} topics</span></div>`;
       html += `<div class="ttable-wrap"><table class="ttable"><thead><tr>
-        <th data-k="opportunity">⚡ Opp</th><th>Pattern</th><th>Topic</th>
-        <th data-k="outlier">🔥 Outlier</th><th data-k="median_views">Median</th>
+        <th data-k="opportunity">⚡ ROI</th><th>Format</th><th>Pattern</th><th>Topic</th>
+        <th data-k="median_views_per_day">Velocity</th><th data-k="own_fit">Own fit</th>
+        <th data-k="visual_promise">Visual</th><th data-k="outlier">🔥 Outlier</th><th data-k="median_views">Median</th>
         <th data-k="competition">On-topic</th><th data-k="recency_days">Age</th>
-        <th data-k="curiosity_gap">Cur</th><th></th></tr></thead><tbody>`;
+        <th></th></tr></thead><tbody>`;
       qs.forEach(q => {
         const idx = topicsFlat.push(q) - 1;
         const done = ['done', 'used', 'published'].includes((q.status || '').toLowerCase());
@@ -2878,21 +2869,25 @@
           const winners = (q.winning_titles || []).slice(0, 2).map(w => '• ' + _esc(w)).join('<br>');
           html += `<tr${trCls}>
             <td><div class="opp-cell ${_oppClass(q.opportunity)}">${q.opportunity}</div></td>
+            <td><span class="ptag pt-format">${_esc(q.content_format || 'long')}</span></td>
             <td><span class="ptag pt-${q.pattern || 'weak'}">${q.pattern || '—'}</span></td>
             <td><div class="t-topic">${q.queued ? '<span class="t-queued">📌 QUEUED</span>' : ''}${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}${winners ? `<div class="t-winners">${winners}</div>` : ''}</td>
+            <td class="t-num">${q.median_views_per_day ? _fmtViews(q.median_views_per_day) + '/d' : '—'}</td>
+            <td class="t-num">${q.own_fit == null ? '—' : Math.round(q.own_fit * 100) + '%'}</td>
+            <td class="t-num">${q.visual_promise || '—'}/10</td>
             <td class="t-num">${q.outlier ? q.outlier + '×' : '—'}</td>
             <td class="t-num">${_fmtViews(q.median_views)}</td>
             <td class="t-num">${q.competition || 0}</td>
             <td class="t-num">${q.recency_days == null ? '—' : q.recency_days + 'd'}</td>
-            <td class="t-num">${q.curiosity_gap || '—'}</td>
             <td class="t-actions">${actions}</td></tr>`;
         } else {
           html += `<tr${trCls}>
-            <td><div class="opp-cell opp-lo">—</div></td>
-            <td><span class="ptag pt-weak">unvalidated</span></td>
+            <td><div class="opp-cell ${q.opportunity == null ? 'opp-lo' : _oppClass(q.opportunity)}">${q.opportunity == null ? '—' : q.opportunity}</div></td>
+            <td><span class="ptag pt-format">${_esc(q.content_format || 'long')}</span></td>
+            <td><span class="ptag pt-weak">channel-only</span></td>
             <td><div class="t-topic">${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}</td>
-            <td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td>
-            <td class="t-num">${q.curiosity_gap || '—'}</td>
+            <td class="t-num">—</td><td class="t-num">${q.own_fit == null ? '—' : Math.round(q.own_fit * 100) + '%'}</td>
+            <td class="t-num">${q.visual_promise || '—'}/10</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td>
             <td class="t-actions">${actions}</td></tr>`;
         }
       });
@@ -2900,13 +2895,15 @@
     });
     body.innerHTML = html;
     body.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => sortTopics(th.dataset.k));
-    body.querySelectorAll('.t-use').forEach(b => b.onclick = () => useTopic(topicsFlat[+b.dataset.idx].question));
+    body.querySelectorAll('.t-use').forEach(b => b.onclick = () => useTopic(topicsFlat[+b.dataset.idx]));
     body.querySelectorAll('.t-donebtn').forEach(b => b.onclick = () => markTopicDone(+b.dataset.idx));
   }
 
-  function useTopic(q) {
+  function useTopic(topic) {
+    const q = typeof topic === 'string' ? topic : topic.question;
     const inp = document.getElementById('expl-question');
     if (inp) inp.value = q;
+    if (typeof topic === 'object') setExplFormat(topic.content_format === 'short' ? 'social' : 'landscape');
     switchTab('explainer');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }

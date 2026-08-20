@@ -2996,16 +2996,21 @@ _CURIOSITY_SYSTEM = (
     "Score each 0-10 on curiosity_gap using: SPECIFICITY (not generic), an OPEN LOOP it forces, "
     "STAKES or relatability, and FRESHNESS (not worn out). 9-10 = irresistible (e.g. 'Humans Barely "
     "Menstruated Until This Happened'); 4-6 = mild; 0-3 = generic/saturated. Be a harsh grader.\n"
-    "Return ONLY JSON: {\"questions\":[{\"question\":\"...\",\"curiosity_gap\":int,\"why\":\"one "
-    "short phrase on the hook\"}]}. Every question must be one a SMALL channel could realistically "
-    "win — concrete, single-topic, answerable in one video."
+    "Also score 0-10 on visual_promise (an instantly legible visual transformation), production_fit "
+    "(can this channel illustrate it without licensed footage), fact_confidence (a defensible answer "
+    "from reliable sources), and novelty (meaningfully different from common framings).\n"
+    "Return ONLY JSON: {\"questions\":[{\"question\":\"...\",\"curiosity_gap\":int,\"visual_promise\":"
+    "int,\"production_fit\":int,\"fact_confidence\":int,\"novelty\":int,\"why\":\"one short phrase on "
+    "the hook\"}]}. Every question must be one a SMALL channel could realistically win — concrete, "
+    "single-topic, answerable in one video."
 )
 
 
 def generate_curiosity_topics(niche: str = "science, technology & history explainers",
                               n: int = 14, min_score: int = 8,
                               cost_sink: list | None = None,
-                              exclude: list | None = None) -> list[dict]:
+                              exclude: list | None = None,
+                              content_format: str = "long") -> list[dict]:
     """Generate + grade curiosity-gap video questions for `niche`; return only those scoring
     >= min_score, best first. Each item: {question, curiosity_gap, why}. Best-effort ([] on fail).
 
@@ -3017,7 +3022,16 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
     if excl:
         excl_block = ("\n\nDO NOT propose any of these already-covered questions or a close "
                       "paraphrase / same-subject angle of them:\n- " + "\n- ".join(excl[:60]))
-    prompt = (f"Niche: {niche}.\nGenerate {max(n * 2, 24)} candidate video questions, then grade "
+    content_format = "short" if str(content_format).lower() in ("short", "shorts", "social") else "long"
+    format_brief = (
+        "SHORTS: each idea must pay off in 25-45 seconds, make sense with sound off, and promise a "
+        "dramatic first-frame visual plus a consequence ladder. Avoid topics that require long setup."
+        if content_format == "short" else
+        "LONG-FORM: each idea must sustain 5-12 minutes with a reveal chain, evidence, and at least "
+        "three distinct visual chapters. Avoid one-fact ideas that would need padding."
+    )
+    prompt = (f"Niche: {niche}.\nTarget format: {content_format.upper()}. {format_brief}\n"
+              f"Generate {max(n * 2, 16)} candidate video questions, then grade "
               "each. Strongly favour SPECIFIC, weird, high-stakes, curiosity-gap angles; AVOID "
               "generic 'how does X work' / 'what is X'. Vary subjects widely. Return the JSON."
               + excl_block)
@@ -3033,12 +3047,19 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
         qs = data.get("questions", []) if isinstance(data, dict) else []
         out = [{"question": _s(q.get("question")).strip(),
                 "curiosity_gap": int(q.get("curiosity_gap", 0) or 0),
+                "visual_promise": int(q.get("visual_promise", 5) or 5),
+                "production_fit": int(q.get("production_fit", 5) or 5),
+                "fact_confidence": int(q.get("fact_confidence", 5) or 5),
+                "novelty": int(q.get("novelty", 5) or 5),
+                "content_format": content_format,
                 "why": _s(q.get("why")).strip()}
                for q in qs if isinstance(q, dict) and _s(q.get("question")).strip()]
         out = [q for q in out if q["curiosity_gap"] >= min_score]
-        if excl:                                   # hard-filter any exact/near-duplicate that slipped through
-            _seen = {e.lower() for e in excl}
-            out = [q for q in out if q["question"].lower() not in _seen]
+        if excl:
+            import topic_roi
+            out = [q for q in out if not any(
+                q["question"].lower() == used.lower()
+                or topic_roi.topic_similarity(q["question"], used) >= 0.56 for used in excl)]
         out.sort(key=lambda q: -q["curiosity_gap"])
         return out[:n]
     except Exception:
@@ -3217,7 +3238,7 @@ def _is_relevant(qterms: set, title: str) -> bool:
     return ov >= 2 or (ov / len(qterms)) >= 0.4
 
 
-def _yt_search_metrics(query: str) -> dict | None:
+def _yt_search_metrics(query: str, content_format: str = "long") -> dict | None:
     """One topic → real YouTube demand/competition/outlier metrics. None on hard failure
     (network/quota), so the caller can mark the topic unvalidated and move on."""
     import datetime
@@ -3226,6 +3247,9 @@ def _yt_search_metrics(query: str) -> dict | None:
             "part": "snippet", "q": query, "type": "video",
             "maxResults": _YT_MAX_RESULTS, "order": "relevance",
             "relevanceLanguage": "en", "safeSearch": "none",
+            # YouTube's short bucket is <4 min; medium (4-20 min) is the closest like-for-like
+            # market for ReelForge explainers. This prevents a viral 30s Short from proving a 10m idea.
+            "videoDuration": "short" if content_format == "short" else "medium",
         })
     except YouTubeQuotaError:
         raise                                   # let the caller stop the whole batch
@@ -3238,7 +3262,7 @@ def _yt_search_metrics(query: str) -> dict | None:
         return {"competition": 0, "median_views": 0, "demand": 0, "outlier": 0.0,
                 "outlier_title": "", "recency_days": None, "top_titles": []}
     try:
-        vr = _yt_get("videos", {"part": "statistics,snippet", "id": ",".join(vids)})
+        vr = _yt_get("videos", {"part": "statistics,snippet,contentDetails", "id": ",".join(vids)})
     except YouTubeQuotaError:
         raise
     except Exception as e:
@@ -3270,17 +3294,22 @@ def _yt_search_metrics(query: str) -> dict | None:
     relevant = [v for v in vstats.values() if _is_relevant(qterms, v["title"])]
     now = datetime.datetime.now(datetime.timezone.utc)
     best_outlier, best_title, best_age = 0.0, "", None
+    velocities = []
     for v in relevant:
         # views÷subs, subs floored at 100 so 0-sub noise can't explode the ratio; require a
         # real audience (≥1k views) so a 5-view video on a 1-sub channel isn't a fake outlier.
         ratio = v["views"] / max(subs.get(v["channel"], 0), 100)
+        try:
+            pub = datetime.datetime.fromisoformat(v["published"].replace("Z", "+00:00"))
+            age_days = max(1, (now - pub).days)
+        except Exception:
+            age_days = None
+        velocity = v["views"] / age_days if age_days else 0.0
+        velocities.append((velocity, v["title"], age_days))
         if ratio > best_outlier and v["views"] >= 1000:
             best_outlier, best_title = ratio, v["title"]
-            try:
-                pub = datetime.datetime.fromisoformat(v["published"].replace("Z", "+00:00"))
-                best_age = (now - pub).days
-            except Exception:
-                best_age = None
+    if velocities:
+        _, _, best_age = max(velocities, key=lambda item: item[0])
     views_list = [v["views"] for v in relevant]
     top_titles = [v["title"] for v in sorted(relevant, key=lambda x: -x["views"])[:5]]
     return {
@@ -3288,6 +3317,8 @@ def _yt_search_metrics(query: str) -> dict | None:
         "relevant_count": len(relevant),       # evidence depth → dampens thin-sample scores
         "total_results": len(vids),            # raw keyword hits, for reference
         "median_views": int(_median(views_list)),
+        "median_views_per_day": round(_median([v[0] for v in velocities]), 1),
+        "top_views_per_day": round(max((v[0] for v in velocities), default=0.0), 1),
         "demand": max(views_list) if views_list else 0,
         "outlier": round(best_outlier, 1),
         "outlier_title": best_title,
@@ -3300,15 +3331,31 @@ def youtube_validation_active() -> bool:
     return bool(YOUTUBE_API_KEY)
 
 
-def validate_topics_youtube(questions: list[dict]) -> list[dict]:
+def validate_topics_youtube(questions: list[dict], content_format: str | None = None,
+                            metrics: list[dict] | None = None) -> list[dict]:
     """Enrich each candidate with real YouTube demand/outlier metrics + an `opportunity`
     score (0-100), then RE-RANK by opportunity (validated first, then by score, curiosity as
-    tiebreak). No-op (validated=False on every item) when YOUTUBE_API_KEY is unset or the API
-    is unreachable, so topic refresh never breaks. Mutates + returns the list."""
-    import math
+    tiebreak). When YOUTUBE_API_KEY is unavailable, channel analytics still produce a baseline
+    score while validated remains false, so topic refresh never breaks. Mutates + returns the list."""
+    import topic_roi
+    metrics = metrics or []
+    # Channel evidence is useful even when the YouTube API is disabled, unreachable, or out of
+    # quota. Seed every candidate with a deterministic baseline, then replace only the market
+    # portion when a validated search result is available.
+    for q in questions:
+        fmt = content_format or q.get("content_format") or "long"
+        q["content_format"] = fmt
+        q["own_fit"], q["own_evidence"] = topic_roi.own_channel_fit(
+            q.get("question", ""), fmt, metrics)
+        q["opportunity"], q["score_breakdown"] = topic_roi.opportunity_score(
+            q, {}, q["own_fit"])
+        q["pattern"] = "promising" if q["opportunity"] >= 55 else "weak"
+        q["roi_version"] = 2
     if not YOUTUBE_API_KEY:
         for q in questions:
             q.setdefault("validated", False)
+        questions.sort(key=lambda q: (q.get("opportunity", -1), q.get("curiosity_gap", 0)),
+                       reverse=True)
         return questions
     n_ok = 0
     quota_hit = False
@@ -3317,7 +3364,7 @@ def validate_topics_youtube(questions: list[dict]) -> list[dict]:
             q["validated"] = False
             continue
         try:
-            m = _yt_search_metrics(q.get("question", ""))
+            m = _yt_search_metrics(q.get("question", ""), q["content_format"])
         except YouTubeQuotaError:
             # Quota gone — every remaining call today will 403 too. Stop, mark the rest
             # unvalidated, and let the caller keep the prior validated cache (no clobber).
@@ -3329,44 +3376,24 @@ def validate_topics_youtube(questions: list[dict]) -> list[dict]:
             q["validated"] = False
             continue
         n_ok += 1
-        rc       = m.get("relevant_count", 0)
-        cur      = (q.get("curiosity_gap", 0) or 0) / 10.0
-        outlier_s = min(1.0, m["outlier"] / 50.0)              # 50× views/subs = max signal
-        demand_s  = min(1.0, math.log10(m["median_views"] + 1) / 6.0)  # 1M median views = 1.0
-        rec       = m.get("recency_days")
-        # Recency credit reflects an ON-TOPIC result's freshness; with zero on-topic evidence
-        # there is no "strongest result" to be fresh, so give no credit (else a no-evidence
-        # topic banks a spurious +5 floor purely from an absent date).
-        recency_s = (0.0 if rc == 0 else
-                     1.0 if (rec is not None and rec <= 365) else
-                     0.5 if rec is None else 0.3)
-        # Evidence dampening: a single on-topic result is thin proof. Scale the MARKET portion
-        # (outlier+demand) by how many on-topic videos we actually saw — 1→0.67, 2→0.83, 3+→1.0.
-        evidence = 0.5 + 0.5 * min(1.0, rc / 3.0)
-        # Saturation PENALTY: many strong on-topic videos = a crowded field a SMALL channel is
-        # unlikely to break into. The engine must favor proven demand with LOW competition (a GAP),
-        # not the MOST-contested topic. Peak opportunity sits around a few strong videos (demand
-        # proven, evidence full at rc>=3) BEFORE saturation bites (penalty grows to rc>=10).
-        # Previously competition never entered the score, so saturated topics out-ranked untapped.
-        saturation = min(1.0, m.get("competition", 0) / 10.0)
-        opp = round(100 * (0.28 * cur + (0.32 * outlier_s + 0.22 * demand_s) * evidence
-                           + 0.10 * recency_s - 0.12 * saturation))
-        opp = max(0, opp)
-        # Decision label for the dashboard. "proven"/"saturated" require REAL demand depth (≥3
-        # on-topic videos AND high median) — 1-2 videos is too thin to call proven, so a strong
-        # outlier on a thin sample is "untapped" (promising but a risky bet), never "proven".
-        proven_demand = m["median_views"] >= 50000 and rc >= 3
-        hi_outlier = m["outlier"] >= 20
-        pattern = ("proven" if proven_demand and hi_outlier else
-                   "saturated" if proven_demand else
-                   "untapped" if hi_outlier else "weak")
+        rc = m.get("relevant_count", 0)
+        own_fit, own_evidence = q["own_fit"], q["own_evidence"]
+        opp, score_breakdown = topic_roi.opportunity_score(q, m, own_fit)
+        pattern = ("proven" if opp >= 72 and rc >= 3 else
+                   "untapped" if opp >= 60 and rc < 3 else
+                   "saturated" if m.get("competition", 0) >= 9 and opp < 70 else
+                   "promising" if opp >= 55 else "weak")
         q.update({
             "validated": True, "opportunity": opp, "pattern": pattern,
             "median_views": m["median_views"], "demand": m["demand"],
+            "median_views_per_day": m.get("median_views_per_day", 0),
+            "top_views_per_day": m.get("top_views_per_day", 0),
             "outlier": m["outlier"], "outlier_title": m.get("outlier_title", ""),
             "competition": m["competition"], "relevant_count": rc,
-            "total_results": m.get("total_results", 0), "recency_days": rec,
+            "total_results": m.get("total_results", 0), "recency_days": m.get("recency_days"),
             "winning_titles": m.get("top_titles", []),
+            "own_fit": own_fit, "own_evidence": own_evidence,
+            "score_breakdown": score_breakdown, "roi_version": 2,
         })
     questions.sort(key=lambda q: (q.get("validated", False), q.get("opportunity", -1),
                                   q.get("curiosity_gap", 0)), reverse=True)
