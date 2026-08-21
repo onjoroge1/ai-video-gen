@@ -108,24 +108,53 @@ def score_retention_readiness(
     visual = 0
     visual_notes = []
     avg_still = float(shot_metrics.get("avg_still_seconds") or 0)
-    max_still = float(shot_metrics.get("max_still_seconds") or 0)
-    visual += 8 if 0 < avg_still <= 3.2 else (5 if avg_still <= 3.8 else (2 if avg_still <= 4.5 else 0))
-    if not avg_still or avg_still > 3.2:
-        visual_notes.append(f"average still is {avg_still:.2f}s; target is ≤3.2s")
-    if 0 < max_still <= 4.5:
+    min_shot = float(shot_metrics.get("min_shot_seconds") or 0)
+    sub_min = int(shot_metrics.get("sub_min_shot_count") or 0)
+    semantic_sync = float(shot_metrics.get("semantic_sync_ratio", 0))
+    meaningful_cuts = float(shot_metrics.get("meaningful_cut_ratio", 0))
+    motion_sync = float(shot_metrics.get("motion_sync_ratio", 0))
+    same_source_hard = int(shot_metrics.get("same_source_hard_cut_count") or 0)
+    # A calm continuous camera path may legitimately run longer than the old 3.2s
+    # timer. Reward an intentional range without rewarding frantic over-cutting.
+    if 1.5 <= avg_still <= 7.5:
         visual += 4
     else:
-        visual_notes.append(f"maximum still is {max_still:.2f}s; ceiling is 4.5s")
-    scene_count = max(1, len(scenes))
-    shots_per_scene = float(shot_metrics.get("shot_count") or 0) / scene_count
-    visual += 4 if shots_per_scene >= 1.5 else (2 if shots_per_scene >= 1.2 else 0)
-    if shots_per_scene < 1.5:
-        visual_notes.append(f"only {shots_per_scene:.2f} shots per narrative scene")
-    if int(shot_metrics.get("alternate_shot_count") or 0) > 0:
+        visual_notes.append(
+            f"average continuous still is {avg_still:.2f}s; target is 1.5–7.5s")
+    if min_shot >= 1.5 and sub_min == 0:
         visual += 4
     else:
-        visual_notes.append("no alternate source angle appears in this cut")
-    components.append(_component("Visual pacing", visual, 20, visual_notes))
+        visual_notes.append(
+            f"{sub_min} shot(s) are under 1.5s; minimum is {min_shot:.2f}s")
+    if semantic_sync >= 0.9:
+        visual += 4
+    elif semantic_sync >= 0.75:
+        visual += 2
+        visual_notes.append(
+            f"only {semantic_sync:.0%} of cuts align to narration phrases")
+    else:
+        visual_notes.append(
+            f"semantic cut alignment is only {semantic_sync:.0%}")
+    if meaningful_cuts >= 0.9 and same_source_hard == 0:
+        visual += 4
+    elif meaningful_cuts >= 0.75 and same_source_hard == 0:
+        visual += 2
+        visual_notes.append(
+            f"only {meaningful_cuts:.0%} of cuts add new information")
+    else:
+        visual_notes.append(
+            f"meaningful-cut ratio is {meaningful_cuts:.0%}; "
+            f"{same_source_hard} same-source hard cut(s)")
+    if int(shot_metrics.get("broll_clause_count") or 0) > 0:
+        visual += 2
+    else:
+        visual_notes.append("no clause-specific B-roll appears in this cut")
+    if motion_sync >= 0.9:
+        visual += 2
+    else:
+        visual_notes.append(
+            f"generated motion aligns to the spoken action only {motion_sync:.0%} of the time")
+    components.append(_component("Visual continuity & semantic sync", visual, 20, visual_notes))
 
     cue_types = {c.get("type") for c in audio_cues}
     turns = sum(1 for s in scenes if s.get("story_role") in ATTENTION_ROLES)
@@ -176,6 +205,15 @@ def score_retention_readiness(
     components.append(_component("Technical delivery", technical, 5, technical_notes))
 
     total = sum(c["score"] for c in components)
+    hard_failures = []
+    if sub_min:
+        hard_failures.append("sub_minimum_shots")
+    if semantic_sync < 0.70:
+        hard_failures.append("semantic_sync")
+    if same_source_hard:
+        hard_failures.append("same_source_jump_cuts")
+    if hard_failures:
+        total = min(total, 69)
     if total >= 90:
         grade, label = "A", "Exceptional readiness"
     elif total >= 80:
@@ -187,13 +225,14 @@ def score_retention_readiness(
     else:
         grade, label = "F", "Reject before full render"
     return {
-        "version": 1,
+        "version": 2,
         "name": "Retention Readiness Score",
         "disclaimer": "Editorial readiness score, not a prediction of actual YouTube retention.",
         "score": total,
         "grade": grade,
         "label": label,
-        "passed": total >= 70,
+        "passed": total >= 70 and not hard_failures,
+        "hard_failures": hard_failures,
         "components": components,
         "shot_metrics": shot_metrics,
         "audio_cues": audio_cues,
