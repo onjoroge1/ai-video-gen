@@ -30,6 +30,11 @@ from longform_retention import (
     validation_rank,
     write_retention_report,
 )
+from longform_shots import (
+    compile_scene_shots,
+    select_alternate_image_indices,
+    shot_plan_metrics,
+)
 
 
 # Transient errors worth retrying. NOT retried: BadRequestError (400 — includes content
@@ -191,7 +196,9 @@ I2V_FRACTION_SOCIAL = float(os.environ.get("I2V_FRACTION_SOCIAL", "0.6"))
 # and the rest are spaced across the back half. Cost-neutral vs. even/random placement.
 I2V_FRONTLOAD_SOCIAL = float(os.environ.get("I2V_FRONTLOAD_SOCIAL", "0.65"))
 MAX_I2V_CLIPS = 12          # hard per-video cap (cost backstop, esp. long-form)
-I2V_SECONDS   = 4           # clip length requested (trimmed to scene length in ffmpeg)
+I2V_SECONDS   = 4           # social clip length; long-form uses the dedicated 5-second contract below
+I2V_SECONDS_LONGFORM = 5    # preserve a full generated shot while ordinary stills cut faster
+MAX_LONGFORM_ALT_IMAGES = int(os.environ.get("MAX_LONGFORM_ALT_IMAGES", "18"))
 # LITERAL/GROUNDED imagery direction (packaging research + this channel's data: real-life Water short
 # hit 73% viewed, symbolic Light stalled at 2.4% CTR). When on, scene + thumbnail prompts steer to the
 # LITERAL real-world subject (documentary/lab look) and away from symbolic-metaphor/glowy imagery.
@@ -247,9 +254,11 @@ def _fal_key() -> str:
     return os.environ.get("FAL_KEY", "").strip()
 
 
-def estimate_cost(n_scenes: int, host_count: int = 0, narration_chars: int = 0) -> float:
+def estimate_cost(n_scenes: int, host_count: int = 0, narration_chars: int = 0,
+                  extra_images: int = 0) -> float:
     """Pre-spend USD estimate for one video. Refined once host split + narration known."""
-    imgs = host_count * _COST_IMG_HOST + (n_scenes - host_count) * _COST_IMG_BASE
+    imgs = (host_count * _COST_IMG_HOST + (n_scenes - host_count) * _COST_IMG_BASE
+            + extra_images * _COST_IMG_HOST)
     tts  = narration_chars * _RATE_TTS_CHAR if narration_chars else n_scenes * 0.006
     return round(_COST_SCRIPT + imgs + tts, 2)
 
@@ -2475,6 +2484,7 @@ def _make_scene_segment(
     word_times: list | None = None,
     bubble_side: str = "right",
     motion_video: str | None = None,
+    duration_override: float | None = None,
 ) -> None:
     """Varied eased Ken Burns / pan + text → scene video (no audio), at vw×vh.
 
@@ -2484,7 +2494,7 @@ def _make_scene_segment(
     captions="bubble": per-phrase Bolt speech bubble timed to word_times.
     `tail` extends the clip past the narration so a crossfade overlaps the hold.
     """
-    dur = _audio_dur(audio_path) + tail
+    dur = (float(duration_override) if duration_override is not None else _audio_dur(audio_path)) + tail
     fps = 30
 
     # Motion source → resolves to [v0] at vw×vh either way; the overlay graph below is
@@ -2553,6 +2563,46 @@ def _make_scene_segment(
            "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
            output_path]
     _run_ffmpeg(cmd, timeout=180.0)   # raises if it hangs
+
+
+def _make_multishot_background(
+    result: dict,
+    shots: list[dict],
+    output_path: str,
+    vw: int,
+    vh: int,
+    motion_video: str | None = None,
+    tail: float = 0.0,
+) -> None:
+    """Render an exact-duration, hard-cut visual bed for one narrative scene."""
+    work = [dict(s) for s in shots]
+    if work:
+        work[-1]["duration"] = float(work[-1]["duration"]) + tail
+    clips, list_path = [], output_path + ".shots.txt"
+    for j, shot in enumerate(work):
+        clip = f"{output_path}.shot{j:02d}.mp4"
+        image = result.get("alt_img") if shot.get("source") == "alternate" else result["img"]
+        if not image or not os.path.exists(image):
+            image = result["img"]
+        _make_scene_segment(
+            image, result["aud"], clip, "", "",
+            motion=shot.get("motion") or "kenburns_in", captions="none",
+            vw=vw, vh=vh, duration_override=float(shot["duration"]),
+            motion_video=motion_video if shot.get("kind") == "i2v" else None,
+        )
+        clips.append(clip)
+    with open(list_path, "w") as f:
+        for clip in clips:
+            f.write(f"file '{clip}'\n")
+    _run_ffmpeg([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
+        "-c", "copy", output_path,
+    ], timeout=240.0)
+    for path in clips + [list_path]:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 # ── Assembly ───────────────────────────────────────────────────────────────────
@@ -4551,14 +4601,17 @@ def run_explainer_pipeline(
     # and refuse BEFORE spending on images if it exceeds the ceiling.
     host_count = sum(1 for s in scenes if s.get("mascot_present") and mascot_ok)
     narration_chars = sum(len(_s(s.get("narration"))) for s in scenes)
-    est = estimate_cost(len(scenes), host_count, narration_chars)
+    alt_selected = (select_alternate_image_indices(scenes, MAX_LONGFORM_ALT_IMAGES)
+                    if video_format != "social" else frozenset())
+    est = estimate_cost(len(scenes), host_count, narration_chars, extra_images=len(alt_selected))
     if i2v_on:   # i2v (Veo/Sora) isn't in estimate_cost — add the expected motion-clip spend so the
                  # estimate (and the pre-spend cap guard) reflect reality instead of undercounting.
         _frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
         _clips = min(MAX_I2V_CLIPS, max(1, round(len(scenes) * _frac)))
-        est = round(est + _clips * I2V_SECONDS * _RATE_I2V_SEC, 2)
+        _i2v_seconds = I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM
+        est = round(est + _clips * _i2v_seconds * _RATE_I2V_SEC, 2)
         if video_format == "social" and _FAL_HYBRID and "fal" in _I2V_CHAIN:   # ~2 hero beats at v3 (2×)
-            est = round(est + min(2, _clips) * I2V_SECONDS * (_RATE_I2V_HERO_SEC - _RATE_I2V_SEC), 2)
+            est = round(est + min(2, _clips) * _i2v_seconds * (_RATE_I2V_HERO_SEC - _RATE_I2V_SEC), 2)
     log(f"Estimated cost: ${est:.2f} (cap ${max_cost_usd:.2f})")
     if est > max_cost_usd:
         raise ValueError(
@@ -4583,6 +4636,7 @@ def run_explainer_pipeline(
     def _gen_assets(args):
         i, scene = args
         img_path = os.path.join(img_dir, f"scene_{i:02d}.jpg")
+        alt_path = os.path.join(img_dir, f"scene_{i:02d}_alt.jpg")
         aud_path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
         # RESUME: if this scene's image + audio already exist on disk, reuse them — never
         # re-pay for a scene we already generated (the whole point of the checkpoint).
@@ -4595,7 +4649,8 @@ def run_explainer_pipeline(
                 except Exception:
                     wt = None
             log(f"Scene {i+1}/{n} ✓ reused from checkpoint (no re-pay)")
-            return {"i": i, "scene": scene, "img": img_path, "aud": aud_path,
+            return {"i": i, "scene": scene, "img": img_path,
+                    "alt_img": alt_path if os.path.exists(alt_path) else None, "aud": aud_path,
                     "img_ok": True, "aud_ok": True, "note": "reused", "word_times": wt}
         refs = [MASCOT_REF] if (scene.get("mascot_present") and mascot_ok) else None
         host_tag = " (host)" if refs else ""
@@ -4628,6 +4683,25 @@ def run_explainer_pipeline(
             img_ok, note = False, f"img-error:{type(exc).__name__}"
             log(f"⚠ Image {i+1}/{n} failed ({type(exc).__name__}) — using filler frame")
 
+        # A bounded number of retention turns earn a genuinely different camera view.
+        # Failure is non-fatal: the shot compiler falls back to a crop/reframe of the master.
+        alt_img = None
+        if i in alt_selected and img_ok:
+            try:
+                alt_prompt = (
+                    "Create a continuity-matched cutaway of this exact moment. Preserve the same"
+                    " character identity, setting, lighting and factual details, but change camera"
+                    " size and angle. Focus on the visible consequence: "
+                    + _s(scene.get("visible_consequence") or scene.get("narration"))
+                    + ". No text, labels, arrows, UI or watermark."
+                )
+                generate_image(alt_prompt, alt_path, reference_paths=[img_path],
+                               cost_sink=img_costs, size=img_size)
+                alt_img = alt_path
+                log(f"Alternate shot {i+1}/{n} ✓")
+            except Exception as exc:
+                log(f"⚠ Alternate shot {i+1}/{n} failed ({type(exc).__name__}) — using reframe")
+
         # ---- audio (no fallback — a scene with no narration is dropped) ----
         aud_ok, word_times = True, None
         try:
@@ -4640,7 +4714,7 @@ def run_explainer_pipeline(
             aud_ok = False
             log(f"⚠ Audio {i+1}/{n} failed ({type(exc).__name__}) — dropping this scene")
 
-        return {"i": i, "scene": scene, "img": img_path, "aud": aud_path,
+        return {"i": i, "scene": scene, "img": img_path, "alt_img": alt_img, "aud": aud_path,
                 "img_ok": img_ok, "aud_ok": aud_ok, "note": note, "word_times": word_times}
 
     # ── Render smoke-test: PROVE scene 1 renders before paying for the other images. ──
@@ -4749,15 +4823,16 @@ def run_explainer_pipeline(
     i2v_errs: list[str] = []
     i2v_requested = 0
     if i2v_on:
+        i2v_seconds = I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM
         spent = (sum(img_costs) + sum(tts_costs) + sum(aux_costs)
                  + float(script.get("_script_cost_usd", 0.0) or 0.0))
-        budget_clips = int(max(0, max_cost_usd - spent) // (I2V_SECONDS * _RATE_I2V_SEC))
+        budget_clips = int(max(0, max_cost_usd - spent) // (i2v_seconds * _RATE_I2V_SEC))
         sel = _select_i2v_indices([r["scene"] for r in usable], question, video_format, budget_clips)
         i2v_requested = len(sel)
         if sel:
             log(f"stage:Animating up to {len(sel)} scenes ({'/'.join(_I2V_CHAIN)})...")
             log(f"i2v: animating {len(sel)}/{len(usable)} scenes via {'→'.join(_I2V_CHAIN)} "
-                f"(~${len(sel) * I2V_SECONDS * _RATE_I2V_SEC:.2f})")
+                f"(~${len(sel) * i2v_seconds * _RATE_I2V_SEC:.2f})")
             i2v_dir = os.path.join(output_dir, "i2v")
             os.makedirs(i2v_dir, exist_ok=True)
             i2v_exhausted: set = set()   # providers whose quota ran out → skip for the rest of run
@@ -4778,6 +4853,7 @@ def run_explainer_pipeline(
                 res = animate_scene(r["img"], r["scene"].get("image_prompt", ""), clip,
                                     vw, vh, cost_sink=i2v_costs, err_sink=i2v_errs,
                                     exhausted=i2v_exhausted,
+                                    seconds=i2v_seconds,
                                     fal_model=_FAL_MODEL_HERO if _is_hero else None,
                                     rate=_RATE_I2V_HERO_SEC if _is_hero else None)
                 return k, res, False
@@ -4818,7 +4894,7 @@ def run_explainer_pipeline(
     scene_dir = os.path.join(output_dir, "scenes")
     os.makedirs(scene_dir, exist_ok=True)
 
-    scene_videos, scene_audios, rendered_narr = [], [], []
+    scene_videos, scene_audios, rendered_narr, rendered_shot_plan = [], [], [], []
     cap_missing = 0   # social scenes that ended up with NO captions (health floor)
     for k, r in enumerate(usable):
         scene = r["scene"]
@@ -4839,8 +4915,20 @@ def run_explainer_pipeline(
             bubble_side = "left" if "left" in placement else ("right" if "right" in placement else "center")
         # Label the actual motion source so the log doesn't say "kenburns" for an i2v scene.
         _mv = i2v_clips.get(k)
-        log(f"Rendering scene {k+1}/{len(usable)} ({'🎬 i2v animated clip' if _mv else motion})...")
+        _shot_plan = compile_scene_shots(
+            scene, _audio_dur(r["aud"]), k,
+            has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
+            i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
+        ) if video_format != "social" else []
         try:
+            _visual_source = _mv
+            if len(_shot_plan) > 1:
+                _visual_source = os.path.join(scene_dir, f"scene_{k:02d}_shots.mp4")
+                _make_multishot_background(
+                    r, _shot_plan, _visual_source, vw, vh, motion_video=_mv, tail=FADE_DUR)
+            source_label = (f"{len(_shot_plan)}-shot cut" if _shot_plan
+                            else ('🎬 i2v animated clip' if _mv else motion))
+            log(f"Rendering scene {k+1}/{len(usable)} ({source_label})...")
             _make_scene_segment(
                 r["img"], r["aud"], seg,
                 scene.get("text_overlay", ""),
@@ -4851,11 +4939,13 @@ def run_explainer_pipeline(
                 style_mode=style_mode,
                 vw=vw, vh=vh, captions=cap_mode, word_times=word_times,
                 bubble_side=bubble_side,
-                motion_video=_mv,
+                motion_video=_visual_source,
             )
             scene_videos.append(seg)
             scene_audios.append(r["aud"])
             rendered_narr.append(scene.get("narration", ""))
+            if _shot_plan:
+                rendered_shot_plan.append(_shot_plan)
         except Exception as exc:
             import traceback as _tb, sys as _sys
             print(f"[scene {k+1} render] {_tb.format_exc()}", file=_sys.stderr, flush=True)
@@ -4866,6 +4956,15 @@ def run_explainer_pipeline(
 
     # Capture per-scene durations BEFORE the audio dir is reclaimed (for the transcript/SRT).
     rendered_durs = [_audio_dur(a) for a in scene_audios]
+    shot_metrics = shot_plan_metrics(rendered_shot_plan) if rendered_shot_plan else {
+        "shot_count": rendered, "still_shot_count": rendered - len(i2v_clips),
+        "i2v_shot_count": len(i2v_clips), "alternate_shot_count": 0,
+        "avg_still_seconds": 0.0, "max_still_seconds": 0.0,
+        "i2v_seconds": len(i2v_clips) * I2V_SECONDS,
+    }
+    if rendered_shot_plan:
+        log("Visual cadence: %(shot_count)d shots, %(avg_still_seconds).2fs average still, "
+            "%(max_still_seconds).2fs max still" % shot_metrics)
 
     # 4. Assemble
     log("stage:Assembling final video...")
@@ -5023,4 +5122,5 @@ def run_explainer_pipeline(
         "short_grade":      short_grade,
         "i2v_requested":    i2v_requested,        # scenes selected for image-to-video
         "i2v_animated":     len(i2v_clips),       # how many actually generated (rest = Ken Burns)
+        "shot_metrics":     shot_metrics,
     }

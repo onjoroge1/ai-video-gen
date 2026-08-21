@@ -33,6 +33,7 @@ SameSite cookie; credentials are never stored in browser local storage.
 app.py                    FastAPI routes, SSE job status, static UI
 explainer_pipeline.py     active Short, Explainer, and Simulation orchestration
 longform_retention.py     deterministic story contract, narrative-debt and timing validation
+longform_shots.py         narrative-scene to adaptive visual-shot compiler
 stateboard_pipeline.py    TV Review assembly (legacy module name)
 board_pipeline.py         portable story-board renderer and timeline extraction
 bolt_video/
@@ -88,6 +89,12 @@ payoff, recurring attention turns, bounded exposition, a correctly placed peak, 
 final title payoff. One automatic re-plan may repair structural failures; remaining failures stop before
 image/TTS spend when `LONGFORM_RETENTION_HARD=1` (the default). Successful renders expose a downloadable
 text report and archive the machine-readable `retention_report.json` beside the other artifacts.
+
+Landscape scenes are narrative beats rather than fixed five-second slides. The shot compiler expands
+each beat into 2.35–3.5 second still cuts (4.5 seconds is the hard maximum), selectively adds a bounded
+continuity-matched alternate angle at retention turns, and records machine-readable cadence metrics.
+When image-to-video is enabled, a generated long-form motion shot keeps a full five-second slot before
+the edit returns to faster stills. Shorts retain their existing four-second motion contract.
 
 Every checkpoint includes both the **delta** and the **total state from a stated baseline**. Decreasing
 quantities stop at a defined floor and include scientific-boundary warnings.
