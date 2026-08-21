@@ -32,11 +32,9 @@ from longform_retention import (
 )
 from longform_shots import (
     compile_scene_shots,
-    semantic_broll_beat,
     select_alternate_image_indices,
     shot_plan_metrics,
 )
-from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
     build_audio_cues,
     score_retention_readiness,
@@ -1136,16 +1134,6 @@ _SCENE_FIELDS_RULES = (
     'DEEP"), text_sub, and '
     '"text" as a JSON OBJECT with keys placement, alignment, emphasis_words (array), '
     'title_color, accent_color, subtitle_color, card. '
-    'SEMANTIC SHOT MAP — include "visual_beats" as an array of 1-3 objects, in narration order. '
-    'Each object has: "anchor_phrase" (an EXACT consecutive 2-8 word phrase copied from narration '
-    'where this visual should begin), "purpose" (setup|action|evidence|consequence), "visual" '
-    '(the specific object/action this clause needs), "source" (master|broll), "new_information" '
-    '(true only if this view teaches something the prior view does not), "shot_size" '
-    '(wide|medium|close|aerial|detail), and "camera_direction" (left_to_right|right_to_left|'
-    'push_in|pull_out|locked). Use master for connected setup/action. Request broll ONLY for a '
-    'genuinely different evidence or consequence view; never request a second crop merely for pace. '
-    'Also include "motion_anchor_phrase": the EXACT 2-8 narration words where physical action begins '
-    '(empty only when the beat has no motion). These anchors are edit decisions, not spoken text. '
     'CONTINUITY OVER NOVELTY — this is ONE continuous experiment, not a deck of poster cards: keep a '
     f'single evolving setting/apparatus ({MASCOT_NAME}\'s lab and the instruments he checks in '
     'sequence) and let the SAME object visibly TRANSFORM across neighbouring scenes (a normal atom -> '
@@ -1315,10 +1303,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     THE WHOLE beat sheet, so no batch can re-teach another's beat; (3) run a final 'state once'
     pass that rewrites any line that still repeats. Each Claude call stays small enough that the
     JSON never truncates."""
-    # Plan to the calibrated spoken-runtime window from the first generation call. The hard runtime
-    # contract later verifies the landed draft and only invokes a compression pass when the model
-    # actually misses, instead of intentionally generating an overlong script and always rewriting it.
-    total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
+    # Word budget for the long-form narration. IMPORTANT: after the per-scene wpm RECOMPUTE below (which
+    # re-derives the budget from the actual beat count), the model now HITS this budget closely — it used
+    # to under-write ~0.83x, so the earlier 2.8 multiplier suddenly produced ~870-word / 5.5-min lectures.
+    # 2.2 lands ~640-680 words / ~4.1 min for a 300s request — the tighter, less-dense target the
+    # retention feedback asked for (the old 800-word/5-min cut read as a dense lecture). Video duration
+    # follows narration length, and a shorter runtime lifts avg-% viewed. Tunable — verify landed count.
+    total_words = int(duration_sec * 2.2)
     wpm = max(12, total_words // max(1, n_scenes))
     cost = 0.0
 
@@ -1627,90 +1618,6 @@ def factcheck_script(script: dict, question: str) -> tuple[dict, list, float]:
         return script, notes, round(cost, 4)
     except Exception:
         return script, [], 0.0   # never let fact-check kill the job
-
-
-def _enforce_requested_runtime(
-    script: dict,
-    duration_sec: int,
-    *,
-    cost_sink: list | None = None,
-    log=lambda message: None,
-) -> dict:
-    """Fit narration to the requested runtime before TTS or image generation.
-
-    The fit pass preserves scene count, facts, story roles and visual semantics.
-    A draft that still misses the calibrated word/timing window is rejected
-    before asset spend rather than silently becoming a longer video.
-    """
-    scenes = script.get("scenes") or []
-    if not scenes or duration_sec <= 0:
-        return script
-    report = plan_runtime(scenes, duration_sec)
-    for attempt in range(2):
-        if report["passed"]:
-            break
-        target_words, min_words, max_words = runtime_word_bounds(
-            duration_sec, len(scenes))
-        payload = [{
-            "narration": _s(scene.get("narration")),
-            "visual_beats": scene.get("visual_beats") or [],
-            "motion_anchor_phrase": _s(scene.get("motion_anchor_phrase")),
-        } for scene in scenes]
-        prompt = (
-            f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
-            f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
-            f"{min_words}-{max_words} words, ideally {target_words}. Preserve every factual claim, "
-            "story role, open-loop payoff and the final answer; remove padding and compress wording. "
-            "Vary sentence length and keep natural speech. For every scene, return a visual_beats array "
-            "whose anchor_phrase values are exact consecutive 2-8 word phrases copied from that scene's "
-            "FINAL narration. Preserve each beat's purpose/visual/source/new_information/shot_size/"
-            "camera_direction when still relevant. Return motion_anchor_phrase as exact words from the "
-            "FINAL narration where physical action begins, or empty if none. Return ONLY JSON: "
-            '{"scenes":[{"narration":"...","visual_beats":[...],'
-            '"motion_anchor_phrase":"..."}]}.\nINPUT:\n' + json.dumps(payload, ensure_ascii=False)
-        )
-        try:
-            response = _claude().messages.create(
-                model="claude-opus-4-8",
-                max_tokens=10000,
-                system=_SCRIPT_SYSTEM,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            fitted, repair_cost = _parse_script_json(response.content[0].text)
-            if cost_sink is not None:
-                cost_sink.append(_msg_cost(response.usage) + repair_cost)
-            new_scenes = fitted.get("scenes") if isinstance(fitted, dict) else None
-            if not isinstance(new_scenes, list) or len(new_scenes) != len(scenes):
-                break
-            for scene, fitted_scene in zip(scenes, new_scenes):
-                narration = _s(fitted_scene.get("narration")).strip()
-                if narration:
-                    scene["narration"] = narration
-                visual_beats = fitted_scene.get("visual_beats")
-                if isinstance(visual_beats, list):
-                    scene["visual_beats"] = visual_beats
-                scene["motion_anchor_phrase"] = _s(
-                    fitted_scene.get("motion_anchor_phrase")).strip()
-            report = plan_runtime(scenes, duration_sec)
-            log(
-                f"Runtime fit {attempt + 1}: {report['estimated_seconds']:.1f}s estimated, "
-                f"{report['word_count']} words (target {duration_sec}s)"
-            )
-        except Exception as exc:
-            log(f"⚠ Runtime fit unavailable ({type(exc).__name__})")
-            break
-    script["_runtime_plan"] = report
-    contract = script.get("_story_contract")
-    if isinstance(contract, dict):
-        contract["requested_runtime_sec"] = duration_sec
-        contract["natural_runtime_sec"] = report["estimated_seconds"]
-    if not report["passed"]:
-        raise ValueError(
-            "Runtime contract failed before image/TTS spend: "
-            f"{report['estimated_seconds']:.1f}s estimated for a {duration_sec}s request "
-            f"({report['word_count']} words; allowed {report['min_words']}-{report['max_words']})."
-        )
-    return script
 
 
 _CONCEIT_SYSTEM = (
@@ -2327,7 +2234,6 @@ def _motion(preset: str, n: int) -> tuple[str, str, str]:
     ZMAX = "1.14"
 
     presets = {
-        "locked":        ("1.0", _CENTER_X, _CENTER_Y),
         "kenburns_in":  (f"min(1.0+0.14*{ease}\\,{ZMAX})", _CENTER_X, _CENTER_Y),
         "kenburns_out": (f"max({ZMAX}-0.14*{ease}\\,1.0)", _CENTER_X, _CENTER_Y),
         "pan_right":    ("1.14", f"(iw-iw/zoom)*{ease}",            _CENTER_Y),
@@ -2600,17 +2506,11 @@ def _make_scene_segment(
     # identical. If a real image-to-video clip (Veo) is supplied use it as the moving
     # background; otherwise ffmpeg Ken-Burns on the still.
     if motion_video and os.path.exists(motion_video):
-        # Retime one continuous generated clip to the semantic shot window. A small narration
-        # remainder is absorbed by gently slowing the clip instead of looping it and creating
-        # a visible reset or appending a 0.3-second still flash.
-        source_dur = max(0.05, _audio_dur(motion_video))
-        retime = dur / source_dur
-        inputs = ["-i", motion_video]
-        bg_chain = (
-            f"setpts={retime:.6f}*PTS,"
-            f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
-            f"crop={vw}:{vh},fps={fps},setsar=1"
-        )
+        # Already video — no supersample needed. stream_loop guards a clip shorter than dur
+        # (we trim to dur at output); -an-equivalent: we never map the clip's audio.
+        inputs = ["-stream_loop", "-1", "-i", motion_video]
+        bg_chain = (f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
+                    f"crop={vw}:{vh},fps={fps},setsar=1")
     else:
         n_frames = max(1, int(dur * fps))
         z_expr, x_expr, y_expr = _motion(motion, n_frames)
@@ -2885,7 +2785,6 @@ def _render_first_minute_preview(
         shots = compile_scene_shots(
             scene, duration, k, has_alternate=bool(result.get("alt_img")),
             i2v_seconds=I2V_SECONDS_LONGFORM,
-            word_times=result.get("word_times"),
         )
         visual = None
         if len(shots) > 1:
@@ -4737,28 +4636,6 @@ def run_explainer_pipeline(
         except OSError:
             pass
 
-    # Runtime is a pre-spend contract. Fit/reject the final fact-checked narration now, before
-    # any TTS or image provider call. Re-check resumed checkpoints too so an older overlong plan
-    # cannot bypass the new contract.
-    if video_format != "social":
-        log("stage:Enforcing requested runtime...")
-        script = _enforce_requested_runtime(
-            script, duration_sec, cost_sink=aux_costs, log=log)
-        scenes = script.get("scenes", [])
-        try:
-            _tmp = state_path + ".tmp"
-            with open(_tmp, "w") as _sf:
-                json.dump({"script": script, "style_mode": style_mode,
-                           "short_grade": short_grade, "video_format": video_format}, _sf)
-            os.replace(_tmp, state_path)
-        except OSError:
-            pass
-        _rp = script.get("_runtime_plan") or {}
-        log(
-            "Runtime contract: PASS — %(estimated_seconds).1fs estimated for "
-            "%(target_seconds).0fs target (%(word_count)d words)" % _rp
-        )
-
     # Objective long-form gate: inspect the persisted story roles and narrative-debt ledger before
     # any image/TTS spend. The planner already received one automatic retry in
     # generate_graded_script; a remaining error is therefore a genuine structural failure.
@@ -4933,21 +4810,12 @@ def run_explainer_pipeline(
         alt_img = None
         if i in alt_selected and img_ok:
             try:
-                broll = semantic_broll_beat(scene)
-                anchor = _s(broll.get("anchor_phrase"))
-                purpose = _s(broll.get("purpose")) or "evidence"
-                visual = _s(broll.get("visual")) or _s(
-                    scene.get("visible_consequence") or scene.get("narration"))
-                shot_size = _s(broll.get("shot_size")) or "detail"
-                camera_direction = _s(broll.get("camera_direction")) or "matched screen direction"
                 alt_prompt = (
-                    "Create clause-specific B-roll for this exact narration moment"
-                    + (f' — "{anchor}"' if anchor else "")
-                    + f". Editorial purpose: {purpose}. Show this genuinely new information: {visual}. "
-                    f"Use a {shot_size} view with {camera_direction}. Preserve the same character "
-                    "identity, setting, lighting, geography and factual details as the reference image; "
-                    "do not merely crop or re-angle the same composition. The viewer must learn something "
-                    "new from this cutaway. No text, labels, arrows, UI or watermark."
+                    "Create a continuity-matched cutaway of this exact moment. Preserve the same"
+                    " character identity, setting, lighting and factual details, but change camera"
+                    " size and angle. Focus on the visible consequence: "
+                    + _s(scene.get("visible_consequence") or scene.get("narration"))
+                    + ". No text, labels, arrows, UI or watermark."
                 )
                 generate_image(alt_prompt, alt_path, reference_paths=[img_path],
                                cost_sink=img_costs, size=img_size)
@@ -5218,7 +5086,6 @@ def run_explainer_pipeline(
             scene, _audio_dur(r["aud"]), k,
             has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
             i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
-            word_times=r.get("word_times"),
         ) if video_format != "social" else []
         try:
             _visual_source = _mv
