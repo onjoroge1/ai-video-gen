@@ -34,6 +34,7 @@ app.py                    FastAPI routes, SSE job status, static UI
 explainer_pipeline.py     active Short, Explainer, and Simulation orchestration
 longform_retention.py     deterministic story contract, narrative-debt and timing validation
 longform_shots.py         narrative-scene to adaptive visual-shot compiler
+retention_readiness.py    first-minute gate, story-turn audio cues, and 100-point RRS rubric
 stateboard_pipeline.py    TV Review assembly (legacy module name)
 board_pipeline.py         portable story-board renderer and timeline extraction
 bolt_video/
@@ -95,6 +96,16 @@ each beat into 2.35–3.5 second still cuts (4.5 seconds is the hard maximum), s
 continuity-matched alternate angle at retention turns, and records machine-readable cadence metrics.
 When image-to-video is enabled, a generated long-form motion shot keeps a full five-second slot before
 the edit returns to faster stills. Shorts retain their existing four-second motion contract.
+
+Before purchasing the remainder of a long-form asset set, the pipeline renders the opening tranche
+into `first_minute_preview.mp4` and assigns a transparent **Retention Readiness Score (RRS)**. The
+100-point rubric covers opening contract (25), narrative propulsion (25), visual pacing (20), audio
+rhythm (15), packaging/payoff alignment (10), and technical delivery (5). A score below 70 stops the
+run when `FIRST_MINUTE_GATE_HARD=1`. RRS is an editorial readiness grade—not a claim or forecast of
+actual YouTube retention, which must be measured after publishing. Prediction gates, payoffs, reversals,
+and rehooks receive sparse locally synthesized audio cues; background music ducks at deliberate drops.
+Post-publish results use a separate runtime-aware Observed Retention Grade; it never substitutes a
+pre-render RRS for real analytics, and results below 100 views are explicitly marked low-confidence.
 
 Every checkpoint includes both the **delta** and the **total state from a stated baseline**. Decreasing
 quantities stop at a defined floor and include scientific-boundary warnings.

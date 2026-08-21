@@ -1140,6 +1140,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "thumbnail_path": result.get("thumbnail_path"),
             "grade_path": result.get("grade_path"),
             "retention_json_path": result.get("retention_json_path"),
+            "readiness_json_path": result.get("readiness_json_path"),
+            "first_minute_preview_path": result.get("first_minute_preview_path"),
+            "retention_readiness": result.get("retention_readiness"),
             "short_grade": result.get("short_grade"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
@@ -1149,10 +1152,13 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "format": f"short-{template}" if request.video_format == "social" else "explainer",
             "question": request.question, "scene_count": result["scene_count"],
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
+            "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
         }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
                   "grade": result.get("grade_path"),
-                  "retention": result.get("retention_json_path")})
+                  "retention": result.get("retention_json_path"),
+                  "readiness": result.get("readiness_json_path"),
+                  "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
         # NOTE: topics are NOT auto-marked 'done' here on purpose — one topic may become BOTH a
         # long-form AND a short. The USER marks a topic done from the Topics dashboard (POST
@@ -1706,7 +1712,9 @@ async def explainer_grade(job_id: str):
     if not path:
         raise HTTPException(status_code=404, detail="Quality report not found")
     safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
-    label = "retention-report" if os.path.basename(path).startswith("retention_report") else "grade"
+    base = os.path.basename(path)
+    label = ("retention-readiness" if base.startswith("retention_readiness")
+             else ("retention-report" if base.startswith("retention_report") else "grade"))
     return FileResponse(path, media_type="text/plain", filename=f"{safe} - {label}.txt")
 
 
