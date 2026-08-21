@@ -13,5 +13,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt pytest
-      - run: python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py
-      - run: pytest tests bolt_seq/tests/test_state.py
+      - run: python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py longform_retention.py
+      # Run through Python so the checked-out repository root is on sys.path. The standalone
+      # pytest entrypoint under newer pytest versions can otherwise fail to import every root module.
+      - run: python -m pytest tests bolt_seq/tests/test_state.py

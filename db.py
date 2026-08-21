@@ -20,6 +20,33 @@ def _conn():
     return psycopg2.connect(url, connect_timeout=10)
 
 
+def _ensure_topics_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS topics (
+            channel text NOT NULL, question text NOT NULL, curiosity integer,
+            opportunity integer, pattern text, outlier numeric, median_views bigint,
+            competition integer, relevant_count integer, recency_days integer,
+            winning_titles jsonb DEFAULT '[]'::jsonb, validated boolean DEFAULT false,
+            suggested_title text, status text DEFAULT 'new', times_seen integer DEFAULT 1,
+            last_seen timestamptz DEFAULT now(), created_at timestamptz DEFAULT now(),
+            PRIMARY KEY (channel, question)
+        )""")
+    for column, kind, default in (
+        ("content_format", "text", "'long'"),
+        ("median_views_per_day", "numeric", "0"),
+        ("top_views_per_day", "numeric", "0"),
+        ("own_fit", "numeric", "0"),
+        ("own_evidence", "integer", "0"),
+        ("visual_promise", "integer", "5"),
+        ("production_fit", "integer", "5"),
+        ("fact_confidence", "integer", "5"),
+        ("novelty", "integer", "5"),
+        ("score_breakdown", "jsonb", "'{}'::jsonb"),
+        ("roi_version", "integer", "1"),
+    ):
+        cur.execute(f"ALTER TABLE topics ADD COLUMN IF NOT EXISTS {column} {kind} DEFAULT {default}")
+
+
 def upsert_topics(channel: str, topics: list) -> int:
     """Insert/refresh curiosity-engine topics for a channel. Dedups on (channel, question):
     a re-seen topic updates its metrics and bumps times_seen/last_seen instead of duplicating.
@@ -32,6 +59,7 @@ def upsert_topics(channel: str, topics: list) -> int:
         if conn is None:
             return 0
         cur = conn.cursor()
+        _ensure_topics_table(cur)
         n = 0
         for q in topics:
             qt = (q.get("question") or "").strip()
@@ -41,8 +69,10 @@ def upsert_topics(channel: str, topics: list) -> int:
                 """
                 INSERT INTO topics (channel, question, curiosity, opportunity, pattern, outlier,
                     median_views, competition, relevant_count, recency_days, winning_titles, validated,
-                    suggested_title)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    suggested_title, content_format, median_views_per_day, top_views_per_day,
+                    own_fit, own_evidence, visual_promise, production_fit, fact_confidence, novelty,
+                    score_breakdown, roi_version)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (channel, question) DO UPDATE SET
                     curiosity      = EXCLUDED.curiosity,
                     opportunity    = EXCLUDED.opportunity,
@@ -55,6 +85,17 @@ def upsert_topics(channel: str, topics: list) -> int:
                     winning_titles = EXCLUDED.winning_titles,
                     validated      = EXCLUDED.validated OR topics.validated,
                     suggested_title = COALESCE(EXCLUDED.suggested_title, topics.suggested_title),
+                    content_format = EXCLUDED.content_format,
+                    median_views_per_day = EXCLUDED.median_views_per_day,
+                    top_views_per_day = EXCLUDED.top_views_per_day,
+                    own_fit = EXCLUDED.own_fit,
+                    own_evidence = EXCLUDED.own_evidence,
+                    visual_promise = EXCLUDED.visual_promise,
+                    production_fit = EXCLUDED.production_fit,
+                    fact_confidence = EXCLUDED.fact_confidence,
+                    novelty = EXCLUDED.novelty,
+                    score_breakdown = EXCLUDED.score_breakdown,
+                    roi_version = EXCLUDED.roi_version,
                     last_seen      = now(),
                     times_seen     = topics.times_seen + 1
                 """,
@@ -62,7 +103,11 @@ def upsert_topics(channel: str, topics: list) -> int:
                  q.get("outlier"), q.get("median_views"), q.get("competition"),
                  q.get("relevant_count"), q.get("recency_days"),
                  json.dumps(q.get("winning_titles") or []), bool(q.get("validated")),
-                 q.get("suggested_title")),
+                 q.get("suggested_title"), q.get("content_format") or "long",
+                 q.get("median_views_per_day"), q.get("top_views_per_day"), q.get("own_fit"),
+                 q.get("own_evidence"), q.get("visual_promise"), q.get("production_fit"),
+                 q.get("fact_confidence"), q.get("novelty"),
+                 json.dumps(q.get("score_breakdown") or {}), q.get("roi_version") or 2),
             )
             n += 1
         conn.commit()
@@ -89,6 +134,7 @@ def used_questions(channel: str, limit: int = 200) -> list:
         if conn is None:
             return []
         cur = conn.cursor()
+        _ensure_topics_table(cur)
         cur.execute(
             "SELECT question FROM topics WHERE channel=%s AND status IN ('done','used','published','queued') "
             "ORDER BY last_seen DESC LIMIT %s",
@@ -115,9 +161,12 @@ def queued_topics(channel: str) -> list:
         if conn is None:
             return []
         cur = conn.cursor()
+        _ensure_topics_table(cur)
         cur.execute(
             "SELECT question, curiosity, opportunity, pattern, outlier, median_views, competition, "
-            "relevant_count, recency_days, winning_titles, suggested_title, validated "
+            "relevant_count, recency_days, winning_titles, suggested_title, validated, content_format, "
+            "median_views_per_day, top_views_per_day, own_fit, own_evidence, visual_promise, "
+            "production_fit, fact_confidence, novelty, score_breakdown, roi_version "
             "FROM topics WHERE channel=%s AND status='queued' ORDER BY opportunity DESC NULLS LAST",
             (channel,))
         out = []
@@ -132,6 +181,11 @@ def queued_topics(channel: str) -> list:
                         "pattern": r[3], "outlier": r[4], "median_views": r[5], "competition": r[6],
                         "relevant_count": r[7], "recency_days": r[8], "winning_titles": wt or [],
                         "suggested_title": r[10], "validated": bool(r[11]),
+                        "content_format": r[12] or "long", "median_views_per_day": r[13],
+                        "top_views_per_day": r[14], "own_fit": r[15], "own_evidence": r[16],
+                        "visual_promise": r[17], "production_fit": r[18],
+                        "fact_confidence": r[19], "novelty": r[20],
+                        "score_breakdown": r[21] or {}, "roi_version": r[22] or 1,
                         "status": "queued", "queued": True})
         return out
     except Exception as e:
@@ -154,6 +208,7 @@ def mark_topic_status(channel: str, question: str, status: str) -> bool:
         if conn is None:
             return False
         cur = conn.cursor()
+        _ensure_topics_table(cur)
         cur.execute("UPDATE topics SET status=%s, last_seen=now() WHERE channel=%s AND question=%s",
                     (status, channel, (question or "").strip()))
         conn.commit()
@@ -257,6 +312,190 @@ def metrics_all() -> list:
     except Exception as e:
         print(f"[db] metrics_all failed: {e}")
         return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# ── Durable generated-video library ────────────────────────────────────────────────
+
+def _ensure_finished_videos_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS finished_videos (
+            id            text PRIMARY KEY,
+            title         text NOT NULL,
+            format        text,
+            status        text,
+            video_url     text NOT NULL,
+            download_url  text,
+            thumbnail_url text,
+            size_bytes    bigint,
+            artifacts     jsonb NOT NULL DEFAULT '{}'::jsonb,
+            metadata      jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at    timestamptz DEFAULT now(),
+            updated_at    timestamptz DEFAULT now()
+        )""")
+
+
+def finished_video_upsert(record: dict) -> bool:
+    """Index one durable generation after all Blob uploads succeed."""
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return False
+        cur = conn.cursor()
+        _ensure_finished_videos_table(cur)
+        cur.execute(
+            """
+            INSERT INTO finished_videos
+                (id,title,format,status,video_url,download_url,thumbnail_url,size_bytes,
+                 artifacts,metadata)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
+            ON CONFLICT (id) DO UPDATE SET
+                title=EXCLUDED.title, format=EXCLUDED.format, status=EXCLUDED.status,
+                video_url=EXCLUDED.video_url, download_url=EXCLUDED.download_url,
+                thumbnail_url=EXCLUDED.thumbnail_url, size_bytes=EXCLUDED.size_bytes,
+                artifacts=EXCLUDED.artifacts, metadata=EXCLUDED.metadata, updated_at=now()
+            """,
+            (record.get("id"), record.get("title") or record.get("id"), record.get("format"),
+             record.get("status"), record.get("video_url"), record.get("download_url"),
+             record.get("thumbnail_url"), record.get("size_bytes"),
+             json.dumps(record.get("artifacts") or {}), json.dumps(record.get("metadata") or {})),
+        )
+        conn.commit()
+        return True
+    except Exception as exc:
+        print(f"[db] finished_video_upsert failed: {exc}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _finished_row(columns: tuple, row: tuple) -> dict:
+    out = dict(zip(columns, row))
+    for key in ("created_at", "updated_at"):
+        if out.get(key):
+            out[key] = out[key].isoformat()
+    return out
+
+
+def finished_videos_list(limit: int = 100, offset: int = 0, query: str = "") -> list:
+    conn = None
+    columns = ("id", "title", "format", "status", "video_url", "download_url",
+               "thumbnail_url", "size_bytes", "artifacts", "metadata", "created_at", "updated_at")
+    try:
+        conn = _conn()
+        if conn is None:
+            return []
+        cur = conn.cursor()
+        _ensure_finished_videos_table(cur)
+        params: list = []
+        where = ""
+        if query.strip():
+            where = "WHERE title ILIKE %s OR id ILIKE %s"
+            needle = f"%{query.strip()}%"
+            params.extend((needle, needle))
+        params.extend((max(1, min(int(limit), 200)), max(0, int(offset))))
+        cur.execute(
+            f"SELECT {','.join(columns)} FROM finished_videos {where} "
+            "ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            tuple(params),
+        )
+        return [_finished_row(columns, row) for row in cur.fetchall()]
+    except Exception as exc:
+        print(f"[db] finished_videos_list failed: {exc}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def finished_video_get(video_id: str) -> dict | None:
+    conn = None
+    columns = ("id", "title", "format", "status", "video_url", "download_url",
+               "thumbnail_url", "size_bytes", "artifacts", "metadata", "created_at", "updated_at")
+    try:
+        conn = _conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        _ensure_finished_videos_table(cur)
+        cur.execute(f"SELECT {','.join(columns)} FROM finished_videos WHERE id=%s", (video_id,))
+        row = cur.fetchone()
+        return _finished_row(columns, row) if row else None
+    except Exception as exc:
+        print(f"[db] finished_video_get failed: {exc}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# ── Durable topic-dashboard cache ─────────────────────────────────────────────────
+
+def _ensure_app_cache_table(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS app_cache (
+            key        text PRIMARY KEY,
+            payload    jsonb NOT NULL,
+            updated_at timestamptz DEFAULT now()
+        )""")
+
+
+def cache_set(key: str, payload: dict) -> bool:
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return False
+        cur = conn.cursor()
+        _ensure_app_cache_table(cur)
+        cur.execute(
+            "INSERT INTO app_cache (key,payload) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT (key) DO UPDATE SET payload=EXCLUDED.payload,updated_at=now()",
+            (key, json.dumps(payload)),
+        )
+        conn.commit()
+        return True
+    except Exception as exc:
+        print(f"[db] cache_set failed: {exc}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def cache_get(key: str) -> dict | None:
+    conn = None
+    try:
+        conn = _conn()
+        if conn is None:
+            return None
+        cur = conn.cursor()
+        _ensure_app_cache_table(cur)
+        cur.execute("SELECT payload FROM app_cache WHERE key=%s", (key,))
+        row = cur.fetchone()
+        return row[0] if row and isinstance(row[0], dict) else None
+    except Exception as exc:
+        print(f"[db] cache_get failed: {exc}")
+        return None
     finally:
         if conn:
             try:

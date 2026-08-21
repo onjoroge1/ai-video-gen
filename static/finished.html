@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Finished videos · ReelForge</title>
+<style>
+:root{color-scheme:dark;--bg:#090b10;--card:#121720;--line:#27303d;--text:#f4f6f8;--dim:#94a0af;
+--red:#e63946;--green:#52b788;--blue:#4a90d9}*{box-sizing:border-box}body{margin:0;background:var(--bg);
+color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
+header{position:sticky;top:0;z-index:2;background:#090b10ee;backdrop-filter:blur(14px);border-bottom:1px solid var(--line);
+padding:17px clamp(18px,4vw,48px);display:flex;align-items:center;gap:16px;flex-wrap:wrap}h1{margin:0;font-size:19px}
+a{color:inherit;text-decoration:none}.back{color:var(--dim)}.back:hover{color:white}input{margin-left:auto;min-width:230px;
+background:#10141c;border:1px solid var(--line);border-radius:8px;padding:9px 11px;color:white}
+main{padding:24px clamp(18px,4vw,48px)}#status{color:var(--dim);margin-bottom:18px}.grid{display:grid;
+grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:17px}.card{background:var(--card);border:1px solid var(--line);
+border-radius:13px;overflow:hidden;cursor:pointer;transition:.15s}.card:hover{border-color:#546174;transform:translateY(-1px)}
+.thumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:linear-gradient(135deg,#171e29,#0c0f15);display:block}
+.meta{padding:12px 13px}.title{font-weight:700;line-height:1.35;margin-bottom:7px}.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);background:#1c2430;padding:2px 7px;border-radius:4px}
+.pill.ok{color:var(--green)}dialog{width:min(920px,95vw);max-height:90vh;background:var(--card);color:var(--text);
+border:1px solid var(--line);border-radius:15px;padding:0}dialog::backdrop{background:#000b}.dialog-head{display:flex;gap:12px;
+align-items:center;padding:14px 17px;border-bottom:1px solid var(--line)}.dialog-head strong{flex:1}.close{background:#202936;
+border:0;color:white;border-radius:7px;padding:7px 11px;cursor:pointer}.body{padding:17px;overflow:auto;max-height:80vh}
+video{display:block;width:100%;max-height:58vh;background:#000;border-radius:9px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.action{background:var(--red);padding:8px 12px;border-radius:7px;font-weight:700;font-size:12px}.action.secondary{background:#202936}
+.empty{color:var(--dim);padding:40px 0}@media(max-width:560px){input{order:3;width:100%;margin-left:0}}
+</style></head><body>
+<header><a class="back" href="/">← Studio</a><h1>Finished videos</h1><input id="search" placeholder="Search title or ID…"></header>
+<main><div id="status">Loading durable library…</div><div class="grid" id="grid"></div></main>
+<dialog id="dialog"><div class="dialog-head"><strong id="dialog-title"></strong><button class="close" onclick="dialog.close()">Close</button></div>
+<div class="body" id="dialog-body"></div></dialog>
+<script>
+const grid=document.getElementById('grid'),statusEl=document.getElementById('status'),dialog=document.getElementById('dialog');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const size=n=>!n?'—':n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.round(n/1e3)+' KB';
+async function load(){const q=document.getElementById('search').value.trim();const r=await fetch('/api/finished?q='+encodeURIComponent(q));
+ if(r.status===401){location='/login?next=/finished';return}const d=await r.json();statusEl.textContent=`${d.count} finished video${d.count===1?'':'s'}`;
+ grid.innerHTML=d.videos.length?d.videos.map(card).join(''):'<div class="empty">No finished videos found.</div>'}
+function card(v){const thumb=(v.thumbnail_url||(v.artifacts||{}).thumb)?`<img class="thumb" loading="lazy" src="/api/finished/${encodeURIComponent(v.id)}/artifact/thumb">`:'<div class="thumb"></div>';
+ return `<article class="card" data-video-id="${esc(v.id)}">${thumb}<div class="meta"><div class="title">${esc(v.title)}</div>
+ <div class="pills"><span class="pill">${esc(v.format||'video')}</span><span class="pill ok">${esc(v.status||'done')}</span>
+ <span class="pill">${size(v.size_bytes)}</span><span class="pill">${esc(v.storage||'')}</span></div></div></article>`}
+async function openVideo(id){const r=await fetch('/api/finished/'+encodeURIComponent(id)),v=await r.json();document.getElementById('dialog-title').textContent=v.title||v.id;
+ const kinds=Object.keys(v.artifacts||{});document.getElementById('dialog-body').innerHTML=`<video controls preload="metadata" src="/api/finished/${encodeURIComponent(id)}/artifact/video"></video>
+ <div class="actions">${kinds.map(k=>`<a class="action ${k==='video'?'':'secondary'}" href="/api/finished/${encodeURIComponent(id)}/artifact/${encodeURIComponent(k)}?download=true">Download ${esc(k)}</a>`).join('')}</div>`;dialog.showModal()}
+grid.addEventListener('click',e=>{const card=e.target.closest('[data-video-id]');if(card)openVideo(card.dataset.videoId)});
+let timer;document.getElementById('search').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,250)});load();
+</script></body></html>

@@ -23,6 +23,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import artifact_store
+import private_access
+
 app = FastAPI(title="YouTube Pipeline API")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,29 +39,9 @@ async def format_catalog():
     from bolt_video.core.registry import list_formats
     return {"formats": list_formats()}
 
-# Opt-in shared-secret auth. When APP_SHARED_SECRET is set, every MUTATING request (non GET/HEAD/
-# OPTIONS — the credit-spending /generate, the file upload, refresh) must carry a matching
-# `X-App-Secret` header. GETs (SSE status, downloads, the static UI) stay open so browser reads
-# work. Unset (default) = no auth, fine for a localhost-only dev box; REQUIRED before you bind to a
-# reachable host (see __main__). Implemented as PURE ASGI (not BaseHTTPMiddleware) so it never
-# buffers the long-lived SSE progress streams.
+# Signed HttpOnly-cookie auth protects the entire UI and every API route in production.  Existing
+# X-App-Secret clients remain compatible, but browsers no longer store a credential in localStorage.
 APP_SHARED_SECRET = os.environ.get("APP_SHARED_SECRET", "").strip()
-
-
-class SharedSecretMiddleware:
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if (scope.get("type") == "http" and APP_SHARED_SECRET
-                and scope.get("method") not in ("GET", "HEAD", "OPTIONS")):
-            hdrs = dict(scope.get("headers") or [])
-            if hdrs.get(b"x-app-secret", b"").decode() != APP_SHARED_SECRET:
-                from starlette.responses import JSONResponse
-                await JSONResponse({"detail": "unauthorized — missing/invalid X-App-Secret"},
-                                   status_code=401)(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
 
 
 # CORS: default to localhost only (a wildcard let any site a browser visits POST here). Override
@@ -68,13 +51,39 @@ _ALLOWED_ORIGINS = [o.strip() for o in os.environ.get(
 
 # Order matters (Starlette wraps last-added = OUTERMOST): add auth FIRST (inner), CORS LAST so CORS
 # stays outermost and even a 401 carries CORS headers (a cross-origin client can read the error).
-app.add_middleware(SharedSecretMiddleware)
+app.add_middleware(private_access.PrivateAccessMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+private_access.mount_auth_routes(app, STATIC_DIR)
+
+
+def _require_render_storage() -> None:
+    try:
+        artifact_store.assert_ready()
+    except artifact_store.ArtifactPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/production-readiness")
+async def production_readiness():
+    storage = artifact_store.readiness()
+    checks = {
+        "private_access": private_access.auth_configured(),
+        "durable_artifacts": storage["ready"],
+        "database": storage["database"],
+        "blob": storage["blob"],
+        "youtube_validation": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
+        "fal_i2v": bool(os.environ.get("FAL_KEY", "").strip())
+                   and os.environ.get("I2V_PROVIDER", "").strip().lower() == "fal",
+    }
+    return {"ready": all((checks["private_access"], checks["durable_artifacts"])),
+            "checks": checks}
 
 # ─── State store (in-memory; use Redis for production) ─────────────────────────
 
@@ -102,66 +111,44 @@ _METRICS_FILE = os.path.join(FINISHED_DIR, "video_metrics.json")
 import threading
 _TRENDING_LOCK = threading.Lock()   # serialize the 3 callers (scheduler / GET auto-seed / manual POST)
 
-# Generate curiosity-gap topics for BOTH channels. Edit this to add/rename channels.
+# One Bolt brand, three evidence-friendly lanes. TV reviews and quizzes keep their own production
+# workflows; this engine stays focused on the Earth/Physics/Space lane with the strongest retention.
 CHANNELS = [
-    {"label": "Bolt explains the world",
-     # Broadened 2026-07-15: was steered HARD to planet/space what-ifs, which made the pool CLUSTER
-     # (repetitive — the user had "nothing to use"). Now ROTATES across 5 archetypes so a single refresh
-     # yields a diverse pool (what-if planet/space/body · counterintuitive-why · hidden-systems ·
-     # origins/firsts · survival-failure). Diversity via a BROAD niche, not more channels (quota-safe).
-     "niche": ("Grounded, believable curiosity-gap explainers — ROTATE WIDELY across these angles so "
-               "the pool NEVER clusters on one subject: (1) 'What if [a real thing about a PLANET/SPACE/"
-               "physics OR the human BODY/biology] changed by a small amount?' (Moon distance, magnetic "
-               "field, oxygen %, air pressure, day length, a body reflex, an organ, a cell behaviour) "
-               "cascading into shocking REAL consequences; (2) counterintuitive 'WHY is [everyday thing] "
-               "actually [surprising truth] / the real reason [X] happens' where the OBVIOUS answer is "
-               "WRONG; (3) hidden invisible everyday SYSTEMS — 'where does [X] actually go/come from', "
-               "how a system nobody sees works (returns, deleted files, the power grid at 3am, sewage); "
-               "(4) ORIGINS/firsts — the first time humans did [X], why we began [a universal habit]; "
-               "(5) SURVIVAL — what actually happens if [a system we all depend on] fails (GPS, the "
-               "power grid, refrigeration, pollinators, an ocean current). STRONGLY favour SPECIFIC, "
-               "high-stakes, FRESH angles a SMALL channel can win; vary the SUBJECT every time (do NOT "
-               "stack planet what-ifs); AVOID fantasy (no Earth-explodes/aliens) and generic 'how does "
-               "X work'")},
-    {"label": "Bolt explains Ancient Humans",
-     # Competitor-validated engine (2026-07-05): "how did humans solve a BASIC UNIVERSAL problem
-     # before modern tools?" — everyday body/mind/daily-life questions everyone instantly gets,
-     # pushed back to primitive times, with survival/fear/body/origin stakes. Lean UNIVERSAL &
-     # visceral, NOT academic history. Title formats do heavy lifting.
-     "niche": ("'How did ancient humans survive/handle/know [a basic UNIVERSAL problem] before "
-               "[modern tools]?' — everyday body, mind & daily-life questions everyone understands "
-               "(sleep, teeth, babies, cold, food-safety, smells, boredom, broken bones, going bald, "
-               "fear, death), pushed back to primitive times with survival / fear / body / origin "
-               "stakes. Title formats: 'How Did Ancient Humans Survive ___?', 'What Did Humans Do "
-               "Before ___?', 'Why Did Humans First ___?', 'How Did Humans Know ___?'. Lean UNIVERSAL "
-               "and visceral — NOT academic prehistory lectures")},
-    {"label": "Bolt explains Airplanes",
-     # Broadened 2026-07-15 to match the main channel: aviation PLUS critical-system-failure survival,
-     # so the lane isn't limited to planes alone.
-     "niche": ("aviation + critical-system-failure survival (respectful, curiosity-driven, NOT gore or "
-               "body-count): airplane everyday mysteries passengers wonder about (brace position, cabin "
-               "lights, window holes, no parachutes, engine-out gliding, why turbulence won't crash you) "
-               "AND what actually happens if [a system we all depend on] fails for a while — GPS, the "
-               "power grid, refrigeration, pollinators, the Gulf Stream, the internet backbone — real "
-               "grounded cascades")},
-    # SHORTS SIMULATION LANE — "What If You [change] N<unit> Every Second?" (BoneLab-style). Uses the
-    # dedicated sim topic engine (engine="simulation"), which hard-filters to math-parseable linear
-    # rates so every suggested title renders with correct numbers. Skips the title-reframe pass (the
-    # "every second" format IS the title and must be preserved for the sim lane to trigger).
-    {"label": "Bolt Shorts — Simulations",
-     "engine": "simulation",
-     "niche": ("'What If You [change] by [a number] Every Second?' viewer-as-subject science "
-               "simulations — you grow/shrink/gain weight/speed up/heat up/get smarter, escalating on "
-               "a clock to a real, grounded science limit")},
+    {"label": "Bolt Explains — Earth",
+     "niche": ("Grounded Earth-system mysteries and small-change consequence cascades: oceans, water, "
+               "oxygen, atmosphere, weather, climate, geology, magnetic field, ecosystems and the systems "
+               "that keep Earth habitable. Prefer an everyday observation or a precise 1%/24-hour change "
+               "with surprising but defensible consequences; no generic climate lectures or apocalypse bait.")},
+    {"label": "Bolt Explains — Physics",
+     "niche": ("Counterintuitive physics people can see or feel: touch, gravity, pressure, heat, light, "
+               "sound, electricity, motion, scale and time. The obvious explanation should be wrong or "
+               "incomplete. Prefer one strong visual experiment and a real limit; avoid abstract equation-"
+               "first topics, impossible superpowers and unsupported black-hole endings.")},
+    {"label": "Bolt Explains — Space",
+     "niche": ("Relatable space mysteries with a direct human or Earth consequence: Moon, Sun, night sky, "
+               "orbits, satellites, GPS, radiation and nearby planetary conditions. Use specific distances, "
+               "times or small changes; make the invisible system visible. Avoid aliens, generic planet "
+               "lists, speculative megastructures and Earth-explodes fantasy.")},
 ]
+TOPICS_PER_FORMAT = max(2, min(8, int(os.environ.get("TOPICS_PER_FORMAT", "4"))))
 
 
 def _load_trending() -> dict:
     try:
         with open(_TRENDING_FILE) as f:
-            return json.load(f)
+            cached = json.load(f)
+        if cached.get("roi_version") == 2:
+            return cached
     except Exception:
-        return {"questions": [], "channels": [], "generated_at": None}
+        pass
+    try:
+        import db
+        cached = db.cache_get("topic_roi_v2") if db.db_enabled() else None
+        if cached:
+            return cached
+    except Exception:
+        pass
+    return {"questions": [], "channels": [], "generated_at": None, "roi_version": 2}
 
 
 def _refresh_trending() -> dict:
@@ -172,92 +159,106 @@ def _refresh_trending() -> dict:
     never overwrites a previously-validated cache with a TOTAL validation failure (quota/network)."""
     import datetime
     import explainer_pipeline as ep
+    import topic_roi
     if not _TRENDING_LOCK.acquire(blocking=False):
         print("[trending] refresh already in progress — returning current cache")
         return _load_trending()
     try:
-        groups, flat = [], []
-        for ch in CHANNELS:
-            # Exclude topics already turned into videos so the refresh stops resurfacing them.
+        try:
+            import db
+            audience_metrics = db.metrics_all() if db.db_enabled() else _metrics_json_load()
+        except Exception:
+            audience_metrics = _metrics_json_load()
+
+        groups = []
+        for channel in CHANNELS:
             exclude = []
             try:
                 import db
                 if db.db_enabled():
-                    exclude = db.used_questions(ch["label"])
-            except Exception as e:
-                print(f"[trending] used-topic exclusion skipped for {ch['label']}: {e}")
-            if ch.get("engine") == "simulation":
-                qs = ep.generate_simulation_topics(n=10, exclude=exclude)
-            else:
-                qs = ep.generate_curiosity_topics(niche=ch["niche"], n=10, exclude=exclude)
-            for q in qs:
-                q["channel"] = ch["label"]
-            # Validate against real YouTube market data (demand/outlier/competition) and re-rank
-            # by opportunity. No-op when YOUTUBE_API_KEY is unset; never lets an API blip kill the
-            # refresh — on any error we keep the curiosity-ranked list.
-            try:
-                qs = ep.validate_topics_youtube(qs)
-            except Exception as e:
-                print(f"[trending] youtube validation skipped for {ch['label']}: {e}")
-            # Add a click-optimized suggested_title per topic (separate from question). Best-effort.
-            # SKIP for the simulation lane: the "…Every Second?" phrasing IS the title and must stay
-            # verbatim so the sim lane + math engine keep triggering off it.
-            if ch.get("engine") != "simulation":
+                    exclude = db.used_questions(channel["label"])
+            except Exception as exc:
+                print(f"[trending] used-topic exclusion skipped for {channel['label']}: {exc}")
+
+            channel_topics = []
+            for content_format in ("short", "long"):
+                topics = ep.generate_curiosity_topics(
+                    niche=channel["niche"], n=TOPICS_PER_FORMAT,
+                    exclude=exclude, content_format=content_format,
+                )
+                for topic in topics:
+                    topic["channel"] = channel["label"]
                 try:
-                    qs = ep.suggest_titles(qs)
-                except Exception as e:
-                    print(f"[trending] title reframe skipped for {ch['label']}: {e}")
-            # Persist to Neon (dedup + history) — best-effort; a DB outage never breaks the refresh.
+                    topics = ep.validate_topics_youtube(
+                        topics, content_format=content_format, metrics=audience_metrics)
+                except Exception as exc:
+                    print(f"[trending] validation skipped for {channel['label']}/{content_format}: {exc}")
+                try:
+                    topics = ep.suggest_titles(topics)
+                except Exception as exc:
+                    print(f"[trending] title reframe skipped for {channel['label']}/{content_format}: {exc}")
+                channel_topics.extend(topics)
+            groups.append({"label": channel["label"], "niche": channel["niche"],
+                           "questions": channel_topics})
+
+        # One idea often fits multiple science lanes. Keep the version with the strongest evidence.
+        groups = topic_roi.dedupe_topic_groups(groups)
+        for group in groups:
             try:
                 import db
                 if db.db_enabled():
-                    n_db = db.upsert_topics(ch["label"], qs)
-                    if n_db:
-                        print(f"[trending] stored {n_db} topics to db for {ch['label']}")
-            except Exception as e:
-                print(f"[trending] db store skipped for {ch['label']}: {e}")
-            groups.append({"label": ch["label"], "niche": ch["niche"], "questions": qs})
-            flat.extend(qs)
-        # Pin the user's QUEUED topics (hand-picked ideas) to the TOP of each channel so they
-        # survive the 12h regen and stay visible on the dashboard. Deduped; best-effort.
+                    written = db.upsert_topics(group["label"], group["questions"])
+                    if written:
+                        print(f"[trending] stored {written} topics for {group['label']}")
+            except Exception as exc:
+                print(f"[trending] db store skipped for {group['label']}: {exc}")
+
+        # User-pinned topics survive refreshes, but still pass through global duplicate removal.
         try:
             import db
             if db.db_enabled():
-                for g in groups:
-                    pinned = db.queued_topics(g["label"])
-                    if not pinned:
-                        continue
-                    have = {t.get("question", "").strip().lower() for t in g["questions"]}
+                for group in groups:
+                    pinned = db.queued_topics(group["label"])
+                    have = {t.get("question", "").strip().lower() for t in group["questions"]}
                     fresh = [t for t in pinned if t.get("question", "").strip().lower() not in have]
-                    for t in fresh:
-                        t["channel"] = g["label"]
-                    g["questions"] = fresh + g["questions"]
-                    flat[:0] = fresh
-        except Exception as e:
-            print(f"[trending] queued merge skipped: {e}")
-        n_validated = sum(1 for q in flat if q.get("validated"))
-        payload = {"questions": flat, "channels": groups,
-                   # truthful: did ANY topic actually validate (not merely "is a key configured")
-                   "validated": n_validated > 0,
-                   "validation_active": ep.youtube_validation_active(),
-                   "validated_count": n_validated, "total_topics": len(flat),
-                   "generated_at": datetime.datetime.now().isoformat(timespec="seconds")}
-        # Don't clobber a previously-good cache when validation was active but TOTALLY failed
-        # (quota/network) — keep the prior data rather than overwrite with all-unvalidated topics.
-        if flat and ep.youtube_validation_active() and n_validated == 0:
+                    for topic in fresh:
+                        topic["channel"] = group["label"]
+                        topic.setdefault("content_format", "long")
+                    group["questions"] = fresh + group["questions"]
+        except Exception as exc:
+            print(f"[trending] queued merge skipped: {exc}")
+
+        groups = topic_roi.dedupe_topic_groups(groups)
+        flat = [topic for group in groups for topic in group.get("questions", [])]
+        validated_count = sum(1 for topic in flat if topic.get("validated"))
+        payload = {
+            "questions": flat, "channels": groups,
+            "validated": validated_count > 0,
+            "validation_active": ep.youtube_validation_active(),
+            "validated_count": validated_count, "total_topics": len(flat),
+            "roi_version": 2, "formats": ["short", "long"],
+            "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        if flat and ep.youtube_validation_active() and validated_count == 0:
             prior = _load_trending()
             if prior.get("validated_count", 0) > 0:
-                print(f"[trending] validation produced 0/{len(flat)} (quota/network?) — keeping prior cache")
+                print(f"[trending] validation produced 0/{len(flat)} — keeping prior cache")
                 return prior
         if flat:
             os.makedirs(FINISHED_DIR, exist_ok=True)
             try:
                 tmp = _TRENDING_FILE + ".tmp"
-                with open(tmp, "w") as f:
-                    json.dump(payload, f, indent=2)
-                os.replace(tmp, _TRENDING_FILE)        # atomic swap — no partial/garbled file
+                with open(tmp, "w") as stream:
+                    json.dump(payload, stream, indent=2)
+                os.replace(tmp, _TRENDING_FILE)
             except OSError:
                 pass
+            try:
+                import db
+                if db.db_enabled():
+                    db.cache_set("topic_roi_v2", payload)
+            except Exception as exc:
+                print(f"[trending] durable cache skipped: {exc}")
         return payload
     finally:
         _TRENDING_LOCK.release()
@@ -316,17 +317,27 @@ def _get_inprogress(job_id: str):
 
 
 def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None = None) -> str:
-    """Copy a finished video (+ optional transcript/srt) to the stable dir and index it."""
-    os.makedirs(FINISHED_DIR, exist_ok=True)
+    """Keep a local compatibility copy and upload the durable Blob/Postgres record when enabled."""
     dest = os.path.join(FINISHED_DIR, f"{job_id}.mp4")
+    entry = {**meta, "path": src_path}
+    upload_video = src_path
+    upload_extras = {kind: path for kind, path in (extra or {}).items()
+                     if path and os.path.isfile(path)}
+    local_copy_ready = False
+
+    # Vercel's deployed source tree can be read-only; local persistence is only a development and
+    # single-process compatibility layer. A failure here must never skip the durable Blob upload.
     try:
+        os.makedirs(FINISHED_DIR, exist_ok=True)
         shutil.copy(src_path, dest)
-        entry = {**meta, "path": dest}
+        entry["path"] = dest
+        upload_video = dest
         for ext, p in (extra or {}).items():   # e.g. {"txt": ..., "srt": ...}
             if p and os.path.exists(p):
                 d = os.path.join(FINISHED_DIR, f"{job_id}.{ext}")
                 shutil.copy(p, d)
                 entry[f"{ext}_path"] = d
+                upload_extras[ext] = d
         with _INDEX_LOCK:
             index = {}
             if os.path.exists(_FINISHED_INDEX):
@@ -334,9 +345,38 @@ def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None
                     index = json.load(f)
             index[job_id] = entry
             _atomic_write_json(_FINISHED_INDEX, index)
-    except OSError:
-        return src_path
-    return dest
+        local_copy_ready = True
+    except Exception as exc:
+        print(f"[finished] local compatibility copy skipped: {exc}")
+
+    # Upload outside the index lock: a large MP4 must not block unrelated local index readers.
+    remote = artifact_store.persist_finished(job_id, upload_video, meta, upload_extras)
+    if remote and local_copy_ready:
+        entry["remote"] = remote
+        try:
+            with _INDEX_LOCK:
+                with open(_FINISHED_INDEX) as f:
+                    index = json.load(f)
+                index[job_id] = entry
+                _atomic_write_json(_FINISHED_INDEX, index)
+        except Exception as exc:
+            print(f"[finished] local remote metadata update skipped: {exc}")
+    return dest if local_copy_ready else src_path
+
+
+async def _archive_finished(job: dict, job_id: str, video_path: str, meta: dict,
+                            extra: dict | None = None) -> None:
+    """Run file/Blob I/O off the event loop and surface persistence failure as degradation."""
+    try:
+        await asyncio.to_thread(_persist_finished, job_id, video_path, meta, extra)
+        job["archived"] = True
+    except Exception as exc:
+        job["archived"] = False
+        job["storage_error"] = str(exc)
+        if IS_VERCEL:
+            job["status"] = "degraded"
+        if isinstance(job.get("events"), list):
+            job["events"].append({"type": "error", "data": f"Artifact archive failed: {exc}"})
 
 
 def _load_finished(job_id: str) -> dict | None:
@@ -457,6 +497,12 @@ async def run_pipeline(job_id: str, request: GenerateRequest):
 
         job["output_path"] = output_path
         job["status"] = "done"
+        await _archive_finished(job, job_id, output_path, {
+            "title": script.get("title") or request.prompt,
+            "format": "standard",
+            "status": "done",
+            "prompt": request.prompt,
+        })
         push("done", f"Video ready! ({_human_size(os.path.getsize(output_path))})")
 
     except Exception as exc:
@@ -480,6 +526,7 @@ def _human_size(n: int) -> str:
 
 @app.post("/api/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
+    _require_render_storage()
     job_id = str(uuid.uuid4())[:8]
     jobs[job_id] = {
         "id": job_id,
@@ -509,7 +556,7 @@ async def status_stream(job_id: str):
                 ev = events[sent]
                 yield f"data: {json.dumps(ev)}\n\n"
                 sent += 1
-            if job["status"] in ("done", "error"):
+            if job["status"] in ("done", "degraded", "error"):
                 break
             await asyncio.sleep(0.3)
 
@@ -545,7 +592,7 @@ async def download_video(job_id: str):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     job = jobs[job_id]
-    if job["status"] != "done" or not job.get("output_path"):
+    if job["status"] not in ("done", "degraded") or not job.get("output_path"):
         raise HTTPException(status_code=400, detail="Video not ready")
     path = job["output_path"]
     if not os.path.exists(path):
@@ -614,6 +661,13 @@ async def run_hl_pipeline(job_id: str, video_path: str, output_dir: str,
         job["reel_path"] = result.get("reel_path")
         job["status"] = "done"
         n = len(result["clips"])
+        if job.get("reel_path"):
+            clips = {f"clip_{i + 1:02d}": clip.get("clip_path")
+                     for i, clip in enumerate(result.get("clips") or [])}
+            await _archive_finished(job, job_id, job["reel_path"], {
+                "title": _match_prefix(job).replace("_", " ") or "Highlight reel",
+                "format": "highlights", "status": "done", "clip_count": n,
+            }, clips)
         job["events"].append({"type": "done", "data": f"{n} clip(s) + highlight reel ready"})
     except Exception as exc:
         import traceback
@@ -680,6 +734,13 @@ async def run_hl_pipeline_from_url(job_id: str, url: str, output_dir: str,
         job["reel_path"] = result.get("reel_path")
         job["status"] = "done"
         n = len(result["clips"])
+        if job.get("reel_path"):
+            clips = {f"clip_{i + 1:02d}": clip.get("clip_path")
+                     for i, clip in enumerate(result.get("clips") or [])}
+            await _archive_finished(job, job_id, job["reel_path"], {
+                "title": _match_prefix(job).replace("_", " ") or "Highlight reel",
+                "format": "highlights", "status": "done", "clip_count": n,
+            }, clips)
         job["events"].append({"type": "done", "data": f"{n} clip(s) + highlight reel ready"})
 
     except Exception as exc:
@@ -692,6 +753,7 @@ async def run_hl_pipeline_from_url(job_id: str, url: str, output_dir: str,
 
 @app.post("/api/highlights/from-url")
 async def highlights_from_url(request: HighlightsUrlRequest, background_tasks: BackgroundTasks):
+    _require_render_storage()
     job_id = str(uuid.uuid4())[:8]
     output_dir = tempfile.mkdtemp(prefix=f"hl_{job_id}_")
 
@@ -738,6 +800,7 @@ async def highlights_upload(
     confidence: str = "HIGH",
     model_accuracy: int = 61,
 ):
+    _require_render_storage()
     job_id = str(uuid.uuid4())[:8]
     output_dir = tempfile.mkdtemp(prefix=f"hl_{job_id}_")
     ext = Path(file.filename).suffix if file.filename else ".mp4"
@@ -782,7 +845,7 @@ async def highlights_status_stream(job_id: str):
             while sent < len(events):
                 yield f"data: {json.dumps(events[sent])}\n\n"
                 sent += 1
-            if job["status"] in ("done", "error"):
+            if job["status"] in ("done", "degraded", "error"):
                 break
             await asyncio.sleep(0.3)
 
@@ -880,6 +943,14 @@ async def run_chart_task(job_id: str, prompt: str, output_dir: str):
                 "ℹ Data is AI-generated (not an official source) — verify the key numbers before publishing."})
         cost = result.get("cost_usd")
         deg = " (DEGRADED)" if quality == "degraded" else ""
+        await _archive_finished(job, job_id, result["video_path"], {
+            "title": result.get("title") or prompt,
+            "format": "chart", "status": job["status"],
+            "youtube_title": result.get("youtube_title"),
+            "youtube_description": result.get("youtube_description"),
+            "youtube_tags": result.get("youtube_tags") or [],
+            "cost_usd": cost,
+        }, {"thumb": result.get("thumbnail_path")})
         job["events"].append({"type": "done",
             "data": f"Video ready{deg}: {result['title']}" + (f" · ${cost}" if cost else "")})
     except Exception as exc:
@@ -894,6 +965,7 @@ async def run_chart_task(job_id: str, prompt: str, output_dir: str):
 async def charts_generate(request: ChartsRequest, background_tasks: BackgroundTasks):
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="prompt is required")
+    _require_render_storage()
     job_id = str(uuid.uuid4())[:8]
     output_dir = tempfile.mkdtemp(prefix=f"chart_{job_id}_")
     chart_jobs[job_id] = {
@@ -1067,18 +1139,26 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "description_path": result.get("description_path"),
             "thumbnail_path": result.get("thumbnail_path"),
             "grade_path": result.get("grade_path"),
+            "retention_json_path": result.get("retention_json_path"),
+            "readiness_json_path": result.get("readiness_json_path"),
+            "first_minute_preview_path": result.get("first_minute_preview_path"),
+            "retention_readiness": result.get("retention_readiness"),
             "short_grade": result.get("short_grade"),
         })
-        # Persist to the stable dir so a later reload can't orphan the video or its artifacts.
-        try:
-            _persist_finished(job_id, result["output_path"], {
-                "title": result["title"], "status": job["status"],
-                "scene_count": result["scene_count"], "actual_cost": result.get("actual_cost"),
-            }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
-                      "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
-                      "grade": result.get("grade_path")})
-        except Exception:
-            pass
+        # Persist to local compatibility storage plus Blob/Postgres on production.
+        template = (request.short_template if request.video_format == "social" else "explainer")
+        await _archive_finished(job, job_id, result["output_path"], {
+            "title": result["title"], "status": job["status"],
+            "format": f"short-{template}" if request.video_format == "social" else "explainer",
+            "question": request.question, "scene_count": result["scene_count"],
+            "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
+            "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
+        }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
+                  "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
+                  "grade": result.get("grade_path"),
+                  "retention": result.get("retention_json_path"),
+                  "readiness": result.get("readiness_json_path"),
+                  "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
         # NOTE: topics are NOT auto-marked 'done' here on purpose — one topic may become BOTH a
         # long-form AND a short. The USER marks a topic done from the Topics dashboard (POST
@@ -1139,13 +1219,9 @@ async def explainer_config():
 
 
 @app.get("/api/explainer/trending")
-async def explainer_trending(background_tasks: BackgroundTasks):
-    """Curiosity-gap question pool for the UI chips. Returns the cache; if it's empty (first run),
-    kicks off a background refresh so it populates within ~15s without blocking this request."""
-    data = _load_trending()
-    if not data.get("questions"):
-        background_tasks.add_task(_refresh_trending)
-    return data
+async def explainer_trending():
+    """Read-only ROI cache. Research spend only happens through the explicit protected POST."""
+    return _load_trending()
 
 
 _LAST_MANUAL_REFRESH = [0.0]
@@ -1155,8 +1231,8 @@ _REFRESH_MIN_INTERVAL = float(os.environ.get("REFRESH_MIN_INTERVAL_SEC", "300"))
 @app.post("/api/explainer/refresh-trending")
 async def explainer_refresh_trending():
     """Regenerate the curiosity-gap pool for all channels now (manual trigger). Throttled: each
-    refresh spends ~2040 YouTube quota units (2 channels × 10 topics), so ~5 unthrottled clicks
-    would blow the default 10k/day. Min interval is REFRESH_MIN_INTERVAL_SEC (default 300s)."""
+    default refresh validates 3 lanes × 2 formats × 4 topics (roughly 2.5k legacy quota units).
+    Min interval is REFRESH_MIN_INTERVAL_SEC (default 300s)."""
     import time
     now = time.monotonic()
     elapsed = now - _LAST_MANUAL_REFRESH[0]
@@ -1164,7 +1240,7 @@ async def explainer_refresh_trending():
         wait = int(_REFRESH_MIN_INTERVAL - elapsed)
         return {**_load_trending(), "throttled": True,
                 "detail": f"Refresh throttled — try again in {wait}s "
-                          f"(each refresh spends ~2040 YouTube quota units)."}
+                          f"(research calls are deliberately rate-limited)."}
     _LAST_MANUAL_REFRESH[0] = now
     return _refresh_trending()
 
@@ -1197,6 +1273,12 @@ def _patch_trending_status(channel: str, question: str, status: str) -> None:
                     json.dump(data, f, indent=2)
                 os.replace(tmp, _TRENDING_FILE)
             except OSError:
+                pass
+            try:
+                import db
+                if db.db_enabled():
+                    db.cache_set("topic_roi_v2", data)
+            except Exception:
                 pass
 
 
@@ -1394,6 +1476,7 @@ def _start_trending_scheduler():
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]
     output_dir = tempfile.mkdtemp(prefix=f"expl_{job_id}_")
@@ -1411,6 +1494,7 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
 async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     """Resume a job that died mid-render — reuses the on-disk script + already-paid scene
     images/audio from its checkpoint, regenerating only what's missing."""
+    _require_render_storage()
     rec = _get_inprogress(job_id)
     if not rec or not os.path.isdir(rec.get("output_dir", "")):
         raise HTTPException(status_code=404,
@@ -1514,6 +1598,12 @@ async def run_stateboard_task(job_id: str, request: StateBoardRequest, output_di
             "thumbnail_path": result.get("thumbnail_path"),
             "degraded_reasons": result.get("degraded_reasons", []),
         })
+        await _archive_finished(job, job_id, result["output_path"], {
+            "title": job["title"], "format": "tv-review", "status": job["status"],
+            "show_name": request.show_name, "season": request.season,
+            "episode": request.episode, "spoiler_scope": request.spoiler_scope,
+            "review_angle": request.review_angle, "duration_sec": result.get("duration_sec"),
+        }, {"thumb": result.get("thumbnail_path")})
         job["events"].append({"type": "done", "data": "complete"})
     except Exception as e:
         job["status"] = "error"; job["error"] = str(e)
@@ -1525,6 +1615,7 @@ async def run_stateboard_task(job_id: str, request: StateBoardRequest, output_di
 async def stateboard_generate(request: StateBoardRequest, background_tasks: BackgroundTasks):
     if not request.topic.strip() or not request.script.strip():
         raise HTTPException(status_code=400, detail="topic and script are required")
+    _require_render_storage()
     _sweep_old_temp("sb_")
     job_id = str(uuid.uuid4())[:8]
     output_dir = tempfile.mkdtemp(prefix=f"sb_{job_id}_")
@@ -1619,9 +1710,12 @@ async def explainer_description(job_id: str):
 async def explainer_grade(job_id: str):
     path, title = _explainer_text_artifact(job_id, "grade")
     if not path:
-        raise HTTPException(status_code=404, detail="Grade not found (social shorts only)")
+        raise HTTPException(status_code=404, detail="Quality report not found")
     safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
-    return FileResponse(path, media_type="text/plain", filename=f"{safe} - grade.txt")
+    base = os.path.basename(path)
+    label = ("retention-readiness" if base.startswith("retention_readiness")
+             else ("retention-report" if base.startswith("retention_report") else "grade"))
+    return FileResponse(path, media_type="text/plain", filename=f"{safe} - {label}.txt")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")
@@ -1653,6 +1747,9 @@ async def explainer_script(job_id: str):
 
 # ─── Serve frontend ─────────────────────────────────────────────────────────────
 
+import finished_api
+finished_api.mount(app, FINISHED_DIR, STATIC_DIR)
+
 @app.get("/")
 def _serve_index():
     # Serve the SPA shell with no-cache so a browser never shows a stale UI after an
@@ -1671,13 +1768,13 @@ if __name__ == "__main__":
     # Defaults: localhost-only (not 0.0.0.0) so an un-firewalled box isn't an open wallet, and
     # reload ON (dev convenience). For real renders run `RELOAD=0 python app.py` — reload=True
     # SIGTERMs the worker on any .py save and KILLS an in-flight render. To expose the server,
-    # set HOST=0.0.0.0 AND APP_SHARED_SECRET (the warning below fires if you forget).
+    # set HOST=0.0.0.0 AND APP_PASSWORD (the warning below fires if you forget).
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
     reload = os.environ.get("RELOAD", "1") == "1"
-    if host not in ("127.0.0.1", "localhost", "::1") and not APP_SHARED_SECRET:
-        print("⚠ SECURITY: binding to a non-loopback host with NO APP_SHARED_SECRET — anyone who "
-              "can reach this port can spend your Anthropic/OpenAI/Veo credits. Set APP_SHARED_SECRET.")
+    if host not in ("127.0.0.1", "localhost", "::1") and not private_access.auth_configured():
+        print("⚠ SECURITY: binding to a non-loopback host with NO APP_PASSWORD — anyone who "
+              "can reach this port can spend provider credits. Set APP_PASSWORD.")
     if reload:
         print("⚠ RELOAD=1: editing any .py during a render will KILL it. Use RELOAD=0 for real runs.")
     uvicorn.run("app:app", host=host, port=port, reload=reload)
