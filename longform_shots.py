@@ -83,8 +83,9 @@ def compile_scene_shots(
         count = max(1, math.ceil(remaining / target))
         # Splitting into equal lengths prevents a weak sub-second orphan shot.
         each = remaining / count
+        source_offset = len(shots)
         for j in range(count):
-            source = "alternate" if has_alternate and (j + len(shots)) % 2 else "master"
+            source = "alternate" if has_alternate and (j + source_offset) % 2 else "master"
             motion = MOTIONS[(scene_index * 2 + j + len(shots)) % len(MOTIONS)]
             shots.append({
                 "kind": "still", "source": source, "duration": round(each, 3),

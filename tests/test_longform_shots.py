@@ -16,6 +16,13 @@ def test_long_scene_cuts_stills_faster_than_old_five_second_cadence():
     assert max(s["duration"] for s in shots) <= 3.5
 
 
+def test_alternate_source_is_used_without_image_to_video():
+    shots = compile_scene_shots(
+        {"story_role": "payoff"}, 5.0, 0, has_alternate=True)
+
+    assert [s["source"] for s in shots] == ["master", "alternate", "master"]
+
+
 def test_generated_motion_keeps_five_seconds_then_returns_to_fast_stills():
     shots = compile_scene_shots(
         {"story_role": "prediction_gate"}, 10.0, 1,
