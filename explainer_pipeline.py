@@ -24,6 +24,13 @@ import openai
 import anthropic
 from openai import OpenAI
 
+from longform_retention import (
+    build_story_contract,
+    validate_longform_story,
+    validation_rank,
+    write_retention_report,
+)
+
 
 # Transient errors worth retrying. NOT retried: BadRequestError (400 — includes content
 # moderation), AuthenticationError (401), PermissionDeniedError (403), NotFoundError —
@@ -1302,7 +1309,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         f'summary of several — that is how you reach ~{n_scenes} beats WITHOUT padding. Aim NEAR '
         f'{n_scenes}; returning somewhat fewer is fine ONLY if the topic truly lacks that many DISTINCT '
         'beats — never pad with filler or repetition.\n'
-        'Return ONLY JSON: {"title","hook","throughline","style_mode"(educational|scientific|cinematic'
+        'Return ONLY JSON: {"title","hook","thumbnail_promise","throughline","false_model",'
+        '"replacement_model","personal_stake","style_mode"(educational|scientific|cinematic'
         '|fun),"stages":[2-4 SHORT ALL-CAPS act labels naming the escalating journey, e.g. '
         '["SIGNALS","MATTER","LIFE"] or ["YOUR BODY","THE PLANET","REALITY"]; for a topic with distinct '
         'TIMESCALES prefer a TEMPORAL ladder like ["INSTANT","MILLIONS OF YEARS","BILLIONS OF YEARS"] so '
@@ -1314,7 +1322,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'in the runtime>,"beat":"the SINGLE new idea/fact/story-move for this scene, concrete, one '
         'sentence","role":"cold_consequence|promise|prediction_gate|rules|payoff|escalation|rehook|'
         'mechanism|reversal|branch|false_relief|final_escalation|final_payoff|resonant_end","bolt_mode":'
-        '"experience|demonstration|observation"}]}.\n'
+        '"experience|demonstration|observation","question_opened":"question created by this beat or '
+        'empty","question_answered":"earlier question resolved by this beat or empty",'
+        '"new_complication":"larger problem created by the answer or empty","visible_consequence":'
+        '"the concrete change visible on screen","opens_loop":"short stable loop id or empty",'
+        '"closes_loop":"short stable loop id or empty"}]}.\n'
         'IRON RULES — viewers clicked to find out WHAT HAPPENS, not to be taught what a thing IS. Build '
         'an ESCALATING STORY WITH DISTRIBUTED REWARDS, not an expanding explanation:\n'
         '1. Each fact/mechanic/idea appears in EXACTLY ONE beat. NEVER plan to re-explain something an '
@@ -1353,6 +1365,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'answer ("Which breaks first — sunlight, GPS, or the atoms in your body?"), then overturn the '
         'obvious choice. This turns a passive viewer into a participant ("that can\'t be right — show '
         'me").\n'
+        '7b. NARRATIVE DEBT LEDGER: use opens_loop/closes_loop to track every promised question. Open '
+        'the central loop in the opening and close it at final_payoff. Each prediction_gate opens a '
+        'short sub-loop; a later payoff closes it while opening the next complication. Every opened '
+        'loop MUST close, and never close an id that was not opened earlier. Use short ids such as '
+        '"central", "first_failure", and "hidden_cost".\n'
         '8. ESCALATION LADDER, FAMILIAR -> DEEP: climb ME -> MY TOOLS -> MY ENVIRONMENT -> CIVILISATION '
         '-> REALITY. Lead with everyday visible effects; the deep physics/mechanism is the ESCALATION '
         'and the reward, NEVER the setup. Every beat must ESCALATE (raise stakes, deepen the mystery, or '
@@ -1497,9 +1514,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
         part, rc = _parse_script_json(c.content[0].text); cost += rc
         cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
-        for s in (part.get("scenes") or []):
+        for batch_index, s in enumerate(part.get("scenes") or []):
+            beat = batch[batch_index] if batch_index < len(batch) else {}
             s["mascot_present"] = True
             s.setdefault("bolt_mode", "experience")
+            # Persist the planner's story semantics. The deterministic retention gate consumes
+            # these fields without asking the model to grade its own compliance.
+            s["story_beat_n"] = int(beat.get("n") or (len(all_scenes) + 1))
+            s["story_pct"] = int(beat.get("pct") or 0)
+            s["story_role"] = _s(beat.get("role")) or "beat"
+            for key in ("question_opened", "question_answered", "new_complication",
+                        "visible_consequence", "opens_loop", "closes_loop"):
+                s[key] = _s(beat.get(key))
             all_scenes.append(s)
         bi += per_batch
 
@@ -1509,6 +1535,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
 
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1
+    story_contract = build_story_contract(question, plan, beats, all_scenes, duration_sec)
     return {
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
@@ -1519,6 +1546,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "_peak_scene": peak,
         "_payoffs": payoffs,
         "_stages": stages,
+        "_story_contract": story_contract,
     }
 
 
@@ -3847,12 +3875,25 @@ _SCRIPT_GATE_FLOOR   = int(os.environ.get("SCRIPT_GATE_FLOOR", "70"))     # belo
 # and STOPS early on no improvement — so the real cost is usually 0-1 extra calls. 2 lets it fix two
 # different weak axes (e.g. hook then ending). Bump for more aggressive elevation.
 _SCRIPT_ELEVATE_PASSES = int(os.environ.get("SCRIPT_ELEVATE_PASSES", "2"))
+# Structural retries happen before the subjective engagement grader. One re-plan is usually enough
+# to repair a missing prediction/payoff/loop while keeping provider cost bounded.
+_LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"))
 
 
 def _script_gate_hard() -> bool:
     """True when the operator wants a below-floor draft to ABORT before any image/TTS/Veo spend.
     Accepts 1/true/yes/on (a bare `SCRIPT_GATE_HARD=1` that does nothing is a costly footgun)."""
     return (os.environ.get("SCRIPT_GATE_HARD") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _longform_retention_hard() -> bool:
+    """Fail before image/TTS spend when objective story-contract checks still fail.
+
+    Enabled by default: unlike the subjective LLM score, these checks cover explicit structural
+    promises (prediction/payoff timing, loop closure, final payoff) and get an automatic retry first.
+    """
+    return (os.environ.get("LONGFORM_RETENTION_HARD", "1") or "1").strip().lower() \
+        in ("1", "true", "yes", "on")
 _SHORT_GATE_PASS     = int(os.environ.get("SHORT_GATE_PASS", "72"))       # social grade_short regen TARGET
                                                                           # (lowered for the harsher
                                                                           # retention-weighted rubric)
@@ -3976,6 +4017,25 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     import copy
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                            video_format=video_format, series=series, operator_direction=operator_direction)
+    total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
+    best_validation = validate_longform_story(best, question)
+    for _ in range(max(0, _LONGFORM_CONTRACT_RETRIES)):
+        if best_validation.get("passed"):
+            break
+        fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
+        log(f"Long-form contract {best_validation.get('score', 0)}/100 — replanning once before render: {fixes}")
+        cand = generate_script(
+            question, duration_sec, style, image_guidance=image_guidance,
+            video_format=video_format, series=series, operator_direction=operator_direction,
+            improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
+        )
+        total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
+        cand_validation = validate_longform_story(cand, question)
+        if validation_rank(cand_validation) < validation_rank(best_validation):
+            best, best_validation = cand, cand_validation
+    # Track every beat-sheet/expansion attempt, including a discarded retry.
+    best["_script_cost_usd"] = round(total_generation_cost, 4)
+    best["_retention_validation"] = best_validation
     best_g = grade_script(best, cost_sink=cost_sink)
     if best_g is not None:
         for _ in range(max(0, _SCRIPT_ELEVATE_PASSES)):
@@ -3994,6 +4054,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     # Backstop: a hook-axis revision above can strip the subject the guard named in generate_script.
     # Re-assert zero-friction naming on the FINAL chosen draft (and track its cost here, tracked path).
     best, _hc = _ensure_hook_names_subject(best, question, cost_sink=cost_sink)
+    best["_retention_validation"] = validate_longform_story(best, question)
     if best_g:
         best["_grade"] = best_g
         sc = best_g["scores"]
@@ -4321,6 +4382,8 @@ def run_explainer_pipeline(
     state_path = os.path.join(output_dir, "_state.json")
     resumed = False
     short_grade = None
+    retention_report_path = None
+    retention_json_path = None
     if resume and os.path.exists(state_path):
         try:
             with open(state_path) as _sf:
@@ -4400,6 +4463,29 @@ def run_explainer_pipeline(
             os.replace(_tmp, state_path)
         except OSError:
             pass
+
+    # Objective long-form gate: inspect the persisted story roles and narrative-debt ledger before
+    # any image/TTS spend. The planner already received one automatic retry in
+    # generate_graded_script; a remaining error is therefore a genuine structural failure.
+    if video_format != "social":
+        retention_validation = validate_longform_story(script, question)
+        script["_retention_validation"] = retention_validation
+        retention_report_path = write_retention_report(
+            retention_validation, script.get("_story_contract") or {}, output_dir)
+        retention_json_path = os.path.join(output_dir, "retention_report.json")
+        log("Long-form retention contract: %s %s/100 — %d blocking, %d warning(s)"
+            % ("PASS" if retention_validation.get("passed") else "FAIL",
+               retention_validation.get("score", 0),
+               len(retention_validation.get("errors") or []),
+               len(retention_validation.get("warnings") or [])))
+        if not retention_validation.get("passed"):
+            for issue in (retention_validation.get("errors") or [])[:6]:
+                log(f"  ✗ [{issue.get('code')}] {issue.get('message')}")
+            if _longform_retention_hard():
+                raise ValueError(
+                    "Long-form retention contract failed before image/TTS spend: "
+                    + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
+                )
 
     mascot_ok = os.path.exists(MASCOT_REF)
     if not mascot_ok:
@@ -4799,7 +4885,7 @@ def run_explainer_pipeline(
     log("YouTube description written")
 
     # 4c-ii. Persist the social self-grade (if we graded one).
-    grade_path = _write_grade(short_grade, output_dir) if short_grade else None
+    grade_path = _write_grade(short_grade, output_dir) if short_grade else retention_report_path
 
     # 4d. Branded thumbnail (best-effort — never fail the video over a thumbnail).
     thumbnail_path = None
@@ -4933,6 +5019,7 @@ def run_explainer_pipeline(
         "description_path": description_path,
         "thumbnail_path":   thumbnail_path,
         "grade_path":       grade_path,
+        "retention_json_path": retention_json_path,
         "short_grade":      short_grade,
         "i2v_requested":    i2v_requested,        # scenes selected for image-to-video
         "i2v_animated":     len(i2v_clips),       # how many actually generated (rest = Ken Burns)

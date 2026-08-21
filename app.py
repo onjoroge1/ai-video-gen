@@ -1139,6 +1139,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "description_path": result.get("description_path"),
             "thumbnail_path": result.get("thumbnail_path"),
             "grade_path": result.get("grade_path"),
+            "retention_json_path": result.get("retention_json_path"),
             "short_grade": result.get("short_grade"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
@@ -1150,7 +1151,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
         }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
-                  "grade": result.get("grade_path")})
+                  "grade": result.get("grade_path"),
+                  "retention": result.get("retention_json_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
         # NOTE: topics are NOT auto-marked 'done' here on purpose — one topic may become BOTH a
         # long-form AND a short. The USER marks a topic done from the Topics dashboard (POST
@@ -1702,9 +1704,10 @@ async def explainer_description(job_id: str):
 async def explainer_grade(job_id: str):
     path, title = _explainer_text_artifact(job_id, "grade")
     if not path:
-        raise HTTPException(status_code=404, detail="Grade not found (social shorts only)")
+        raise HTTPException(status_code=404, detail="Quality report not found")
     safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
-    return FileResponse(path, media_type="text/plain", filename=f"{safe} - grade.txt")
+    label = "retention-report" if os.path.basename(path).startswith("retention_report") else "grade"
+    return FileResponse(path, media_type="text/plain", filename=f"{safe} - {label}.txt")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")

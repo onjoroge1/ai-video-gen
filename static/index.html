@@ -1673,7 +1673,7 @@
         <a class="btn btn-outline" id="expl-txt-btn" href="#" download>↓ Transcript (.txt)</a>
         <a class="btn btn-outline" id="expl-thumb-btn" href="#" download>↓ Thumbnail (.jpg)</a>
         <a class="btn btn-outline" id="expl-desc-btn" href="#" download>↓ Description (.txt)</a>
-        <a class="btn btn-outline" id="expl-grade-btn" href="#" download style="display:none;">↓ Short Grade</a>
+        <a class="btn btn-outline" id="expl-grade-btn" href="#" download style="display:none;">↓ Quality Report</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -3066,8 +3066,9 @@
       document.getElementById('expl-desc-btn').href = `/api/explainer/description/${jobId}`;
       document.getElementById('expl-thumb-btn').href = `/api/explainer/thumbnail/${jobId}`;
       const gb = document.getElementById('expl-grade-btn');
-      if (explFormat === 'social') { gb.href = `/api/explainer/grade/${jobId}`; gb.style.display = ''; }
-      else { gb.style.display = 'none'; }
+      gb.href = `/api/explainer/grade/${jobId}`;
+      gb.textContent = explFormat === 'social' ? '↓ Short Grade' : '↓ Retention Report';
+      gb.style.display = '';
       const tp = document.getElementById('expl-thumb-preview');
       tp.src = `/api/explainer/thumbnail/${jobId}`;
       tp.style.display = 'block';
