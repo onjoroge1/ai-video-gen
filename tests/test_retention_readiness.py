@@ -1,4 +1,9 @@
-from retention_readiness import build_audio_cues, score_retention_readiness, write_readiness_report
+from retention_readiness import (
+    build_audio_cues,
+    grade_observed_retention,
+    score_retention_readiness,
+    write_readiness_report,
+)
 
 
 def _fixture():
@@ -73,3 +78,11 @@ def test_report_writer_emits_downloadable_text_and_json(tmp_path):
     assert text_path.endswith("retention_readiness.txt")
     assert json_path.endswith("retention_readiness.json")
     assert "RETENTION READINESS SCORE" in (tmp_path / "retention_readiness.txt").read_text()
+
+
+def test_old_sea_level_result_is_critical_but_low_confidence():
+    observed = grade_observed_retention(7 * 60 + 14, 19.5, views=16)
+
+    assert observed["grade"] == "F"
+    assert observed["label"] == "Critical collapse"
+    assert observed["confidence"] == "low"

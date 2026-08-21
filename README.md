@@ -104,6 +104,8 @@ rhythm (15), packaging/payoff alignment (10), and technical delivery (5). A scor
 run when `FIRST_MINUTE_GATE_HARD=1`. RRS is an editorial readiness grade—not a claim or forecast of
 actual YouTube retention, which must be measured after publishing. Prediction gates, payoffs, reversals,
 and rehooks receive sparse locally synthesized audio cues; background music ducks at deliberate drops.
+Post-publish results use a separate runtime-aware Observed Retention Grade; it never substitutes a
+pre-render RRS for real analytics, and results below 100 views are explicitly marked low-confidence.
 
 Every checkpoint includes both the **delta** and the **total state from a stated baseline**. Decreasing
 quantities stop at a defined floor and include scientific-boundary warnings.

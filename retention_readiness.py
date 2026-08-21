@@ -218,3 +218,45 @@ def write_readiness_report(report: dict, out_dir: str) -> tuple[str, str]:
     with open(json_path, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, ensure_ascii=False)
     return text_path, json_path
+
+
+def grade_observed_retention(
+    duration_sec: float,
+    average_percentage_viewed: float,
+    *,
+    retention_30s: float | None = None,
+    views: int | None = None,
+) -> dict:
+    """Grade real YouTube outcomes with runtime-aware APV bands.
+
+    Unlike RRS, this consumes post-publish analytics. The bands are an internal
+    comparison scale to calibrate against this channel—not a universal YouTube
+    benchmark or an algorithm guarantee.
+    """
+    duration = float(duration_sec)
+    apv = float(average_percentage_viewed)
+    if duration < 300:
+        bands = ((55, "A"), (45, "B"), (35, "C"), (25, "D"))
+    elif duration <= 600:
+        bands = ((50, "A"), (40, "B"), (30, "C"), (20, "D"))
+    else:
+        bands = ((45, "A"), (35, "B"), (25, "C"), (18, "D"))
+    grade = next((letter for threshold, letter in bands if apv >= threshold), "F")
+    order = "ABCDF"
+    if retention_30s is not None:
+        hold = float(retention_30s)
+        cap = "F" if hold < 40 else ("D" if hold < 50 else ("C" if hold < 60 else "A"))
+        grade = order[max(order.index(grade), order.index(cap))]
+    labels = {"A": "Exceptional", "B": "Strong", "C": "Competitive",
+              "D": "Weak", "F": "Critical collapse"}
+    return {
+        "name": "Observed Retention Grade",
+        "grade": grade,
+        "label": labels[grade],
+        "duration_sec": round(duration, 1),
+        "average_percentage_viewed": round(apv, 1),
+        "retention_30s": None if retention_30s is None else round(float(retention_30s), 1),
+        "confidence": "low" if views is not None and views < 100 else "directional",
+        "note": ("Internal runtime-aware outcome scale; calibrate bands as the channel accumulates videos."
+                 + (" Fewer than 100 views: treat this grade as low-confidence." if views is not None and views < 100 else "")),
+    }
