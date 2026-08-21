@@ -36,7 +36,6 @@ py-modules = [
     "private_access",
     "quiz_pipeline",
     "retention_readiness",
-    "runtime_planner",
     "sim_drop_pipeline",
     "stateboard_pipeline",
     "topic_roi",
