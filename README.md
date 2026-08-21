@@ -91,17 +91,20 @@ final title payoff. One automatic re-plan may repair structural failures; remain
 image/TTS spend when `LONGFORM_RETENTION_HARD=1` (the default). Successful renders expose a downloadable
 text report and archive the machine-readable `retention_report.json` beside the other artifacts.
 
-Landscape scenes are narrative beats rather than fixed five-second slides. The shot compiler expands
-each beat into 2.35–3.5 second still cuts (4.5 seconds is the hard maximum), selectively adds a bounded
-continuity-matched alternate angle at retention turns, and records machine-readable cadence metrics.
-When image-to-video is enabled, a generated long-form motion shot keeps a full five-second slot before
-the edit returns to faster stills. Shorts retain their existing four-second motion contract.
+Landscape scenes are narrative beats rather than fixed five-second slides. The semantic shot compiler
+cuts on exact narration phrases and only when clause-specific B-roll adds setup, action, evidence, or
+consequence information. A single source uses one continuous camera path; every shot is at least 1.5
+seconds. Generated motion begins at the spoken action and absorbs small timing remainders instead of
+creating flash frames. Before image or TTS spend, the runtime planner fits or rejects narration outside
+the requested-duration window. Shorts retain their existing four-second motion contract.
 
 Before purchasing the remainder of a long-form asset set, the pipeline renders the opening tranche
 into `first_minute_preview.mp4` and assigns a transparent **Retention Readiness Score (RRS)**. The
-100-point rubric covers opening contract (25), narrative propulsion (25), visual pacing (20), audio
+100-point rubric covers opening contract (25), narrative propulsion (25), visual continuity and
+semantic sync (20), audio
 rhythm (15), packaging/payoff alignment (10), and technical delivery (5). A score below 70 stops the
-run when `FIRST_MINUTE_GATE_HARD=1`. RRS is an editorial readiness grade—not a claim or forecast of
+run when `FIRST_MINUTE_GATE_HARD=1`; sub-1.5-second shots, low semantic alignment, and same-source hard
+cuts are blocking failures even when the total would otherwise pass. RRS is an editorial readiness grade—not a claim or forecast of
 actual YouTube retention, which must be measured after publishing. Prediction gates, payoffs, reversals,
 and rehooks receive sparse locally synthesized audio cues; background music ducks at deliberate drops.
 Post-publish results use a separate runtime-aware Observed Retention Grade; it never substitutes a
