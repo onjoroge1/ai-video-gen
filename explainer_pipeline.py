@@ -35,6 +35,11 @@ from longform_shots import (
     select_alternate_image_indices,
     shot_plan_metrics,
 )
+from retention_readiness import (
+    build_audio_cues,
+    score_retention_readiness,
+    write_readiness_report,
+)
 
 
 # Transient errors worth retrying. NOT retried: BadRequestError (400 — includes content
@@ -2632,12 +2637,38 @@ def _xfade_concat(videos: list[str], durations: list[float], out: str, tmp_dir: 
     ], timeout=600.0)
 
 
+def _make_audio_cue_track(cues: list[dict], total_duration: float, out: str) -> str | None:
+    """Synthesize a restrained, licence-free cue bed for predictions and payoffs."""
+    sounded = [c for c in cues if c.get("type") in {"prediction_tick", "impact"}][:20]
+    if not sounded:
+        return None
+    inputs, filters, labels = [], [], []
+    for i, cue in enumerate(sounded):
+        impact = cue.get("type") == "impact"
+        freq, dur, volume = (88, 0.42, 0.10) if impact else (1040, 0.12, 0.055)
+        inputs += ["-f", "lavfi", "-i", f"sine=frequency={freq}:duration={dur}:sample_rate=44100"]
+        delay = max(0, round(float(cue.get("time_sec") or 0) * 1000))
+        filters.append(
+            f"[{i}:a]volume={volume},afade=t=out:st={max(0, dur - 0.08):.2f}:d=0.08,"
+            f"adelay={delay}|{delay}[c{i}]"
+        )
+        labels.append(f"[c{i}]")
+    filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=longest,"
+                   f"atrim=0:{total_duration:.3f}[cues]")
+    _run_ffmpeg([
+        "ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filters),
+        "-map", "[cues]", "-c:a", "pcm_s16le", out,
+    ], timeout=120.0)
+    return out
+
+
 def _assemble(
     scene_videos: list[str],
     scene_audios: list[str],
     output_path: str,
     tmp_dir: str,
     bg_music_path: str | None = None,
+    audio_cues: list[dict] | None = None,
 ) -> None:
     n = len(scene_videos)
     durations = [_audio_dur(a) for a in scene_audios]   # narration-only durations
@@ -2684,18 +2715,39 @@ def _assemble(
     # 3. Optional BG music mix
     if bg_music_path and os.path.exists(bg_music_path):
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
+        drops = [float(c.get("time_sec") or 0) for c in (audio_cues or [])
+                 if c.get("type") == "music_drop"]
+        music_volume = "0.10"
+        for t in reversed(drops):
+            music_volume = f"if(between(t\\,{max(0, t - 0.2):.2f}\\,{t + 0.8:.2f})\\,0.018\\,{music_volume})"
         _run_ffmpeg([
             "ffmpeg", "-y",
             "-i", concat_audio,
             "-stream_loop", "-1", "-i", bg_music_path,
             "-filter_complex",
-            "[0:a]volume=1.0[vo];[1:a]volume=0.10[bg];[vo][bg]amix=inputs=2:duration=first[mix]",
+            f"[0:a]volume=1.0[vo];[1:a]volume='{music_volume}':eval=frame[bg];"
+            "[vo][bg]amix=inputs=2:duration=first[mix]",
             "-map", "[mix]", "-c:a", "libmp3lame",
             mixed,
         ], timeout=180.0)
         final_audio = mixed
     else:
         final_audio = concat_audio
+
+    # 3b. Story-turn cues are generated locally; no bundled/licensed SFX are required.
+    try:
+        cue_track = _make_audio_cue_track(
+            audio_cues or [], sum(durations), os.path.join(tmp_dir, "_retention_cues.wav"))
+    except Exception:
+        cue_track = None  # audio punctuation is an enhancement; never sacrifice the complete video
+    if cue_track:
+        cued = os.path.join(tmp_dir, "_cued.mp3")
+        _run_ffmpeg([
+            "ffmpeg", "-y", "-i", final_audio, "-i", cue_track,
+            "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first[mix]",
+            "-map", "[mix]", "-c:a", "libmp3lame", cued,
+        ], timeout=180.0)
+        final_audio = cued
 
     # 4. Mux video + audio — NORMALIZE loudness to the streaming/Shorts standard (-14 LUFS,
     #    true-peak -1 dB). OpenAI TTS comes out ~-23 LUFS (≈9 dB too quiet), which reads as
@@ -2710,6 +2762,70 @@ def _assemble(
         "-shortest",
         output_path,
     ], timeout=300.0)
+
+
+def _render_first_minute_preview(
+    results: list[dict],
+    output_dir: str,
+    *,
+    cap_mode: str,
+    style_mode: str,
+    vw: int,
+    vh: int,
+    bg_music_path: str | None,
+) -> tuple[str, dict, list[dict]]:
+    """Render the paid opening assets into a real preview before later image spend."""
+    import shutil
+    gate_dir = os.path.join(output_dir, "_first_minute_gate")
+    os.makedirs(gate_dir, exist_ok=True)
+    videos, audios, plan, gate_scenes = [], [], [], []
+    for k, result in enumerate(r for r in results if r.get("aud_ok")):
+        scene = result["scene"]
+        duration = _audio_dur(result["aud"])
+        shots = compile_scene_shots(
+            scene, duration, k, has_alternate=bool(result.get("alt_img")),
+            i2v_seconds=I2V_SECONDS_LONGFORM,
+        )
+        visual = None
+        if len(shots) > 1:
+            visual = os.path.join(gate_dir, f"opening_{k:02d}_shots.mp4")
+            _make_multishot_background(
+                result, shots, visual, vw, vh, tail=FADE_DUR)
+        word_times = None
+        if cap_mode in ("karaoke", "bubble", "headline_karaoke"):
+            word_times = align_caption_phrases(
+                scene.get("narration", ""), result.get("word_times"), duration)
+        text = scene.get("text")
+        placement = ((_s(text.get("placement")) if isinstance(text, dict) else "") or "top_right").lower()
+        bubble_side = "left" if "left" in placement else ("right" if "right" in placement else "center")
+        segment = os.path.join(gate_dir, f"opening_{k:02d}.mp4")
+        _make_scene_segment(
+            result["img"], result["aud"], segment,
+            scene.get("text_overlay", ""), scene.get("text_sub", ""),
+            motion=_pick_motion(scene.get("shot_type", "medium"), k), tail=FADE_DUR,
+            text_meta=scene.get("text"), style_mode=style_mode, vw=vw, vh=vh,
+            captions=cap_mode, word_times=word_times, bubble_side=bubble_side,
+            motion_video=visual,
+        )
+        videos.append(segment); audios.append(result["aud"])
+        plan.append(shots); gate_scenes.append(scene)
+    if not videos:
+        raise RuntimeError("First-minute gate has no renderable scenes")
+    durations = [_audio_dur(a) for a in audios]
+    cues = build_audio_cues(gate_scenes, durations)
+    raw = os.path.join(gate_dir, "opening_raw.mp4")
+    _assemble(videos, audios, raw, gate_dir, bg_music_path, audio_cues=cues)
+    preview_path = os.path.join(output_dir, "first_minute_preview.mp4")
+    raw_duration = _audio_dur(raw)
+    if raw_duration > 60.2:
+        _run_ffmpeg([
+            "ffmpeg", "-y", "-i", raw, "-t", "60", "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "160k", preview_path,
+        ], timeout=180.0)
+    else:
+        shutil.copy(raw, preview_path)
+    shutil.rmtree(gate_dir, ignore_errors=True)
+    return preview_path, shot_plan_metrics(plan), cues
 
 
 # ── Main runner ────────────────────────────────────────────────────────────────
@@ -4434,6 +4550,12 @@ def run_explainer_pipeline(
     short_grade = None
     retention_report_path = None
     retention_json_path = None
+    readiness_report_path = None
+    readiness_json_path = None
+    first_minute_preview_path = None
+    retention_validation = None
+    preview_state: dict = {}
+    readiness = None
     if resume and os.path.exists(state_path):
         try:
             with open(state_path) as _sf:
@@ -4776,12 +4898,57 @@ def run_explainer_pipeline(
     if os.path.exists(_smoke):
         os.remove(_smoke)
 
-    rest = []
-    if len(scenes) > 1:
+    # LONG-FORM FIRST-MINUTE GATE: pay only for the opening tranche, render it, and grade the
+    # actual edit before purchasing the remaining images/TTS. Social retains its one-frame hook gate.
+    all_indexed = list(enumerate(scenes))
+    opening_stop = len(scenes)
+    if video_format != "social":
+        estimate_cursor = 0.0
+        opening_stop = 0
+        for i, scene in all_indexed:
+            estimate_cursor += max(0.8, len(_s(scene.get("narration")).split()) / 2.64)
+            opening_stop = i + 1
+            if estimate_cursor >= 60.0:
+                break
+    opening_rest = []
+    if opening_stop > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-            # keep original indices so logs read "Image 2/n", "Image 3/n", …
-            rest = list(ex.map(_gen_assets, list(enumerate(scenes))[1:]))
-    results = [r0] + rest   # _gen_assets never raises
+            opening_rest = list(ex.map(_gen_assets, all_indexed[1:opening_stop]))
+    opening_results = [r0] + opening_rest
+
+    if video_format != "social":
+        log(f"stage:Rendering first-minute gate ({opening_stop}/{len(scenes)} planned scenes)...")
+        try:
+            first_minute_preview_path, opening_metrics, opening_cues = _render_first_minute_preview(
+                opening_results, output_dir, cap_mode=cap_mode, style_mode=style_mode,
+                vw=vw, vh=vh, bg_music_path=bg_music_path)
+            preview_duration = _audio_dur(first_minute_preview_path)
+            preview_state = {"decodable": _clip_is_real(first_minute_preview_path, min_dur=10),
+                             "duration_sec": round(preview_duration, 1), "target_sec": 60}
+            opening_script = dict(script)
+            opening_script["scenes"] = [r["scene"] for r in opening_results if r.get("aud_ok")]
+            readiness = score_retention_readiness(
+                opening_script, retention_validation or {}, opening_metrics, opening_cues,
+                preview=preview_state)
+            readiness_report_path, readiness_json_path = write_readiness_report(readiness, output_dir)
+            log(f"First-minute Retention Readiness: {readiness['score']}/100 "
+                f"({readiness['grade']}) — {readiness['label']}")
+            if not readiness["passed"] and os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
+                raise RuntimeError(
+                    f"First-minute gate scored {readiness['score']}/100 ({readiness['grade']}); "
+                    f"aborted before generating the remaining {len(scenes) - opening_stop} scenes."
+                )
+        except Exception as exc:
+            if os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
+                raise
+            log(f"⚠ First-minute gate unavailable ({type(exc).__name__}) — continuing in advisory mode")
+
+    later = []
+    if opening_stop < len(scenes):
+        log(f"First-minute gate passed ✓ — generating the remaining {len(scenes) - opening_stop} scenes")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            later = list(ex.map(_gen_assets, all_indexed[opening_stop:]))
+    results = opening_results + later   # _gen_assets never raises
 
     # END-OF-RUN RECOVERY: a transient blip (APIConnectionError) can strand scenes on filler frames
     # even though the endpoint recovers seconds later. Retry ONLY those transient fillers once more,
@@ -4956,8 +5123,9 @@ def run_explainer_pipeline(
 
     # Capture per-scene durations BEFORE the audio dir is reclaimed (for the transcript/SRT).
     rendered_durs = [_audio_dur(a) for a in scene_audios]
+    rendered_count = len(scene_videos)
     shot_metrics = shot_plan_metrics(rendered_shot_plan) if rendered_shot_plan else {
-        "shot_count": rendered, "still_shot_count": rendered - len(i2v_clips),
+        "shot_count": rendered_count, "still_shot_count": rendered_count - len(i2v_clips),
         "i2v_shot_count": len(i2v_clips), "alternate_shot_count": 0,
         "avg_still_seconds": 0.0, "max_still_seconds": 0.0,
         "i2v_seconds": len(i2v_clips) * I2V_SECONDS,
@@ -4965,11 +5133,22 @@ def run_explainer_pipeline(
     if rendered_shot_plan:
         log("Visual cadence: %(shot_count)d shots, %(avg_still_seconds).2fs average still, "
             "%(max_still_seconds).2fs max still" % shot_metrics)
+    full_audio_cues = build_audio_cues(
+        [r["scene"] for r in usable if r["aud"] in scene_audios], rendered_durs)
 
     # 4. Assemble
     log("stage:Assembling final video...")
     output_path = os.path.join(output_dir, "explainer.mp4")
-    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path)
+    _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path,
+              audio_cues=full_audio_cues)
+
+    if video_format != "social":
+        readiness = score_retention_readiness(
+            script, retention_validation or {}, shot_metrics, full_audio_cues,
+            preview=preview_state)
+        readiness_report_path, readiness_json_path = write_readiness_report(readiness, output_dir)
+        log(f"Final Retention Readiness: {readiness['score']}/100 "
+            f"({readiness['grade']}) — {readiness['label']}")
 
     # 4b. Transcript + timed captions (.txt for description/auto-sync, .srt for YouTube subs).
     transcript_path, srt_path = _write_transcript(rendered_narr, rendered_durs, output_dir)
@@ -4984,7 +5163,8 @@ def run_explainer_pipeline(
     log("YouTube description written")
 
     # 4c-ii. Persist the social self-grade (if we graded one).
-    grade_path = _write_grade(short_grade, output_dir) if short_grade else retention_report_path
+    grade_path = (_write_grade(short_grade, output_dir) if short_grade
+                  else (readiness_report_path or retention_report_path))
 
     # 4d. Branded thumbnail (best-effort — never fail the video over a thumbnail).
     thumbnail_path = None
@@ -5084,6 +5264,10 @@ def run_explainer_pipeline(
     if cap_mode in ("karaoke", "bubble", "headline_karaoke") and rendered and cap_missing / rendered > 0.25:
         label = "speech bubbles" if cap_mode == "bubble" else "captions"
         reasons.append(f"{cap_missing}/{rendered} scenes have NO {label}")
+    if readiness and not readiness.get("passed"):
+        reasons.append(
+            f"Retention Readiness scored {readiness.get('score')}/100 ({readiness.get('grade')}) — "
+            "below the 70-point ship floor")
     # Thumbnail is the channel's #1 CTR lever — a blank fallback (image gen failed) is near-0 CTR, and
     # a still-weak thumbnail after redesign is a real click risk. Gate on both (grade_thumbnail was
     # previously advisory-only and never reached this list).
@@ -5119,6 +5303,10 @@ def run_explainer_pipeline(
         "thumbnail_path":   thumbnail_path,
         "grade_path":       grade_path,
         "retention_json_path": retention_json_path,
+        "readiness_report_path": readiness_report_path,
+        "readiness_json_path": readiness_json_path,
+        "first_minute_preview_path": first_minute_preview_path,
+        "retention_readiness": readiness,
         "short_grade":      short_grade,
         "i2v_requested":    i2v_requested,        # scenes selected for image-to-video
         "i2v_animated":     len(i2v_clips),       # how many actually generated (rest = Ken Burns)
