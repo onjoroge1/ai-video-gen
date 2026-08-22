@@ -33,6 +33,26 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+_EMPTY_SEMANTIC_VALUES = {"", "none", "no", "n/a", "na", "unchanged", "same", "empty"}
+
+
+def _meaningful(value: Any) -> bool:
+    return _text(value).casefold() not in _EMPTY_SEMANTIC_VALUES
+
+
+def _bool_value(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = _text(value).casefold()
+    if normalized in {"false", "0", "no", "off", "absent"}:
+        return False
+    if normalized in {"true", "1", "yes", "on", "present"}:
+        return True
+    return default
+
+
 def _words(text: str) -> list[str]:
     return re.findall(r"[^\W\d_]+(?:['-][^\W\d_]+)*", text or "", re.UNICODE)
 
@@ -79,6 +99,18 @@ def build_story_contract(
             "visible_consequence": _text(beat.get("visible_consequence")),
             "opens_loop": opens,
             "closes_loop": closes,
+            "human_present": _bool_value(beat.get("human_present"), True),
+            "human_intention": _text(beat.get("human_intention")),
+            "human_belief": _text(beat.get("human_belief")),
+            "viewer_knows": _text(beat.get("viewer_knows")),
+            "human_knows": _text(beat.get("human_knows")),
+            "expected_outcome": _text(beat.get("expected_outcome")),
+            "actual_outcome": _text(beat.get("actual_outcome")),
+            "belief_changed": _text(beat.get("belief_changed")),
+            "decision_caused": _text(beat.get("decision_caused")),
+            "continuity_anchor": _text(beat.get("continuity_anchor")),
+            "causal_link": _text(beat.get("causal_link")),
+            "bolt_mode": _text(beat.get("bolt_mode")) or "absent",
         }
         compact_beats.append(item)
         if opens:
@@ -90,13 +122,30 @@ def build_story_contract(
             })
 
     return {
-        "version": 1,
+        "version": 2,
         "core_question": _text(plan.get("throughline")) or _text(question),
         "title_promise": _text(plan.get("title")) or _text(question),
         "thumbnail_promise": _text(plan.get("thumbnail_promise")) or _text(plan.get("hook")),
         "false_model": _text(plan.get("false_model")),
         "replacement_model": _text(plan.get("replacement_model")),
         "personal_stake": _text(plan.get("personal_stake")),
+        "story_format_requested": _text(plan.get("story_format_requested")) or "standard_explainer",
+        "story_format_effective": _text(plan.get("story_format_effective")) or "standard_explainer",
+        "story_format_fallback_reason": _text(plan.get("story_format_fallback_reason")),
+        "mystery_suitable": _bool_value(plan.get("mystery_suitable")),
+        "anomaly": _text(plan.get("anomaly")),
+        "human_subject": _text(plan.get("human_subject")),
+        "human_role": _text(plan.get("human_role")),
+        "recurring_location": _text(plan.get("recurring_location")),
+        "subject_goal": _text(plan.get("subject_goal")),
+        "antagonistic_force": _text(plan.get("antagonistic_force")),
+        "accepted_belief": _text(plan.get("accepted_belief")),
+        "contradictory_evidence": _text(plan.get("contradictory_evidence")),
+        "viewer_initial_belief": _text(plan.get("viewer_initial_belief")),
+        "viewer_belief_after_reveal": _text(plan.get("viewer_belief_after_reveal")),
+        "opening_object": _text(plan.get("opening_object")),
+        "final_callback_object": _text(plan.get("final_callback_object")),
+        "character_budget": plan.get("character_budget") or {},
         "stages": [_text(x) for x in (plan.get("stages") or []) if _text(x)],
         "open_loops": opened,
         "target_runtime_sec": int(target_duration_sec),
@@ -146,6 +195,110 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     if contract and int(contract.get("beat_count") or 0) != len(scenes):
         errors.append(_issue("beat_expansion_mismatch", "One or more planned beats did not expand into a scene."))
 
+    # Version 2 is the human-led Phase-1 contract. Legacy fixtures remain readable,
+    # while every newly generated long-form plan is held to these fail-closed rules.
+    if int(contract.get("version") or 1) >= 2:
+        required = (
+            "anomaly", "human_subject", "human_role", "recurring_location", "subject_goal",
+            "antagonistic_force", "accepted_belief", "contradictory_evidence",
+            "viewer_initial_belief", "viewer_belief_after_reveal", "opening_object",
+            "final_callback_object",
+        )
+        missing = [key for key in required if not _meaningful(contract.get(key))]
+        checks["missing_human_story_fields"] = missing
+        if missing:
+            errors.append(_issue("incomplete_human_story_contract",
+                                 "Missing human-story field(s): " + ", ".join(missing)))
+
+        if (_text(contract.get("opening_object")).casefold()
+                != _text(contract.get("final_callback_object")).casefold()):
+            errors.append(_issue("broken_opening_object_callback",
+                                 "The ending must return to the exact opening object."))
+
+        opening_objective = [i for i, scene in enumerate(scenes)
+                             if starts[i] <= 8.0 and scene.get("human_present")
+                             and _text(scene.get("human_intention"))]
+        checks["human_objective_scenes_by_8s"] = [i + 1 for i in opening_objective]
+        if not opening_objective:
+            errors.append(_issue("human_goal_not_visible_by_8s",
+                                 "The human lead has no legible intention in the opening eight seconds."))
+
+        gaps = [i for i, scene in enumerate(scenes)
+                if _meaningful(scene.get("viewer_knows"))
+                and _text(scene.get("viewer_knows")).casefold()
+                != _text(scene.get("human_knows")).casefold()]
+        checks["knowledge_gap_scenes"] = [i + 1 for i in gaps]
+        if not gaps:
+            errors.append(_issue("no_viewer_human_knowledge_gap",
+                                 "At least one beat must let the viewer know evidence Alex does not."))
+
+        changed = [i for i, scene in enumerate(scenes)
+                   if _meaningful(scene.get("belief_changed"))
+                   and _meaningful(scene.get("decision_caused"))]
+        checks["belief_change_decision_scenes"] = [i + 1 for i in changed]
+        if not changed:
+            errors.append(_issue("evidence_never_forces_decision",
+                                 "No visible evidence changes Alex's belief and forces a decision."))
+
+        flat_runs = []
+        for i in range(max(0, len(scenes) - 2)):
+            window = scenes[i:i + 3]
+            def has_turn(scene: dict) -> bool:
+                causal = _text(scene.get("causal_link")).casefold()
+                linked = any(token in causal for token in (
+                    "because", "but", "therefore", "so ", "so,", "yet", "forces", "leads to"))
+                semantic_turn = any(_meaningful(scene.get(key)) for key in (
+                    "decision_caused", "belief_changed", "question_answered", "new_complication"))
+                return linked or semantic_turn
+
+            if all(not has_turn(scene) for scene in window):
+                flat_runs.append([i + 1, i + 2, i + 3])
+        checks["flat_consequence_runs"] = flat_runs
+        if flat_runs:
+            errors.append(_issue("consequence_enumeration",
+                                 "Three adjacent beats enumerate consequences without a causal turn.",
+                                 flat_runs[0][0]))
+
+        first_act_n = max(1, int(len(scenes) * 0.30 + 0.999))
+        recurring_terms = {w.lower() for w in _words(_text(contract.get("recurring_location")))
+                           if w.lower() not in _SUBJECT_STOP and len(w) > 2}
+        continuity_hits = []
+        for i, scene in enumerate(scenes[:first_act_n]):
+            anchor_terms = {w.lower() for w in _words(_text(scene.get("continuity_anchor")))}
+            if scene.get("human_present") or recurring_terms.intersection(anchor_terms):
+                continuity_hits.append(i + 1)
+        checks["first_act_continuity_hits"] = continuity_hits
+        required_hits = max(1, int(first_act_n * 0.70 + 0.999))
+        if len(continuity_hits) < required_hits:
+            errors.append(_issue("broken_first_act_continuity",
+                                 f"Only {len(continuity_hits)}/{first_act_n} first-act beats preserve Alex or the recurring location."))
+
+        bolt_scenes = [i + 1 for i, scene in enumerate(scenes) if scene.get("mascot_present")]
+        first_bolt = sum(1 for i in bolt_scenes if i <= first_act_n)
+        first_cap = max(1, int(first_act_n * 0.35))
+        total_cap = max(1, int(len(scenes) * 0.30))
+        checks["bolt_scenes"] = bolt_scenes
+        checks["bolt_caps"] = {"first_act": first_cap, "overall": total_cap}
+        if first_bolt > first_cap or len(bolt_scenes) > total_cap:
+            errors.append(_issue("bolt_presence_budget_exceeded",
+                                 "Bolt exceeds the selective supporting-character presence budget."))
+        decorative = [i + 1 for i, scene in enumerate(scenes)
+                      if scene.get("mascot_present") and _text(scene.get("bolt_mode"))
+                      not in {"measurement", "demonstration", "warning", "reaction", "assistance"}]
+        decorative.extend(i + 1 for i, scene in enumerate(scenes)
+                          if scene.get("mascot_present") and _text(scene.get("story_role"))
+                          in {"rules", "mechanism"} and i + 1 not in decorative)
+        checks["decorative_bolt_scenes"] = decorative
+        if decorative:
+            errors.append(_issue("decorative_bolt", "Bolt appears without a permitted story action.", decorative[0]))
+
+        requested = _text(contract.get("story_format_requested"))
+        effective = _text(contract.get("story_format_effective"))
+        if requested == "evidence_led_mystery" and not contract.get("mystery_suitable"):
+            if effective != "standard_explainer" or not _text(contract.get("story_format_fallback_reason")):
+                errors.append(_issue("invalid_mystery_fallback",
+                                     "An unsuitable mystery must fall back to Standard with a visible reason."))
+
     if roles[0] != "cold_consequence":
         errors.append(_issue("opening_not_consequence", "Scene 1 must be a cold, visible consequence.", 1, 0))
 
@@ -161,7 +314,8 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     subject_ratio = len(hits) / max(1, len(set(subject_terms)))
     checks["subject_terms_in_first_5s"] = hits
     if subject_terms and subject_ratio < 0.4:
-        warnings.append(_issue("subject_unclear_by_5s", "The exact subject may not be clear in the first five seconds."))
+        issue = _issue("subject_unclear_by_5s", "The exact subject is not clear in the first five seconds.")
+        (errors if int(contract.get("version") or 1) >= 2 else warnings).append(issue)
 
     predictions = [i for i, role in enumerate(roles) if role == "prediction_gate"]
     needed_predictions = 2 if runtime >= 120 else 1
@@ -269,6 +423,9 @@ def write_retention_report(report: dict, contract: dict, out_dir: str) -> str:
         f"LONG-FORM RETENTION CONTRACT — {'PASS' if report.get('passed') else 'FAIL'}",
         f"Score: {report.get('score', 0)}/100",
         f"Core question: {_text(contract.get('core_question'))}",
+        f"Story structure: {_text(contract.get('story_format_effective')) or 'standard_explainer'}",
+        f"Human lead: {_text(contract.get('human_subject')) or 'not declared'} — goal: {_text(contract.get('subject_goal'))}",
+        f"Bolt scenes: {(contract.get('character_budget') or {}).get('bolt_scenes', [])}",
         f"Natural runtime estimate: {contract.get('natural_runtime_sec', '?')}s",
         "",
         "DETERMINISTIC CHECKS",

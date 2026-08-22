@@ -1563,6 +1563,15 @@
         <span class="field-hint">Enriches the system prompt. Applied only where it doesn't conflict with the format, structure, or safety/accuracy rules (those always win). Leave blank for none.</span>
       </div>
 
+      <div class="field" id="story-format-field" style="margin-top:14px;">
+        <label>Story structure <span style="opacity:.6;">(long-form)</span></label>
+        <select id="expl-story-format" class="input-field">
+          <option value="standard_explainer">Standard explainer — answer early, escalate causally</option>
+          <option value="evidence_led_mystery">Evidence-led mystery — build a belief, break it with proof</option>
+        </select>
+        <span class="field-hint">Alex leads both structures and Bolt assists only when useful. If a topic cannot support a genuine mystery, the plan falls back to Standard before media spend and records the reason.</span>
+      </div>
+
       <div class="field" style="margin-top:14px;">
         <label>Series <span style="opacity:.6;">(optional — format-series mode)</span></label>
         <input type="text" id="expl-series" class="input-field"
@@ -2657,6 +2666,7 @@
     document.getElementById('bubble-field').style.display = (fmt === 'social') ? 'none' : 'block';
     // Short template selector is social-only (curiosity explainer vs simulation).
     document.getElementById('template-field').style.display = (fmt === 'social') ? 'block' : 'none';
+    document.getElementById('story-format-field').style.display = (fmt === 'social') ? 'none' : 'block';
   }
 
   // High-search, curiosity-driven question pool (drives clicks)
@@ -3007,6 +3017,7 @@
       short_template: document.getElementById('expl-template').value,
       n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
       operator_direction: document.getElementById('expl-direction').value.trim(),
+      story_format:   (document.getElementById('expl-story-format') || {}).value || 'standard_explainer',
     };
 
     let res;
