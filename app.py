@@ -1067,6 +1067,7 @@ class ExplainerRequest(BaseModel):
     n_items: int = 3                  # quiz template only: number of guess rounds (clamped 2-6)
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
+    story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
 
 
 async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir: str,
@@ -1112,6 +1113,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     series=request.series,
                     short_template=request.short_template,
                     operator_direction=request.operator_direction,
+                    story_format=request.story_format,
                     resume=resume,
                     progress_cb=push,
                 ),

@@ -135,10 +135,9 @@ def _run_ffmpeg(cmd: list, timeout: float = 180.0):
                           stdin=subprocess.DEVNULL, timeout=timeout)
 
 
-# ── Channel mascot (branded host, reused across every video) ────────────────────
-# Bolt hosts every explainer. His look is locked by a canonical reference image
-# (assets/mascot/bolt.png) passed to gpt-image-1's image-edit mode, so he stays
-# consistent scene-to-scene and video-to-video. The verbatim string reinforces it.
+# ── Recurring cast ─────────────────────────────────────────────────────────────
+# Long-form is human-led. Bolt remains the branded co-investigator and appears
+# only when he performs story work. Both identities are locked by references.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Image model: gpt-image-2 is SOTA at instruction-following (so cinematic composition
@@ -300,6 +299,26 @@ MASCOT_DESC = (
     "smooth hovering rounded base instead of legs"
 )
 MASCOT_REF = os.path.join(_HERE, "assets", "mascot", "bolt.png")
+HUMAN_NAME = "Alex"
+HUMAN_DESC = (
+    "Alex, the recurring human lead shown in the attached reference: an adult man with short "
+    "brown hair, light stubble, navy overshirt, light gray T-shirt, dark jeans, and dark sneakers"
+)
+HUMAN_REF = os.path.join(_HERE, "assets", "mascot", "human-model.png")
+HUMAN_REF_LINE = (
+    "Use the attached human reference image to keep Alex exactly consistent: same face, hair, "
+    "navy overshirt, gray T-shirt, dark jeans, build, and apparent age."
+)
+
+
+def _scene_reference_paths(scene: dict, *, human_ok: bool, mascot_ok: bool) -> list[str] | None:
+    """Return identity references in stable lead-then-support order."""
+    refs: list[str] = []
+    if scene.get("human_present") and human_ok:
+        refs.append(HUMAN_REF)
+    if scene.get("mascot_present") and mascot_ok:
+        refs.append(MASCOT_REF)
+    return refs or None
 
 # Short line used in host-scene prompts — the reference image carries the identity,
 # so we no longer repeat the full description (frees prompt room for cinematography).
@@ -838,7 +857,8 @@ def _premise_block(contract: dict | None) -> str:
 def generate_script(question: str, duration_sec: int = 90, style: str = "engaging and scientific",
                     image_guidance: str = "", video_format: str = "landscape",
                     series: str = "", improve_note: str = "", short_template: str = "auto",
-                    operator_direction: str = "", premise_contract: dict | None = None) -> dict:
+                    operator_direction: str = "", premise_contract: dict | None = None,
+                    story_format: str = "standard_explainer") -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -858,7 +878,7 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
             n_scenes = min(n_scenes, 11)
     else:
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
-                                      series, improve_note, operator_direction)
+                                      series, improve_note, operator_direction, story_format)
         sc, _hc = _ensure_hook_names_subject(sc, question)   # zero-friction: subject named by line 2
         if _hc:
             sc["_script_cost_usd"] = round(float(sc.get("_script_cost_usd") or 0.0) + _hc, 4)
@@ -1120,14 +1140,13 @@ _SCENE_FIELDS_RULES = (
     '(e.g. objects frozen mid-fall for gravity), never generic glow or floating particles, and '
     'NEVER convey it through a sign, label, receipt, price tag, barcode, screen text, or number '
     '(those render as garbled AI text and look cheap) — use an OBJECT or ACTION instead; vary '
-    'the surprise type across scenes), mascot_present (always true — '
-    f'{MASCOT_NAME} hosts every scene; the image_prompt must LEAD with a strong action verb, in '
-    f'the shape "{MASCOT_NAME} <verb> <doing what THIS scene teaches>, in <environment>..." '
-    '(holding/pushing/testing/leaning/comparing/bracing) — NEVER "standing beside" or '
-    f'"observing"), bolt_mode (experience|demonstration|observation — how {MASCOT_NAME} relates to '
-    'THIS beat: experience = it happens TO him / he runs the experiment on himself, demonstration = '
-    'he actively shows or tests it, observation = he watches an instrument or readout react; escalate '
-    'roughly experience -> demonstration -> observation as the story widens from him to the cosmos), '
+    'the surprise type across scenes), human_present (true when Alex acts, decides, predicts, reacts, '
+    'or carries the personal stake), human_action (specific action toward Alex\'s current objective; '
+    'empty only for a pure evidence view), mascot_present (true ONLY when Bolt performs useful story '
+    'work), bolt_mode (absent|measurement|demonstration|warning|reaction|assistance). Pure evidence, '
+    'location, scale, record, map, and mechanism views normally set mascot_present=false and '
+    'bolt_mode="absent". If Bolt appears, the image_prompt must describe the concrete measurement, '
+    'test, warning, reaction, or assistance he performs — NEVER standing or pointing beside the topic. '
     'shot_type '
     '(wide|medium|close|aerial|detail), text_overlay (USUALLY EMPTY "" — the subtitles carry the '
     'words; set it ONLY on a genuine reveal/transition/branch scene, and ONLY as a stage label or a '
@@ -1302,8 +1321,130 @@ def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tupl
         return script, 0.0
 
 
+_BOLT_STORY_MODES = frozenset({"measurement", "demonstration", "warning", "reaction", "assistance"})
+_BOLT_FORBIDDEN_ROLES = frozenset({"rules", "mechanism"})
+_BOLT_ROLE_PRIORITY = {
+    "prediction_gate": 0, "reversal": 1, "payoff": 2, "final_payoff": 3,
+    "cold_consequence": 4, "rehook": 5,
+}
+
+
+def _plan_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = _s(value).strip().lower()
+    if normalized in {"false", "0", "no", "off", "absent"}:
+        return False
+    if normalized in {"true", "1", "yes", "on", "present"}:
+        return True
+    return default
+
+
+def _apply_character_budget(beats: list[dict]) -> dict:
+    """Make Bolt selective and report every deterministic override.
+
+    The planner proposes useful roles; this function enforces the release defaults so a
+    prompt regression cannot quietly put Bolt back into every scene.
+    """
+    import math
+    n = len(beats)
+    first_n = max(1, math.ceil(n * 0.30))
+    first_cap = max(1, math.floor(first_n * 0.35))
+    total_cap = max(1, math.floor(n * 0.30))
+    proposed: list[int] = []
+    overrides: list[dict] = []
+    for i, beat in enumerate(beats):
+        mode = _s(beat.get("bolt_mode")).strip().lower()
+        if mode not in _BOLT_STORY_MODES or _s(beat.get("role")) in _BOLT_FORBIDDEN_ROLES:
+            beat["bolt_mode"] = "absent"
+        else:
+            beat["bolt_mode"] = mode
+            proposed.append(i)
+        if "human_present" not in beat:
+            beat["human_present"] = True
+
+    ranked = sorted(proposed, key=lambda i: (
+        _BOLT_ROLE_PRIORITY.get(_s(beats[i].get("role")), 20), i))
+    keep: set[int] = set()
+    first_used = 0
+    for i in ranked:
+        if len(keep) >= total_cap:
+            break
+        if i < first_n:
+            if first_used >= first_cap:
+                continue
+            first_used += 1
+        keep.add(i)
+    for i in proposed:
+        if i not in keep:
+            overrides.append({"scene": i + 1, "from": beats[i]["bolt_mode"], "to": "absent",
+                              "reason": "character_presence_budget"})
+            beats[i]["bolt_mode"] = "absent"
+    return {
+        "first_act_scene_count": first_n,
+        "first_act_cap": first_cap,
+        "overall_cap": total_cap,
+        "bolt_scenes": [i + 1 for i in sorted(keep)],
+        "overrides": overrides,
+    }
+
+
+def _evaluate_mystery_suitability(plan: dict, beats: list[dict]) -> tuple[bool, list[str]]:
+    """Deterministically verify that a proposed mystery has something to investigate."""
+    reasons: list[str] = []
+    for key in ("anomaly", "accepted_belief", "contradictory_evidence",
+                "recurring_location", "subject_goal"):
+        if not _s(plan.get(key)):
+            reasons.append(f"missing {key}")
+    evidence_beats = [b for b in beats if _s(b.get("actual_outcome"))
+                      or _s(b.get("visible_consequence"))]
+    if len(evidence_beats) < 3:
+        reasons.append("fewer than three visible evidence states")
+    if not any(_s(b.get("expected_outcome")) and _s(b.get("actual_outcome"))
+               and _s(b.get("expected_outcome")).casefold()
+               != _s(b.get("actual_outcome")).casefold() for b in beats):
+        reasons.append("no failed prediction or test")
+    if not any(_s(b.get("belief_changed")) for b in beats):
+        reasons.append("no evidence-led belief change")
+    if not _plan_bool(plan.get("mystery_suitable")):
+        reasons.append(_s(plan.get("mystery_unsuitable_reason")) or "planner marked topic unsuitable")
+    return not reasons, reasons
+
+
+def _opening_expansion_direction(story_format: str, is_first: bool) -> str:
+    """Keep scene expansion faithful to the structure selected during planning."""
+    if not is_first:
+        return ""
+    if story_format == "evidence_led_mystery":
+        return (
+            ' This batch contains the MYSTERY OPENING. Scene 1 shows the concrete anomaly acting '
+            'on Alex or the exact opening object and names the title subject. Make Alex\'s objective '
+            'legible by eight seconds. The next scenes follow the assigned prediction and evidence '
+            'states: deliver a satisfying local clue or failed test by 10-20 seconds, but do not '
+            'announce stages, recite a roadmap, or explain the deepest cause before the evidence '
+            'earns it. Establish the assigned viewer/Alex knowledge gap through visible proof.'
+        )
+    return (
+        ' This batch contains the OPENING — get to a real ANSWER FAST; do NOT stack hooks. Scene '
+        '1 = COLD CONSEQUENCE: open on the single most VISCERAL, high-stakes result the viewer '
+        'clicked to see (the DRAMATIC thing, NOT an atmospheric/poetic detail like a subtly '
+        'changing shadow) and NAME THE SUBJECT with the actual topic noun (say the real thing, '
+        'e.g. "the Electoral College" / "jet fuel" / "the Sun") — NOT a definition, NOT an '
+        'exact-number dump, NEVER a euphemism/pronoun ("a middleman", "this system", "it"). Scene '
+        '2 = resolve its FIRST mechanism so the viewer already holds a concrete ANSWER (~10s in). '
+        'Scenes 3-4 = fast PROMISE: state the central question, NAME THE STAGES, tease the '
+        'biggest twist to come, and pose ONE prediction about the DEEPER danger ("which does the '
+        'real damage — X, Y, or Z?"), then a second payoff + brief false-relief. Do NOT put more '
+        'than two setup/prediction beats before that first resolved answer. Keep the central '
+        'question OPEN.'
+    )
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
-                             improve_note="", operator_direction="") -> dict:
+                             improve_note="", operator_direction="",
+                             story_format="standard_explainer") -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -1333,7 +1474,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         f'{n_scenes}; returning somewhat fewer is fine ONLY if the topic truly lacks that many DISTINCT '
         'beats — never pad with filler or repetition.\n'
         'Return ONLY JSON: {"title","hook","thumbnail_promise","throughline","false_model",'
-        '"replacement_model","personal_stake","style_mode"(educational|scientific|cinematic'
+        '"replacement_model","personal_stake","anomaly","human_subject":"Alex",'
+        '"human_role","recurring_location","subject_goal","antagonistic_force","accepted_belief",'
+        '"contradictory_evidence","viewer_initial_belief","viewer_belief_after_reveal",'
+        '"opening_object","final_callback_object" (MUST exactly equal opening_object),'
+        '"mystery_suitable":true|false,"mystery_unsuitable_reason":"",'
+        '"style_mode"(educational|scientific|cinematic'
         '|fun),"stages":[2-4 SHORT ALL-CAPS act labels naming the escalating journey, e.g. '
         '["SIGNALS","MATTER","LIFE"] or ["YOUR BODY","THE PLANET","REALITY"]; for a topic with distinct '
         'TIMESCALES prefer a TEMPORAL ladder like ["INSTANT","MILLIONS OF YEARS","BILLIONS OF YEARS"] so '
@@ -1344,8 +1490,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'FIRST within the opening ~15-20%],"beats":[{"n":<int>,"pct":<int 0-100, this beat\'s position '
         'in the runtime>,"beat":"the SINGLE new idea/fact/story-move for this scene, concrete, one '
         'sentence","role":"cold_consequence|promise|prediction_gate|rules|payoff|escalation|rehook|'
-        'mechanism|reversal|branch|false_relief|final_escalation|final_payoff|resonant_end","bolt_mode":'
-        '"experience|demonstration|observation","question_opened":"question created by this beat or '
+        'mechanism|reversal|branch|false_relief|final_escalation|final_payoff|resonant_end",'
+        '"human_present":true|false,"human_intention":"what Alex is trying to accomplish now",'
+        '"human_belief":"what Alex believes",'
+        '"viewer_knows":"specific evidence visible to the viewer","human_knows":"specific evidence Alex has",'
+        '"expected_outcome":"what Alex predicts","actual_outcome":"what visibly occurs",'
+        '"belief_changed":"old belief -> new belief or empty","decision_caused":"action forced by evidence",'
+        '"continuity_anchor":"recurring subject/location/object visible in this beat",'
+        '"causal_link":"because|but|therefore|so plus the preceding-beat connection",'
+        '"bolt_mode":"absent|measurement|demonstration|warning|reaction|assistance",'
+        '"question_opened":"question created by this beat or '
         'empty","question_answered":"earlier question resolved by this beat or empty",'
         '"new_complication":"larger problem created by the answer or empty","visible_consequence":'
         '"the concrete change visible on screen","opens_loop":"short stable loop id or empty",'
@@ -1401,21 +1555,29 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '"X happens NOW", it stays "NOW" — do not silently switch to "a universe that always had X"). '
         'If the premise is genuinely ambiguous, make THAT the twist: present the variants as explicit '
         '"branch" beats near the peak, never as a mid-video drift.\n'
-        '10. CAUSAL SPINE: connect beats with BUT / THEREFORE / SO — never "and then". One idea + one '
-        'cause->effect + one consequence per beat.\n'
-        '11. ENDING (last ~6-10 beats): after the peak, ONE false-relief beat, then the final '
+        '10. HUMAN-LED CAUSAL SPINE: Alex owns one objective and one developing belief. Every beat after '
+        'the anomaly must be caused by the previous discovery and must change a belief, force a decision, '
+        'answer a question, or create a sharper complication. Connect beats with BUT / THEREFORE / SO — '
+        'never "and then". At least one beat must give the viewer evidence Alex does not yet know. Three '
+        'adjacent consequence-only beats are a hard failure. Bolt is absent from pure evidence/mechanism '
+        'beats and appears only when his action materially helps Alex investigate.\n'
+        '11. HOOK: within the first five seconds name the title subject and show a concrete anomaly acting '
+        'on Alex or his opening object. By eight seconds Alex\'s objective must be legible. Open a causal '
+        'question; never open with a definition, generic beauty shot, roadmap, or Bolt pointing.\n'
+        '12. ENDING (last ~6-10 beats): after the peak, ONE false-relief beat, then the final '
         'escalation, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT experiment posed '
         'at the start (not a drifted one), then ONE resonant new line tied to THIS story — never a '
-        'recap, never a generic PSA. Any CTA comes AFTER the payoff, never interrupting it.\n'
-        '12. NO PADDING: never invent filler or near-duplicate beats to hit the count. A tight journey '
+        'recap, never a generic PSA. Return to final_callback_object, which must be the exact opening_object, '
+        'and change its meaning through the answer. Any CTA comes AFTER the payoff.\n'
+        '13. NO PADDING: never invent filler or near-duplicate beats to hit the count. A tight journey '
         'of fewer rich beats beats a padded long one. Read top to bottom: every beat must ADD something '
         'the previous beats did not.\n'
-        '13. TIMESCALE HONESTY (TWO CLOCKS): never present a slow effect as instant. Separate what '
+        '14. TIMESCALE HONESTY (TWO CLOCKS): never present a slow effect as instant. Separate what '
         'happens IMMEDIATELY (e.g. gravity, an orbit) from what takes MILLIONS or BILLIONS of years '
         '(e.g. a star re-reaching equilibrium, evolution) — a beat calling an effect instant must NOT be '
         'contradicted by a later beat calling that same effect gradual. Use the two clocks as tension: '
         'tease the biggest long-clock stake early as a promise, pay it off late.\n'
-        '14. ONE METAPHOR PER MECHANIC: each mechanic gets AT MOST ONE metaphor. NEVER schedule 2-3 '
+        '15. ONE METAPHOR PER MECHANIC: each mechanic gets AT MOST ONE metaphor. NEVER schedule 2-3 '
         'consecutive beats that re-illustrate the SAME idea with different images (pressure cooker, then '
         'furnace, then candle = pick ONE). After the metaphor lands, the next beat delivers the '
         'CONSEQUENCE, not another metaphor for the same thing.\n'
@@ -1429,6 +1591,28 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'branch reveal / most counter-intuitive answer) · 76-82% false_relief · 83-92% final_escalation '
         '· 92-97% final_payoff (answers the title, resolves the exact experiment) · 97-100% resonant_end.'
     )
+    requested_story_format = (story_format if story_format in
+                              {"standard_explainer", "evidence_led_mystery"}
+                              else "standard_explainer")
+    if requested_story_format == "evidence_led_mystery":
+        beat_prompt += (
+            "\nSELECTED STRUCTURE — EVIDENCE-LED MYSTERY. First decide whether this topic genuinely "
+            "supports a concrete anomaly, reasonable false belief, at least three distinguishable "
+            "evidence states, an investigation/test, a reveal that changes interpretation, and a "
+            "recurring subject/object/location. Set mystery_suitable accordingly. If suitable, this "
+            "instruction overrides the FAST ANSWER, PROMISE + ROADMAP, DISTRIBUTED REWARDS, and FIXED "
+            "ARCHITECTURE timing above wherever they conflict: do not announce a roadmap; give local "
+            "evidence payoffs but withhold only the deepest causal explanation until 45-70%; each clue "
+            "weakens Alex's false belief and forces his next action. If unsuitable, write a STANDARD "
+            "EXPLAINER plan instead and explain why in mystery_unsuitable_reason."
+        )
+    else:
+        beat_prompt += (
+            "\nSELECTED STRUCTURE — STANDARD EXPLAINER. Deliver the first useful mechanism by 10-20 "
+            "seconds, then distribute connected payoffs. Preserve the human-led evidence chain, but "
+            "do not artificially withhold an answer already earned. Set mystery_suitable based on the "
+            "topic for reporting only; do not change the selected Standard structure."
+        )
     if improve_note:
         beat_prompt += ("\nPRIORITY FIX — the previous draft scored weak here; fix this FIRST in the "
                         "beat sheet while keeping everything else: " + improve_note)
@@ -1444,6 +1628,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         beats = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
     for i, b in enumerate(beats):
         b["n"] = i + 1                                  # canonical renumber
+    mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
+    plan["mystery_suitable"] = mystery_suitable
+    effective_story_format = requested_story_format
+    fallback_reason = ""
+    if requested_story_format == "evidence_led_mystery" and not mystery_suitable:
+        effective_story_format = "standard_explainer"
+        fallback_reason = "; ".join(dict.fromkeys(mystery_reasons))
+    character_budget = _apply_character_budget(beats)
     n_scenes = len(beats)
     # Re-derive the per-scene word budget from the ACTUAL beat count. The model may return materially
     # fewer beats than requested (the tightness rules push it to prune), and wpm was sized for the
@@ -1461,17 +1653,44 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                       if isinstance(p, (int, float)) and 1 <= int(p) <= n_scenes})
     stages = [_s(x).strip() for x in (plan.get("stages") or []) if _s(x).strip()]
 
-    # The whole beat sheet, visible to EVERY expansion batch → no batch re-teaches another's beat.
-    sheet = "\n".join(f'{b["n"]}. [{_s(b.get("role")) or "beat"}|{_s(b.get("bolt_mode")) or "experience"}] '
-                      f'{_s(b.get("beat"))}' for b in beats)
-    roadmap = (' The escalating STAGES (name them for the viewer and signal progress through them): '
-               + " -> ".join(stages) + "." if stages else "")
+    # The whole causal sheet is visible to EVERY expansion batch. Passing only the topic sentence
+    # here let expansion silently discard Alex's intention, the evidence state, and the continuity
+    # anchor even though the planner had supplied them.
+    def _expansion_beat(beat: dict) -> dict:
+        return {
+            "n": beat.get("n"), "role": _s(beat.get("role")) or "beat",
+            "beat": _s(beat.get("beat")),
+            "human_present": _plan_bool(beat.get("human_present"), True),
+            "human_intention": _s(beat.get("human_intention")),
+            "human_belief": _s(beat.get("human_belief")),
+            "expected_outcome": _s(beat.get("expected_outcome")),
+            "actual_outcome": _s(beat.get("actual_outcome")),
+            "continuity_anchor": _s(beat.get("continuity_anchor")),
+            "causal_link": _s(beat.get("causal_link")),
+            "bolt_mode": _s(beat.get("bolt_mode")) or "absent",
+        }
+
+    sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
+    if stages and effective_story_format == "standard_explainer":
+        roadmap = (' The escalating STAGES (name them for the viewer and signal progress through them): '
+                   + " -> ".join(stages) + ".")
+    elif stages:
+        roadmap = (' The internal story acts are ' + " -> ".join(stages)
+                   + '; do not announce this roadmap to the viewer.')
+    else:
+        roadmap = ""
     payoff_line = (' Payoff scenes (each must land a concrete, pictureable answer): '
                    + ", ".join(map(str, payoffs)) + "." if payoffs else "")
+    answer_policy = (
+        'The PEAK is the strongest evidence-led reinterpretation. Distribute concrete clue payoffs, '
+        'but do not reveal the deepest causal answer before the planned reversal.'
+        if effective_story_format == "evidence_led_mystery" else
+        'The PEAK is the strongest reveal; do NOT hoard the answer to the end because payoffs are distributed.'
+    )
     sheet_block = ('\n\nFULL BEAT SHEET for the whole video (every scene is already assigned ONE beat; '
                    'expand ONLY your assigned scenes, and NEVER explain an idea that belongs to a '
                    'different beat — it is covered there, not here). The PEAK (strongest reveal) is '
-                   f'scene {peak}; do NOT hoard the answer to the end — payoffs are distributed.'
+                   f'scene {peak}. {answer_policy}'
                    + roadmap + payoff_line + "\n"
                    + sheet + "\n")
     theme_line = (f' Theme/setting steer (lean in where it fits, never force): "{image_guidance}".'
@@ -1489,10 +1708,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         seam = ("" if is_first else
                 f'\nThe previous scene ended: "{prev_tail}". Continue DIRECTLY as one video — no recap, '
                 'no "welcome back"/"in this chapter", do not re-introduce the topic.\n')
-        assigned = "\n".join(f'{b["n"]}. [{_s(b.get("role")) or "beat"}] {_s(b.get("beat"))}' for b in batch)
+        assigned = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in batch)
+        opening_direction = _opening_expansion_direction(effective_story_format, is_first)
         ch_prompt = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
-            f'Host: {MASCOT_NAME} — {MASCOT_DESC}.'
+            f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
+            f'{MASCOT_NAME} — {MASCOT_DESC}.'
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
             + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned beat below into exactly ONE scene, '
@@ -1513,23 +1734,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
-            + (' This batch contains the OPENING — get to a real ANSWER FAST; do NOT stack hooks. Scene '
-               '1 = COLD CONSEQUENCE: open on the single most VISCERAL, high-stakes result the viewer '
-               'clicked to see (the DRAMATIC thing, NOT an atmospheric/poetic detail like a subtly '
-               'changing shadow) and NAME THE SUBJECT with the actual topic noun (say the real thing, '
-               'e.g. "the Electoral College" / "jet fuel" / "the Sun") — NOT a definition, NOT an '
-               'exact-number dump, NEVER a euphemism/pronoun ("a middleman", "this system", "it"). Scene '
-               '2 = resolve its FIRST mechanism so the viewer already holds a concrete ANSWER (~10s in). '
-               'Scenes 3-4 = fast PROMISE: state the central question, NAME THE STAGES, tease the '
-               'biggest twist to come, and pose ONE prediction about the DEEPER danger ("which does the '
-               'real damage — X, Y, or Z?"), then a second payoff + brief false-relief. Do NOT put more '
-               'than two setup/prediction beats before that first resolved answer. Keep the central '
-               'question OPEN.'
-               if is_first else "")
+            + opening_direction
             + (' This batch contains the ENDING: after the peak, write ONE brief false-relief beat, then '
                'the FINAL ESCALATION, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT '
                'experiment posed at the start (do NOT drift to a different scenario), then close on ONE '
-               'specific resonant NEW thought tied to this story — do NOT re-summarize or restate any '
+               f'specific resonant NEW thought tied to this story. Return visibly to the exact opening '
+               f'object "{_s(plan.get("opening_object"))}" and change its meaning through the answer. '
+               'Do NOT re-summarize or restate any '
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
                if is_last else "")
         )
@@ -1539,15 +1750,20 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
         for batch_index, s in enumerate(part.get("scenes") or []):
             beat = batch[batch_index] if batch_index < len(batch) else {}
-            s["mascot_present"] = True
-            s.setdefault("bolt_mode", "experience")
+            s["human_present"] = _plan_bool(beat.get("human_present"), True)
+            s["human_action"] = _s(beat.get("human_intention"))
+            s["bolt_mode"] = _s(beat.get("bolt_mode")) or "absent"
+            s["mascot_present"] = s["bolt_mode"] != "absent"
             # Persist the planner's story semantics. The deterministic retention gate consumes
             # these fields without asking the model to grade its own compliance.
             s["story_beat_n"] = int(beat.get("n") or (len(all_scenes) + 1))
             s["story_pct"] = int(beat.get("pct") or 0)
             s["story_role"] = _s(beat.get("role")) or "beat"
             for key in ("question_opened", "question_answered", "new_complication",
-                        "visible_consequence", "opens_loop", "closes_loop"):
+                        "visible_consequence", "opens_loop", "closes_loop", "human_intention",
+                        "human_belief", "viewer_knows", "human_knows", "expected_outcome",
+                        "actual_outcome", "belief_changed", "decision_caused",
+                        "continuity_anchor", "causal_link"):
                 s[key] = _s(beat.get(key))
             all_scenes.append(s)
         bi += per_batch
@@ -1558,6 +1774,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
 
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1
+    plan["story_format_requested"] = requested_story_format
+    plan["story_format_effective"] = effective_story_format
+    plan["story_format_fallback_reason"] = fallback_reason
+    plan["character_budget"] = character_budget
     story_contract = build_story_contract(question, plan, beats, all_scenes, duration_sec)
     return {
         "title": _s(plan.get("title")) or question,
@@ -1570,6 +1790,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "_payoffs": payoffs,
         "_stages": stages,
         "_story_contract": story_contract,
+        "_story_format": effective_story_format,
+        "_story_format_requested": requested_story_format,
+        "_story_format_fallback_reason": fallback_reason,
+        "_character_plan": character_budget,
     }
 
 
@@ -1795,8 +2019,8 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
                    cost_sink: list | None = None, size: str = "1536x1024") -> str:
     """Generate a scene image with gpt-image-2.
 
-    If reference_paths is given, use image-edit mode so the referenced character
-    (the mascot) appears consistently; otherwise plain text-to-image.
+    If reference_paths is given, use image-edit mode so referenced cast members
+    remain consistent; otherwise use text-to-image.
     `size` is the gpt-image-2 size string (landscape 1536x1024 or portrait 1024x1536).
     If cost_sink is given, the call's ACTUAL USD cost (from usage tokens) is appended.
     """
@@ -1838,12 +2062,20 @@ def safe_image_prompt(scene: dict) -> str:
     """A moderation-safe retry that KEEPS the scene's surprise intent — a calm cosmic abstraction
     would tank visual_surprise on any blocked scene, so stay peculiar, just safe."""
     topic = (_s(scene.get("text_overlay")) or _s(scene.get("image_prompt"))[:60]).strip()
+    if scene.get("human_present") and scene.get("mascot_present"):
+        cast = "Alex actively investigating, with Bolt performing the declared supporting action"
+    elif scene.get("human_present"):
+        cast = "Alex actively investigating"
+    elif scene.get("mascot_present"):
+        cast = "Bolt performing the declared supporting action"
+    else:
+        cast = "no characters; show only the physical evidence"
     return (
-        f"A simple, abstract but VISUALLY ODD representation of '{topic}' — an object used the wrong "
-        "way, a wrong-scale prop, or a surprising juxtaposition, with Bolt the friendly robot "
-        "reacting with surprise. Keep it abstract and clean enough to pass moderation, but peculiar "
-        "and eye-catching — NOT calm, glowy, or generic. No people, no identifiable beings, no "
-        "brands. Premium clean 3D animated style. No text, letters, numbers, labels, UI, or watermark."
+        f"A simple, moderation-safe but VISUALLY ODD representation of '{topic}' — an object used "
+        f"the wrong way, a wrong-scale prop, or a surprising juxtaposition; {cast}. Preserve the "
+        "story action and make the evidence readable in half a second. Keep it peculiar and "
+        "eye-catching, not calm, glowy, generic, violent, disturbing, or branded. Premium clean "
+        "3D animated style. No text, letters, numbers, labels, UI, or watermark."
     )
 
 
@@ -2941,7 +3173,8 @@ def _slop_warnings(scenes: list) -> list:
     out = []
     if n < 4:
         return out
-    # Bolt is intentionally in every scene (he's the host) — not flagged.
+    # Character-presence budgets are enforced by the long-form story contract; this
+    # detector stays focused on visual variety for both long-form and social output.
     envs = Counter((_s(s.get("environment_type"), "?").strip().lower() or "?") for s in scenes)
     slop = sum(c for e, c in envs.items() if any(k in e for k in _SLOP_ENVS))
     if slop / n > 0.40:
@@ -4275,7 +4508,8 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
 
 
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
-                           cost_sink=None, log=lambda m: None, operator_direction: str = "") -> dict:
+                           cost_sink=None, log=lambda m: None, operator_direction: str = "",
+                           story_format: str = "standard_explainer") -> dict:
     """Generate a script, engagement-grade it, and ELEVATE a sub-target draft by surgically revising
     its weakest axis (up to `_SCRIPT_GATE_RETRIES` passes), keeping the best-scoring version. Returns
     that draft. Stores the winning grade on `script['_grade']`. Never blocks: a grader failure accepts
@@ -4283,7 +4517,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     climbs toward the PASS target instead of gambling on a new roll."""
     import copy
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
-                           video_format=video_format, series=series, operator_direction=operator_direction)
+                           video_format=video_format, series=series, operator_direction=operator_direction,
+                           story_format=story_format)
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
     for _ in range(max(0, _LONGFORM_CONTRACT_RETRIES)):
@@ -4294,6 +4529,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         cand = generate_script(
             question, duration_sec, style, image_guidance=image_guidance,
             video_format=video_format, series=series, operator_direction=operator_direction,
+            story_format=story_format,
             improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
         )
         total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
@@ -4626,6 +4862,7 @@ def run_explainer_pipeline(
     series: str = "",
     short_template: str = "auto",   # social only: auto | explainer | simulation
     operator_direction: str = "",   # optional per-video/channel creative direction (subordinate to rules)
+    story_format: str = "standard_explainer",
     progress_cb=None,
 ) -> dict:
 
@@ -4698,7 +4935,8 @@ def run_explainer_pipeline(
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
             script = generate_graded_script(question, duration_sec, style, image_guidance,
                                             video_format, series, cost_sink=aux_costs, log=log,
-                                            operator_direction=operator_direction)
+                                            operator_direction=operator_direction,
+                                            story_format=story_format)
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
@@ -4717,7 +4955,9 @@ def run_explainer_pipeline(
                 log("Fact-check: no corrections needed ✓")
             scenes = script.get("scenes", [])
         n_host = sum(1 for s in scenes if s.get("mascot_present"))
-        log(f"Host: {MASCOT_NAME} appears in {n_host}/{len(scenes)} scenes")
+        n_human = sum(1 for s in scenes if s.get("human_present"))
+        log(f"Cast: {HUMAN_NAME} leads {n_human}/{len(scenes)} scenes; "
+            f"{MASCOT_NAME} assists in {n_host}/{len(scenes)} scenes")
         for _w in _slop_warnings(scenes):
             log(f"⚠ slop-check: {_w}")
 
@@ -4783,8 +5023,11 @@ def run_explainer_pipeline(
                 )
 
     mascot_ok = os.path.exists(MASCOT_REF)
+    human_ok = os.path.exists(HUMAN_REF)
     if not mascot_ok:
         log(f"⚠ mascot reference missing ({MASCOT_REF}) — host scenes will use text only")
+    if not human_ok:
+        log(f"⚠ human reference missing ({HUMAN_REF}) — human-led long-form cannot render consistently")
 
     # Locked cartoon RENDER style + constraints. The render look is constant (cohesion);
     # the per-scene environment + dominant style_mode supply variety. We rely on the
@@ -4824,6 +5067,8 @@ def run_explainer_pipeline(
         # identity), leaving the rest of the prompt for the scene design.
         if scene.get("mascot_present") and mascot_ok:
             body = f"{MASCOT_REF_LINE} {body}"
+        if scene.get("human_present") and human_ok:
+            body = f"{HUMAN_REF_LINE} {body}"
         out = body + "." + style_suffix
         # Prompt recency: re-assert action + surprise as the FINAL instruction so the
         # "clean/readable" style guardrails above don't bias gpt-image-2 toward a safe,
@@ -4844,7 +5089,8 @@ def run_explainer_pipeline(
 
     # Cost cap — refine the estimate now that we know host split + narration length,
     # and refuse BEFORE spending on images if it exceeds the ceiling.
-    host_count = sum(1 for s in scenes if s.get("mascot_present") and mascot_ok)
+    host_count = sum(1 for s in scenes if ((s.get("mascot_present") and mascot_ok)
+                                           or (s.get("human_present") and human_ok)))
     narration_chars = sum(len(_s(s.get("narration"))) for s in scenes)
     alt_selected = (select_alternate_image_indices(scenes, MAX_LONGFORM_ALT_IMAGES)
                     if video_format != "social" else frozenset())
@@ -4897,7 +5143,7 @@ def run_explainer_pipeline(
             return {"i": i, "scene": scene, "img": img_path,
                     "alt_img": alt_path if os.path.exists(alt_path) else None, "aud": aud_path,
                     "img_ok": True, "aud_ok": True, "note": "reused", "word_times": wt}
-        refs = [MASCOT_REF] if (scene.get("mascot_present") and mascot_ok) else None
+        refs = _scene_reference_paths(scene, human_ok=human_ok, mascot_ok=mascot_ok)
         host_tag = " (host)" if refs else ""
         # Expressive-action treatment always on for the beats that depend on it most — the hook
         # (i==0), the twist + loop (last two), and metaphor scenes — else ~alternate scenes.
@@ -4915,7 +5161,7 @@ def run_explainer_pipeline(
         except ContentBlocked:
             log(f"⚠ Image {i+1}/{n} blocked by moderation — retrying with a safe prompt")
             try:
-                generate_image(safe_image_prompt(scene), img_path, reference_paths=None,
+                generate_image(safe_image_prompt(scene), img_path, reference_paths=refs,
                                cost_sink=img_costs, size=img_size)
                 note = "moderation→safe"
                 log(f"Image {i+1}/{n} ✓ (safe fallback)")
@@ -5092,7 +5338,7 @@ def run_explainer_pipeline(
         log(f"↻ Recovering {len(_recover)} scene image(s) that hit transient errors...")
         for r in _recover:
             i, scene = r["i"], r["scene"]
-            refs = [MASCOT_REF] if (scene.get("mascot_present") and mascot_ok) else None
+            refs = _scene_reference_paths(scene, human_ok=human_ok, mascot_ok=mascot_ok)
             _lean = (i == 0 or i >= n - 2
                      or scene.get("scene_type") == "metaphor_scene" or i % 2 == 0)
             try:
