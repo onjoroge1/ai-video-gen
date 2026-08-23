@@ -1686,6 +1686,9 @@
         <a class="btn btn-outline" id="expl-research-btn" href="#" download style="display:none;">↓ Research Dossier</a>
         <a class="btn btn-outline" id="expl-claims-btn" href="#" download style="display:none;">↓ Claim Ledger</a>
         <a class="btn btn-outline" id="expl-timing-btn" href="#" download style="display:none;">↓ Audio Timing</a>
+        <a class="btn btn-outline" id="expl-evidence-plan-btn" href="#" download style="display:none;">↓ Evidence Plan</a>
+        <a class="btn btn-outline" id="expl-evidence-validation-btn" href="#" download style="display:none;">↓ Evidence Validation</a>
+        <a class="btn btn-outline" id="expl-continuity-btn" href="#" download style="display:none;">↓ Continuity Pack</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -3085,7 +3088,10 @@
       gb.style.display = '';
       for (const [id, endpoint] of [
         ['expl-research-btn', 'research'], ['expl-claims-btn', 'claims'],
-        ['expl-timing-btn', 'audio-timing']
+        ['expl-timing-btn', 'audio-timing'],
+        ['expl-evidence-plan-btn', 'evidence-plan'],
+        ['expl-evidence-validation-btn', 'evidence-validation'],
+        ['expl-continuity-btn', 'continuity']
       ]) {
         const button = document.getElementById(id);
         button.href = `/api/explainer/${endpoint}/${jobId}`;

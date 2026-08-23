@@ -163,3 +163,62 @@ def test_missing_semantic_broll_anchor_never_creates_a_midpoint_hard_cut():
 
     assert len(shots) == 1
     assert shots[0]["source"] == "master"
+    assert shots[0]["new_information"] is False
+
+
+def test_verified_evidence_states_become_real_asset_aligned_cuts():
+    states = [
+        {
+            "state_id": "state:s001:e01", "asset_id": "asset:s001:e01",
+            "asset_strategy": "master", "asset_status": "accepted",
+            "anchor_phrase": "The water pulls away", "purpose": "action",
+            "verified_visible_information": True,
+        },
+        {
+            "state_id": "state:s001:e02", "asset_id": "asset:s001:e02",
+            "asset_strategy": "distinct", "asset_status": "accepted",
+            "anchor_phrase": "the continental shelf appears", "purpose": "evidence",
+            "verified_visible_information": True,
+        },
+    ]
+    shots = compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)
+    assert [shot["source"] for shot in shots] == ["asset:s001:e01", "asset:s001:e02"]
+    assert shots[1]["transition"] == "hard_cut"
+    assert shots[1]["new_information"] is True
+    metrics = shot_plan_metrics([shots])
+    assert metrics["distinct_source_count"] == 2
+    assert metrics["meaningful_cut_ratio"] == 1.0
+
+
+def test_unverified_detail_reframe_does_not_count_as_new_information():
+    states = [
+        {
+            "state_id": "state:s001:e01", "asset_id": "asset:s001:e01",
+            "asset_strategy": "master", "asset_status": "accepted",
+            "anchor_phrase": "The water pulls away", "purpose": "action",
+            "verified_visible_information": True,
+        },
+        {
+            "state_id": "state:s001:e02", "asset_id": "asset:s001:e02",
+            "source_asset_id": "asset:s001:e01", "asset_strategy": "detail_reframe",
+            "asset_status": "accepted", "anchor_phrase": "the continental shelf appears",
+            "purpose": "evidence", "verified_visible_information": False,
+        },
+    ]
+    shots = compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)
+    metrics = shot_plan_metrics([shots])
+    assert shots[1]["new_information"] is False
+    assert metrics["reframe_shot_count"] == 1
+    assert metrics["meaningful_cut_ratio"] == 0.0
+    assert metrics["same_source_hard_cut_count"] == 1
+
+
+def test_too_many_evidence_states_for_audio_duration_fail_instead_of_flash_frames():
+    states = [
+        {"state_id": f"state:{i}", "asset_id": f"asset:{i}",
+         "asset_strategy": "distinct", "asset_status": "accepted",
+         "verified_visible_information": True}
+        for i in range(4)
+    ]
+    with pytest.raises(ValueError, match="cannot fit"):
+        compile_scene_shots(_scene(), 5.0, 0, evidence_states=states)

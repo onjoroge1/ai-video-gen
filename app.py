@@ -1145,6 +1145,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "research_report_path": result.get("research_report_path"),
             "claim_report_path": result.get("claim_report_path"),
             "audio_timing_report_path": result.get("audio_timing_report_path"),
+            "evidence_plan_path": result.get("evidence_plan_path"),
+            "evidence_validation_path": result.get("evidence_validation_path"),
+            "continuity_pack_path": result.get("continuity_pack_path"),
             "readiness_json_path": result.get("readiness_json_path"),
             "first_minute_preview_path": result.get("first_minute_preview_path"),
             "retention_readiness": result.get("retention_readiness"),
@@ -1165,6 +1168,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "research": result.get("research_report_path"),
                   "claims": result.get("claim_report_path"),
                   "timing": result.get("audio_timing_report_path"),
+                  "evidence-plan": result.get("evidence_plan_path"),
+                  "evidence-validation": result.get("evidence_validation_path"),
+                  "continuity": result.get("continuity_pack_path"),
                   "readiness": result.get("readiness_json_path"),
                   "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
@@ -1680,6 +1686,9 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "txt": "transcript_path", "srt": "srt_path", "desc": "description_path",
         "grade": "grade_path", "research": "research_report_path",
         "claims": "claim_report_path", "timing": "audio_timing_report_path",
+        "evidence-plan": "evidence_plan_path",
+        "evidence-validation": "evidence_validation_path",
+        "continuity": "continuity_pack_path",
     }[kind]
     job = explainer_jobs.get(job_id)
     if job and job.get(job_key) and os.path.exists(job[job_key]):
@@ -1750,6 +1759,21 @@ async def explainer_claims(job_id: str):
 @app.get("/api/explainer/audio-timing/{job_id}")
 async def explainer_audio_timing(job_id: str):
     return _explainer_json_response(job_id, "timing", "audio-timing")
+
+
+@app.get("/api/explainer/evidence-plan/{job_id}")
+async def explainer_evidence_plan(job_id: str):
+    return _explainer_json_response(job_id, "evidence-plan", "evidence-plan")
+
+
+@app.get("/api/explainer/evidence-validation/{job_id}")
+async def explainer_evidence_validation(job_id: str):
+    return _explainer_json_response(job_id, "evidence-validation", "evidence-validation")
+
+
+@app.get("/api/explainer/continuity/{job_id}")
+async def explainer_continuity(job_id: str):
+    return _explainer_json_response(job_id, "continuity", "continuity-pack")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")

@@ -191,6 +191,7 @@ def compile_scene_shots(
     has_alternate: bool = False,
     i2v_seconds: float = 5.0,
     word_times: list | None = None,
+    evidence_states: list[dict] | None = None,
 ) -> list[dict]:
     """Compile phrase-aligned shots for one narrated scene.
 
@@ -203,6 +204,54 @@ def compile_scene_shots(
     duration = max(0.05, float(duration))
     role = str(scene.get("story_role") or "").lower()
     timed = _timed_words(str(scene.get("narration") or ""), word_times, duration)
+
+    accepted_states = [
+        state for state in (evidence_states or [])
+        if state.get("asset_status") in {"accepted", "reused_exact"}
+    ]
+    if accepted_states:
+        count = len(accepted_states)
+        if duration / count < MIN_SHOT_SECONDS:
+            raise ValueError(
+                f"{count} evidence states cannot fit {duration:.2f}s without sub-minimum cuts")
+        starts = [0.0]
+        for state in accepted_states[1:]:
+            span = _find_phrase_span(timed, str(state.get("anchor_phrase") or ""))
+            starts.append(span[0] if span else -1.0)
+        valid = all(
+            starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS
+            for index in range(1, len(starts))
+        ) and duration - starts[-1] >= MIN_SHOT_SECONDS
+        if not valid:
+            step = duration / count
+            starts = [index * step for index in range(count)]
+        shots = []
+        for index, state in enumerate(accepted_states):
+            start = starts[index]
+            end = starts[index + 1] if index + 1 < count else duration
+            strategy = str(state.get("asset_strategy") or "master")
+            kind = "still"
+            if has_i2v and index == next(
+                    (j for j, item in enumerate(accepted_states)
+                     if str(item.get("purpose") or "") in {"action", "consequence"}), 0):
+                kind = "i2v"
+            shot = _shot(
+                kind, str(state.get("asset_id") or ""), end - start, role,
+                start=start, purpose=str(state.get("purpose") or "evidence"),
+                anchor_phrase=str(state.get("anchor_phrase") or ""),
+                transition="continuous" if index == 0 else "hard_cut",
+                semantic_aligned=bool(state.get("anchor_phrase")) or index == 0,
+                new_information=bool(state.get("verified_visible_information")),
+                motion="generated_motion" if kind == "i2v" else "locked",
+            )
+            shot.update({
+                "state_id": state.get("state_id"),
+                "asset_strategy": strategy,
+                "source_asset_id": state.get("source_asset_id") or "",
+                "verified_visible_information": bool(state.get("verified_visible_information")),
+            })
+            shots.append(shot)
+        return shots
 
     if has_i2v:
         anchor = _semantic_anchor(scene, timed, {"action", "consequence"})
@@ -299,7 +348,7 @@ def compile_scene_shots(
 
     return [_shot(
         "still", "master", duration, role, start=0.0, purpose="setup",
-        transition="continuous", semantic_aligned=True, new_information=True,
+        transition="continuous", semantic_aligned=True, new_information=False,
     )]
 
 
@@ -311,6 +360,7 @@ def compile_shot_plan(
     alternate_indices: set[int] | frozenset[int] = frozenset(),
     i2v_seconds: float = 5.0,
     word_times: list[list] | None = None,
+    evidence_states: list[list[dict]] | None = None,
 ) -> list[list[dict]]:
     if len(scenes) != len(durations):
         raise ValueError("scenes and durations must have the same length")
@@ -324,6 +374,8 @@ def compile_shot_plan(
             has_alternate=i in alternate_indices,
             i2v_seconds=i2v_seconds,
             word_times=timings[i] if i < len(timings) else None,
+            evidence_states=(evidence_states[i] if evidence_states and i < len(evidence_states)
+                             else None),
         )
         for i, scene in enumerate(scenes)
     ]
@@ -345,6 +397,11 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         if float(s["duration"]) < MIN_SHOT_SECONDS
     ]
     alternates = sum(1 for s in shots if s.get("source") == "alternate")
+    distinct_sources = {
+        s.get("source") for s in shots
+        if s.get("source") and s.get("asset_strategy") in {"master", "distinct"}
+    }
+    reframes = [s for s in shots if s.get("asset_strategy") == "detail_reframe"]
     return {
         "shot_count": len(shots),
         "cut_count": len(cuts),
@@ -352,6 +409,10 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         "still_shot_count": len(stills),
         "i2v_shot_count": len(motion),
         "alternate_shot_count": alternates,
+        "distinct_source_count": len(distinct_sources),
+        "reframe_shot_count": len(reframes),
+        "verified_information_shot_count": sum(
+            1 for shot in shots if shot.get("verified_visible_information")),
         "broll_clause_count": alternates,
         "avg_still_seconds": round(sum(stills) / len(stills), 2) if stills else 0.0,
         "min_shot_seconds": round(
@@ -372,7 +433,10 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
             for previous, current in zip(scene, scene[1:])
             if (
                 current.get("transition") == "hard_cut"
-                and current.get("source") == previous.get("source")
+                and (
+                    current.get("source") == previous.get("source")
+                    or current.get("source_asset_id") == previous.get("source")
+                )
             )
         ),
         "continuous_camera_paths": sum(
