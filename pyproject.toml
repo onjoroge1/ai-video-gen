@@ -23,6 +23,7 @@ py-modules = [
     "board_pipeline",
     "charts_pipeline",
     "db",
+    "durable_execution",
     "explainer_pipeline",
     "finished_api",
     "font_utils",

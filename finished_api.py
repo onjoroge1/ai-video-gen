@@ -9,6 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
 import db
+import artifact_store
+from durable_execution import PostgresStore, StorageUnavailable
 
 
 def _local_index(finished_dir: str) -> dict:
@@ -45,10 +47,13 @@ def _local_record(video_id: str, raw: dict) -> dict:
 
 def _get(video_id: str, finished_dir: str) -> dict | None:
     if db.db_enabled():
-        record = db.finished_video_get(video_id)
+        record = PostgresStore().finished_get(video_id)
         if record:
             record["storage"] = "blob"
             return record
+        return None
+    if artifact_store.durable_storage_required():
+        raise StorageUnavailable("Finished library database is not configured")
     raw = _local_index(finished_dir).get(video_id)
     return _local_record(video_id, raw) if raw else None
 
@@ -62,8 +67,20 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
 
     @app.get("/api/finished")
     async def finished_list(limit: int = 100, offset: int = 0, q: str = ""):
-        rows = db.finished_videos_list(limit=limit, offset=offset, query=q) if db.db_enabled() else []
-        if not rows:
+        try:
+            rows = (PostgresStore().finished_list(limit=limit, offset=offset, query=q)
+                    if db.db_enabled() else [])
+        except StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+            }) from exc
+        if not db.db_enabled():
+            if artifact_store.durable_storage_required():
+                raise HTTPException(status_code=503, detail={
+                    "code": "FINISHED_STORAGE_UNAVAILABLE",
+                    "message": "DATABASE_URL is required for the finished library",
+                    "retryable": True,
+                })
             rows = [_local_record(video_id, raw)
                     for video_id, raw in _local_index(finished_dir).items()]
             if q:
@@ -77,14 +94,24 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
 
     @app.get("/api/finished/{video_id}")
     async def finished_detail(video_id: str):
-        record = _get(video_id, finished_dir)
+        try:
+            record = _get(video_id, finished_dir)
+        except StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+            }) from exc
         if not record:
             raise HTTPException(status_code=404, detail="Finished video not found")
         return record
 
     @app.get("/api/finished/{video_id}/artifact/{kind}")
     async def finished_artifact(video_id: str, kind: str, download: bool = False):
-        record = _get(video_id, finished_dir)
+        try:
+            record = _get(video_id, finished_dir)
+        except StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+            }) from exc
         if not record:
             raise HTTPException(status_code=404, detail="Finished video not found")
         artifact = (record.get("artifacts") or {}).get(kind)

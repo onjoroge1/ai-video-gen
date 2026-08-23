@@ -49,3 +49,39 @@ def test_vercel_fails_closed_without_password(monkeypatch):
     monkeypatch.setenv("VERCEL", "1")
     assert private_access.auth_required() is True
     assert private_access.auth_configured() is False
+
+
+def test_worker_routes_require_their_bearer_secret(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "studio-secret")
+    monkeypatch.setenv("APP_SESSION_SECRET", "session-secret")
+    monkeypatch.setenv("RENDER_WORKER_SECRET", "worker-secret")
+    monkeypatch.setenv("CRON_SECRET", "cron-secret")
+    app = FastAPI()
+    app.add_middleware(private_access.PrivateAccessMiddleware)
+
+    @app.get("/api/internal/render-worker")
+    async def worker():
+        return {"ok": True}
+
+    @app.get("/api/cron/render-recovery")
+    async def cron():
+        return {"ok": True}
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/api/internal/render-worker")).status_code == 401
+            assert (await client.get(
+                "/api/internal/render-worker",
+                headers={"Authorization": "Bearer worker-secret"},
+            )).status_code == 200
+            assert (await client.get(
+                "/api/cron/render-recovery",
+                headers={"Authorization": "Bearer cron-secret"},
+            )).status_code == 200
+            assert (await client.get(
+                "/api/cron/render-recovery",
+                headers={"Authorization": "Bearer wrong"},
+            )).status_code == 401
+
+    anyio.run(run)
