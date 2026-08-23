@@ -210,12 +210,16 @@ def compile_evidence_plan(script: dict) -> dict:
     callback_index = int(pack["callback"]["scene_index"])
     if scene_plans and 0 <= callback_index < len(scene_plans):
         callback_states = scene_plans[callback_index]["states"]
+        callback_scene = scenes[callback_index]
+        callback_anchor = _text(callback_scene.get("motion_anchor_phrase"))
+        if not callback_anchor and callback_states:
+            callback_anchor = _text(callback_states[-1].get("anchor_phrase"))
         callback_states.append({
             "state_id": f"state:s{callback_index + 1:03d}:callback",
             "asset_id": f"asset:s{callback_index + 1:03d}:callback",
             "scene_index": callback_index,
             "opening": False,
-            "anchor_phrase": "",
+            "anchor_phrase": callback_anchor,
             "purpose": "callback",
             "visual": f"Return to the exact opening object: {pack['opening_object']['label']}",
             "state_before": "the object carried the opening anomaly",

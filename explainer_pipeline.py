@@ -50,6 +50,15 @@ from longform_evidence import (
     validate_evidence_plan,
     validate_evidence_timing,
 )
+from longform_motion import (
+    compile_motion_plan,
+    freeze_opening_manifest,
+    motion_prompt,
+    normalize_motion_mode,
+    sha256_file,
+    validate_frozen_opening,
+    validate_motion_plan,
+)
 from audio_timing import build_audio_timing_report
 from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
@@ -3190,9 +3199,12 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
     fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only."""
     size = _i2v_size(vw, vh)
     sw, sh = (int(x) for x in size.split("x"))
-    motion = ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
-              "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
-              "camera shake; keep the composition stable and photoreal. " + (prompt or "")).strip()[:900]
+    if "narration-aligned evidence change" in (prompt or ""):
+        motion = (prompt or "").strip()[:900]
+    else:
+        motion = ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "
+                  "parallax, soft ambient life, the character blinks and shifts slightly. No cuts, no "
+                  "camera shake; keep the composition stable and photoreal. " + (prompt or "")).strip()[:900]
     ref = out_mp4 + ".ref.jpg"
     try:
         from PIL import Image, ImageOps
@@ -3332,7 +3344,9 @@ def _make_scene_segment(
         # remainder is absorbed by gently slowing the clip instead of looping it and creating
         # a visible reset or appending a 0.3-second still flash.
         source_dur = max(0.05, _audio_dur(motion_video))
-        retime = dur / source_dur
+        # Never accelerate generated motion to fake pace. Short evidence windows trim the real clip;
+        # longer windows may slow it, but that camera timing never earns an evidence event.
+        retime = max(1.0, dur / source_dur)
         inputs = ["-i", motion_video]
         bg_chain = (
             f"setpts={retime:.6f}*PTS,"
@@ -3405,6 +3419,7 @@ def _make_multishot_background(
     vw: int,
     vh: int,
     motion_video: str | None = None,
+    motion_videos: dict[str, str] | None = None,
     tail: float = 0.0,
 ) -> None:
     """Render an exact-duration, hard-cut visual bed for one narrative scene."""
@@ -3424,7 +3439,8 @@ def _make_multishot_background(
             image, result["aud"], clip, "", "",
             motion=shot.get("motion") or "kenburns_in", captions="none",
             vw=vw, vh=vh, duration_override=float(shot["duration"]),
-            motion_video=motion_video if shot.get("kind") == "i2v" else None,
+            motion_video=((motion_videos or {}).get(_s(shot.get("state_id"))) or motion_video)
+            if shot.get("kind") == "i2v" else None,
         )
         clips.append(clip)
     with open(list_path, "w") as f:
@@ -3604,12 +3620,13 @@ def _render_first_minute_preview(
     vw: int,
     vh: int,
     bg_music_path: str | None,
-) -> tuple[str, dict, list[dict]]:
+    motion_clips: dict[str, str] | None = None,
+) -> tuple[str, dict, list[dict], dict[int, str]]:
     """Render the paid opening assets into a real preview before later image spend."""
     import shutil
-    gate_dir = os.path.join(output_dir, "_first_minute_gate")
+    gate_dir = os.path.join(output_dir, "approved_opening")
     os.makedirs(gate_dir, exist_ok=True)
-    videos, audios, plan, gate_scenes = [], [], [], []
+    videos, audios, plan, gate_scenes, frozen_segments = [], [], [], [], {}
     for k, result in enumerate(r for r in results if r.get("aud_ok")):
         scene = result["scene"]
         duration = _audio_dur(result["aud"])
@@ -3618,12 +3635,14 @@ def _render_first_minute_preview(
             i2v_seconds=I2V_SECONDS_LONGFORM,
             word_times=result.get("word_times"),
             evidence_states=result.get("evidence_states"),
+            motion_state_ids=frozenset((motion_clips or {}).keys()),
         )
         visual = None
         if len(shots) > 1:
             visual = os.path.join(gate_dir, f"opening_{k:02d}_shots.mp4")
             _make_multishot_background(
-                result, shots, visual, vw, vh, tail=FADE_DUR)
+                result, shots, visual, vw, vh, tail=FADE_DUR,
+                motion_videos=motion_clips)
         word_times = None
         if cap_mode in ("karaoke", "bubble", "headline_karaoke"):
             word_times = align_caption_phrases(
@@ -3641,6 +3660,7 @@ def _render_first_minute_preview(
             motion_video=visual,
         )
         videos.append(segment); audios.append(result["aud"])
+        frozen_segments[int(result["i"])] = segment
         plan.append(shots); gate_scenes.append(scene)
     if not videos:
         raise RuntimeError("First-minute gate has no renderable scenes")
@@ -3657,8 +3677,7 @@ def _render_first_minute_preview(
         ], timeout=180.0)
     else:
         shutil.copy(raw, preview_path)
-    shutil.rmtree(gate_dir, ignore_errors=True)
-    return preview_path, shot_plan_metrics(plan), cues
+    return preview_path, shot_plan_metrics(plan), cues, frozen_segments
 
 
 # ── Main runner ────────────────────────────────────────────────────────────────
@@ -5364,6 +5383,7 @@ def run_explainer_pipeline(
     max_cost_usd: float = MAX_COST_USD,
     resume: bool = False,
     i2v: bool | None = None,
+    motion_mode: str | None = None,
     series: str = "",
     short_template: str = "auto",   # social only: auto | explainer | simulation
     operator_direction: str = "",   # optional per-video/channel creative direction (subordinate to rules)
@@ -5379,13 +5399,23 @@ def run_explainer_pipeline(
     os.makedirs(output_dir, exist_ok=True)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
-    # Image-to-video variability: default ON for social shorts (cheap, ~3 clips), OFF for
-    # long-form (cost); only active when a provider+key is configured (I2V_PROVIDER).
-    i2v_on = (i2v if i2v is not None else (video_format == "social")) and bool(I2V_PROVIDER)
+    resolved_motion_mode = (
+        "social" if video_format == "social"
+        else ("stills" if motion_mode is None and i2v is None
+              else normalize_motion_mode(motion_mode, legacy_i2v=i2v))
+    )
+    # Social retains its existing automatic motion policy. Long-form uses the explicit PR4 modes.
+    i2v_on = ((i2v if i2v is not None else True) if video_format == "social"
+              else resolved_motion_mode != "stills") and bool(I2V_PROVIDER)
     # Landscape + speech_bubble → Bolt "talks" via a synced phrase bubble (replaces headline).
     if video_format == "landscape" and speech_bubble:
         cap_mode = "bubble"
     log(f"Format: {video_format} ({vw}×{vh}, captions={cap_mode})")
+    if video_format != "social":
+        log(f"Motion treatment: {resolved_motion_mode}")
+        if resolved_motion_mode != "stills" and not I2V_PROVIDER:
+            raise ValueError(
+                "Standard/Full Motion requires I2V_PROVIDER. Configure a motion provider or choose Stills.")
     aux_costs: list[float] = []   # Claude calls outside the script (grade, description) — were uncounted
 
     # ── RESUME: if a checkpoint exists, reuse the script + already-paid scene assets ──
@@ -5400,8 +5430,13 @@ def run_explainer_pipeline(
     evidence_plan_path = None
     evidence_validation_path = None
     continuity_pack_path = None
+    motion_report_path = None
+    opening_freeze_path = None
     evidence_plan: dict = {}
     evidence_validation: dict | None = None
+    motion_plan: dict = {}
+    opening_freeze: dict = {}
+    frozen_opening_segments: dict[int, str] = {}
     short_grade = None
     retention_report_path = None
     retention_json_path = None
@@ -5592,6 +5627,8 @@ def run_explainer_pipeline(
         evidence_plan_path = os.path.join(output_dir, "evidence_asset_plan.json")
         evidence_validation_path = os.path.join(output_dir, "evidence_validation.json")
         continuity_pack_path = os.path.join(output_dir, "continuity_pack.json")
+        motion_report_path = os.path.join(output_dir, "motion_report.json")
+        opening_freeze_path = os.path.join(output_dir, "opening_freeze.json")
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
@@ -5689,16 +5726,29 @@ def run_explainer_pipeline(
         alt_selected = frozenset()
         # One verifier call per state is reserved at a conservative two cents. It is an estimate,
         # never presented as provider pricing, and prevents the multi-state compiler undercounting.
-        est = round(estimate_cost(len(generated_states), host_count, narration_chars)
-                    + len(planned_states) * 0.02, 2)
+        base_est = round(estimate_cost(len(generated_states), host_count, narration_chars)
+                         + len(planned_states) * 0.02, 2)
+        motion_cap = (min(MAX_I2V_CLIPS, int(max(0, max_cost_usd - base_est)
+                                             // (I2V_SECONDS_LONGFORM * _RATE_I2V_SEC)))
+                      if i2v_on else 0)
+        motion_plan = compile_motion_plan(
+            script, evidence_plan, mode=resolved_motion_mode, max_requests=motion_cap)
+        if not motion_plan["validation"]["passed"]:
+            raise ValueError("Motion plan failed before media spend: " + "; ".join(
+                error["message"] for error in motion_plan["validation"]["errors"]))
+        script["_motion_plan"] = motion_plan
+        with open(motion_report_path, "w") as handle:
+            json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
+        est = round(base_est + (motion_plan["selected_count"] * I2V_SECONDS_LONGFORM
+                               * _RATE_I2V_SEC if i2v_on else 0), 2)
     else:
         host_count = sum(1 for s in scenes if ((s.get("mascot_present") and mascot_ok)
                                                or (s.get("human_present") and human_ok)))
         alt_selected = frozenset()
         est = estimate_cost(len(scenes), host_count, narration_chars)
-    if i2v_on:   # i2v (Veo/Sora) isn't in estimate_cost — add the expected motion-clip spend so the
+    if i2v_on and video_format == "social":   # social retains the legacy scene-based estimate
                  # estimate (and the pre-spend cap guard) reflect reality instead of undercounting.
-        _frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
+        _frac = I2V_FRACTION_SOCIAL
         _clips = min(MAX_I2V_CLIPS, max(1, round(len(scenes) * _frac)))
         _i2v_seconds = I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM
         est = round(est + _clips * _i2v_seconds * _RATE_I2V_SEC, 2)
@@ -5747,6 +5797,12 @@ def run_explainer_pipeline(
         # from the final narration and fail before the first image if any opening beat lost its proof.
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
+        final_evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
+        evidence_validation["timing"] = final_evidence_timing
+        if not final_evidence_timing.get("passed"):
+            evidence_validation["passed"] = False
+            evidence_validation["errors"] = (
+                evidence_validation.get("errors", []) + final_evidence_timing.get("errors", []))
         script["_evidence_plan"] = evidence_plan
         if not evidence_validation.get("passed"):
             raise ValueError(
@@ -5766,11 +5822,45 @@ def run_explainer_pipeline(
         final_hosts = sum(1 for state in final_generated
                           if ((state.get("include_bolt") and mascot_ok)
                               or (state.get("include_human") and human_ok)))
-        est = round(estimate_cost(len(final_generated), final_hosts, narration_chars)
-                    + len(final_states) * 0.02, 2)
-        if i2v_on:
-            clip_count = min(MAX_I2V_CLIPS, max(1, round(len(scenes) * I2V_FRACTION)))
-            est = round(est + clip_count * I2V_SECONDS_LONGFORM * _RATE_I2V_SEC, 2)
+        base_est = round(estimate_cost(len(final_generated), final_hosts, narration_chars)
+                         + len(final_states) * 0.02, 2)
+        motion_cap = (min(MAX_I2V_CLIPS, int(max(0, max_cost_usd - base_est)
+                                             // (I2V_SECONDS_LONGFORM * _RATE_I2V_SEC)))
+                      if i2v_on else 0)
+        motion_plan = compile_motion_plan(
+            script, evidence_plan, mode=resolved_motion_mode, max_requests=motion_cap)
+        selected_motion_ids = {
+            candidate["state_id"] for candidate in motion_plan.get("candidates") or []
+            if candidate.get("selected")
+        }
+        motion_preflight_shots = []
+        for scene_index, (scene, scene_plan) in enumerate(zip(
+                scenes, evidence_plan.get("scenes") or [])):
+            planned_states = [dict(state, asset_status="accepted")
+                              for state in scene_plan.get("states") or []]
+            motion_preflight_shots.append(compile_scene_shots(
+                scene, _audio_dur(prepared_audio[scene_index]["aud"]), scene_index,
+                word_times=prepared_audio[scene_index].get("word_times"),
+                evidence_states=planned_states,
+                motion_state_ids=frozenset(selected_motion_ids)))
+        preflight_by_state = {
+            shot.get("state_id"): shot for shots in motion_preflight_shots for shot in shots
+        }
+        for candidate in motion_plan.get("candidates") or []:
+            if candidate.get("selected"):
+                candidate["semantic_aligned"] = bool(
+                    (preflight_by_state.get(candidate["state_id"]) or {}).get("semantic_aligned"))
+        motion_plan["edit_preflight_metrics"] = shot_plan_metrics(motion_preflight_shots)
+        motion_plan["validation"] = validate_motion_plan(motion_plan)
+        if not motion_plan["validation"]["passed"]:
+            raise ValueError("Measured narration broke the motion plan before visual spend: "
+                             + "; ".join(error["message"]
+                                          for error in motion_plan["validation"]["errors"]))
+        script["_motion_plan"] = motion_plan
+        with open(motion_report_path, "w") as handle:
+            json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
+        est = round(base_est + (motion_plan["selected_count"] * I2V_SECONDS_LONGFORM
+                               * _RATE_I2V_SEC if i2v_on else 0), 2)
         if est > max_cost_usd:
             raise ValueError(
                 f"Final evidence plan estimate ${est:.2f} exceeds the ${max_cost_usd:.2f} cap "
@@ -5980,6 +6070,94 @@ def run_explainer_pipeline(
         return {"i": i, "scene": scene, "img": img_path, "alt_img": alt_img, "aud": aud_path,
                 "img_ok": img_ok, "aud_ok": aud_ok, "note": note, "word_times": word_times}
 
+    # PR4 long-form motion is keyed to verified evidence states, never coarse scene indices.
+    state_motion_clips: dict[str, str] = {}
+    i2v_costs: list[float] = []
+    i2v_errs: list[str] = []
+    i2v_exhausted: set[str] = set()
+
+    def _generate_longform_motion(results_for_motion: list[dict], scene_indices: set[int]) -> None:
+        if video_format == "social" or resolved_motion_mode == "stills":
+            return
+        by_scene = {int(result["i"]): result for result in results_for_motion}
+        selected = [candidate for candidate in motion_plan.get("candidates") or []
+                    if candidate.get("selected") and int(candidate["scene_index"]) in scene_indices]
+        if not selected:
+            return
+        i2v_dir = os.path.join(output_dir, "i2v")
+        os.makedirs(i2v_dir, exist_ok=True)
+        log(f"stage:Animating {len(selected)} evidence state(s) before edit approval...")
+        for candidate in selected:
+            result = by_scene.get(int(candidate["scene_index"]))
+            image_path = ((result or {}).get("evidence_assets") or {}).get(candidate["asset_id"])
+            safe_state = candidate["state_id"].replace(":", "-")
+            clip = os.path.join(i2v_dir, f"{safe_state}.mp4")
+            identity_path = clip + ".identity.json"
+            prompt_text = motion_prompt(candidate)
+            cache_identity = {
+                "version": 1,
+                "motion_id": candidate["motion_id"],
+                "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
+                "source_sha256": sha256_file(image_path) if image_path and os.path.isfile(image_path) else "",
+                "seconds": I2V_SECONDS_LONGFORM,
+            }
+            try:
+                with open(identity_path) as handle:
+                    cached_identity = json.load(handle)
+            except (OSError, ValueError, TypeError):
+                cached_identity = {}
+            reused = bool(cached_identity == cache_identity and os.path.isfile(clip)
+                          and _clip_is_real(clip))
+            start_cost = sum(i2v_costs)
+            start_errors = len(i2v_errs)
+            rendered = clip if reused else None
+            spent_now = (sum(img_costs) + sum(tts_costs) + sum(aux_costs) + sum(i2v_costs)
+                         + float(script.get("_script_cost_usd", 0.0) or 0.0))
+            has_motion_budget = (spent_now + I2V_SECONDS_LONGFORM * _RATE_I2V_SEC
+                                 <= max_cost_usd + 1e-9)
+            if not rendered and image_path and has_motion_budget:
+                rendered = animate_scene(
+                    image_path, prompt_text, clip, vw, vh,
+                    cost_sink=i2v_costs, seconds=I2V_SECONDS_LONGFORM,
+                    err_sink=i2v_errs, exhausted=i2v_exhausted)
+            new_errors = i2v_errs[start_errors:]
+            provider = next((item.split(":", 1)[1] for item in reversed(new_errors)
+                             if item.startswith("ok:")), "checkpoint" if reused else "")
+            if rendered:
+                if not reused:
+                    with open(identity_path, "w") as handle:
+                        json.dump(cache_identity, handle, indent=2)
+                candidate.update({
+                    "generation_status": "animated", "provider": provider,
+                    "clip_path": rendered, "cost_usd": round(sum(i2v_costs) - start_cost, 4),
+                    "fallback_reason": "", "reused_checkpoint_clip": reused,
+                    "cache_identity": cache_identity,
+                    "provider_attempts": new_errors,
+                })
+                state_motion_clips[candidate["state_id"]] = rendered
+                log(f"  motion {candidate['state_id']} ✓ {candidate['story_role']}"
+                    + (" (reused)" if reused else ""))
+            else:
+                reason = "; ".join(item for item in new_errors if not item.startswith("ok:"))
+                if not image_path:
+                    reason = "verified evidence image is unavailable"
+                elif not has_motion_budget:
+                    reason = "motion cost cap reached before provider request"
+                candidate.update({
+                    "generation_status": "fallback", "provider": "", "clip_path": "",
+                    "cost_usd": round(sum(i2v_costs) - start_cost, 4),
+                    "fallback_reason": reason or "all motion providers failed",
+                    "provider_attempts": new_errors,
+                })
+                log(f"  motion {candidate['state_id']} ✗ — locked evidence fallback")
+        motion_plan["validation"] = validate_motion_plan(motion_plan, require_generation=False)
+        motion_plan["generation_validation"] = validate_motion_plan(
+            motion_plan, require_generation=True)
+        motion_plan["provider_errors"] = [item for item in i2v_errs if not item.startswith("ok:")]
+        motion_plan["exhausted_providers"] = sorted(i2v_exhausted)
+        with open(motion_report_path, "w") as handle:
+            json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
+
     # ── Render smoke-test: PROVE scene 1 renders before paying for the other images. ──
     # A render bug once torched a full 120-image run; this caps that loss at ~1 image.
     log("Smoke-testing the render on scene 1 before generating the rest...")
@@ -6085,11 +6263,34 @@ def run_explainer_pipeline(
             )
         log("Opening evidence gate: PASS — %(verified_information_ratio).0%% verified-information cuts"
             % {"verified_information_ratio": 100 * evidence_validation["verified_information_ratio"]})
+        _generate_longform_motion(opening_results, set(range(opening_stop)))
+        opening_motion = [candidate for candidate in motion_plan.get("candidates") or []
+                          if candidate.get("selected")
+                          and int(candidate.get("scene_index") or 0) < opening_stop]
+        if opening_motion and not any(candidate.get("generation_status") == "animated"
+                                      for candidate in opening_motion):
+            raise RuntimeError(
+                "The selected motion treatment produced no real opening motion; aborted before "
+                "purchasing later visual assets. Choose Stills or restore a working motion provider.")
         log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
-            first_minute_preview_path, opening_metrics, opening_cues = _render_first_minute_preview(
+            (first_minute_preview_path, opening_metrics, opening_cues,
+             frozen_opening_segments) = _render_first_minute_preview(
                 opening_results, output_dir, cap_mode=cap_mode, style_mode=style_mode,
-                vw=vw, vh=vh, bg_music_path=bg_music_path)
+                vw=vw, vh=vh, bg_music_path=bg_music_path,
+                motion_clips=state_motion_clips)
+            opening_motion_clips = {
+                state_id: path for state_id, path in state_motion_clips.items()
+                if any(candidate.get("state_id") == state_id
+                       and int(candidate.get("scene_index") or 0) < opening_stop
+                       for candidate in motion_plan.get("candidates") or [])
+            }
+            opening_freeze = freeze_opening_manifest(
+                frozen_opening_segments, opening_motion_clips, opening_freeze_path)
+            freeze_validation = validate_frozen_opening(opening_freeze)
+            if not freeze_validation["passed"]:
+                raise RuntimeError("Opening freeze failed: " + "; ".join(
+                    error["message"] for error in freeze_validation["errors"]))
             preview_duration = _audio_dur(first_minute_preview_path)
             preview_state = {"decodable": _clip_is_real(first_minute_preview_path, min_dur=10),
                              "duration_sec": round(preview_duration, 1), "target_sec": 45}
@@ -6109,7 +6310,10 @@ def run_explainer_pipeline(
         except Exception as exc:
             if os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
                 raise
-            log(f"⚠ 45-second gate unavailable ({type(exc).__name__}) — continuing in advisory mode")
+            log(f"⚠ 45-second gate unavailable ({type(exc).__name__}); PR4 opening freeze remains fail-closed")
+        if not frozen_opening_segments or not readiness or not readiness.get("passed"):
+            raise RuntimeError(
+                "The opening was not approved and frozen; later visual assets will not be purchased.")
 
     later = []
     if opening_stop < len(scenes):
@@ -6166,11 +6370,25 @@ def run_explainer_pipeline(
     # 3a. Image-to-video: animate a deterministic ~35% of scenes (incl. the opener) for variety.
     #     Budget-capped against the remaining headroom under max_cost_usd; ANY failure (refusal,
     #     timeout, no-quota) falls back to ffmpeg Ken-Burns motion so the render never breaks.
-    i2v_clips: dict[int, str] = {}
-    i2v_costs: list[float] = []
-    i2v_errs: list[str] = []
+    i2v_clips: dict[int, str] = {}  # social legacy: scene index -> clip
     i2v_requested = 0
-    if i2v_on:
+    if video_format != "social":
+        _generate_longform_motion(results, set(range(opening_stop, len(scenes))))
+        i2v_requested = sum(1 for candidate in motion_plan.get("candidates") or []
+                            if candidate.get("selected"))
+        motion_plan["generation_validation"] = validate_motion_plan(
+            motion_plan, require_generation=True)
+        if not motion_plan["generation_validation"]["passed"]:
+            raise RuntimeError("Motion generation report is incomplete: " + "; ".join(
+                error["message"] for error in motion_plan["generation_validation"]["errors"]))
+        with open(motion_report_path, "w") as handle:
+            json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
+        if opening_freeze:
+            freeze_validation = validate_frozen_opening(opening_freeze)
+            if not freeze_validation["passed"]:
+                raise RuntimeError("Approved opening changed before final edit: " + "; ".join(
+                    error["message"] for error in freeze_validation["errors"]))
+    if i2v_on and video_format == "social":
         i2v_seconds = I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM
         spent = (sum(img_costs) + sum(tts_costs) + sum(aux_costs)
                  + float(script.get("_script_cost_usd", 0.0) or 0.0))
@@ -6269,13 +6487,28 @@ def run_explainer_pipeline(
             i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
             word_times=r.get("word_times"),
             evidence_states=r.get("evidence_states"),
+            motion_state_ids=frozenset(state_motion_clips),
         ) if video_format != "social" else []
         try:
+            if video_format != "social" and int(r["i"]) in frozen_opening_segments:
+                frozen = frozen_opening_segments[int(r["i"])]
+                if not _clip_is_real(frozen):
+                    raise RuntimeError("approved opening segment is missing or invalid")
+                scene_videos.append(frozen)
+                scene_audios.append(r["aud"])
+                rendered_narr.append(scene.get("narration", ""))
+                if _shot_plan:
+                    rendered_shot_plan.append(_shot_plan)
+                log(f"Rendering scene {k+1}/{len(usable)} (frozen approved opening reused) ✓")
+                continue
             _visual_source = _mv
+            if len(_shot_plan) == 1 and _shot_plan[0].get("kind") == "i2v":
+                _visual_source = state_motion_clips.get(_s(_shot_plan[0].get("state_id")))
             if len(_shot_plan) > 1:
                 _visual_source = os.path.join(scene_dir, f"scene_{k:02d}_shots.mp4")
                 _make_multishot_background(
-                    r, _shot_plan, _visual_source, vw, vh, motion_video=_mv, tail=FADE_DUR)
+                    r, _shot_plan, _visual_source, vw, vh, motion_video=_mv,
+                    motion_videos=state_motion_clips, tail=FADE_DUR)
             source_label = (f"{len(_shot_plan)}-shot cut" if _shot_plan
                             else ('🎬 i2v animated clip' if _mv else motion))
             log(f"Rendering scene {k+1}/{len(usable)} ({source_label})...")
@@ -6308,14 +6541,20 @@ def run_explainer_pipeline(
     rendered_durs = [_audio_dur(a) for a in scene_audios]
     rendered_count = len(scene_videos)
     shot_metrics = shot_plan_metrics(rendered_shot_plan) if rendered_shot_plan else {
-        "shot_count": rendered_count, "still_shot_count": rendered_count - len(i2v_clips),
-        "i2v_shot_count": len(i2v_clips), "alternate_shot_count": 0,
+        "shot_count": rendered_count, "still_shot_count": rendered_count - (
+            len(i2v_clips) if video_format == "social" else len(state_motion_clips)),
+        "i2v_shot_count": (len(i2v_clips) if video_format == "social"
+                           else len(state_motion_clips)), "alternate_shot_count": 0,
         "avg_still_seconds": 0.0, "max_still_seconds": 0.0,
-        "i2v_seconds": len(i2v_clips) * I2V_SECONDS,
+        "i2v_seconds": ((len(i2v_clips) * I2V_SECONDS) if video_format == "social"
+                        else len(state_motion_clips) * I2V_SECONDS_LONGFORM),
     }
     if rendered_shot_plan:
         log("Visual cadence: %(shot_count)d shots, %(avg_still_seconds).2fs average still, "
             "%(max_still_seconds).2fs max still" % shot_metrics)
+    if video_format != "social" and shot_metrics.get("motion_sync_ratio", 1.0) < 0.90:
+        raise RuntimeError(
+            f"Motion semantic alignment is {shot_metrics['motion_sync_ratio']:.0%}; 90% required.")
     full_audio_cues = build_audio_cues(
         [r["scene"] for r in usable if r["aud"] in scene_audios], rendered_durs)
 
@@ -6324,6 +6563,18 @@ def run_explainer_pipeline(
     output_path = os.path.join(output_dir, "explainer.mp4")
     _assemble(scene_videos, scene_audios, output_path, output_dir, bg_music_path,
               audio_cues=full_audio_cues)
+
+    if video_format != "social" and opening_freeze:
+        opening_freeze["final_reuse_validation"] = validate_frozen_opening(opening_freeze)
+        opening_freeze["reused_scene_indices"] = sorted(frozen_opening_segments)
+        if not opening_freeze["final_reuse_validation"]["passed"]:
+            raise RuntimeError("Final edit did not preserve the approved opening assets.")
+        with open(opening_freeze_path, "w") as handle:
+            json.dump(opening_freeze, handle, indent=2, ensure_ascii=False)
+        motion_plan["final_edit_metrics"] = shot_metrics
+        motion_plan["opening_freeze_validation"] = opening_freeze["final_reuse_validation"]
+        with open(motion_report_path, "w") as handle:
+            json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
 
     if video_format != "social":
         readiness = score_retention_readiness(
@@ -6439,7 +6690,8 @@ def run_explainer_pipeline(
     #    A zero-motion Short is a real quality miss and, with fal as a separate working quota, is now an
     #    anomaly (dead provider / missing key), not routine — so surface it as a DEGRADED reason instead
     #    of letting a silently-motionless short ship as "ok".
-    if i2v_requested and not i2v_clips:
+    actual_motion_count = len(i2v_clips) if video_format == "social" else len(state_motion_clips)
+    if i2v_requested and not actual_motion_count:
         if video_format == "social":
             reasons.append(f"NO motion — all {i2v_requested} i2v clips fell back to Ken Burns "
                            f"(provider/key issue); a Short with zero motion is a retention risk")
@@ -6482,6 +6734,7 @@ def run_explainer_pipeline(
         "hook":          script.get("hook", ""),
         "scene_count":   rendered,
         "video_format":  video_format,
+        "motion_mode":   resolved_motion_mode,
         "dropped":       dropped,
         "filler":        filler,
         "duration_sec":  round(final_dur, 1),
@@ -6501,12 +6754,14 @@ def run_explainer_pipeline(
         "evidence_plan_path": evidence_plan_path,
         "evidence_validation_path": evidence_validation_path,
         "continuity_pack_path": continuity_pack_path,
+        "motion_report_path": motion_report_path,
+        "opening_freeze_path": opening_freeze_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,
         "first_minute_preview_path": first_minute_preview_path,
         "retention_readiness": readiness,
         "short_grade":      short_grade,
-        "i2v_requested":    i2v_requested,        # scenes selected for image-to-video
-        "i2v_animated":     len(i2v_clips),       # how many actually generated (rest = Ken Burns)
+        "i2v_requested":    i2v_requested,        # evidence states (long-form) or scenes (social)
+        "i2v_animated":     actual_motion_count,
         "shot_metrics":     shot_metrics,
     }

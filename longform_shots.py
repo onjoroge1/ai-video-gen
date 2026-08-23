@@ -192,6 +192,7 @@ def compile_scene_shots(
     i2v_seconds: float = 5.0,
     word_times: list | None = None,
     evidence_states: list[dict] | None = None,
+    motion_state_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[dict]:
     """Compile phrase-aligned shots for one narrated scene.
 
@@ -214,10 +215,9 @@ def compile_scene_shots(
         if duration / count < MIN_SHOT_SECONDS:
             raise ValueError(
                 f"{count} evidence states cannot fit {duration:.2f}s without sub-minimum cuts")
-        starts = [0.0]
-        for state in accepted_states[1:]:
-            span = _find_phrase_span(timed, str(state.get("anchor_phrase") or ""))
-            starts.append(span[0] if span else -1.0)
+        spans = [_find_phrase_span(timed, str(state.get("anchor_phrase") or ""))
+                 for state in accepted_states]
+        starts = [0.0] + [span[0] if span else -1.0 for span in spans[1:]]
         valid = all(
             starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS
             for index in range(1, len(starts))
@@ -226,21 +226,29 @@ def compile_scene_shots(
             step = duration / count
             starts = [index * step for index in range(count)]
         shots = []
+        legacy_motion_index = next(
+            (j for j, item in enumerate(accepted_states)
+             if str(item.get("purpose") or "") in {"action", "consequence"}), 0)
         for index, state in enumerate(accepted_states):
             start = starts[index]
             end = starts[index + 1] if index + 1 < count else duration
             strategy = str(state.get("asset_strategy") or "master")
             kind = "still"
-            if has_i2v and index == next(
-                    (j for j, item in enumerate(accepted_states)
-                     if str(item.get("purpose") or "") in {"action", "consequence"}), 0):
+            state_id = str(state.get("state_id") or "")
+            if state_id in motion_state_ids or (has_i2v and not motion_state_ids
+                                                and index == legacy_motion_index):
                 kind = "i2v"
+            phrase_aligned = bool(
+                spans[index]
+                and ((index == 0 and float(spans[index][0]) <= 1.0)
+                     or (index > 0 and valid and abs(float(spans[index][0]) - start) <= 0.05))
+            )
             shot = _shot(
                 kind, str(state.get("asset_id") or ""), end - start, role,
                 start=start, purpose=str(state.get("purpose") or "evidence"),
                 anchor_phrase=str(state.get("anchor_phrase") or ""),
                 transition="continuous" if index == 0 else "hard_cut",
-                semantic_aligned=bool(state.get("anchor_phrase")) or index == 0,
+                semantic_aligned=phrase_aligned,
                 new_information=bool(state.get("verified_visible_information")),
                 motion="generated_motion" if kind == "i2v" else "locked",
             )
@@ -361,6 +369,7 @@ def compile_shot_plan(
     i2v_seconds: float = 5.0,
     word_times: list[list] | None = None,
     evidence_states: list[list[dict]] | None = None,
+    motion_state_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[list[dict]]:
     if len(scenes) != len(durations):
         raise ValueError("scenes and durations must have the same length")
@@ -376,6 +385,7 @@ def compile_shot_plan(
             word_times=timings[i] if i < len(timings) else None,
             evidence_states=(evidence_states[i] if evidence_states and i < len(evidence_states)
                              else None),
+            motion_state_ids=motion_state_ids,
         )
         for i, scene in enumerate(scenes)
     ]
