@@ -15,6 +15,7 @@ import os
 import re
 import time
 import json
+import hashlib
 import base64
 import subprocess
 import concurrent.futures
@@ -36,6 +37,12 @@ from longform_shots import (
     select_alternate_image_indices,
     shot_plan_metrics,
 )
+from longform_research import (
+    claim_context_for_prompt,
+    validate_claim_joins,
+    validate_research_dossier,
+)
+from audio_timing import build_audio_timing_report
 from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
     build_audio_cues,
@@ -155,10 +162,15 @@ def transcribe_words(audio_path: str) -> list:
     """Word-level timestamps for our own TTS, for karaoke captions.
     Returns [(word, start, end), ...]; [] on failure (caller falls back)."""
     try:
-        with open(audio_path, "rb") as f:
-            r = _retry(lambda: _openai().audio.transcriptions.create(
-                model="whisper-1", file=f, response_format="verbose_json",
-                timestamp_granularities=["word"]), label="whisper transcription")
+        def _call():
+            # Reopen on every retry. Reusing a consumed file handle submits an empty body after
+            # a transient failure and turns a recoverable timing call into a false gate failure.
+            with open(audio_path, "rb") as handle:
+                return _openai().audio.transcriptions.create(
+                    model="whisper-1", file=handle, response_format="verbose_json",
+                    timestamp_granularities=["word"])
+
+        r = _retry(_call, label="whisper transcription")
         words = getattr(r, "words", None) or []
         out = []
         for w in words:
@@ -179,6 +191,9 @@ _RATE_IMG_OUT     = 30.0 / 1_000_000
 _RATE_TTS_CHAR    = 30.0 / 1_000_000
 _RATE_SCRIPT_IN   = 5.0  / 1_000_000
 _RATE_SCRIPT_OUT  = 25.0 / 1_000_000
+# Spend reservation, not a provider pricing assertion. Server-side search pricing can change;
+# reserve a configurable conservative ceiling for every observed request.
+_WEB_SEARCH_COST_CEILING = float(os.environ.get("WEB_SEARCH_COST_CEILING_USD", "0.10"))
 
 # Pre-spend ESTIMATE only (actual spend is read from real usage tokens per call).
 # MEASURED 2026-06-24 from real gpt-image-2 usage: text-only 1536×1024 ≈ $0.041,
@@ -858,7 +873,8 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
                     image_guidance: str = "", video_format: str = "landscape",
                     series: str = "", improve_note: str = "", short_template: str = "auto",
                     operator_direction: str = "", premise_contract: dict | None = None,
-                    story_format: str = "standard_explainer") -> dict:
+                    story_format: str = "standard_explainer",
+                    research_dossier: dict | None = None) -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -878,10 +894,14 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
             n_scenes = min(n_scenes, 11)
     else:
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
-                                      series, improve_note, operator_direction, story_format)
-        sc, _hc = _ensure_hook_names_subject(sc, question)   # zero-friction: subject named by line 2
-        if _hc:
-            sc["_script_cost_usd"] = round(float(sc.get("_script_cost_usd") or 0.0) + _hc, 4)
+                                      series, improve_note, operator_direction, story_format,
+                                      research_dossier)
+        # A sourced long-form draft must not be rewritten by a claim-unaware hook patch. The
+        # fail-closed story validator rejects a missing subject and the replan keeps bindings intact.
+        if not research_dossier:
+            sc, _hc = _ensure_hook_names_subject(sc, question)
+            if _hc:
+                sc["_script_cost_usd"] = round(float(sc.get("_script_cost_usd") or 0.0) + _hc, 4)
         return sc
 
     # MEASURED TTS-1-HD speaking rate = ~2.64 w/s across 45 rendered videos (the old "3.5 w/s" comment
@@ -1147,6 +1167,9 @@ _SCENE_FIELDS_RULES = (
     'location, scale, record, map, and mechanism views normally set mascot_present=false and '
     'bolt_mode="absent". If Bolt appears, the image_prompt must describe the concrete measurement, '
     'test, warning, reaction, or assistance he performs — NEVER standing or pointing beside the topic. '
+    'claim_refs (copy the assigned claim_id values; for each, set narration_phrase to an EXACT '
+    'consecutive substring of this scene\'s FINAL narration and evidence_id to the assigned evidence_id; '
+    'use [] only when the assigned beat has no claims), evidence_id (copy the assigned stable id), '
     'shot_type '
     '(wide|medium|close|aerial|detail), text_overlay (USUALLY EMPTY "" — the subtitles carry the '
     'words; set it ONLY on a genuine reveal/transition/branch scene, and ONLY as a stage label or a '
@@ -1444,7 +1467,8 @@ def _opening_expansion_direction(story_format: str, is_first: bool) -> str:
 
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
                              improve_note="", operator_direction="",
-                             story_format="standard_explainer") -> dict:
+                             story_format="standard_explainer",
+                             research_dossier: dict | None = None) -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -1499,6 +1523,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '"continuity_anchor":"recurring subject/location/object visible in this beat",'
         '"causal_link":"because|but|therefore|so plus the preceding-beat connection",'
         '"bolt_mode":"absent|measurement|demonstration|warning|reaction|assistance",'
+        '"claim_refs":[{"claim_id":"c01","narration_phrase":"planned exact factual phrase",'
+        '"evidence_id":"e01"}] (empty only when the beat contains no factual, numeric, or causal claim),'
+        '"evidence_id":"stable evidence id, required whenever claim_refs is non-empty",'
         '"question_opened":"question created by this beat or '
         'empty","question_answered":"earlier question resolved by this beat or empty",'
         '"new_complication":"larger problem created by the answer or empty","visible_consequence":'
@@ -1591,6 +1618,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'branch reveal / most counter-intuitive answer) · 76-82% false_relief · 83-92% final_escalation '
         '· 92-97% final_payoff (answers the title, resolves the exact experiment) · 97-100% resonant_end.'
     )
+    claim_context = claim_context_for_prompt(research_dossier or {})
+    if claim_context:
+        beat_prompt += (
+            "\nBINDING RESEARCH CLAIM LEDGER — use only these sourced claims for factual, numeric, "
+            "or causal narration. Every such beat must reference one or more claim_id values and a "
+            "stable evidence_id. Preserve geographic_scope, timescale, and confidence; speculative "
+            "claims must be explicitly hedged. Do not invent a claim or URL:\n"
+            + json.dumps(claim_context, ensure_ascii=False)
+        )
     requested_story_format = (story_format if story_format in
                               {"standard_explainer", "evidence_led_mystery"}
                               else "standard_explainer")
@@ -1668,6 +1704,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "continuity_anchor": _s(beat.get("continuity_anchor")),
             "causal_link": _s(beat.get("causal_link")),
             "bolt_mode": _s(beat.get("bolt_mode")) or "absent",
+            "claim_refs": beat.get("claim_refs") or [],
+            "evidence_id": _s(beat.get("evidence_id")),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -1765,12 +1803,28 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                         "actual_outcome", "belief_changed", "decision_caused",
                         "continuity_anchor", "causal_link"):
                 s[key] = _s(beat.get(key))
+            allowed_refs = beat.get("claim_refs") if isinstance(beat.get("claim_refs"), list) else []
+            allowed_ids = {_s(ref.get("claim_id")) for ref in allowed_refs if isinstance(ref, dict)}
+            expanded_refs = s.get("claim_refs") if isinstance(s.get("claim_refs"), list) else []
+            s["claim_refs"] = [
+                {
+                    "claim_id": _s(ref.get("claim_id")),
+                    "narration_phrase": _s(ref.get("narration_phrase")),
+                    "evidence_id": _s(beat.get("evidence_id")),
+                }
+                for ref in expanded_refs
+                if isinstance(ref, dict) and _s(ref.get("claim_id")) in allowed_ids
+            ]
+            s["evidence_id"] = _s(beat.get("evidence_id"))
             all_scenes.append(s)
         bi += per_batch
 
     # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
-    all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
-    cost += dc
+    if research_dossier:
+        dc = 0.0  # claim-unaware rewrites would invalidate exact narration/source joins
+    else:
+        all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
+        cost += dc
 
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1
@@ -1794,7 +1848,141 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "_story_format_requested": requested_story_format,
         "_story_format_fallback_reason": fallback_reason,
         "_character_plan": character_budget,
+        "_research_dossier": research_dossier or {},
     }
+
+
+_RESEARCH_SYSTEM = (
+    "You are the research editor for an evidence-led science documentary. Search the web before "
+    "answering. Prefer primary sources (government science agencies, university research groups, "
+    "standards bodies, peer-reviewed papers) and authoritative secondary sources only when a primary "
+    "source is unavailable. Separate observed facts from calculations and speculative scenario claims. "
+    "Never invent a source URL, numeric value, geographic scope, or timescale."
+)
+
+
+def _provider_citation_records(response) -> list[dict]:
+    """Extract provider-observed URLs and quoted evidence from citation/tool blocks."""
+    records: dict[tuple[str, str], dict] = {}
+
+    def walk(value, *, provider_block: bool = False):
+        if isinstance(value, dict):
+            block_type = _s(value.get("type")).lower()
+            is_provider = provider_block or block_type in {
+                "web_search_tool_result", "web_search_result", "web_fetch_tool_result",
+                "web_fetch_result", "citation_web_search_result_location",
+            }
+            url = _s(value.get("url") or value.get("source_url")) if is_provider else ""
+            excerpt = _s(value.get("cited_text") or value.get("snippet") or value.get("content"))
+            if url.startswith("https://"):
+                # Some tool results expose content as nested blocks; retain the URL even when no
+                # provider excerpt is available so validation can report the precise missing join.
+                if isinstance(value.get("content"), (dict, list)):
+                    excerpt = _s(value.get("cited_text") or value.get("snippet"))
+                key = (url, excerpt)
+                records[key] = {"url": url, "cited_text": excerpt}
+            for key, item in value.items():
+                if key != "text":
+                    walk(item, provider_block=is_provider or key == "citations")
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, provider_block=provider_block)
+
+    for block in getattr(response, "content", None) or []:
+        dumped = block.model_dump() if hasattr(block, "model_dump") else getattr(block, "__dict__", {})
+        if _s(dumped.get("type")) != "text":
+            walk(dumped, provider_block=True)
+        else:
+            walk(dumped.get("citations") or [], provider_block=True)
+    return sorted(records.values(), key=lambda item: (item["url"], item["cited_text"]))
+
+
+def _provider_citation_urls(response) -> list[str]:
+    """Extract URLs only from provider citation/tool blocks, never from model-authored JSON text."""
+    urls: set[str] = set()
+
+    def walk(value, *, provider_block: bool = False):
+        if isinstance(value, dict):
+            block_type = _s(value.get("type")).lower()
+            is_provider = provider_block or block_type in {
+                "web_search_tool_result", "web_search_result", "web_fetch_tool_result",
+                "web_fetch_result", "citation_web_search_result_location",
+            }
+            for key, item in value.items():
+                if is_provider and key in {"url", "source_url"} and isinstance(item, str) \
+                        and item.startswith("https://"):
+                    urls.add(item)
+                elif key != "text":
+                    walk(item, provider_block=is_provider or key == "citations")
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, provider_block=provider_block)
+
+    for block in getattr(response, "content", None) or []:
+        dumped = block.model_dump() if hasattr(block, "model_dump") else getattr(block, "__dict__", {})
+        if _s(dumped.get("type")) != "text":
+            walk(dumped, provider_block=True)
+        else:
+            walk(dumped.get("citations") or [], provider_block=True)
+    urls.update(item["url"] for item in _provider_citation_records(response))
+    return sorted(urls)
+
+
+def generate_research_dossier(question: str, *, cost_sink: list | None = None,
+                              log=lambda message: None) -> dict:
+    """Build a cited, pre-script claim ledger with server-side web search."""
+    prompt = (
+        f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
+        "ledger of 6-14 material claims needed to answer it accurately. Every claim must use a URL "
+        "that appears in your web-search results. For a hypothetical, separate the changed premise, "
+        "direct calculations, established baseline facts, modeled consequences, and speculation. "
+        "Return ONLY JSON with this schema: "
+        '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
+        '"source_url":"https://...","support_quote":"short exact excerpt from the cited search evidence",'
+        '"source_type":"primary|authoritative_secondary",'
+        '"calculation":"formula or empty","assumptions":[],"geographic_scope":"global|regional|local|site-specific",'
+        '"timescale":"immediate|hours|years|millions of years|other explicit value",'
+        '"confidence":"high|medium|speculative","allowed_exaggeration":false,"material":true}]}. '
+        "Do not include narration_phrase or evidence_id yet; the story compiler binds those later."
+    )
+    response = _claude().messages.create(
+        model="claude-opus-4-8",
+        max_tokens=10000,
+        system=_RESEARCH_SYSTEM,
+        tools=[{
+            "type": "web_search_20260318", "name": "web_search", "max_uses": 5,
+            "response_inclusion": "full",
+        }],
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text_blocks = [_s(getattr(block, "text", "")) for block in response.content
+                   if _s(getattr(block, "text", ""))]
+    dossier, repair_cost = _parse_script_json("\n".join(text_blocks))
+    if not isinstance(dossier, dict):
+        raise ValueError("Research provider returned no structured dossier.")
+    dossier["version"] = 1
+    dossier["citation_records"] = _provider_citation_records(response)
+    dossier["citation_urls"] = _provider_citation_urls(response)
+    dossier["web_search_max_uses"] = 5
+    dossier["provider"] = "anthropic_server_web_search"
+    server_usage = getattr(response.usage, "server_tool_use", None)
+    search_requests = int(getattr(server_usage, "web_search_requests", 0) or 0)
+    dossier["web_search_requests"] = search_requests
+    dossier["search_cost_reservation_usd"] = round(
+        search_requests * _WEB_SEARCH_COST_CEILING, 4)
+    validation = validate_research_dossier(dossier)
+    dossier["validation"] = validation
+    if cost_sink is not None:
+        cost_sink.append(_msg_cost(response.usage) + repair_cost)
+        cost_sink.append(dossier["search_cost_reservation_usd"])
+    log(f"Research dossier: {validation['claim_count']} claims, "
+        f"{validation['citation_count']} cited URLs")
+    if not validation["passed"]:
+        raise ValueError(
+            "Research dossier failed before scripting: "
+            + "; ".join(item["message"] for item in validation["errors"][:6])
+        )
+    return dossier
 
 
 _FACTCHECK_SYSTEM = (
@@ -1815,7 +2003,7 @@ _FACTCHECK_SYSTEM = (
 )
 
 
-def factcheck_script(script: dict, question: str) -> tuple[dict, list, float]:
+def factcheck_script(script: dict, question: str, research_dossier: dict | None = None) -> tuple[dict, list, float]:
     """Verify narration factual accuracy via a second model pass. Returns (script, notes, cost).
 
     Adds genuine human-grade value + accuracy; failures degrade gracefully to the original.
@@ -1824,7 +2012,16 @@ def factcheck_script(script: dict, question: str) -> tuple[dict, list, float]:
     lines = [s.get("narration", "") for s in scenes]
     if not lines:
         return script, [], 0.0
-    payload = {"title": _s(script.get("title")) or question, "question": question, "narration": lines}
+    payload = {
+        "title": _s(script.get("title")) or question,
+        "question": question,
+        "narration": lines,
+        "binding_claim_ledger": claim_context_for_prompt(research_dossier or {}),
+        "constraint": (
+            "Use the binding ledger. Do not introduce a factual claim absent from it. If a correction "
+            "would require a new source, identify it in notes but do not silently rewrite the narration."
+        ),
+    }
     try:
         resp = _claude().messages.create(
             model="claude-opus-4-8",
@@ -1879,6 +2076,8 @@ def _enforce_requested_runtime(
             "narration": _s(scene.get("narration")),
             "visual_beats": scene.get("visual_beats") or [],
             "motion_anchor_phrase": _s(scene.get("motion_anchor_phrase")),
+            "claim_refs": scene.get("claim_refs") or [],
+            "evidence_id": _s(scene.get("evidence_id")),
         } for scene in scenes]
         prompt = (
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
@@ -1888,10 +2087,14 @@ def _enforce_requested_runtime(
             "Vary sentence length and keep natural speech. For every scene, return a visual_beats array "
             "whose anchor_phrase values are exact consecutive 2-8 word phrases copied from that scene's "
             "FINAL narration. Preserve each beat's purpose/visual/source/new_information/shot_size/"
-            "camera_direction when still relevant. Return motion_anchor_phrase as exact words from the "
-            "FINAL narration where physical action begins, or empty if none. Return ONLY JSON: "
+            "camera_direction when still relevant. Keep every claim_id and evidence_id unchanged. For "
+            "each claim reference, update narration_phrase to an exact consecutive substring of the "
+            "FINAL narration that states the same sourced claim; never drop, merge, or invent a claim. "
+            "Return motion_anchor_phrase as exact words from the FINAL narration where physical action "
+            "begins, or empty if none. Return ONLY JSON: "
             '{"scenes":[{"narration":"...","visual_beats":[...],'
-            '"motion_anchor_phrase":"..."}]}.\nINPUT:\n' + json.dumps(payload, ensure_ascii=False)
+            '"motion_anchor_phrase":"...","claim_refs":[...],"evidence_id":"..."}]}.\nINPUT:\n'
+            + json.dumps(payload, ensure_ascii=False)
         )
         try:
             response = _claude().messages.create(
@@ -1915,6 +2118,10 @@ def _enforce_requested_runtime(
                     scene["visual_beats"] = visual_beats
                 scene["motion_anchor_phrase"] = _s(
                     fitted_scene.get("motion_anchor_phrase")).strip()
+                if isinstance(fitted_scene.get("claim_refs"), list):
+                    scene["claim_refs"] = fitted_scene["claim_refs"]
+                if _s(fitted_scene.get("evidence_id")):
+                    scene["evidence_id"] = _s(fitted_scene.get("evidence_id"))
             report = plan_runtime(scenes, duration_sec)
             log(
                 f"Runtime fit {attempt + 1}: {report['estimated_seconds']:.1f}s estimated, "
@@ -2121,6 +2328,143 @@ def _audio_dur(path: str) -> float:
         stdin=subprocess.DEVNULL, timeout=30.0,
     )
     return float(json.loads(r.stdout)["format"]["duration"])
+
+
+def _fit_script_to_measured_audio(script: dict, timing_report: dict, target_seconds: float,
+                                  *, cost_sink: list | None = None) -> None:
+    """Rewrite only narration-bound fields using observed natural-speed scene durations."""
+    scenes = script.get("scenes") or []
+    measured = timing_report.get("scenes") or []
+    if len(scenes) != len(measured):
+        raise ValueError("Measured audio fit cannot map every scene.")
+    scale = float(target_seconds) / max(0.1, float(timing_report.get("measured_seconds") or 0.0))
+    payload = []
+    for scene, timing in zip(scenes, measured):
+        payload.append({
+            "narration": _s(scene.get("narration")),
+            "measured_seconds": timing.get("duration_sec"),
+            "target_seconds": round(float(timing.get("duration_sec") or 0.0) * scale, 3),
+            "visual_beats": scene.get("visual_beats") or [],
+            "motion_anchor_phrase": _s(scene.get("motion_anchor_phrase")),
+            "claim_refs": scene.get("claim_refs") or [],
+            "evidence_id": _s(scene.get("evidence_id")),
+        })
+    prompt = (
+        f"The complete narration was rendered at natural 1.0x TTS speed and measured "
+        f"{timing_report.get('measured_seconds')} seconds. Rewrite it to measure {target_seconds} "
+        f"seconds (allowed ±3%) with the SAME voice and exactly {len(scenes)} scenes. Use each scene's "
+        "measured_seconds and target_seconds as observed calibration, not a generic words-per-minute "
+        "guess. Preserve story role, human intention, belief/decision, question payoff, all facts, every "
+        "claim_id, and every evidence_id. Update claim narration_phrase, visual beat anchor_phrase, and "
+        "motion_anchor_phrase so each is an exact consecutive substring of the FINAL narration. Never "
+        "add an unsupported claim or post-stretch instruction. Return ONLY JSON: "
+        '{"scenes":[{"narration":"","visual_beats":[],"motion_anchor_phrase":"",'
+        '"claim_refs":[],"evidence_id":""}]}.\nINPUT:\n' + json.dumps(payload, ensure_ascii=False)
+    )
+    response = _claude().messages.create(
+        model="claude-opus-4-8", max_tokens=12000, system=_SCRIPT_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    fitted, repair_cost = _parse_script_json(response.content[0].text)
+    if cost_sink is not None:
+        cost_sink.append(_msg_cost(response.usage) + repair_cost)
+    new_scenes = fitted.get("scenes") if isinstance(fitted, dict) else None
+    if not isinstance(new_scenes, list) or len(new_scenes) != len(scenes):
+        raise ValueError("Measured audio fitter changed the scene count.")
+    for scene, new in zip(scenes, new_scenes):
+        narration = _s(new.get("narration"))
+        if not narration:
+            raise ValueError("Measured audio fitter returned empty narration.")
+        scene["narration"] = narration
+        if isinstance(new.get("visual_beats"), list):
+            scene["visual_beats"] = new["visual_beats"]
+        scene["motion_anchor_phrase"] = _s(new.get("motion_anchor_phrase"))
+        if isinstance(new.get("claim_refs"), list):
+            scene["claim_refs"] = new["claim_refs"]
+        if _s(new.get("evidence_id")):
+            scene["evidence_id"] = _s(new.get("evidence_id"))
+
+
+def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: str,
+                            target_seconds: float, *, tts_costs: list[float],
+                            aux_costs: list[float], question: str = "",
+                            log=lambda message: None) -> tuple[list[dict], dict]:
+    """Generate, measure, and if necessary refit all TTS before buying visual assets."""
+    scenes = script.get("scenes") or []
+    os.makedirs(aud_dir, exist_ok=True)
+
+    def render_audio(force: bool) -> list[dict]:
+        def one(item):
+            i, scene = item
+            path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
+            digest_path = path + ".narration.sha256"
+            digest_payload = f"tts-1-hd\0{voice}\0{_s(scene.get('narration'))}"
+            digest = hashlib.sha256(digest_payload.encode("utf-8")).hexdigest()
+            generated = False
+            cached_digest = ""
+            try:
+                with open(digest_path) as handle:
+                    cached_digest = handle.read().strip()
+            except OSError:
+                pass
+            if force or cached_digest != digest:
+                if os.path.exists(path):
+                    os.remove(path)
+            if force and os.path.exists(digest_path):
+                os.remove(digest_path)
+            if not os.path.exists(path) or os.path.getsize(path) <= 0:
+                generate_tts(_s(scene.get("narration")), path, voice=voice)
+                with open(digest_path, "w") as handle:
+                    handle.write(digest)
+                tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
+                generated = True
+            timings = transcribe_words(path)
+            return {"i": i, "aud": path, "word_times": timings, "generated": generated}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            return sorted(executor.map(one, enumerate(scenes)), key=lambda item: item["i"])
+
+    results: list[dict] = []
+    report: dict = {}
+    for attempt in range(3):
+        results = render_audio(force=attempt > 0)
+        report = build_audio_timing_report(
+            scenes,
+            [item["aud"] for item in results],
+            [item["word_times"] for item in results],
+            target_seconds,
+            duration_probe=_audio_dur,
+        )
+        log(f"Measured natural-speed TTS: {report.get('measured_seconds', 0):.2f}s "
+            f"for {target_seconds:.2f}s target (pass {attempt + 1}/3)")
+        if report.get("passed"):
+            break
+        non_runtime = [error for error in report.get("errors", [])
+                       if error.get("code") != "measured_runtime_outside_tolerance"]
+        if non_runtime:
+            raise ValueError(
+                "Measured audio timing failed: "
+                + "; ".join(error["message"] for error in non_runtime[:6])
+            )
+        if attempt >= 2:
+            break
+        _fit_script_to_measured_audio(
+            script, report, target_seconds, cost_sink=aux_costs)
+        story_validation = validate_longform_story(script, question or _s(script.get("title")))
+        claim_validation = validate_claim_joins(script, dossier)
+        if not story_validation.get("passed") or not claim_validation.get("passed"):
+            raise ValueError(
+                "Measured runtime rewrite broke the story or claim contract before visual spend."
+            )
+
+    if not report.get("passed"):
+        raise ValueError(
+            "Measured natural-speed runtime failed before visual spend: "
+            f"{report.get('measured_seconds', 0):.2f}s for {target_seconds:.2f}s target "
+            f"(allowed {report.get('minimum_seconds', 0):.2f}–{report.get('maximum_seconds', 0):.2f}s)."
+        )
+    script["_audio_timing"] = report
+    return results, report
 
 
 # Fun ROUNDED bold first (the branded headline look), with plain-bold fallbacks.
@@ -4509,7 +4853,8 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
 
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
-                           story_format: str = "standard_explainer") -> dict:
+                           story_format: str = "standard_explainer",
+                           research_dossier: dict | None = None) -> dict:
     """Generate a script, engagement-grade it, and ELEVATE a sub-target draft by surgically revising
     its weakest axis (up to `_SCRIPT_GATE_RETRIES` passes), keeping the best-scoring version. Returns
     that draft. Stores the winning grade on `script['_grade']`. Never blocks: a grader failure accepts
@@ -4518,7 +4863,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     import copy
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                            video_format=video_format, series=series, operator_direction=operator_direction,
-                           story_format=story_format)
+                           story_format=story_format, research_dossier=research_dossier)
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
     for _ in range(max(0, _LONGFORM_CONTRACT_RETRIES)):
@@ -4530,6 +4875,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             question, duration_sec, style, image_guidance=image_guidance,
             video_format=video_format, series=series, operator_direction=operator_direction,
             story_format=story_format,
+            research_dossier=research_dossier,
             improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
         )
         total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
@@ -4540,7 +4886,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     best["_script_cost_usd"] = round(total_generation_cost, 4)
     best["_retention_validation"] = best_validation
     best_g = grade_script(best, cost_sink=cost_sink)
-    if best_g is not None:
+    if best_g is not None and not research_dossier:
         for _ in range(max(0, _SCRIPT_ELEVATE_PASSES)):
             if best_g["overall"] >= _SCRIPT_GATE_PASS:
                 break
@@ -4556,7 +4902,10 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                 break                              # no improvement → stop spending on this axis
     # Backstop: a hook-axis revision above can strip the subject the guard named in generate_script.
     # Re-assert zero-friction naming on the FINAL chosen draft (and track its cost here, tracked path).
-    best, _hc = _ensure_hook_names_subject(best, question, cost_sink=cost_sink)
+    if research_dossier:
+        _hc = 0.0
+    else:
+        best, _hc = _ensure_hook_names_subject(best, question, cost_sink=cost_sink)
     best["_retention_validation"] = validate_longform_story(best, question)
     if best_g:
         best["_grade"] = best_g
@@ -4871,6 +5220,7 @@ def run_explainer_pipeline(
             progress_cb(msg)
 
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
+    os.makedirs(output_dir, exist_ok=True)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     # Image-to-video variability: default ON for social shorts (cheap, ~3 clips), OFF for
@@ -4885,6 +5235,12 @@ def run_explainer_pipeline(
     # ── RESUME: if a checkpoint exists, reuse the script + already-paid scene assets ──
     state_path = os.path.join(output_dir, "_state.json")
     resumed = False
+    asset_resume_allowed = False
+    research_dossier: dict = {}
+    claim_validation: dict | None = None
+    research_report_path = None
+    claim_report_path = None
+    audio_timing_report_path = None
     short_grade = None
     retention_report_path = None
     retention_json_path = None
@@ -4901,8 +5257,12 @@ def run_explainer_pipeline(
             script = _st["script"]
             style_mode = _st.get("style_mode", "educational")
             scenes = script.get("scenes", [])
+            research_dossier = script.get("_research_dossier") or {}
+            if video_format != "social" and not validate_research_dossier(research_dossier).get("passed"):
+                raise ValueError("Checkpoint predates the sourced research contract")
             short_grade = _st.get("short_grade")
             resumed = True
+            asset_resume_allowed = True
             done = len([s for i, s in enumerate(scenes)
                         if os.path.exists(os.path.join(output_dir, "images", f"scene_{i:02d}.jpg"))])
             log(f"▶ RESUMING from checkpoint — {len(scenes)} scenes, {done} images already on disk (won't re-pay).")
@@ -4931,12 +5291,16 @@ def run_explainer_pipeline(
                                                         short_template=short_template,
                                                         operator_direction=operator_direction)
         else:
+            log("stage:Researching sourced claims...")
+            research_dossier = generate_research_dossier(
+                question, cost_sink=aux_costs, log=log)
             # Engagement gate: grade hook/story/ending + regenerate weak drafts BEFORE we spend a
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
             script = generate_graded_script(question, duration_sec, style, image_guidance,
                                             video_format, series, cost_sink=aux_costs, log=log,
                                             operator_direction=operator_direction,
-                                            story_format=story_format)
+                                            story_format=story_format,
+                                            research_dossier=research_dossier)
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
@@ -4945,7 +5309,7 @@ def run_explainer_pipeline(
         # 1b. Fact-check pass — verify the science, correct errors before rendering.
         if fact_check and scenes:
             log("stage:Fact-checking script...")
-            script, fc_notes, fc_cost = factcheck_script(script, question)
+            script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
             script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
             if fc_notes:
                 log(f"Fact-check: {len(fc_notes)} correction(s) applied")
@@ -4954,6 +5318,14 @@ def run_explainer_pipeline(
             else:
                 log("Fact-check: no corrections needed ✓")
             scenes = script.get("scenes", [])
+        if video_format != "social":
+            claim_validation = validate_claim_joins(script, research_dossier)
+            script["_claim_validation"] = claim_validation
+            if not claim_validation.get("passed"):
+                raise ValueError(
+                    "Claim ledger failed after script/fact-check before asset spend: "
+                    + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
+                )
         n_host = sum(1 for s in scenes if s.get("mascot_present"))
         n_human = sum(1 for s in scenes if s.get("human_present"))
         log(f"Cast: {HUMAN_NAME} leads {n_human}/{len(scenes)} scenes; "
@@ -4985,6 +5357,13 @@ def run_explainer_pipeline(
         script = _enforce_requested_runtime(
             script, duration_sec, cost_sink=aux_costs, log=log)
         scenes = script.get("scenes", [])
+        claim_validation = validate_claim_joins(script, research_dossier)
+        script["_claim_validation"] = claim_validation
+        if not claim_validation.get("passed"):
+            raise ValueError(
+                "Runtime fit broke the sourced claim joins before TTS/image spend: "
+                + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
+            )
         try:
             _tmp = state_path + ".tmp"
             with open(_tmp, "w") as _sf:
@@ -5021,6 +5400,13 @@ def run_explainer_pipeline(
                     "Long-form retention contract failed before image/TTS spend: "
                     + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
                 )
+
+        research_report_path = os.path.join(output_dir, "research_dossier.json")
+        claim_report_path = os.path.join(output_dir, "claim_ledger_report.json")
+        with open(research_report_path, "w") as handle:
+            json.dump(research_dossier, handle, indent=2, ensure_ascii=False)
+        with open(claim_report_path, "w") as handle:
+            json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
     mascot_ok = os.path.exists(MASCOT_REF)
     human_ok = os.path.exists(HUMAN_REF)
@@ -5110,11 +5496,12 @@ def run_explainer_pipeline(
             f"Lower the duration or raise the cap."
         )
 
-    # 2. Images + TTS per scene, FAIL-SAFE: one scene's failure never kills the job.
+    # 2. Natural-speed TTS is measured before visual purchase. Social keeps its legacy
+    # interleaved path; long-form images cannot start until the audio contract passes.
     #    Image fails  → local fallback frame (job continues).
     #    Moderation   → one safe-prompt retry, else fallback frame.
     #    Audio fails  → scene is dropped (narration is the backbone).
-    log("stage:Generating images & voiceover...")
+    log("stage:Preparing narration and visual assets...")
 
     img_dir = os.path.join(output_dir, "images")
     aud_dir = os.path.join(output_dir, "audio")
@@ -5123,6 +5510,36 @@ def run_explainer_pipeline(
     n = len(scenes)
     img_costs: list[float] = []   # ACTUAL per-image USD (thread-safe list.append)
     tts_costs: list[float] = []
+    prepared_audio: dict[int, dict] = {}
+    if video_format != "social":
+        log("stage:Generating and measuring final-speed narration...")
+        prepared, audio_timing = _prepare_longform_audio(
+            script, research_dossier, aud_dir, voice, duration_sec,
+            tts_costs=tts_costs, aux_costs=aux_costs, question=question, log=log)
+        prepared_audio = {item["i"]: item for item in prepared}
+        audio_timing_report_path = os.path.join(output_dir, "audio_timing_report.json")
+        with open(audio_timing_report_path, "w") as handle:
+            json.dump(audio_timing, handle, indent=2, ensure_ascii=False)
+        scenes = script.get("scenes", [])
+        n = len(scenes)
+        claim_validation = validate_claim_joins(script, research_dossier)
+        retention_validation = validate_longform_story(script, question)
+        script["_claim_validation"] = claim_validation
+        script["_retention_validation"] = retention_validation
+        if not claim_validation.get("passed") or not retention_validation.get("passed"):
+            raise ValueError("Measured narration changed a story or claim contract before visual spend.")
+        retention_report_path = write_retention_report(
+            retention_validation, script.get("_story_contract") or {}, output_dir)
+        with open(claim_report_path, "w") as handle:
+            json.dump(claim_validation, handle, indent=2, ensure_ascii=False)
+        try:
+            temporary_state = state_path + ".tmp"
+            with open(temporary_state, "w") as handle:
+                json.dump({"script": script, "style_mode": style_mode,
+                           "short_grade": short_grade, "video_format": video_format}, handle)
+            os.replace(temporary_state, state_path)
+        except OSError:
+            pass
 
     def _gen_assets(args):
         i, scene = args
@@ -5131,7 +5548,7 @@ def run_explainer_pipeline(
         aud_path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
         # RESUME: if this scene's image + audio already exist on disk, reuse them — never
         # re-pay for a scene we already generated (the whole point of the checkpoint).
-        if (os.path.exists(img_path) and os.path.getsize(img_path) > 0
+        if (asset_resume_allowed and os.path.exists(img_path) and os.path.getsize(img_path) > 0
                 and os.path.exists(aud_path) and os.path.getsize(aud_path) > 0):
             wt = None
             if cap_mode in ("karaoke", "bubble", "headline_karaoke"):
@@ -5204,15 +5621,20 @@ def run_explainer_pipeline(
 
         # ---- audio (no fallback — a scene with no narration is dropped) ----
         aud_ok, word_times = True, None
-        try:
-            generate_tts(_s(scene.get("narration")), aud_path, voice=voice)
-            tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
-            log(f"Audio {i+1}/{n} ✓")
-            if cap_mode in ("karaoke", "bubble", "headline_karaoke"):
-                word_times = transcribe_words(aud_path)   # timing for captions / speech bubble
-        except Exception as exc:
-            aud_ok = False
-            log(f"⚠ Audio {i+1}/{n} failed ({type(exc).__name__}) — dropping this scene")
+        if i in prepared_audio:
+            aud_path = prepared_audio[i]["aud"]
+            word_times = prepared_audio[i]["word_times"]
+            log(f"Audio {i+1}/{n} ✓ measured before visual purchase")
+        else:
+            try:
+                generate_tts(_s(scene.get("narration")), aud_path, voice=voice)
+                tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
+                log(f"Audio {i+1}/{n} ✓")
+                if cap_mode in ("karaoke", "bubble", "headline_karaoke"):
+                    word_times = transcribe_words(aud_path)
+            except Exception as exc:
+                aud_ok = False
+                log(f"⚠ Audio {i+1}/{n} failed ({type(exc).__name__}) — dropping this scene")
 
         return {"i": i, "scene": scene, "img": img_path, "alt_img": alt_img, "aud": aud_path,
                 "img_ok": img_ok, "aud_ok": aud_ok, "note": note, "word_times": word_times}
@@ -5284,7 +5706,9 @@ def run_explainer_pipeline(
         estimate_cursor = 0.0
         opening_stop = 0
         for i, scene in all_indexed:
-            estimate_cursor += max(0.8, len(_s(scene.get("narration")).split()) / 2.64)
+            prepared_item = prepared_audio.get(i)
+            estimate_cursor += (_audio_dur(prepared_item["aud"]) if prepared_item else
+                                max(0.8, len(_s(scene.get("narration")).split()) / 2.64))
             opening_stop = i + 1
             if estimate_cursor >= 60.0:
                 break
@@ -5591,6 +6015,15 @@ def run_explainer_pipeline(
         final_dur = _audio_dur(output_path)
     except Exception:
         final_dur = 0.0
+    if video_format != "social":
+        runtime_tolerance = float(duration_sec) * 0.03
+        if not final_dur or abs(final_dur - float(duration_sec)) > runtime_tolerance:
+            raise RuntimeError(
+                "Final natural-speed runtime gate failed: "
+                f"{final_dur:.2f}s for a {duration_sec:.2f}s target "
+                f"(allowed {duration_sec - runtime_tolerance:.2f}–"
+                f"{duration_sec + runtime_tolerance:.2f}s)."
+            )
     rendered = len(scene_videos)
     reasons = []
     if n and dropped / n > 0.25:
@@ -5682,6 +6115,9 @@ def run_explainer_pipeline(
         "thumbnail_path":   thumbnail_path,
         "grade_path":       grade_path,
         "retention_json_path": retention_json_path,
+        "research_report_path": research_report_path,
+        "claim_report_path": claim_report_path,
+        "audio_timing_report_path": audio_timing_report_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,
         "first_minute_preview_path": first_minute_preview_path,

@@ -1683,6 +1683,9 @@
         <a class="btn btn-outline" id="expl-thumb-btn" href="#" download>↓ Thumbnail (.jpg)</a>
         <a class="btn btn-outline" id="expl-desc-btn" href="#" download>↓ Description (.txt)</a>
         <a class="btn btn-outline" id="expl-grade-btn" href="#" download style="display:none;">↓ Quality Report</a>
+        <a class="btn btn-outline" id="expl-research-btn" href="#" download style="display:none;">↓ Research Dossier</a>
+        <a class="btn btn-outline" id="expl-claims-btn" href="#" download style="display:none;">↓ Claim Ledger</a>
+        <a class="btn btn-outline" id="expl-timing-btn" href="#" download style="display:none;">↓ Audio Timing</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -3080,6 +3083,14 @@
       gb.href = `/api/explainer/grade/${jobId}`;
       gb.textContent = explFormat === 'social' ? '↓ Short Grade' : '↓ Retention Report';
       gb.style.display = '';
+      for (const [id, endpoint] of [
+        ['expl-research-btn', 'research'], ['expl-claims-btn', 'claims'],
+        ['expl-timing-btn', 'audio-timing']
+      ]) {
+        const button = document.getElementById(id);
+        button.href = `/api/explainer/${endpoint}/${jobId}`;
+        button.style.display = explFormat === 'social' ? 'none' : '';
+      }
       const tp = document.getElementById('expl-thumb-preview');
       tp.src = `/api/explainer/thumbnail/${jobId}`;
       tp.style.display = 'block';
