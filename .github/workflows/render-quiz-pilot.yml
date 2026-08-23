@@ -1,0 +1,90 @@
+name: Render Quiz Pilot
+
+on:
+  push:
+    branches:
+      - quiz-generation-pilot-20260823
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      FAL_KEY: ${{ secrets.FAL_KEY }}
+      I2V_PROVIDER: fal
+      QUIZ_FONT: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+      MAX_VIDEO_COST_USD: 5
+      REQUIRE_DURABLE_ARTIFACTS: 0
+      DURABLE_EXECUTION: 0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          sudo mkdir -p /opt/homebrew/bin
+          sudo ln -sf /usr/bin/ffmpeg /opt/homebrew/bin/ffmpeg
+          sudo ln -sf /usr/bin/ffprobe /opt/homebrew/bin/ffprobe
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check required render secrets
+        shell: bash
+        run: |
+          missing=0
+          if [ -z "$ANTHROPIC_API_KEY" ]; then echo 'Missing ANTHROPIC_API_KEY repository secret'; missing=1; fi
+          if [ -z "$OPENAI_API_KEY" ]; then echo 'Missing OPENAI_API_KEY repository secret'; missing=1; fi
+          if [ "$missing" -ne 0 ]; then exit 2; fi
+
+      - name: Render planets quiz using repo quiz pipeline
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import quiz_pipeline as qp
+
+          out = Path('quiz_pilot_output')
+          out.mkdir(exist_ok=True)
+          result = qp.run_quiz_pipeline(
+              category='planets',
+              output_dir=str(out),
+              n_items=3,
+              voice='echo',
+              operator_direction=(
+                  'Make this a high-retention YouTube Short for Bolt Explains the World. '
+                  'Use three visually distinctive Solar System planets, ordered easy to hard to expert. '
+                  'Keep spoken lines very short, factual, playful, and suitable for a broad audience.'
+              ),
+              progress_cb=print,
+          )
+          Path('quiz_pilot_result.json').write_text(json.dumps(result, indent=2, default=str))
+          print(json.dumps(result, indent=2, default=str))
+          PY
+
+      - name: Verify render
+        run: |
+          test -s quiz_pilot_output/quiz.mp4
+          ffprobe -v error -show_entries format=duration,size -of json quiz_pilot_output/quiz.mp4
+
+      - name: Upload quiz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bolt-planets-quiz-short
+          path: |
+            quiz_pilot_output/quiz.mp4
+            quiz_pilot_output/captions.srt
+            quiz_pilot_output/transcript.txt
+            quiz_pilot_output/description.txt
+            quiz_pilot_result.json
+          if-no-files-found: error
+          retention-days: 7
