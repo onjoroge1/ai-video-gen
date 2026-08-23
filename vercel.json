@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "python -m pip install -r requirements.txt imageio-ffmpeg && python scripts/render_quiz_preview.py",
   "functions": {
     "app.py": {
       "excludeFiles": "{tests/**,bolt_seq/tests/**,bolt_seq/fixtures/**,_e2e_final/**,requirements-dev.txt}",
