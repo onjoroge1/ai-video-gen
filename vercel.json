@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python -m pip install imageio-ffmpeg && python scripts/render_rapid_quiz_preview.py",
+  "functions": {
+    "app.py": {
+      "maxDuration": 800
+    }
+  }
+}
