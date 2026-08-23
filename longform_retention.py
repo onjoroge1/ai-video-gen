@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -20,6 +22,10 @@ ATTENTION_ROLES = {
 }
 ANSWER_ROLES = {"payoff", "reversal", "branch", "final_payoff"}
 EXPOSITION_ROLES = {"rules", "mechanism"}
+
+
+class StoryFormatAcknowledgementRequired(RuntimeError):
+    """An operator must accept a Mystery-to-Standard fallback before visual spending."""
 
 _SUBJECT_STOP = {
     "a", "an", "and", "are", "at", "be", "can", "could", "did", "do", "does", "for",
@@ -51,6 +57,63 @@ def _bool_value(value: Any, default: bool = False) -> bool:
     if normalized in {"true", "1", "yes", "on", "present"}:
         return True
     return default
+
+
+def story_format_fallback_payload(script: dict) -> dict:
+    contract = script.get("_story_contract") if isinstance(script.get("_story_contract"), dict) else {}
+    return {
+        "requested": _text(contract.get("story_format_requested")
+                           or script.get("_story_format_requested")),
+        "effective": _text(contract.get("story_format_effective") or script.get("_story_format")),
+        "reason": _text(contract.get("story_format_fallback_reason")
+                        or script.get("_story_format_fallback_reason")),
+        "title": _text(script.get("title")),
+    }
+
+
+def _fallback_hash(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def create_story_format_review(script: dict, output_path: str) -> dict:
+    payload = story_format_fallback_payload(script)
+    if payload["requested"] != "evidence_led_mystery" or payload["effective"] != "standard_explainer" \
+            or not payload["reason"]:
+        raise ValueError("Story-format review requires a concrete Mystery-to-Standard fallback.")
+    record = {
+        "version": 1, "status": "pending", "decision": "pending", "reviewer": "",
+        "reviewed_at": "", "fallback": payload, "fallback_sha256": _fallback_hash(payload),
+    }
+    temp = output_path + ".tmp"
+    with open(temp, "w", encoding="utf-8") as handle:
+        json.dump(record, handle, indent=2, ensure_ascii=False)
+    os.replace(temp, output_path)
+    return record
+
+
+def apply_story_format_review(record: dict, *, script: dict, reviewer: str,
+                              decision: str) -> dict:
+    if decision not in {"accept", "reject"}:
+        raise ValueError("Story-format decision must be accept or reject.")
+    if not _text(reviewer):
+        raise ValueError("Story-format acknowledgement requires a reviewer name.")
+    payload = story_format_fallback_payload(script)
+    if _fallback_hash(payload) != _text(record.get("fallback_sha256")):
+        raise ValueError("Story-format fallback changed after it was presented to the operator.")
+    return {
+        **record, "status": "completed", "decision": decision,
+        "reviewer": _text(reviewer), "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def validate_story_format_review(record: dict, script: dict) -> bool:
+    return bool(
+        isinstance(record, dict)
+        and record.get("decision") == "accept"
+        and _fallback_hash(story_format_fallback_payload(script))
+        == _text(record.get("fallback_sha256"))
+    )
 
 
 def _words(text: str) -> list[str]:
@@ -279,6 +342,11 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         total_cap = max(1, int(len(scenes) * 0.30))
         checks["bolt_scenes"] = bolt_scenes
         checks["bolt_caps"] = {"first_act": first_cap, "overall": total_cap}
+        if not bolt_scenes:
+            errors.append(_issue(
+                "missing_useful_bolt_scene",
+                "At least one scene must give Bolt useful measurement, demonstration, warning, "
+                "reaction, or assistance work."))
         if first_bolt > first_cap or len(bolt_scenes) > total_cap:
             errors.append(_issue("bolt_presence_budget_exceeded",
                                  "Bolt exceeds the selective supporting-character presence budget."))

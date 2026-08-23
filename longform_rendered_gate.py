@@ -26,6 +26,21 @@ RELEASE_SCORE = 85
 OPENING_AVG_STATE_RANGE = (1.8, 3.2)
 OPENING_MAX_STATE_SECONDS = 3.5
 DIAGNOSTIC_WATERMARK = "REJECTED DIAGNOSTIC — NOT FOR PUBLICATION"
+MIN_CALIBRATION_EXAMPLES_PER_CLASS = 20
+MIN_CALIBRATION_BALANCED_ACCURACY = 0.70
+MIN_CALIBRATION_CLASS_ACCURACY = 0.60
+PROVISIONAL_THRESHOLD_PROFILE = {
+    "schema_version": 1,
+    "profile_id": "provisional-defaults-v1",
+    "status": "provisional_uncalibrated",
+    "pixel_delta_threshold": 0.035,
+    "source_change_ratio_threshold": 0.45,
+    "dataset_sha256": "",
+    "sample_counts": {
+        "meaningful_change": 0, "not_meaningful_change": 0,
+        "not_slideshow": 0, "slideshow": 0,
+    },
+}
 
 
 class HumanReviewRequired(RuntimeError):
@@ -46,6 +61,200 @@ def _sha256(path: str) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _profile_error(message: str) -> ValueError:
+    return ValueError(f"Rendered-gate calibration profile is invalid: {message}")
+
+
+def validate_threshold_profile(profile: dict, *, require_calibrated: bool = False) -> dict:
+    """Validate a labeled calibration profile without awarding calibration by assertion."""
+    errors = []
+    if not isinstance(profile, dict) or profile.get("schema_version") != 1:
+        errors.append("schema_version must equal 1")
+        profile = profile if isinstance(profile, dict) else {}
+    status = _text(profile.get("status"))
+    if status not in {"calibrated", "provisional_uncalibrated"}:
+        errors.append("status must be calibrated or provisional_uncalibrated")
+    for field in ("pixel_delta_threshold", "source_change_ratio_threshold"):
+        try:
+            value = float(profile.get(field))
+        except (TypeError, ValueError):
+            errors.append(f"{field} must be numeric")
+            continue
+        if not 0 < value < 1:
+            errors.append(f"{field} must be between zero and one")
+    if status == "calibrated":
+        counts = profile.get("sample_counts") if isinstance(profile.get("sample_counts"), dict) else {}
+        for label in ("meaningful_change", "not_meaningful_change", "not_slideshow", "slideshow"):
+            try:
+                count = int(counts.get(label) or 0)
+            except (TypeError, ValueError):
+                count = 0
+            if count < MIN_CALIBRATION_EXAMPLES_PER_CLASS:
+                errors.append(
+                    f"{label} needs at least {MIN_CALIBRATION_EXAMPLES_PER_CLASS} labeled examples")
+        if not _text(profile.get("dataset_sha256")):
+            errors.append("calibrated profiles require dataset_sha256")
+        if not _text(profile.get("reviewer")):
+            errors.append("calibrated profiles require reviewer")
+        if not _text(profile.get("created_at")):
+            errors.append("calibrated profiles require created_at")
+        if _text(profile.get("method")) != "balanced_accuracy_human_labeled_real_video_v1":
+            errors.append("calibrated profiles require the supported calibration method")
+        metrics = profile.get("metrics") if isinstance(profile.get("metrics"), dict) else {}
+        for family in ("pixel_delta", "source_change_ratio"):
+            family_metrics = metrics.get(family) if isinstance(metrics.get(family), dict) else {}
+            try:
+                balanced = float(family_metrics.get("balanced_accuracy"))
+                sensitivity = float(family_metrics.get("sensitivity"))
+                specificity = float(family_metrics.get("specificity"))
+            except (TypeError, ValueError):
+                balanced = sensitivity = specificity = 0.0
+            if balanced < MIN_CALIBRATION_BALANCED_ACCURACY:
+                errors.append(
+                    f"{family} balanced accuracy must reach {MIN_CALIBRATION_BALANCED_ACCURACY:.0%}")
+            if min(sensitivity, specificity) < MIN_CALIBRATION_CLASS_ACCURACY:
+                errors.append(
+                    f"{family} sensitivity and specificity must each reach "
+                    f"{MIN_CALIBRATION_CLASS_ACCURACY:.0%}")
+    if require_calibrated and status != "calibrated":
+        errors.append("a calibrated profile is required for a publishable rendered score")
+    return {"passed": not errors, "calibrated": status == "calibrated" and not errors,
+            "errors": errors}
+
+
+def load_threshold_profile(path: str | None = None) -> dict:
+    """Load a real calibration profile, or return explicitly provisional defaults.
+
+    If an operator configures a profile path, malformed or insufficient evidence fails closed.
+    """
+    configured = path if path is not None else os.environ.get("LONGFORM_GATE_CALIBRATION_PROFILE", "")
+    configured = _text(configured)
+    if not configured:
+        return dict(PROVISIONAL_THRESHOLD_PROFILE)
+    try:
+        with open(configured, encoding="utf-8") as handle:
+            profile = json.load(handle)
+    except (OSError, ValueError, TypeError) as exc:
+        raise _profile_error(str(exc)) from exc
+    validation = validate_threshold_profile(profile, require_calibrated=True)
+    if not validation["passed"]:
+        raise _profile_error("; ".join(validation["errors"]))
+    return profile
+
+
+def _best_threshold(values: list[float], labels: list[bool]) -> tuple[float, dict]:
+    """Choose the deterministic balanced-accuracy threshold for positive values >= threshold."""
+    candidates = sorted(set(values))
+    best = None
+    positives = sum(labels)
+    negatives = len(labels) - positives
+    for threshold in candidates:
+        tp = sum(label and value >= threshold for value, label in zip(values, labels))
+        tn = sum((not label) and value < threshold for value, label in zip(values, labels))
+        sensitivity = tp / max(1, positives)
+        specificity = tn / max(1, negatives)
+        score = (sensitivity + specificity) / 2
+        candidate = (score, min(sensitivity, specificity), -threshold, threshold,
+                     sensitivity, specificity)
+        if best is None or candidate > best:
+            best = candidate
+    assert best is not None
+    return round(best[3], 6), {
+        "balanced_accuracy": round(best[0], 4),
+        "sensitivity": round(best[4], 4),
+        "specificity": round(best[5], 4),
+    }
+
+
+def calibrate_threshold_profile(samples: list[dict], *, reviewer: str,
+                                dataset_id: str = "") -> dict:
+    """Build a calibrated profile from human-labeled real-video observations.
+
+    Each sample must carry measured pixel/source values and independent editorial labels.
+    Small or one-sided datasets are rejected rather than called calibrated.
+    """
+    if not _text(reviewer):
+        raise _profile_error("reviewer is required")
+    clean = []
+    rejected = []
+    for item in samples or []:
+        if not isinstance(item, dict):
+            rejected.append("sample is not an object")
+            continue
+        try:
+            sample_id = _text(item.get("sample_id"))
+            pixel_delta = float(item["pixel_delta"])
+            source_change_ratio = float(item["source_change_ratio"])
+            meaningful_change = item["meaningful_change"]
+            slideshow = item["slideshow"]
+        except (KeyError, TypeError, ValueError):
+            rejected.append(f"invalid sample {_text(item.get('sample_id')) or '<unnamed>'}")
+            continue
+        if (not sample_id or not isinstance(meaningful_change, bool)
+                or not isinstance(slideshow, bool)
+                or not 0 <= pixel_delta <= 1 or not 0 <= source_change_ratio <= 1):
+            rejected.append(f"invalid sample {sample_id or '<unnamed>'}")
+            continue
+        clean.append({
+            "sample_id": sample_id,
+            "pixel_delta": pixel_delta,
+            "meaningful_change": meaningful_change,
+            "source_change_ratio": source_change_ratio,
+            "slideshow": slideshow,
+        })
+    duplicate_ids = len({item["sample_id"] for item in clean}) != len(clean)
+    if rejected:
+        raise _profile_error(
+            f"{len(rejected)} sample(s) have missing/invalid typed labels or measurements")
+    if duplicate_ids:
+        raise _profile_error("sample_id values must be unique")
+    counts = {
+        "meaningful_change": sum(item["meaningful_change"] for item in clean),
+        "not_meaningful_change": sum(not item["meaningful_change"] for item in clean),
+        "not_slideshow": sum(not item["slideshow"] for item in clean),
+        "slideshow": sum(item["slideshow"] for item in clean),
+    }
+    for label, count in counts.items():
+        if count < MIN_CALIBRATION_EXAMPLES_PER_CLASS:
+            raise _profile_error(
+                f"{label} needs at least {MIN_CALIBRATION_EXAMPLES_PER_CLASS} labeled examples; got {count}")
+    pixel_threshold, pixel_metrics = _best_threshold(
+        [item["pixel_delta"] for item in clean],
+        [item["meaningful_change"] for item in clean])
+    source_threshold, source_metrics = _best_threshold(
+        [item["source_change_ratio"] for item in clean],
+        [not item["slideshow"] for item in clean])
+    for family, metrics in (("pixel_delta", pixel_metrics),
+                            ("source_change_ratio", source_metrics)):
+        if metrics["balanced_accuracy"] < MIN_CALIBRATION_BALANCED_ACCURACY \
+                or min(metrics["sensitivity"], metrics["specificity"]) \
+                < MIN_CALIBRATION_CLASS_ACCURACY:
+            raise _profile_error(
+                f"{family} labels do not support a viable threshold: "
+                f"balanced accuracy {metrics['balanced_accuracy']:.0%}, "
+                f"sensitivity {metrics['sensitivity']:.0%}, "
+                f"specificity {metrics['specificity']:.0%}")
+    canonical = json.dumps(clean, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    profile = {
+        "schema_version": 1,
+        "profile_id": "rendered-gate-" + hashlib.sha256(canonical).hexdigest()[:12],
+        "status": "calibrated",
+        "dataset_id": _text(dataset_id),
+        "dataset_sha256": hashlib.sha256(canonical).hexdigest(),
+        "reviewer": _text(reviewer),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "method": "balanced_accuracy_human_labeled_real_video_v1",
+        "sample_counts": counts,
+        "pixel_delta_threshold": pixel_threshold,
+        "source_change_ratio_threshold": source_threshold,
+        "metrics": {"pixel_delta": pixel_metrics, "source_change_ratio": source_metrics},
+    }
+    validation = validate_threshold_profile(profile, require_calibrated=True)
+    if not validation["passed"]:
+        raise _profile_error("; ".join(validation["errors"]))
+    return profile
 
 
 def _flatten(plan: list[list[dict]]) -> list[dict]:
@@ -195,8 +404,14 @@ def _pixel_delta(left: str, right: str) -> float:
 
 
 def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], output_dir: str,
-                             evidence_plan: dict) -> dict:
+                             evidence_plan: dict, threshold_profile: dict | None = None) -> dict:
     """Extract each cut midpoint plus boundary samples and measure encoded story states."""
+    profile = threshold_profile or load_threshold_profile()
+    profile_validation = validate_threshold_profile(profile)
+    if not profile_validation["passed"]:
+        raise _profile_error("; ".join(profile_validation["errors"]))
+    pixel_threshold = float(profile["pixel_delta_threshold"])
+    source_threshold = float(profile["source_change_ratio_threshold"])
     frame_dir = Path(output_dir) / "rendered_gate_frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
     shots = _flatten(shot_plan)
@@ -262,13 +477,14 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
                 continuity_failures.append({"state_id": state.get("state_id"), "field": field})
     avg_state = sum(durations) / len(durations) if durations else 999.0
     max_state = max(durations, default=999.0)
-    pixel_changes = sum(item["pixel_delta"] >= 0.035 for item in boundary_deltas)
+    pixel_changes = sum(item["pixel_delta"] >= pixel_threshold for item in boundary_deltas)
+    source_change_ratio = source_changes / max(1, len(shots) - 1)
     deterministic = {
         "decodable": bool(frames) and not errors,
         "shot_count": len(shots),
         "extracted_midpoint_count": len(frames),
         "distinct_source_count": len(set(filter(None, sources))),
-        "source_change_ratio": round(source_changes / max(1, len(shots) - 1), 3),
+        "source_change_ratio": round(source_change_ratio, 3),
         "pixel_boundary_change_ratio": round(pixel_changes / max(1, len(boundary_deltas)), 3),
         "verified_information_ratio": round(verified / max(1, len(shots)), 3),
         "per_cut_verification_ratio": round(
@@ -277,11 +493,13 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         "average_visual_state_sec": round(avg_state, 3),
         "max_visual_state_sec": round(max_state, 3),
         "long_hold_count": sum(duration > OPENING_MAX_STATE_SECONDS for duration in durations),
+        "bolt_shot_count": expected_bolt,
         "bolt_shot_ratio": round(expected_bolt / max(1, len(shots)), 3),
         "pure_evidence_bolt_violations": pure_bolt_violations,
         "continuity_failures": continuity_failures,
         "slideshow": (len(set(filter(None, sources))) <= max(1, math.ceil(len(shots) * 0.35))
-                      or source_changes / max(1, len(shots) - 1) < 0.45),
+                      or source_change_ratio < source_threshold),
+        "threshold_profile": profile,
     }
     return {
         "version": RENDERED_GATE_VERSION,
@@ -377,14 +595,17 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         deterministic.get("verified_information_ratio", 0) >= 0.70,
         blind.get("forward_question_readable"),
         len(blind.get("observed_evidence_sequence") or []) >= 2]), 20)
+    threshold_profile = deterministic.get("threshold_profile") or PROVISIONAL_THRESHOLD_PROFILE
+    source_threshold = float(threshold_profile.get("source_change_ratio_threshold") or 0.45)
     add("Genuine multi-shot visual storytelling", _fraction_score(15, [
         blind.get("multi_shot_storytelling"), not blind.get("slideshow"),
-        not deterministic.get("slideshow"), deterministic.get("source_change_ratio", 0) >= 0.45,
+        not deterministic.get("slideshow"),
+        deterministic.get("source_change_ratio", 0) >= source_threshold,
         deterministic.get("pixel_boundary_change_ratio", 0) >= 0.45]), 15)
     add("Bolt discipline and usefulness", _fraction_score(10, [
         deterministic.get("bolt_shot_ratio", 0) <= 0.35,
         deterministic.get("pure_evidence_bolt_violations", 0) == 0,
-        blind.get("bolt_useful") or deterministic.get("bolt_shot_ratio", 0) == 0]), 10)
+        blind.get("bolt_useful") and deterministic.get("bolt_shot_ratio", 0) > 0]), 10)
     checks = story_validation.get("checks") if isinstance(story_validation, dict) else {}
     add("First-act continuity and exact callback", _fraction_score(10, [
         not deterministic.get("continuity_failures"),
@@ -409,6 +630,8 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         total = min(total, 49)
     if deterministic.get("bolt_shot_ratio", 0) >= 0.70:
         hard_failures.append("bolt_everywhere")
+    if int(deterministic.get("bolt_shot_count") or 0) <= 0:
+        hard_failures.append("bolt_absent")
     if deterministic.get("long_hold_count", 0):
         hard_failures.append("long_visual_hold")
     average_state = float(deterministic.get("average_visual_state_sec") or 999)
@@ -425,6 +648,9 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     if not claim_validation.get("passed"):
         hard_failures.append("unsupported_major_claim")
         total = min(total, 59)
+    calibration = validate_threshold_profile(threshold_profile, require_calibrated=True)
+    if not calibration["passed"]:
+        hard_failures.append("uncalibrated_rendered_thresholds")
     if hard_failures:
         total = min(total, 69)
     automated_pass = total >= RELEASE_SCORE and not hard_failures and blind.get("valid", True)
@@ -442,6 +668,8 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         "automated_pass": automated_pass,
         "publishable": bool(automated_pass and human_approved),
         "hard_failures": sorted(set(hard_failures)),
+        "threshold_profile": threshold_profile,
+        "threshold_calibration": calibration,
         "components": components,
         "human_review": review,
         "disclaimer": "Contract compliance score; it does not predict audience retention.",

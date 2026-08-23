@@ -16,8 +16,8 @@ from longform_motion import (
 from longform_shots import compile_scene_shots, shot_plan_metrics
 
 
-def _beat(anchor, before, after, *, purpose="action", pure=False):
-    return {
+def _beat(anchor, before, after, *, purpose="action", pure=False, **extra):
+    beat = {
         "anchor_phrase": anchor,
         "purpose": purpose,
         "visual": after,
@@ -30,6 +30,8 @@ def _beat(anchor, before, after, *, purpose="action", pure=False):
         "pure_evidence": pure,
         "human_visible": not pure,
     }
+    beat.update(extra)
+    return beat
 
 
 def _script_and_evidence():
@@ -45,7 +47,9 @@ def _script_and_evidence():
     for index, (pct, role, narration, anchor, before, after) in enumerate(specs):
         beats = [_beat(anchor, before, after,
                        purpose="diagram" if role == "mechanism" else "action",
-                       pure=role == "mechanism")]
+                       pure=role == "mechanism",
+                       bolt_visible=index == 0,
+                       bolt_action="measures the jumping gauge" if index == 0 else "")]
         if pct <= 30:
             beats.append(_beat("red gauge jump" if index == 0 else "marked float",
                                "missing corroboration", "visible corroborating evidence",
@@ -58,7 +62,8 @@ def _script_and_evidence():
             "narration": narration,
             "motion_anchor_phrase": anchor,
             "human_present": role != "mechanism",
-            "mascot_present": False,
+            "mascot_present": index == 0,
+            "bolt_mode": "measurement" if index == 0 else "absent",
             "continuity_anchor": "Alex at the harbor tide gauge",
             "visual_beats": beats,
         })
@@ -132,6 +137,18 @@ def test_motion_alignment_below_ninety_percent_fails():
     assert {error["code"] for error in report["errors"]} == {"motion_semantic_alignment"}
 
 
+def test_motion_alignment_floor_cannot_be_lowered_by_environment(monkeypatch):
+    script, evidence = _script_and_evidence()
+    plan = compile_motion_plan(script, evidence, mode="full_motion", max_requests=12)
+    selected = [candidate for candidate in plan["candidates"] if candidate["selected"]]
+    for candidate in selected[:2]:
+        candidate["semantic_aligned"] = False
+    monkeypatch.setenv("LONGFORM_MOTION_ALIGNMENT_FLOOR", "0.10")
+    report = validate_motion_plan(plan)
+    assert report["passed"] is False
+    assert {error["code"] for error in report["errors"]} == {"motion_semantic_alignment"}
+
+
 def test_pure_evidence_motion_prompt_forbids_character_invention():
     candidate = {
         "anchor_phrase": "the waterline falls", "state_before": "high water",
@@ -167,7 +184,9 @@ def test_motion_does_not_create_an_evidence_event_without_pixel_verification():
     }]
     shots = compile_scene_shots(
         scene, 5.0, 0, evidence_states=states,
-        motion_state_ids={"state:s001:e01"})
+        motion_state_ids={"state:s001:e01"},
+        word_times=[("The", 0.0, 0.5), ("marked", 0.5, 1.0), ("float", 1.0, 1.5),
+                    ("drops", 1.5, 2.0), ("now", 2.0, 2.5)])
     assert shots[0]["kind"] == "i2v"
     assert shots[0]["new_information"] is False
     metrics = shot_plan_metrics([shots])

@@ -1,6 +1,7 @@
 import json
 import inspect
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,8 @@ from longform_rendered_gate import (
     render_low_cost_animatic,
     score_rendered_contract,
     watermark_rejected_preview,
+    calibrate_threshold_profile,
+    validate_threshold_profile,
 )
 
 
@@ -59,10 +62,26 @@ def _facts(**overrides):
         "average_visual_state_sec": 2.6,
         "max_visual_state_sec": 3.2,
         "long_hold_count": 0,
+        "bolt_shot_count": 3,
         "bolt_shot_ratio": 0.25,
         "pure_evidence_bolt_violations": 0,
         "continuity_failures": [],
         "slideshow": False,
+        "threshold_profile": {
+            "schema_version": 1, "profile_id": "test-calibrated-v1", "status": "calibrated",
+            "pixel_delta_threshold": 0.035, "source_change_ratio_threshold": 0.45,
+            "dataset_sha256": "test-dataset-hash", "reviewer": "Test Editor",
+            "created_at": "2026-08-23T00:00:00+00:00",
+            "method": "balanced_accuracy_human_labeled_real_video_v1",
+            "sample_counts": {"meaningful_change": 20, "not_meaningful_change": 20,
+                              "not_slideshow": 20, "slideshow": 20},
+            "metrics": {
+                "pixel_delta": {"balanced_accuracy": 0.9, "sensitivity": 0.9,
+                                "specificity": 0.9},
+                "source_change_ratio": {"balanced_accuracy": 0.9, "sensitivity": 0.9,
+                                        "specificity": 0.9},
+            },
+        },
     }
     value.update(overrides)
     return value
@@ -87,6 +106,116 @@ def test_strong_automated_gate_never_reports_final_pass_without_human_review():
     assert report["passed"] is False
     assert report["publishable"] is False
     assert report["status"] == "AUTOMATED_PASS_AWAITING_HUMAN"
+
+
+def test_zero_bolt_never_receives_full_credit_and_is_a_hard_failure():
+    report = _score(facts=_facts(bolt_shot_count=0, bolt_shot_ratio=0.0))
+    component = next(item for item in report["components"]
+                     if item["name"] == "Bolt discipline and usefulness")
+    assert component["score"] < component["max"]
+    assert "bolt_absent" in report["hard_failures"]
+    assert report["automated_pass"] is False
+
+
+def test_uncalibrated_thresholds_are_reported_and_cannot_publish():
+    facts = _facts()
+    facts["threshold_profile"] = {
+        "schema_version": 1, "profile_id": "provisional-defaults-v1",
+        "status": "provisional_uncalibrated", "pixel_delta_threshold": 0.035,
+        "source_change_ratio_threshold": 0.45, "dataset_sha256": "",
+        "sample_counts": {"meaningful_change": 0, "not_meaningful_change": 0,
+                          "not_slideshow": 0, "slideshow": 0},
+    }
+    report = _score(facts=facts)
+    assert "uncalibrated_rendered_thresholds" in report["hard_failures"]
+    assert report["threshold_calibration"]["calibrated"] is False
+    assert report["publishable"] is False
+
+
+def test_real_calibration_requires_balanced_human_labeled_samples():
+    samples = []
+    for index in range(20):
+        samples.append({
+            "sample_id": f"change-{index}", "pixel_delta": 0.10 + index / 1000,
+            "meaningful_change": True, "source_change_ratio": 0.80,
+            "slideshow": False,
+        })
+        samples.append({
+            "sample_id": f"hold-{index}", "pixel_delta": 0.005 + index / 10000,
+            "meaningful_change": False, "source_change_ratio": 0.10,
+            "slideshow": True,
+        })
+    profile = calibrate_threshold_profile(
+        samples, reviewer="Editor", dataset_id="real-pilot-labels-v1")
+    assert validate_threshold_profile(profile, require_calibrated=True)["passed"] is True
+    assert profile["status"] == "calibrated"
+    assert profile["dataset_sha256"]
+
+    with pytest.raises(ValueError, match="needs at least 20"):
+        calibrate_threshold_profile(samples[:10], reviewer="Editor")
+
+
+def test_calibration_rejects_coerced_labels_duplicate_ids_and_out_of_range_measurements():
+    base = []
+    for index in range(20):
+        base.extend([
+            {"sample_id": f"change-{index}", "pixel_delta": 0.1,
+             "meaningful_change": True, "source_change_ratio": 0.8, "slideshow": False},
+            {"sample_id": f"hold-{index}", "pixel_delta": 0.01,
+             "meaningful_change": False, "source_change_ratio": 0.1, "slideshow": True},
+        ])
+
+    malformed = [dict(item) for item in base]
+    malformed[0]["meaningful_change"] = "false"
+    with pytest.raises(ValueError, match="invalid typed labels"):
+        calibrate_threshold_profile(malformed, reviewer="Editor")
+
+    duplicate = [dict(item) for item in base]
+    duplicate[1]["sample_id"] = duplicate[0]["sample_id"]
+    with pytest.raises(ValueError, match="sample_id values must be unique"):
+        calibrate_threshold_profile(duplicate, reviewer="Editor")
+
+    out_of_range = [dict(item) for item in base]
+    out_of_range[0]["pixel_delta"] = 1.5
+    with pytest.raises(ValueError, match="invalid typed labels"):
+        calibrate_threshold_profile(out_of_range, reviewer="Editor")
+
+    non_predictive = []
+    for index in range(20):
+        non_predictive.extend([
+            {"sample_id": f"random-change-{index}", "pixel_delta": 0.1,
+             "meaningful_change": True, "source_change_ratio": 0.5, "slideshow": False},
+            {"sample_id": f"random-hold-{index}", "pixel_delta": 0.1,
+             "meaningful_change": False, "source_change_ratio": 0.5, "slideshow": True},
+        ])
+    with pytest.raises(ValueError, match="do not support a viable threshold"):
+        calibrate_threshold_profile(non_predictive, reviewer="Editor")
+
+
+def test_calibration_cli_writes_a_valid_atomic_profile(tmp_path):
+    samples = []
+    for index in range(20):
+        samples.extend([
+            {"sample_id": f"change-{index}", "pixel_delta": 0.1,
+             "meaningful_change": True, "source_change_ratio": 0.8, "slideshow": False},
+            {"sample_id": f"hold-{index}", "pixel_delta": 0.01,
+             "meaningful_change": False, "source_change_ratio": 0.1, "slideshow": True},
+        ])
+    dataset = tmp_path / "labels.json"
+    output = tmp_path / "threshold-profile.json"
+    dataset.write_text(json.dumps({"samples": samples}), encoding="utf-8")
+    subprocess.run([
+        sys.executable, "scripts/calibrate_rendered_gate.py", str(dataset), str(output),
+        "--reviewer", "Editor", "--dataset-id", "pilot-v1",
+    ], check=True, capture_output=True, text=True)
+    profile = json.loads(output.read_text(encoding="utf-8"))
+    assert validate_threshold_profile(profile, require_calibrated=True)["passed"] is True
+    assert not (tmp_path / "threshold-profile.json.tmp").exists()
+
+
+def test_opening_gate_log_formats_ratio_without_percent_crash():
+    assert pipeline.opening_evidence_gate_message({"verified_information_ratio": 0.75}) \
+        == "Opening evidence gate: PASS — 75% verified-information cuts"
 
 
 @pytest.mark.parametrize(("facts", "errors", "failure"), [
