@@ -31,7 +31,9 @@ const grid=document.getElementById('grid'),statusEl=document.getElementById('sta
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const size=n=>!n?'—':n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.round(n/1e3)+' KB';
 async function load(){const q=document.getElementById('search').value.trim();const r=await fetch('/api/finished?q='+encodeURIComponent(q));
- if(r.status===401){location='/login?next=/finished';return}const d=await r.json();statusEl.textContent=`${d.count} finished video${d.count===1?'':'s'}`;
+ if(r.status===401){location='/login?next=/finished';return}const d=await r.json();
+ if(!r.ok){const detail=d.detail||{};statusEl.textContent=`Storage unavailable — ${detail.message||detail||'try again shortly'}`;grid.innerHTML='<div class="empty">The durable library could not be read. This is an outage, not an empty library.</div>';return}
+ statusEl.textContent=`${d.count} finished video${d.count===1?'':'s'}`;
  grid.innerHTML=d.videos.length?d.videos.map(card).join(''):'<div class="empty">No finished videos found.</div>'}
 function card(v){const thumb=(v.thumbnail_url||(v.artifacts||{}).thumb)?`<img class="thumb" loading="lazy" src="/api/finished/${encodeURIComponent(v.id)}/artifact/thumb">`:'<div class="thumb"></div>';
  return `<article class="card" data-video-id="${esc(v.id)}">${thumb}<div class="meta"><div class="title">${esc(v.title)}</div>

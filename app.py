@@ -18,13 +18,14 @@ import tempfile
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import artifact_store
 import private_access
+import durable_execution
 
 app = FastAPI(title="YouTube Pipeline API")
 
@@ -81,8 +82,14 @@ async def production_readiness():
         "youtube_validation": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "fal_i2v": bool(os.environ.get("FAL_KEY", "").strip())
                    and os.environ.get("I2V_PROVIDER", "").strip().lower() == "fal",
+        "durable_execution": (not _durable_execution_required()) or
+                             (storage["blob"] and storage["database"]),
+        "worker_auth": (not _durable_execution_required()) or bool(
+            os.environ.get("CRON_SECRET", "").strip()
+            or os.environ.get("RENDER_WORKER_SECRET", "").strip()),
     }
-    return {"ready": all((checks["private_access"], checks["durable_artifacts"])),
+    return {"ready": all((checks["private_access"], checks["durable_artifacts"],
+                          checks["durable_execution"], checks["worker_auth"])),
             "checks": checks}
 
 # ─── State store (in-memory; use Redis for production) ─────────────────────────
@@ -92,6 +99,35 @@ hl_jobs: dict[str, dict] = {}
 chart_jobs: dict[str, dict] = {}
 explainer_jobs: dict[str, dict] = {}
 stateboard_jobs: dict[str, dict] = {}
+
+
+def _durable_execution_required() -> bool:
+    configured = os.environ.get("DURABLE_EXECUTION")
+    if configured is not None:
+        return configured.strip().lower() not in ("0", "false", "no", "off")
+    return IS_VERCEL
+
+
+def _durable_components():
+    try:
+        return durable_execution.PostgresStore(), durable_execution.BlobStore()
+    except durable_execution.StorageUnavailable:
+        raise
+    except Exception as exc:
+        raise durable_execution.StorageUnavailable(str(exc)) from exc
+
+
+def _durable_job_view(row: dict) -> dict:
+    result = row.get("result") or {}
+    return {
+        "id": row["id"], "status": row.get("status"), "events": [],
+        "error": row.get("error"), "output_path": None,
+        "script": result.get("script"), "title": result.get("title", ""),
+        "hook": result.get("hook", ""), "scene_count": result.get("scene_count", 0),
+        "actual_cost": row.get("spent_cost_usd"), "max_cost_usd": row.get("max_cost_usd"),
+        "attempts": row.get("attempts"), "checkpoint": row.get("checkpoint") or {},
+        **{key: value for key, value in result.items() if key not in {"events"}},
+    }
 
 # Finished explainer videos are copied here with a small index, so a dev-server reload (which wipes
 # the in-memory job store) can't orphan a completed video. Vercel's deployment bundle is read-only;
@@ -365,10 +401,16 @@ def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None
 
 
 async def _archive_finished(job: dict, job_id: str, video_path: str, meta: dict,
-                            extra: dict | None = None) -> None:
+                            extra: dict | None = None,
+                            durable_runtime: durable_execution.DurableRuntime | None = None) -> None:
     """Run file/Blob I/O off the event loop and surface persistence failure as degradation."""
     try:
-        await asyncio.to_thread(_persist_finished, job_id, video_path, meta, extra)
+        if durable_runtime:
+            remote = await asyncio.to_thread(
+                durable_runtime.finalize, video_path, meta, extra)
+            job["remote"] = remote
+        else:
+            await asyncio.to_thread(_persist_finished, job_id, video_path, meta, extra)
         job["archived"] = True
     except Exception as exc:
         job["archived"] = False
@@ -377,6 +419,8 @@ async def _archive_finished(job: dict, job_id: str, video_path: str, meta: dict,
             job["status"] = "degraded"
         if isinstance(job.get("events"), list):
             job["events"].append({"type": "error", "data": f"Artifact archive failed: {exc}"})
+        if durable_runtime:
+            raise
 
 
 def _load_finished(job_id: str) -> dict | None:
@@ -1078,17 +1122,30 @@ class ExplainerHumanReviewRequest(BaseModel):
 
 
 async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir: str,
-                             resume: bool = False):
+                             resume: bool = False,
+                             durable_runtime: durable_execution.DurableRuntime | None = None):
     import explainer_pipeline as ep
 
-    job = explainer_jobs[job_id]
+    job = explainer_jobs.setdefault(job_id, {
+        "id": job_id, "status": "queued", "events": [], "output_path": None,
+        "script": None, "title": "", "hook": "", "scene_count": 0, "error": None,
+    })
     job["status"] = "processing"
 
     def push(msg: str):
         if msg.startswith("stage:"):
-            job["events"].append({"type": "stage", "data": msg[6:]})
+            event_type, data = "stage", msg[6:]
         else:
-            job["events"].append({"type": "log", "data": msg})
+            event_type, data = "log", msg
+        job["events"].append({"type": event_type, "data": data})
+        if durable_runtime:
+            durable_runtime.event(event_type, data)
+
+    def _run_with_runtime(fn):
+        if not durable_runtime:
+            return fn()
+        with durable_execution.activate(durable_runtime):
+            return fn()
 
     try:
         loop = asyncio.get_event_loop()
@@ -1098,15 +1155,15 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             import quiz_pipeline as qp
             result = await loop.run_in_executor(
                 None,
-                lambda: qp.run_quiz_pipeline(
+                lambda: _run_with_runtime(lambda: qp.run_quiz_pipeline(
                     category=request.question, output_dir=output_dir,
                     n_items=max(2, min(6, request.n_items or 3)),
-                    voice=request.voice, operator_direction=request.operator_direction, progress_cb=push),
+                    voice=request.voice, operator_direction=request.operator_direction, progress_cb=push)),
             )
         else:
             result = await loop.run_in_executor(
                 None,
-                lambda: ep.run_explainer_pipeline(
+                lambda: _run_with_runtime(lambda: ep.run_explainer_pipeline(
                     question=request.question,
                     output_dir=output_dir,
                     duration_sec=request.duration_sec,
@@ -1124,7 +1181,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     story_format=request.story_format,
                     resume=resume,
                     progress_cb=push,
-                ),
+                )),
             )
         quality = result.get("status", "ok")           # "ok" | "degraded"
         reasons = result.get("degraded_reasons", [])
@@ -1184,6 +1241,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "rendered_contract_score": (result.get("rendered_contract") or {}).get("score"),
             "rendered_contract_status": (result.get("rendered_contract") or {}).get("status"),
         }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
+                  "script": os.path.join(output_dir, "_state.json"),
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
                   "grade": result.get("grade_path"),
                   "retention": result.get("retention_json_path"),
@@ -1202,27 +1260,31 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "human-review": result.get("human_review_path"),
                   "diagnostic-preview": result.get("diagnostic_preview_path"),
                   "readiness": result.get("readiness_json_path"),
-                  "opening_preview": result.get("first_minute_preview_path")})
-        _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
+                  "opening_preview": result.get("first_minute_preview_path")},
+            durable_runtime=durable_runtime)
+        if not durable_runtime:
+            _clear_inprogress(job_id)   # local compatibility index only
         # NOTE: topics are NOT auto-marked 'done' here on purpose — one topic may become BOTH a
         # long-form AND a short. The USER marks a topic done from the Topics dashboard (POST
         # /api/explainer/topic-status) when they're finished with it; only then is it excluded
         # from future curiosity-engine generation.
 
         # Compliance reminder: manual upload keeps a human on the disclosure checkbox.
-        job["events"].append({"type": "log",
-            "data": "ℹ Compliance: when you upload, tick 'Altered/synthetic content' in "
-                    "YouTube Studio (or the platform's AI-content label) and set the audience."})
+        push("ℹ Compliance: when you upload, tick 'Altered/synthetic content' in "
+             "YouTube Studio (or the platform's AI-content label) and set the audience.")
 
         cost = result.get("actual_cost")
         if quality == "degraded":
-            job["events"].append({"type": "error",
-                                  "data": "⚠ DEGRADED — " + "; ".join(reasons)})
-            job["events"].append({"type": "done",
-                                  "data": f"Video ready (DEGRADED): {result['title']} · ${cost}"})
+            message = "⚠ DEGRADED — " + "; ".join(reasons)
+            job["events"].append({"type": "error", "data": message})
+            if durable_runtime:
+                durable_runtime.event("error", message)
+            done_message = f"Video ready (DEGRADED): {result['title']} · ${cost}"
         else:
-            job["events"].append({"type": "done",
-                                  "data": f"Video ready: {result['title']} · ${cost}"})
+            done_message = f"Video ready: {result['title']} · ${cost}"
+        job["events"].append({"type": "done", "data": done_message})
+        if durable_runtime:
+            durable_runtime.event("done", done_message)
     except Exception as exc:
         import traceback
         from longform_rendered_gate import HumanReviewRequired
@@ -1255,6 +1317,32 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         else:
             job["events"].append({"type": "error", "data": f"Failed: {exc}"})
             job["events"].append({"type": "error", "data": traceback.format_exc()})
+        if durable_runtime:
+            try:
+                durable_runtime.checkpoint(
+                    "awaiting-review" if awaiting_review else "failed-attempt")
+                row = durable_runtime.store.get_job(job_id) or {}
+                attempts = int(row.get("attempts") or 1)
+                max_attempts = int(row.get("max_attempts") or 1)
+                hard_failure = isinstance(exc, (ValueError, durable_execution.BudgetExceeded))
+                status = ("awaiting_review" if awaiting_review else
+                          ("error" if hard_failure or attempts >= max_attempts else "retry"))
+                durable_runtime.store.set_status(
+                    job_id, status, error=None if awaiting_review else str(exc),
+                    result={"rendered_contract": job.get("rendered_contract") or {},
+                            "title": job.get("title") or request.question},
+                    worker_id=durable_runtime.worker_id)
+                durable_runtime.event(
+                    "review_required" if awaiting_review else "error", str(exc))
+            except Exception as storage_exc:
+                job["status"] = "storage_error"
+                job["storage_error"] = str(storage_exc)
+                try:
+                    durable_runtime.store.set_status(
+                        job_id, "storage_error", error=str(storage_exc),
+                        worker_id=durable_runtime.worker_id)
+                except Exception:
+                    pass
 
 
 def _sweep_old_temp(prefix: str, max_age_hours: float = 6.0):
@@ -1549,6 +1637,23 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]
+    if _durable_execution_required():
+        try:
+            store, _ = _durable_components()
+            row = await asyncio.to_thread(
+                store.enqueue, job_id=job_id, kind="explainer",
+                request=request.model_dump(),
+                max_cost_usd=float(os.environ.get(
+                    "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00"))),
+                pipeline_version=durable_execution.version_hash(BASE_DIR),
+                output_prefix=f"jobs/{job_id}")
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "DURABLE_QUEUE_UNAVAILABLE", "message": str(exc), "retryable": True,
+            }) from exc
+        explainer_jobs[job_id] = _durable_job_view(row)
+        return {"job_id": job_id, "durable": True,
+                "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
     output_dir = tempfile.mkdtemp(prefix=f"expl_{job_id}_")
     explainer_jobs[job_id] = {
         "id": job_id, "status": "queued", "events": [],
@@ -1560,11 +1665,144 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
     return {"job_id": job_id}
 
 
+async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
+    store, blob = _durable_components()
+    worker_id = f"vercel-{uuid.uuid4().hex}"
+    claimed = await asyncio.to_thread(store.claim, job_id=job_id, worker_id=worker_id)
+    if not claimed:
+        current = await asyncio.to_thread(store.get_job, job_id) if job_id else None
+        return {"claimed": False, "job": current}
+    job_id = claimed["id"]
+    output_dir = tempfile.mkdtemp(prefix=f"expl_{job_id}_")
+    runtime = durable_execution.DurableRuntime(
+        job_id=job_id, worker_id=worker_id, output_dir=output_dir, store=store, blob=blob)
+    try:
+        if claimed.get("checkpoint"):
+            await asyncio.to_thread(runtime.restore_checkpoint, claimed["checkpoint"])
+        request = ExplainerRequest(**(claimed.get("request") or {}))
+        explainer_jobs[job_id] = _durable_job_view(claimed)
+        resume = os.path.isfile(os.path.join(output_dir, "_state.json"))
+        with durable_execution.maintain_lease(runtime):
+            await run_explainer_task(
+                job_id, request, output_dir, resume=resume, durable_runtime=runtime)
+        return {"claimed": True, "job": await asyncio.to_thread(store.get_job, job_id)}
+    finally:
+        # Blob contains every paid stage and the latest checkpoint. Local /tmp is never authoritative.
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+
+def _materialize_durable_explainer(job_id: str) -> dict | None:
+    existing = explainer_jobs.get(job_id)
+    if existing and existing.get("_materialized_dir") and os.path.isdir(existing["_materialized_dir"]):
+        return existing
+    store, blob = _durable_components()
+    row = store.get_job(job_id)
+    if not row:
+        return None
+    output_dir = tempfile.mkdtemp(prefix=f"expl_read_{job_id}_")
+    runtime = durable_execution.DurableRuntime(
+        job_id=job_id, worker_id="read-only", output_dir=output_dir, store=store, blob=blob)
+    if row.get("checkpoint"):
+        runtime.restore_checkpoint(row["checkpoint"])
+    job = _durable_job_view(row)
+    job["_materialized_dir"] = output_dir
+    names = {
+        "script_path": "_state.json",
+        "transcript_path": "transcript.txt", "srt_path": "captions.srt",
+        "description_path": "youtube_description.txt", "thumbnail_path": "thumbnail.jpg",
+        "research_report_path": "research_dossier.json",
+        "claim_report_path": "claim_ledger_report.json",
+        "audio_timing_report_path": "audio_timing_report.json",
+        "evidence_plan_path": "evidence_asset_plan.json",
+        "evidence_validation_path": "evidence_validation.json",
+        "continuity_pack_path": "continuity_pack.json", "motion_report_path": "motion_report.json",
+        "opening_freeze_path": "opening_freeze.json", "animatic_report_path": "animatic_gate.json",
+        "animatic_preview_path": "animatic_preview.mp4",
+        "rendered_contract_path": "rendered_contract.json",
+        "rendered_contact_sheet_path": "rendered_contact_sheet.jpg",
+        "human_review_path": "human_review.json",
+        "diagnostic_preview_path": "rejected_diagnostic_preview.mp4",
+        "first_minute_preview_path": "first_minute_preview.mp4",
+        "readiness_json_path": "retention_readiness.json",
+    }
+    for key, filename in names.items():
+        path = os.path.join(output_dir, filename)
+        if os.path.isfile(path):
+            job[key] = path
+    state_path = os.path.join(output_dir, "_state.json")
+    if os.path.isfile(state_path):
+        try:
+            with open(state_path) as handle:
+                state = json.load(handle)
+            job["script"] = state.get("script") or job.get("script")
+            if job.get("script"):
+                job["title"] = job["script"].get("title") or job.get("title")
+        except (OSError, ValueError, TypeError):
+            pass
+    explainer_jobs[job_id] = job
+    return job
+
+
+@app.post("/api/explainer/dispatch/{job_id}")
+async def explainer_dispatch(job_id: str):
+    """Run a queued render in a request separate from creation; leases make it crash-recoverable."""
+    if not _durable_execution_required():
+        raise HTTPException(status_code=409, detail="Durable execution is not enabled")
+    try:
+        return await _run_durable_explainer_worker(job_id)
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DURABLE_WORKER_STORAGE_FAILURE", "message": str(exc), "retryable": True,
+        }) from exc
+
+
+@app.post("/api/internal/render-worker")
+async def internal_render_worker():
+    try:
+        return await _run_durable_explainer_worker()
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DURABLE_WORKER_STORAGE_FAILURE", "message": str(exc), "retryable": True,
+        }) from exc
+
+
+@app.get("/api/cron/render-recovery")
+async def render_recovery_cron():
+    try:
+        result = await _run_durable_explainer_worker()
+        store, blob = _durable_components()
+        cleanup = await asyncio.to_thread(durable_execution.cleanup_orphans, store, blob)
+        return {**result, "orphan_cleanup": cleanup}
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DURABLE_RECOVERY_STORAGE_FAILURE", "message": str(exc), "retryable": True,
+        }) from exc
+
+
 @app.post("/api/explainer/resume/{job_id}")
 async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     """Resume a job that died mid-render — reuses the on-disk script + already-paid scene
     images/audio from its checkpoint, regenerating only what's missing."""
     _require_render_storage()
+    if _durable_execution_required():
+        try:
+            store, _ = _durable_components()
+            row = await asyncio.to_thread(store.get_job, job_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Durable job not found")
+            if row.get("status") == "human_rejected":
+                raise HTTPException(status_code=409, detail="Human editor rejected this opening")
+            await asyncio.to_thread(
+                store.requeue, job_id,
+                allowed_statuses=("review_approved", "retry", "storage_error"))
+            return {"job_id": job_id, "resuming": True, "durable": True,
+                    "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "DURABLE_RESUME_STORAGE_FAILURE", "message": str(exc), "retryable": True,
+            }) from exc
+        except durable_execution.DurableExecutionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     rec = _get_inprogress(job_id)
     if not rec or not os.path.isdir(rec.get("output_dir", "")):
         raise HTTPException(status_code=404,
@@ -1597,10 +1835,43 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
 
 @app.get("/api/explainer/status/{job_id}")
 async def explainer_status_stream(job_id: str):
-    if job_id not in explainer_jobs:
+    durable = _durable_execution_required()
+    store = None
+    if durable:
+        try:
+            store, _ = _durable_components()
+            if not await asyncio.to_thread(store.get_job, job_id):
+                raise HTTPException(status_code=404, detail="Job not found")
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "DURABLE_STATUS_UNAVAILABLE", "message": str(exc), "retryable": True,
+            }) from exc
+    elif job_id not in explainer_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
     async def gen():
+        if durable:
+            cursor = 0
+            while True:
+                try:
+                    events = await asyncio.to_thread(store.events, job_id, cursor, 500)
+                    for event in events:
+                        cursor = max(cursor, int(event["seq"]))
+                        yield f"data: {json.dumps({'type': event['event_type'], 'data': event['data']})}\n\n"
+                    row = await asyncio.to_thread(store.get_job, job_id)
+                    if not row:
+                        yield f"data: {json.dumps({'type': 'error', 'data': 'Durable job disappeared'})}\n\n"
+                        break
+                    if row["status"] in (
+                            "done", "degraded", "error", "awaiting_review", "human_rejected",
+                            "storage_error"):
+                        break
+                    yield ": keepalive\n\n"
+                except durable_execution.StorageUnavailable as exc:
+                    yield f"data: {json.dumps({'type': 'storage_error', 'data': str(exc)})}\n\n"
+                    break
+                await asyncio.sleep(1.0)
+            return
         job = explainer_jobs[job_id]
         sent = 0
         ticks = 0
@@ -1629,6 +1900,14 @@ async def explainer_download(job_id: str):
     if job and job.get("output_path") and os.path.exists(job["output_path"]):
         path, title = job["output_path"], job.get("title", "explainer")
     else:
+        if _durable_execution_required():
+            try:
+                store, _ = _durable_components()
+                record = await asyncio.to_thread(store.finished_get, job_id)
+                if record and record.get("download_url"):
+                    return RedirectResponse(record["download_url"], status_code=307)
+            except durable_execution.StorageUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
         # Fall back to the on-disk index (job may have been wiped by a reload).
         entry = _load_finished(job_id)
         if not entry:
@@ -1752,7 +2031,8 @@ async def stateboard_thumbnail(job_id: str):
 def _explainer_text_artifact(job_id: str, kind: str):
     """Resolve a transcript ('txt'), captions ('srt'), description ('desc') or grade path."""
     job_key = {
-        "txt": "transcript_path", "srt": "srt_path", "desc": "description_path",
+        "script": "script_path", "txt": "transcript_path", "srt": "srt_path",
+        "desc": "description_path",
         "grade": "grade_path", "research": "research_report_path",
         "claims": "claim_report_path", "timing": "audio_timing_report_path",
         "evidence-plan": "evidence_plan_path",
@@ -1766,11 +2046,29 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "rendered-contact-sheet": "rendered_contact_sheet_path",
         "human-review": "human_review_path",
         "diagnostic-preview": "diagnostic_preview_path",
-        "opening-preview": "first_minute_preview_path",
+        "opening-preview": "first_minute_preview_path", "thumb": "thumbnail_path",
     }[kind]
     job = explainer_jobs.get(job_id)
+    if _durable_execution_required() and (not job or not job.get(job_key)):
+        try:
+            job = _materialize_durable_explainer(job_id)
+        except durable_execution.StorageUnavailable:
+            raise
     if job and job.get(job_key) and os.path.exists(job[job_key]):
         return job[job_key], job.get("title", "explainer")
+    if _durable_execution_required():
+        store, blob = _durable_components()
+        record = store.finished_get(job_id)
+        remote_kind = {"opening-preview": "opening_preview"}.get(kind, kind)
+        artifact = (record.get("artifacts") or {}).get(remote_kind) if record else None
+        if artifact:
+            root = (job or {}).get("_materialized_dir") or tempfile.mkdtemp(prefix=f"expl_read_{job_id}_")
+            suffix = Path(artifact.get("pathname") or artifact.get("url") or "").suffix or ".bin"
+            local = os.path.join(root, f"finished-{kind}{suffix}")
+            blob.download(artifact, local)
+            if job is not None:
+                job[job_key] = local
+            return local, (record or {}).get("title", "explainer")
     entry = _load_finished(job_id)
     if entry and entry.get(f"{kind}_path") and os.path.exists(entry[f"{kind}_path"]):
         return entry[f"{kind}_path"], entry.get("title", "explainer")
@@ -1902,6 +2200,11 @@ async def explainer_record_human_review(job_id: str, request: ExplainerHumanRevi
     from longform_rendered_gate import apply_human_review
 
     job = explainer_jobs.get(job_id)
+    if not job and _durable_execution_required():
+        try:
+            job = await asyncio.to_thread(_materialize_durable_explainer, job_id)
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     required = (job.get("human_review_path"), job.get("rendered_contract_path"),
@@ -1926,7 +2229,26 @@ async def explainer_record_human_review(job_id: str, request: ExplainerHumanRevi
                                     if request.decision == "approve" else "HUMAN_REJECT"}
         job["status"] = ("review_approved" if request.decision == "approve"
                          else "human_rejected")
+        if _durable_execution_required():
+            store, blob = _durable_components()
+            runtime = durable_execution.DurableRuntime(
+                job_id=job_id, worker_id="human-review",
+                output_dir=job["_materialized_dir"], store=store, blob=blob)
+            await asyncio.to_thread(
+                runtime.checkpoint, "human-review", heartbeat=False)
+            await asyncio.to_thread(
+                store.set_status, job_id, job["status"],
+                result={"human_review": reviewed,
+                        "rendered_contract": job["rendered_contract"]})
+            await asyncio.to_thread(
+                store.append_event, job_id,
+                "review_approved" if request.decision == "approve" else "human_rejected",
+                f"Human review {request.decision} by {request.reviewer}")
         return reviewed
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DURABLE_REVIEW_STORAGE_FAILURE", "message": str(exc), "retryable": True,
+        }) from exc
     except (OSError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1956,8 +2278,10 @@ async def explainer_thumbnail(job_id: str):
     if job and job.get("thumbnail_path") and os.path.exists(job["thumbnail_path"]):
         path, title = job["thumbnail_path"], job.get("title", "thumbnail")
     else:
+        if _durable_execution_required():
+            path, title = _explainer_text_artifact(job_id, "thumb")
         entry = _load_finished(job_id)
-        if entry and entry.get("thumb_path") and os.path.exists(entry["thumb_path"]):
+        if not path and entry and entry.get("thumb_path") and os.path.exists(entry["thumb_path"]):
             path, title = entry["thumb_path"], entry.get("title", "thumbnail")
     if not path:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -1967,10 +2291,26 @@ async def explainer_thumbnail(job_id: str):
 
 @app.get("/api/explainer/script/{job_id}")
 async def explainer_script(job_id: str):
+    if job_id not in explainer_jobs and _durable_execution_required():
+        try:
+            await asyncio.to_thread(_materialize_durable_explainer, job_id)
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if job_id not in explainer_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     job = explainer_jobs[job_id]
     script = job.get("script")
+    if not script and _durable_execution_required():
+        try:
+            path, _ = await asyncio.to_thread(_explainer_text_artifact, job_id, "script")
+            if path:
+                with open(path) as handle:
+                    script = (json.load(handle) or {}).get("script")
+                job["script"] = script
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except (OSError, ValueError, TypeError):
+            script = None
     if not script:
         raise HTTPException(status_code=400, detail="Script not yet generated")
     return script

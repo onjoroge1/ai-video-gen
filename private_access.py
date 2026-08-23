@@ -118,9 +118,22 @@ class PrivateAccessMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Vercel Cron and the detached render worker cannot carry a browser cookie. They remain
+        # private: Vercel sends CRON_SECRET as a bearer token, while manual recovery uses the
+        # independently scoped RENDER_WORKER_SECRET.
+        headers = dict(scope.get("headers") or [])
+        if path.startswith(("/api/cron/", "/api/internal/")):
+            supplied_bearer = headers.get(b"authorization", b"").decode()
+            allowed = [value for value in (
+                os.environ.get("CRON_SECRET", "").strip(),
+                os.environ.get("RENDER_WORKER_SECRET", "").strip(),
+            ) if value]
+            if any(hmac.compare_digest(supplied_bearer, f"Bearer {secret}") for secret in allowed):
+                await self.app(scope, receive, send)
+                return
+
         # Existing headless clients may continue to use X-App-Secret, but the browser UI never
         # stores credentials in localStorage anymore.
-        headers = dict(scope.get("headers") or [])
         supplied = headers.get(b"x-app-secret", b"").decode()
         shared = os.environ.get("APP_SHARED_SECRET", "").strip()
         if shared and hmac.compare_digest(supplied, shared):

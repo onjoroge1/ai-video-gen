@@ -59,6 +59,22 @@ library and all generation APIs remain behind the studio login.
 
 `GET /api/production-readiness` reports configuration booleans without exposing any credential.
 
+Long-form explainer execution is also durable in production. The create route writes a queued job
+to Postgres and returns immediately; a separately authenticated worker claims it with a renewable
+lease. Provider calls reserve budget before execution and use a stable stage identity. Completed
+stage files and full working-directory checkpoints are immutable Blob objects, so another worker can
+restore the job without repurchasing a completed stage. Postgres is authoritative for events,
+attempts, cost, review state, and finalization; the browser's SSE status stream reads that ledger
+instead of process memory.
+
+Set `CRON_SECRET` for Vercel's `/api/cron/render-recovery` request and set a separate
+`RENDER_WORKER_SECRET` for manual/headless worker calls. The recovery cron reclaims expired leases,
+caps attempts, and reconciles both registered provisional artifacts and aged unregistered objects.
+`DURABLE_JOB_MAX_COST_USD`, `DURABLE_JOB_MAX_ATTEMPTS`, `DURABLE_JOB_LEASE_SECONDS`, and
+`DURABLE_MAX_INFLIGHT_CALL_USD` define the failure and spend envelope. A provider request accepted
+immediately before worker death is the one explicitly documented ambiguous in-flight call; its
+reservation is charged conservatively at finalization.
+
 Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
 the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately
 not stored in Postgres or bundled into the Vercel function. Run `python scripts/sync_music_assets.py`

@@ -19,6 +19,7 @@ import hashlib
 import base64
 import subprocess
 import concurrent.futures
+import contextvars
 import urllib.request
 
 import openai
@@ -82,6 +83,12 @@ from retention_readiness import (
 )
 
 
+def _context_map(executor, fn, items):
+    """Map work while preserving the durable runtime ContextVar in worker threads."""
+    parent = contextvars.copy_context()
+    return executor.map(lambda item: parent.copy().run(fn, item), items)
+
+
 # Transient errors worth retrying. NOT retried: BadRequestError (400 — includes content
 # moderation), AuthenticationError (401), PermissionDeniedError (403), NotFoundError —
 # those are deterministic, so retrying just wastes time and money.
@@ -140,8 +147,14 @@ def _claude():
     # (wasting prior spend). 529 "overloaded" spikes are transient — the SDK retries >=500/529 with
     # exponential backoff + honours retry-after, so more retries ride out a spike instead of dying on
     # attempt 3. Overridable via CLAUDE_MAX_RETRIES.
-    return anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
-                               max_retries=int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
+                                 max_retries=int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
+    try:
+        from durable_execution import current as _durable_current
+        runtime = _durable_current()
+        return runtime.wrap_anthropic(client) if runtime else client
+    except Exception:
+        return client
 
 def _openai():
     # 90s per-call timeout so a hung connection fails fast (default is 600s, which
@@ -2275,7 +2288,8 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
     client = _openai()
     valid_refs = [p for p in (reference_paths or []) if os.path.exists(p)]
 
-    def _call():
+    def _call(idempotency_key: str | None = None):
+        extra_headers = ({"Idempotency-Key": idempotency_key} if idempotency_key else None)
         if valid_refs:
             files = [open(p, "rb") for p in valid_refs]
             try:
@@ -2285,6 +2299,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
                     prompt=prompt,
                     size=size,
                     quality="medium",
+                    extra_headers=extra_headers,
                 )
             finally:
                 for f in files:
@@ -2295,14 +2310,39 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
             size=size,          # 1536x1024 (landscape) or 1024x1536 (portrait)
             quality="medium",
             n=1,
+            extra_headers=extra_headers,
         )
 
-    # tries=6 (2+4+8+16+32 ≈ 62s backoff) rides out transient OpenAI image-endpoint blips
-    # (APIConnectionError) that were degrading whole renders to filler frames on a ~1min outage.
-    resp = _retry(_call, tries=6, label="image generation")
-    if cost_sink is not None:
-        cost_sink.append(_image_cost_from_usage(resp))
-    _write_image_result(resp.data[0], output_path)
+    try:
+        from durable_execution import canonical_hash, current as _durable_current
+        runtime = _durable_current()
+    except Exception:
+        runtime = None
+    if runtime:
+        rel = os.path.relpath(os.path.abspath(output_path), runtime.output_dir)
+        refs = [{"path": os.path.basename(path), "sha256": sha256_file(path)} for path in valid_refs]
+        request = {"model": IMAGE_MODEL, "prompt": prompt, "size": size,
+                   "quality": "medium", "references": refs}
+        stage_key = "image:" + canonical_hash({"output": rel, "request": request})[:32]
+
+        def _durable_call(idempotency_key: str):
+            # tries=6 rides out transient endpoint blips; every retry carries the same stable key.
+            resp = _retry(lambda: _call(idempotency_key), tries=6, label="image generation")
+            actual = _image_cost_from_usage(resp)
+            _write_image_result(resp.data[0], output_path)
+            return {"model": IMAGE_MODEL, "output": rel}, actual
+
+        _, actual, _ = runtime.paid_file(
+            stage_key=stage_key, provider="openai-images", request=request,
+            estimated_cost=_COST_IMG_HOST if valid_refs else _COST_IMG_BASE,
+            output_path=output_path, operation=_durable_call)
+        if cost_sink is not None:
+            cost_sink.append(actual)
+    else:
+        resp = _retry(_call, tries=6, label="image generation")
+        if cost_sink is not None:
+            cost_sink.append(_image_cost_from_usage(resp))
+        _write_image_result(resp.data[0], output_path)
     return output_path
 
 
@@ -2479,19 +2519,40 @@ def make_fallback_frame(output_path: str, headline: str = "", w: int = 1920, h: 
 # ── TTS generation ─────────────────────────────────────────────────────────────
 
 def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
-    def _call():
+    def _call(idempotency_key: str | None = None):
         resp = _openai().audio.speech.create(
             model="tts-1-hd",
             voice=voice,
             input=text,
             response_format="mp3",
+            extra_headers=({"Idempotency-Key": idempotency_key} if idempotency_key else None),
         )
         with open(output_path, "wb") as f:
             for chunk in resp.iter_bytes():
                 f.write(chunk)
         return output_path
 
-    return _retry(_call, label="TTS")
+    try:
+        from durable_execution import canonical_hash, current as _durable_current
+        runtime = _durable_current()
+    except Exception:
+        runtime = None
+    if not runtime:
+        return _retry(_call, label="TTS")
+    rel = os.path.relpath(os.path.abspath(output_path), runtime.output_dir)
+    request = {"model": "tts-1-hd", "voice": voice, "text_sha256":
+               hashlib.sha256(text.encode("utf-8")).hexdigest(), "characters": len(text)}
+    stage_key = "tts:" + canonical_hash({"output": rel, "request": request})[:32]
+
+    def _durable_call(idempotency_key: str):
+        _retry(lambda: _call(idempotency_key), label="TTS")
+        return {"model": "tts-1-hd", "voice": voice, "output": rel}, len(text) * _RATE_TTS_CHAR
+
+    runtime.paid_file(
+        stage_key=stage_key, provider="openai-tts", request=request,
+        estimated_cost=len(text) * _RATE_TTS_CHAR, output_path=output_path,
+        operation=_durable_call)
+    return output_path
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -2597,7 +2658,8 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             return {"i": i, "aud": path, "word_times": timings, "generated": generated}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            return sorted(executor.map(one, enumerate(scenes)), key=lambda item: item["i"])
+            return sorted(_context_map(executor, one, enumerate(scenes)),
+                          key=lambda item: item["i"])
 
     results: list[dict] = []
     report: dict = {}
@@ -3208,7 +3270,8 @@ def _hero_i2v_indices(usable, sel) -> set:
 
 
 def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
-                 vw: int, vh: int, seconds: int, fal_model: str | None = None):
+                 vw: int, vh: int, seconds: int, fal_model: str | None = None,
+                 idempotency_key: str | None = None, stage_note=None):
     """Generate ONE i2v clip with a SPECIFIC provider. Returns (ok, quota_hit, err_str).
     fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only."""
     size = _i2v_size(vw, vh)
@@ -3227,7 +3290,9 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             c = _openai_video()
             vid = c.videos.create_and_poll(model=_SORA_MODEL, prompt=motion,
                                            input_reference=open(ref, "rb"),
-                                           seconds=str(seconds), size=size)
+                                           seconds=str(seconds), size=size,
+                                           extra_headers=({"Idempotency-Key": idempotency_key}
+                                                          if idempotency_key else None))
             if getattr(vid, "status", "") != "completed":
                 return (False, False, f"sora status={getattr(vid, 'status', '?')}")
             c.videos.download_content(vid.id, variant="video").write_to_file(out_mp4)
@@ -3255,6 +3320,8 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             if not key:
                 return (False, False, "no FAL_KEY")
             hdr = {"Authorization": f"Key {key}"}
+            if idempotency_key:
+                hdr["Idempotency-Key"] = idempotency_key
             uri = "data:image/jpeg;base64," + base64.b64encode(open(ref, "rb").read()).decode()
             dur = "10" if seconds > 5 else "5"            # Kling supports only 5 or 10s
             _model = fal_model or _FAL_MODEL              # hero beats pass a pricier model
@@ -3266,6 +3333,9 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             if sub.status_code not in (200, 201):
                 return (False, False, f"fal submit {sub.status_code}: {sub.text[:120]}")
             j = sub.json(); su, ru = j.get("status_url"), j.get("response_url")
+            if stage_note:
+                stage_note({"provider_request_id": j.get("request_id"),
+                            "status_url": su, "response_url": ru})
             waited = 0
             while waited < 360:
                 _t.sleep(6); waited += 6
@@ -3303,11 +3373,51 @@ def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
     veo→sora) in order. When a provider hits quota it's added to `exhausted` so the rest of the
     run skips straight to the next provider. Returns the clip path, or None if EVERY provider
     fails (caller falls back to ffmpeg Ken-Burns). NEVER raises."""
+    try:
+        from durable_execution import canonical_hash, current as _durable_current
+        runtime = _durable_current()
+    except Exception:
+        runtime = None
     for provider in _I2V_CHAIN:
         if exhausted is not None and provider in exhausted:
             continue
-        ok, quota, err = _animate_one(provider, image_path, prompt, out_mp4, vw, vh, seconds,
-                                      fal_model=fal_model)
+        if runtime:
+            rel = os.path.relpath(os.path.abspath(out_mp4), runtime.output_dir)
+            request = {
+                "provider": provider, "model": fal_model if provider == "fal" else None,
+                "prompt": prompt, "seconds": seconds, "size": [vw, vh],
+                "source_sha256": sha256_file(image_path),
+            }
+            stage_key = "motion:" + canonical_hash({"output": rel, "request": request})[:32]
+
+            def _motion_call(idempotency_key: str):
+                ok, quota, err = _animate_one(
+                    provider, image_path, prompt, out_mp4, vw, vh, seconds,
+                    fal_model=fal_model, idempotency_key=idempotency_key,
+                    stage_note=lambda patch: runtime.store.note_stage(
+                        runtime.job_id, stage_key, patch))
+                if not ok:
+                    raise RuntimeError(("quota:" if quota else "provider:") + (err or "failed"))
+                actual = round(seconds * (rate if rate is not None else _RATE_I2V_SEC), 4)
+                return {"provider": provider, "output": rel}, actual
+
+            try:
+                _, actual, reused = runtime.paid_file(
+                    stage_key=stage_key, provider=provider, request=request,
+                    estimated_cost=seconds * (rate if rate is not None else _RATE_I2V_SEC),
+                    output_path=out_mp4, operation=_motion_call)
+                ok, quota, err = True, False, ""
+                if cost_sink is not None:
+                    cost_sink.append(actual)
+                if err_sink is not None:
+                    err_sink.append(f"ok:{provider}")
+                return out_mp4
+            except Exception as exc:
+                message = str(exc)
+                ok, quota, err = False, message.startswith("quota:"), message
+        else:
+            ok, quota, err = _animate_one(provider, image_path, prompt, out_mp4, vw, vh, seconds,
+                                          fal_model=fal_model)
         if ok:
             if cost_sink is not None:
                 cost_sink.append(round(seconds * (rate if rate is not None else _RATE_I2V_SEC), 4))
@@ -6309,7 +6419,7 @@ def run_explainer_pipeline(
     opening_rest = []
     if opening_stop > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-            opening_rest = list(ex.map(_gen_assets, all_indexed[1:opening_stop]))
+            opening_rest = list(_context_map(ex, _gen_assets, all_indexed[1:opening_stop]))
     opening_results = [r0] + opening_rest
 
     if video_format != "social":
@@ -6465,7 +6575,7 @@ def run_explainer_pipeline(
     if opening_stop < len(scenes):
         log(f"45-second gate passed ✓ — generating the remaining {len(scenes) - opening_stop} scenes")
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-            later = list(ex.map(_gen_assets, all_indexed[opening_stop:]))
+            later = list(_context_map(ex, _gen_assets, all_indexed[opening_stop:]))
     results = opening_results + later   # _gen_assets never raises
 
     if video_format != "social":
@@ -6573,7 +6683,7 @@ def run_explainer_pipeline(
             # SERIAL: video APIs cap concurrent active generations — running 2 at once made the
             # first-submitted clip (the opener) fail repeatedly. One at a time is reliable.
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                for k, res, reused in ex.map(_anim, sorted(sel)):
+                for k, res, reused in _context_map(ex, _anim, sorted(sel)):
                     if res:
                         i2v_clips[k] = res
                         log(f"  i2v scene {k+1} ✓{' (reused)' if reused else ''}")

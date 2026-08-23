@@ -2133,7 +2133,7 @@
         es.close();
         btn.disabled = false;
         await showResult(jobId);
-      } else if (ev.type === 'error') {
+      } else if (ev.type === 'error' || ev.type === 'storage_error') {
         addLog(log, 'error', ev.data);
         es.close();
         btn.disabled = false;
@@ -3068,7 +3068,8 @@
       return;
     }
 
-    const { job_id } = await res.json();
+    const queued = await res.json();
+    const { job_id } = queued;
     explJobId = job_id;
     document.getElementById('expl-job-id-badge').textContent = job_id;
     _explActivateStage('script');
@@ -3101,6 +3102,12 @@
       }
     };
     es.onerror = () => { es.close(); btn.disabled = false; };
+    // Durable production renders execute in a separate leased request. Do not await the long
+    // response; progress arrives from the Postgres-backed event stream and a recovery worker can
+    // reclaim the lease if this browser or function disappears.
+    if (queued.dispatch_url) {
+      fetch(queued.dispatch_url, {method:'POST'}).catch(() => {});
+    }
   }
 
   async function showExplainerReview(jobId) {
@@ -3159,6 +3166,7 @@
       showError('expl-error-panel', 'expl-error-msg', await resume.text());
       return;
     }
+    const resumePayload = await resume.json();
     document.getElementById('expl-review-panel').style.display = 'none';
     document.getElementById('expl-btn').disabled = true;
     const es = new EventSource(`/api/explainer/status/${explJobId}`);
@@ -3169,11 +3177,14 @@
         es.close(); document.getElementById('expl-btn').disabled = false;
         await showExplainerResult(explJobId);
       }
-      if (ev.type === 'error' || ev.type === 'review_required') {
+      if (ev.type === 'error' || ev.type === 'storage_error' || ev.type === 'review_required') {
         es.close(); document.getElementById('expl-btn').disabled = false;
         showError('expl-error-panel', 'expl-error-msg', ev.data);
       }
     };
+    if (resumePayload.dispatch_url) {
+      fetch(resumePayload.dispatch_url, {method:'POST'}).catch(() => {});
+    }
   }
 
   async function showExplainerResult(jobId) {
