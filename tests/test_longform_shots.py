@@ -36,6 +36,12 @@ def _scene():
     }
 
 
+def _measured(scene, duration):
+    words = scene["narration"].split()
+    step = duration / len(words)
+    return [(word, i * step, (i + 1) * step) for i, word in enumerate(words)]
+
+
 def test_one_image_uses_one_continuous_camera_path_not_timer_cuts():
     shots = compile_scene_shots(_scene(), 9.0, 0)
 
@@ -181,7 +187,9 @@ def test_verified_evidence_states_become_real_asset_aligned_cuts():
             "verified_visible_information": True,
         },
     ]
-    shots = compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)
+    scene = _scene()
+    shots = compile_scene_shots(
+        scene, 8.0, 0, evidence_states=states, word_times=_measured(scene, 8.0))
     assert [shot["source"] for shot in shots] == ["asset:s001:e01", "asset:s001:e02"]
     assert shots[1]["transition"] == "hard_cut"
     assert shots[1]["new_information"] is True
@@ -205,7 +213,9 @@ def test_unverified_detail_reframe_does_not_count_as_new_information():
             "purpose": "evidence", "verified_visible_information": False,
         },
     ]
-    shots = compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)
+    scene = _scene()
+    shots = compile_scene_shots(
+        scene, 8.0, 0, evidence_states=states, word_times=_measured(scene, 8.0))
     metrics = shot_plan_metrics([shots])
     assert shots[1]["new_information"] is False
     assert metrics["reframe_shot_count"] == 1
@@ -220,5 +230,18 @@ def test_too_many_evidence_states_for_audio_duration_fail_instead_of_flash_frame
          "verified_visible_information": True}
         for i in range(4)
     ]
+    scene = _scene()
     with pytest.raises(ValueError, match="cannot fit"):
-        compile_scene_shots(_scene(), 5.0, 0, evidence_states=states)
+        compile_scene_shots(
+            scene, 5.0, 0, evidence_states=states, word_times=_measured(scene, 5.0))
+
+
+def test_longform_evidence_shots_fail_closed_without_measured_word_timings():
+    states = [{
+        "state_id": "state:s001:e01", "asset_id": "asset:s001:e01",
+        "asset_strategy": "master", "asset_status": "accepted",
+        "anchor_phrase": "The water pulls away", "purpose": "action",
+        "verified_visible_information": True,
+    }]
+    with pytest.raises(ValueError, match="Measured word timings are required"):
+        compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)

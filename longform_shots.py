@@ -46,8 +46,9 @@ def _script_words(narration: str) -> list[str]:
     return [word for word in str(narration or "").split() if word]
 
 
-def _timed_words(narration: str, word_times: list | None, duration: float) -> list[tuple[str, float, float]]:
-    """Prefer Whisper's spoken-word clock; fall back to an even script map."""
+def _timed_words(narration: str, word_times: list | None, duration: float, *,
+                 require_measured: bool = False) -> list[tuple[str, float, float]]:
+    """Use measured speech timing; legacy callers may explicitly retain the even fallback."""
     words = _script_words(narration)
     if not words:
         return []
@@ -62,6 +63,8 @@ def _timed_words(narration: str, word_times: list | None, duration: float) -> li
             spoken = []
         if spoken:
             return spoken
+    if require_measured:
+        raise ValueError("Measured word timings are required for long-form evidence shots.")
     step = duration / len(words)
     return [(word, i * step, (i + 1) * step) for i, word in enumerate(words)]
 
@@ -193,6 +196,7 @@ def compile_scene_shots(
     word_times: list | None = None,
     evidence_states: list[dict] | None = None,
     motion_state_ids: set[str] | frozenset[str] = frozenset(),
+    require_measured_timing: bool | None = None,
 ) -> list[dict]:
     """Compile phrase-aligned shots for one narrated scene.
 
@@ -204,7 +208,11 @@ def compile_scene_shots(
     del scene_index  # retained for API compatibility
     duration = max(0.05, float(duration))
     role = str(scene.get("story_role") or "").lower()
-    timed = _timed_words(str(scene.get("narration") or ""), word_times, duration)
+    strict_timing = bool(evidence_states) if require_measured_timing is None \
+        else bool(require_measured_timing)
+    timed = _timed_words(
+        str(scene.get("narration") or ""), word_times, duration,
+        require_measured=strict_timing)
 
     accepted_states = [
         state for state in (evidence_states or [])
@@ -223,6 +231,9 @@ def compile_scene_shots(
             for index in range(1, len(starts))
         ) and duration - starts[-1] >= MIN_SHOT_SECONDS
         if not valid:
+            if strict_timing:
+                raise ValueError(
+                    "Measured word timings cannot align every evidence state without invalid cuts.")
             step = duration / count
             starts = [index * step for index in range(count)]
         shots = []

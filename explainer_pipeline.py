@@ -21,13 +21,18 @@ import subprocess
 import concurrent.futures
 import contextvars
 import urllib.request
+from datetime import datetime, timezone
 
 import openai
 import anthropic
 from openai import OpenAI
 
 from longform_retention import (
+    StoryFormatAcknowledgementRequired,
     build_story_contract,
+    create_story_format_review,
+    story_format_fallback_payload,
+    validate_story_format_review,
     validate_longform_story,
     validation_rank,
     write_retention_report,
@@ -70,6 +75,7 @@ from longform_rendered_gate import (
     diagnostic_disposition,
     diagnostic_mode_allowed,
     inspect_rendered_opening,
+    load_threshold_profile,
     render_low_cost_animatic,
     score_rendered_contract,
     watermark_rejected_preview,
@@ -193,7 +199,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Image model: gpt-image-2 is SOTA at instruction-following (so cinematic composition
 # prompts land) and ~25% cheaper output than gpt-image-1. Supports reference-image edits.
+ANTHROPIC_MODEL = "claude-opus-4-8"
 IMAGE_MODEL = "gpt-image-2"
+TTS_MODEL = "tts-1-hd"
+TRANSCRIPTION_MODEL = "whisper-1"
 
 # Output-format presets. One toggle drives image aspect, canvas, and caption mode.
 FORMATS = {
@@ -211,7 +220,7 @@ def transcribe_words(audio_path: str) -> list:
             # a transient failure and turns a recoverable timing call into a false gate failure.
             with open(audio_path, "rb") as handle:
                 return _openai().audio.transcriptions.create(
-                    model="whisper-1", file=handle, response_format="verbose_json",
+                    model=TRANSCRIPTION_MODEL, file=handle, response_format="verbose_json",
                     timestamp_granularities=["word"])
 
         r = _retry(_call, label="whisper transcription")
@@ -608,7 +617,7 @@ def _parse_script_json(raw: str):
         return json.loads(raw), 0.0
     except json.JSONDecodeError:
         fix = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=16000,
+            model=ANTHROPIC_MODEL, max_tokens=16000,
             system="Return ONLY the corrected, strictly-valid JSON. No prose, no code fences.",
             messages=[{"role": "user", "content": f"Fix this into valid JSON:\n\n{raw}"}],
         )
@@ -1170,7 +1179,7 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     prompt += _operator_block(operator_direction)
 
     resp = _claude().messages.create(
-        model="claude-opus-4-8",
+        model=ANTHROPIC_MODEL,
         max_tokens=16000,  # rich cinematic key-art prompts × up to ~24 scenes
         system=_SCRIPT_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
@@ -1233,7 +1242,10 @@ _SCENE_FIELDS_RULES = (
     '"source" (master|distinct|detail_reframe), "asset_strategy" '
     '(master|distinct|detail_reframe), "detail_target" (required only for detail_reframe), '
     '"pure_evidence" (true for evidence/mechanism/scale/location/record views), "human_visible" '
-    '(true only when Alex is visually needed), "new_information" (PROVISIONAL only; true only for a '
+    '(true only when Alex is visually needed), "bolt_visible" (true only when this exact state '
+    'shows Bolt performing the scene\'s permitted useful story work), "bolt_action" (the concrete '
+    'measurement, test, warning, reaction, or assistance Bolt performs; empty when bolt_visible is '
+    'false), "new_information" (PROVISIONAL only; true only for a '
     'declared state change and ALWAYS false for detail_reframe until pixel verification), "shot_size" '
     '(wide|medium|close|aerial|detail), and "camera_direction" (left_to_right|right_to_left|'
     'push_in|pull_out|locked). Use master for the first connected setup/action. Use distinct when the '
@@ -1293,7 +1305,7 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
            'Return ONLY JSON: {"narration":[<exactly one line per input line, same order>]}.')
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=8000, system=sys,
+            model=ANTHROPIC_MODEL, max_tokens=8000, system=sys,
             messages=[{"role": "user", "content":
                        (f'Throughline: "{throughline}".\n' if throughline else "")
                        + f"Rewrite repeats/drift only, keep all {len(lines)} lines:\n{paired}"}])
@@ -1378,7 +1390,7 @@ def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tupl
            'NOT answer the question, do NOT open a second question, keep lines 4+ untouched, and match '
            'the existing voice. Return ONLY JSON {"ok":false,"lines":[l1,l2,l3]}.')
     try:
-        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=700, system=sys,
+        r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=700, system=sys,
                                       messages=[{"role": "user", "content": usr}])
         cost = _msg_cost(r.usage)
         out, rc = _parse_script_json(r.content[0].text); cost += rc
@@ -1706,7 +1718,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if improve_note:
         beat_prompt += ("\nPRIORITY FIX — the previous draft scored weak here; fix this FIRST in the "
                         "beat sheet while keeping everything else: " + improve_note)
-    o = _claude().messages.create(model="claude-opus-4-8", max_tokens=12000, system=_SCRIPT_SYSTEM,
+    o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
                                   messages=[{"role": "user", "content": beat_prompt + _series_block(series)
                                              + _operator_block(operator_direction)}])
     plan, rc = _parse_script_json(o.content[0].text); cost += rc
@@ -1836,7 +1848,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
                if is_last else "")
         )
-        c = _claude().messages.create(model="claude-opus-4-8", max_tokens=16000, system=_SCRIPT_SYSTEM,
+        c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=16000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
         part, rc = _parse_script_json(c.content[0].text); cost += rc
         cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
@@ -2000,7 +2012,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         "Do not include narration_phrase or evidence_id yet; the story compiler binds those later."
     )
     response = _claude().messages.create(
-        model="claude-opus-4-8",
+        model=ANTHROPIC_MODEL,
         max_tokens=10000,
         system=_RESEARCH_SYSTEM,
         tools=[{
@@ -2078,7 +2090,7 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
     }
     try:
         resp = _claude().messages.create(
-            model="claude-opus-4-8",
+            model=ANTHROPIC_MODEL,
             max_tokens=8000,
             system=_FACTCHECK_SYSTEM,
             messages=[{"role": "user", "content": json.dumps(payload)}],
@@ -2141,7 +2153,8 @@ def _enforce_requested_runtime(
             "Vary sentence length and keep natural speech. For every scene, return a visual_beats array "
             "whose anchor_phrase values are exact consecutive 2-8 word phrases copied from that scene's "
             "FINAL narration. Preserve each beat's purpose/visual/source/new_information/shot_size/"
-            "camera_direction when still relevant. Keep every claim_id and evidence_id unchanged. For "
+            "camera_direction/bolt_visible/bolt_action when still relevant. Keep every claim_id and "
+            "evidence_id unchanged. For "
             "each claim reference, update narration_phrase to an exact consecutive substring of the "
             "FINAL narration that states the same sourced claim; never drop, merge, or invent a claim. "
             "Return motion_anchor_phrase as exact words from the FINAL narration where physical action "
@@ -2152,7 +2165,7 @@ def _enforce_requested_runtime(
         )
         try:
             response = _claude().messages.create(
-                model="claude-opus-4-8",
+                model=ANTHROPIC_MODEL,
                 max_tokens=10000,
                 system=_SCRIPT_SYSTEM,
                 messages=[{"role": "user", "content": prompt}],
@@ -2239,7 +2252,7 @@ def enforce_conceit(script: dict, question: str, cost_sink: list | None = None) 
                "image_prompt": [s.get("image_prompt", "") for s in scenes]}
     try:
         resp = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=8000,
+            model=ANTHROPIC_MODEL, max_tokens=8000,
             system=_CONCEIT_SYSTEM.replace("{mascot}", MASCOT_NAME) + _COLOR_CODE_TEXT,
             messages=[{"role": "user", "content": json.dumps(payload)}],
         )
@@ -2354,7 +2367,10 @@ def _evidence_reference_paths(state: dict, *, human_ok: bool, mascot_ok: bool,
         refs.append(HUMAN_REF)
     if state.get("include_bolt") and not state.get("pure_evidence") and mascot_ok:
         refs.append(MASCOT_REF)
-    if continuity_source and os.path.exists(continuity_source) and continuity_source not in refs:
+    # Pure evidence may explicitly forbid an object present in the master. Passing that master
+    # back as a reference makes the generator copy the forbidden state.
+    if (continuity_source and not state.get("pure_evidence")
+            and os.path.exists(continuity_source) and continuity_source not in refs):
         refs.append(continuity_source)
     return refs or None
 
@@ -2371,12 +2387,18 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
     elif state.get("include_bolt"):
         cast = "Bolt performs the declared useful action; Alex is outside the frame."
     location = _s((continuity_pack.get("first_act_location") or {}).get("label"))
+    absence = ""
+    if state.get("forbidden_objects"):
+        absence = (
+            "ABSENCE IS A HARD COMPOSITION RULE: do not depict, imply, silhouette, reflect, "
+            "or place any forbidden object anywhere in frame. "
+        )
     return (
         f"Create one evidence-state frame for this narration phrase: "
         f"{_s(state.get('anchor_phrase'))}. PURPOSE: {_s(state.get('purpose'))}. "
         f"STATE BEFORE: {_s(state.get('state_before'))}. STATE NOW/AFTER: "
         f"{_s(state.get('state_after'))}. REQUIRED AND CLEARLY VISIBLE: {required}. "
-        f"FORBIDDEN: {forbidden}. {cast} "
+        f"FORBIDDEN: {forbidden}. {absence}{cast} "
         + (f"CONTINUITY LOCATION: preserve {location}. " if state.get("opening") and location else "")
         + (f"COMPOSITION: {_s(state.get('visual'))}. " if _s(state.get("visual")) else "")
         + "The image must prove the state change without labels, arrows, text, or narration cards. "
@@ -2417,8 +2439,11 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
     try:
         def image_block(path: str) -> dict:
             with open(path, "rb") as handle:
-                encoded = base64.b64encode(handle.read()).decode()
-            media_type = "image/png" if path.casefold().endswith(".png") else "image/jpeg"
+                payload = handle.read()
+                encoded = base64.b64encode(payload).decode()
+            # Image APIs may return PNG bytes into a .jpg path. Detect the encoded bytes instead
+            # of trusting the extension; Anthropic rejects mismatched media types.
+            media_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
             return {"type": "image", "source": {
                 "type": "base64", "media_type": media_type, "data": encoded}}
         expected = {
@@ -2443,7 +2468,7 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                     image_block(reference),
                 ])
         response = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
+            model=ANTHROPIC_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
             messages=[{"role": "user", "content": content}],
         )
         if cost_sink is not None:
@@ -2477,7 +2502,7 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         return {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
     except Exception as exc:
         return {"passed": False, "visible_information": False,
-                "reasons": [f"evidence verifier unavailable: {type(exc).__name__}"]}
+                "reasons": [f"evidence verifier unavailable: {type(exc).__name__}: {str(exc)[:160]}"]}
 
 
 def safe_image_prompt(scene: dict) -> str:
@@ -2501,6 +2526,12 @@ def safe_image_prompt(scene: dict) -> str:
     )
 
 
+def opening_evidence_gate_message(validation: dict) -> str:
+    """Format the verified-information result without legacy percent-format crashes."""
+    ratio = float(validation.get("verified_information_ratio") or 0.0)
+    return f"Opening evidence gate: PASS — {ratio:.0%} verified-information cuts"
+
+
 def make_fallback_frame(output_path: str, headline: str = "", w: int = 1920, h: int = 1080) -> str:
     """A local (no-API) branded filler frame, used when image generation can't recover.
 
@@ -2521,7 +2552,7 @@ def make_fallback_frame(output_path: str, headline: str = "", w: int = 1920, h: 
 def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
     def _call(idempotency_key: str | None = None):
         resp = _openai().audio.speech.create(
-            model="tts-1-hd",
+            model=TTS_MODEL,
             voice=voice,
             input=text,
             response_format="mp3",
@@ -2540,13 +2571,13 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
     if not runtime:
         return _retry(_call, label="TTS")
     rel = os.path.relpath(os.path.abspath(output_path), runtime.output_dir)
-    request = {"model": "tts-1-hd", "voice": voice, "text_sha256":
+    request = {"model": TTS_MODEL, "voice": voice, "text_sha256":
                hashlib.sha256(text.encode("utf-8")).hexdigest(), "characters": len(text)}
     stage_key = "tts:" + canonical_hash({"output": rel, "request": request})[:32]
 
     def _durable_call(idempotency_key: str):
         _retry(lambda: _call(idempotency_key), label="TTS")
-        return {"model": "tts-1-hd", "voice": voice, "output": rel}, len(text) * _RATE_TTS_CHAR
+        return {"model": TTS_MODEL, "voice": voice, "output": rel}, len(text) * _RATE_TTS_CHAR
 
     runtime.paid_file(
         stage_key=stage_key, provider="openai-tts", request=request,
@@ -2598,7 +2629,7 @@ def _fit_script_to_measured_audio(script: dict, timing_report: dict, target_seco
         '"claim_refs":[],"evidence_id":""}]}.\nINPUT:\n' + json.dumps(payload, ensure_ascii=False)
     )
     response = _claude().messages.create(
-        model="claude-opus-4-8", max_tokens=12000, system=_SCRIPT_SYSTEM,
+        model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
     fitted, repair_cost = _parse_script_json(response.content[0].text)
@@ -2634,7 +2665,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             i, scene = item
             path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
             digest_path = path + ".narration.sha256"
-            digest_payload = f"tts-1-hd\0{voice}\0{_s(scene.get('narration'))}"
+            digest_payload = f"{TTS_MODEL}\0{voice}\0{_s(scene.get('narration'))}"
             digest = hashlib.sha256(digest_payload.encode("utf-8")).hexdigest()
             generated = False
             cached_digest = ""
@@ -2655,7 +2686,17 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
                 generated = True
             timings = transcribe_words(path)
-            return {"i": i, "aud": path, "word_times": timings, "generated": generated}
+            with open(path, "rb") as audio_handle:
+                audio_sha256 = hashlib.sha256(audio_handle.read()).hexdigest()
+            return {
+                "i": i, "aud": path, "word_times": timings, "generated": generated,
+                "audio_transformation": {
+                    "provider": "openai", "model": TTS_MODEL, "voice": voice,
+                    "speed_multiplier": 1.0, "operations": [],
+                    "audio_sha256": audio_sha256,
+                    "cache_status": "generated" if generated else "digest_verified_cache",
+                },
+            }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             return sorted(_context_map(executor, one, enumerate(scenes)),
@@ -2671,6 +2712,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             [item["word_times"] for item in results],
             target_seconds,
             duration_probe=_audio_dur,
+            audio_transformations=[item["audio_transformation"] for item in results],
         )
         log(f"Measured natural-speed TTS: {report.get('measured_seconds', 0):.2f}s "
             f"for {target_seconds:.2f}s target (pass {attempt + 1}/3)")
@@ -3236,6 +3278,62 @@ def _select_i2v_indices(scenes: list, question: str, video_format: str,
 # to the next on quota/failure, then ffmpeg Ken-Burns if all fail. Veo 3.x share ONE project
 # quota (probed), so the useful fallback is a DIFFERENT provider (Sora = separate OpenAI quota).
 _I2V_CHAIN = [p.strip() for p in I2V_PROVIDER.split(",") if p.strip()]
+
+
+def _motion_model_id(provider: str, *, fal_model: str | None = None) -> str:
+    models = {
+        "sora": _SORA_MODEL,
+        "veo": _VEO_MODEL,
+        "fal": fal_model or _FAL_MODEL,
+    }
+    model_id = models.get(provider)
+    if not model_id:
+        raise ValueError(f"Unsupported I2V provider in generation manifest: {provider!r}")
+    return model_id
+
+
+def _generation_manifest_payload(*, video_format: str, motion_mode: str,
+                                 threshold_profile: dict) -> dict:
+    """Describe the exact provider request identifiers used by this pipeline build.
+
+    This is an execution manifest, not a claim that provider aliases are immutable.
+    """
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "video_format": video_format,
+        "motion_mode": motion_mode,
+        "models": [
+            {"purpose": "research_script_factcheck_and_visual_judges", "provider": "anthropic",
+             "model_id": ANTHROPIC_MODEL, "identifier_stability": "pinned_snapshot"},
+            {"purpose": "evidence_and_scene_images", "provider": "openai",
+             "model_id": IMAGE_MODEL, "identifier_stability": "request_identifier"},
+            {"purpose": "narration", "provider": "openai", "model_id": TTS_MODEL,
+             "identifier_stability": "request_identifier"},
+            {"purpose": "word_timestamps", "provider": "openai",
+             "model_id": TRANSCRIPTION_MODEL, "identifier_stability": "request_identifier"},
+        ] + [
+            {"purpose": "image_to_video", "provider": provider,
+             "model_id": _motion_model_id(provider),
+             "identifier_stability": "configured_request_identifier"}
+            for provider in _I2V_CHAIN
+        ] + ([
+            {"purpose": "image_to_video_hero", "provider": "fal",
+             "model_id": _FAL_MODEL_HERO,
+             "identifier_stability": "configured_request_identifier"},
+        ] if "fal" in _I2V_CHAIN and _FAL_HYBRID else []),
+        "threshold_profile": threshold_profile,
+        "actual_motion": [],
+        "status": "started",
+    }
+
+
+def _write_generation_manifest(path: str, manifest: dict) -> str:
+    temp = path + ".tmp"
+    with open(temp, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2, ensure_ascii=False)
+    os.replace(temp, path)
+    return path
 
 
 def _clip_is_real(path, min_dur=0.8):
@@ -3807,7 +3905,7 @@ def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[d
         with open(contact_sheet_path, "rb") as handle:
             encoded = base64.b64encode(handle.read()).decode()
         response = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=1400,
+            model=ANTHROPIC_MODEL, max_tokens=1400,
             system=("You are a blind sequential story editor. Judge only the supplied encoded "
                     "frames and spoken narration. Never infer an intended story or reward production "
                     "metadata. If a fact is not recoverable, mark it false."),
@@ -3937,7 +4035,7 @@ def grade_short(script: dict, cost_sink: list | None = None):
         for i, s in enumerate(scenes))
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=600,
+            model=ANTHROPIC_MODEL, max_tokens=600,
             system=("You are a ruthless short-form (TikTok/Shorts/Reels) editor. Grade this ~45s "
                     "vertical short. For each scene you see the narration, its spoken length in "
                     "seconds, and its IMAGE plan — judge the visual dimensions from the IMAGE lines.\n"
@@ -4138,7 +4236,7 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
              if scene_lines else f"Transcript:\n{transcript[:6000]}")
 
     try:
-        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=2400, system=sys,
+        r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=2400, system=sys,
                                       messages=[{"role": "user", "content": user}])
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
@@ -4233,7 +4331,7 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
               + excl_block)
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=3500,
+            model=ANTHROPIC_MODEL, max_tokens=3500,
             system=_CURIOSITY_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -4310,7 +4408,7 @@ def generate_simulation_topics(n: int = 10, min_score: int = 8, cost_sink: list 
               "measured dimension widely (height, weight, speed, size, IQ, temperature, age, money, "
               "loudness). Return the JSON." + excl_block)
     try:
-        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=3500,
+        r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=3500,
                                       system=_SIM_TOPIC_SYSTEM,
                                       messages=[{"role": "user", "content": prompt}])
         if cost_sink is not None:
@@ -4620,7 +4718,7 @@ def suggest_titles(topics: list, cost_sink: list | None = None) -> list:
         lines.append(f'{i+1}. TOPIC: {_s(t.get("question"))}'
                      + (f' | winning: {" / ".join(wt)}' if wt else ""))
     try:
-        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=1500, system=_REFRAME_SYSTEM,
+        r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=1500, system=_REFRAME_SYSTEM,
                                       messages=[{"role": "user", "content": "\n".join(lines)}])
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
@@ -4642,7 +4740,7 @@ def _thumbnail_caption(title: str, question: str, cost_sink: list | None = None)
     '1 emotional/vivid word + 1 confusion word')."""
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=150,
+            model=ANTHROPIC_MODEL, max_tokens=150,
             system=('Return ONLY JSON: {"hook":"a BLUNT 2-4 word ALL-CAPS curiosity hook, usually one '
                     'vivid/emotional word + one confusion word, ending with ? — e.g. "NO DENTIST?", '
                     '"SAFE TO EAT?", "1% HEAVIER?", "SLEEP SAFE?", "WHY VANISH?", "NO FOOD?". Create '
@@ -4697,7 +4795,7 @@ def _thumbnail_strategy(title: str, question: str, transcript: str = "",
         usr = (f'VIDEO TITLE (the cause/premise): "{title}"\nTOPIC: {question}\n'
                + (f'\nTRANSCRIPT — mine the single most surprising, pictureable CONSEQUENCE from here '
                   f'(prefer a concrete number):\n{_s(transcript)[:4500]}' if transcript else ""))
-        r = _claude().messages.create(model="claude-opus-4-8", max_tokens=500,
+        r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=500,
                                       system=_THUMB_STRATEGY_SYSTEM,
                                       messages=[{"role": "user", "content": usr}])
         if cost_sink is not None:
@@ -4859,7 +4957,7 @@ def grade_thumbnail(image_path: str, title: str, cost_sink: list | None = None) 
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=500, system=_THUMB_GRADE_SYSTEM,
+            model=ANTHROPIC_MODEL, max_tokens=500, system=_THUMB_GRADE_SYSTEM,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
                 {"type": "text", "text": f'Title shown next to this thumbnail: "{title}". Grade it.'}]}],
@@ -4906,7 +5004,7 @@ def _topic_valence(title: str, question: str, cost_sink: list | None = None) -> 
     LLM-first with a keyword fallback; defaults to 'danger' (the prior always-threat behaviour)."""
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=8,
+            model=ANTHROPIC_MODEL, max_tokens=8,
             system=("Classify the emotional tone a YouTube thumbnail for this topic should have. Reply "
                     "ONE word: 'danger' (threat/death/disaster/survival stakes), 'wonder' (awe, beauty, "
                     "positive marvel, 'how is this real'), or 'neutral'."),
@@ -5096,7 +5194,7 @@ def grade_script(script: dict, cost_sink: list | None = None) -> dict | None:
     sample = full if len(full) <= 12000 else full[:6000] + " […] " + full[-6000:]
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=600, system=_SCRIPT_GRADE_SYSTEM,
+            model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_GRADE_SYSTEM,
             messages=[{"role": "user", "content":
                        f'Title: "{_s(script.get("title"))}". Hook: "{_s(script.get("hook"))}".\n'
                        f'{len(scenes)} scenes. Full narration:\n{sample}'}])
@@ -5155,7 +5253,7 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
            '{"narration":[<exactly one line per input line, same order>]}.')
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=8000, system=sys,
+            model=ANTHROPIC_MODEL, max_tokens=8000, system=sys,
             messages=[{"role": "user", "content":
                        f"WEAKEST AXIS: {weakest}. FIX: {rule}\n"
                        + (f"Grader's note: {notes}\n" if notes else "")
@@ -5268,7 +5366,7 @@ def build_premise_contract(question, cost_sink=None):
     the fix for 'novel question, ordinary answer'. Best-effort → None on failure (never blocks)."""
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=700,
+            model=ANTHROPIC_MODEL, max_tokens=700,
             system=("You design a binding PREMISE CONTRACT for a ~40s vertical Short whose title makes a "
                     "specific, novel promise. Pin the video to DELIVER THAT EXACT promise, not a generic "
                     "explainer of the topic. central_question = the ONE question the title implicitly asks. "
@@ -5307,7 +5405,7 @@ def grade_premise(script, contract, cost_sink=None, duration_sec=45):
     }
     try:
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=600,
+            model=ANTHROPIC_MODEL, max_tokens=600,
             system=("You are a ruthless Shorts editor enforcing a PREMISE CONTRACT. Given the contract and "
                     "the script, score 0-10: premise_fidelity (does the video literally play out THIS "
                     "scenario end to end), early_consequence (a concrete pictureable consequence in the "
@@ -5360,7 +5458,7 @@ def _hook_dryrun(frame_png, promise, hook_text, cost_sink=None):
         with open(frame_png, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         r = _claude().messages.create(
-            model="claude-opus-4-8", max_tokens=250,
+            model=ANTHROPIC_MODEL, max_tokens=250,
             system=("You are a Shorts viewer scrolling fast, sound OFF, on a phone — you get ONE glance at "
                     "the opening frame. Judge ONLY this frame. Score instant_read 0-10: at a muted glance, "
                     "can you tell WHAT this is about AND that something is at stake? Reward a clear subject + "
@@ -5556,6 +5654,12 @@ def run_explainer_pipeline(
     # Social retains its existing automatic motion policy. Long-form uses the explicit PR4 modes.
     i2v_on = ((i2v if i2v is not None else True) if video_format == "social"
               else resolved_motion_mode != "stills") and bool(I2V_PROVIDER)
+    threshold_profile = load_threshold_profile() if video_format != "social" else {}
+    generation_manifest_path = os.path.join(output_dir, "generation_manifest.json")
+    generation_manifest = _generation_manifest_payload(
+        video_format=video_format, motion_mode=resolved_motion_mode,
+        threshold_profile=threshold_profile)
+    _write_generation_manifest(generation_manifest_path, generation_manifest)
     # Landscape + speech_bubble → Bolt "talks" via a synced phrase bubble (replaces headline).
     if video_format == "landscape" and speech_bubble:
         cap_mode = "bubble"
@@ -5586,6 +5690,7 @@ def run_explainer_pipeline(
     rendered_contract_path = None
     rendered_contact_sheet_path = None
     human_review_path = None
+    story_format_review_path = None
     diagnostic_preview_path = None
     evidence_plan: dict = {}
     evidence_validation: dict | None = None
@@ -5760,6 +5865,26 @@ def run_explainer_pipeline(
                     + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
                 )
 
+        fallback = story_format_fallback_payload(script)
+        if (fallback["requested"] == "evidence_led_mystery"
+                and fallback["effective"] == "standard_explainer"):
+            story_format_review_path = os.path.join(output_dir, "story_format_review.json")
+            review = None
+            if os.path.isfile(story_format_review_path):
+                try:
+                    with open(story_format_review_path, encoding="utf-8") as handle:
+                        review = json.load(handle)
+                except (OSError, ValueError, TypeError):
+                    review = None
+            if review and review.get("decision") == "reject":
+                raise ValueError("Operator rejected the Mystery-to-Standard fallback.")
+            if not validate_story_format_review(review or {}, script):
+                create_story_format_review(script, story_format_review_path)
+                raise StoryFormatAcknowledgementRequired(
+                    "Evidence-led Mystery cannot be honored for this plan. Proposed Standard "
+                    f"fallback requires acknowledgement before visual spending: {fallback['reason']}")
+            log(f"Story-format fallback acknowledged: Mystery → Standard — {fallback['reason']}")
+
         research_report_path = os.path.join(output_dir, "research_dossier.json")
         claim_report_path = os.path.join(output_dir, "claim_ledger_report.json")
         with open(research_report_path, "w") as handle:
@@ -5769,12 +5894,6 @@ def run_explainer_pipeline(
 
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
-        evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
-        evidence_validation["timing"] = evidence_timing
-        if not evidence_timing.get("passed"):
-            evidence_validation["passed"] = False
-            evidence_validation["errors"] = (
-                evidence_validation.get("errors", []) + evidence_timing.get("errors", []))
         script["_evidence_plan"] = evidence_plan
         if not evidence_validation.get("passed"):
             raise ValueError(
@@ -6283,7 +6402,13 @@ def run_explainer_pipeline(
                     cached_identity = json.load(handle)
             except (OSError, ValueError, TypeError):
                 cached_identity = {}
-            reused = bool(cached_identity == cache_identity and os.path.isfile(clip)
+            cached_provider = _s(cached_identity.get("provider"))
+            cached_model_id = _s(cached_identity.get("model_id"))
+            base_identity_matches = all(
+                cached_identity.get(key) == value for key, value in cache_identity.items())
+            reusable_provider = cached_provider in _I2V_CHAIN and cached_model_id == (
+                _motion_model_id(cached_provider) if cached_provider in _I2V_CHAIN else "")
+            reused = bool(base_identity_matches and reusable_provider and os.path.isfile(clip)
                           and _clip_is_real(clip))
             start_cost = sum(i2v_costs)
             start_errors = len(i2v_errs)
@@ -6298,14 +6423,18 @@ def run_explainer_pipeline(
                     cost_sink=i2v_costs, seconds=I2V_SECONDS_LONGFORM,
                     err_sink=i2v_errs, exhausted=i2v_exhausted)
             new_errors = i2v_errs[start_errors:]
-            provider = next((item.split(":", 1)[1] for item in reversed(new_errors)
-                             if item.startswith("ok:")), "checkpoint" if reused else "")
+            provider = (cached_provider if reused else next(
+                (item.split(":", 1)[1] for item in reversed(new_errors)
+                if item.startswith("ok:")), ""))
+            model_id = _motion_model_id(provider) if provider else ""
             if rendered:
                 if not reused:
                     with open(identity_path, "w") as handle:
-                        json.dump(cache_identity, handle, indent=2)
+                        json.dump({**cache_identity, "provider": provider, "model_id": model_id},
+                                  handle, indent=2)
                 candidate.update({
                     "generation_status": "animated", "provider": provider,
+                    "model_id": model_id,
                     "clip_path": rendered, "cost_usd": round(sum(i2v_costs) - start_cost, 4),
                     "fallback_reason": "", "reused_checkpoint_clip": reused,
                     "cache_identity": cache_identity,
@@ -6438,8 +6567,7 @@ def run_explainer_pipeline(
                 "Opening evidence gate failed before later visual purchase: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
             )
-        log("Opening evidence gate: PASS — %(verified_information_ratio).0%% verified-information cuts"
-            % {"verified_information_ratio": 100 * evidence_validation["verified_information_ratio"]})
+        log(opening_evidence_gate_message(evidence_validation))
         _generate_longform_motion(opening_results, set(range(opening_stop)))
         opening_motion = [candidate for candidate in motion_plan.get("candidates") or []
                           if candidate.get("selected")
@@ -6480,7 +6608,8 @@ def run_explainer_pipeline(
             log(f"45-second Retention Readiness: {readiness['score']}/100 "
                 f"({readiness['grade']}) — {readiness['label']}")
             inspection = inspect_rendered_opening(
-                first_minute_preview_path, opening_shot_plan, output_dir, evidence_plan)
+                first_minute_preview_path, opening_shot_plan, output_dir, evidence_plan,
+                threshold_profile=threshold_profile)
             build_contact_sheet(inspection, rendered_contact_sheet_path)
             cue_cursor = 0.0
             transcript_cues = []
@@ -6982,6 +7111,25 @@ def run_explainer_pipeline(
     if status == "degraded":
         log("⚠ DEGRADED: " + "; ".join(reasons))
 
+    generation_manifest["actual_motion"] = [
+        {
+            "state_id": item.get("state_id"),
+            "provider": item.get("provider"),
+            "model_id": item.get("model_id"),
+            "generation_status": item.get("generation_status"),
+            "configured_provider_models": [
+                {"provider": provider, "model_id": _motion_model_id(provider)}
+                for provider in _I2V_CHAIN
+            ],
+            "provider_attempts": item.get("provider_attempts") or [],
+        }
+        for item in (motion_plan.get("candidates") or []) if item.get("selected")
+    ]
+    generation_manifest["status"] = "completed"
+    generation_manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
+    generation_manifest["output_sha256"] = sha256_file(output_path)
+    _write_generation_manifest(generation_manifest_path, generation_manifest)
+
     return {
         "output_path":   output_path,
         "script":        script,
@@ -7006,6 +7154,7 @@ def run_explainer_pipeline(
         "research_report_path": research_report_path,
         "claim_report_path": claim_report_path,
         "audio_timing_report_path": audio_timing_report_path,
+        "generation_manifest_path": generation_manifest_path,
         "evidence_plan_path": evidence_plan_path,
         "evidence_validation_path": evidence_validation_path,
         "continuity_pack_path": continuity_pack_path,
@@ -7016,6 +7165,7 @@ def run_explainer_pipeline(
         "rendered_contract_path": rendered_contract_path,
         "rendered_contact_sheet_path": rendered_contact_sheet_path,
         "human_review_path": human_review_path,
+        "story_format_review_path": story_format_review_path,
         "diagnostic_preview_path": diagnostic_preview_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,

@@ -39,6 +39,26 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
             _, start, width = best
             return (float(words[start][1]), float(words[start + width - 1][2]),
                     "measured_word_timestamps_fuzzy", round(best[0], 3))
+    # A long anchor may contain a transcription substitution while retaining an exact, unique
+    # consecutive subphrase. Use only an unambiguous subphrase so timing never silently jumps to
+    # another repeated phrase.
+    for width in range(min(3, len(needle)), 1, -1):
+        matches: list[tuple[int, int]] = []
+        for needle_start in range(len(needle) - width + 1):
+            fragment = needle[needle_start:needle_start + width]
+            for start in range(len(haystack) - width + 1):
+                if haystack[start:start + width] == fragment:
+                    matches.append((start, width))
+        if len(matches) == 1:
+            start, matched_width = matches[0]
+            return (float(words[start][1]), float(words[start + matched_width - 1][2]),
+                    "measured_unique_subphrase", round(matched_width / len(needle), 3))
+    unique_tokens = [token for token in needle if len(token) >= 4
+                     and needle.count(token) == 1 and haystack.count(token) == 1]
+    if len(unique_tokens) == 1:
+        start = haystack.index(unique_tokens[0])
+        return (float(words[start][1]), float(words[start][2]),
+                "measured_unique_token", round(1 / len(needle), 3))
     return None
 
 
@@ -49,6 +69,7 @@ def build_audio_timing_report(
     target_seconds: float,
     *,
     duration_probe: Callable[[str], float],
+    audio_transformations: list[dict] | None = None,
 ) -> dict:
     """Measure final-speed audio and require real word/phrase timestamps."""
     errors: list[dict] = []
@@ -61,6 +82,46 @@ def build_audio_timing_report(
             "version": 1, "passed": False, "target_seconds": float(target_seconds),
             "errors": [{"code": "audio_scene_count_mismatch", "message": "Scene, audio, and timing counts differ."}],
         }
+
+    transformations = audio_transformations if isinstance(audio_transformations, list) else []
+    if len(transformations) != len(scenes):
+        errors.append({
+            "code": "audio_transformation_ledger_missing",
+            "message": "Every narration scene requires an audio transformation ledger entry.",
+        })
+
+    normalized_transformations = []
+    for index, item in enumerate(transformations, 1):
+        if not isinstance(item, dict):
+            errors.append({"code": "invalid_audio_transformation", "scene": index,
+                           "message": "Audio transformation entry is not an object."})
+            continue
+        try:
+            speed = float(item.get("speed_multiplier"))
+        except (TypeError, ValueError):
+            speed = 0.0
+        operations = item.get("operations") if isinstance(item.get("operations"), list) else None
+        if speed <= 0 or operations is None or not str(item.get("audio_sha256") or "").strip():
+            errors.append({"code": "invalid_audio_transformation", "scene": index,
+                           "message": "Audio transformation entry lacks speed, operations, or file hash."})
+        normalized_transformations.append({
+            "scene": index,
+            "provider": str(item.get("provider") or ""),
+            "model": str(item.get("model") or ""),
+            "voice": str(item.get("voice") or ""),
+            "speed_multiplier": speed,
+            "operations": operations or [],
+            "audio_sha256": str(item.get("audio_sha256") or ""),
+            "cache_status": str(item.get("cache_status") or ""),
+        })
+
+    time_operations = {"atempo", "rubberband", "time_stretch", "speed_change"}
+    post_stretched = any(
+        abs(float(item.get("speed_multiplier") or 0.0) - 1.0) > 1e-9
+        or bool(time_operations.intersection({str(op).casefold() for op in item.get("operations") or []}))
+        for item in normalized_transformations
+    )
+    natural_speed = bool(normalized_transformations) and not post_stretched
 
     for index, (scene, path, timings) in enumerate(zip(scenes, audio_paths, word_times), 1):
         try:
@@ -120,8 +181,9 @@ def build_audio_timing_report(
     return {
         "version": 1,
         "passed": not errors,
-        "natural_speed": True,
-        "post_stretched": False,
+        "natural_speed": natural_speed,
+        "post_stretched": post_stretched,
+        "audio_transformations": normalized_transformations,
         "target_seconds": round(float(target_seconds), 3),
         "tolerance_seconds": round(tolerance, 3),
         "minimum_seconds": round(float(target_seconds) - tolerance, 3),

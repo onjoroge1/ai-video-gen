@@ -53,6 +53,14 @@ def test_bolt_is_forced_absent_from_pure_mechanism_beats():
     assert beats[2]["bolt_mode"] == "reaction"
 
 
+def test_phase1_requires_at_least_one_useful_bolt_scene():
+    script = _passing_script()
+    for scene in script["scenes"]:
+        scene["mascot_present"] = False
+        scene["bolt_mode"] = "absent"
+    assert "missing_useful_bolt_scene" in _codes(script)
+
+
 def test_mystery_suitability_requires_real_test_and_belief_change():
     plan = {
         "anomaly": "The gauge rises in calm weather",

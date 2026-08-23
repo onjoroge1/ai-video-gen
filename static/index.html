@@ -1427,20 +1427,6 @@
       <div class="log-console" id="chart-log-console"></div>
     </div>
 
-    <!-- Rendered-opening human approval gate -->
-    <div id="expl-review-panel" style="display:none; background:var(--surface); border:1px solid #f59e0b; border-radius:10px; padding:18px 20px; margin-bottom:14px;">
-      <div class="result-title">Human review required before the remaining video is purchased</div>
-      <p class="field-hint" style="margin:8px 0 14px;">Watch the encoded opening and inspect the chronological contact sheet. Approval is bound to these exact artifact hashes.</p>
-      <video id="expl-review-video" controls preload="metadata" style="width:100%; max-width:720px; border-radius:8px; background:#000; margin-bottom:12px;"></video>
-      <div><a class="btn btn-outline" id="expl-review-sheet-link" href="#" target="_blank">Open contact sheet</a></div>
-      <div id="expl-review-checklist" style="margin:16px 0;"></div>
-      <div class="field" style="max-width:420px;"><label>Reviewer name</label><input id="expl-reviewer-name" class="input-field" placeholder="Your name" /></div>
-      <div class="result-actions" style="margin-top:14px;">
-        <button class="btn btn-primary" id="expl-approve-opening-btn" onclick="submitExplainerReview('approve')">Approve opening and resume</button>
-        <button class="btn btn-outline" onclick="submitExplainerReview('reject')">Reject opening</button>
-      </div>
-    </div>
-
     <!-- Result panel -->
     <div id="chart-result-panel">
       <div class="card-title" style="margin-bottom:20px;">Chart Ready</div>
@@ -1683,6 +1669,33 @@
       <div class="log-console" id="expl-log"></div>
     </div>
 
+    <!-- Story-format fallback acknowledgement gate -->
+    <div id="expl-format-review-panel" style="display:none; background:var(--surface); border:1px solid #f59e0b; border-radius:10px; padding:18px 20px; margin-bottom:14px;">
+      <div class="result-title">Story structure changed before visual generation</div>
+      <p class="field-hint" style="margin:8px 0 10px;">The requested Evidence-led Mystery did not satisfy the deterministic mystery contract. No visual assets have been purchased.</p>
+      <div class="meta-block"><div class="meta-label">Proposed structure</div><div class="meta-value">Standard explainer</div></div>
+      <div class="meta-block"><div class="meta-label">Why the Mystery structure was rejected</div><div class="meta-value" id="expl-format-review-reason"></div></div>
+      <div class="field" style="max-width:420px;"><label>Reviewer name</label><input id="expl-format-reviewer-name" class="input-field" placeholder="Your name" /></div>
+      <div class="result-actions" style="margin-top:14px;">
+        <button class="btn btn-primary" onclick="submitExplainerFormatReview('accept')">Accept Standard and resume</button>
+        <button class="btn btn-outline" onclick="submitExplainerFormatReview('reject')">Reject this plan</button>
+      </div>
+    </div>
+
+    <!-- Rendered-opening human approval gate -->
+    <div id="expl-review-panel" style="display:none; background:var(--surface); border:1px solid #f59e0b; border-radius:10px; padding:18px 20px; margin-bottom:14px;">
+      <div class="result-title">Human review required before the remaining video is purchased</div>
+      <p class="field-hint" style="margin:8px 0 14px;">Watch the encoded opening and inspect the chronological contact sheet. Approval is bound to these exact artifact hashes.</p>
+      <video id="expl-review-video" controls preload="metadata" style="width:100%; max-width:720px; border-radius:8px; background:#000; margin-bottom:12px;"></video>
+      <div><a class="btn btn-outline" id="expl-review-sheet-link" href="#" target="_blank">Open contact sheet</a></div>
+      <div id="expl-review-checklist" style="margin:16px 0;"></div>
+      <div class="field" style="max-width:420px;"><label>Reviewer name</label><input id="expl-reviewer-name" class="input-field" placeholder="Your name" /></div>
+      <div class="result-actions" style="margin-top:14px;">
+        <button class="btn btn-primary" id="expl-approve-opening-btn" onclick="submitExplainerReview('approve')">Approve opening and resume</button>
+        <button class="btn btn-outline" onclick="submitExplainerReview('reject')">Reject opening</button>
+      </div>
+    </div>
+
     <!-- Result panel -->
     <div id="expl-result-panel" style="display:none; background:var(--surface); border:1px solid var(--green); border-radius:10px; padding:18px 20px; margin-bottom:14px;">
       <div class="result-title" id="expl-result-title"></div>
@@ -1713,6 +1726,7 @@
         <a class="btn btn-outline" id="expl-rendered-contract-btn" href="#" download style="display:none;">↓ Rendered Contract</a>
         <a class="btn btn-outline" id="expl-rendered-contact-sheet-btn" href="#" download style="display:none;">↓ Rendered Contact Sheet</a>
         <a class="btn btn-outline" id="expl-human-review-btn" href="#" download style="display:none;">↓ Human Review</a>
+        <a class="btn btn-outline" id="expl-generation-manifest-btn" href="#" download style="display:none;">↓ Generation Manifest</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -2682,6 +2696,7 @@
   ════════════════════════════════════════════════ */
   let explJobId = null;
   let explReviewRecord = null;
+  let explFormatReviewRecord = null;
   let explStageEl = null;
   let explFormat = 'landscape';   // 'landscape' (16:9) | 'social' (9:16 + karaoke captions)
   const explLog = document.getElementById('expl-log');
@@ -3025,10 +3040,11 @@
     const btn = document.getElementById('expl-btn');
     btn.disabled = true;
 
-    explJobId = null; explReviewRecord = null; explStageEl = null;
+    explJobId = null; explReviewRecord = null; explFormatReviewRecord = null; explStageEl = null;
     explLog.innerHTML = '';
     document.getElementById('expl-error-panel').style.display = 'none';
     document.getElementById('expl-review-panel').style.display = 'none';
+    document.getElementById('expl-format-review-panel').style.display = 'none';
     document.getElementById('expl-result-panel').style.display = 'none';
     document.getElementById('expl-script-panel').style.display = 'none';
     document.querySelectorAll('#explainer-section .stage-item').forEach(s => s.classList.remove('active','done'));
@@ -3099,6 +3115,11 @@
         es.close();
         btn.disabled = false;
         await showExplainerReview(job_id);
+      } else if (ev.type === 'format_acknowledgement_required') {
+        addLog(explLog, 'stage', ev.data);
+        es.close();
+        btn.disabled = false;
+        await showExplainerFormatReview(job_id);
       }
     };
     es.onerror = () => { es.close(); btn.disabled = false; };
@@ -3107,6 +3128,72 @@
     // reclaim the lease if this browser or function disappears.
     if (queued.dispatch_url) {
       fetch(queued.dispatch_url, {method:'POST'}).catch(() => {});
+    }
+  }
+
+  async function showExplainerFormatReview(jobId) {
+    const panel = document.getElementById('expl-format-review-panel');
+    try {
+      const response = await fetch(`/api/explainer/story-format-review/${jobId}`);
+      if (!response.ok) throw new Error(await response.text());
+      explFormatReviewRecord = await response.json();
+      document.getElementById('expl-format-review-reason').textContent =
+        explFormatReviewRecord?.fallback?.reason || 'The generated plan did not satisfy the Mystery contract.';
+      panel.style.display = 'block';
+      panel.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (err) {
+      showError('expl-error-panel', 'expl-error-msg', `Story-format review unavailable: ${err.message}`);
+    }
+  }
+
+  async function submitExplainerFormatReview(decision) {
+    if (!explJobId || !explFormatReviewRecord) return;
+    const reviewer = document.getElementById('expl-format-reviewer-name').value.trim();
+    if (!reviewer) {
+      showError('expl-error-panel', 'expl-error-msg', 'Enter the reviewer name.');
+      return;
+    }
+    const response = await fetch(`/api/explainer/story-format-review/${explJobId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({reviewer, decision})
+    });
+    if (!response.ok) {
+      showError('expl-error-panel', 'expl-error-msg', await response.text());
+      return;
+    }
+    const reviewPayload = await response.json();
+    document.getElementById('expl-format-review-panel').style.display = 'none';
+    if (decision === 'reject') {
+      showError('expl-error-panel', 'expl-error-msg',
+        'Story-format fallback rejected. No visual assets were purchased.');
+      return;
+    }
+    const resume = await fetch(`/api/explainer/resume/${explJobId}`, {method:'POST'});
+    if (!resume.ok) {
+      showError('expl-error-panel', 'expl-error-msg', await resume.text());
+      return;
+    }
+    const resumePayload = await resume.json();
+    document.getElementById('expl-btn').disabled = true;
+    const resumeAfter = Number(reviewPayload.resume_after_event_seq || 0);
+    const es = new EventSource(`/api/explainer/status/${explJobId}?after=${resumeAfter}`);
+    es.onmessage = async (e) => {
+      const ev = JSON.parse(e.data);
+      addLog(explLog, ev.type === 'error' ? 'error' : ev.type === 'done' ? 'done' : 'log', ev.data);
+      if (ev.type === 'done') {
+        es.close(); document.getElementById('expl-btn').disabled = false;
+        await showExplainerResult(explJobId);
+      } else if (ev.type === 'review_required') {
+        es.close(); document.getElementById('expl-btn').disabled = false;
+        await showExplainerReview(explJobId);
+      } else if (ev.type === 'error' || ev.type === 'storage_error'
+                 || ev.type === 'format_acknowledgement_required') {
+        es.close(); document.getElementById('expl-btn').disabled = false;
+        showError('expl-error-panel', 'expl-error-msg', ev.data);
+      }
+    };
+    if (resumePayload.dispatch_url) {
+      fetch(resumePayload.dispatch_url, {method:'POST'}).catch(() => {});
     }
   }
 
@@ -3156,6 +3243,7 @@
       showError('expl-error-panel', 'expl-error-msg', await response.text());
       return;
     }
+    const reviewPayload = await response.json();
     if (decision === 'reject') {
       document.getElementById('expl-review-panel').style.display = 'none';
       showError('expl-error-panel', 'expl-error-msg', 'Opening rejected. No remaining visual assets were purchased.');
@@ -3169,7 +3257,8 @@
     const resumePayload = await resume.json();
     document.getElementById('expl-review-panel').style.display = 'none';
     document.getElementById('expl-btn').disabled = true;
-    const es = new EventSource(`/api/explainer/status/${explJobId}`);
+    const resumeAfter = Number(reviewPayload.resume_after_event_seq || 0);
+    const es = new EventSource(`/api/explainer/status/${explJobId}?after=${resumeAfter}`);
     es.onmessage = async (e) => {
       const ev = JSON.parse(e.data);
       addLog(document.getElementById('expl-log'), ev.type === 'error' ? 'error' : ev.type === 'done' ? 'done' : 'log', ev.data);
@@ -3214,7 +3303,8 @@
         ['expl-animatic-preview-btn', 'animatic-preview'],
         ['expl-rendered-contract-btn', 'rendered-contract'],
         ['expl-rendered-contact-sheet-btn', 'rendered-contact-sheet'],
-        ['expl-human-review-btn', 'human-review']
+        ['expl-human-review-btn', 'human-review'],
+        ['expl-generation-manifest-btn', 'generation-manifest']
       ]) {
         const button = document.getElementById(id);
         button.href = `/api/explainer/${endpoint}/${jobId}`;
@@ -3255,9 +3345,9 @@
   }
 
   function resetExplainer() {
-    explJobId = null; explReviewRecord = null; explStageEl = null;
+    explJobId = null; explReviewRecord = null; explFormatReviewRecord = null; explStageEl = null;
     document.getElementById('expl-question').value = '';
-    ['expl-error-panel','expl-review-panel','expl-result-panel','expl-script-panel','expl-progress-panel'].forEach(id =>
+    ['expl-error-panel','expl-review-panel','expl-format-review-panel','expl-result-panel','expl-script-panel','expl-progress-panel'].forEach(id =>
       document.getElementById(id).style.display = 'none'
     );
     explLog.innerHTML = '';

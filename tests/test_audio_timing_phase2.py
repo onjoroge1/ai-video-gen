@@ -34,7 +34,11 @@ def _report(durations, target=90.0, anchors=False):
         paths.append(path)
         duration_map[path] = duration
     return build_audio_timing_report(
-        scenes, paths, timing, target, duration_probe=duration_map.__getitem__)
+        scenes, paths, timing, target, duration_probe=duration_map.__getitem__,
+        audio_transformations=[{
+            "provider": "openai", "model": "tts-1-hd", "voice": "echo",
+            "speed_multiplier": 1.0, "operations": [], "audio_sha256": f"hash-{i}",
+        } for i in range(len(scenes))])
 
 
 @pytest.mark.parametrize("measured", [87.3, 90.0, 92.7])
@@ -66,7 +70,11 @@ def test_phrase_timestamp_allows_one_unambiguous_whisper_substitution():
         [scene], ["one.mp3"],
         [[("the", 0, 1), ("coastline", 1, 2), ("can't", 2, 3),
           ("recover", 3, 4), ("quickly", 4, 5)]],
-        5, duration_probe=lambda _path: 5.0)
+        5, duration_probe=lambda _path: 5.0,
+        audio_transformations=[{
+            "provider": "openai", "model": "tts-1-hd", "voice": "echo",
+            "speed_multiplier": 1.0, "operations": [], "audio_sha256": "hash-one",
+        }])
     assert report["passed"] is True
     assert report["phrase_timestamps"][0]["source"] == "measured_word_timestamps_fuzzy"
 
@@ -84,6 +92,27 @@ def test_scene_audio_count_mismatch_fails_closed():
         [_scene("one two")], [], [], 90, duration_probe=lambda _path: 90)
     assert report["passed"] is False
     assert report["errors"][0]["code"] == "audio_scene_count_mismatch"
+
+
+def test_audio_report_derives_stretch_status_from_actual_transformation_ledger():
+    scene = _scene("one two three")
+    timings = [_timings(scene["narration"], 3.0)]
+    report = build_audio_timing_report(
+        [scene], ["one.mp3"], timings, 3.0, duration_probe=lambda _path: 3.0,
+        audio_transformations=[{
+            "provider": "openai", "model": "tts-1-hd", "voice": "echo",
+            "speed_multiplier": 0.9, "operations": ["atempo"], "audio_sha256": "hash",
+        }])
+    assert report["natural_speed"] is False
+    assert report["post_stretched"] is True
+
+
+def test_audio_report_rejects_missing_transformation_ledger():
+    report = build_audio_timing_report(
+        [_scene("one two three")], ["one.mp3"], [[("one", 0, 1), ("two", 1, 2), ("three", 2, 3)]],
+        3.0, duration_probe=lambda _path: 3.0)
+    assert "audio_transformation_ledger_missing" in {
+        error["code"] for error in report["errors"]}
 
 
 def test_longform_audio_is_generated_and_measured_before_visuals(monkeypatch, tmp_path):

@@ -48,7 +48,8 @@ def _script():
                 "visual_beats": [
                     _beat("the red mark is dry", "red mark at the waterline",
                           "the same red mark visibly above the water", source="master",
-                          purpose="setup", pure_evidence=False, human_visible=True),
+                          purpose="action", pure_evidence=False, human_visible=True,
+                          bolt_visible=True, bolt_action="measures the exposed red mark"),
                     _beat("wet mud below it", "unreadable shoreline",
                           "fresh wet mud and shell line below the red mark"),
                 ],
@@ -111,6 +112,55 @@ def test_pure_evidence_deterministically_omits_bolt_and_reference():
     assert all(state["include_bolt"] is False for state in mechanism_states)
     assert all("reference:bolt:mascot:v1" not in state["reference_ids"]
                for state in mechanism_states)
+
+
+def test_bolt_is_opted_in_per_compiled_state_and_frequency_is_state_based():
+    plan = compile_evidence_plan(_script())
+    first = plan["scenes"][0]["states"]
+    assert [state["include_bolt"] for state in first] == [True, False]
+    validation = plan["validation"]
+    assert validation["useful_bolt_state_count"] == 1
+    assert validation["compiled_visual_state_count"] > len(plan["scenes"])
+    assert 0 < validation["bolt_visual_state_ratio"] <= 0.35
+
+
+def test_zero_or_over_budget_compiled_bolt_states_fail_before_assets():
+    plan = compile_evidence_plan(_script())
+    for scene in plan["scenes"]:
+        for state in scene["states"]:
+            state["include_bolt"] = False
+            state["bolt_action"] = ""
+            state["reference_ids"] = [item for item in state.get("reference_ids") or []
+                                      if item != "reference:bolt:mascot:v1"]
+    assert "missing_useful_bolt_state" in _codes(validate_evidence_plan(plan))
+
+    plan = compile_evidence_plan(_script())
+    bolt_state = next(
+        state for scene in plan["scenes"] for state in scene["states"]
+        if state.get("include_bolt"))
+    bolt_state["bolt_action"] = "measurement"
+    assert "bolt_without_useful_action" in _codes(validate_evidence_plan(plan))
+
+    plan = compile_evidence_plan(_script())
+    for scene in plan["scenes"]:
+        for state in scene["states"]:
+            if state.get("purpose") == "callback":
+                continue
+            state.update(include_bolt=True, pure_evidence=False, purpose="action",
+                         bolt_action="actively measures the evidence")
+            state["reference_ids"] = list(dict.fromkeys(
+                (state.get("reference_ids") or []) + ["reference:bolt:mascot:v1"]))
+    assert "bolt_state_budget_exceeded" in _codes(validate_evidence_plan(plan))
+
+
+def test_opening_object_can_transform_and_reframe_uses_previous_evidence_state():
+    script = _script()
+    script["scenes"][0]["visual_beats"][1]["source"] = "reframe"
+    plan = compile_evidence_plan(script)
+    first, second = plan["scenes"][0]["states"]
+    assert "Alex's red tide-gauge mark" in first["required_objects"]
+    assert "Alex's red tide-gauge mark" not in second["required_objects"]
+    assert second["source_asset_id"] == first["asset_id"]
 
 
 def test_reframe_never_claims_information_before_detail_verification():
@@ -229,7 +279,7 @@ def test_reference_routing_is_identity_first_and_never_sends_bolt_to_pure_eviden
     evidence_refs = pipeline._evidence_reference_paths(
         {"include_human": False, "include_bolt": True, "pure_evidence": True},
         human_ok=True, mascot_ok=True, continuity_source=str(continuity))
-    assert evidence_refs == [str(continuity)]
+    assert evidence_refs is None
 
 
 def test_pixel_verifier_fails_when_required_object_is_missing(monkeypatch, tmp_path):
@@ -261,6 +311,35 @@ def test_pixel_verifier_fails_when_required_object_is_missing(monkeypatch, tmp_p
     assert report["passed"] is False
     assert report["visible_information"] is True
     assert "red gauge mark" in report["reasons"][0]
+
+
+def test_pixel_verifier_detects_png_bytes_even_when_path_ends_in_jpg(monkeypatch, tmp_path):
+    from PIL import Image
+
+    image = tmp_path / "evidence.jpg"
+    Image.new("RGB", (8, 8), "red").save(image, format="PNG")
+    state = compile_evidence_plan(_script())["scenes"][0]["states"][0]
+    seen = {}
+    payload = {
+        "required_objects": {item: True for item in state["required_objects"]},
+        "forbidden_objects_absent": {}, "visible_information": True,
+        "human_identity_matches": True, "clothing_matches": True,
+        "location_matches": True, "opening_object_matches": True,
+        "bolt_present": True, "reasons": [],
+    }
+
+    class Messages:
+        def create(self, **kwargs):
+            seen["content"] = kwargs["messages"][0]["content"]
+            return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))],
+                                   usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+
+    monkeypatch.setattr(pipeline, "_claude", lambda: SimpleNamespace(messages=Messages()))
+    report = pipeline.verify_evidence_asset(
+        str(image), state, compile_evidence_plan(_script())["continuity_pack"])
+    image_blocks = [item for item in seen["content"] if item.get("type") == "image"]
+    assert report["passed"] is True
+    assert image_blocks[0]["source"]["media_type"] == "image/png"
 
 
 def test_phase_three_reports_are_exposed_in_ui_and_api():

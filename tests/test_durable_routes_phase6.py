@@ -57,3 +57,28 @@ def test_status_stream_reads_persisted_events_without_process_memory(monkeypatch
             assert "remote complete" in response.text
 
     anyio.run(run)
+
+
+def test_resumed_status_stream_starts_after_the_acknowledgement_event(monkeypatch):
+    monkeypatch.setenv("DURABLE_EXECUTION", "1")
+    seen_after = []
+
+    class Store:
+        def get_job(self, job_id):
+            return {"id": job_id, "status": "done", "result": {}}
+
+        def events(self, job_id, after, limit):
+            seen_after.append(after)
+            return [{"seq": 42, "event_type": "done", "data": "resumed complete"}]
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/explainer/status/resumed?after=41")
+            assert response.status_code == 200
+            assert "resumed complete" in response.text
+
+    anyio.run(run)
+    assert seen_after == [41]

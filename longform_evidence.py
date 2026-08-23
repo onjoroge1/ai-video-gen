@@ -10,6 +10,10 @@ from typing import Any
 
 
 PURE_EVIDENCE_PURPOSES = {"evidence", "mechanism", "scale", "location", "record", "diagram"}
+USEFUL_BOLT_PURPOSES = {
+    "action", "assistance", "decision", "demonstration", "measurement", "reaction", "test",
+    "warning",
+}
 ASSET_STRATEGIES = {"master", "distinct", "detail_reframe", "exact_reuse"}
 ACCEPTED_ASSET_STATUSES = {"accepted", "reused_exact"}
 MIN_EVIDENCE_STATE_SECONDS = 1.5
@@ -131,7 +135,9 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
                     else ("distinct" if state_index or source in {"broll", "alternate", "distinct"}
                           else "master"))
     pure_evidence = bool(beat.get("pure_evidence", purpose in PURE_EVIDENCE_PURPOSES))
-    include_bolt = bool(scene.get("mascot_present")) and not pure_evidence
+    # Scene-level mascot presence is permission, not a command to paste Bolt into every view.
+    include_bolt = (bool(scene.get("mascot_present")) and not pure_evidence
+                    and bool(beat.get("bolt_visible", purpose == "action")))
     include_human = bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
     before = _text(beat.get("state_before"))
@@ -140,7 +146,9 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     if not required and after:
         required = [after]
     opening_label = _text(pack.get("opening_object", {}).get("label"))
-    if scene_index == 0 and opening_label and opening_label not in required:
+    # The opening object's exact initial state belongs only to the establishing frame. Later
+    # states must be free to transform that same object (lit candle -> extinguished candle).
+    if scene_index == 0 and state_index == 0 and opening_label and opening_label not in required:
         required.append(opening_label)
     forbidden = _list(beat.get("forbidden_objects"))
     if pure_evidence and "Bolt" not in forbidden:
@@ -148,7 +156,9 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     asset_id = f"asset:s{scene_index + 1:03d}:e{state_index + 1:02d}"
     source_asset_id = ""
     if strategy == "detail_reframe":
-        source_asset_id = f"asset:s{scene_index + 1:03d}:e01"
+        # Reframe the state that immediately introduced the evidence, not always the master.
+        source_index = max(1, state_index)
+        source_asset_id = f"asset:s{scene_index + 1:03d}:e{source_index:02d}"
     references = []
     if include_human:
         references.extend([
@@ -173,6 +183,8 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "pure_evidence": pure_evidence,
         "include_human": include_human,
         "include_bolt": include_bolt,
+        "bolt_action": (_text(beat.get("bolt_action")) or _text(scene.get("bolt_mode"))
+                        if include_bolt else ""),
         "reference_ids": references,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",
@@ -260,6 +272,8 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         scenes = []
 
     opening_cuts = []
+    compiled_states = []
+    useful_bolt_states = []
     seen_state_ids: set[str] = set()
     seen_asset_ids: set[str] = set()
     for scene_plan in scenes:
@@ -273,6 +287,8 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         accepted_distinct = set()
         verified_detail = False
         for state_index, state in enumerate(states):
+            if _text(state.get("purpose")) != "callback":
+                compiled_states.append(state)
             state_id = _text(state.get("state_id"))
             asset_id = _text(state.get("asset_id"))
             if not state_id or state_id in seen_state_ids:
@@ -320,6 +336,18 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                     "bolt_not_forbidden_in_evidence",
                     "Pure evidence must explicitly forbid Bolt in the generated pixels.",
                     scene=scene_index + 1, state_id=state_id))
+            if state.get("include_bolt"):
+                purpose = _text(state.get("purpose")).casefold()
+                action = _text(state.get("bolt_action"))
+                action_is_specific = bool(action) and action.casefold() not in USEFUL_BOLT_PURPOSES
+                if purpose not in USEFUL_BOLT_PURPOSES or not action_is_specific:
+                    errors.append(_issue(
+                        "bolt_without_useful_action",
+                        "Every compiled Bolt state must declare a concrete useful action, not merely "
+                        "repeat its measurement, test, reaction, warning, assistance, or decision category.",
+                        scene=scene_index + 1, state_id=state_id))
+                else:
+                    useful_bolt_states.append(state)
             refs = state.get("reference_ids") if isinstance(state.get("reference_ids"), list) else []
             if bool(state.get("include_human")) != (pack.get("human", {}).get("reference_asset_id") in refs):
                 errors.append(_issue(
@@ -373,6 +401,17 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
     if not _text(location.get("location_id")) or not _text(location.get("label")):
         errors.append(_issue("incomplete_location_continuity", "First-act location lock is missing."))
 
+    bolt_count = len(useful_bolt_states)
+    bolt_ratio = bolt_count / max(1, len(compiled_states))
+    if compiled_states and bolt_count == 0:
+        errors.append(_issue(
+            "missing_useful_bolt_state",
+            "Long-form requires at least one compiled visual state where Bolt performs useful story work."))
+    if bolt_ratio > 0.35:
+        errors.append(_issue(
+            "bolt_state_budget_exceeded",
+            f"Bolt occupies {bolt_ratio:.0%} of compiled visual states; no more than 35% is allowed."))
+
     verified_cuts = sum(1 for state in opening_cuts if state.get("verified_visible_information"))
     ratio = verified_cuts / len(opening_cuts) if opening_cuts else 0.0
     if require_verified_assets and ratio < 0.70:
@@ -385,6 +424,9 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         "opening_cut_count": len(opening_cuts),
         "verified_information_cut_count": verified_cuts,
         "verified_information_ratio": round(ratio, 3),
+        "compiled_visual_state_count": len(compiled_states),
+        "useful_bolt_state_count": bolt_count,
+        "bolt_visual_state_ratio": round(bolt_ratio, 3),
         "rejected_asset_count": sum(
             1 for scene in scenes for state in scene.get("states") or []
             if _text(state.get("asset_status")) == "rejected"),

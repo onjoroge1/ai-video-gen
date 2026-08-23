@@ -15,6 +15,7 @@ import asyncio
 import json
 import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
@@ -1121,6 +1122,45 @@ class ExplainerHumanReviewRequest(BaseModel):
     checklist: list[dict]
 
 
+class ExplainerStoryFormatReviewRequest(BaseModel):
+    reviewer: str
+    decision: Literal["accept", "reject"]
+
+
+def _checkpoint_generation_manifest(output_dir: str, *, status: str, error: str = "") -> None:
+    """Make paused/failed manifests describe work actually completed before the stop."""
+    manifest_path = os.path.join(output_dir, "generation_manifest.json")
+    if not os.path.isfile(manifest_path):
+        return
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        timing_path = os.path.join(output_dir, "audio_timing_report.json")
+        if os.path.isfile(timing_path):
+            with open(timing_path, encoding="utf-8") as handle:
+                timing = json.load(handle)
+            manifest["actual_audio_transformations"] = timing.get("audio_transformations") or []
+        motion_path = os.path.join(output_dir, "motion_report.json")
+        if os.path.isfile(motion_path):
+            with open(motion_path, encoding="utf-8") as handle:
+                motion = json.load(handle)
+            manifest["actual_motion"] = [
+                {key: candidate.get(key) for key in (
+                    "state_id", "provider", "model_id", "generation_status",
+                    "provider_attempts")}
+                for candidate in motion.get("candidates") or [] if candidate.get("selected")
+            ]
+        manifest["status"] = status
+        manifest["status_recorded_at"] = datetime.now(timezone.utc).isoformat()
+        if error:
+            manifest["error"] = error[:500]
+        _atomic_write_json(manifest_path, manifest)
+    except (OSError, ValueError, TypeError):
+        # The primary task exception still owns job disposition. A malformed manifest must never
+        # convert a failed render into a successful one.
+        return
+
+
 async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir: str,
                              resume: bool = False,
                              durable_runtime: durable_execution.DurableRuntime | None = None):
@@ -1210,6 +1250,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "research_report_path": result.get("research_report_path"),
             "claim_report_path": result.get("claim_report_path"),
             "audio_timing_report_path": result.get("audio_timing_report_path"),
+            "generation_manifest_path": result.get("generation_manifest_path"),
+            "story_format_review_path": result.get("story_format_review_path"),
             "evidence_plan_path": result.get("evidence_plan_path"),
             "evidence_validation_path": result.get("evidence_validation_path"),
             "continuity_pack_path": result.get("continuity_pack_path"),
@@ -1248,6 +1290,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "research": result.get("research_report_path"),
                   "claims": result.get("claim_report_path"),
                   "timing": result.get("audio_timing_report_path"),
+                  "generation-manifest": result.get("generation_manifest_path"),
+                  "story-format-review": result.get("story_format_review_path"),
                   "evidence-plan": result.get("evidence_plan_path"),
                   "evidence-validation": result.get("evidence_validation_path"),
                   "continuity": result.get("continuity_pack_path"),
@@ -1288,8 +1332,11 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
     except Exception as exc:
         import traceback
         from longform_rendered_gate import HumanReviewRequired
+        from longform_retention import StoryFormatAcknowledgementRequired
         awaiting_review = isinstance(exc, HumanReviewRequired)
-        job["status"] = "awaiting_review" if awaiting_review else "error"
+        awaiting_format = isinstance(exc, StoryFormatAcknowledgementRequired)
+        job["status"] = ("awaiting_review" if awaiting_review else
+                         "format_acknowledgement_required" if awaiting_format else "error")
         job["error"] = str(exc)
         # A rejected PR5 opening is still an auditable diagnostic result. Expose only the
         # explicitly non-publishable gate artifacts; never archive it as a finished video.
@@ -1301,11 +1348,26 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "human_review_path": "human_review.json",
             "diagnostic_preview_path": "rejected_diagnostic_preview.mp4",
             "first_minute_preview_path": "first_minute_preview.mp4",
+            "story_format_review_path": "story_format_review.json",
+            "generation_manifest_path": "generation_manifest.json",
         }
         for key, filename in rejected_artifacts.items():
             path = os.path.join(output_dir, filename)
             if os.path.isfile(path):
                 job[key] = path
+        _checkpoint_generation_manifest(
+            output_dir, status=("awaiting_human_review" if awaiting_review else
+                                "awaiting_story_format_acknowledgement" if awaiting_format
+                                else "failed"), error=str(exc))
+        state_path = os.path.join(output_dir, "_state.json")
+        if os.path.isfile(state_path):
+            try:
+                with open(state_path, encoding="utf-8") as handle:
+                    job["script"] = (json.load(handle).get("script") or job.get("script"))
+                if job.get("script"):
+                    job["title"] = job["script"].get("title") or request.question
+            except (OSError, ValueError, TypeError):
+                pass
         if job.get("rendered_contract_path"):
             try:
                 with open(job["rendered_contract_path"]) as handle:
@@ -1314,26 +1376,31 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 pass
         if awaiting_review:
             job["events"].append({"type": "review_required", "data": str(exc)})
+        elif awaiting_format:
+            job["events"].append({"type": "format_acknowledgement_required", "data": str(exc)})
         else:
             job["events"].append({"type": "error", "data": f"Failed: {exc}"})
             job["events"].append({"type": "error", "data": traceback.format_exc()})
         if durable_runtime:
             try:
                 durable_runtime.checkpoint(
-                    "awaiting-review" if awaiting_review else "failed-attempt")
+                    "awaiting-review" if awaiting_review else
+                    "awaiting-format-acknowledgement" if awaiting_format else "failed-attempt")
                 row = durable_runtime.store.get_job(job_id) or {}
                 attempts = int(row.get("attempts") or 1)
                 max_attempts = int(row.get("max_attempts") or 1)
                 hard_failure = isinstance(exc, (ValueError, durable_execution.BudgetExceeded))
                 status = ("awaiting_review" if awaiting_review else
+                          "format_acknowledgement_required" if awaiting_format else
                           ("error" if hard_failure or attempts >= max_attempts else "retry"))
                 durable_runtime.store.set_status(
-                    job_id, status, error=None if awaiting_review else str(exc),
+                    job_id, status, error=None if (awaiting_review or awaiting_format) else str(exc),
                     result={"rendered_contract": job.get("rendered_contract") or {},
                             "title": job.get("title") or request.question},
                     worker_id=durable_runtime.worker_id)
                 durable_runtime.event(
-                    "review_required" if awaiting_review else "error", str(exc))
+                    "review_required" if awaiting_review else
+                    "format_acknowledgement_required" if awaiting_format else "error", str(exc))
             except Exception as storage_exc:
                 job["status"] = "storage_error"
                 job["storage_error"] = str(storage_exc)
@@ -1721,6 +1788,8 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "rendered_contract_path": "rendered_contract.json",
         "rendered_contact_sheet_path": "rendered_contact_sheet.jpg",
         "human_review_path": "human_review.json",
+        "story_format_review_path": "story_format_review.json",
+        "generation_manifest_path": "generation_manifest.json",
         "diagnostic_preview_path": "rejected_diagnostic_preview.mp4",
         "first_minute_preview_path": "first_minute_preview.mp4",
         "readiness_json_path": "retention_readiness.json",
@@ -1792,9 +1861,11 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
                 raise HTTPException(status_code=404, detail="Durable job not found")
             if row.get("status") == "human_rejected":
                 raise HTTPException(status_code=409, detail="Human editor rejected this opening")
+            if row.get("status") == "format_rejected":
+                raise HTTPException(status_code=409, detail="Operator rejected the story-format fallback")
             await asyncio.to_thread(
                 store.requeue, job_id,
-                allowed_statuses=("review_approved", "retry", "storage_error"))
+                allowed_statuses=("review_approved", "format_acknowledged", "retry", "storage_error"))
             return {"job_id": job_id, "resuming": True, "durable": True,
                     "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
         except durable_execution.StorageUnavailable as exc:
@@ -1823,6 +1894,19 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
             raise HTTPException(
                 status_code=409,
                 detail="Complete and approve the rendered-opening checklist before resuming.")
+    format_review_path = os.path.join(rec["output_dir"], "story_format_review.json")
+    if os.path.isfile(format_review_path):
+        try:
+            with open(format_review_path, encoding="utf-8") as handle:
+                format_review = json.load(handle)
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail="Story-format review record is invalid.") from exc
+        if format_review.get("decision") == "reject":
+            raise HTTPException(status_code=409, detail="Operator rejected the story-format fallback.")
+        if format_review.get("decision") != "accept":
+            raise HTTPException(
+                status_code=409,
+                detail="Acknowledge the Mystery-to-Standard fallback before resuming.")
     request = ExplainerRequest(**rec["request"])
     explainer_jobs[job_id] = {
         "id": job_id, "status": "queued", "events": [],
@@ -1834,7 +1918,7 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
 
 
 @app.get("/api/explainer/status/{job_id}")
-async def explainer_status_stream(job_id: str):
+async def explainer_status_stream(job_id: str, after: int = 0):
     durable = _durable_execution_required()
     store = None
     if durable:
@@ -1851,7 +1935,7 @@ async def explainer_status_stream(job_id: str):
 
     async def gen():
         if durable:
-            cursor = 0
+            cursor = max(0, int(after))
             while True:
                 try:
                     events = await asyncio.to_thread(store.events, job_id, cursor, 500)
@@ -1864,6 +1948,7 @@ async def explainer_status_stream(job_id: str):
                         break
                     if row["status"] in (
                             "done", "degraded", "error", "awaiting_review", "human_rejected",
+                            "format_acknowledgement_required", "format_rejected",
                             "storage_error"):
                         break
                     yield ": keepalive\n\n"
@@ -1879,7 +1964,9 @@ async def explainer_status_stream(job_id: str):
             while sent < len(job["events"]):
                 yield f"data: {json.dumps(job['events'][sent])}\n\n"
                 sent += 1
-            if job["status"] in ("done", "error", "degraded", "awaiting_review"):
+            if job["status"] in (
+                    "done", "error", "degraded", "awaiting_review",
+                    "format_acknowledgement_required", "format_rejected"):
                 break
             # Heartbeat every ~3s of quiet so the browser detects a dead connection
             # and auto-reconnects (replaying buffered events) instead of freezing.
@@ -2045,6 +2132,8 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "rendered-contract": "rendered_contract_path",
         "rendered-contact-sheet": "rendered_contact_sheet_path",
         "human-review": "human_review_path",
+        "story-format-review": "story_format_review_path",
+        "generation-manifest": "generation_manifest_path",
         "diagnostic-preview": "diagnostic_preview_path",
         "opening-preview": "first_minute_preview_path", "thumb": "thumbnail_path",
     }[kind]
@@ -2120,6 +2209,64 @@ def _explainer_json_response(job_id: str, kind: str, label: str):
         raise HTTPException(status_code=404, detail=f"{label} not found")
     safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
     return FileResponse(path, media_type="application/json", filename=f"{safe} - {label}.json")
+
+
+@app.get("/api/explainer/story-format-review/{job_id}")
+async def explainer_story_format_review(job_id: str):
+    return _explainer_json_response(job_id, "story-format-review", "story-format-review")
+
+
+@app.post("/api/explainer/story-format-review/{job_id}")
+async def explainer_record_story_format_review(
+        job_id: str, request: ExplainerStoryFormatReviewRequest):
+    from longform_retention import apply_story_format_review
+
+    job = explainer_jobs.get(job_id)
+    if not job and _durable_execution_required():
+        try:
+            job = await asyncio.to_thread(_materialize_durable_explainer, job_id)
+        except durable_execution.StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    review_path = job.get("story_format_review_path")
+    script = job.get("script")
+    if not review_path or not os.path.isfile(review_path) or not isinstance(script, dict):
+        raise HTTPException(status_code=409, detail="Story-format review artifacts are incomplete")
+    try:
+        with open(review_path, encoding="utf-8") as handle:
+            current = json.load(handle)
+        reviewed = apply_story_format_review(
+            current, script=script, reviewer=request.reviewer, decision=request.decision)
+        with open(review_path, "w", encoding="utf-8") as handle:
+            json.dump(reviewed, handle, indent=2, ensure_ascii=False)
+        job["status"] = "format_acknowledged" if request.decision == "accept" else "format_rejected"
+        resume_after_event_seq = 0
+        if _durable_execution_required():
+            store, blob = _durable_components()
+            runtime = durable_execution.DurableRuntime(
+                job_id=job_id, worker_id="story-format-review",
+                output_dir=job["_materialized_dir"], store=store, blob=blob)
+            await asyncio.to_thread(runtime.checkpoint, "story-format-review", heartbeat=False)
+            await asyncio.to_thread(
+                store.set_status, job_id, job["status"], result={"story_format_review": reviewed})
+            resume_after_event_seq = await asyncio.to_thread(
+                store.append_event, job_id,
+                "format_acknowledged" if request.decision == "accept" else "format_rejected",
+                f"Story-format fallback {request.decision} by {request.reviewer}")
+        return {**reviewed, "resume_after_event_seq": resume_after_event_seq}
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DURABLE_FORMAT_REVIEW_STORAGE_FAILURE", "message": str(exc),
+            "retryable": True,
+        }) from exc
+    except (OSError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/explainer/generation-manifest/{job_id}")
+async def explainer_generation_manifest(job_id: str):
+    return _explainer_json_response(job_id, "generation-manifest", "generation-manifest")
 
 
 @app.get("/api/explainer/research/{job_id}")
@@ -2229,6 +2376,7 @@ async def explainer_record_human_review(job_id: str, request: ExplainerHumanRevi
                                     if request.decision == "approve" else "HUMAN_REJECT"}
         job["status"] = ("review_approved" if request.decision == "approve"
                          else "human_rejected")
+        resume_after_event_seq = 0
         if _durable_execution_required():
             store, blob = _durable_components()
             runtime = durable_execution.DurableRuntime(
@@ -2240,11 +2388,11 @@ async def explainer_record_human_review(job_id: str, request: ExplainerHumanRevi
                 store.set_status, job_id, job["status"],
                 result={"human_review": reviewed,
                         "rendered_contract": job["rendered_contract"]})
-            await asyncio.to_thread(
+            resume_after_event_seq = await asyncio.to_thread(
                 store.append_event, job_id,
                 "review_approved" if request.decision == "approve" else "human_rejected",
                 f"Human review {request.decision} by {request.reviewer}")
-        return reviewed
+        return {**reviewed, "resume_after_event_seq": resume_after_event_seq}
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail={
             "code": "DURABLE_REVIEW_STORAGE_FAILURE", "message": str(exc), "retryable": True,
