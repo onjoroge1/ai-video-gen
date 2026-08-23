@@ -3,6 +3,10 @@
 The studio can spend provider credits, so production fails closed: on Vercel every route except
 the login flow and health check requires a valid signed session cookie.  Local development stays
 frictionless when no password is configured.
+
+This middleware also registers each ASGI request's headers with Vercel's Python SDK. Vercel delivers
+OIDC credentials in the ``x-vercel-oidc-token`` request header in production; registering the request
+context is required before helpers such as ``vercel.oidc.get_vercel_oidc_token()`` can see it.
 """
 from __future__ import annotations
 
@@ -102,6 +106,15 @@ def _api_request(scope) -> bool:
     return "text/html" not in accept and path != "/"
 
 
+def _vercel_headers_context(scope):
+    """Build a request-local Vercel header context without making local dev depend on the SDK."""
+    try:
+        from vercel.headers import HeadersContext, headers_from_asgi_scope
+        return HeadersContext(headers_from_asgi_scope(scope))
+    except Exception:
+        return None
+
+
 class PrivateAccessMiddleware:
     """Pure ASGI middleware so long-lived SSE responses are never buffered."""
 
@@ -109,7 +122,22 @@ class PrivateAccessMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http" or not auth_required():
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Vercel's Python OIDC helper reads x-vercel-oidc-token from a ContextVar populated by
+        # vercel.headers. Register it for the ENTIRE request before authentication/storage code runs,
+        # and restore the previous context afterward so concurrent requests cannot leak credentials.
+        context = _vercel_headers_context(scope)
+        if context is None:
+            await self._handle_http(scope, receive, send)
+            return
+        with context.use():
+            await self._handle_http(scope, receive, send)
+
+    async def _handle_http(self, scope, receive, send):
+        if not auth_required():
             await self.app(scope, receive, send)
             return
 
@@ -154,7 +182,35 @@ class PrivateAccessMiddleware:
 def mount_auth_routes(app: FastAPI, static_dir: Path) -> None:
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True}
+        # Safe operational diagnostics only: booleans, never credentials or identifiers. This lets us
+        # prove that Vercel's request OIDC header reaches Python and that the configured Blob store can
+        # resolve authentication before any paid render begins.
+        storage = {
+            "oidc_request": False,
+            "blob_store": False,
+            "blob_auth": False,
+            "database": False,
+        }
+        try:
+            from vercel.headers import get_headers
+            headers = get_headers() or {}
+            storage["oidc_request"] = bool(
+                headers.get("x-vercel-oidc-token") or headers.get("X-Vercel-Oidc-Token")
+            )
+        except Exception:
+            pass
+        try:
+            import blob_compat
+            storage["blob_store"] = bool(blob_compat.configured_store_id())
+            storage["blob_auth"] = bool(blob_compat.enabled())
+        except Exception:
+            pass
+        try:
+            import db
+            storage["database"] = bool(db.db_enabled())
+        except Exception:
+            pass
+        return {"ok": True, "storage": storage}
 
     @app.get("/login")
     async def login_page():
