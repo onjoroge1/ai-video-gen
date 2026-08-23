@@ -85,3 +85,34 @@ def test_worker_routes_require_their_bearer_secret(monkeypatch):
             )).status_code == 401
 
     anyio.run(run)
+
+
+def test_middleware_registers_vercel_oidc_request_header(monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("APP_SHARED_SECRET", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    app = FastAPI()
+    app.add_middleware(private_access.PrivateAccessMiddleware)
+
+    @app.get("/oidc-probe")
+    async def oidc_probe():
+        from vercel.headers import get_headers
+        from vercel.oidc.token import get_vercel_oidc_token_from_context
+
+        headers = get_headers() or {}
+        return {
+            "header_seen": bool(headers.get("x-vercel-oidc-token")),
+            "token": get_vercel_oidc_token_from_context(),
+        }
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/oidc-probe",
+                headers={"x-vercel-oidc-token": "oidc-test-token"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {"header_seen": True, "token": "oidc-test-token"}
+
+    anyio.run(run)
