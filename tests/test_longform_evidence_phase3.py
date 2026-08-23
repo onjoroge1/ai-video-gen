@@ -170,6 +170,7 @@ def test_ending_reuses_exact_opening_asset_id():
     callback = plan["scenes"][-1]["states"][-1]
     assert callback["asset_strategy"] == "exact_reuse"
     assert callback["source_asset_id"] == opening_asset
+    assert callback["anchor_phrase"] == "Alex reads the answer"
 
 
 def test_exact_callback_reuse_is_byte_identical(tmp_path):

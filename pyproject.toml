@@ -30,6 +30,7 @@ py-modules = [
     "highlights",
     "longform_quiz",
     "longform_evidence",
+    "longform_motion",
     "longform_research",
     "longform_retention",
     "longform_shots",

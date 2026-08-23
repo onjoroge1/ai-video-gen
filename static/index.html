@@ -1620,11 +1620,14 @@
         <span class="field-hint">Landscape only — a synced comic bubble reveals Bolt's words. Replaces the headline card.</span>
       </div>
 
-      <div class="field" id="i2v-field" style="margin-top:14px;">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="expl-i2v" /> AI motion on long-form too (Veo)
-        </label>
-        <span class="field-hint">Shorts already get Veo motion clips. Check to also animate long-form (~35% of scenes, capped at 12 ≈ +$5 and a few extra minutes).</span>
+      <div class="field" id="motion-mode-field" style="margin-top:14px;">
+        <label>Motion treatment <span style="opacity:.6;">(long-form)</span></label>
+        <select id="expl-motion-mode" class="input-field">
+          <option value="stills">Stills — evidence cuts only, zero AI motion</option>
+          <option value="standard" selected>Standard — motion for hook, tests, reversals and reveals</option>
+          <option value="full_motion">Full Motion — animate every eligible evidence state within the cap</option>
+        </select>
+        <span class="field-hint">Motion follows verified evidence states. Standard spends on story turns first; Full Motion requests every eligible state up to the cost and clip caps.</span>
       </div>
     </div>
 
@@ -1689,6 +1692,8 @@
         <a class="btn btn-outline" id="expl-evidence-plan-btn" href="#" download style="display:none;">↓ Evidence Plan</a>
         <a class="btn btn-outline" id="expl-evidence-validation-btn" href="#" download style="display:none;">↓ Evidence Validation</a>
         <a class="btn btn-outline" id="expl-continuity-btn" href="#" download style="display:none;">↓ Continuity Pack</a>
+        <a class="btn btn-outline" id="expl-motion-report-btn" href="#" download style="display:none;">↓ Motion Report</a>
+        <a class="btn btn-outline" id="expl-opening-freeze-btn" href="#" download style="display:none;">↓ Opening Freeze</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -2673,6 +2678,7 @@
     // Short template selector is social-only (curiosity explainer vs simulation).
     document.getElementById('template-field').style.display = (fmt === 'social') ? 'block' : 'none';
     document.getElementById('story-format-field').style.display = (fmt === 'social') ? 'none' : 'block';
+    document.getElementById('motion-mode-field').style.display = (fmt === 'social') ? 'none' : 'block';
   }
 
   // High-search, curiosity-driven question pool (drives clicks)
@@ -3018,7 +3024,7 @@
       fact_check:     document.getElementById('expl-factcheck').checked,
       video_format:   explFormat,
       speech_bubble:  document.getElementById('expl-bubble').checked,
-      i2v:            document.getElementById('expl-i2v').checked ? true : null,
+      motion_mode:    explFormat === 'social' ? null : document.getElementById('expl-motion-mode').value,
       series:         document.getElementById('expl-series').value.trim(),
       short_template: document.getElementById('expl-template').value,
       n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
@@ -3091,7 +3097,9 @@
         ['expl-timing-btn', 'audio-timing'],
         ['expl-evidence-plan-btn', 'evidence-plan'],
         ['expl-evidence-validation-btn', 'evidence-validation'],
-        ['expl-continuity-btn', 'continuity']
+        ['expl-continuity-btn', 'continuity'],
+        ['expl-motion-report-btn', 'motion'],
+        ['expl-opening-freeze-btn', 'opening-freeze']
       ]) {
         const button = document.getElementById(id);
         button.href = `/api/explainer/${endpoint}/${jobId}`;

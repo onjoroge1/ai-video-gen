@@ -1061,6 +1061,7 @@ class ExplainerRequest(BaseModel):
     speech_bubble: bool = False       # landscape only: Bolt "talks" via a synced phrase bubble
     i2v: bool | None = None           # image-to-video motion (Veo/Sora). None=default (social on,
                                       # long-form off); True/False forces it for ANY length
+    motion_mode: Literal["stills", "standard", "full_motion"] | None = None
     series: str = ""                  # format-series mode: a recurring series name/pattern
     short_template: str = "auto"      # social only: "auto" (title heuristic) | "explainer"
                                       # (curiosity-gap mystery) | "simulation" (you-change escalation)
@@ -1110,6 +1111,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     video_format=request.video_format,
                     speech_bubble=request.speech_bubble,
                     i2v=request.i2v,
+                    motion_mode=request.motion_mode,
                     series=request.series,
                     short_template=request.short_template,
                     operator_direction=request.operator_direction,
@@ -1148,10 +1150,15 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "evidence_plan_path": result.get("evidence_plan_path"),
             "evidence_validation_path": result.get("evidence_validation_path"),
             "continuity_pack_path": result.get("continuity_pack_path"),
+            "motion_report_path": result.get("motion_report_path"),
+            "opening_freeze_path": result.get("opening_freeze_path"),
             "readiness_json_path": result.get("readiness_json_path"),
             "first_minute_preview_path": result.get("first_minute_preview_path"),
             "retention_readiness": result.get("retention_readiness"),
             "short_grade": result.get("short_grade"),
+            "motion_mode": result.get("motion_mode"),
+            "i2v_requested": result.get("i2v_requested"),
+            "i2v_animated": result.get("i2v_animated"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
         template = (request.short_template if request.video_format == "social" else "explainer")
@@ -1171,6 +1178,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "evidence-plan": result.get("evidence_plan_path"),
                   "evidence-validation": result.get("evidence_validation_path"),
                   "continuity": result.get("continuity_pack_path"),
+                  "motion": result.get("motion_report_path"),
+                  "opening-freeze": result.get("opening_freeze_path"),
                   "readiness": result.get("readiness_json_path"),
                   "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
@@ -1689,6 +1698,8 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "evidence-plan": "evidence_plan_path",
         "evidence-validation": "evidence_validation_path",
         "continuity": "continuity_pack_path",
+        "motion": "motion_report_path",
+        "opening-freeze": "opening_freeze_path",
     }[kind]
     job = explainer_jobs.get(job_id)
     if job and job.get(job_key) and os.path.exists(job[job_key]):
@@ -1774,6 +1785,16 @@ async def explainer_evidence_validation(job_id: str):
 @app.get("/api/explainer/continuity/{job_id}")
 async def explainer_continuity(job_id: str):
     return _explainer_json_response(job_id, "continuity", "continuity-pack")
+
+
+@app.get("/api/explainer/motion/{job_id}")
+async def explainer_motion(job_id: str):
+    return _explainer_json_response(job_id, "motion", "motion-report")
+
+
+@app.get("/api/explainer/opening-freeze/{job_id}")
+async def explainer_opening_freeze(job_id: str):
+    return _explainer_json_response(job_id, "opening-freeze", "opening-freeze")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")
