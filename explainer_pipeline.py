@@ -59,6 +59,20 @@ from longform_motion import (
     validate_frozen_opening,
     validate_motion_plan,
 )
+from longform_rendered_gate import (
+    HumanReviewRequired,
+    blind_story_prompt,
+    build_animatic_gate,
+    build_contact_sheet,
+    create_human_review_record,
+    cross_check_blind_observations,
+    diagnostic_disposition,
+    diagnostic_mode_allowed,
+    inspect_rendered_opening,
+    render_low_cost_animatic,
+    score_rendered_contract,
+    watermark_rejected_preview,
+)
 from audio_timing import build_audio_timing_report
 from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
@@ -3621,7 +3635,7 @@ def _render_first_minute_preview(
     vh: int,
     bg_music_path: str | None,
     motion_clips: dict[str, str] | None = None,
-) -> tuple[str, dict, list[dict], dict[int, str]]:
+) -> tuple[str, dict, list[dict], dict[int, str], list[list[dict]]]:
     """Render the paid opening assets into a real preview before later image spend."""
     import shutil
     gate_dir = os.path.join(output_dir, "approved_opening")
@@ -3669,15 +3683,40 @@ def _render_first_minute_preview(
     raw = os.path.join(gate_dir, "opening_raw.mp4")
     _assemble(videos, audios, raw, gate_dir, bg_music_path, audio_cues=cues)
     preview_path = os.path.join(output_dir, "first_minute_preview.mp4")
-    raw_duration = _audio_dur(raw)
-    if raw_duration > 45.2:
-        _run_ffmpeg([
-            "ffmpeg", "-y", "-i", raw, "-t", "45", "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "160k", preview_path,
-        ], timeout=180.0)
-    else:
-        shutil.copy(raw, preview_path)
-    return preview_path, shot_plan_metrics(plan), cues, frozen_segments
+    # The first tranche crosses 45 seconds at a narration boundary. Preserve that complete final
+    # beat instead of cutting its sentence and leaving the inspection plan pointing past the MP4.
+    # This normally yields 45–55 seconds while purchasing no scene beyond the 45-second boundary.
+    shutil.copy(raw, preview_path)
+    return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
+
+
+def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[dict],
+                                cost_sink: list | None = None) -> dict:
+    """Judge the chronological rendered opening without planner metadata or expected answers."""
+    try:
+        with open(contact_sheet_path, "rb") as handle:
+            encoded = base64.b64encode(handle.read()).decode()
+        response = _claude().messages.create(
+            model="claude-opus-4-8", max_tokens=1400,
+            system=("You are a blind sequential story editor. Judge only the supplied encoded "
+                    "frames and spoken narration. Never infer an intended story or reward production "
+                    "metadata. If a fact is not recoverable, mark it false."),
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                               "data": encoded}},
+                {"type": "text", "text": blind_story_prompt(transcript_cues)},
+            ]}],
+        )
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(response.usage))
+        result, repair_cost = _parse_script_json(response.content[0].text)
+        if cost_sink is not None and repair_cost:
+            cost_sink.append(repair_cost)
+        if not isinstance(result, dict):
+            raise ValueError("blind rendered-story judge returned invalid JSON")
+        return result
+    except Exception as exc:
+        return {"valid": False, "judge_error": f"{type(exc).__name__}: {str(exc)[:180]}"}
 
 
 # ── Main runner ────────────────────────────────────────────────────────────────
@@ -5432,10 +5471,18 @@ def run_explainer_pipeline(
     continuity_pack_path = None
     motion_report_path = None
     opening_freeze_path = None
+    animatic_report_path = None
+    animatic_preview_path = None
+    rendered_contract_path = None
+    rendered_contact_sheet_path = None
+    human_review_path = None
+    diagnostic_preview_path = None
     evidence_plan: dict = {}
     evidence_validation: dict | None = None
     motion_plan: dict = {}
     opening_freeze: dict = {}
+    animatic_report: dict = {}
+    rendered_contract: dict = {}
     frozen_opening_segments: dict[int, str] = {}
     short_grade = None
     retention_report_path = None
@@ -5629,6 +5676,11 @@ def run_explainer_pipeline(
         continuity_pack_path = os.path.join(output_dir, "continuity_pack.json")
         motion_report_path = os.path.join(output_dir, "motion_report.json")
         opening_freeze_path = os.path.join(output_dir, "opening_freeze.json")
+        animatic_report_path = os.path.join(output_dir, "animatic_gate.json")
+        animatic_preview_path = os.path.join(output_dir, "animatic_preview.mp4")
+        rendered_contract_path = os.path.join(output_dir, "rendered_contract.json")
+        rendered_contact_sheet_path = os.path.join(output_dir, "rendered_contact_sheet.jpg")
+        human_review_path = os.path.join(output_dir, "human_review.json")
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
@@ -5815,6 +5867,21 @@ def run_explainer_pipeline(
             json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
         with open(continuity_pack_path, "w") as handle:
             json.dump(evidence_plan["continuity_pack"], handle, indent=2, ensure_ascii=False)
+        animatic_report = build_animatic_gate(script, evidence_plan, audio_timing)
+        with open(animatic_report_path, "w") as handle:
+            json.dump(animatic_report, handle, indent=2, ensure_ascii=False)
+        if not animatic_report.get("passed"):
+            raise ValueError(
+                "Low-cost animatic failed before visual purchase: "
+                + "; ".join(item["message"] for item in animatic_report.get("errors", [])[:8]))
+        render_low_cost_animatic(
+            script, evidence_plan, prepared_audio, animatic_preview_path, width=960, height=540)
+        animatic_report["preview_path"] = animatic_preview_path
+        animatic_report["preview_sha256"] = sha256_file(animatic_preview_path)
+        with open(animatic_report_path, "w") as handle:
+            json.dump(animatic_report, handle, indent=2, ensure_ascii=False)
+        log("Low-cost animatic gate: PASS — subject, objective, anomaly, evidence, belief change, "
+            "and forward question are recoverable from final narration/storyboards")
         final_states = [state for scene_plan in evidence_plan.get("scenes") or []
                         for state in scene_plan.get("states") or []]
         final_generated = [state for state in final_states
@@ -6275,7 +6342,7 @@ def run_explainer_pipeline(
         log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
             (first_minute_preview_path, opening_metrics, opening_cues,
-             frozen_opening_segments) = _render_first_minute_preview(
+             frozen_opening_segments, opening_shot_plan) = _render_first_minute_preview(
                 opening_results, output_dir, cap_mode=cap_mode, style_mode=style_mode,
                 vw=vw, vh=vh, bg_music_path=bg_music_path,
                 motion_clips=state_motion_clips)
@@ -6302,18 +6369,97 @@ def run_explainer_pipeline(
             readiness_report_path, readiness_json_path = write_readiness_report(readiness, output_dir)
             log(f"45-second Retention Readiness: {readiness['score']}/100 "
                 f"({readiness['grade']}) — {readiness['label']}")
-            if not readiness["passed"] and os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
+            inspection = inspect_rendered_opening(
+                first_minute_preview_path, opening_shot_plan, output_dir, evidence_plan)
+            build_contact_sheet(inspection, rendered_contact_sheet_path)
+            cue_cursor = 0.0
+            transcript_cues = []
+            for result in opening_results:
+                if not result.get("aud_ok"):
+                    continue
+                duration = _audio_dur(result["aud"])
+                transcript_cues.append({
+                    "start_sec": round(cue_cursor, 2),
+                    "end_sec": round(cue_cursor + duration, 2),
+                    "narration": _s(result["scene"].get("narration")),
+                })
+                cue_cursor += duration
+            blind = _blind_rendered_story_judge(
+                rendered_contact_sheet_path, transcript_cues, cost_sink=aux_costs)
+            checked_blind = cross_check_blind_observations(
+                blind, inspection.get("deterministic") or {})
+            callback = evidence_plan.get("continuity_pack", {}).get("callback", {})
+            callback_exact = bool(
+                callback.get("reuse_source_asset_id")
+                and any(state.get("asset_strategy") == "exact_reuse"
+                        and state.get("source_asset_id") == callback.get("reuse_source_asset_id")
+                        for scene_plan in evidence_plan.get("scenes") or []
+                        for state in scene_plan.get("states") or []))
+            prior_review = None
+            prior_review_bound = False
+            if human_review_path and os.path.isfile(human_review_path):
+                try:
+                    with open(human_review_path) as handle:
+                        prior_review = json.load(handle)
+                    prior_review_bound = bool(
+                        prior_review.get("decision") in {"approve", "reject"}
+                        and os.path.isfile(rendered_contract_path)
+                        and prior_review.get("rendered_report_sha256")
+                        == sha256_file(rendered_contract_path)
+                        and prior_review.get("preview_sha256")
+                        == sha256_file(first_minute_preview_path))
+                except (OSError, ValueError, TypeError):
+                    prior_review = None
+                    prior_review_bound = False
+            rendered_contract = score_rendered_contract(
+                deterministic=inspection.get("deterministic") or {}, blind=checked_blind,
+                story_validation=retention_validation or {}, claim_validation=claim_validation or {},
+                callback_exact=callback_exact,
+                human_review=prior_review if prior_review_bound else None)
+            rendered_contract.update({
+                "inspection": inspection,
+                "blind_story_judge": checked_blind,
+                "contact_sheet_path": rendered_contact_sheet_path,
+                "animatic_gate_passed": bool(animatic_report.get("passed")),
+            })
+            with open(rendered_contract_path, "w") as handle:
+                json.dump(rendered_contract, handle, indent=2, ensure_ascii=False)
+            log(f"Rendered opening contract: {rendered_contract['score']}/100 "
+                f"({rendered_contract['status']})")
+            if not rendered_contract.get("automated_pass"):
+                diagnostic = diagnostic_mode_allowed()
+                if diagnostic:
+                    diagnostic_preview_path = os.path.join(
+                        output_dir, "rejected_diagnostic_preview.mp4")
+                    watermark_rejected_preview(first_minute_preview_path, diagnostic_preview_path)
+                    rendered_contract = diagnostic_disposition(rendered_contract, allowed=True)
+                    rendered_contract["diagnostic_preview_path"] = diagnostic_preview_path
+                    with open(rendered_contract_path, "w") as handle:
+                        json.dump(rendered_contract, handle, indent=2, ensure_ascii=False)
                 raise RuntimeError(
-                    f"45-second gate scored {readiness['score']}/100 ({readiness['grade']}); "
-                    f"aborted before generating the remaining {len(scenes) - opening_stop} scenes."
+                    f"Rendered opening scored {rendered_contract['score']}/100; "
+                    f"hard failures: {', '.join(rendered_contract.get('hard_failures') or ['score floor'])}. "
+                    f"Aborted before purchasing {len(scenes) - opening_stop} later scenes."
                 )
+            if not rendered_contract.get("passed"):
+                if prior_review_bound and prior_review.get("decision") == "reject":
+                    raise RuntimeError(
+                        "Human editor rejected the rendered opening; later visual assets were not purchased.")
+                create_human_review_record(
+                    rendered_contract_path, first_minute_preview_path, human_review_path)
+                raise HumanReviewRequired(
+                    "Rendered opening passed automation and is awaiting human editorial approval; "
+                    "later visual assets have not been purchased. Review the contact sheet/preview, "
+                    "POST the completed checklist, then resume this job.")
         except Exception as exc:
-            if os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
-                raise
-            log(f"⚠ 45-second gate unavailable ({type(exc).__name__}); PR4 opening freeze remains fail-closed")
-        if not frozen_opening_segments or not readiness or not readiness.get("passed"):
+            # PR5 removes the advisory escape hatch for long-form. Diagnostics may preserve a
+            # watermarked rejected preview, but no exception can authorize later asset purchase.
+            raise
+        if (not frozen_opening_segments or not rendered_contract
+                or not rendered_contract.get("passed")):
             raise RuntimeError(
-                "The opening was not approved and frozen; later visual assets will not be purchased.")
+                "The rendered opening was not automatically and human approved/frozen; later visual "
+                "assets will not be purchased.")
 
     later = []
     if opening_stop < len(scenes):
@@ -6709,9 +6855,8 @@ def run_explainer_pipeline(
         label = "speech bubbles" if cap_mode == "bubble" else "captions"
         reasons.append(f"{cap_missing}/{rendered} scenes have NO {label}")
     if readiness and not readiness.get("passed"):
-        reasons.append(
-            f"Retention Readiness scored {readiness.get('score')}/100 ({readiness.get('grade')}) — "
-            "below the 70-point ship floor")
+        log(f"ℹ Legacy metadata readiness is {readiness.get('score')}/100; PR5 rendered-contract "
+            "pixels—not planner metadata—own the opening release decision.")
     # Thumbnail is the channel's #1 CTR lever — a blank fallback (image gen failed) is near-0 CTR, and
     # a still-weak thumbnail after redesign is a real click risk. Gate on both (grade_thumbnail was
     # previously advisory-only and never reached this list).
@@ -6756,10 +6901,17 @@ def run_explainer_pipeline(
         "continuity_pack_path": continuity_pack_path,
         "motion_report_path": motion_report_path,
         "opening_freeze_path": opening_freeze_path,
+        "animatic_report_path": animatic_report_path,
+        "animatic_preview_path": animatic_preview_path,
+        "rendered_contract_path": rendered_contract_path,
+        "rendered_contact_sheet_path": rendered_contact_sheet_path,
+        "human_review_path": human_review_path,
+        "diagnostic_preview_path": diagnostic_preview_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,
         "first_minute_preview_path": first_minute_preview_path,
         "retention_readiness": readiness,
+        "rendered_contract": rendered_contract,
         "short_grade":      short_grade,
         "i2v_requested":    i2v_requested,        # evidence states (long-form) or scenes (social)
         "i2v_animated":     actual_motion_count,

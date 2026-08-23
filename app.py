@@ -1071,6 +1071,12 @@ class ExplainerRequest(BaseModel):
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
 
 
+class ExplainerHumanReviewRequest(BaseModel):
+    reviewer: str
+    decision: Literal["approve", "reject"]
+    checklist: list[dict]
+
+
 async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir: str,
                              resume: bool = False):
     import explainer_pipeline as ep
@@ -1152,9 +1158,16 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "continuity_pack_path": result.get("continuity_pack_path"),
             "motion_report_path": result.get("motion_report_path"),
             "opening_freeze_path": result.get("opening_freeze_path"),
+            "animatic_report_path": result.get("animatic_report_path"),
+            "animatic_preview_path": result.get("animatic_preview_path"),
+            "rendered_contract_path": result.get("rendered_contract_path"),
+            "rendered_contact_sheet_path": result.get("rendered_contact_sheet_path"),
+            "human_review_path": result.get("human_review_path"),
+            "diagnostic_preview_path": result.get("diagnostic_preview_path"),
             "readiness_json_path": result.get("readiness_json_path"),
             "first_minute_preview_path": result.get("first_minute_preview_path"),
             "retention_readiness": result.get("retention_readiness"),
+            "rendered_contract": result.get("rendered_contract"),
             "short_grade": result.get("short_grade"),
             "motion_mode": result.get("motion_mode"),
             "i2v_requested": result.get("i2v_requested"),
@@ -1168,6 +1181,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "question": request.question, "scene_count": result["scene_count"],
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
+            "rendered_contract_score": (result.get("rendered_contract") or {}).get("score"),
+            "rendered_contract_status": (result.get("rendered_contract") or {}).get("status"),
         }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
                   "grade": result.get("grade_path"),
@@ -1180,6 +1195,12 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "continuity": result.get("continuity_pack_path"),
                   "motion": result.get("motion_report_path"),
                   "opening-freeze": result.get("opening_freeze_path"),
+                  "animatic": result.get("animatic_report_path"),
+                  "animatic-preview": result.get("animatic_preview_path"),
+                  "rendered-contract": result.get("rendered_contract_path"),
+                  "rendered-contact-sheet": result.get("rendered_contact_sheet_path"),
+                  "human-review": result.get("human_review_path"),
+                  "diagnostic-preview": result.get("diagnostic_preview_path"),
                   "readiness": result.get("readiness_json_path"),
                   "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
@@ -1204,10 +1225,36 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                                   "data": f"Video ready: {result['title']} · ${cost}"})
     except Exception as exc:
         import traceback
-        job["status"] = "error"
+        from longform_rendered_gate import HumanReviewRequired
+        awaiting_review = isinstance(exc, HumanReviewRequired)
+        job["status"] = "awaiting_review" if awaiting_review else "error"
         job["error"] = str(exc)
-        job["events"].append({"type": "error", "data": f"Failed: {exc}"})
-        job["events"].append({"type": "error", "data": traceback.format_exc()})
+        # A rejected PR5 opening is still an auditable diagnostic result. Expose only the
+        # explicitly non-publishable gate artifacts; never archive it as a finished video.
+        rejected_artifacts = {
+            "animatic_report_path": "animatic_gate.json",
+            "animatic_preview_path": "animatic_preview.mp4",
+            "rendered_contract_path": "rendered_contract.json",
+            "rendered_contact_sheet_path": "rendered_contact_sheet.jpg",
+            "human_review_path": "human_review.json",
+            "diagnostic_preview_path": "rejected_diagnostic_preview.mp4",
+            "first_minute_preview_path": "first_minute_preview.mp4",
+        }
+        for key, filename in rejected_artifacts.items():
+            path = os.path.join(output_dir, filename)
+            if os.path.isfile(path):
+                job[key] = path
+        if job.get("rendered_contract_path"):
+            try:
+                with open(job["rendered_contract_path"]) as handle:
+                    job["rendered_contract"] = json.load(handle)
+            except (OSError, ValueError, TypeError):
+                pass
+        if awaiting_review:
+            job["events"].append({"type": "review_required", "data": str(exc)})
+        else:
+            job["events"].append({"type": "error", "data": f"Failed: {exc}"})
+            job["events"].append({"type": "error", "data": traceback.format_exc()})
 
 
 def _sweep_old_temp(prefix: str, max_age_hours: float = 6.0):
@@ -1525,6 +1572,19 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     if not os.path.exists(os.path.join(rec["output_dir"], "_state.json")):
         raise HTTPException(status_code=409,
                             detail="Checkpoint has no saved script yet — nothing to resume; start fresh.")
+    review_path = os.path.join(rec["output_dir"], "human_review.json")
+    if os.path.isfile(review_path):
+        try:
+            with open(review_path) as handle:
+                review = json.load(handle)
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail="Human review record is invalid.") from exc
+        if review.get("decision") == "reject":
+            raise HTTPException(status_code=409, detail="Human editor rejected this opening.")
+        if review.get("decision") != "approve":
+            raise HTTPException(
+                status_code=409,
+                detail="Complete and approve the rendered-opening checklist before resuming.")
     request = ExplainerRequest(**rec["request"])
     explainer_jobs[job_id] = {
         "id": job_id, "status": "queued", "events": [],
@@ -1548,7 +1608,7 @@ async def explainer_status_stream(job_id: str):
             while sent < len(job["events"]):
                 yield f"data: {json.dumps(job['events'][sent])}\n\n"
                 sent += 1
-            if job["status"] in ("done", "error", "degraded"):
+            if job["status"] in ("done", "error", "degraded", "awaiting_review"):
                 break
             # Heartbeat every ~3s of quiet so the browser detects a dead connection
             # and auto-reconnects (replaying buffered events) instead of freezing.
@@ -1700,6 +1760,13 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "continuity": "continuity_pack_path",
         "motion": "motion_report_path",
         "opening-freeze": "opening_freeze_path",
+        "animatic": "animatic_report_path",
+        "animatic-preview": "animatic_preview_path",
+        "rendered-contract": "rendered_contract_path",
+        "rendered-contact-sheet": "rendered_contact_sheet_path",
+        "human-review": "human_review_path",
+        "diagnostic-preview": "diagnostic_preview_path",
+        "opening-preview": "first_minute_preview_path",
     }[kind]
     job = explainer_jobs.get(job_id)
     if job and job.get(job_key) and os.path.exists(job[job_key]):
@@ -1795,6 +1862,91 @@ async def explainer_motion(job_id: str):
 @app.get("/api/explainer/opening-freeze/{job_id}")
 async def explainer_opening_freeze(job_id: str):
     return _explainer_json_response(job_id, "opening-freeze", "opening-freeze")
+
+
+@app.get("/api/explainer/animatic/{job_id}")
+async def explainer_animatic(job_id: str):
+    return _explainer_json_response(job_id, "animatic", "animatic-gate")
+
+
+@app.get("/api/explainer/animatic-preview/{job_id}")
+async def explainer_animatic_preview(job_id: str):
+    path, title = _explainer_text_artifact(job_id, "animatic-preview")
+    if not path:
+        raise HTTPException(status_code=404, detail="Animatic preview not found")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+    return FileResponse(path, media_type="video/mp4", filename=f"{safe} - animatic-preview.mp4")
+
+
+@app.get("/api/explainer/opening-preview/{job_id}")
+async def explainer_opening_preview(job_id: str):
+    path, title = _explainer_text_artifact(job_id, "opening-preview")
+    if not path:
+        raise HTTPException(status_code=404, detail="Rendered opening preview not found")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+    return FileResponse(path, media_type="video/mp4", filename=f"{safe} - opening-preview.mp4")
+
+
+@app.get("/api/explainer/rendered-contract/{job_id}")
+async def explainer_rendered_contract(job_id: str):
+    return _explainer_json_response(job_id, "rendered-contract", "rendered-contract")
+
+
+@app.get("/api/explainer/human-review/{job_id}")
+async def explainer_human_review(job_id: str):
+    return _explainer_json_response(job_id, "human-review", "human-review")
+
+
+@app.post("/api/explainer/human-review/{job_id}")
+async def explainer_record_human_review(job_id: str, request: ExplainerHumanReviewRequest):
+    from longform_rendered_gate import apply_human_review
+
+    job = explainer_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    required = (job.get("human_review_path"), job.get("rendered_contract_path"),
+                job.get("first_minute_preview_path"))
+    if not all(path and os.path.isfile(path) for path in required):
+        raise HTTPException(status_code=409, detail="Rendered review artifacts are incomplete")
+    review_path, report_path, preview_path = required
+    try:
+        with open(review_path) as handle:
+            current = json.load(handle)
+        reviewed = apply_human_review(
+            current, reviewer=request.reviewer, decision=request.decision,
+            checklist=request.checklist, report_path=report_path, preview_path=preview_path)
+        with open(review_path, "w") as handle:
+            json.dump(reviewed, handle, indent=2, ensure_ascii=False)
+        with open(report_path) as handle:
+            report = json.load(handle)
+        # Keep the reviewed report byte-identical. Resume re-runs the deterministic/vision gate,
+        # verifies this approval against both frozen hashes, and only then writes the final PASS.
+        job["rendered_contract"] = {**report, "human_review": reviewed,
+                                    "status": "HUMAN_APPROVED_RESUME_REQUIRED"
+                                    if request.decision == "approve" else "HUMAN_REJECT"}
+        job["status"] = ("review_approved" if request.decision == "approve"
+                         else "human_rejected")
+        return reviewed
+    except (OSError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/explainer/rendered-contact-sheet/{job_id}")
+async def explainer_rendered_contact_sheet(job_id: str):
+    path, title = _explainer_text_artifact(job_id, "rendered-contact-sheet")
+    if not path:
+        raise HTTPException(status_code=404, detail="Rendered contact sheet not found")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+    return FileResponse(path, media_type="image/jpeg", filename=f"{safe} - rendered-contact-sheet.jpg")
+
+
+@app.get("/api/explainer/diagnostic-preview/{job_id}")
+async def explainer_diagnostic_preview(job_id: str):
+    path, title = _explainer_text_artifact(job_id, "diagnostic-preview")
+    if not path:
+        raise HTTPException(status_code=404, detail="Rejected diagnostic preview not found")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+    return FileResponse(path, media_type="video/mp4", filename=f"{safe} - REJECTED-DIAGNOSTIC.mp4")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")
