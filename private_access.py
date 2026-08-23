@@ -20,7 +20,13 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 
 COOKIE_NAME = "reelforge_session"
-PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz"))
+# The quiz-pilot paths exist only on the temporary review branch. They are static outputs generated
+# at build time and cannot invoke provider calls or reveal credentials.
+PUBLIC_PATHS = frozenset((
+    "/login", "/api/auth/login", "/api/auth/session", "/healthz",
+    "/quiz-pilot/quiz.mp4", "/quiz-pilot/result.json", "/quiz-pilot/captions.srt",
+    "/quiz-pilot/transcript.txt", "/quiz-pilot/description.txt",
+))
 
 
 def _b64encode(raw: bytes) -> str:
