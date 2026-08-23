@@ -15,10 +15,45 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import mimetypes
+import os
 
 import blob_compat
 import _durable_execution_legacy as _legacy
 from _durable_execution_legacy import *  # noqa: F401,F403
+
+
+def _numeric_env_value(name: str) -> str | None:
+    """Return a stripped numeric env value, treating blank/invalid values as unset."""
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        return None
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return None
+    return value
+
+
+def normalize_durable_job_max_cost_env() -> float:
+    """Make the durable job cap safe for app.py's direct ``float(os.environ[...])`` read.
+
+    Vercel may expose an environment variable with an empty value. ``os.environ.get(name,
+    default)`` does not use the default in that case, so ``float(\"\")`` crashes the request before
+    the job is queued. Treat blank/invalid values as unset and preserve the intended fallback order:
+    DURABLE_JOB_MAX_COST_USD -> MAX_VIDEO_COST_USD -> 10.00.
+    """
+    value = (
+        _numeric_env_value("DURABLE_JOB_MAX_COST_USD")
+        or _numeric_env_value("MAX_VIDEO_COST_USD")
+        or "10.00"
+    )
+    os.environ["DURABLE_JOB_MAX_COST_USD"] = value
+    return float(value)
+
+
+# app.py imports this module after load_dotenv(), so normalize once before any request handler reads
+# the durable cap. The helper remains callable for tests and future configuration refreshes.
+normalize_durable_job_max_cost_env()
 
 
 class BlobStore:
