@@ -1,7 +1,9 @@
 """Durable finished-video persistence: Vercel Blob bytes + Postgres metadata.
 
-The module intentionally uses the existing ``requests`` dependency instead of adding Vercel's full
-Python SDK to this already-large function bundle.  The request shape follows Blob API v11.
+Supports both the legacy Vercel Blob read/write token and Vercel's newer
+OIDC + store-id runtime authentication.  The latter is what current Vercel
+Storage integrations expose when the configured variable prefix produces
+``*_STORE_ID`` and ``*_WEBHOOK_PUBLIC_KEY`` variables.
 """
 from __future__ import annotations
 
@@ -9,11 +11,10 @@ import mimetypes
 import os
 from pathlib import Path
 import re
-import time
-import uuid
 
-import requests
+import requests  # kept public for existing tests/monkeypatches
 
+import blob_compat
 import db
 
 
@@ -22,12 +23,13 @@ class ArtifactPersistenceError(RuntimeError):
 
 
 def blob_token() -> str:
-    return (os.environ.get("BLOB_READ_WRITE_TOKEN")
-            or os.environ.get("VERCEL_BLOB_READ_WRITE_TOKEN") or "").strip()
+    """Return a legacy/static Blob token when one is configured."""
+    return blob_compat.read_write_token()
 
 
 def blob_enabled() -> bool:
-    return bool(blob_token())
+    """True for either static-token auth or Vercel OIDC + store-id auth."""
+    return blob_compat.enabled()
 
 
 def durable_storage_required() -> bool:
@@ -52,7 +54,10 @@ def assert_ready() -> None:
         return
     missing = []
     if not state["blob"]:
-        missing.append("BLOB_READ_WRITE_TOKEN")
+        missing.append(
+            "BLOB_READ_WRITE_TOKEN or Vercel OIDC + "
+            "BLOB_STORE_ID/BLOB_READ_WRITE_TOKEN_STORE_ID"
+        )
     if not state["database"]:
         missing.append("DATABASE_URL")
     raise ArtifactPersistenceError(
@@ -70,62 +75,31 @@ def _upload_file(local_path: str, job_id: str, kind: str) -> dict:
     path = Path(local_path)
     if not path.is_file():
         raise ArtifactPersistenceError(f"Artifact does not exist: {path}")
-    token = blob_token()
-    if not token:
-        raise ArtifactPersistenceError("BLOB_READ_WRITE_TOKEN is not configured")
 
     suffix = path.suffix.lower()
     remote = f"finished/{_safe_part(job_id)}/{_safe_part(kind)}{suffix}"
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    store_id = token.split("_")[3] if len(token.split("_")) > 3 else "store"
-    request_id = f"{store_id}:{int(time.time() * 1000)}:{uuid.uuid4().hex[:8]}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "x-api-version": os.environ.get("VERCEL_BLOB_API_VERSION_OVERRIDE", "11"),
-        "x-api-blob-request-id": request_id,
-        "x-api-blob-request-attempt": "0",
-        "x-content-type": content_type,
-        "x-content-length": str(path.stat().st_size),
-        "x-add-random-suffix": "1",
-        "x-allow-overwrite": "0",
-        "x-vercel-blob-access": "public",
-        "x-cache-control-max-age": "31536000",
-    }
-    endpoint = os.environ.get("VERCEL_BLOB_API_URL", "https://vercel.com/api/blob")
     try:
-        with path.open("rb") as body:
-            response = requests.put(
-                endpoint,
-                params={"pathname": remote},
-                headers=headers,
-                data=body,
-                timeout=(15, 900),
-            )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        detail = ""
-        try:
-            detail = f" ({response.text[:300]})"
-        except Exception:
-            pass
-        raise ArtifactPersistenceError(f"Vercel Blob upload failed for {kind}: {exc}{detail}") from exc
+        uploaded = blob_compat.upload_file(
+            str(path),
+            remote,
+            access="public",
+            content_type=content_type,
+            add_random_suffix=True,
+            overwrite=False,
+            cache_control_max_age=31_536_000,
+        )
+    except blob_compat.BlobAuthError as exc:
+        raise ArtifactPersistenceError(str(exc)) from exc
 
-    return {
-        "kind": kind,
-        "url": payload["url"],
-        "download_url": payload.get("downloadUrl") or payload["url"] + "?download=1",
-        "pathname": payload.get("pathname") or remote,
-        "content_type": payload.get("contentType") or content_type,
-        "size_bytes": path.stat().st_size,
-    }
+    return {"kind": kind, **uploaded}
 
 
 def persist_finished(job_id: str, video_path: str, metadata: dict,
                      extras: dict[str, str | None] | None = None) -> dict | None:
     """Upload all surviving artifacts and atomically expose their metadata in Postgres.
 
-    Local development without Blob keeps using the on-disk compatibility index.  Production is
+    Local development without Blob keeps using the on-disk compatibility index. Production is
     checked before paid generation begins, so a missing store cannot silently orphan a render.
     """
     if not blob_enabled():
