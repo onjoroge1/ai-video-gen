@@ -1142,6 +1142,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "thumbnail_path": result.get("thumbnail_path"),
             "grade_path": result.get("grade_path"),
             "retention_json_path": result.get("retention_json_path"),
+            "research_report_path": result.get("research_report_path"),
+            "claim_report_path": result.get("claim_report_path"),
+            "audio_timing_report_path": result.get("audio_timing_report_path"),
             "readiness_json_path": result.get("readiness_json_path"),
             "first_minute_preview_path": result.get("first_minute_preview_path"),
             "retention_readiness": result.get("retention_readiness"),
@@ -1159,6 +1162,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
                   "grade": result.get("grade_path"),
                   "retention": result.get("retention_json_path"),
+                  "research": result.get("research_report_path"),
+                  "claims": result.get("claim_report_path"),
+                  "timing": result.get("audio_timing_report_path"),
                   "readiness": result.get("readiness_json_path"),
                   "opening_preview": result.get("first_minute_preview_path")})
         _clear_inprogress(job_id)   # job finished → drop from the resume index (no unbounded growth)
@@ -1670,8 +1676,11 @@ async def stateboard_thumbnail(job_id: str):
 
 def _explainer_text_artifact(job_id: str, kind: str):
     """Resolve a transcript ('txt'), captions ('srt'), description ('desc') or grade path."""
-    job_key = {"txt": "transcript_path", "srt": "srt_path", "desc": "description_path",
-               "grade": "grade_path"}[kind]
+    job_key = {
+        "txt": "transcript_path", "srt": "srt_path", "desc": "description_path",
+        "grade": "grade_path", "research": "research_report_path",
+        "claims": "claim_report_path", "timing": "audio_timing_report_path",
+    }[kind]
     job = explainer_jobs.get(job_id)
     if job and job.get(job_key) and os.path.exists(job[job_key]):
         return job[job_key], job.get("title", "explainer")
@@ -1718,6 +1727,29 @@ async def explainer_grade(job_id: str):
     label = ("retention-readiness" if base.startswith("retention_readiness")
              else ("retention-report" if base.startswith("retention_report") else "grade"))
     return FileResponse(path, media_type="text/plain", filename=f"{safe} - {label}.txt")
+
+
+def _explainer_json_response(job_id: str, kind: str, label: str):
+    path, title = _explainer_text_artifact(job_id, kind)
+    if not path:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
+    return FileResponse(path, media_type="application/json", filename=f"{safe} - {label}.json")
+
+
+@app.get("/api/explainer/research/{job_id}")
+async def explainer_research(job_id: str):
+    return _explainer_json_response(job_id, "research", "research-dossier")
+
+
+@app.get("/api/explainer/claims/{job_id}")
+async def explainer_claims(job_id: str):
+    return _explainer_json_response(job_id, "claims", "claim-ledger")
+
+
+@app.get("/api/explainer/audio-timing/{job_id}")
+async def explainer_audio_timing(job_id: str):
+    return _explainer_json_response(job_id, "timing", "audio-timing")
 
 
 @app.get("/api/explainer/thumbnail/{job_id}")
