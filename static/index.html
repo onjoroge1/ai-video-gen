@@ -1427,6 +1427,20 @@
       <div class="log-console" id="chart-log-console"></div>
     </div>
 
+    <!-- Rendered-opening human approval gate -->
+    <div id="expl-review-panel" style="display:none; background:var(--surface); border:1px solid #f59e0b; border-radius:10px; padding:18px 20px; margin-bottom:14px;">
+      <div class="result-title">Human review required before the remaining video is purchased</div>
+      <p class="field-hint" style="margin:8px 0 14px;">Watch the encoded opening and inspect the chronological contact sheet. Approval is bound to these exact artifact hashes.</p>
+      <video id="expl-review-video" controls preload="metadata" style="width:100%; max-width:720px; border-radius:8px; background:#000; margin-bottom:12px;"></video>
+      <div><a class="btn btn-outline" id="expl-review-sheet-link" href="#" target="_blank">Open contact sheet</a></div>
+      <div id="expl-review-checklist" style="margin:16px 0;"></div>
+      <div class="field" style="max-width:420px;"><label>Reviewer name</label><input id="expl-reviewer-name" class="input-field" placeholder="Your name" /></div>
+      <div class="result-actions" style="margin-top:14px;">
+        <button class="btn btn-primary" id="expl-approve-opening-btn" onclick="submitExplainerReview('approve')">Approve opening and resume</button>
+        <button class="btn btn-outline" onclick="submitExplainerReview('reject')">Reject opening</button>
+      </div>
+    </div>
+
     <!-- Result panel -->
     <div id="chart-result-panel">
       <div class="card-title" style="margin-bottom:20px;">Chart Ready</div>
@@ -1694,6 +1708,11 @@
         <a class="btn btn-outline" id="expl-continuity-btn" href="#" download style="display:none;">↓ Continuity Pack</a>
         <a class="btn btn-outline" id="expl-motion-report-btn" href="#" download style="display:none;">↓ Motion Report</a>
         <a class="btn btn-outline" id="expl-opening-freeze-btn" href="#" download style="display:none;">↓ Opening Freeze</a>
+        <a class="btn btn-outline" id="expl-animatic-btn" href="#" download style="display:none;">↓ Animatic Gate</a>
+        <a class="btn btn-outline" id="expl-animatic-preview-btn" href="#" download style="display:none;">↓ Animatic Preview</a>
+        <a class="btn btn-outline" id="expl-rendered-contract-btn" href="#" download style="display:none;">↓ Rendered Contract</a>
+        <a class="btn btn-outline" id="expl-rendered-contact-sheet-btn" href="#" download style="display:none;">↓ Rendered Contact Sheet</a>
+        <a class="btn btn-outline" id="expl-human-review-btn" href="#" download style="display:none;">↓ Human Review</a>
         <button class="btn btn-outline" onclick="showExplainerScript()">View Script</button>
         <button class="btn btn-outline" onclick="resetExplainer()">New Video</button>
       </div>
@@ -2662,6 +2681,7 @@
      EXPLAINER TAB
   ════════════════════════════════════════════════ */
   let explJobId = null;
+  let explReviewRecord = null;
   let explStageEl = null;
   let explFormat = 'landscape';   // 'landscape' (16:9) | 'social' (9:16 + karaoke captions)
   const explLog = document.getElementById('expl-log');
@@ -3005,9 +3025,10 @@
     const btn = document.getElementById('expl-btn');
     btn.disabled = true;
 
-    explJobId = null; explStageEl = null;
+    explJobId = null; explReviewRecord = null; explStageEl = null;
     explLog.innerHTML = '';
     document.getElementById('expl-error-panel').style.display = 'none';
+    document.getElementById('expl-review-panel').style.display = 'none';
     document.getElementById('expl-result-panel').style.display = 'none';
     document.getElementById('expl-script-panel').style.display = 'none';
     document.querySelectorAll('#explainer-section .stage-item').forEach(s => s.classList.remove('active','done'));
@@ -3072,9 +3093,87 @@
         es.close();
         btn.disabled = false;
         showError('expl-error-panel', 'expl-error-msg', ev.data);
+      } else if (ev.type === 'review_required') {
+        addLog(explLog, 'stage', ev.data);
+        es.close();
+        btn.disabled = false;
+        await showExplainerReview(job_id);
       }
     };
     es.onerror = () => { es.close(); btn.disabled = false; };
+  }
+
+  async function showExplainerReview(jobId) {
+    const panel = document.getElementById('expl-review-panel');
+    try {
+      const response = await fetch(`/api/explainer/human-review/${jobId}`);
+      if (!response.ok) throw new Error(await response.text());
+      explReviewRecord = await response.json();
+      document.getElementById('expl-review-video').src = `/api/explainer/opening-preview/${jobId}`;
+      document.getElementById('expl-review-sheet-link').href = `/api/explainer/rendered-contact-sheet/${jobId}`;
+      const checklist = document.getElementById('expl-review-checklist');
+      checklist.innerHTML = '';
+      (explReviewRecord.checklist || []).forEach((entry, index) => {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;gap:10px;align-items:flex-start;margin:10px 0;cursor:pointer;';
+        row.innerHTML = `<input type="checkbox" data-review-index="${index}" style="margin-top:3px;"> <span>${escHtml(entry.item)}</span>`;
+        checklist.appendChild(row);
+      });
+      panel.style.display = 'block';
+      panel.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (err) {
+      showError('expl-error-panel', 'expl-error-msg', `Review artifacts unavailable: ${err.message}`);
+    }
+  }
+
+  async function submitExplainerReview(decision) {
+    if (!explJobId || !explReviewRecord) return;
+    const reviewer = document.getElementById('expl-reviewer-name').value.trim();
+    const checks = [...document.querySelectorAll('[data-review-index]')];
+    const checklist = (explReviewRecord.checklist || []).map((entry, index) => ({
+      item: entry.item, approved: !!checks[index]?.checked, note: ''
+    }));
+    if (!reviewer) {
+      showError('expl-error-panel', 'expl-error-msg', 'Enter the reviewer name.');
+      return;
+    }
+    if (decision === 'approve' && checklist.some(item => !item.approved)) {
+      showError('expl-error-panel', 'expl-error-msg', 'Approve every checklist item or reject the opening.');
+      return;
+    }
+    const response = await fetch(`/api/explainer/human-review/${explJobId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({reviewer, decision, checklist})
+    });
+    if (!response.ok) {
+      showError('expl-error-panel', 'expl-error-msg', await response.text());
+      return;
+    }
+    if (decision === 'reject') {
+      document.getElementById('expl-review-panel').style.display = 'none';
+      showError('expl-error-panel', 'expl-error-msg', 'Opening rejected. No remaining visual assets were purchased.');
+      return;
+    }
+    const resume = await fetch(`/api/explainer/resume/${explJobId}`, {method:'POST'});
+    if (!resume.ok) {
+      showError('expl-error-panel', 'expl-error-msg', await resume.text());
+      return;
+    }
+    document.getElementById('expl-review-panel').style.display = 'none';
+    document.getElementById('expl-btn').disabled = true;
+    const es = new EventSource(`/api/explainer/status/${explJobId}`);
+    es.onmessage = async (e) => {
+      const ev = JSON.parse(e.data);
+      addLog(document.getElementById('expl-log'), ev.type === 'error' ? 'error' : ev.type === 'done' ? 'done' : 'log', ev.data);
+      if (ev.type === 'done') {
+        es.close(); document.getElementById('expl-btn').disabled = false;
+        await showExplainerResult(explJobId);
+      }
+      if (ev.type === 'error' || ev.type === 'review_required') {
+        es.close(); document.getElementById('expl-btn').disabled = false;
+        showError('expl-error-panel', 'expl-error-msg', ev.data);
+      }
+    };
   }
 
   async function showExplainerResult(jobId) {
@@ -3099,7 +3198,12 @@
         ['expl-evidence-validation-btn', 'evidence-validation'],
         ['expl-continuity-btn', 'continuity'],
         ['expl-motion-report-btn', 'motion'],
-        ['expl-opening-freeze-btn', 'opening-freeze']
+        ['expl-opening-freeze-btn', 'opening-freeze'],
+        ['expl-animatic-btn', 'animatic'],
+        ['expl-animatic-preview-btn', 'animatic-preview'],
+        ['expl-rendered-contract-btn', 'rendered-contract'],
+        ['expl-rendered-contact-sheet-btn', 'rendered-contact-sheet'],
+        ['expl-human-review-btn', 'human-review']
       ]) {
         const button = document.getElementById(id);
         button.href = `/api/explainer/${endpoint}/${jobId}`;
@@ -3140,9 +3244,9 @@
   }
 
   function resetExplainer() {
-    explJobId = null; explStageEl = null;
+    explJobId = null; explReviewRecord = null; explStageEl = null;
     document.getElementById('expl-question').value = '';
-    ['expl-error-panel','expl-result-panel','expl-script-panel','expl-progress-panel'].forEach(id =>
+    ['expl-error-panel','expl-review-panel','expl-result-panel','expl-script-panel','expl-progress-panel'].forEach(id =>
       document.getElementById(id).style.display = 'none'
     );
     explLog.innerHTML = '';

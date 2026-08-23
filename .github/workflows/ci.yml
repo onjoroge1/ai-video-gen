@@ -12,8 +12,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      # PR5 exercises the real encoded-media path (animatic assembly, frame
+      # extraction, and diagnostic watermarking), so CI must provide the same
+      # FFmpeg executable required by production.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -r requirements.txt pytest
-      - run: python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py longform_retention.py
+      - run: python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py longform_retention.py longform_rendered_gate.py
       # Run through Python so the checked-out repository root is on sys.path. The standalone
       # pytest entrypoint under newer pytest versions can otherwise fail to import every root module.
       - run: python -m pytest tests bolt_seq/tests/test_state.py
