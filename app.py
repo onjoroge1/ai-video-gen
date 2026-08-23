@@ -1114,6 +1114,23 @@ class ExplainerRequest(BaseModel):
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
+    # Internal PR7 fields are accepted when a durable worker reconstructs a queued pilot request.
+    # The public explainer endpoint rejects controlled_pilot=True; only the paired pilot endpoint
+    # can create these values.
+    controlled_pilot: bool = False
+    pilot_batch_id: str = ""
+    pilot_kind: Literal["", "standard", "evidence_mystery"] = ""
+    pilot_policy: dict = Field(default_factory=dict)
+
+
+class ExplainerPilotBatchRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    standard_question: str
+    mystery_question: str
+    voice: str = "echo"
+    standard_direction: str = ""
+    mystery_direction: str = ""
 
 
 class ExplainerHumanReviewRequest(BaseModel):
@@ -1219,10 +1236,74 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     short_template=request.short_template,
                     operator_direction=request.operator_direction,
                     story_format=request.story_format,
+                    controlled_pilot=request.controlled_pilot,
+                    pilot_batch_id=request.pilot_batch_id,
+                    pilot_kind=request.pilot_kind,
+                    pilot_policy=request.pilot_policy,
                     resume=resume,
                     progress_cb=push,
                 )),
             )
+        if result.get("controlled_pilot"):
+            if not durable_runtime:
+                raise RuntimeError("Controlled pilots cannot run without durable Blob/Postgres storage")
+            job.update({
+                "status": "pilot_awaiting_editorial",
+                "controlled_pilot": True,
+                "pilot_batch_id": result.get("pilot_batch_id"),
+                "pilot_kind": result.get("pilot_kind"),
+                "output_path": result.get("output_path"),
+                "script": result.get("script"),
+                "title": result.get("title"),
+                "hook": result.get("hook"),
+                "scene_count": result.get("scene_count"),
+                "duration_sec": result.get("duration_sec"),
+                "actual_cost": result.get("actual_cost"),
+                "rendered_contract": result.get("rendered_contract") or {},
+                "pilot_artifact_completeness": result.get("pilot_artifact_completeness") or {},
+                "first_minute_preview_path": result.get("first_minute_preview_path"),
+                "rendered_contract_path": result.get("rendered_contract_path"),
+                "rendered_contact_sheet_path": result.get("rendered_contact_sheet_path"),
+                "human_review_path": result.get("human_review_path"),
+                "generation_manifest_path": result.get("generation_manifest_path"),
+                "pilot_control_path": result.get("pilot_control_path"),
+                "pilot_script_path": result.get("pilot_script_path"),
+                "pilot_cost_report_path": result.get("pilot_cost_report_path"),
+            })
+            snapshot = await asyncio.to_thread(
+                durable_runtime.persist_pilot_snapshot, "rendered-opening",
+                metadata={
+                    "pilot_batch_id": result.get("pilot_batch_id"),
+                    "pilot_kind": result.get("pilot_kind"),
+                    "automated_score": (result.get("rendered_contract") or {}).get("score"),
+                    "automated_pass": bool(
+                        (result.get("rendered_contract") or {}).get("automated_pass")),
+                    "status": "pilot_awaiting_editorial",
+                },
+                final=False,
+            )
+            checkpoint = await asyncio.to_thread(
+                durable_runtime.checkpoint, "pilot-awaiting-editorial", heartbeat=False)
+            durable_runtime.store.set_status(
+                job_id, "pilot_awaiting_editorial", result={
+                    "controlled_pilot": True,
+                    "pilot_batch_id": result.get("pilot_batch_id"),
+                    "pilot_kind": result.get("pilot_kind"),
+                    "title": result.get("title"),
+                    "scene_count": result.get("scene_count"),
+                    "duration_sec": result.get("duration_sec"),
+                    "rendered_contract": result.get("rendered_contract") or {},
+                    "pilot_artifact_completeness": result.get("pilot_artifact_completeness") or {},
+                    "pilot_snapshot": snapshot,
+                    "checkpoint_sha256": checkpoint.get("sha256"),
+                }, worker_id=durable_runtime.worker_id)
+            durable_runtime.event(
+                "pilot_awaiting_editorial",
+                "Controlled 45-second pilot persisted and awaiting editorial grade",
+                {"artifact_count": snapshot.get("artifact_count")})
+            job["pilot_snapshot"] = snapshot
+            return
+
         quality = result.get("status", "ok")           # "ok" | "degraded"
         reasons = result.get("degraded_reasons", [])
 
@@ -1374,6 +1455,69 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     job["rendered_contract"] = json.load(handle)
             except (OSError, ValueError, TypeError):
                 pass
+        if request.controlled_pilot:
+            job["status"] = "pilot_failed"
+            failure_path = os.path.join(output_dir, "pilot_failure.json")
+            _atomic_write_json(failure_path, {
+                "schema_version": 1,
+                "status": "pilot_failed",
+                "pilot_batch_id": request.pilot_batch_id,
+                "pilot_kind": request.pilot_kind,
+                "error_type": type(exc).__name__,
+                "error": str(exc)[:4000],
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "promotion_rule": "This failed pilot cannot be converted into a pass in place.",
+            })
+            control_path = os.path.join(output_dir, "pilot_control.json")
+            if os.path.isfile(control_path):
+                try:
+                    with open(control_path, encoding="utf-8") as handle:
+                        control = json.load(handle)
+                    control.update({
+                        "status": "pilot_failed",
+                        "failure_artifact": "pilot_failure.json",
+                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    _atomic_write_json(control_path, control)
+                except (OSError, ValueError, TypeError):
+                    pass
+            job["events"].append({"type": "pilot_failed", "data": str(exc)})
+            if durable_runtime:
+                try:
+                    checkpoint = durable_runtime.checkpoint("pilot-failed", heartbeat=False)
+                    snapshot = durable_runtime.persist_pilot_snapshot(
+                        "failed", metadata={
+                            "pilot_batch_id": request.pilot_batch_id,
+                            "pilot_kind": request.pilot_kind,
+                            "status": "pilot_failed",
+                            "error_type": type(exc).__name__,
+                        }, final=True)
+                    durable_runtime.store.set_status(
+                        job_id, "pilot_failed", error=str(exc), result={
+                            "controlled_pilot": True,
+                            "pilot_batch_id": request.pilot_batch_id,
+                            "pilot_kind": request.pilot_kind,
+                            "title": job.get("title") or request.question,
+                            "rendered_contract": job.get("rendered_contract") or {},
+                            "pilot_snapshot": snapshot,
+                            "checkpoint_sha256": checkpoint.get("sha256"),
+                            "failure_artifact": "pilot_failure.json",
+                        }, worker_id=durable_runtime.worker_id)
+                    durable_runtime.event(
+                        "pilot_failed", str(exc),
+                        {"artifact_count": snapshot.get("artifact_count")})
+                except Exception as storage_exc:
+                    job["status"] = "storage_error"
+                    job["storage_error"] = str(storage_exc)
+                    try:
+                        durable_runtime.store.set_status(
+                            job_id, "storage_error", error=str(storage_exc),
+                            result={"controlled_pilot": True,
+                                    "original_pilot_error": str(exc)[:1000]},
+                            worker_id=durable_runtime.worker_id)
+                    except Exception:
+                        pass
+            return
         if awaiting_review:
             job["events"].append({"type": "review_required", "data": str(exc)})
         elif awaiting_format:
@@ -1697,10 +1841,107 @@ def _start_trending_scheduler():
     threading.Thread(target=_loop, daemon=True).start()
 
 
+@app.post("/api/explainer/pilots")
+async def explainer_create_pilot_batch(request: ExplainerPilotBatchRequest):
+    """Atomically queue one fixed Standard and one fixed Evidence Mystery PR7 pilot."""
+    from longform_pilots import build_pilot_pair, pilot_policy
+
+    _require_render_storage()
+    if not _durable_execution_required():
+        raise HTTPException(
+            status_code=409,
+            detail="Controlled pilots require durable Postgres/Blob execution.")
+    batch_id = f"pr7-{uuid.uuid4().hex[:12]}"
+    try:
+        pair = build_pilot_pair(
+            batch_id=batch_id,
+            standard_question=request.standard_question,
+            mystery_question=request.mystery_question,
+            voice=request.voice,
+            standard_direction=request.standard_direction,
+            mystery_direction=request.mystery_direction,
+        )
+        jobs = [
+            {"job_id": f"{batch_id}-standard", "request": pair[0]},
+            {"job_id": f"{batch_id}-mystery", "request": pair[1]},
+        ]
+        raw_cap = (
+            os.environ.get("PR7_PILOT_MAX_COST_USD", "").strip()
+            or os.environ.get("DURABLE_JOB_MAX_COST_USD", "").strip()
+            or "10.00"
+        )
+        max_cost = float(raw_cap)
+        if max_cost <= 0:
+            raise ValueError("PR7_PILOT_MAX_COST_USD must be positive")
+        store, _ = _durable_components()
+        batch = await asyncio.to_thread(
+            store.enqueue_pilot_batch,
+            batch_id=batch_id,
+            jobs=jobs,
+            max_cost_usd=max_cost,
+            pipeline_version=durable_execution.version_hash(BASE_DIR),
+        )
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "PILOT_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+        }) from exc
+    except (ValueError, durable_execution.DurableExecutionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    by_kind = {
+        (job.get("request") or {}).get("pilot_kind"): job for job in batch.get("jobs") or []
+    }
+    return {
+        "batch_id": batch_id,
+        "status": batch.get("status") or "queued",
+        "policy": pilot_policy(),
+        "pilots": {
+            kind: {
+                "job_id": by_kind.get(kind, {}).get("id"),
+                "dispatch_url": f"/api/explainer/dispatch/{by_kind.get(kind, {}).get('id')}",
+                "status_url": f"/api/explainer/status/{by_kind.get(kind, {}).get('id')}",
+            }
+            for kind in ("standard", "evidence_mystery")
+        },
+    }
+
+
+@app.get("/api/explainer/pilots/{batch_id}")
+async def explainer_pilot_batch(batch_id: str):
+    if not _durable_execution_required():
+        raise HTTPException(status_code=409, detail="Durable execution is not enabled")
+    try:
+        store, _ = _durable_components()
+        batch = await asyncio.to_thread(store.get_pilot_batch, batch_id)
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not batch:
+        raise HTTPException(status_code=404, detail="Pilot batch not found")
+    return batch
+
+
+@app.get("/api/explainer/pilot/{job_id}")
+async def explainer_pilot_job(job_id: str):
+    if not _durable_execution_required():
+        raise HTTPException(status_code=409, detail="Durable execution is not enabled")
+    try:
+        store, _ = _durable_components()
+        row = await asyncio.to_thread(store.get_job, job_id)
+        if not row or row.get("kind") != "explainer_pilot":
+            raise HTTPException(status_code=404, detail="Controlled pilot not found")
+        artifacts = await asyncio.to_thread(store.artifacts, job_id)
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"job": _durable_job_view(row), "artifacts": artifacts}
+
+
 @app.post("/api/explainer/generate")
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    if request.controlled_pilot:
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled pilot fields are internal; use /api/explainer/pilots.")
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]
@@ -1790,6 +2031,12 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "human_review_path": "human_review.json",
         "story_format_review_path": "story_format_review.json",
         "generation_manifest_path": "generation_manifest.json",
+        "pilot_control_path": "pilot_control.json",
+        "pilot_script_path": "pilot_script.json",
+        "pilot_cost_report_path": "pilot_cost_report.json",
+        "pilot_artifact_manifest_path": "pilot_artifact_manifest.json",
+        "pilot_failure_path": "pilot_failure.json",
+        "pilot_outcome_path": "pilot_outcome.json",
         "diagnostic_preview_path": "rejected_diagnostic_preview.mp4",
         "first_minute_preview_path": "first_minute_preview.mp4",
         "readiness_json_path": "retention_readiness.json",
@@ -1859,6 +2106,12 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
             row = await asyncio.to_thread(store.get_job, job_id)
             if not row:
                 raise HTTPException(status_code=404, detail="Durable job not found")
+            if row.get("kind") == "explainer_pilot" or (row.get("request") or {}).get(
+                    "controlled_pilot"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Controlled 45-second pilots never resume into a full video; create a new "
+                           "pilot batch for another attempt.")
             if row.get("status") == "human_rejected":
                 raise HTTPException(status_code=409, detail="Human editor rejected this opening")
             if row.get("status") == "format_rejected":
@@ -1949,7 +2202,8 @@ async def explainer_status_stream(job_id: str, after: int = 0):
                     if row["status"] in (
                             "done", "degraded", "error", "awaiting_review", "human_rejected",
                             "format_acknowledgement_required", "format_rejected",
-                            "storage_error"):
+                            "storage_error", "pilot_awaiting_editorial", "pilot_passed",
+                            "pilot_failed"):
                         break
                     yield ": keepalive\n\n"
                 except durable_execution.StorageUnavailable as exc:
@@ -1966,7 +2220,8 @@ async def explainer_status_stream(job_id: str, after: int = 0):
                 sent += 1
             if job["status"] in (
                     "done", "error", "degraded", "awaiting_review",
-                    "format_acknowledgement_required", "format_rejected"):
+                    "format_acknowledgement_required", "format_rejected",
+                    "pilot_awaiting_editorial", "pilot_passed", "pilot_failed"):
                 break
             # Heartbeat every ~3s of quiet so the browser detects a dead connection
             # and auto-reconnects (replaying buffered events) instead of freezing.
@@ -2345,6 +2600,7 @@ async def explainer_human_review(job_id: str):
 @app.post("/api/explainer/human-review/{job_id}")
 async def explainer_record_human_review(job_id: str, request: ExplainerHumanReviewRequest):
     from longform_rendered_gate import apply_human_review
+    from longform_pilots import artifact_completeness, final_pilot_outcome
 
     job = explainer_jobs.get(job_id)
     if not job and _durable_execution_required():
@@ -2369,6 +2625,69 @@ async def explainer_record_human_review(job_id: str, request: ExplainerHumanRevi
             json.dump(reviewed, handle, indent=2, ensure_ascii=False)
         with open(report_path) as handle:
             report = json.load(handle)
+        if job.get("controlled_pilot"):
+            completeness = artifact_completeness(job["_materialized_dir"])
+            outcome = final_pilot_outcome(
+                rendered_contract=report,
+                human_review=reviewed,
+                completeness=completeness,
+            )
+            outcome_path = os.path.join(job["_materialized_dir"], "pilot_outcome.json")
+            _atomic_write_json(outcome_path, outcome)
+            job["pilot_outcome_path"] = outcome_path
+            job["pilot_outcome"] = outcome
+            job["rendered_contract"] = {
+                **report,
+                "human_review": reviewed,
+                "pilot_outcome": outcome,
+                "status": "PILOT_PASS" if outcome["pilot_passed"] else "PILOT_FAIL",
+                "passed": outcome["pilot_passed"],
+                # A 45-second evaluation opening is never a publishable full-video artifact.
+                "publishable": False,
+            }
+            job["status"] = outcome["status"]
+            if not _durable_execution_required():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Controlled pilot editorial review requires durable execution")
+            store, blob = _durable_components()
+            runtime = durable_execution.DurableRuntime(
+                job_id=job_id, worker_id="pilot-editorial",
+                output_dir=job["_materialized_dir"], store=store, blob=blob)
+            checkpoint = await asyncio.to_thread(
+                runtime.checkpoint, "pilot-editorial-review", heartbeat=False)
+            snapshot = await asyncio.to_thread(
+                runtime.persist_pilot_snapshot, "editorial-review",
+                metadata={
+                    "status": outcome["status"],
+                    "pilot_passed": outcome["pilot_passed"],
+                    "reviewer": reviewed.get("reviewer"),
+                    "automated_score": outcome["automated"]["score"],
+                },
+                final=True,
+                heartbeat=False,
+            )
+            await asyncio.to_thread(
+                store.set_status, job_id, outcome["status"],
+                error=None if outcome["pilot_passed"] else "; ".join(outcome["failure_reasons"]),
+                result={
+                    "human_review": reviewed,
+                    "rendered_contract": job["rendered_contract"],
+                    "pilot_outcome": outcome,
+                    "pilot_snapshot": snapshot,
+                    "checkpoint_sha256": checkpoint.get("sha256"),
+                })
+            resume_after_event_seq = await asyncio.to_thread(
+                store.append_event, job_id, outcome["status"],
+                f"Controlled pilot editorial decision recorded by {request.reviewer}",
+                {"pilot_passed": outcome["pilot_passed"],
+                 "artifact_count": snapshot.get("artifact_count")})
+            return {
+                **reviewed,
+                "pilot_outcome": outcome,
+                "resume_allowed": False,
+                "resume_after_event_seq": resume_after_event_seq,
+            }
         # Keep the reviewed report byte-identical. Resume re-runs the deterministic/vision gate,
         # verifies this approval against both frozen hashes, and only then writes the final PASS.
         job["rendered_contract"] = {**report, "human_review": reviewed,
