@@ -97,12 +97,12 @@ def test_middleware_registers_vercel_oidc_request_header(monkeypatch):
     @app.get("/oidc-probe")
     async def oidc_probe():
         from vercel.headers import get_headers
-        from vercel.oidc import get_vercel_oidc_token
+        from vercel.oidc.token import get_vercel_oidc_token_from_context
 
         headers = get_headers() or {}
         return {
             "header_seen": bool(headers.get("x-vercel-oidc-token")),
-            "token": get_vercel_oidc_token(),
+            "token": get_vercel_oidc_token_from_context(),
         }
 
     async def run():
