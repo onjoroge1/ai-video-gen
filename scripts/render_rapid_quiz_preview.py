@@ -5,9 +5,13 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import imageio_ffmpeg
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 # Configure portable FFmpeg before importing the repo renderer.
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
@@ -16,7 +20,6 @@ os.environ["QUIZ_FAL_OPENER"] = "0"  # V2.1 progressive clues are the controlled
 
 import quiz_pipeline as qp
 
-ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "static" / "rapid-quiz-preview"
 OUT.mkdir(parents=True, exist_ok=True)
 qp.FF = FFMPEG
