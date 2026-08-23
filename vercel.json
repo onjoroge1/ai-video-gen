@@ -2,9 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "python -m pip install -r requirements.txt imageio-ffmpeg 'httpx<0.28'",
   "buildCommand": "python scripts/render_rapid_quiz_preview.py",
-  "functions": {
-    "app.py": {
-      "maxDuration": 800
-    }
-  }
+  "outputDirectory": "static"
 }
