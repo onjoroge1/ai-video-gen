@@ -29,6 +29,7 @@ py-modules = [
     "health_pipeline",
     "highlights",
     "longform_quiz",
+    "longform_evidence",
     "longform_research",
     "longform_retention",
     "longform_shots",

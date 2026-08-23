@@ -42,6 +42,14 @@ from longform_research import (
     validate_claim_joins,
     validate_research_dossier,
 )
+from longform_evidence import (
+    compile_evidence_plan,
+    evidence_asset_counts,
+    record_asset_verification,
+    reuse_exact_asset,
+    validate_evidence_plan,
+    validate_evidence_timing,
+)
 from audio_timing import build_audio_timing_report
 from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
@@ -1178,14 +1186,24 @@ _SCENE_FIELDS_RULES = (
     'DEEP"), text_sub, and '
     '"text" as a JSON OBJECT with keys placement, alignment, emphasis_words (array), '
     'title_color, accent_color, subtitle_color, card. '
-    'SEMANTIC SHOT MAP — include "visual_beats" as an array of 1-3 objects, in narration order. '
+    'EVIDENCE STATE MAP — include "visual_beats" in narration order: 2-4 states for EVERY scene '
+    'within the first 30% of runtime, then 1-3 states later. A state is a visible world change, not '
+    'a camera angle. '
     'Each object has: "anchor_phrase" (an EXACT consecutive 2-8 word phrase copied from narration '
     'where this visual should begin), "purpose" (setup|action|evidence|consequence), "visual" '
-    '(the specific object/action this clause needs), "source" (master|broll), "new_information" '
-    '(true only if this view teaches something the prior view does not), "shot_size" '
+    '(the specific object/action this clause needs), "state_before" and "state_after" (concrete, '
+    'visibly distinguishable object conditions), "required_objects" (array of exact objects/states '
+    'that must be visible), "forbidden_objects" (array of objects/states that must be absent), '
+    '"source" (master|distinct|detail_reframe), "asset_strategy" '
+    '(master|distinct|detail_reframe), "detail_target" (required only for detail_reframe), '
+    '"pure_evidence" (true for evidence/mechanism/scale/location/record views), "human_visible" '
+    '(true only when Alex is visually needed), "new_information" (PROVISIONAL only; true only for a '
+    'declared state change and ALWAYS false for detail_reframe until pixel verification), "shot_size" '
     '(wide|medium|close|aerial|detail), and "camera_direction" (left_to_right|right_to_left|'
-    'push_in|pull_out|locked). Use master for connected setup/action. Request broll ONLY for a '
-    'genuinely different evidence or consequence view; never request a second crop merely for pace. '
+    'push_in|pull_out|locked). Use master for the first connected setup/action. Use distinct when the '
+    'world or causal state changes. Use detail_reframe only when the required evidence already exists '
+    'inside the master and name the exact detail_target; a crop never earns information automatically. '
+    'Pure evidence states MUST omit Bolt even if he appears elsewhere in the scene. '
     'Also include "motion_anchor_phrase": the EXACT 2-8 narration words where physical action begins '
     '(empty only when the beat has no motion). These anchors are edit decisions, not spoken text. '
     'CONTINUITY OVER NOVELTY — this is ONE continuous experiment, not a deck of poster cards: keep a '
@@ -2265,6 +2283,140 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
     return output_path
 
 
+def _evidence_reference_paths(state: dict, *, human_ok: bool, mascot_ok: bool,
+                              continuity_source: str | None = None) -> list[str] | None:
+    """Deterministic identity-first reference order; pure evidence can never receive Bolt."""
+    refs: list[str] = []
+    if state.get("include_human") and human_ok:
+        refs.append(HUMAN_REF)
+    if state.get("include_bolt") and not state.get("pure_evidence") and mascot_ok:
+        refs.append(MASCOT_REF)
+    if continuity_source and os.path.exists(continuity_source) and continuity_source not in refs:
+        refs.append(continuity_source)
+    return refs or None
+
+
+def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
+                           style_suffix: str) -> str:
+    required = "; ".join(_s(item) for item in state.get("required_objects") or [])
+    forbidden = "; ".join(_s(item) for item in state.get("forbidden_objects") or []) or "none"
+    cast = "No characters. Show only physical evidence."
+    if state.get("include_human") and state.get("include_bolt"):
+        cast = "Alex performs the declared investigation action while Bolt materially assists."
+    elif state.get("include_human"):
+        cast = "Alex performs the declared investigation action; Bolt is absent."
+    elif state.get("include_bolt"):
+        cast = "Bolt performs the declared useful action; Alex is outside the frame."
+    location = _s((continuity_pack.get("first_act_location") or {}).get("label"))
+    return (
+        f"Create one evidence-state frame for this narration phrase: "
+        f"{_s(state.get('anchor_phrase'))}. PURPOSE: {_s(state.get('purpose'))}. "
+        f"STATE BEFORE: {_s(state.get('state_before'))}. STATE NOW/AFTER: "
+        f"{_s(state.get('state_after'))}. REQUIRED AND CLEARLY VISIBLE: {required}. "
+        f"FORBIDDEN: {forbidden}. {cast} "
+        + (f"CONTINUITY LOCATION: preserve {location}. " if state.get("opening") and location else "")
+        + (f"COMPOSITION: {_s(state.get('visual'))}. " if _s(state.get("visual")) else "")
+        + "The image must prove the state change without labels, arrows, text, or narration cards. "
+        + style_suffix
+    )
+
+
+def _make_detail_reframe(source_path: str, output_path: str) -> str:
+    """Create a deterministic center detail; it earns information only after vision verification."""
+    from PIL import ImageOps
+    image = Image.open(source_path).convert("RGB")
+    width, height = image.size
+    crop_width, crop_height = max(1, int(width * 0.68)), max(1, int(height * 0.68))
+    left, top = (width - crop_width) // 2, (height - crop_height) // 2
+    detail = image.crop((left, top, left + crop_width, top + crop_height))
+    ImageOps.fit(detail, (width, height)).save(output_path, "JPEG", quality=92)
+    return output_path
+
+
+_EVIDENCE_VERIFY_SYSTEM = (
+    "You are a fail-closed visual evidence inspector. Judge only visible pixels, never the prompt's "
+    "intent. The first image is the target; any later images are identity/location/object continuity "
+    "references and must be compared directly. Return ONLY JSON: "
+    "{\"required_objects\":{\"exact requirement\":true|false},"
+    "\"forbidden_objects_absent\":{\"exact forbidden item\":true|false},"
+    "\"visible_information\":true|false,\"human_identity_matches\":true|false|null,"
+    "\"clothing_matches\":true|false|null,\"location_matches\":true|false|null,"
+    "\"opening_object_matches\":true|false|null,\"bolt_present\":true|false,"
+    "\"reasons\":[\"specific visible failure\"]}. visible_information is true only when the "
+    "requested state/evidence is actually readable, not merely because the image differs."
+)
+
+
+def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
+                          cost_sink: list | None = None,
+                          reference_paths: list[str] | None = None) -> dict:
+    """Vision-verify object state and continuity. Invalid/unavailable judgment fails closed."""
+    try:
+        def image_block(path: str) -> dict:
+            with open(path, "rb") as handle:
+                encoded = base64.b64encode(handle.read()).decode()
+            media_type = "image/png" if path.casefold().endswith(".png") else "image/jpeg"
+            return {"type": "image", "source": {
+                "type": "base64", "media_type": media_type, "data": encoded}}
+        expected = {
+            "required_objects": state.get("required_objects") or [],
+            "forbidden_objects": state.get("forbidden_objects") or [],
+            "state_before": state.get("state_before"),
+            "state_after": state.get("state_after"),
+            "expect_human_identity": bool(state.get("include_human")),
+            "expect_clothing": bool(state.get("include_human")),
+            "expect_location": bool(state.get("location_id")),
+            "expect_opening_object": bool(state.get("opening_object_id")),
+            "pure_evidence": bool(state.get("pure_evidence")),
+            "continuity": continuity_pack,
+        }
+        content = [image_block(image_path), {
+            "type": "text", "text": "TARGET EVIDENCE IMAGE ABOVE. Verify it against:\n"
+            + json.dumps(expected, ensure_ascii=False)}]
+        for index, reference in enumerate(reference_paths or []):
+            if os.path.isfile(reference):
+                content.extend([
+                    {"type": "text", "text": f"CONTINUITY REFERENCE {index + 1} BELOW:"},
+                    image_block(reference),
+                ])
+        response = _claude().messages.create(
+            model="claude-opus-4-8", max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
+            messages=[{"role": "user", "content": content}],
+        )
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(response.usage))
+        result, repair_cost = _parse_script_json(response.content[0].text)
+        if cost_sink is not None and repair_cost:
+            cost_sink.append(repair_cost)
+        if not isinstance(result, dict):
+            raise ValueError("invalid evidence verification response")
+        required = result.get("required_objects") if isinstance(result.get("required_objects"), dict) else {}
+        forbidden = (result.get("forbidden_objects_absent")
+                     if isinstance(result.get("forbidden_objects_absent"), dict) else {})
+        required_pass = all(required.get(item) is True for item in expected["required_objects"])
+        forbidden_pass = all(forbidden.get(item) is True for item in expected["forbidden_objects"])
+        continuity_pass = all(
+            result.get(field) is True
+            for expected_key, field in (
+                ("expect_human_identity", "human_identity_matches"),
+                ("expect_clothing", "clothing_matches"),
+                ("expect_location", "location_matches"),
+                ("expect_opening_object", "opening_object_matches"),
+            )
+            if expected[expected_key]
+        )
+        bolt_pass = not (expected["pure_evidence"] and result.get("bolt_present") is True)
+        visible = result.get("visible_information") is True
+        passed = required_pass and forbidden_pass and continuity_pass and bolt_pass and visible
+        reasons = [_s(item) for item in result.get("reasons") or [] if _s(item)]
+        if not passed and not reasons:
+            reasons = ["pixel verification did not satisfy every object-state and continuity check"]
+        return {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
+    except Exception as exc:
+        return {"passed": False, "visible_information": False,
+                "reasons": [f"evidence verifier unavailable: {type(exc).__name__}"]}
+
+
 def safe_image_prompt(scene: dict) -> str:
     """A moderation-safe retry that KEEPS the scene's surprise intent — a calm cosmic abstraction
     would tank visual_surprise on any blocked scene, so stay peculiar, just safe."""
@@ -3262,7 +3414,10 @@ def _make_multishot_background(
     clips, list_path = [], output_path + ".shots.txt"
     for j, shot in enumerate(work):
         clip = f"{output_path}.shot{j:02d}.mp4"
-        image = result.get("alt_img") if shot.get("source") == "alternate" else result["img"]
+        evidence_assets = result.get("evidence_assets") or {}
+        image = evidence_assets.get(shot.get("source"))
+        if not image:
+            image = result.get("alt_img") if shot.get("source") == "alternate" else result["img"]
         if not image or not os.path.exists(image):
             image = result["img"]
         _make_scene_segment(
@@ -3462,6 +3617,7 @@ def _render_first_minute_preview(
             scene, duration, k, has_alternate=bool(result.get("alt_img")),
             i2v_seconds=I2V_SECONDS_LONGFORM,
             word_times=result.get("word_times"),
+            evidence_states=result.get("evidence_states"),
         )
         visual = None
         if len(shots) > 1:
@@ -3494,9 +3650,9 @@ def _render_first_minute_preview(
     _assemble(videos, audios, raw, gate_dir, bg_music_path, audio_cues=cues)
     preview_path = os.path.join(output_dir, "first_minute_preview.mp4")
     raw_duration = _audio_dur(raw)
-    if raw_duration > 60.2:
+    if raw_duration > 45.2:
         _run_ffmpeg([
-            "ffmpeg", "-y", "-i", raw, "-t", "60", "-c:v", "copy",
+            "ffmpeg", "-y", "-i", raw, "-t", "45", "-c:v", "copy",
             "-c:a", "aac", "-b:a", "160k", preview_path,
         ], timeout=180.0)
     else:
@@ -5241,6 +5397,11 @@ def run_explainer_pipeline(
     research_report_path = None
     claim_report_path = None
     audio_timing_report_path = None
+    evidence_plan_path = None
+    evidence_validation_path = None
+    continuity_pack_path = None
+    evidence_plan: dict = {}
+    evidence_validation: dict | None = None
     short_grade = None
     retention_report_path = None
     retention_json_path = None
@@ -5260,6 +5421,12 @@ def run_explainer_pipeline(
             research_dossier = script.get("_research_dossier") or {}
             if video_format != "social" and not validate_research_dossier(research_dossier).get("passed"):
                 raise ValueError("Checkpoint predates the sourced research contract")
+            if video_format != "social":
+                checkpoint_evidence = script.get("_evidence_plan") or {}
+                checkpoint_evidence_validation = validate_evidence_plan(checkpoint_evidence)
+                if (checkpoint_evidence.get("version") != 1
+                        or not checkpoint_evidence_validation.get("passed")):
+                    raise ValueError("Checkpoint predates the evidence-asset contract")
             short_grade = _st.get("short_grade")
             resumed = True
             asset_resume_allowed = True
@@ -5408,12 +5575,47 @@ def run_explainer_pipeline(
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
+        evidence_plan = compile_evidence_plan(script)
+        evidence_validation = evidence_plan.get("validation") or {}
+        evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
+        evidence_validation["timing"] = evidence_timing
+        if not evidence_timing.get("passed"):
+            evidence_validation["passed"] = False
+            evidence_validation["errors"] = (
+                evidence_validation.get("errors", []) + evidence_timing.get("errors", []))
+        script["_evidence_plan"] = evidence_plan
+        if not evidence_validation.get("passed"):
+            raise ValueError(
+                "Evidence-state plan failed before TTS/image spend: "
+                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+            )
+        evidence_plan_path = os.path.join(output_dir, "evidence_asset_plan.json")
+        evidence_validation_path = os.path.join(output_dir, "evidence_validation.json")
+        continuity_pack_path = os.path.join(output_dir, "continuity_pack.json")
+        with open(evidence_plan_path, "w") as handle:
+            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+        with open(evidence_validation_path, "w") as handle:
+            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+        with open(continuity_pack_path, "w") as handle:
+            json.dump(evidence_plan["continuity_pack"], handle, indent=2, ensure_ascii=False)
+        counts = evidence_asset_counts(evidence_plan)
+        log("Evidence compiler: PASS — %(planned_state_count)d states, "
+            "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
+            "%(exact_reuse_count)d exact callback reuse" % counts)
+
     mascot_ok = os.path.exists(MASCOT_REF)
     human_ok = os.path.exists(HUMAN_REF)
     if not mascot_ok:
         log(f"⚠ mascot reference missing ({MASCOT_REF}) — host scenes will use text only")
     if not human_ok:
         log(f"⚠ human reference missing ({HUMAN_REF}) — human-led long-form cannot render consistently")
+    if video_format != "social":
+        evidence_states = [state for scene_plan in evidence_plan.get("scenes") or []
+                           for state in scene_plan.get("states") or []]
+        if any(state.get("include_human") for state in evidence_states) and not human_ok:
+            raise FileNotFoundError("Human continuity reference is required before evidence rendering.")
+        if any(state.get("include_bolt") for state in evidence_states) and not mascot_ok:
+            raise FileNotFoundError("Bolt continuity reference is required for declared support states.")
 
     # Locked cartoon RENDER style + constraints. The render look is constant (cohesion);
     # the per-scene environment + dominant style_mode supply variety. We rely on the
@@ -5475,12 +5677,25 @@ def run_explainer_pipeline(
 
     # Cost cap — refine the estimate now that we know host split + narration length,
     # and refuse BEFORE spending on images if it exceeds the ceiling.
-    host_count = sum(1 for s in scenes if ((s.get("mascot_present") and mascot_ok)
-                                           or (s.get("human_present") and human_ok)))
     narration_chars = sum(len(_s(s.get("narration"))) for s in scenes)
-    alt_selected = (select_alternate_image_indices(scenes, MAX_LONGFORM_ALT_IMAGES)
-                    if video_format != "social" else frozenset())
-    est = estimate_cost(len(scenes), host_count, narration_chars, extra_images=len(alt_selected))
+    if video_format != "social":
+        planned_states = [state for scene_plan in evidence_plan.get("scenes") or []
+                          for state in scene_plan.get("states") or []]
+        generated_states = [state for state in planned_states
+                            if state.get("asset_strategy") in {"master", "distinct"}]
+        host_count = sum(1 for state in generated_states
+                         if ((state.get("include_bolt") and mascot_ok)
+                             or (state.get("include_human") and human_ok)))
+        alt_selected = frozenset()
+        # One verifier call per state is reserved at a conservative two cents. It is an estimate,
+        # never presented as provider pricing, and prevents the multi-state compiler undercounting.
+        est = round(estimate_cost(len(generated_states), host_count, narration_chars)
+                    + len(planned_states) * 0.02, 2)
+    else:
+        host_count = sum(1 for s in scenes if ((s.get("mascot_present") and mascot_ok)
+                                               or (s.get("human_present") and human_ok)))
+        alt_selected = frozenset()
+        est = estimate_cost(len(scenes), host_count, narration_chars)
     if i2v_on:   # i2v (Veo/Sora) isn't in estimate_cost — add the expected motion-clip spend so the
                  # estimate (and the pre-spend cap guard) reflect reality instead of undercounting.
         _frac = I2V_FRACTION_SOCIAL if video_format == "social" else I2V_FRACTION
@@ -5528,6 +5743,39 @@ def run_explainer_pipeline(
         script["_retention_validation"] = retention_validation
         if not claim_validation.get("passed") or not retention_validation.get("passed"):
             raise ValueError("Measured narration changed a story or claim contract before visual spend.")
+        # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
+        # from the final narration and fail before the first image if any opening beat lost its proof.
+        evidence_plan = compile_evidence_plan(script)
+        evidence_validation = evidence_plan.get("validation") or {}
+        script["_evidence_plan"] = evidence_plan
+        if not evidence_validation.get("passed"):
+            raise ValueError(
+                "Measured narration broke the evidence-state plan before visual spend: "
+                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+            )
+        with open(evidence_plan_path, "w") as handle:
+            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+        with open(evidence_validation_path, "w") as handle:
+            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+        with open(continuity_pack_path, "w") as handle:
+            json.dump(evidence_plan["continuity_pack"], handle, indent=2, ensure_ascii=False)
+        final_states = [state for scene_plan in evidence_plan.get("scenes") or []
+                        for state in scene_plan.get("states") or []]
+        final_generated = [state for state in final_states
+                           if state.get("asset_strategy") in {"master", "distinct"}]
+        final_hosts = sum(1 for state in final_generated
+                          if ((state.get("include_bolt") and mascot_ok)
+                              or (state.get("include_human") and human_ok)))
+        est = round(estimate_cost(len(final_generated), final_hosts, narration_chars)
+                    + len(final_states) * 0.02, 2)
+        if i2v_on:
+            clip_count = min(MAX_I2V_CLIPS, max(1, round(len(scenes) * I2V_FRACTION)))
+            est = round(est + clip_count * I2V_SECONDS_LONGFORM * _RATE_I2V_SEC, 2)
+        if est > max_cost_usd:
+            raise ValueError(
+                f"Final evidence plan estimate ${est:.2f} exceeds the ${max_cost_usd:.2f} cap "
+                "before visual purchase."
+            )
         retention_report_path = write_retention_report(
             retention_validation, script.get("_story_contract") or {}, output_dir)
         with open(claim_report_path, "w") as handle:
@@ -5541,11 +5789,104 @@ def run_explainer_pipeline(
         except OSError:
             pass
 
+    evidence_asset_paths: dict[str, str] = {}
+
+    def _gen_evidence_assets(i: int, scene: dict, img_path: str, aud_path: str) -> dict:
+        """Generate every declared state; failures stay rejected and cannot become a master crop."""
+        scene_plan = (evidence_plan.get("scenes") or [])[i]
+        states = scene_plan.get("states") or []
+        generated_paths: dict[str, str] = {}
+        attempts = []
+        master_path = ""
+        for state_index, state in enumerate(states):
+            suffix = "master" if state_index == 0 else f"e{state_index + 1:02d}"
+            state_path = img_path if state_index == 0 else os.path.join(
+                img_dir, f"scene_{i:02d}_{suffix}.jpg")
+            strategy = _s(state.get("asset_strategy"))
+            source_path = evidence_asset_paths.get(_s(state.get("source_asset_id")), "")
+            if not source_path and state_index > 0:
+                source_path = master_path
+            if not source_path and i > 0 and state.get("opening"):
+                source_path = evidence_asset_paths.get("asset:s001:e01", "")
+            generation_error = ""
+            cached = False
+            try:
+                if strategy == "exact_reuse":
+                    verification = reuse_exact_asset(source_path, state_path)
+                elif strategy == "detail_reframe":
+                    if not source_path or not os.path.isfile(source_path):
+                        raise FileNotFoundError("detail source asset is unavailable")
+                    _make_detail_reframe(source_path, state_path)
+                    verification = verify_evidence_asset(
+                        state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
+                        reference_paths=[source_path])
+                else:
+                    continuity_source = source_path or (master_path if state_index else "")
+                    refs = _evidence_reference_paths(
+                        state, human_ok=human_ok, mascot_ok=mascot_ok,
+                        continuity_source=continuity_source)
+                    prompt = _evidence_state_prompt(
+                        scene, state, evidence_plan["continuity_pack"], style_suffix)
+                    cached = (asset_resume_allowed and os.path.isfile(state_path)
+                              and os.path.getsize(state_path) > 0)
+                    if not cached:
+                        try:
+                            generate_image(prompt, state_path, reference_paths=refs,
+                                           cost_sink=img_costs, size=img_size)
+                        except ContentBlocked:
+                            generate_image(
+                                prompt + " SAFE REDRAW: symbolic, non-graphic, and moderation-safe while "
+                                "preserving every required object state and forbidden-object rule.",
+                                state_path, reference_paths=refs, cost_sink=img_costs, size=img_size)
+                    verification = verify_evidence_asset(
+                        state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
+                        reference_paths=refs)
+            except Exception as exc:
+                generation_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+                verification = None
+            record_asset_verification(
+                state, asset_path=state_path, verification=verification,
+                generation_error=generation_error)
+            attempts.append({
+                "state_id": state.get("state_id"), "asset_id": state.get("asset_id"),
+                "strategy": strategy, "status": state.get("asset_status"),
+                "reused_checkpoint_asset": cached,
+                "rejection_reasons": state.get("rejection_reasons") or [],
+            })
+            if state.get("asset_status") in {"accepted", "reused_exact"}:
+                evidence_asset_paths[_s(state.get("asset_id"))] = state_path
+                generated_paths[_s(state.get("asset_id"))] = state_path
+                if state_index == 0:
+                    master_path = state_path
+                log(f"Evidence {i+1}.{state_index+1} ✓ {strategy}")
+            else:
+                log(f"✗ Evidence {i+1}.{state_index+1} REJECTED — "
+                    + "; ".join(state.get("rejection_reasons") or ["unknown failure"]))
+
+        prepared_item = prepared_audio.get(i)
+        word_times = prepared_item.get("word_times") if prepared_item else None
+        audio_path = prepared_item.get("aud") if prepared_item else aud_path
+        evidence_ok = bool(states) and all(
+            state.get("asset_status") in {"accepted", "reused_exact"} for state in states)
+        accepted_paths = [generated_paths.get(_s(state.get("asset_id"))) for state in states]
+        accepted_paths = [path for path in accepted_paths if path]
+        return {
+            "i": i, "scene": scene, "img": master_path or img_path,
+            "alt_img": accepted_paths[1] if len(accepted_paths) > 1 else None,
+            "evidence_assets": generated_paths, "evidence_states": states,
+            "evidence_attempts": attempts, "evidence_ok": evidence_ok,
+            "aud": audio_path, "img_ok": evidence_ok, "aud_ok": bool(prepared_item),
+            "note": "evidence-accepted" if evidence_ok else "evidence-rejected",
+            "word_times": word_times,
+        }
+
     def _gen_assets(args):
         i, scene = args
         img_path = os.path.join(img_dir, f"scene_{i:02d}.jpg")
         alt_path = os.path.join(img_dir, f"scene_{i:02d}_alt.jpg")
         aud_path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
+        if video_format != "social":
+            return _gen_evidence_assets(i, scene, img_path, aud_path)
         # RESUME: if this scene's image + audio already exist on disk, reuse them — never
         # re-pay for a scene we already generated (the whole point of the checkpoint).
         if (asset_resume_allowed and os.path.exists(img_path) and os.path.getsize(img_path) > 0
@@ -5643,6 +5984,14 @@ def run_explainer_pipeline(
     # A render bug once torched a full 120-image run; this caps that loss at ~1 image.
     log("Smoke-testing the render on scene 1 before generating the rest...")
     r0 = _gen_assets((0, scenes[0]))   # generates scene-1 image + audio (counts toward cost)
+    if video_format != "social" and not r0.get("evidence_ok"):
+        evidence_validation = validate_evidence_plan(
+            evidence_plan, require_verified_assets=True, opening_only=True)
+        with open(evidence_plan_path, "w") as handle:
+            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+        with open(evidence_validation_path, "w") as handle:
+            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+        raise RuntimeError("Opening evidence assets were rejected before the render smoke test.")
     if not r0["aud_ok"]:
         raise RuntimeError("Scene 1 audio failed — aborting before generating the other images.")
     try:
@@ -5698,7 +6047,7 @@ def run_explainer_pipeline(
     if os.path.exists(_smoke):
         os.remove(_smoke)
 
-    # LONG-FORM FIRST-MINUTE GATE: pay only for the opening tranche, render it, and grade the
+    # LONG-FORM 45-SECOND GATE: pay only for the opening tranche, render it, and grade the
     # actual edit before purchasing the remaining images/TTS. Social retains its one-frame hook gate.
     all_indexed = list(enumerate(scenes))
     opening_stop = len(scenes)
@@ -5710,7 +6059,7 @@ def run_explainer_pipeline(
             estimate_cursor += (_audio_dur(prepared_item["aud"]) if prepared_item else
                                 max(0.8, len(_s(scene.get("narration")).split()) / 2.64))
             opening_stop = i + 1
-            if estimate_cursor >= 60.0:
+            if estimate_cursor >= 45.0:
                 break
     opening_rest = []
     if opening_stop > 1:
@@ -5719,38 +6068,68 @@ def run_explainer_pipeline(
     opening_results = [r0] + opening_rest
 
     if video_format != "social":
-        log(f"stage:Rendering first-minute gate ({opening_stop}/{len(scenes)} planned scenes)...")
+        if any(not result.get("evidence_ok") for result in opening_results):
+            with open(evidence_plan_path, "w") as handle:
+                json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+            raise RuntimeError("One or more first-tranche evidence assets were explicitly rejected.")
+        evidence_validation = validate_evidence_plan(
+            evidence_plan, require_verified_assets=True, opening_only=True)
+        with open(evidence_plan_path, "w") as handle:
+            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+        with open(evidence_validation_path, "w") as handle:
+            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+        if not evidence_validation.get("passed"):
+            raise RuntimeError(
+                "Opening evidence gate failed before later visual purchase: "
+                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+            )
+        log("Opening evidence gate: PASS — %(verified_information_ratio).0%% verified-information cuts"
+            % {"verified_information_ratio": 100 * evidence_validation["verified_information_ratio"]})
+        log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
             first_minute_preview_path, opening_metrics, opening_cues = _render_first_minute_preview(
                 opening_results, output_dir, cap_mode=cap_mode, style_mode=style_mode,
                 vw=vw, vh=vh, bg_music_path=bg_music_path)
             preview_duration = _audio_dur(first_minute_preview_path)
             preview_state = {"decodable": _clip_is_real(first_minute_preview_path, min_dur=10),
-                             "duration_sec": round(preview_duration, 1), "target_sec": 60}
+                             "duration_sec": round(preview_duration, 1), "target_sec": 45}
             opening_script = dict(script)
             opening_script["scenes"] = [r["scene"] for r in opening_results if r.get("aud_ok")]
             readiness = score_retention_readiness(
                 opening_script, retention_validation or {}, opening_metrics, opening_cues,
                 preview=preview_state)
             readiness_report_path, readiness_json_path = write_readiness_report(readiness, output_dir)
-            log(f"First-minute Retention Readiness: {readiness['score']}/100 "
+            log(f"45-second Retention Readiness: {readiness['score']}/100 "
                 f"({readiness['grade']}) — {readiness['label']}")
             if not readiness["passed"] and os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
                 raise RuntimeError(
-                    f"First-minute gate scored {readiness['score']}/100 ({readiness['grade']}); "
+                    f"45-second gate scored {readiness['score']}/100 ({readiness['grade']}); "
                     f"aborted before generating the remaining {len(scenes) - opening_stop} scenes."
                 )
         except Exception as exc:
             if os.environ.get("FIRST_MINUTE_GATE_HARD", "1") == "1":
                 raise
-            log(f"⚠ First-minute gate unavailable ({type(exc).__name__}) — continuing in advisory mode")
+            log(f"⚠ 45-second gate unavailable ({type(exc).__name__}) — continuing in advisory mode")
 
     later = []
     if opening_stop < len(scenes):
-        log(f"First-minute gate passed ✓ — generating the remaining {len(scenes) - opening_stop} scenes")
+        log(f"45-second gate passed ✓ — generating the remaining {len(scenes) - opening_stop} scenes")
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
             later = list(ex.map(_gen_assets, all_indexed[opening_stop:]))
     results = opening_results + later   # _gen_assets never raises
+
+    if video_format != "social":
+        evidence_validation = validate_evidence_plan(
+            evidence_plan, require_verified_assets=True)
+        with open(evidence_plan_path, "w") as handle:
+            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+        with open(evidence_validation_path, "w") as handle:
+            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+        if not evidence_validation.get("passed"):
+            raise RuntimeError(
+                "Final evidence asset validation failed: "
+                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+            )
 
     # END-OF-RUN RECOVERY: a transient blip (APIConnectionError) can strand scenes on filler frames
     # even though the endpoint recovers seconds later. Retry ONLY those transient fillers once more,
@@ -5889,6 +6268,7 @@ def run_explainer_pipeline(
             has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
             i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
             word_times=r.get("word_times"),
+            evidence_states=r.get("evidence_states"),
         ) if video_format != "social" else []
         try:
             _visual_source = _mv
@@ -6118,6 +6498,9 @@ def run_explainer_pipeline(
         "research_report_path": research_report_path,
         "claim_report_path": claim_report_path,
         "audio_timing_report_path": audio_timing_report_path,
+        "evidence_plan_path": evidence_plan_path,
+        "evidence_validation_path": evidence_validation_path,
+        "continuity_pack_path": continuity_pack_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,
         "first_minute_preview_path": first_minute_preview_path,
