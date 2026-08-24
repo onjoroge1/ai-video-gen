@@ -11,7 +11,11 @@ class QuizCreativeContract:
     reveal_min_sec: float = 0.8
     reveal_max_sec: float = 1.2
     final_reveal_min_sec: float = 1.6
-    final_reveal_max_sec: float = 2.4
+    # Raised from 2.4s. The closing card is sized from its narration, so the old cap silently
+    # clipped any CTA longer than "Tomorrow is harder." — the ending had to be terse because
+    # the renderer said so, and it landed abrupt. 3.4s fits an ask *and* a reason at the
+    # longest realistic answer word, and gives the payoff room to resolve instead of stopping.
+    final_reveal_max_sec: float = 3.6
     progressive_clues: bool = True
     standalone_intro_sec: float = 0.0
     standalone_outro_sec: float = 0.0
@@ -34,12 +38,21 @@ def clamp_quiz_items(item_count: int, maximum: int = QUIZ_V2.max_items) -> int:
 
 
 def round_narration(category: str, index: int, total: int) -> str:
+    """Lines are hard-bounded by ``guess_window_sec`` — each plays over its own countdown, and a
+    longer line collides with the reveal that follows it. Measured TTS: the opener runs 2.21s
+    inside a 2.4s window, where "Three animals are hiding in the wild. The last one fools almost
+    everyone." runs 4.39s and would talk straight over the first answer.
+
+    So the promise is split rather than dropped. The opener states the search; "this one fools
+    everyone" moves to the final round, where it doubles as a re-hook at the point a viewer is
+    most likely to leave, instead of being spent in the first two seconds.
+    """
     category = (category or "things").strip().lower()
     if index == 1:
         count = "Two" if total == 2 else "Three"
-        return f"{count} {category}. Guess fast."
+        return f"{count} {category} are hiding. Spot them."
     if index == total:
-        return "Final one. Expert."
+        return "Last one. This fools everyone."
     return f"Round {index}. Harder."
 
 
@@ -63,8 +76,12 @@ def final_reveal_narration(answer: str) -> str:
     gave the viewer a reason. A promise does: "tomorrow is harder" is the reason, and the
     on-screen card carries the ask, so the two channels do not repeat each other.
 
-    Kept deliberately short. The final card's length is derived from this line and capped at
-    ``final_reveal_max_sec``, so a longer line is silently clipped — measured, the older
-    "Tomorrow is harder. Subscribe." wording overran the cap on any answer from "Pangolin" up.
+    Names the next video rather than the channel: "tomorrow's quiz" is a specific thing to come
+    back for, where "subscribe" alone asks for a standing commitment and "new quiz daily" states
+    a schedule. Ask first, reason second, so the button press has a why attached to it.
+
+    Measured against ``final_reveal_max_sec``: this line runs 2.74s on a short answer and 3.12s
+    on "Hippopotamus", inside the 3.4s card. The cap is a real ceiling — the card is sized from
+    this narration and anything longer loses its last word.
     """
-    return f"{(answer or '').strip()}! Tomorrow is harder."
+    return f"{(answer or '').strip()}! Subscribe — tomorrow's quiz is harder."

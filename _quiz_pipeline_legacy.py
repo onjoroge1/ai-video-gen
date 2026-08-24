@@ -30,6 +30,10 @@ FF = os.environ.get("FFMPEG_BIN") or shutil.which("ffmpeg") or "/opt/homebrew/bi
 FP = os.environ.get("FFPROBE_BIN") or shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
 FONT = os.environ.get("QUIZ_FONT", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
 W, H, FPS = 1080, 1920, 30
+# Habitat is the primary format: the silhouette sits where the animal actually lives, and the
+# reveal wakes the same frame. QUIZ_HABITAT=0 falls back to the flat-colour format, which is
+# kept deliberately as the A/B control rather than deleted.
+HABITAT = os.environ.get("QUIZ_HABITAT", "1") == "1"
 FAL_OPENER = os.environ.get("QUIZ_FAL_OPENER", "0") == "1"
 FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
@@ -59,11 +63,19 @@ _QUIZ_SYSTEM = (
     "and composition as its clue so the black shape can fill with color. Use a clean SOLID colorful studio "
     "background, NO habitat/scene/water. \"reaction\" is a 2-4 word reveal punch flavored by difficulty ('Too easy!' / 'Tricky one!' / "
     "'Almost nobody gets this!').\n"
+    "HABITAT: also give each item a \"habitat\" — the real environment that species lives in, written as a "
+    "cinematic wide shot with depth and natural light (e.g. 'a misty rainforest clearing at dawn, shafts of "
+    "sunlight through the canopy, wet leaves in the foreground'). Describe ONLY the environment: no animal, "
+    "no text, no people. It must be somewhere the animal genuinely belongs and must leave an obvious place "
+    "for a large animal to sit in the middle distance. Also give \"pose\" — a few words for how the animal "
+    "sits in that scene (e.g. 'swimming low through shallow water, seen side-on').\n"
     "Return ONLY JSON: {\"title\":\"clickable title, e.g. 'Can You Name All 3 From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
     "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
     "\"difficulty\":\"medium|hard|expert\",\"clue_visual\":\"a clean bold black silhouette of a camel in "
     "profile\",\"reveal_visual\":\"a cute friendly 3D camel centered on a clean solid background\","
+    "\"habitat\":\"a windswept desert dune field at golden hour, long shadows, heat haze on the horizon\","
+    "\"pose\":\"standing side-on in the middle distance\","
     "\"answer\":\"CAMEL\",\"reaction\":\"Too easy!\",\"fact\":\"one short fun fact\","
     "\"color\":\"gold|teal|lavender|coral|sky|mint|amber|rose\"}]}."
 )
@@ -165,16 +177,18 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
         # over this same card, so the two channels complement instead of repeating.
         top = top or "GOT ALL 3? · SUBSCRIBE"
     if top:
-        d.rounded_rectangle([55, 155, W-55, 335], radius=32, fill=(*NAVY, 245))
-        title_size = _fit_text_size(top, 70, W - 170)
-        _t(d, (W//2, 225), top, title_size, WHITE, stroke=6)
+        # Trimmed ~20% against the flat-colour layout. On a habitat the banner competes with the
+        # thing the viewer is supposed to be searching, so it gives the scene back its top third.
+        d.rounded_rectangle([95, 158, W-95, 302], radius=28, fill=(*NAVY, 240))
+        title_size = _fit_text_size(top, 58, W - 240)
+        _t(d, (W//2, 218), top, title_size, WHITE, stroke=5)
     if round_label:
         dc = _DIFF_COLORS.get(difficulty.lower(), (245, 180, 60)); lbl = difficulty.upper()
         sub = f"{round_label} · {lbl}"
-        sub_size = _fit_text_size(sub, 42, W - 250)
-        sw = int(_font(sub_size).getlength(sub)) + 70
-        d.rounded_rectangle([W//2-sw//2, 278, W//2+sw//2, 360], radius=22, fill=(*dc, 255))
-        _t(d, (W//2, 319), sub, sub_size, WHITE, stroke=4)
+        sub_size = _fit_text_size(sub, 36, W - 300)
+        sw = int(_font(sub_size).getlength(sub)) + 60
+        d.rounded_rectangle([W//2-sw//2, 258, W//2+sw//2, 326], radius=20, fill=(*dc, 255))
+        _t(d, (W//2, 293), sub, sub_size, WHITE, stroke=3)
     elif difficulty:                                       # compatibility for any standalone caller
         dc = _DIFF_COLORS.get(difficulty.lower(), (245, 180, 60)); lbl = difficulty.upper()
         bw = int(_font(48).getlength(lbl)) + 64
@@ -205,6 +219,16 @@ def _fit(src, out, mode="fit", bg=(0, 0, 0)):
     im = Image.open(src).convert("RGB")
     fitted = ImageOps.pad(im, (W, H), color=bg) if mode == "pad" else ImageOps.fit(im, (W, H))
     _save_png_atomic(fitted, out)
+
+
+def _dim(src, out, brightness, saturation):
+    """Scale brightness and saturation. Used to put the habitat to sleep during the guess and
+    wake it on the reveal, which is the payoff the flat-colour format has no way to deliver."""
+    im = Image.open(src).convert("RGB")
+    a = np.asarray(im).astype(np.float32)
+    grey = a @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    a = (grey[..., None] + (a - grey[..., None]) * float(saturation)) * float(brightness)
+    _save_png_atomic(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)), out)
 
 
 def _edge_background(src):
@@ -308,9 +332,15 @@ def _still(img, out, d, drift=True):
 _DRIFT_PER_SEC = 0.0625        # 5% across a 0.8s countdown card
 _DRIFT_MAX = 0.11              # keep a long card from cropping its own safe zone
 _EASE_SEC = 0.28               # progressive-crop widening eases instead of cutting
+# The closing card is the payoff and the longest card in the video, and it read as static:
+# a slow push on a mostly-flat reveal barely moves. It gets its own faster rate and a higher
+# ceiling. Safe to push harder here than on a clue card because overlays composite *after*
+# the zoom, so the answer and CTA never travel toward the frame edge.
+_DRIFT_CLOSING_PER_SEC = 0.105
+_DRIFT_CLOSING_MAX = 0.24
 
 
-def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC):
+def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max=None):
     """zoompan `z` that eases z_from -> z_to, then holds, with duration-aware drift on top.
 
     The widening between countdown stages used to be a hard jump between two pre-cropped
@@ -330,7 +360,8 @@ def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC):
         base = f"if(lt(on,{ease_frames}),{eased},{target:.4f})"
     else:
         base = f"{target:.4f}"
-    total_drift = min(_DRIFT_MAX, drift * duration) if drift else 0.0
+    ceiling = _DRIFT_MAX if drift_max is None else float(drift_max)
+    total_drift = min(ceiling, drift * duration) if drift else 0.0
     if total_drift:
         return f"({base})*(1+{total_drift:.6f}*on/{frames})"
     return f"({base})"
@@ -358,7 +389,7 @@ def _render_sequence(specs, out, expected_duration):
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", path]
         slot += 1
         zoom = _zoom_expr(duration, opts.get("z_from"), opts.get("z_to"),
-                          opts.get("drift", _DRIFT_PER_SEC))
+                          opts.get("drift", _DRIFT_PER_SEC), opts.get("drift_max"))
         stage = (f"[{index}:v]scale=1300:-1,zoompan=z='{zoom}':"
                  f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
                  f"trim=duration={duration:.3f},setpts=PTS-STARTPTS")
@@ -646,6 +677,44 @@ def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
     _save_png_atomic(canvas, out)
 
 
+def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink):
+    """Generate an in-habitat clue/reveal pair that share one camera.
+
+    Order matters. The flat-colour format generates the silhouette first and grows a reveal out
+    of it, which works because the background is a single colour and trivially reproducible. A
+    habitat is not reproducible from a description twice running — two independent generations
+    give two different forests, and the reveal stops being a payoff and becomes a scene change.
+
+    So the *reveal* is authored first, and the clue is an edit of those exact pixels with the
+    animal blacked out. The scene is then guaranteed identical and the reveal is a true match
+    cut: only the animal changes.
+
+    Returns ``(mode, ok)``; ``ok`` is False when the silhouette edit could not be produced, so
+    the caller can fall back to the flat-colour format rather than ship an unguessable clue.
+    """
+    scene = ep._s(habitat).strip() or "its natural habitat, cinematic wide shot, natural light"
+    stance = ep._s(pose).strip() or "in the middle distance, seen side-on"
+    ep.generate_image(
+        f"Cinematic wildlife photograph. A {answer} {stance} in {scene}. The animal is clearly "
+        "visible, unobstructed, correct species anatomy, occupying roughly a third of the frame. "
+        "Shot on a long lens with natural depth of field, photoreal, rich natural colour, "
+        "volumetric light. No text, letters, numbers, watermark, people, or borders.",
+        reveal_dst, size=size, cost_sink=cost_sink)
+    try:
+        ep.generate_image(
+            "Keep this photograph EXACTLY as it is — identical camera, framing, composition, "
+            "background, lighting direction and every environmental detail. Change ONLY the "
+            f"{answer}: fill its silhouette with flat opaque pure black, like a subject in "
+            "heavy backlit shadow. No interior detail, no texture, no eye, no rim highlight "
+            "inside the shape — only its outline should read. Do not move, resize, add or "
+            "remove anything else. No text or watermark.",
+            clue_dst, size=size, cost_sink=cost_sink, reference_paths=[reveal_dst])
+        return "habitat_pair", True
+    except Exception as exc:
+        print(f"[quiz] habitat silhouette edit failed: {exc}")
+        return "habitat_reveal_only", False
+
+
 def sil_bg_for(idx=0):
     """The (name, rgb) field colour ``make_silhouette_clue`` will pick for this round index.
 
@@ -705,6 +774,14 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     CDN = QUIZ_V2.guess_window_sec / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
     timing_warnings = []
+    # The round badge was hardcoded to "ANIMAL", so a fruits or planets quiz labelled every
+    # round ANIMAL 1/3. The category is a free parameter of this pipeline, so the badge has to
+    # follow it: last word, singularised, since categories arrive plural ("wild animals").
+    _noun = (ep._s(quiz.get("category")) or category or "item").strip().split()[-1].upper()
+    round_noun = _noun[:-1] if len(_noun) > 3 and _noun.endswith("S") else _noun
+    # "CAN YOU GET 3/3?" states the scoring rules. On a habitat clue the interesting question is
+    # not how many you score, it is that something is in the frame you have not found yet.
+    clue_banner = "SOMETHING IS HIDING" if HABITAT else f"CAN YOU GET {len(items)}/{len(items)}?"
     # A Short loops instantly, so the last frame sits directly against the first. Round one's
     # field is known up front, and the final reveal is generated and padded to land on it, which
     # turns the loop point from a colour flip into a match cut.
@@ -713,21 +790,35 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     for i, it in enumerate(items, 1):
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
         clue = f"{A}/clue{i}.png"; rev = f"{A}/rev{i}.png"
-        if is_silhouette_clue(it.get("clue_visual")):
-            # "from the shadow" → a TRUE black silhouette; pad with the same bright bg for a seamless panel
-            bg = make_silhouette_clue(ep._s(it.get("clue_visual")), clue, "1024x1536", costs, idx=i)
-        else:
-            _safe_image(ep._s(it.get("clue_visual")) + ", centered with margin, on a flat bright "
-                        "background, bold clean shape, no text." + STY, clue, "1024x1536", costs)
-        if i == 1:
-            loop_rgb = bg
         answer = ep._s(it.get("answer"))
         closes_loop = i == len(items)
-        reveal_mode = _generate_reveal(answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
-                                       bg_name=loop_name if closes_loop else "")
-        _fit(clue, f"{A}/clue{i}_b.png", "pad", bg=bg)
-        _fit(rev, f"{A}/rev{i}_b.png", "pad",
+        in_habitat = False
+        if HABITAT:
+            reveal_mode, in_habitat = _habitat_pair(
+                answer, it.get("habitat"), it.get("pose"), clue, rev, "1024x1536", costs)
+        if not in_habitat:
+            # Flat-colour control format: silhouette first, reveal grown out of it.
+            if is_silhouette_clue(it.get("clue_visual")):
+                # "from the shadow" → a TRUE black silhouette; pad with the same bright bg for a seamless panel
+                bg = make_silhouette_clue(ep._s(it.get("clue_visual")), clue, "1024x1536", costs, idx=i)
+            else:
+                _safe_image(ep._s(it.get("clue_visual")) + ", centered with margin, on a flat bright "
+                            "background, bold clean shape, no text." + STY, clue, "1024x1536", costs)
+            reveal_mode = _generate_reveal(answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
+                                           bg_name=loop_name if closes_loop else "")
+        if i == 1:
+            loop_rgb = _edge_background(clue) if in_habitat else bg
+        # A habitat fills the frame, so it is cropped to portrait rather than padded — a letterbox
+        # would announce that the clue and the reveal are the same still.
+        _fit(clue, f"{A}/clue{i}_b.png", "fit" if in_habitat else "pad", bg=bg)
+        _fit(rev, f"{A}/rev{i}_b.png", "fit" if in_habitat else "pad",
              bg=loop_rgb if closes_loop else _edge_background(rev))
+        if in_habitat:
+            # The scene sleeps while you guess and wakes on the answer. Dimming the clue also
+            # buys the black silhouette the separation it needs to stay readable against a
+            # detailed background, which a flat field gave it for free.
+            _dim(f"{A}/clue{i}_b.png", f"{A}/clue{i}_b.png", 0.62, 0.72)
+            _dim(f"{A}/rev{i}_b.png", f"{A}/rev{i}_b.png", 1.06, 1.10)
         diff = ep._s(it.get("difficulty")).lower() or ("medium" if i == 1 else "expert" if i == len(items) else "hard")
         # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
         # removing ~1.5-2 seconds of setup from every round.
@@ -737,13 +828,18 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         countdown_overlays = []; countdown_outputs = []; countdown_bases = []
         # The ladder drives the eased render; the cropped PNGs still exist because the vision
         # QA pass grades the actual opening crop, and the fal opener needs flat cards.
-        zoom_ladder = [clue_zoom(diff, stage) for stage in range(3)]
+        # A habitat clue is a scene to search, not a shape to uncrop. The flat-colour ladder
+        # opens at 1.85 — on a habitat that throws away the environment the clue depends on and
+        # makes frame zero the moment of least information. Habitat gets a shallow pull-back
+        # instead: the whole scene reads immediately and each 0.8s stage still lands a beat.
+        zoom_ladder = ([1.16, 1.08, 1.0] if in_habitat
+                       else [clue_zoom(diff, stage) for stage in range(3)])
         for stage, k in enumerate((3, 2, 1)):
             stage_base = f"{A}/clue{i}_stage{stage}.png"
             _progressive_crop(f"{A}/clue{i}_b.png", stage_base, zoom_ladder[stage])
             countdown_bases.append(stage_base)
-            _text_png(f"{A}/cd{i}_{k}_t.png", top="CAN YOU GET 3/3?", difficulty=diff,
-                      round_label=f"ANIMAL {i}/{len(items)}", cd_left=k)
+            _text_png(f"{A}/cd{i}_{k}_t.png", top=clue_banner,
+                      difficulty=diff, round_label=f"{round_noun} {i}/{len(items)}", cd_left=k)
             countdown_overlays.append(f"{A}/cd{i}_{k}_t.png")
             countdown_outputs.append(f"{A}/c{i}1_{k}.mp4")
         grade = grade_quiz_visuals(countdown_bases[0], f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png",
@@ -815,13 +911,17 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # reads as emphasis rather than as a new card.
             _text_png(f"{A}/r{i}_cta_t.png", subscribe=True,
                       bolt=True, answer=answer.upper() + "!")
-            answer_beat = min(CDN, max(0.4, dr - QUIZ_V2.reveal_min_sec))
+            answer_beat = CDN
             cta_beat = max(0.3, dr - answer_beat)
-            answer_end_zoom = 1.0 + min(_DRIFT_MAX, _DRIFT_PER_SEC * answer_beat)
+            answer_end_zoom = 1.0 + min(_DRIFT_CLOSING_MAX, _DRIFT_CLOSING_PER_SEC * answer_beat)
             render_specs.append((f"{A}/rev{i}_b.png", answer_beat, False,
-                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0,
+                                  "drift": _DRIFT_CLOSING_PER_SEC,
+                                  "drift_max": _DRIFT_CLOSING_MAX}))
             render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False,
-                                 {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom}))
+                                 {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom,
+                                  "drift": _DRIFT_CLOSING_PER_SEC,
+                                  "drift_max": _DRIFT_CLOSING_MAX}))
             clips.append(f"{A}/r{i}.png"); clips.append(f"{A}/r{i}_cta_t.png")
             dr = answer_beat + cta_beat
         else:
