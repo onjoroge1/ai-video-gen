@@ -1121,6 +1121,13 @@ class ExplainerRequest(BaseModel):
     pilot_batch_id: str = ""
     pilot_kind: Literal["", "standard", "evidence_mystery"] = ""
     pilot_policy: dict = Field(default_factory=dict)
+    # Internal PR8 fields, on the same terms: the public endpoint rejects
+    # controlled_production=True, and only /api/explainer/production can create these values.
+    controlled_production: bool = False
+    production_id: str = ""
+    selection_sha256: str = ""
+    frozen_opening_sha256: str = ""
+    production_policy: dict = Field(default_factory=dict)
 
 
 class ExplainerPilotBatchRequest(BaseModel):
@@ -1131,6 +1138,24 @@ class ExplainerPilotBatchRequest(BaseModel):
     voice: str = "echo"
     standard_direction: str = ""
     mystery_direction: str = ""
+
+
+class ExplainerProductionRequest(BaseModel):
+    """Start the single PR8 90-second run for a PR7 batch that already passed.
+
+    The caller supplies only the source batch and the question. Runtime, story format, thresholds,
+    and the score floor come from the frozen contract, and the winning structure is derived from
+    the recorded PR7 scores rather than chosen here.
+    """
+    model_config = {"extra": "forbid"}
+
+    batch_id: str
+    question: str
+    voice: str = "echo"
+    operator_direction: str = ""
+    tie_break_reviewer: str = ""
+    tie_break_reason: str = ""
+    tie_break_pilot_kind: Literal["", "standard", "evidence_mystery"] = ""
 
 
 class ExplainerHumanReviewRequest(BaseModel):
@@ -1294,6 +1319,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     "duration_sec": result.get("duration_sec"),
                     "rendered_contract": result.get("rendered_contract") or {},
                     "pilot_artifact_completeness": result.get("pilot_artifact_completeness") or {},
+                    # PR8 conditions its production run on this approved manifest, in a later
+                    # container where the pilot's local paths no longer exist.
+                    "opening_freeze": result.get("opening_freeze") or {},
                     "pilot_snapshot": snapshot,
                     "checkpoint_sha256": checkpoint.get("sha256"),
                 }, worker_id=durable_runtime.worker_id)
@@ -1934,6 +1962,123 @@ async def explainer_pilot_job(job_id: str):
     return {"job": _durable_job_view(row), "artifacts": artifacts}
 
 
+def _pr7_outcomes_for_production(batch: dict) -> list[dict]:
+    """Reduce a completed PR7 batch to the graded outcomes PR8 selects from."""
+    outcomes = []
+    for job in batch.get("jobs") or []:
+        request = job.get("request") if isinstance(job.get("request"), dict) else {}
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        contract = result.get("rendered_contract") if isinstance(
+            result.get("rendered_contract"), dict) else {}
+        outcomes.append({
+            "pilot_kind": request.get("pilot_kind"),
+            "pilot_passed": job.get("status") == "pilot_passed",
+            "job_id": job.get("id"),
+            "automated": {
+                "score": contract.get("score"),
+                "hard_failures": contract.get("hard_failures") or [],
+            },
+            "opening_freeze": result.get("opening_freeze") or {},
+        })
+    return outcomes
+
+
+@app.post("/api/explainer/production")
+async def explainer_create_production_run(request: ExplainerProductionRequest):
+    """Queue the single PR8 90-second run for the stronger structure in a passed PR7 batch."""
+    from longform_production import (
+        ControlledProductionError,
+        build_production_request,
+        production_policy,
+        select_production_structure,
+    )
+
+    _require_render_storage()
+    if not _durable_execution_required():
+        raise HTTPException(
+            status_code=409,
+            detail="Controlled production runs require durable Postgres/Blob execution.")
+    try:
+        store, _ = _durable_components()
+        batch = await asyncio.to_thread(store.get_pilot_batch, request.batch_id)
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "PRODUCTION_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+        }) from exc
+    if not batch:
+        raise HTTPException(status_code=404, detail="Pilot batch not found")
+
+    outcomes = _pr7_outcomes_for_production(batch)
+    tie_break = None
+    if request.tie_break_reviewer or request.tie_break_reason or request.tie_break_pilot_kind:
+        tie_break = {
+            "reviewer": request.tie_break_reviewer,
+            "reason": request.tie_break_reason,
+            "pilot_kind": request.tie_break_pilot_kind,
+        }
+    production_id = f"pr8-{uuid.uuid4().hex[:12]}"
+    try:
+        selection = select_production_structure(outcomes, tie_break=tie_break)
+        winner = next(item for item in outcomes
+                      if item["pilot_kind"] == selection["winning_pilot_kind"])
+        production_request = build_production_request(
+            production_id=production_id,
+            selection=selection,
+            question=request.question,
+            frozen_opening=winner.get("opening_freeze") or {},
+            voice=request.voice,
+            operator_direction=request.operator_direction,
+        )
+        raw_cap = (
+            os.environ.get("PR8_PRODUCTION_MAX_COST_USD", "").strip()
+            or os.environ.get("DURABLE_JOB_MAX_COST_USD", "").strip()
+            or "25.00"
+        )
+        max_cost = float(raw_cap)
+        if max_cost <= 0:
+            raise ValueError("PR8_PRODUCTION_MAX_COST_USD must be positive")
+        run = await asyncio.to_thread(
+            store.enqueue_production_run,
+            production_id=production_id,
+            request=production_request,
+            source_batch_id=request.batch_id,
+            max_cost_usd=max_cost,
+            pipeline_version=durable_execution.version_hash(BASE_DIR),
+        )
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "PRODUCTION_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+        }) from exc
+    except (ControlledProductionError, ValueError,
+            durable_execution.DurableExecutionError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    job_id = (run.get("job") or {}).get("id")
+    return {
+        "production_id": production_id,
+        "status": run.get("status") or "queued",
+        "policy": production_policy(),
+        "selection": selection,
+        "job_id": job_id,
+        "dispatch_url": f"/api/explainer/dispatch/{job_id}",
+        "status_url": f"/api/explainer/status/{job_id}",
+    }
+
+
+@app.get("/api/explainer/production/{production_id}")
+async def explainer_production_run(production_id: str):
+    if not _durable_execution_required():
+        raise HTTPException(status_code=409, detail="Durable execution is not enabled")
+    try:
+        store, _ = _durable_components()
+        run = await asyncio.to_thread(store.get_production_run, production_id)
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not run:
+        raise HTTPException(status_code=404, detail="Production run not found")
+    return run
+
+
 @app.post("/api/explainer/generate")
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
@@ -1942,6 +2087,10 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
         raise HTTPException(
             status_code=403,
             detail="Controlled pilot fields are internal; use /api/explainer/pilots.")
+    if request.controlled_production:
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled production fields are internal; use /api/explainer/production.")
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]

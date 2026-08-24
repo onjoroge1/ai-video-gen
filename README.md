@@ -89,6 +89,24 @@ below 85, any hard failure, an uncalibrated threshold profile, or missing artifa
 failed pilots remain addressable through `GET /api/explainer/pilot/{job_id}`; neither can resume
 into a full video. A new attempt always requires a new pilot batch and immutable job IDs.
 
+### Controlled 90-second production run
+
+`POST /api/explainer/production` queues the single PR8 job that buys one complete 90-second video.
+It takes only a passed PR7 `batch_id` and the question: the structure is derived from the recorded
+PR7 scores rather than chosen by the caller, and a reviewer may decide only an exact score tie —
+with their identity and written reason recorded in the hashed selection. A batch whose pilots did
+not both pass cannot start a production run.
+
+The run inherits the PR7 winner's approved opening freeze by hash and must reuse those exact bytes:
+a regenerated callback object fails. Beyond the ordinary release gate it requires an 87.3–92.7
+second runtime measured from both the encoded MP4 and natural-speed narration (time-stretching is
+rejected), a rendered-contract score of at least 90, zero dropped-narration scenes, zero filler
+frames, no unresolved narrative loop, provenance for every produced media file, a fast-start MP4,
+and observed cross-worker recovery. Every gate is independent, and none of them — nor a failed
+automated or editorial grade — can be promoted in place. `GET /api/explainer/production/{id}`
+returns the run and its job, ending in a `publish` or `do_not_publish` recommendation.
+`PR8_PRODUCTION_MAX_COST_USD` caps a run's spend.
+
 Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
 the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately
 not stored in Postgres or bundled into the Vercel function. Run `python scripts/sync_music_assets.py`

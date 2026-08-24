@@ -6848,6 +6848,10 @@ def run_explainer_pipeline(
                     "continuity_pack_path": continuity_pack_path,
                     "motion_report_path": motion_report_path,
                     "opening_freeze_path": opening_freeze_path,
+                    # The manifest content, not just its local path: a later PR8 production run
+                    # starts in a different container and needs the approved opening hashes to
+                    # survive in durable storage.
+                    "opening_freeze": opening_freeze,
                     "animatic_report_path": animatic_report_path,
                     "animatic_preview_path": animatic_preview_path,
                     "rendered_contract_path": rendered_contract_path,
