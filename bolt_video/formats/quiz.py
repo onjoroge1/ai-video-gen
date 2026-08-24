@@ -57,5 +57,14 @@ def clue_zoom(difficulty: str, stage: int) -> float:
 
 
 def final_reveal_narration(answer: str) -> str:
-    """Place the subscription ask inside the payoff instead of adding a post-game card."""
-    return f"{(answer or '').strip()}! New quiz daily. Subscribe."
+    """Place the reason-to-return inside the payoff instead of adding a post-game card.
+
+    "New quiz daily. Subscribe." stated a channel fact and then asked a favour; neither half
+    gave the viewer a reason. A promise does: "tomorrow is harder" is the reason, and the
+    on-screen card carries the ask, so the two channels do not repeat each other.
+
+    Kept deliberately short. The final card's length is derived from this line and capped at
+    ``final_reveal_max_sec``, so a longer line is silently clipped — measured, the older
+    "Tomorrow is harder. Subscribe." wording overran the cap on any answer from "Pangolin" up.
+    """
+    return f"{(answer or '').strip()}! Tomorrow is harder."

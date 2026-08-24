@@ -33,5 +33,18 @@ def test_quiz_v2_progressively_reveals_harder_clues():
 
 
 def test_subscription_cta_is_inside_the_final_reveal():
-    assert final_reveal_narration("ANTEATER") == "ANTEATER! New quiz daily. Subscribe."
+    assert final_reveal_narration("ANTEATER") == "ANTEATER! Tomorrow is harder."
     assert QUIZ_V2.subscribe_teaser_sec == 0
+
+
+def test_final_reveal_narration_fits_the_closing_card():
+    """The closing card is sized from this line and capped, so an over-long line is clipped.
+
+    Roughly three words per second of TTS at the default rate; the longest realistic answer
+    still has to leave room. This guards the copy, not the renderer — the earlier
+    "Tomorrow is harder. Subscribe." wording measured 2.40s+ on any answer from "Pangolin" up
+    and lost its last word.
+    """
+    longest = final_reveal_narration("Hippopotamus")
+    assert len(longest.split()) <= 6, longest
+    assert len(longest) <= 46, longest

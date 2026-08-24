@@ -160,7 +160,10 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
               subscribe=False, round_label=None, bolt=False):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
     if subscribe:                                          # integrated CTA, not a standalone scene
-        top = top or "NEW QUIZ DAILY · SUBSCRIBE"
+        # Opens with the question the viewer is already answering in their head, which is what
+        # earns the comment; the ask rides along after it. The reason to come back is spoken
+        # over this same card, so the two channels complement instead of repeating.
+        top = top or "GOT ALL 3? · SUBSCRIBE"
     if top:
         d.rounded_rectangle([55, 155, W-55, 335], radius=32, fill=(*NAVY, 245))
         title_size = _fit_text_size(top, 70, W - 170)
@@ -537,17 +540,23 @@ def _safe_image(prompt, path, size, cost_sink, fallback_label="", **kw):
 
 
 def _generate_reveal(answer, clue_visual, clue_path, output_path, size, cost_sink,
-                     reference_first=True, strict=False):
-    """Prefer silhouette-guided image edit, but never turn an edit incompatibility into a blank reveal."""
+                     reference_first=True, strict=False, bg_name=""):
+    """Prefer silhouette-guided image edit, but never turn an edit incompatibility into a blank reveal.
+
+    ``bg_name`` pins the flat backdrop to a named colour. The final reveal uses it to land on the
+    same field the video opened on, so the instant Shorts loop does not cut across a colour flip.
+    """
     pose = _SIL_STRIP.sub("", ep._s(clue_visual)).strip() or ep._s(clue_visual)
+    field = f"flat, evenly lit, bright {bg_name}" if bg_name else "flat clean colorful"
     ref_prompt = (
         f"Transform the attached black silhouette into an unmistakable, anatomically correct full-color "
-        f"3D {answer}. Keep the exact same outline, profile/pose, scale, position, framing, and flat "
-        "background. Add detail inside the existing shape only. No habitat, props, text, or watermark."
+        f"3D {answer}. Keep the exact same outline, profile/pose, scale, position, and framing. Place it "
+        f"on a {field} background, completely flat with no gradient. Add detail inside the existing shape "
+        "only. No habitat, props, text, or watermark."
     )
     text_prompt = (
         f"An unmistakable, anatomically correct full-color 3D {answer}, {pose}. Match that exact profile, "
-        "pose, scale, and framing on a flat clean colorful background. The entire animal must be visible "
+        f"pose, scale, and framing on a {field} background. The entire animal must be visible "
         "with correct species-defining anatomy. Premium cohesive 3D cartoon, no habitat, props, text, "
         "letters, or watermark."
     )
@@ -637,6 +646,15 @@ def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
     _save_png_atomic(canvas, out)
 
 
+def sil_bg_for(idx=0):
+    """The (name, rgb) field colour ``make_silhouette_clue`` will pick for this round index.
+
+    Exposed so the renderer can close the video on the same field it opened on: a Short loops
+    instantly, and a full-frame colour flip between the last and first frame reads as a cut.
+    """
+    return _SIL_BG[idx % len(_SIL_BG)]
+
+
 def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
     """Render a TRUE guess-from-the-shadow clue: a pure-black silhouette on a flat bright background
     (bypasses the vibrant style that was giving the answer away). Returns the chosen bg RGB so the caller
@@ -686,6 +704,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
 
     CDN = QUIZ_V2.guess_window_sec / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
+    timing_warnings = []
+    # A Short loops instantly, so the last frame sits directly against the first. Round one's
+    # field is known up front, and the final reveal is generated and padded to land on it, which
+    # turns the loop point from a colour flip into a match cut.
+    loop_name, loop_rgb = sil_bg_for(1)
 
     for i, it in enumerate(items, 1):
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
@@ -696,10 +719,15 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         else:
             _safe_image(ep._s(it.get("clue_visual")) + ", centered with margin, on a flat bright "
                         "background, bold clean shape, no text." + STY, clue, "1024x1536", costs)
+        if i == 1:
+            loop_rgb = bg
         answer = ep._s(it.get("answer"))
-        reveal_mode = _generate_reveal(answer, it.get("clue_visual"), clue, rev, "1024x1536", costs)
+        closes_loop = i == len(items)
+        reveal_mode = _generate_reveal(answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
+                                       bg_name=loop_name if closes_loop else "")
         _fit(clue, f"{A}/clue{i}_b.png", "pad", bg=bg)
-        _fit(rev, f"{A}/rev{i}_b.png", "pad", bg=_edge_background(rev))
+        _fit(rev, f"{A}/rev{i}_b.png", "pad",
+             bg=loop_rgb if closes_loop else _edge_background(rev))
         diff = ep._s(it.get("difficulty")).lower() or ("medium" if i == 1 else "expert" if i == len(items) else "hard")
         # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
         # removing ~1.5-2 seconds of setup from every round.
@@ -730,8 +758,9 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         if grade.get("reveal_matches_answer") is False or grade.get("anatomy_ok") is False:
             grade["repair_generation_mode"] = _generate_reveal(
                 answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
-                reference_first=False, strict=True)
-            _fit(rev, f"{A}/rev{i}_b.png", "pad", bg=_edge_background(rev))
+                reference_first=False, strict=True, bg_name=loop_name if closes_loop else "")
+            _fit(rev, f"{A}/rev{i}_b.png", "pad",
+                 bg=loop_rgb if closes_loop else _edge_background(rev))
             grade["reveal_regenerated"] = True
             log(f"Round {i} identity QA regenerated the answer reveal")
         visual_qa.append(grade)
@@ -763,8 +792,18 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                   answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
         if is_final:
+            # The card is sized from the narration and capped, so a line that outruns the cap
+            # gets its last words cut off mid-word by the assembly. That used to fail silently;
+            # a clipped CTA is a defect worth surfacing rather than shipping.
+            narration = _dur(f"{A}/n_r{i}.mp3")
+            if narration + 0.12 > QUIZ_V2.final_reveal_max_sec + 1e-6:
+                timing_warnings.append(
+                    f"final CTA narration is {narration:.2f}s but the closing card caps at "
+                    f"{QUIZ_V2.final_reveal_max_sec:.2f}s — the spoken line was cut short")
+                log(f"⚠ final CTA narration {narration:.2f}s exceeds the "
+                    f"{QUIZ_V2.final_reveal_max_sec:.2f}s closing card")
             dr = min(QUIZ_V2.final_reveal_max_sec,
-                     max(QUIZ_V2.final_reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.12))
+                     max(QUIZ_V2.final_reveal_min_sec, narration + 0.12))
         else:
             dr = min(QUIZ_V2.reveal_max_sec,
                      max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
@@ -774,7 +813,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # first and bringing the CTA in on the next beat keeps the pulse through the payoff.
             # Both halves render from the same reveal with a continuous push-in, so the beat
             # reads as emphasis rather than as a new card.
-            _text_png(f"{A}/r{i}_cta_t.png", top="NEW QUIZ DAILY · SUBSCRIBE", subscribe=True,
+            _text_png(f"{A}/r{i}_cta_t.png", subscribe=True,
                       bolt=True, answer=answer.upper() + "!")
             answer_beat = min(CDN, max(0.4, dr - QUIZ_V2.reveal_min_sec))
             cta_beat = max(0.3, dr - answer_beat)
@@ -864,7 +903,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     if description_path:
         log("YouTube description written")
     cost = round(sum(costs), 3)
-    _deg = []
+    _deg = list(timing_warnings)
     if not os.path.exists(out_mp4):
         _deg = ["final video file was not produced — assembly failed"] + _deg
     fal_used = any(event.get("used") for event in fal_opener)
