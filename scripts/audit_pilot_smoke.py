@@ -86,10 +86,12 @@ def _longform_pilot(root: Path) -> dict[str, Any]:
         audio_path = work / f"state_{index:02d}.mp3"
         _tone(audio_path, 3.0, 280 + index * 27)
         segment_path = work / f"segment_{index:02d}.mp4"
+        # `_assemble` crossfades over a held visual tail so narration is never covered.
+        # Production always passes `FADE_DUR`; the audit fixture must preserve that contract.
         pipeline._make_scene_segment(
             str(image_path), str(audio_path), str(segment_path),
             f"Evidence state {index + 1}", "new visible information",
-            motion=motions[index % len(motions)], tail=0.0,
+            motion=motions[index % len(motions)], tail=pipeline.FADE_DUR,
         )
         segments.append(str(segment_path))
         audios.append(str(audio_path))
