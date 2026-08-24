@@ -85,7 +85,8 @@ def version_hash(root: str | os.PathLike[str]) -> str:
     digest = hashlib.sha256()
     for name in (
         "explainer_pipeline.py", "longform_retention.py", "longform_evidence.py",
-        "longform_motion.py", "longform_rendered_gate.py", "durable_execution.py",
+        "longform_motion.py", "longform_pilots.py", "longform_rendered_gate.py",
+        "durable_execution.py",
     ):
         path = os.path.join(root, name)
         digest.update(name.encode())

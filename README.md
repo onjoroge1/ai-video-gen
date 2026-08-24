@@ -75,6 +75,20 @@ caps attempts, and reconciles both registered provisional artifacts and aged unr
 immediately before worker death is the one explicitly documented ambiguous in-flight call; its
 reservation is charged conservatively at finalization.
 
+### Controlled 45-second pilots
+
+`POST /api/explainer/pilots` atomically queues exactly two durable PR7 evaluation jobs: one
+Standard explainer and one Evidence-led Mystery. Both use the fixed 45-second runtime, Standard
+motion treatment, production rendered-story rubric, and current rendered-gate threshold profile.
+The endpoint does not accept runtime, threshold, checkpoint, or replacement-image overrides.
+
+Each job stops after its rendered opening. It persists the complete working artifact tree to Blob
+and waits for the normal hash-bound editorial checklist at
+`POST /api/explainer/human-review/{job_id}`. Editorial approval cannot override an automated score
+below 85, any hard failure, an uncalibrated threshold profile, or missing artifacts. Passed and
+failed pilots remain addressable through `GET /api/explainer/pilot/{job_id}`; neither can resume
+into a full video. A new attempt always requires a new pilot batch and immutable job IDs.
+
 Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
 the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately
 not stored in Postgres or bundled into the Vercel function. Run `python scripts/sync_music_assets.py`

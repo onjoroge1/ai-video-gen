@@ -80,6 +80,13 @@ from longform_rendered_gate import (
     score_rendered_contract,
     watermark_rejected_preview,
 )
+from longform_pilots import (
+    ControlledPilotError,
+    artifact_completeness,
+    pilot_policy as frozen_pilot_policy,
+    validate_effective_story_format,
+    validate_pilot_request,
+)
 from audio_timing import build_audio_timing_report
 from runtime_planner import plan_runtime, runtime_word_bounds
 from retention_readiness import (
@@ -5635,6 +5642,10 @@ def run_explainer_pipeline(
     short_template: str = "auto",   # social only: auto | explainer | simulation
     operator_direction: str = "",   # optional per-video/channel creative direction (subordinate to rules)
     story_format: str = "standard_explainer",
+    controlled_pilot: bool = False,
+    pilot_batch_id: str = "",
+    pilot_kind: str = "",
+    pilot_policy: dict | None = None,
     progress_cb=None,
 ) -> dict:
 
@@ -5655,11 +5666,75 @@ def run_explainer_pipeline(
     i2v_on = ((i2v if i2v is not None else True) if video_format == "social"
               else resolved_motion_mode != "stills") and bool(I2V_PROVIDER)
     threshold_profile = load_threshold_profile() if video_format != "social" else {}
+    pilot_request = None
+    if controlled_pilot:
+        pilot_request = {
+            "question": question,
+            "duration_sec": duration_sec,
+            "voice": voice,
+            "style": style,
+            "image_guidance": image_guidance,
+            "fact_check": fact_check,
+            "video_format": video_format,
+            "speech_bubble": speech_bubble,
+            "i2v": i2v,
+            "motion_mode": resolved_motion_mode,
+            "series": series,
+            "short_template": short_template,
+            "operator_direction": operator_direction,
+            "story_format": story_format,
+            "controlled_pilot": controlled_pilot,
+            "pilot_batch_id": pilot_batch_id,
+            "pilot_kind": pilot_kind,
+            "pilot_policy": pilot_policy or {},
+        }
+        validate_pilot_request(pilot_request)
+        try:
+            from durable_execution import current as _durable_current
+            if _durable_current() is None:
+                raise ControlledPilotError(
+                    "Controlled pilots require durable Postgres/Blob execution.")
+        except ImportError as exc:
+            raise ControlledPilotError(
+                "Controlled pilots require durable Postgres/Blob execution.") from exc
     generation_manifest_path = os.path.join(output_dir, "generation_manifest.json")
     generation_manifest = _generation_manifest_payload(
         video_format=video_format, motion_mode=resolved_motion_mode,
         threshold_profile=threshold_profile)
     _write_generation_manifest(generation_manifest_path, generation_manifest)
+    pilot_control_path = None
+    pilot_script_path = None
+    pilot_cost_report_path = None
+    if controlled_pilot:
+        pilot_control_path = os.path.join(output_dir, "pilot_control.json")
+        pilot_script_path = os.path.join(output_dir, "pilot_script.json")
+        pilot_cost_report_path = os.path.join(output_dir, "pilot_cost_report.json")
+        pilot_control = {
+            "schema_version": 1,
+            "status": "rendering",
+            "pilot_batch_id": pilot_batch_id,
+            "pilot_kind": pilot_kind,
+            "request": pilot_request,
+            "request_sha256": hashlib.sha256(json.dumps(
+                pilot_request, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False).encode("utf-8")).hexdigest(),
+            "threshold_profile": threshold_profile,
+            "threshold_profile_sha256": hashlib.sha256(json.dumps(
+                threshold_profile, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False).encode("utf-8")).hexdigest(),
+            "manual_checkpoint_edits": [],
+            "manual_asset_replacements": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_generation_manifest(pilot_control_path, pilot_control)
+        generation_manifest["controlled_pilot"] = {
+            "batch_id": pilot_batch_id,
+            "pilot_kind": pilot_kind,
+            "policy": frozen_pilot_policy(),
+            "request_sha256": pilot_control["request_sha256"],
+            "threshold_profile_sha256": pilot_control["threshold_profile_sha256"],
+        }
+        _write_generation_manifest(generation_manifest_path, generation_manifest)
     # Landscape + speech_bubble → Bolt "talks" via a synced phrase bubble (replaces headline).
     if video_format == "landscape" and speech_bubble:
         cap_mode = "bubble"
@@ -5864,6 +5939,19 @@ def run_explainer_pipeline(
                     "Long-form retention contract failed before image/TTS spend: "
                     + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
                 )
+
+        if controlled_pilot:
+            effective_story = validate_effective_story_format(script, pilot_request or {})
+            if not effective_story["passed"]:
+                with open(pilot_control_path, encoding="utf-8") as handle:
+                    pilot_control = json.load(handle)
+                pilot_control.update({
+                    "status": "failed_before_visual_spend",
+                    "effective_story_format": effective_story,
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                })
+                _write_generation_manifest(pilot_control_path, pilot_control)
+                raise ControlledPilotError("; ".join(effective_story["errors"]))
 
         fallback = story_format_fallback_payload(script)
         if (fallback["requested"] == "evidence_led_mystery"
@@ -6665,6 +6753,109 @@ def run_explainer_pipeline(
                 json.dump(rendered_contract, handle, indent=2, ensure_ascii=False)
             log(f"Rendered opening contract: {rendered_contract['score']}/100 "
                 f"({rendered_contract['status']})")
+            if controlled_pilot:
+                # PR7 stops here by contract.  Both automated passes and automated failures receive
+                # an editorial record and a complete durable artifact snapshot; neither can buy a
+                # later scene or be silently re-rendered under a different threshold.
+                if not os.path.isfile(human_review_path):
+                    create_human_review_record(
+                        rendered_contract_path, first_minute_preview_path, human_review_path)
+                with open(pilot_script_path, "w", encoding="utf-8") as handle:
+                    json.dump(script, handle, indent=2, ensure_ascii=False)
+                script_cost = float(script.get("_script_cost_usd", 0.0) or 0.0)
+                actual_cost = round(
+                    sum(img_costs) + sum(tts_costs) + sum(aux_costs)
+                    + sum(i2v_costs) + script_cost, 4)
+                cost_report = {
+                    "schema_version": 1,
+                    "pilot_batch_id": pilot_batch_id,
+                    "pilot_kind": pilot_kind,
+                    "currency": "USD",
+                    "script_and_factcheck": round(script_cost, 4),
+                    "images": round(sum(img_costs), 4),
+                    "narration": round(sum(tts_costs), 4),
+                    "judges_and_support": round(sum(aux_costs), 4),
+                    "motion": round(sum(i2v_costs), 4),
+                    "actual_total": actual_cost,
+                    "estimated_cap": round(float(max_cost_usd), 4),
+                    "full_video_assets_purchased": False,
+                    "opening_scene_count": opening_stop,
+                    "total_planned_scene_count": len(scenes),
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                }
+                with open(pilot_cost_report_path, "w", encoding="utf-8") as handle:
+                    json.dump(cost_report, handle, indent=2, ensure_ascii=False)
+                generation_manifest["actual_audio_transformations"] = (
+                    audio_timing.get("audio_transformations") or [])
+                generation_manifest["actual_motion"] = [
+                    {
+                        "state_id": item.get("state_id"),
+                        "provider": item.get("provider"),
+                        "model_id": item.get("model_id"),
+                        "generation_status": item.get("generation_status"),
+                        "provider_attempts": item.get("provider_attempts") or [],
+                    }
+                    for item in (motion_plan.get("candidates") or []) if item.get("selected")
+                ]
+                generation_manifest["status"] = "pilot_rendered_awaiting_editorial"
+                generation_manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
+                generation_manifest["output_sha256"] = sha256_file(first_minute_preview_path)
+                _write_generation_manifest(generation_manifest_path, generation_manifest)
+                with open(pilot_control_path, encoding="utf-8") as handle:
+                    pilot_control = json.load(handle)
+                pilot_control.update({
+                    "status": "awaiting_editorial",
+                    "effective_story_format": validate_effective_story_format(
+                        script, pilot_request or {}),
+                    "rendered_score": rendered_contract.get("score"),
+                    "automated_pass": bool(rendered_contract.get("automated_pass")),
+                    "hard_failures": rendered_contract.get("hard_failures") or [],
+                    "preview_sha256": sha256_file(first_minute_preview_path),
+                    "rendered_contract_sha256": sha256_file(rendered_contract_path),
+                    "rendered_at": datetime.now(timezone.utc).isoformat(),
+                })
+                _write_generation_manifest(pilot_control_path, pilot_control)
+                completeness = artifact_completeness(output_dir)
+                return {
+                    "controlled_pilot": True,
+                    "pilot_batch_id": pilot_batch_id,
+                    "pilot_kind": pilot_kind,
+                    "pilot_policy": frozen_pilot_policy(),
+                    "pilot_artifact_completeness": completeness,
+                    "output_path": first_minute_preview_path,
+                    "script": script,
+                    "title": script.get("title", question),
+                    "hook": script.get("hook", ""),
+                    "scene_count": opening_stop,
+                    "video_format": video_format,
+                    "motion_mode": resolved_motion_mode,
+                    "duration_sec": round(preview_duration, 1),
+                    "est_cost": est,
+                    "actual_cost": actual_cost,
+                    "status": "pilot_awaiting_editorial",
+                    "degraded_reasons": list(rendered_contract.get("hard_failures") or []),
+                    "rendered_contract": rendered_contract,
+                    "retention_readiness": readiness,
+                    "pilot_control_path": pilot_control_path,
+                    "pilot_script_path": pilot_script_path,
+                    "pilot_cost_report_path": pilot_cost_report_path,
+                    "research_report_path": research_report_path,
+                    "claim_report_path": claim_report_path,
+                    "audio_timing_report_path": audio_timing_report_path,
+                    "generation_manifest_path": generation_manifest_path,
+                    "evidence_plan_path": evidence_plan_path,
+                    "evidence_validation_path": evidence_validation_path,
+                    "continuity_pack_path": continuity_pack_path,
+                    "motion_report_path": motion_report_path,
+                    "opening_freeze_path": opening_freeze_path,
+                    "animatic_report_path": animatic_report_path,
+                    "animatic_preview_path": animatic_preview_path,
+                    "rendered_contract_path": rendered_contract_path,
+                    "rendered_contact_sheet_path": rendered_contact_sheet_path,
+                    "human_review_path": human_review_path,
+                    "readiness_json_path": readiness_json_path,
+                    "first_minute_preview_path": first_minute_preview_path,
+                }
             if not rendered_contract.get("automated_pass"):
                 diagnostic = diagnostic_mode_allowed()
                 if diagnostic:
