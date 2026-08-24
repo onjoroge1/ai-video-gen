@@ -299,22 +299,77 @@ def _still(img, out, d, drift=True):
         raise RuntimeError(f"quiz clip encode failed: {os.path.basename(out)}")
 
 
+# Drift is expressed per SECOND, not per card. The old fixed 5%-per-card rule made a 2.4s
+# final reveal drift three times slower on screen than a 0.8s countdown card, so the video
+# visibly lost energy exactly where the payoff needed it most.
+_DRIFT_PER_SEC = 0.0625        # 5% across a 0.8s countdown card
+_DRIFT_MAX = 0.11              # keep a long card from cropping its own safe zone
+_EASE_SEC = 0.28               # progressive-crop widening eases instead of cutting
+
+
+def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC):
+    """zoompan `z` that eases z_from -> z_to, then holds, with duration-aware drift on top.
+
+    The widening between countdown stages used to be a hard jump between two pre-cropped
+    PNGs — a per-frame delta ~17x the ambient drift, i.e. a visible jolt three times per
+    round. Easing it over `_EASE_SEC` keeps the reveal on the same 0.8s beat while removing
+    the jolt. The curve is smoothstep (3u^2-2u^3), which starts *and* ends at zero velocity;
+    a plain ease-out begins at full speed and still reads as a snap on the first frame.
+    No `pow()` needed — smoothstep is only multiplication.
+    """
+    frames = max(2, int(round(duration * FPS)))
+    target = float(z_to if z_to else 1.0)
+    if z_from is not None and z_to is not None and abs(float(z_from) - float(z_to)) > 1e-6:
+        ease_frames = max(1, int(round(_EASE_SEC * FPS)))
+        progress = f"(on/{ease_frames})"
+        smoothstep = f"({progress}*{progress}*(3-2*{progress}))"
+        eased = (f"({float(z_from):.4f}+({float(z_to) - float(z_from):.4f})*{smoothstep})")
+        base = f"if(lt(on,{ease_frames}),{eased},{target:.4f})"
+    else:
+        base = f"{target:.4f}"
+    total_drift = min(_DRIFT_MAX, drift * duration) if drift else 0.0
+    if total_drift:
+        return f"({base})*(1+{total_drift:.6f}*on/{frames})"
+    return f"({base})"
+
+
 def _render_sequence(specs, out, expected_duration):
-    """Encode all cards in one FFmpeg process; avoids fragile twelve-MP4 concat intermediates."""
-    inputs = []; filters = []; labels = []
-    for i, (path, duration, is_video) in enumerate(specs):
+    """Encode all cards in one FFmpeg process; avoids fragile twelve-MP4 concat intermediates.
+
+    A spec is ``(path, duration, is_video)`` or ``(path, duration, is_video, opts)``. ``opts``
+    may carry ``overlay`` — a text PNG composited *after* the zoom, so a widening clue never
+    drags the header, timer or answer out of the Shorts safe zone — plus ``z_from``/``z_to``
+    for the eased progressive crop.
+    """
+    inputs = []; filters = []; labels = []; slot = 0
+    for i, spec in enumerate(specs):
+        path, duration, is_video = spec[0], spec[1], spec[2]
+        opts = spec[3] if len(spec) > 3 else {}
+        index = slot
         if is_video:
-            inputs += ["-i", path]
-            vf = (f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-                  f"fps={FPS},trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
+            inputs += ["-i", path]; slot += 1
+            filters.append(f"[{index}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+                           f"crop={W}:{H},fps={FPS},trim=duration={duration:.3f},"
+                           f"setpts=PTS-STARTPTS[v{i}]")
+            labels.append(f"[v{i}]"); continue
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", path]
+        slot += 1
+        zoom = _zoom_expr(duration, opts.get("z_from"), opts.get("z_to"),
+                          opts.get("drift", _DRIFT_PER_SEC))
+        stage = (f"[{index}:v]scale=1300:-1,zoompan=z='{zoom}':"
+                 f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
+                 f"trim=duration={duration:.3f},setpts=PTS-STARTPTS")
+        overlay = opts.get("overlay")
+        if overlay:
+            over_index = slot
+            inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", overlay]
+            slot += 1
+            filters.append(stage + f"[bg{i}]")
+            filters.append(f"[bg{i}][{over_index}:v]overlay=0:0:format=auto,"
+                           f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
         else:
-            inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", path]
-            frames = max(2, int(round(duration * FPS)))
-            step = 0.05 / frames
-            vf = (f"[{i}:v]scale=1300:-1,zoompan=z='min(1.0+{step:.6f}*on,1.05)':"
-                  f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
-                  f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
-        filters.append(vf); labels.append(f"[v{i}]")
+            filters.append(stage + f"[v{i}]")
+        labels.append(f"[v{i}]")
     filters.append("".join(labels) + f"concat=n={len(specs)}:v=1:a=0,format=yuv420p[out]")
     try:
         os.remove(out)
@@ -652,9 +707,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
         audio.append(("CD", t, "cd"))
         countdown_overlays = []; countdown_outputs = []; countdown_bases = []
+        # The ladder drives the eased render; the cropped PNGs still exist because the vision
+        # QA pass grades the actual opening crop, and the fal opener needs flat cards.
+        zoom_ladder = [clue_zoom(diff, stage) for stage in range(3)]
         for stage, k in enumerate((3, 2, 1)):
             stage_base = f"{A}/clue{i}_stage{stage}.png"
-            _progressive_crop(f"{A}/clue{i}_b.png", stage_base, clue_zoom(diff, stage))
+            _progressive_crop(f"{A}/clue{i}_b.png", stage_base, zoom_ladder[stage])
             countdown_bases.append(stage_base)
             _text_png(f"{A}/cd{i}_{k}_t.png", top="CAN YOU GET 3/3?", difficulty=diff,
                       round_label=f"ANIMAL {i}/{len(items)}", cd_left=k)
@@ -665,7 +723,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         grade["round"] = i; grade["answer"] = answer; grade["difficulty"] = diff
         grade["reveal_generation_mode"] = reveal_mode
         if grade.get("too_easy"):
-            _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[0], clue_zoom(diff, 0) * 1.25)
+            zoom_ladder[0] = clue_zoom(diff, 0) * 1.25
+            _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[0], zoom_ladder[0])
             grade["crop_deepened"] = True
             log(f"Round {i} difficulty QA deepened the opening crop")
         if grade.get("reveal_matches_answer") is False or grade.get("anatomy_ok") is False:
@@ -686,16 +745,21 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             render_specs.extend((out, CDN, True) for out in countdown_outputs)
             clips.extend(countdown_outputs)
         else:
-            for k, base, overlay, out in zip((3, 2, 1), countdown_bases, countdown_overlays, countdown_outputs):
-                card = f"{A}/cd{i}_{k}.png"
-                _composite(base, overlay, card)
-                render_specs.append((card, CDN, False)); clips.append(card)
+            # Render from the uncropped clue and let zoompan ease between ladder stops, so the
+            # widening is continuous. The timer/header ride on top as a fixed overlay and never
+            # inherit the zoom.
+            for stage, overlay in enumerate(countdown_overlays):
+                render_specs.append((f"{A}/clue{i}_b.png", CDN, False, {
+                    "overlay": overlay,
+                    "z_from": zoom_ladder[stage - 1] if stage else None,
+                    "z_to": zoom_ladder[stage],
+                }))
+                clips.append(overlay)
         t += CDN * 3
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
         is_final = i == len(items)
-        final_prompt = "NEW QUIZ DAILY · SUBSCRIBE" if is_final else None
-        _text_png(f"{A}/r{i}_t.png", top=final_prompt, subscribe=is_final, bolt=True,
+        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False, bolt=True,
                   answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
         if is_final:
@@ -704,7 +768,27 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         else:
             dr = min(QUIZ_V2.reveal_max_sec,
                      max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
-        render_specs.append((f"{A}/r{i}.png", dr, False)); clips.append(f"{A}/r{i}.png")
+        if is_final:
+            # The closing card used to be one static hold: no cut for its whole length, on a
+            # video that had trained the viewer to expect a beat every 0.8s. Landing the answer
+            # first and bringing the CTA in on the next beat keeps the pulse through the payoff.
+            # Both halves render from the same reveal with a continuous push-in, so the beat
+            # reads as emphasis rather than as a new card.
+            _text_png(f"{A}/r{i}_cta_t.png", top="NEW QUIZ DAILY · SUBSCRIBE", subscribe=True,
+                      bolt=True, answer=answer.upper() + "!")
+            answer_beat = min(CDN, max(0.4, dr - QUIZ_V2.reveal_min_sec))
+            cta_beat = max(0.3, dr - answer_beat)
+            answer_end_zoom = 1.0 + min(_DRIFT_MAX, _DRIFT_PER_SEC * answer_beat)
+            render_specs.append((f"{A}/rev{i}_b.png", answer_beat, False,
+                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+            render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False,
+                                 {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom}))
+            clips.append(f"{A}/r{i}.png"); clips.append(f"{A}/r{i}_cta_t.png")
+            dr = answer_beat + cta_beat
+        else:
+            render_specs.append((f"{A}/rev{i}_b.png", dr, False,
+                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+            clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
     TOTAL = t
 
@@ -727,7 +811,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         log(f"caption write skipped: {e}"); srt_path = transcript_path = None
 
     log("stage:Assembling final video...")
-    missing_cards = [os.path.basename(path) for path, _, _ in render_specs if not os.path.exists(path)]
+    # Overlays are separate inputs now, so a missing text PNG has to fail here too rather than
+    # surfacing as an opaque filter-graph error after the cards have already been paid for.
+    _required = [spec[0] for spec in render_specs]
+    _required += [spec[3]["overlay"] for spec in render_specs
+                  if len(spec) > 3 and spec[3].get("overlay")]
+    missing_cards = [os.path.basename(path) for path in _required if not os.path.exists(path)]
     if missing_cards:
         raise RuntimeError("quiz assembly blocked by missing cards: " + ", ".join(missing_cards))
     vsil = f"{A}/video_silent.mp4"
