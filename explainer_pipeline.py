@@ -24,6 +24,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 import openai
+from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
 import anthropic
 from openai import OpenAI
 
@@ -193,7 +194,10 @@ def _run_ffmpeg(cmd: list, timeout: float = 180.0):
     - bounds runtime with a timeout so a hung encode raises (and the caller's
       per-scene fail-safe skips it) instead of stalling the whole job forever
     """
-    if cmd and cmd[0] == "ffmpeg" and "-nostdin" not in cmd:
+    # cmd[0] is a resolved path (system or bundled static build), so match on the
+    # basename rather than a bare name, or -nostdin silently stops being injected.
+    if cmd and os.path.basename(str(cmd[0])).startswith("ffmpeg") \
+            and "-nostdin" not in cmd:
         cmd = [cmd[0], "-nostdin", *cmd[1:]]
     return subprocess.run(cmd, check=True, capture_output=True,
                           stdin=subprocess.DEVNULL, timeout=timeout)
@@ -2597,7 +2601,7 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
 
 def _audio_dur(path: str) -> float:
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
+        [_ffprobe_bin(), "-v", "quiet", "-print_format", "json", "-show_format", path],
         capture_output=True, text=True, check=True,
         stdin=subprocess.DEVNULL, timeout=30.0,
     )
@@ -3353,9 +3357,9 @@ def _clip_is_real(path, min_dur=0.8):
     audio-only artifact — can never be reported as a successful animation (the silent-slop bug)."""
     try:
         import subprocess as _sp
-        w = _sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+        w = _sp.run([_ffprobe_bin(), "-v", "error", "-select_streams", "v:0", "-show_entries",
                      "stream=width", "-of", "csv=p=0", path], capture_output=True, text=True, timeout=20).stdout.strip()
-        d = _sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        d = _sp.run([_ffprobe_bin(), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
                     capture_output=True, text=True, timeout=20).stdout.strip()
         return bool(w) and int(w) > 0 and float(d or 0) >= min_dur
     except Exception:
@@ -3638,7 +3642,7 @@ def _make_scene_segment(
             parts.append(f"[{prev}][{nidx}:v]overlay=0:0:enable='between(t\\,{start:.2f}\\,{end:.2f})'[p{nidx}]")
             prev = f"p{nidx}"; nidx += 1
 
-    cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts),
+    cmd = [_ffmpeg_bin(), "-y", *inputs, "-filter_complex", ";".join(parts),
            "-map", f"[{prev}]", "-t", f"{dur:.3f}",
            "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
            output_path]
@@ -3680,7 +3684,7 @@ def _make_multishot_background(
         for clip in clips:
             f.write(f"file '{clip}'\n")
     _run_ffmpeg([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
+        _ffmpeg_bin(), "-y", "-f", "concat", "-safe", "0", "-i", list_path,
         "-c", "copy", output_path,
     ], timeout=240.0)
     for path in clips + [list_path]:
@@ -3709,7 +3713,7 @@ def _xfade_concat(videos: list[str], durations: list[float], out: str, tmp_dir: 
         if i < len(videos) - 1:
             offset += durations[i]
     _run_ffmpeg([
-        "ffmpeg", "-y", *inputs,
+        _ffmpeg_bin(), "-y", *inputs,
         "-filter_complex", ";".join(fc),
         "-map", f"[{cur}]",
         "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
@@ -3736,7 +3740,7 @@ def _make_audio_cue_track(cues: list[dict], total_duration: float, out: str) -> 
     filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=longest,"
                    f"atrim=0:{total_duration:.3f}[cues]")
     _run_ffmpeg([
-        "ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filters),
+        _ffmpeg_bin(), "-y", *inputs, "-filter_complex", ";".join(filters),
         "-map", "[cues]", "-c:a", "pcm_s16le", out,
     ], timeout=120.0)
     return out
@@ -3786,7 +3790,7 @@ def _assemble(
 
     concat_audio = os.path.join(tmp_dir, "_concat_audio.mp3")
     _run_ffmpeg([
-        "ffmpeg", "-y",
+        _ffmpeg_bin(), "-y",
         "-f", "concat", "-safe", "0", "-i", audio_list,
         "-c:a", "libmp3lame",
         concat_audio,
@@ -3801,7 +3805,7 @@ def _assemble(
         for t in reversed(drops):
             music_volume = f"if(between(t\\,{max(0, t - 0.2):.2f}\\,{t + 0.8:.2f})\\,0.018\\,{music_volume})"
         _run_ffmpeg([
-            "ffmpeg", "-y",
+            _ffmpeg_bin(), "-y",
             "-i", concat_audio,
             "-stream_loop", "-1", "-i", bg_music_path,
             "-filter_complex",
@@ -3823,7 +3827,7 @@ def _assemble(
     if cue_track:
         cued = os.path.join(tmp_dir, "_cued.mp3")
         _run_ffmpeg([
-            "ffmpeg", "-y", "-i", final_audio, "-i", cue_track,
+            _ffmpeg_bin(), "-y", "-i", final_audio, "-i", cue_track,
             "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first[mix]",
             "-map", "[mix]", "-c:a", "libmp3lame", cued,
         ], timeout=180.0)
@@ -3833,7 +3837,7 @@ def _assemble(
     #    true-peak -1 dB). OpenAI TTS comes out ~-23 LUFS (≈9 dB too quiet), which reads as
     #    low-confidence vs native Shorts; loudnorm brings it up to platform level.
     _run_ffmpeg([
-        "ffmpeg", "-y",
+        _ffmpeg_bin(), "-y",
         "-i", concat_video,
         "-i", final_audio,
         "-map", "0:v", "-map", "1:a",
@@ -5600,14 +5604,14 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     if not (thumb_path and os.path.exists(thumb_path) and os.path.exists(video_path)):
         return False
     try:
-        wh = subprocess.run(["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+        wh = subprocess.run([_ffprobe_bin(), "-v", "quiet", "-select_streams", "v:0",
                              "-show_entries", "stream=width,height", "-of", "csv=p=0", video_path],
                             capture_output=True, text=True).stdout.strip()
         w, h = [int(x) for x in wh.split(",")[:2]]
     except Exception:
         return False
     tmp = video_path + ".thumbfirst.mp4"
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path, "-i", thumb_path,
+    cmd = [_ffmpeg_bin(), "-y", "-loglevel", "error", "-i", video_path, "-i", thumb_path,
            "-filter_complex",
            f"[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[t];"
            f"[0:v][t]overlay=0:0:enable='lte(t,{hold})'[v]",
@@ -6599,7 +6603,7 @@ def run_explainer_pipeline(
     if video_format == "social" and os.path.exists(_smoke):
         _ff = _smoke + ".frame.png"
         try:
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1.0", "-i", _smoke,
+            subprocess.run([_ffmpeg_bin(), "-y", "-loglevel", "error", "-ss", "1.0", "-i", _smoke,
                             "-frames:v", "1", _ff], check=True)
             _ctr = script.get("_premise_contract") or {}
             _promise = _s(_ctr.get("viewer_promise")) or _s(script.get("hook")) or question

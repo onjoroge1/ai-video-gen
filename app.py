@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import artifact_store
+import media_binaries
 import private_access
 import durable_execution
 
@@ -75,7 +76,12 @@ def _require_render_storage() -> None:
 @app.get("/api/production-readiness")
 async def production_readiness():
     storage = artifact_store.readiness()
+    # A render spends real money on script, image, motion, and narration calls long before
+    # its first encode, so a host that cannot run ffmpeg must be visible here rather than
+    # after the spend.
+    media = media_binaries.preflight()
     checks = {
+        "media_binaries": media["ready"],
         "private_access": private_access.auth_configured(),
         "durable_artifacts": storage["ready"],
         "database": storage["database"],
@@ -90,8 +96,9 @@ async def production_readiness():
             or os.environ.get("RENDER_WORKER_SECRET", "").strip()),
     }
     return {"ready": all((checks["private_access"], checks["durable_artifacts"],
-                          checks["durable_execution"], checks["worker_auth"])),
-            "checks": checks}
+                          checks["durable_execution"], checks["worker_auth"],
+                          checks["media_binaries"])),
+            "checks": checks, "media": media}
 
 # ─── State store (in-memory; use Redis for production) ─────────────────────────
 

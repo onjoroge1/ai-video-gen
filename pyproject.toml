@@ -38,6 +38,7 @@ py-modules = [
     "longform_research",
     "longform_retention",
     "longform_shots",
+    "media_binaries",
     "music_assets",
     "overlays",
     "pipeline",

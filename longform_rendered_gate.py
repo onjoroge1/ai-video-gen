@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -554,7 +556,7 @@ def render_low_cost_animatic(script: dict, evidence_plan: dict, prepared_audio: 
                 y += 31
         image.save(image_path, "JPEG", quality=88)
         subprocess.run([
-            "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-loop", "1", "-i", str(image_path),
+            _ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-loop", "1", "-i", str(image_path),
             "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-tune", "stillimage",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(segment_path),
         ], check=True, capture_output=True, timeout=120)
@@ -564,7 +566,7 @@ def render_low_cost_animatic(script: dict, evidence_plan: dict, prepared_audio: 
     concat_path = root / "segments.txt"
     concat_path.write_text("".join(f"file '{path.as_posix()}'\n" for path in segments), encoding="utf-8")
     subprocess.run([
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+        _ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
         "-i", str(concat_path), "-c", "copy", output_path,
     ], check=True, capture_output=True, timeout=180)
     return output_path
@@ -572,7 +574,7 @@ def render_low_cost_animatic(script: dict, evidence_plan: dict, prepared_audio: 
 
 def _extract_frame(video_path: str, timestamp: float, output_path: str) -> None:
     subprocess.run([
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-ss", f"{max(0.0, timestamp):.3f}",
+        _ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-ss", f"{max(0.0, timestamp):.3f}",
         "-i", video_path, "-frames:v", "1", "-vf", "scale=640:-2", output_path,
     ], check=True, capture_output=True, timeout=60)
 
@@ -948,7 +950,7 @@ def watermark_rejected_preview(video_path: str, output_path: str) -> str:
     """Create a visibly rejected diagnostic copy; never mutate the approved source."""
     escaped = DIAGNOSTIC_WATERMARK.replace("—", "-").replace("'", "\\'").replace(":", "\\:")
     subprocess.run([
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", video_path,
+        _ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-i", video_path,
         "-vf", ("drawbox=x=0:y=ih*0.42:w=iw:h=ih*0.16:color=black@0.78:t=fill,"
                 f"drawtext=text='{escaped}':fontcolor=red:fontsize=h/22:"
                 "x=(w-text_w)/2:y=(h-text_h)/2"),

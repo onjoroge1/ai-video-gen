@@ -75,6 +75,34 @@ caps attempts, and reconciles both registered provisional artifacts and aged unr
 immediately before worker death is the one explicitly documented ambiguous in-flight call; its
 reservation is charged conservatively at finalization.
 
+### Media binaries and render preflight
+
+Every long-form encode shells out to ffmpeg, and ffprobe supplies durations and stream
+dimensions. `media_binaries.py` is the single resolver: `FFMPEG_BIN`/`FFPROBE_BIN` override,
+then `PATH`, then system locations, then the static ffmpeg bundled in the `imageio-ffmpeg`
+wheel. The bundled build means a plain `pip install -r requirements.txt` yields a working
+ffmpeg with no system package; that wheel ships **ffmpeg only**, so ffprobe still comes from
+the host (any normal ffmpeg install provides it).
+
+`GET /api/production-readiness` includes a `media_binaries` check. A render spends money on
+script, image, motion, and narration calls long before its first encode, so a host that cannot
+run ffmpeg is reported there rather than discovered after the spend.
+
+To prove a host can render, for $0 and with no provider credentials:
+
+```
+python scripts/render_smoke.py
+```
+
+It drives the pipeline's own `_make_scene_segment`/`_assemble` with locally generated images
+and tones and reports the resulting MP4. It exercises the media boundary only — it proves
+nothing about script quality, evidence, or the rendered gate.
+
+`moviepy` is **not** a runtime dependency. It is used only by the legacy shorts renderer in
+`pipeline.py` (imported lazily inside functions), and its 1.0.3 sdist fails to build against
+modern setuptools, which broke every clean install. To use that legacy path:
+`pip install 'setuptools<60' 'moviepy==1.0.3'`.
+
 ### Rendered-gate threshold calibration
 
 The rendered gate treats an uncalibrated threshold profile as a hard failure, so **every run caps
