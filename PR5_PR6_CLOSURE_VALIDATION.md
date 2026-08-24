@@ -15,7 +15,7 @@ not claim that the long-form system has completed a controlled paid pilot.
 | Mystery→Standard fallback requires acknowledgement before visual spending | A hash-bound review artifact, API, durable statuses, resume rule, and visible Explainer-tab panel expose the fallback reason and require an identified operator to accept or reject it. | `test_pr1_to_pr3_story_format_fallback_is_hash_bound_and_explicit`, `test_pr5_fallback_pause_occurs_before_tts_or_visual_generation`, `test_pr5_story_format_review_endpoint_records_operator_acceptance`, DOM placement assertion |
 | Missing measured word timing fails closed | Evidence-state shot compilation raises when measured timing is absent or cannot produce valid 1.5-second cuts. The real pipeline now prepares audio before its first timing validation; the former undefined-`audio_timing` crash is removed. | `test_longform_evidence_shots_fail_closed_without_measured_word_timings`, `test_pr5_measured_evidence_timing_cannot_run_before_audio_exists` |
 | Actual audio transformations are recorded | Every final narration file gets a provider/model/voice/speed/operations/file-hash/cache ledger entry. `natural_speed` and `post_stretched` are derived from that ledger. Paused manifests copy the actual ledger instead of reporting a hardcoded state. | Phase 2 audio ledger tests and `test_pr6_paused_manifest_records_actual_audio_and_motion` |
-| Exact provider/model request IDs are recorded | All Anthropic/OpenAI request sites use centralized model constants. Configured motion providers fail before spend if unknown. Successful motion states record the actual provider and model; paused/completed manifests expose the result. Anthropic Opus 4.8 is labeled as the pinned snapshot Anthropic documents it to be. | `test_pr6_manifest_records_exact_request_model_ids_and_stability`, `test_pr6_manifest_rejects_unknown_motion_provider` |
+| Exact provider/model request IDs are recorded | All Anthropic/OpenAI request sites use centralized model constants. Configured motion providers fail before spend if unknown. Successful motion states record the actual provider and model; paused/completed manifests expose the result. Every entry, Anthropic included, is labeled `request_identifier` — no entry claims a pinned snapshot. | `test_pr6_manifest_records_exact_request_model_ids_and_stability`, `test_pr6_manifest_rejects_unknown_motion_provider` |
 | Threshold calibration is real and not pre-claimed | Default thresholds are labeled `provisional_uncalibrated` and cannot produce a publishable gate result. The calibration CLI requires typed, unique, balanced human labels, minimum balanced/class accuracy, and emits a hashed profile; a configured invalid or non-predictive profile fails closed. | `test_uncalibrated_thresholds_are_reported_and_cannot_publish`, calibration positive/negative/CLI tests |
 | Evidence references and MIME handling fail safely | Pure-evidence generations do not inherit a continuity reference containing forbidden characters. Forbidden objects are repeated as a hard absence constraint. Verifier MIME is derived from bytes, not the filename extension. | Phase 3 reference, prompt, verifier, and MIME tests |
 | Gate formatting and exception paths do not crash silently | The opening ratio uses safe f-string percentage formatting; verifier exceptions retain bounded diagnostic detail; paused/failed manifest state is atomically recorded. | `test_opening_gate_log_formats_ratio_without_percent_crash`, paused-manifest test |
@@ -41,7 +41,12 @@ not claim that the long-form system has completed a controlled paid pilot.
 
 ## Provider identifier verification
 
-- Anthropic documents `claude-opus-4-8` as a canonical pinned snapshot in its
+- **Corrected after review.** `claude-opus-4-8` is the complete canonical ID for that model, but a
+  canonical ID is not a *pinned snapshot*: current-generation Anthropic IDs carry no date suffix,
+  and no dated snapshot of this model exists to pin to (dated snapshots exist only for older
+  generations, e.g. `claude-opus-4-5-20251101`). The manifest previously labelled this entry
+  `pinned_snapshot`, which overstated its provenance; it is now `request_identifier`, matching
+  every other entry. See the
   [model ID and versioning guide](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions).
 - OpenAI's current [pricing/model catalog](https://platform.openai.com/pricing) lists
   `gpt-image-2` and `sora-2`; its [Audio API reference](https://platform.openai.com/docs/api-reference/audio)
@@ -64,8 +69,9 @@ not claim that the long-form system has completed a controlled paid pilot.
 - A real browser visual pass could not run in this workspace because no Chrome binary is available.
   The shipped JavaScript, DOM tab placement, API routes, and acknowledgement endpoint were checked
   deterministically; visual layout is not claimed as browser-verified.
-- `claude-opus-4-8` is a documented pinned snapshot, but Anthropic notes that serving infrastructure
-  around fixed model weights may still change observable behavior.
+- `claude-opus-4-8` is an undated request identifier, not a pinned snapshot. Observable behavior
+  behind it can change without the recorded identifier changing, so the manifest records what was
+  requested, never a guarantee of what served it.
 
 ## Merge disposition
 

@@ -61,9 +61,10 @@ normalize_durable_job_max_cost_env()
 
 
 class PostgresStore(_legacy.PostgresStore):
-    """PR7 additions to the durable job store without weakening the PR6 engine."""
+    """PR7/PR8 additions to the durable job store without weakening the PR6 engine."""
 
     _pilot_schema_ready = False
+    _production_schema_ready = False
 
     def ensure_pilot_schema(self) -> None:
         self.ensure_schema()
@@ -160,9 +161,100 @@ class PostgresStore(_legacy.PostgresStore):
         batch["jobs"] = jobs
         return batch
 
+    def ensure_production_schema(self) -> None:
+        self.ensure_schema()
+        if self._production_schema_ready:
+            return
+        with self._tx() as (_, cur):
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS controlled_production_runs (
+                    id text PRIMARY KEY,
+                    request_hash text NOT NULL,
+                    selection_sha256 text NOT NULL,
+                    source_batch_id text NOT NULL,
+                    job_id text NOT NULL REFERENCES generation_jobs(id),
+                    status text NOT NULL DEFAULT 'queued',
+                    created_at timestamptz NOT NULL DEFAULT now(),
+                    updated_at timestamptz NOT NULL DEFAULT now()
+                )""")
+        self._production_schema_ready = True
+
+    def enqueue_production_run(self, *, production_id: str, request: dict, source_batch_id: str,
+                               max_cost_usd: float, pipeline_version: str) -> dict:
+        """Create the single durable 90-second production job for an already-won PR7 structure.
+
+        A production run is unique per ``production_id``: re-posting the same id returns the
+        existing job, and a different immutable request under that id is rejected rather than
+        silently replacing a run that may already have spent money.
+        """
+        from longform_production import validate_production_request
+
+        validate_production_request(request)
+        source_batch_id = str(source_batch_id or "").strip()
+        if not source_batch_id:
+            raise DurableExecutionError("A production run must name its source PR7 batch")
+        self.ensure_production_schema()
+        request_hash = canonical_hash(request)
+        job_id = f"{production_id}-video"
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM controlled_production_runs WHERE id=%s FOR UPDATE",
+                        (production_id,))
+            existing = self._row(cur, cur.fetchone())
+            if existing:
+                if existing.get("request_hash") != request_hash:
+                    raise DurableExecutionError(
+                        f"Production run {production_id} already exists with a different "
+                        f"immutable request")
+                cur.execute("SELECT * FROM generation_jobs WHERE id=%s", (existing["job_id"],))
+                job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+                return {**(self._json_ready(existing) or {}), "job": job}
+            cur.execute("""
+                INSERT INTO generation_jobs
+                    (id,kind,request,status,max_cost_usd,max_inflight_call_usd,
+                     pipeline_version,output_prefix,max_attempts)
+                VALUES (%s,'explainer_production',%s::jsonb,'queued',%s,%s,%s,%s,1)
+                RETURNING *
+            """, (job_id, json.dumps(request), max_cost_usd, _legacy.DEFAULT_MAX_INFLIGHT_USD,
+                  pipeline_version, f"production/{production_id}"))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            cur.execute("""
+                INSERT INTO controlled_production_runs
+                    (id,request_hash,selection_sha256,source_batch_id,job_id,status)
+                VALUES (%s,%s,%s,%s,%s,'queued')
+            """, (production_id, request_hash, request["selection_sha256"], source_batch_id,
+                  job_id))
+        self.append_event(job_id, "queued", "Controlled PR8 production run queued durably", {
+            "production_id": production_id,
+            "source_batch_id": source_batch_id,
+            "selection_sha256": request["selection_sha256"],
+        })
+        return {"id": production_id, "request_hash": request_hash,
+                "selection_sha256": request["selection_sha256"],
+                "source_batch_id": source_batch_id, "status": "queued", "job": job}
+
+    def get_production_run(self, production_id: str) -> dict | None:
+        self.ensure_production_schema()
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM controlled_production_runs WHERE id=%s", (production_id,))
+            run = self._json_ready(self._row(cur, cur.fetchone()))
+            if not run:
+                return None
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s", (run["job_id"],))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        status = job.get("status")
+        if status in ("production_passed", "production_failed", "storage_error"):
+            run["status"] = "complete"
+        elif status == "production_awaiting_editorial":
+            run["status"] = "awaiting_editorial"
+        elif status == "processing":
+            run["status"] = "processing"
+        run["job"] = job
+        return run
+
     def set_status(self, job_id: str, status: str, *, error: str | None = None,
                    result: dict | None = None, worker_id: str | None = None) -> None:
-        terminal = {"done", "degraded", "error", "rejected", "pilot_passed", "pilot_failed"}
+        terminal = {"done", "degraded", "error", "rejected", "pilot_passed", "pilot_failed",
+                    "production_passed", "production_failed"}
         finished_at = status in terminal
         with self._tx() as (_, cur):
             owner = " AND lease_owner=%s" if worker_id else ""

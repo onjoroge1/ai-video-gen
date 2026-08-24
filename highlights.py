@@ -18,6 +18,8 @@ import wave
 import numpy as np
 import anthropic
 
+from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+
 _client = None
 
 
@@ -32,7 +34,7 @@ def _get_client():
 
 def _video_duration(video_path: str) -> float:
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+        [_ffprobe_bin(), "-v", "quiet", "-print_format", "json", "-show_format", video_path],
         capture_output=True, text=True, check=True,
     )
     return float(json.loads(r.stdout)["format"]["duration"])
@@ -40,7 +42,7 @@ def _video_duration(video_path: str) -> float:
 
 def _extract_audio_wav(video_path: str, out_wav: str, sample_rate: int = 22050) -> None:
     subprocess.run(
-        ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
+        [_ffmpeg_bin(), "-i", video_path, "-vn", "-acodec", "pcm_s16le",
          "-ar", str(sample_rate), "-ac", "1", out_wav, "-y"],
         check=True, capture_output=True,
     )
@@ -48,7 +50,7 @@ def _extract_audio_wav(video_path: str, out_wav: str, sample_rate: int = 22050) 
 
 def _extract_frame_jpg(video_path: str, t: float, out_path: str) -> None:
     subprocess.run(
-        ["ffmpeg", "-ss", f"{t:.3f}", "-i", video_path,
+        [_ffmpeg_bin(), "-ss", f"{t:.3f}", "-i", video_path,
          "-frames:v", "1", "-q:v", "5", out_path, "-y"],
         check=True, capture_output=True,
     )
@@ -57,7 +59,7 @@ def _extract_frame_jpg(video_path: str, t: float, out_path: str) -> None:
 def _cut_clip(video_path: str, start: float, end: float, out_path: str,
               vertical: bool = False) -> None:
     base_args = [
-        "ffmpeg",
+        _ffmpeg_bin(),
         "-ss", f"{start:.3f}",
         "-i", video_path,
         "-t", f"{end - start:.3f}",
@@ -317,7 +319,7 @@ def assemble_highlight_reel(clip_paths: list, output_path: str,
 
     try:
         subprocess.run(
-            ["ffmpeg"] + input_args + [
+            [_ffmpeg_bin()] + input_args + [
                 "-filter_complex", filter_complex,
                 "-map", f"[{final_v}]",
                 "-map", "[aout]",
@@ -331,7 +333,7 @@ def assemble_highlight_reel(clip_paths: list, output_path: str,
         # Fallback: video-only reel (skip audio concat if clips lack audio tracks)
         filter_parts_v = [p for p in filter_parts if "aout" not in p]
         subprocess.run(
-            ["ffmpeg"] + input_args + [
+            [_ffmpeg_bin()] + input_args + [
                 "-filter_complex", ";".join(filter_parts_v),
                 "-map", f"[{final_v}]",
                 "-an",

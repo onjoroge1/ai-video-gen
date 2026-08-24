@@ -12,6 +12,8 @@ import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
 
+from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+
 # ── Font loading ───────────────────────────────────────────────────────────────
 
 _BOLD_PATHS = [
@@ -255,7 +257,7 @@ def make_score_banner(width: int, height: int, score_text: str) -> Image.Image:
 
 def video_wh(path: str) -> tuple[int, int]:
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+        [_ffprobe_bin(), "-v", "quiet", "-select_streams", "v:0",
          "-print_format", "json", "-show_streams", path],
         capture_output=True, text=True, check=True,
     )
@@ -305,7 +307,7 @@ def apply_overlays(
 
     subprocess.run(
         [
-            "ffmpeg", "-i", input_path,
+            _ffmpeg_bin(), "-i", input_path,
             *extra_inputs,
             "-filter_complex", ";".join(filters),
             "-map", f"[{label}]",

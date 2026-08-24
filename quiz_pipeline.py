@@ -10,6 +10,7 @@ import os
 import shutil
 
 import _quiz_pipeline_legacy as _legacy
+import media_binaries
 
 
 # Re-export the full legacy module surface, including underscored helpers used by sibling
@@ -43,6 +44,13 @@ def _resolve_media_bin(name: str, env_var: str) -> str:
     ):
         if os.path.exists(candidate):
             return candidate
+
+    # Last resort before the bare name: the static build bundled in the imageio-ffmpeg
+    # wheel, so a host with no system ffmpeg can still render. That wheel ships ffmpeg
+    # only, so ffprobe still falls through to the bare name and names itself on failure.
+    bundled = media_binaries.bundled_ffmpeg() if name == "ffmpeg" else None
+    if bundled:
+        return bundled
 
     return name
 

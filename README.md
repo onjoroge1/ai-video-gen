@@ -75,6 +75,54 @@ caps attempts, and reconciles both registered provisional artifacts and aged unr
 immediately before worker death is the one explicitly documented ambiguous in-flight call; its
 reservation is charged conservatively at finalization.
 
+### Media binaries and render preflight
+
+Every long-form encode shells out to ffmpeg, and ffprobe supplies durations and stream
+dimensions. `media_binaries.py` is the single resolver: `FFMPEG_BIN`/`FFPROBE_BIN` override,
+then `PATH`, then system locations, then the static ffmpeg bundled in the `imageio-ffmpeg`
+wheel. The bundled build means a plain `pip install -r requirements.txt` yields a working
+ffmpeg with no system package; that wheel ships **ffmpeg only**, so ffprobe still comes from
+the host (any normal ffmpeg install provides it).
+
+`GET /api/production-readiness` includes a `media_binaries` check. A render spends money on
+script, image, motion, and narration calls long before its first encode, so a host that cannot
+run ffmpeg is reported there rather than discovered after the spend.
+
+To prove a host can render, for $0 and with no provider credentials:
+
+```
+python scripts/render_smoke.py
+```
+
+It drives the pipeline's own `_make_scene_segment`/`_assemble` with locally generated images
+and tones and reports the resulting MP4. It exercises the media boundary only — it proves
+nothing about script quality, evidence, or the rendered gate.
+
+`moviepy` is **not** a runtime dependency. It is used only by the legacy shorts renderer in
+`pipeline.py` (imported lazily inside functions), and its 1.0.3 sdist fails to build against
+modern setuptools, which broke every clean install. To use that legacy path:
+`pip install 'setuptools<60' 'moviepy==1.0.3'`.
+
+### Rendered-gate threshold calibration
+
+The rendered gate treats an uncalibrated threshold profile as a hard failure, so **every run caps
+at 69/100 until a profile exists** — the 85 and 90 release targets are unreachable before this
+step, by design. `scripts/harvest_gate_samples.py` builds the dataset:
+
+```
+harvest_gate_samples.py harvest  inspection*.json worksheet.json
+# an editor fills meaningful_change / slideshow on each row
+harvest_gate_samples.py status   worksheet.json      # names the exact remaining shortfall
+harvest_gate_samples.py compile  worksheet.json samples.json
+scripts/calibrate_rendered_gate.py samples.json profile.json --reviewer "<editor>"
+```
+
+Point `LONGFORM_GATE_CALIBRATION_PROFILE` at the result. Labels start empty and are never seeded
+from planner metadata — `declared_new_information` is carried only as context, because it is the
+field the threshold exists to audit. At least 20 labeled examples per class are required, drawn
+from at least two distinct real videos on each side of the `slideshow` label, since that label
+describes a whole video rather than one cut.
+
 ### Controlled 45-second pilots
 
 `POST /api/explainer/pilots` atomically queues exactly two durable PR7 evaluation jobs: one
@@ -88,6 +136,24 @@ and waits for the normal hash-bound editorial checklist at
 below 85, any hard failure, an uncalibrated threshold profile, or missing artifacts. Passed and
 failed pilots remain addressable through `GET /api/explainer/pilot/{job_id}`; neither can resume
 into a full video. A new attempt always requires a new pilot batch and immutable job IDs.
+
+### Controlled 90-second production run
+
+`POST /api/explainer/production` queues the single PR8 job that buys one complete 90-second video.
+It takes only a passed PR7 `batch_id` and the question: the structure is derived from the recorded
+PR7 scores rather than chosen by the caller, and a reviewer may decide only an exact score tie —
+with their identity and written reason recorded in the hashed selection. A batch whose pilots did
+not both pass cannot start a production run.
+
+The run inherits the PR7 winner's approved opening freeze by hash and must reuse those exact bytes:
+a regenerated callback object fails. Beyond the ordinary release gate it requires an 87.3–92.7
+second runtime measured from both the encoded MP4 and natural-speed narration (time-stretching is
+rejected), a rendered-contract score of at least 90, zero dropped-narration scenes, zero filler
+frames, no unresolved narrative loop, provenance for every produced media file, a fast-start MP4,
+and observed cross-worker recovery. Every gate is independent, and none of them — nor a failed
+automated or editorial grade — can be promoted in place. `GET /api/explainer/production/{id}`
+returns the run and its job, ending in a `publish` or `do_not_publish` recommendation.
+`PR8_PRODUCTION_MAX_COST_USD` caps a run's spend.
 
 Render music is fetched from external object storage into a checksum-verified local cache. Neon stores
 the asset URL, checksum, size, licence, and provider in `music_assets`; the MP3 bytes are deliberately

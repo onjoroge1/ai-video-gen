@@ -5,7 +5,13 @@ httpx[socks]==0.28.1
 socksio==1.0.0
 google-cloud-texttospeech==2.17.2
 openai==2.54.0
-moviepy==1.0.3
+# moviepy is required only by the legacy shorts renderer in pipeline.py, which
+# imports it lazily inside functions. Its 1.0.3 sdist fails to build against
+# modern setuptools (AttributeError: install_layout), which broke every fresh
+# `pip install -r requirements.txt`. Install it explicitly to use that path:
+#   pip install 'setuptools<60' 'moviepy==1.0.3'
+# The long-form explainer pipeline shells out to ffmpeg directly and needs none of it.
+imageio-ffmpeg>=0.5.1  # ships a static ffmpeg so a host needs no system package
 requests==2.32.3
 pillow==10.4.0
 numpy==1.26.4

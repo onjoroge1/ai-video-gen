@@ -124,8 +124,13 @@ def test_pr6_manifest_records_exact_request_model_ids_and_stability(monkeypatch)
     assert models[("openai", "narration")]["model_id"] == pipeline.TTS_MODEL
     assert models[("openai", "word_timestamps")]["model_id"] \
         == pipeline.TRANSCRIPTION_MODEL
+    # No entry may claim a pinned snapshot: current-generation Anthropic and OpenAI IDs are
+    # undated request identifiers, and a provenance record that overstates one is worse than
+    # no record at all.
     assert models[("anthropic", "research_script_factcheck_and_visual_judges")][
-        "identifier_stability"] == "pinned_snapshot"
+        "identifier_stability"] == "request_identifier"
+    assert not any(item["identifier_stability"] == "pinned_snapshot"
+                   for item in manifest["models"])
     assert models[("fal", "image_to_video")]["model_id"] == pipeline._FAL_MODEL
     assert all(item["model_id"] for item in manifest["models"])
     json.dumps(manifest)
