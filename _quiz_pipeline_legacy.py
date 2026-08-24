@@ -483,6 +483,14 @@ def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
     return d
 
 
+_QUIZ_DESC_HABITAT = (
+    "FORMAT — HIDDEN IN HABITAT: each clue is a black silhouette standing in the real environment that "
+    "species lives in (rainforest, savanna, creek), dimmed while the timer runs; on the answer the SAME "
+    "frame brightens and the animal returns to full colour. The viewer is SEARCHING A SCENE, not reading "
+    "an outline on a plain background. Lead on the hiding-in-plain-sight angle and on where each animal "
+    "lives — never describe the clues as floating on flat or solid colour.\n"
+)
+
 _QUIZ_DESC_SYSTEM = (
     "You are a YouTube Shorts packaging editor. Write the DESCRIPTION for a QUIZ / guessing-game Short "
     "(the first clue appears on frame zero, a rapid timer runs, then the answer is revealed). "
@@ -513,11 +521,17 @@ def generate_quiz_description(category, title, items, hook, out_dir, cost_sink=N
         ordered = "; ".join(
             f"{i+1}. {ep._s(it.get('answer'))} ({ep._s(it.get('difficulty')) or 'harder'})"
             for i, it in enumerate(items))
+        habitats = "; ".join(
+            f"{ep._s(it.get('answer'))}: {ep._s(it.get('habitat'))}"
+            for it in items if ep._s(it.get("habitat")).strip())
         usr = (f'Category: "{category}". Title: "{title}". Hook line: "{ep._s(hook)}".\n'
                f'The {len(items)} answers, in order (put these in the TAGS for search; do NOT map them '
-               f'to clues in the body): {ordered}.\nWrite the description now.')
+               f'to clues in the body): {ordered}.\n'
+               + (f'Each animal is hidden in its own habitat — {habitats}.\n' if habitats else "")
+               + 'Write the description now.')
         r = ep._claude().messages.create(model="claude-opus-4-8", max_tokens=1600,
-                                         system=_QUIZ_DESC_SYSTEM,
+                                         system=(_QUIZ_DESC_SYSTEM + _QUIZ_DESC_HABITAT
+                                                 if HABITAT else _QUIZ_DESC_SYSTEM),
                                          messages=[{"role": "user", "content": usr}])
         if cost_sink is not None:
             cost_sink.append(ep._msg_cost(r.usage))

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import anyio
@@ -50,6 +51,43 @@ def _seed_local_render(tmp_path) -> str:
         "abc123": {"title": "Local render", "path": str(video), "srt_path": str(captions)},
     }), encoding="utf-8")
     return "abc123"
+
+
+def test_finished_library_lists_the_newest_render_first(monkeypatch, tmp_path):
+    """Recency ordering, applied before paging.
+
+    The index is insertion-ordered and carries no timestamp, so the library listed oldest
+    first. With 150 entries and a default page size of 100 that put every new render past the
+    end of page one — a video that had just been saved looked like it was never saved at all.
+    Sorting has to happen before the slice; sorting the page only reorders what already
+    survived the cut.
+    """
+    index = {}
+    for position, video_id in enumerate(("oldest", "middle", "newest")):
+        video = tmp_path / f"{video_id}.mp4"
+        video.write_bytes(b"\x00" * 512)
+        os.utime(video, (1_700_000_000 + position * 3600,) * 2)
+        index[video_id] = {"title": video_id, "path": str(video)}
+    (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
+
+    app = FastAPI()
+    finished_api.mount(app, str(tmp_path), Path("static"))
+    monkeypatch.setattr(finished_api.db, "db_enabled", lambda: False)
+    monkeypatch.setattr(finished_api.artifact_store, "durable_storage_required", lambda: False)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            rows = (await client.get("/api/finished")).json()["videos"]
+            assert [row["id"] for row in rows] == ["newest", "middle", "oldest"]
+            assert rows[0]["created_at"], "recency must be exposed, not just used for sorting"
+            assert "_sort_key" not in rows[0]
+
+            # The newest render must survive paging, which is the case that actually broke.
+            first_page = (await client.get("/api/finished?limit=1")).json()["videos"]
+            assert [row["id"] for row in first_page] == ["newest"]
+
+    anyio.run(run)
 
 
 def test_finished_library_does_not_fall_back_locally_when_durable_storage_is_required(

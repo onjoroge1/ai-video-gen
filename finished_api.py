@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -23,10 +24,12 @@ def _local_index(finished_dir: str) -> dict:
 
 def _local_record(video_id: str, raw: dict) -> dict:
     artifacts = {}
+    mtime = 0.0
     if raw.get("path") and os.path.isfile(raw["path"]):
         artifacts["video"] = {"kind": "video", "local_path": raw["path"],
                               "size_bytes": os.path.getsize(raw["path"]),
                               "content_type": "video/mp4"}
+        mtime = os.path.getmtime(raw["path"])
     for key, value in raw.items():
         if key.endswith("_path") and value and os.path.isfile(value):
             kind = key[:-5]
@@ -40,7 +43,13 @@ def _local_record(video_id: str, raw: dict) -> dict:
         "thumbnail_url": None,
         "artifacts": artifacts,
         "metadata": {k: v for k, v in raw.items() if not k.endswith("_path") and k != "path"},
-        "created_at": None,
+        # The index carries no timestamp, so recency comes from the rendered file itself. Without
+        # this the library was ordered by insertion and every new render landed at the bottom of
+        # a 150-entry list — past the default page size, so a fresh video looked like it had
+        # never been saved.
+        "created_at": (datetime.fromtimestamp(mtime, timezone.utc).isoformat()
+                       if mtime else None),
+        "_sort_key": mtime,
         "storage": "local",
     }
 
@@ -52,7 +61,12 @@ def _local_rows(finished_dir: str, query: str, limit: int, offset: int) -> list:
         needle = query.lower()
         rows = [row for row in rows
                 if needle in row["title"].lower() or needle in row["id"].lower()]
-    return rows[offset:offset + max(1, min(limit, 200))]
+    # Newest first, and before the slice — sorting after paging would just reorder page one.
+    rows.sort(key=lambda row: row.get("_sort_key") or 0.0, reverse=True)
+    page = rows[offset:offset + max(1, min(limit, 200))]
+    for row in page:
+        row.pop("_sort_key", None)
+    return page
 
 
 def _get(video_id: str, finished_dir: str) -> dict | None:
