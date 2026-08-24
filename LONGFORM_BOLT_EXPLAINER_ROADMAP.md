@@ -383,6 +383,8 @@ Grade using:
 
 The gate fails closed. Diagnostic bypass is developer-only, visibly watermarked, and cannot report PASS or produce a publishable artifact.
 
+The deterministic measurements in (1) are only as good as the thresholds behind them, so the gate treats an uncalibrated threshold profile as a hard-contract failure. **A run under the default provisional profile therefore caps at 69/100 no matter how good the video is** — the 85 and 90 release targets below are unreachable until the calibration phase (PR 6.5) has produced a real profile. That is intended: an uncalibrated number should not be allowed to look like a passing grade. It also means calibration is a scheduling dependency, not a tuning task to leave for later.
+
 ### 11.5 Final video gate
 
 Verifies runtime, frozen-opening identity, unresolved questions, opening-object callback, claim ledger, visual continuity, audio mix, captions, technical delivery, and complete artifact persistence.
@@ -412,6 +414,7 @@ Caps:
 
 Release target:
 
+- a calibrated threshold profile (without one, every run is capped at 69);
 - no hard failures;
 - at least 85/100 for controlled pilots;
 - at least 90/100 before enabling unattended production;
@@ -426,6 +429,11 @@ Required production properties:
 - durable job and stage records;
 - workflow/queue execution outside request lifetime;
 - provider idempotency key per paid operation;
+- recorded provider/model identifiers labeled with their real stability — an undated,
+  current-generation model ID is a request identifier, and may not be recorded as a pinned
+  snapshot merely because it is the canonical ID. A provenance record that overstates what it
+  knows is worse than no record, most of all for the models behind the fact-checker, the evidence
+  verifier, and the blind story judge;
 - asset content hashes and script/compiler version hashes;
 - resume on a different worker without repurchasing completed valid assets;
 - running cost ledger checked before every paid batch;
@@ -577,7 +585,40 @@ Acceptance:
 - `/finished` lists completed artifacts and never masks an outage as an empty library;
 - forced retries remain within the configured spend cap plus one documented in-flight call.
 
+### PR 6.5 — Rendered-gate threshold calibration
+
+This phase exists because PR 5 made an uncalibrated profile a hard failure without building the
+path to a calibrated one. Until it ships, **PR 7 cannot be attempted**: every pilot caps at 69
+against an 85 acceptance bar, so a failure would say nothing about the video.
+
+Deliver:
+
+- a harvester that turns real rendered-opening inspections into an unlabeled labeling worksheet,
+  with a stable per-cut sample identity traceable to the video's bytes;
+- extracted before/after frames per cut for the editor to judge from;
+- a labeling-progress report naming exactly what is still missing;
+- a compile step that rejects partial or non-boolean labels and emits calibration input;
+- a hashed calibrated profile from an identified editor;
+- the deliberately-failing render used to source the samples, kept as the dataset's provenance.
+
+Acceptance:
+
+- labels are supplied by a named human, never derived from planner metadata — in particular never
+  from `declared_new_information`, which is the field the threshold exists to audit;
+- at least 20 labeled examples per class, drawn from at least two distinct real videos on each
+  side of the `slideshow` label, since that label describes a video rather than a cut;
+- the emitted profile validates as calibrated and meets the balanced-accuracy floors;
+- a deliberately non-predictive or one-sided dataset is rejected rather than accepted weakly;
+- with the profile configured, a previously-capped run can exceed 69, and the old Moon diagnostic
+  still fails.
+
+Non-goal: hitting any particular threshold value. The phase succeeds by producing an honest
+profile, even if that profile is stricter than the provisional defaults.
+
 ### PR 7 — Controlled 45-second pilots
+
+Prerequisite: PR 6.5 has produced a calibrated profile and it is configured. Without it the
+acceptance bar below cannot be met by any video.
 
 Deliver:
 

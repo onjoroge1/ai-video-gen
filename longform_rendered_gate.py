@@ -29,6 +29,10 @@ DIAGNOSTIC_WATERMARK = "REJECTED DIAGNOSTIC — NOT FOR PUBLICATION"
 MIN_CALIBRATION_EXAMPLES_PER_CLASS = 20
 MIN_CALIBRATION_BALANCED_ACCURACY = 0.70
 MIN_CALIBRATION_CLASS_ACCURACY = 0.60
+# `slideshow` and `source_change_ratio` are properties of a whole video, not of one cut, so a
+# dataset drawn from a single video teaches that threshold nothing. Require the label to be
+# supported by more than one real render on each side.
+MIN_CALIBRATION_VIDEOS_PER_SLIDESHOW_CLASS = 2
 PROVISIONAL_THRESHOLD_PROFILE = {
     "schema_version": 1,
     "profile_id": "provisional-defaults-v1",
@@ -255,6 +259,188 @@ def calibrate_threshold_profile(samples: list[dict], *, reviewer: str,
     if not validation["passed"]:
         raise _profile_error("; ".join(validation["errors"]))
     return profile
+
+
+CALIBRATION_WORKSHEET_VERSION = 1
+
+# The editor answers exactly these two questions per row. Everything else in a worksheet row is
+# either a measurement or context for the eye.
+CALIBRATION_LABEL_FIELDS = ("meaningful_change", "slideshow")
+
+CALIBRATION_LABEL_QUESTIONS = {
+    "meaningful_change": (
+        "Looking only at the before/after frames: does the cut show genuinely new visual "
+        "information, or is it the same state again?"),
+    "slideshow": (
+        "Watching the whole video: does it read as a slideshow of stills rather than a shot "
+        "sequence that develops? Answer the same way for every row from this video."),
+}
+
+
+def harvest_calibration_samples(inspections: list[dict], *, dataset_id: str = "") -> dict:
+    """Turn real rendered-opening inspections into an unlabeled calibration worksheet.
+
+    `inspect_rendered_opening` measures every cut but nothing previously turned those
+    measurements into something an editor could label, so a calibrated profile could not be
+    produced and the gate stayed permanently uncalibrated.  This closes that loop.
+
+    Labels are deliberately left null.  Pre-filling them from `declared_new_information` would let
+    planner metadata calibrate the threshold that is supposed to audit planner metadata, which is
+    exactly the circularity the rendered gate exists to prevent.
+    """
+    rows: list[dict] = []
+    videos: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for inspection in inspections or []:
+        if not isinstance(inspection, dict):
+            raise _profile_error("each inspection must be an object")
+        video_sha = _text(inspection.get("video_sha256"))
+        if not video_sha:
+            raise _profile_error(
+                "each inspection needs a video_sha256; a sample must be traceable to real bytes")
+        deterministic = inspection.get("deterministic") if isinstance(
+            inspection.get("deterministic"), dict) else {}
+        try:
+            source_change_ratio = float(deterministic["source_change_ratio"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _profile_error(
+                f"inspection {video_sha[:12]} has no measured source_change_ratio") from exc
+        deltas = inspection.get("boundary_deltas") if isinstance(
+            inspection.get("boundary_deltas"), list) else []
+        if not deltas:
+            raise _profile_error(
+                f"inspection {video_sha[:12]} recorded no boundary cuts to label")
+
+        for item in deltas:
+            if not isinstance(item, dict):
+                continue
+            try:
+                shot_index = int(item["shot_index"])
+                pixel_delta = float(item["pixel_delta"])
+            except (KeyError, TypeError, ValueError):
+                raise _profile_error(
+                    f"inspection {video_sha[:12]} has a boundary cut without a measurement")
+            sample_id = f"{video_sha[:12]}-cut{shot_index:03d}"
+            if sample_id in seen_ids:
+                raise _profile_error(f"duplicate sample_id {sample_id}")
+            seen_ids.add(sample_id)
+            rows.append({
+                "sample_id": sample_id,
+                "video_sha256": video_sha,
+                "shot_index": shot_index,
+                "time_sec": item.get("time_sec"),
+                "pixel_delta": pixel_delta,
+                "source_change_ratio": source_change_ratio,
+                # Context for the editor's eye, never a label.
+                "context": {
+                    "video_path": _text(inspection.get("video_path")),
+                    "declared_new_information": bool(item.get("declared_new_information")),
+                    "source_changed": bool(item.get("source_changed")),
+                },
+                "meaningful_change": None,
+                "slideshow": None,
+            })
+        videos.append({"video_sha256": video_sha, "cut_count": len(deltas),
+                       "source_change_ratio": source_change_ratio})
+
+    if not rows:
+        raise _profile_error("no boundary observations were harvested")
+
+    return {
+        "worksheet_version": CALIBRATION_WORKSHEET_VERSION,
+        "dataset_id": _text(dataset_id),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "label_questions": dict(CALIBRATION_LABEL_QUESTIONS),
+        "instructions": (
+            "Fill meaningful_change and slideshow with true or false on every row. Judge from the "
+            "extracted frames and the video itself, not from the context block."),
+        "videos": videos,
+        "samples": rows,
+    }
+
+
+def calibration_readiness(worksheet: dict) -> dict:
+    """Report how far a worksheet is from being a viable calibration dataset."""
+    samples = worksheet.get("samples") if isinstance(worksheet, dict) else None
+    samples = samples if isinstance(samples, list) else []
+    labeled: list[dict] = []
+    unlabeled = 0
+    malformed = 0
+    for item in samples:
+        if not isinstance(item, dict):
+            malformed += 1
+            continue
+        values = [item.get(field) for field in CALIBRATION_LABEL_FIELDS]
+        if all(value is None for value in values):
+            unlabeled += 1
+        elif all(isinstance(value, bool) for value in values):
+            labeled.append(item)
+        else:
+            malformed += 1
+
+    counts = {
+        "meaningful_change": sum(item["meaningful_change"] for item in labeled),
+        "not_meaningful_change": sum(not item["meaningful_change"] for item in labeled),
+        "slideshow": sum(item["slideshow"] for item in labeled),
+        "not_slideshow": sum(not item["slideshow"] for item in labeled),
+    }
+    videos_by_class = {
+        "slideshow": {_text(item.get("video_sha256")) for item in labeled if item["slideshow"]},
+        "not_slideshow": {_text(item.get("video_sha256"))
+                          for item in labeled if not item["slideshow"]},
+    }
+    needed = {
+        label: max(0, MIN_CALIBRATION_EXAMPLES_PER_CLASS - count)
+        for label, count in counts.items()
+    }
+    video_shortfall = {
+        label: max(0, MIN_CALIBRATION_VIDEOS_PER_SLIDESHOW_CLASS - len(shas - {""}))
+        for label, shas in videos_by_class.items()
+    }
+    blockers: list[str] = []
+    if malformed:
+        blockers.append(f"{malformed} row(s) have a partial or non-boolean label")
+    if unlabeled:
+        blockers.append(f"{unlabeled} row(s) are still unlabeled")
+    for label, shortfall in sorted(needed.items()):
+        if shortfall:
+            blockers.append(f"{label} needs {shortfall} more labeled example(s)")
+    for label, shortfall in sorted(video_shortfall.items()):
+        if shortfall:
+            blockers.append(
+                f"{label} needs cuts from {shortfall} more distinct real video(s)")
+
+    return {
+        "version": CALIBRATION_WORKSHEET_VERSION,
+        "ready": not blockers,
+        "total_rows": len(samples),
+        "labeled_rows": len(labeled),
+        "unlabeled_rows": unlabeled,
+        "malformed_rows": malformed,
+        "counts": counts,
+        "minimum_per_class": MIN_CALIBRATION_EXAMPLES_PER_CLASS,
+        "distinct_videos": {label: len(shas - {""}) for label, shas in videos_by_class.items()},
+        "minimum_videos_per_slideshow_class": MIN_CALIBRATION_VIDEOS_PER_SLIDESHOW_CLASS,
+        "blockers": blockers,
+    }
+
+
+def load_labeled_samples(worksheet: dict) -> list[dict]:
+    """Validate a filled worksheet and return `calibrate_threshold_profile`-ready samples."""
+    readiness = calibration_readiness(worksheet)
+    if not readiness["ready"]:
+        raise _profile_error("; ".join(readiness["blockers"]))
+    return [
+        {
+            "sample_id": _text(item.get("sample_id")),
+            "pixel_delta": float(item["pixel_delta"]),
+            "source_change_ratio": float(item["source_change_ratio"]),
+            "meaningful_change": bool(item["meaningful_change"]),
+            "slideshow": bool(item["slideshow"]),
+        }
+        for item in worksheet["samples"]
+    ]
 
 
 def _flatten(plan: list[list[dict]]) -> list[dict]:

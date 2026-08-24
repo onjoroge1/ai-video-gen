@@ -3311,8 +3311,12 @@ def _generation_manifest_payload(*, video_format: str, motion_mode: str,
         "video_format": video_format,
         "motion_mode": motion_mode,
         "models": [
+            # Not a pinned snapshot: current-generation Anthropic IDs carry no date suffix and
+            # no dated snapshot of this model exists to pin to, so this is a request identifier
+            # like every other entry. Labelling it otherwise recorded false provenance for the
+            # model behind the evidence verifier and the blind story judge.
             {"purpose": "research_script_factcheck_and_visual_judges", "provider": "anthropic",
-             "model_id": ANTHROPIC_MODEL, "identifier_stability": "pinned_snapshot"},
+             "model_id": ANTHROPIC_MODEL, "identifier_stability": "request_identifier"},
             {"purpose": "evidence_and_scene_images", "provider": "openai",
              "model_id": IMAGE_MODEL, "identifier_stability": "request_identifier"},
             {"purpose": "narration", "provider": "openai", "model_id": TTS_MODEL,

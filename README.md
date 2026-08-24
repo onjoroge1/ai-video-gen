@@ -75,6 +75,26 @@ caps attempts, and reconciles both registered provisional artifacts and aged unr
 immediately before worker death is the one explicitly documented ambiguous in-flight call; its
 reservation is charged conservatively at finalization.
 
+### Rendered-gate threshold calibration
+
+The rendered gate treats an uncalibrated threshold profile as a hard failure, so **every run caps
+at 69/100 until a profile exists** — the 85 and 90 release targets are unreachable before this
+step, by design. `scripts/harvest_gate_samples.py` builds the dataset:
+
+```
+harvest_gate_samples.py harvest  inspection*.json worksheet.json
+# an editor fills meaningful_change / slideshow on each row
+harvest_gate_samples.py status   worksheet.json      # names the exact remaining shortfall
+harvest_gate_samples.py compile  worksheet.json samples.json
+scripts/calibrate_rendered_gate.py samples.json profile.json --reviewer "<editor>"
+```
+
+Point `LONGFORM_GATE_CALIBRATION_PROFILE` at the result. Labels start empty and are never seeded
+from planner metadata — `declared_new_information` is carried only as context, because it is the
+field the threshold exists to audit. At least 20 labeled examples per class are required, drawn
+from at least two distinct real videos on each side of the `slideshow` label, since that label
+describes a whole video rather than one cut.
+
 ### Controlled 45-second pilots
 
 `POST /api/explainer/pilots` atomically queues exactly two durable PR7 evaluation jobs: one
