@@ -1,0 +1,38 @@
+name: Audit pilot smoke
+
+on:
+  push:
+    branches:
+      - audit/pilot-smoke-20260824
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renderer-pilots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install media runtime
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Install project
+        run: pip install -r requirements.txt
+      - name: Run zero-cost short and long renderer pilots
+        env:
+          AUDIT_OUTPUT_DIR: audit_pilot_artifacts
+          QUIZ_FONT: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+        run: python scripts/audit_pilot_smoke.py
+      - name: Upload pilot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-pilot-artifacts-${{ github.sha }}
+          path: audit_pilot_artifacts
+          if-no-files-found: warn
+          retention-days: 7
