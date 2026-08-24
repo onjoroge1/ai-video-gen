@@ -45,15 +45,32 @@ def _local_record(video_id: str, raw: dict) -> dict:
     }
 
 
+def _local_rows(finished_dir: str, query: str, limit: int, offset: int) -> list:
+    rows = [_local_record(video_id, raw)
+            for video_id, raw in _local_index(finished_dir).items()]
+    if query:
+        needle = query.lower()
+        rows = [row for row in rows
+                if needle in row["title"].lower() or needle in row["id"].lower()]
+    return rows[offset:offset + max(1, min(limit, 200))]
+
+
 def _get(video_id: str, finished_dir: str) -> dict | None:
     if db.db_enabled():
         record = PostgresStore().finished_get(video_id)
         if record:
             record["storage"] = "blob"
             return record
-        return None
+    # A configured database that simply has no row for this id must not hide a local copy that
+    # is sitting on disk. Renders always write finished_videos/<id>.{mp4,srt,txt,desc} and index
+    # them, but the Postgres row is only created when Blob upload is also configured — so with
+    # DATABASE_URL set and no blob token, every local render became invisible to this library
+    # even though its files existed. Production still fails closed: durable_storage_required()
+    # is what forbids serving local bytes there, not the mere presence of a database.
     if artifact_store.durable_storage_required():
-        raise StorageUnavailable("Finished library database is not configured")
+        if not db.db_enabled():
+            raise StorageUnavailable("Finished library database is not configured")
+        return None
     raw = _local_index(finished_dir).get(video_id)
     return _local_record(video_id, raw) if raw else None
 
@@ -74,20 +91,19 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
             raise HTTPException(status_code=503, detail={
                 "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
             }) from exc
-        if not db.db_enabled():
+        # Same rule as _get: an empty database must not hide local renders. Falling back only
+        # when the database returned nothing keeps Postgres authoritative wherever it is
+        # populated, and keeps production fail-closed via durable_storage_required().
+        if not rows:
             if artifact_store.durable_storage_required():
-                raise HTTPException(status_code=503, detail={
-                    "code": "FINISHED_STORAGE_UNAVAILABLE",
-                    "message": "DATABASE_URL is required for the finished library",
-                    "retryable": True,
-                })
-            rows = [_local_record(video_id, raw)
-                    for video_id, raw in _local_index(finished_dir).items()]
-            if q:
-                needle = q.lower()
-                rows = [row for row in rows if needle in row["title"].lower()
-                        or needle in row["id"].lower()]
-            rows = rows[offset:offset + max(1, min(limit, 200))]
+                if not db.db_enabled():
+                    raise HTTPException(status_code=503, detail={
+                        "code": "FINISHED_STORAGE_UNAVAILABLE",
+                        "message": "DATABASE_URL is required for the finished library",
+                        "retryable": True,
+                    })
+            else:
+                rows = _local_rows(finished_dir, q, limit, offset)
         for row in rows:
             row.setdefault("storage", "blob" if row.get("video_url") else "local")
         return {"videos": rows, "count": len(rows), "limit": limit, "offset": offset}
