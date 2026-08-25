@@ -1824,8 +1824,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     theme_line = (f' Theme/setting steer (lean in where it fits, never force): "{image_guidance}".'
                   if image_guidance else "")
 
-    # 2) EXPANSION — batches of ~16, each sees the full sheet, dramatizing ONLY its assigned beats.
-    per_batch = 16
+    # 2) EXPANSION — batched, each batch sees the full sheet, dramatizing ONLY its assigned beats.
+    # Ten rather than sixteen: every scene carries a paragraph-length image_prompt plus ~16 story
+    # fields, claim_refs and now a role, and sixteen of those overran the response budget — a run
+    # died on "Unterminated string" at char 41222, which is almost exactly 16 scenes of this shape.
+    # Smaller batches cost more calls but cannot silently truncate a script mid-object.
+    per_batch = 10
     all_scenes = []
     bi = 0
     while bi < n_scenes:
@@ -1872,8 +1876,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
                if is_last else "")
         )
-        c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=16000, system=_SCRIPT_SYSTEM,
+        c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
+        if getattr(c, "stop_reason", "") == "max_tokens":
+            # Truncated JSON surfaces as an opaque "Unterminated string at char N" from the parser,
+            # which says nothing about the cause. Name it where it happens.
+            raise ValueError(
+                f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
+                "off mid-object. Lower per_batch or raise max_tokens for this call.")
         part, rc = _parse_script_json(c.content[0].text); cost += rc
         cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
         for batch_index, s in enumerate(part.get("scenes") or []):
