@@ -12,6 +12,7 @@ Steps:
 """
 
 import collections
+import tempfile
 import os
 import re
 import time
@@ -2125,9 +2126,57 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
     return dossier
 
 
+def _research_cache_path(question: str) -> str:
+    root = os.environ.get("RESEARCH_CACHE_DIR", "").strip() or os.path.join(
+        tempfile.gettempdir(), "reelforge", "research")
+    key = hashlib.sha256(f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}".encode()).hexdigest()
+    return os.path.join(root, f"{key[:32]}.json")
+
+
+def _cached_research_dossier(question: str, log) -> dict | None:
+    """Reuse a previously VALIDATED dossier for the same question.
+
+    Web search is a metered server tool, and a research call spends several of those uses. Anything
+    that re-runs a render on the same question — a retry after a downstream gate, iterating on the
+    script or the renderer — burned the quota again for evidence that had not changed, and
+    exhausting it produces a run that fails for a reason unrelated to the code under test.
+
+    Only validated dossiers are stored, so a cache hit can never resurrect a failure.
+    """
+    if os.environ.get("RESEARCH_CACHE", "1") != "1":
+        return None
+    path = _research_cache_path(question)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            dossier = json.load(handle)
+    except Exception:
+        return None
+    claims = len(dossier.get("claims") or [])
+    if not claims:
+        return None
+    log(f"Research dossier: reusing {claims} verified claims cached for this question "
+        f"(RESEARCH_CACHE=0 to force a fresh search)")
+    return dossier
+
+
+def _store_research_dossier(question: str, dossier: dict) -> None:
+    if os.environ.get("RESEARCH_CACHE", "1") != "1":
+        return
+    path = _research_cache_path(question)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(dossier, handle)
+    except Exception as exc:
+        print(f"[research] cache write skipped: {exc}")
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
+    cached = _cached_research_dossier(question, log)
+    if cached:
+        return cached
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
         "ledger of 8-14 material claims needed to answer it accurately. Every claim must use a URL "
@@ -2210,6 +2259,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             + ", ".join(f"{code}x{count}" for code, count in codes.most_common(4)) + "]: "
             + "; ".join(item["message"] for item in validation["errors"][:3])
         )
+    _store_research_dossier(question, dossier)
     return dossier
 
 
