@@ -1646,6 +1646,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'in the runtime>,"beat":"the SINGLE new idea/fact/story-move for this scene, concrete, one '
         'sentence","role":"cold_consequence|promise|prediction_gate|rules|payoff|escalation|rehook|'
         'mechanism|reversal|branch|false_relief|final_escalation|final_payoff|resonant_end",'
+        '"mystery_role":"only when a STORY FORMAT block below supplies a vocabulary; leave empty '
+        'otherwise. This is a SECOND label for the same beat and never replaces role",'
         '"human_present":true|false,"human_intention":"what Alex is trying to accomplish now",'
         '"human_belief":"what Alex believes",'
         '"viewer_knows":"specific evidence visible to the viewer","human_knows":"specific evidence Alex has",'
@@ -1944,10 +1946,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             s["story_beat_n"] = int(beat.get("n") or (len(all_scenes) + 1))
             s["story_pct"] = int(beat.get("pct") or 0)
             s["story_role"] = _s(beat.get("role")) or "beat"
-            # story_engine reads `_role`; this path only ever wrote `story_role`, so every
-            # structural gate reported "beat roles absent" and none of the eleven timing bands
-            # could run. Same value, both names — the planner already knows the role.
-            s["_role"] = s["story_role"]
+            # Two vocabularies, two fields. `story_role` stays in the pipeline's own vocabulary,
+            # because its validators match those names by string equality. `_role` carries the
+            # mystery grammar for story_engine's timing bands, falling back to story_role so the
+            # structural gates still run on a standard explainer.
+            s["_role"] = _s(beat.get("mystery_role")) or s["story_role"]
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",
@@ -6018,11 +6021,19 @@ def _story_role_block(format_name: str) -> str:
     rows = ", ".join(f"{role} ({lo:.0f}-{hi:.0f}%)" for role, (lo, hi) in fmt.bands.items())
     required = ", ".join(fmt.required)
     return (
-        "\nSTORY FORMAT — BEAT ROLES. Tag every scene with \"_role\", using EXACTLY these names and "
-        "placing each within its share of the runtime: " + rows + ". "
+        # A SECOND field, deliberately — not `role`. The pipeline's validators match role names by
+        # string equality against their own vocabulary (`roles[0] != "cold_consequence"`,
+        # prediction_gate counting, payoff detection), so writing mystery names into `role` made
+        # those checks unsatisfiable: a mystery opens on `anomaly`, which is not the literal string
+        # `cold_consequence`, and no mystery role is named `prediction_gate` or `payoff`. Two
+        # vocabularies, both correct, one field — the scripts were failing on a name collision
+        # rather than on structure.
+        "\nSTORY FORMAT — MYSTERY BEAT ROLES. In ADDITION to \"role\" (which keeps its own "
+        "vocabulary and must not change), tag every scene with \"mystery_role\" using EXACTLY these "
+        "names, placed within its share of the runtime: " + rows + ". "
         "These are required and must all appear: " + required + ". "
         "Order them as listed; a role may span more than one scene, and roles that do not fit the "
-        "topic may be omitted, but never invent a role name outside this list."
+        "topic may be omitted, but never invent a name outside this list."
     )
 
 
