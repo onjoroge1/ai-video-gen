@@ -45,6 +45,7 @@ from longform_shots import (
     shot_plan_metrics,
 )
 from longform_research import (
+    _canonical_url,
     claim_context_for_prompt,
     validate_claim_joins,
     validate_research_dossier,
@@ -2010,6 +2011,72 @@ def _provider_citation_urls(response) -> list[str]:
     return sorted(urls)
 
 
+_SUPPORT_BIND_MIN_OVERLAP = 0.6
+
+
+def _content_tokens(text: str) -> set:
+    return {tok for tok in re.findall(r"[a-z0-9]+", _s(text).casefold()) if len(tok) > 2}
+
+
+def _bind_support_quotes(dossier: dict) -> dict:
+    """Replace each claim's *retyped* support quote with the provider excerpt it paraphrases.
+
+    The dossier prompt asks the model for a "short exact excerpt", then validation checks that text
+    verbatim against what the search provider returned. Models normalise whitespace, repair
+    punctuation and trim clauses, so a claim that is true, correctly attributed and drawn from the
+    right page still failed — six of fourteen on the run that prompted this. That is verifying what
+    was generated, when the invariant should hold by construction.
+
+    So the model's quote is demoted to a *selector*: it chooses which provider excerpt for that URL
+    supports the claim, and the excerpt's own bytes become support_quote.
+
+    This is deliberately NOT a rubber stamp. Substitution requires the model's wording to genuinely
+    overlap the excerpt it is being bound to; below that threshold the original is left alone and
+    validation fails exactly as before. A claim whose support resembles nothing the provider
+    returned must still fail, or the check would stop protecting against a fabricated citation —
+    which is the entire reason it exists.
+    """
+    records: dict[str, list[str]] = {}
+    for record in dossier.get("citation_records") or []:
+        if not isinstance(record, dict):
+            continue
+        url = _canonical_url(_s(record.get("url")))
+        # Must be the same field the validator reads (`cited_text`), or binding would repair a
+        # quote against text validation never sees and the claim would still fail.
+        excerpt = _s(record.get("cited_text") or record.get("excerpt"))
+        if url and excerpt:
+            records.setdefault(url, []).append(excerpt)
+
+    bound = unbindable = 0
+    for claim in dossier.get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        quoted = _s(claim.get("support_quote"))
+        excerpts = records.get(_canonical_url(_s(claim.get("source_url")))) or []
+        if not quoted or not excerpts:
+            continue
+        if any(quoted.casefold() in excerpt.casefold() for excerpt in excerpts):
+            continue                                    # already verbatim; nothing to repair
+        wanted = _content_tokens(quoted)
+        if not wanted:
+            continue
+        best, best_overlap = "", 0.0
+        for excerpt in excerpts:
+            overlap = len(wanted & _content_tokens(excerpt)) / len(wanted)
+            if overlap > best_overlap:
+                best, best_overlap = excerpt, overlap
+        if best and best_overlap >= _SUPPORT_BIND_MIN_OVERLAP:
+            claim["support_quote_model"] = quoted       # keep what the model wrote, for audit
+            claim["support_quote"] = best
+            claim["support_quote_binding"] = round(best_overlap, 3)
+            bound += 1
+        else:
+            unbindable += 1
+    dossier["support_quote_binding"] = {"bound": bound, "unbindable": unbindable,
+                                        "min_overlap": _SUPPORT_BIND_MIN_OVERLAP}
+    return dossier
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
@@ -2052,6 +2119,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     dossier["web_search_requests"] = search_requests
     dossier["search_cost_reservation_usd"] = round(
         search_requests * _WEB_SEARCH_COST_CEILING, 4)
+    _bind_support_quotes(dossier)
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
     if cost_sink is not None:
