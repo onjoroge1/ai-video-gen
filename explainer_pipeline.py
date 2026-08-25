@@ -5631,6 +5631,44 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     return False
 
 
+def _review_story_structure(script: dict, requested_format: str, video_format: str, log) -> dict:
+    """Measure narration against its story format's structure gates and REPORT ONLY.
+
+    Returns the raw report so it lands in the persisted script, and logs a short summary. Never
+    raises and never blocks: story_engine is stdlib-only and provider-free, so the cost of being
+    wrong here is a misleading log line, but the cost of gating on an unproven band would be a
+    dead run on a topic that is fine.
+
+    Roles are the input the pipeline does not yet emit — without a per-beat ``_role`` the
+    structural checks cannot run at all and say so, which is the honest result rather than a pass.
+    """
+    try:
+        import story_engine
+    except Exception as exc:                                  # module absent → silently skip
+        return {"available": False, "reason": str(exc)}
+    # This API and story_engine name the default lane differently. The lookup would land on the
+    # right format anyway via its unknown-name fallback, but that path exists to survive typos —
+    # leaning on it would silently change behaviour the day a "standard_explainer" format is added.
+    alias = {"standard_explainer": "default_explainer"}
+    requested = alias.get((requested_format or "").strip().lower(), requested_format or "")
+    try:
+        fmt = story_engine.resolve(requested, video_format=video_format)
+        report = story_engine.check(script, fmt)
+        failures = report.get("failures") or []
+        reviews = report.get("requires_review") or []
+        verdict = "clean" if report.get("passed") else f"{len(failures)} would-fail"
+        log(f"Story structure [{fmt.name}] — review only: {verdict}"
+            + (f", {len(reviews)} for judgement" if reviews else ""))
+        for item in failures[:4]:
+            log(f"  ⚠ {item}")
+        for item in reviews[:3]:
+            log(f"  ? {item}")
+        return report
+    except Exception as exc:
+        log(f"Story structure review skipped: {type(exc).__name__}: {exc}")
+        return {"available": True, "error": str(exc)}
+
+
 def run_explainer_pipeline(
     question: str,
     output_dir: str,
@@ -5865,6 +5903,11 @@ def run_explainer_pipeline(
             else:
                 log("Fact-check: no corrections needed ✓")
             scenes = script.get("scenes", [])
+        # Story-structure gates, REVIEW-ONLY. Measured after fact-check because that pass rewrites
+        # narration, and cadence/anchor measurements are only meaningful on the final wording.
+        # Deliberately gates nothing yet: the bands need to be trusted against real topics before
+        # they are allowed to stop a run. Promote to blocking behind an env flag once they are.
+        script["_story_engine"] = _review_story_structure(script, story_format, video_format, log)
         if video_format != "social":
             claim_validation = validate_claim_joins(script, research_dossier)
             script["_claim_validation"] = claim_validation
