@@ -2135,6 +2135,18 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
     return dossier
 
 
+def _research_cache_enabled() -> bool:
+    """Cache is a development convenience, and must never change behaviour under test.
+
+    A stubbed research call writes a perfectly valid dossier, which the cache would then serve to
+    the next run — so the test that asserts an API call was made saw no call at all. A cache that
+    silently substitutes itself for the thing under test is worse than no cache.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return os.environ.get("RESEARCH_CACHE", "1") == "1"
+
+
 def _research_cache_path(question: str) -> str:
     root = os.environ.get("RESEARCH_CACHE_DIR", "").strip() or os.path.join(
         tempfile.gettempdir(), "reelforge", "research")
@@ -2152,7 +2164,7 @@ def _cached_research_dossier(question: str, log) -> dict | None:
 
     Only validated dossiers are stored, so a cache hit can never resurrect a failure.
     """
-    if os.environ.get("RESEARCH_CACHE", "1") != "1":
+    if not _research_cache_enabled():
         return None
     path = _research_cache_path(question)
     try:
@@ -2169,7 +2181,7 @@ def _cached_research_dossier(question: str, log) -> dict | None:
 
 
 def _store_research_dossier(question: str, dossier: dict) -> None:
-    if os.environ.get("RESEARCH_CACHE", "1") != "1":
+    if not _research_cache_enabled():
         return
     path = _research_cache_path(question)
     try:
