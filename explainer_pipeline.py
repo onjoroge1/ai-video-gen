@@ -2421,7 +2421,10 @@ def _enforce_requested_runtime(
     if not scenes or duration_sec <= 0:
         return script
     report = plan_runtime(scenes, duration_sec)
-    for attempt in range(2):
+    # Three passes, not two. The gap is routinely ~20%, and a single compression pass reliably
+    # under-delivers; a run that stops one pass short of the window has paid for the model calls
+    # and thrown the result away.
+    for attempt in range(3):
         if report["passed"]:
             break
         target_words, min_words, max_words = runtime_word_bounds(
@@ -2433,10 +2436,20 @@ def _enforce_requested_runtime(
             "claim_refs": scene.get("claim_refs") or [],
             "evidence_id": _s(scene.get("evidence_id")),
         } for scene in scenes]
+        # Concrete arithmetic, not an abstract target. Told only "must be 166-176 words", the model
+        # returned 212 and then 210 — it was not measuring. Naming the current count and the exact
+        # number of words to remove turns this into a countable edit.
+        current_words = int(report.get("word_count") or 0)
+        surplus = max(0, current_words - max_words)
         prompt = (
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
+            f"It is currently {current_words} words, which runs "
+            f"{report.get('estimated_seconds', 0):.0f}s — you must REMOVE AT LEAST {surplus} words. "
             f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
-            f"{min_words}-{max_words} words, ideally {target_words}. Preserve every factual claim, "
+            f"{min_words}-{max_words} words, ideally {target_words} — count them before answering, and "
+            f"aim for about {max(1, target_words // max(1, len(scenes)))} words per scene. "
+            "Cut whole clauses and redundant restatement rather than trimming a word here and there; "
+            "a 20% reduction is a rewrite, not an edit. Preserve every factual claim, "
             "story role, open-loop payoff and the final answer; remove padding and compress wording. "
             "Vary sentence length and keep natural speech. For every scene, return a visual_beats array "
             "whose anchor_phrase values are exact consecutive 2-8 word phrases copied from that scene's "
