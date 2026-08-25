@@ -1910,16 +1910,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             allowed_refs = beat.get("claim_refs") if isinstance(beat.get("claim_refs"), list) else []
             allowed_ids = {_s(ref.get("claim_id")) for ref in allowed_refs if isinstance(ref, dict)}
             expanded_refs = s.get("claim_refs") if isinstance(s.get("claim_refs"), list) else []
+            kept_refs = [ref for ref in expanded_refs
+                         if isinstance(ref, dict) and _s(ref.get("claim_id")) in allowed_ids]
+            # A claimed scene must carry an evidence_id, and every reference in it must carry the
+            # SAME one. Both come from the beat, so they already agree — but the planner routinely
+            # omits the id entirely, and an empty string fails the join just as hard as a mismatched
+            # one. The value only has to be stable and shared within the scene, which the beat
+            # number already is: derive it rather than asking the model again.
+            beat_evidence = _s(beat.get("evidence_id"))
+            if kept_refs and not beat_evidence:
+                beat_evidence = f"e{int(s['story_beat_n']):02d}"
             s["claim_refs"] = [
                 {
                     "claim_id": _s(ref.get("claim_id")),
                     "narration_phrase": _s(ref.get("narration_phrase")),
-                    "evidence_id": _s(beat.get("evidence_id")),
+                    "evidence_id": beat_evidence,
                 }
-                for ref in expanded_refs
-                if isinstance(ref, dict) and _s(ref.get("claim_id")) in allowed_ids
+                for ref in kept_refs
             ]
-            s["evidence_id"] = _s(beat.get("evidence_id"))
+            s["evidence_id"] = beat_evidence
             all_scenes.append(s)
         bi += per_batch
 
