@@ -1240,7 +1240,10 @@ _SCENE_FIELDS_RULES = (
     'test, warning, reaction, or assistance he performs — NEVER standing or pointing beside the topic. '
     'claim_refs (copy the assigned claim_id values; for each, set narration_phrase to an EXACT '
     'consecutive substring of this scene\'s FINAL narration and evidence_id to the assigned evidence_id; '
-    'use [] only when the assigned beat has no claims), evidence_id (copy the assigned stable id), '
+    'use [] only when the assigned beat has no claims). WHEN YOUR BEAT HAS NO CLAIMS, the narration '
+    'must not assert one: no figures, dates or percentages, and no "because", "causes", "therefore", '
+    '"leads to" or "results in". Write what is seen and what someone does instead — an unbacked '
+    'factual or causal line fails the run before any spend. evidence_id (copy the assigned stable id), '
     'shot_type '
     '(wide|medium|close|aerial|detail), text_overlay (USUALLY EMPTY "" — the subtitles carry the '
     'words; set it ONLY on a genuine reveal/transition/branch scene, and ONLY as a stage label or a '
@@ -2219,7 +2222,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         return cached
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 8-14 material claims needed to answer it accurately. Every claim must use a URL "
+        "ledger of 12-18 material claims needed to answer it accurately. Every claim must use a URL "
         "that appears in your web-search results. Cite peer-reviewed papers, government and "
         "public-health bodies, universities, museums or named institutional publications — not "
         "encyclopedias, forums or blogs, which are rejected however accurate. Each cited page is "
