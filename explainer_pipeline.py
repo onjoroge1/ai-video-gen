@@ -2103,6 +2103,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             "response_inclusion": "full",
         }],
         messages=[{"role": "user", "content": prompt}],
+        # The client default is 180s, chosen so a hung script-gen call cannot stall a render. This
+        # one call is structurally longer than that budget: it runs up to five server-side web
+        # searches, reads their results, then writes a ~10k-token ledger — and it timed out at 180s
+        # in practice. Raised only here, so a genuinely hung call elsewhere still fails fast.
+        timeout=float(os.environ.get("RESEARCH_TIMEOUT_SEC", "600")),
     )
     text_blocks = [_s(getattr(block, "text", "")) for block in response.content
                    if _s(getattr(block, "text", ""))]
