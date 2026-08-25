@@ -483,7 +483,8 @@ Return this exact JSON structure with NO extra keys:
   "scenes": [
     {{
       "id": 1,
-      "narration": "What the narrator says. Natural speech. ~{wpm} words.",
+      "narration": "What the narrator says, in TWO OR THREE sentences of DELIBERATELY UNEVEN length — at least one that runs long enough to build (15+ words), and at least one short enough to land as a beat (<=5 words). One even mid-length sentence per scene is the single most common defect in this channel's scripts: it makes every thought the same size, so no reveal has anywhere to land. Natural speech. ~{wpm} words.",
+      "_role": "this beat's story role, from the list supplied in the STORY FORMAT section below (use the exact role name; omit only if no role fits)",
       "scene_type": "real_world_example | metaphor_scene | educational_diagram | cinematic_intro | experiment_lab | everyday_life | abstract_visualization | recap_scene",
       "environment_type": "best fit for THIS scene (VARY it): classroom | science_lab | home | city | data_center | space | microscopic_world | digital_world | nature | sports_field | simple_whiteboard | abstract_space",
       "image_prompt": "A visually engaging frame in one rich paragraph, set in THIS scene's environment_type and matching its scene_type. REQUIRED: a concrete real-world or metaphor scene (NOT 'Bolt beside a glowing concept'); an intentional ASYMMETRICAL composition with clear FOREGROUND / MIDGROUND / BACKGROUND depth; a specific CAMERA angle; mode-appropriate LIGHTING; an EMOTIONAL beat; an implied MOTION cue. For any complex idea, show a SIMPLE VISUAL METAPHOR (e.g. WiFi = invisible messages router→device; electricity = energy through a circuit). Make the focal subject instantly readable. INFORMATION-DESIGN DISCIPLINE: ONE HERO per frame (the thing the scene teaches) + at most one supporting element — Bolt is the GUIDE, smaller and pointing when the science is the hero, not always the centerpiece. SEMANTIC COLOR CODE: use the CHANNEL COLOR CODE provided below (a fixed role→colour map); map each element to its role and name that colour in every image_prompt showing it. For body/mechanism beats use a CLEAN CUTAWAY (simplified, legible like a diagram) rather than busy realistic texture; readable muted in half a second. The cutaway is UNLABELED — NO text/letters/numbers/callout labels baked into the image (convey meaning via shape + the semantic colour, not written labels).",
@@ -1718,6 +1719,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "evidence payoffs but withhold only the deepest causal explanation until 45-70%; each clue "
             "weakens Alex's false belief and forces his next action. If unsuitable, write a STANDARD "
             "EXPLAINER plan instead and explain why in mystery_unsuitable_reason."
+            + _story_role_block("evidence_led_mystery")
         )
     else:
         beat_prompt += (
@@ -5629,6 +5631,31 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     except OSError:
         pass
     return False
+
+
+def _story_role_block(format_name: str) -> str:
+    """Name the beat roles and their runtime bands so the planner can emit `_role` per scene.
+
+    Without this the model has no vocabulary to label beats with, `_role` comes back empty, and
+    every structural gate in story_engine reports "beat roles absent — could not run". The bands
+    are stated as percentages of runtime because that is exactly how they are measured.
+    """
+    try:
+        import story_engine
+        fmt = story_engine.get(format_name)
+    except Exception:
+        return ""
+    if not getattr(fmt, "bands", None):
+        return ""
+    rows = ", ".join(f"{role} ({lo:.0f}-{hi:.0f}%)" for role, (lo, hi) in fmt.bands.items())
+    required = ", ".join(fmt.required)
+    return (
+        "\nSTORY FORMAT — BEAT ROLES. Tag every scene with \"_role\", using EXACTLY these names and "
+        "placing each within its share of the runtime: " + rows + ". "
+        "These are required and must all appear: " + required + ". "
+        "Order them as listed; a role may span more than one scene, and roles that do not fit the "
+        "topic may be omitted, but never invent a role name outside this list."
+    )
 
 
 def _review_story_structure(script: dict, requested_format: str, video_format: str, log) -> dict:
