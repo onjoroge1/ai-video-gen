@@ -11,6 +11,7 @@ Steps:
   5. _assemble()         — ffmpeg: xfade transitions + audio concat + optional BG music
 """
 
+import collections
 import os
 import re
 import time
@@ -2082,8 +2083,16 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     """Build a cited, pre-script claim ledger with server-side web search."""
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 6-14 material claims needed to answer it accurately. Every claim must use a URL "
-        "that appears in your web-search results. For a hypothetical, separate the changed premise, "
+        "ledger of 6-14 material claims needed to answer it accurately.\n"
+        "EVIDENCE PROCEDURE — follow in this order:\n"
+        "  1. Run web_search first and read the results.\n"
+        "  2. Then call web_fetch ONLY on URLs that appeared verbatim in those search results. "
+        "web_fetch refuses any URL it has not already seen in this conversation, so never fetch a "
+        "URL from memory, never guess or reconstruct one, and never edit a returned URL.\n"
+        "  3. Quote only wording you actually read on a fetched page, copied "
+        "character-for-character into support_quote. A search-result listing is a pointer, not "
+        "evidence; if you could not fetch a page, do not cite it.\n"
+        "For a hypothetical, separate the changed premise, "
         "direct calculations, established baseline facts, modeled consequences, and speculation. "
         "Return ONLY JSON with this schema: "
         '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
@@ -2098,10 +2107,20 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         model=ANTHROPIC_MODEL,
         max_tokens=10000,
         system=_RESEARCH_SYSTEM,
-        tools=[{
-            "type": "web_search_20260318", "name": "web_search", "max_uses": 5,
-            "response_inclusion": "full",
-        }],
+        tools=[
+            {"type": "web_search_20260318", "name": "web_search", "max_uses": 5,
+             "response_inclusion": "full"},
+            # Search alone cannot satisfy this pipeline's own validator. A `web_search_result`
+            # block carries only url, title, page_age and an opaque `encrypted_content` — measured
+            # on a real call, zero readable excerpts across 49 results and 32 URLs, with
+            # `citations` None on every text block. So "the support quote was observed in a
+            # provider citation" was unsatisfiable by construction, and every long-form run failed
+            # here regardless of topic. web_fetch returns actual page text and produces citations
+            # carrying `cited_text`, which is the evidence the validator asks for —
+            # `_provider_citation_records` already handles its block types.
+            {"type": "web_fetch_20260318", "name": "web_fetch", "max_uses": 8,
+             "citations": {"enabled": True}},
+        ],
         messages=[{"role": "user", "content": prompt}],
         # The client default is 180s, chosen so a hung script-gen call cannot stall a render. This
         # one call is structurally longer than that budget: it runs up to five server-side web
@@ -2127,15 +2146,28 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     _bind_support_quotes(dossier)
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
+    # An unverified-quote failure has two very different causes and the message could not tell them
+    # apart, which cost several rounds of guessing: either the provider returned no readable
+    # evidence at all (nothing CAN verify, a tool/config problem) or it returned evidence the
+    # quotes do not match (a matching problem). Report the evidence actually available.
+    quotable = [record for record in dossier["citation_records"]
+                if isinstance(record, dict) and _s(record.get("cited_text")).strip()]
+    dossier["quotable_excerpt_count"] = len(quotable)
+    log(f"Provider evidence: {len(quotable)} quotable excerpts across "
+        f"{len({_s(r.get('url')) for r in quotable})} sources"
+        + (" — nothing to verify against" if not quotable else ""))
     if cost_sink is not None:
         cost_sink.append(_msg_cost(response.usage) + repair_cost)
         cost_sink.append(dossier["search_cost_reservation_usd"])
     log(f"Research dossier: {validation['claim_count']} claims, "
         f"{validation['citation_count']} cited URLs")
     if not validation["passed"]:
+        codes = collections.Counter(_s(item.get("code")) for item in validation["errors"])
         raise ValueError(
-            "Research dossier failed before scripting: "
-            + "; ".join(item["message"] for item in validation["errors"][:6])
+            "Research dossier failed before scripting "
+            f"[{dossier['quotable_excerpt_count']} quotable excerpts available; "
+            + ", ".join(f"{code}x{count}" for code, count in codes.most_common(4)) + "]: "
+            + "; ".join(item["message"] for item in validation["errors"][:3])
         )
     return dossier
 
