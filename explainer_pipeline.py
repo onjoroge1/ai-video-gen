@@ -5957,6 +5957,61 @@ def _story_role_block(format_name: str) -> str:
     )
 
 
+def _repair_claim_phrases(script: dict, log=lambda message: None) -> int:
+    """Re-bind each claim reference to wording that survives in the final narration.
+
+    validate_claim_joins requires `narration_phrase` to be an exact substring of the scene's
+    narration. The planner binds those phrases, and then the FACT-CHECK PASS REWRITES THE
+    NARRATION — its own log from the run that exposed this reads "removed 'completely'" and
+    "'Over ninety percent' aligned to 'more than 90%'". Both are correct edits, and both silently
+    invalidate a binding made against the older wording.
+
+    So the phrase is re-derived from whatever the narration now says: the sentence carrying the
+    claim is located by content overlap, and a short exact run of its words becomes the binding. A
+    reference whose claim no longer appears anywhere in the scene is dropped rather than repointed
+    — if the fact-check removed the assertion, the citation should go with it.
+    """
+    repaired = dropped = 0
+    for scene in script.get("scenes") or []:
+        narration = _s(scene.get("narration")).strip()
+        refs = scene.get("claim_refs")
+        if not isinstance(refs, list) or not refs:
+            continue
+        haystack = narration.casefold()
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", narration) if s.strip()]
+        kept = []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            phrase = _s(ref.get("narration_phrase")).strip()
+            if phrase and phrase.casefold() in haystack:
+                kept.append(ref)
+                continue
+            wanted = _content_tokens(phrase) or _content_tokens(_s(ref.get("claim_id")))
+            best, best_score = "", 0.0
+            for sentence in sentences:
+                if not wanted:
+                    break
+                score = len(wanted & _content_tokens(sentence)) / len(wanted)
+                if score > best_score:
+                    best, best_score = sentence, score
+            if best and best_score >= 0.34:
+                words = best.split()
+                ref["narration_phrase_model"] = phrase
+                ref["narration_phrase"] = " ".join(words[:min(6, len(words))])
+                kept.append(ref)
+                repaired += 1
+            else:
+                dropped += 1
+        scene["claim_refs"] = kept
+        if not kept:
+            scene["evidence_id"] = ""      # an unclaimed scene must not carry a dangling join
+    if repaired or dropped:
+        log(f"Claim phrases: re-bound {repaired} to the fact-checked narration"
+            + (f", dropped {dropped} whose claim no longer appears" if dropped else ""))
+    return repaired
+
+
 def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
     """Make every visual beat's anchor_phrase an exact substring of its own narration.
 
@@ -6290,6 +6345,11 @@ def run_explainer_pipeline(
         # narration, and cadence/anchor measurements are only meaningful on the final wording.
         # Deliberately gates nothing yet: the bands need to be trusted against real topics before
         # they are allowed to stop a run. Promote to blocking behind an env flag once they are.
+        # Both bindings are made against pre-fact-check wording and are re-derived here, after the
+        # last pass that can rewrite narration and before anything validates them against it.
+        if video_format != "social":
+            _repair_claim_phrases(script, log)
+            _repair_anchor_phrases(script, log)
         script["_story_engine"] = _review_story_structure(script, story_format, video_format, log)
         if video_format != "social":
             claim_validation = validate_claim_joins(script, research_dossier)

@@ -61,3 +61,51 @@ def test_it_reports_how_many_it_changed():
     scene = _scene("nothing like the narration at all")
     assert ep._repair_anchor_phrases({"scenes": [scene]}) >= 1
     assert ep._repair_anchor_phrases({"scenes": [dict(scene)]}) >= 0
+
+
+FACTCHECKED = ("The bacteria appeared in more than 90% of duodenal ulcers. "
+               "Antibiotics healed them for good.")
+
+
+def _claim_scene(*phrases):
+    return {"narration": FACTCHECKED, "evidence_id": "e01",
+            "claim_refs": [{"claim_id": f"c{i:02d}", "narration_phrase": p, "evidence_id": "e01"}
+                           for i, p in enumerate(phrases, 1)]}
+
+
+def test_a_phrase_the_factcheck_rewrote_is_rebound():
+    """The real failure: fact-check changed 'Over ninety percent' to 'more than 90%'.
+
+    Both wordings are correct; the binding made against the older one is not.
+    """
+    scene = _claim_scene("Over ninety percent of duodenal ulcers")
+    assert ep._repair_claim_phrases({"scenes": [scene]}) == 1
+    ref = scene["claim_refs"][0]
+    assert ref["narration_phrase"].casefold() in FACTCHECKED.casefold()
+    assert ref["narration_phrase_model"] == "Over ninety percent of duodenal ulcers"
+
+
+def test_a_claim_the_factcheck_removed_is_dropped_not_repointed():
+    """If the assertion is gone from the narration, its citation goes too.
+
+    Repointing it at the nearest surviving sentence would attach a source to a claim the script no
+    longer makes — which is the fabrication the ledger exists to prevent.
+    """
+    scene = _claim_scene("the moon landing was filmed in a studio")
+    ep._repair_claim_phrases({"scenes": [scene]})
+    assert scene["claim_refs"] == []
+    assert scene["evidence_id"] == "", "an unclaimed scene must not keep a dangling evidence join"
+
+
+def test_an_exact_phrase_is_left_untouched():
+    scene = _claim_scene("Antibiotics healed them")
+    ep._repair_claim_phrases({"scenes": [scene]})
+    ref = scene["claim_refs"][0]
+    assert ref["narration_phrase"] == "Antibiotics healed them"
+    assert "narration_phrase_model" not in ref
+
+
+def test_claim_repair_survives_malformed_input():
+    for junk in ({"scenes": None}, {"scenes": [{}]},
+                 {"scenes": [{"narration": FACTCHECKED, "claim_refs": [None, "x"]}]}):
+        ep._repair_claim_phrases(junk)
