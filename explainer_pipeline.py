@@ -1719,7 +1719,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "evidence payoffs but withhold only the deepest causal explanation until 45-70%; each clue "
             "weakens Alex's false belief and forces his next action. If unsuitable, write a STANDARD "
             "EXPLAINER plan instead and explain why in mystery_unsuitable_reason."
-            + _story_role_block("evidence_led_mystery")
+            + _story_role_block("evidence_led_mystery") + _STORY_LED_DNA
         )
     else:
         beat_prompt += (
@@ -5631,6 +5631,42 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     except OSError:
         pass
     return False
+
+
+# Distilled from a hand-rewritten reference script (H. pylori / Barry Marshall) that scored far
+# above anything the planner had produced. Each rule below fixes a defect that was MEASURED in
+# generated output, not one that was theorised:
+#   - "Cast: Alex leads 0/15 scenes; Bolt assists in 15/15" — the human-led format produced zero
+#     human-led scenes and put the mascot in every frame.
+#   - story_engine measured 1.0 sentences per scene, 0% short lines, 6.7% long ones.
+#   - the planner opened on exposition and postponed its own title promise past the halfway mark.
+_STORY_LED_DNA = (
+    "\nSTORY-LED DISCIPLINE — these override any conflicting guidance above.\n"
+    "1. HUMANS CARRY THE STORY. Real named people own the discovery, the rejection, the risk and "
+    "the cure. Bolt appears in AT MOST a third of scenes and only to demonstrate a mechanism or "
+    "react at a decision — never as the protagonist, never in place of physical evidence, and "
+    "never standing in for a real person.\n"
+    "2. FRAME ONE IS AN IRREVERSIBLE ACTION, NOT A SUMMARY. Open inside the strangest moment with "
+    "something already happening, and deliver the title's promise within the first ~8 seconds "
+    "rather than teasing it to the end. An early payoff does not end the video; it resets the "
+    "question to WHY it happened and whether it proved anything.\n"
+    "3. RECURRING PHYSICAL OBJECTS CARRY THE EVIDENCE. Choose 3-5 concrete objects that actually "
+    "appear in the account and pass causality between them in a fixed chain, then close the loop by "
+    "returning to the first object. Decorative props that carry no evidence — ticking clocks, "
+    "generic glowing orbs — are forbidden; if an object does not change a character's decision, cut "
+    "it.\n"
+    "4. EVERY ANSWER MUST CREATE THE NEXT QUESTION. Never list consequences. Each beat resolves the "
+    "previous question and opens a sharper one, and the new question must open before the old one "
+    "fully closes.\n"
+    "5. THE VIEWER MUST ENTER EARLY. Within the first ~20 seconds, show the ordinary experience the "
+    "audience already recognises, and return to that person at the end so the payoff is theirs.\n"
+    "6. END LARGER THAN THE FACT, AND STOP. The closing beat reframes what the discovery means for "
+    "ordinary people; an award or a statistic is validation, not the ending. No subscribe request "
+    "and no dead-air outro — finish on the callback image.\n"
+    "7. NEVER OVERCLAIM TO SHARPEN A STORY. State precisely what the evidence showed and keep the "
+    "caveat that complicates it. A dramatic sentence that is slightly wrong is a defect, not a "
+    "trade-off.\n"
+)
 
 
 def _story_role_block(format_name: str) -> str:
