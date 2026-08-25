@@ -1604,7 +1604,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
     # Round, not floor: truncating loses up to a word per scene, and across a long sheet that is a
     # whole scene's worth of runtime lost from the other side.
-    wpm = max(_WORD_FLOOR, round(total_words / max(1, n_scenes)))
+    # Ask for ~18% under budget, because the planner reliably overshoots what it is asked for.
+    # Measured across runs: asked for 19 words per scene it wrote 23, landing 209-220 words against
+    # a 166-176 allowance. Compression then has to close ~20%, and it only removes 3-6% per pass —
+    # so whether a run passed came down to how close its first draft happened to land (run 11
+    # converged at 91.8s from 99.7s; run 12 ran out of passes at 106.1s from 113.2s). Correcting the
+    # request is deterministic and free; asking compression to absorb a predictable bias is neither.
+    # The true budget still governs validation — only the ask is adjusted.
+    # The floor governs how many scenes fit the runtime; it must not also clamp the ask, or the
+    # correction is a no-op — max(18, 17.8) is 18, which is what the planner was already
+    # overshooting from.
+    _OVERSHOOT = 0.82
+    wpm = max(12, round(total_words * _OVERSHOOT / max(1, n_scenes)))
     cost = 0.0
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
