@@ -10,6 +10,7 @@ import explainer_pipeline as pipeline
 from app import app as fastapi_app
 
 from longform_rendered_gate import (
+    PROVISIONAL_THRESHOLD_PROFILE,
     HUMAN_REVIEW_CHECKLIST,
     apply_human_review,
     build_animatic_gate,
@@ -127,9 +128,46 @@ def test_uncalibrated_thresholds_are_reported_and_cannot_publish():
                           "not_slideshow": 0, "slideshow": 0},
     }
     report = _score(facts=facts)
-    assert "uncalibrated_rendered_thresholds" in report["hard_failures"]
+    # Still reported and still unpublishable — but as an INSTRUMENT fault rather than a verdict on
+    # the video. It no longer sits in hard_failures, because that list suppressed the score to 69
+    # and aborted the run, which made "we cannot measure this yet" fatal in the same way that
+    # "this is a slideshow" is.
+    assert report["calibrated"] is False
+    assert report["uncertified_reason"] == "uncalibrated_rendered_thresholds"
+    assert "uncalibrated_rendered_thresholds" not in report["hard_failures"]
     assert report["threshold_calibration"]["calibrated"] is False
     assert report["publishable"] is False
+
+
+def test_an_uncalibrated_run_may_finish_but_never_ships():
+    """The split that unblocks long-form.
+
+    An otherwise-sound opening on an uncalibrated instrument must be allowed to proceed — that is
+    the difference between a video that gets made and reviewed, and one that dies before its
+    remaining scenes are purchased. It must still be refused publication, and it must still carry
+    the reason.
+    """
+    facts = _facts()
+    facts["threshold_profile"] = dict(PROVISIONAL_THRESHOLD_PROFILE)
+    report = _score(facts=facts, review={"status": "complete", "decision": "approve"})
+    assert report["hard_failures"] == [], report["hard_failures"]
+    assert report["score"] > 69, "an instrument fault must not suppress the score"
+    assert report["automated_pass"] is True
+    assert report["passed"] is True, "the run may proceed"
+    assert report["publishable"] is False, "but it may not ship"
+    assert report["status"] == "PASS_UNCERTIFIED"
+
+
+def test_a_real_defect_still_blocks_regardless_of_calibration():
+    """The property that must not regress: the eleven substantive failures are untouched."""
+    facts = _facts()
+    facts["threshold_profile"] = dict(PROVISIONAL_THRESHOLD_PROFILE)
+    facts["slideshow"] = True
+    report = _score(facts=facts, review={"status": "complete", "decision": "approve"})
+    assert "slideshow_behavior" in report["hard_failures"]
+    assert report["score"] <= 49
+    assert report["automated_pass"] is False
+    assert report["passed"] is False and report["publishable"] is False
 
 
 def test_real_calibration_requires_balanced_human_labeled_samples():
