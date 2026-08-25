@@ -2078,20 +2078,68 @@ def _bind_support_quotes(dossier: dict) -> dict:
     return dossier
 
 
+def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -> dict:
+    """Establish the provider-observed-evidence invariant by reading the cited pages ourselves.
+
+    `validate_research_dossier` requires each support quote to appear in a citation record for its
+    URL. The provider does not expose that text to the client — measured repeatedly: zero readable
+    excerpts across search and fetch — so the records are built here instead, from pages we
+    actually retrieved. The stored quote is text read from the cited URL, which is what the check
+    was always asking for and is strictly stronger than a provider snippet.
+
+    A claim whose quote cannot be found on its own page is dropped rather than carried, because a
+    claim that survives here goes on to license narration.
+    """
+    claims = [claim for claim in (dossier.get("claims") or []) if isinstance(claim, dict)]
+    if not claims:
+        return dossier
+    try:
+        import claim_verify
+    except Exception as exc:                                  # never turn a missing dep into a crash
+        log(f"Claim verification unavailable ({exc}); leaving provider records in place")
+        return dossier
+
+    summary = claim_verify.verify_claims(claims, log=log)
+    if not summary.get("fetched"):
+        # Not one page could be retrieved. That is an outage or a sandbox, not evidence that every
+        # claim is unsupported — dropping them all would blame the ledger for the network. Leave
+        # the dossier untouched so the existing check reports the real problem.
+        log("Claim verification: no cited page could be retrieved; leaving the ledger unchanged")
+        dossier["claim_verification"] = {k: v for k, v in summary.items() if k != "pages"}
+        return dossier
+    verified = [claim for claim in claims if claim.get("quote_verified")]
+    dropped = [claim for claim in claims if not claim.get("quote_verified")]
+    for claim in dropped[:4]:
+        reason = "source unreachable" if not claim.get("source_reachable") else "quote not on page"
+        log(f"  ✗ dropped {claim.get('claim_id') or '?'}: {reason} — "
+            f"{_s(claim.get('source_url'))[:70]}")
+    dossier["claims"] = verified
+    # These now describe what WE read, so the ledger and its evidence cannot disagree.
+    dossier["citation_records"] = [{"url": _s(claim.get("source_url")),
+                                    "cited_text": _s(claim.get("support_quote"))}
+                                   for claim in verified]
+    dossier["citation_urls"] = sorted({_s(claim.get("source_url")) for claim in verified})
+    dossier["claim_verification"] = {k: v for k, v in summary.items() if k != "pages"}
+    log(f"Claim verification: {len(verified)}/{len(claims)} claims verified against source pages"
+        + (f", {summary.get('repaired', 0)} quote(s) recovered" if summary.get("repaired") else ""))
+    return dossier
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
         "ledger of 6-14 material claims needed to answer it accurately.\n"
-        "EVIDENCE PROCEDURE — follow in this order:\n"
-        "  1. Run web_search first and read the results.\n"
-        "  2. Then call web_fetch ONLY on URLs that appeared verbatim in those search results. "
-        "web_fetch refuses any URL it has not already seen in this conversation, so never fetch a "
-        "URL from memory, never guess or reconstruct one, and never edit a returned URL.\n"
-        "  3. Quote only wording you actually read on a fetched page, copied "
-        "character-for-character into support_quote. A search-result listing is a pointer, not "
-        "evidence; if you could not fetch a page, do not cite it.\n"
+        "Search the web, then cite what you found. Two rules that decide whether a claim survives:\n"
+        "  SOURCES: peer-reviewed papers, government and public-health bodies, universities, "
+        "standards organisations, museums and named institutional publications. Encyclopedias "
+        "(including Wikipedia and Britannica), social posts, forums and blogs are rejected however "
+        "accurate — cite what they cite instead. Pages must be publicly readable, no paywall.\n"
+        "  QUOTES: support_quote must be wording that genuinely appears on the page you cite. Each "
+        "page is retrieved and its text checked, so an approximate or remembered quote fails. "
+        "Prefer a short distinctive sentence you are confident is on the page.\n"
+        "Aim for 8-14 claims; a few will be dropped in verification, so do not stop at six.\n"
         "For a hypothetical, separate the changed premise, "
         "direct calculations, established baseline facts, modeled consequences, and speculation. "
         "Return ONLY JSON with this schema: "
@@ -2144,6 +2192,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     dossier["search_cost_reservation_usd"] = round(
         search_requests * _WEB_SEARCH_COST_CEILING, 4)
     _bind_support_quotes(dossier)
+    _verify_claims_against_sources(dossier, log=log)
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
     # An unverified-quote failure has two very different causes and the message could not tell them
