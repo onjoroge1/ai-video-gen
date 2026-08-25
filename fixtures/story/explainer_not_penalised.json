@@ -1,0 +1,12 @@
+{
+  "format": "default_explainer",
+  "narration": [
+    "Your bones are alive.",
+    "They rebuild themselves constantly.",
+    "Every ten years you have a mostly new skeleton, rebuilt cell by cell without you noticing.",
+    "That is why a fracture can knit back together."
+  ],
+  "expect": {
+    "pass": true
+  }
+}
