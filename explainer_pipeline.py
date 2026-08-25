@@ -1162,6 +1162,9 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
             "(the alarm light becomes the orange chemical; the chemical travels the blue nerve to "
             "the brain) — a planned chain, not unrelated cuts.\n"
         ).format(mascot_name=MASCOT_NAME)
+        # A Short is the same story discipline compressed, not a different doctrine. Appended after
+        # the beat map so it constrains how that map is filled rather than competing with it.
+        social_block += _STORY_LED_DNA_SHORT + _story_role_block("evidence_led_short")
     else:
         social_block = ""
 
@@ -5666,6 +5669,27 @@ _STORY_LED_DNA = (
     "7. NEVER OVERCLAIM TO SHARPEN A STORY. State precisely what the evidence showed and keep the "
     "caveat that complicates it. A dramatic sentence that is slightly wrong is a defect, not a "
     "trade-off.\n"
+)
+
+
+# The same doctrine as _STORY_LED_DNA, compressed for a Short. Not a weaker version — a Short has
+# less room, so the rules that survive are the ones that decide whether a viewer stays: who carries
+# the story, what is on screen at t=0, and whether each answer opens the next question.
+_STORY_LED_DNA_SHORT = (
+    "\nSTORY-LED DISCIPLINE (compressed long-form doctrine — overrides conflicts above).\n"
+    "1. A real person carries it, not the mascot. Bolt appears in at most a third of scenes, only to "
+    "demonstrate a mechanism or react at a decision, and never replaces the physical evidence.\n"
+    "2. Frame one is an action already happening, not a summary of what is coming. Pay the title's "
+    "promise off almost immediately, then reset the question to WHY it happened.\n"
+    "3. Pick 2-3 concrete objects that actually appear in the account and pass causality between "
+    "them; return to the first one at the end to close the loop. No decorative props — if an object "
+    "does not change a decision, cut it.\n"
+    "4. Each answer opens a sharper question, and the new one opens before the old one closes. "
+    "Never a list.\n"
+    "5. Show the ordinary experience the viewer recognises early, and give the payoff back to that "
+    "person at the end.\n"
+    "6. Never overclaim to sharpen a line: state exactly what the evidence showed and keep the "
+    "caveat that complicates it.\n"
 )
 
 
