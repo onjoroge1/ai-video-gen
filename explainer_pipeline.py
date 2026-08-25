@@ -2130,16 +2130,12 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     """Build a cited, pre-script claim ledger with server-side web search."""
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 6-14 material claims needed to answer it accurately.\n"
-        "Search the web, then cite what you found. Two rules that decide whether a claim survives:\n"
-        "  SOURCES: peer-reviewed papers, government and public-health bodies, universities, "
-        "standards organisations, museums and named institutional publications. Encyclopedias "
-        "(including Wikipedia and Britannica), social posts, forums and blogs are rejected however "
-        "accurate — cite what they cite instead. Pages must be publicly readable, no paywall.\n"
-        "  QUOTES: support_quote must be wording that genuinely appears on the page you cite. Each "
-        "page is retrieved and its text checked, so an approximate or remembered quote fails. "
-        "Prefer a short distinctive sentence you are confident is on the page.\n"
-        "Aim for 8-14 claims; a few will be dropped in verification, so do not stop at six.\n"
+        "ledger of 8-14 material claims needed to answer it accurately. Every claim must use a URL "
+        "that appears in your web-search results. Cite peer-reviewed papers, government and "
+        "public-health bodies, universities, museums or named institutional publications — not "
+        "encyclopedias, forums or blogs, which are rejected however accurate. Each cited page is "
+        "retrieved and its text checked against your support_quote, so quote a short distinctive "
+        "sentence you are confident appears on that page, and prefer publicly readable sources. "
         "For a hypothetical, separate the changed premise, "
         "direct calculations, established baseline facts, modeled consequences, and speculation. "
         "Return ONLY JSON with this schema: "
@@ -2155,20 +2151,16 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         model=ANTHROPIC_MODEL,
         max_tokens=10000,
         system=_RESEARCH_SYSTEM,
-        tools=[
-            {"type": "web_search_20260318", "name": "web_search", "max_uses": 5,
-             "response_inclusion": "full"},
-            # Search alone cannot satisfy this pipeline's own validator. A `web_search_result`
-            # block carries only url, title, page_age and an opaque `encrypted_content` — measured
-            # on a real call, zero readable excerpts across 49 results and 32 URLs, with
-            # `citations` None on every text block. So "the support quote was observed in a
-            # provider citation" was unsatisfiable by construction, and every long-form run failed
-            # here regardless of topic. web_fetch returns actual page text and produces citations
-            # carrying `cited_text`, which is the evidence the validator asks for —
-            # `_provider_citation_records` already handles its block types.
-            {"type": "web_fetch_20260318", "name": "web_fetch", "max_uses": 8,
-             "citations": {"enabled": True}},
-        ],
+        # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
+        # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
+        # comes back None, so the provider never hands the client text to verify against. Fetching
+        # server-side did produce that text, but eight page fetches against a 10k token budget left
+        # nothing to write the ledger with: claims went 14 -> 0, truncated before the JSON. Since
+        # claim_verify now retrieves each cited page itself, the model does not need the page
+        # contents in context at all — it needs to find good sources and say what it expects to
+        # find on them. Verification is what decides whether it was right.
+        tools=[{"type": "web_search_20260318", "name": "web_search", "max_uses": 5,
+                "response_inclusion": "full"}],
         messages=[{"role": "user", "content": prompt}],
         # The client default is 180s, chosen so a hung script-gen call cannot stall a render. This
         # one call is structurally longer than that budget: it runs up to five server-side web
