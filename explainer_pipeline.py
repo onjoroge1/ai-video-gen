@@ -1608,7 +1608,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '"causal_link":"because|but|therefore|so plus the preceding-beat connection",'
         '"bolt_mode":"absent|measurement|demonstration|warning|reaction|assistance",'
         '"claim_refs":[{"claim_id":"c01","narration_phrase":"planned exact factual phrase",'
-        '"evidence_id":"e01"}] (empty only when the beat contains no factual, numeric, or causal claim),'
+        '"evidence_id":"e01"}] — REQUIRED on every beat whose narration will state a fact, a number, '
+        'a date, a named finding, or a causal link ("because", "so", "which caused"). This is checked '
+        'before any spend and an unbound factual beat fails the run. There are normally fewer claims '
+        'than beats, so REUSE a claim across every beat that leans on it rather than leaving beats '
+        'unbound, and if a beat has no ledger claim to stand on, write it as narrative or visual '
+        'description instead of asserting a fact. Leave [] only for a genuinely non-factual beat,'
         '"evidence_id":"stable evidence id, required whenever claim_refs is non-empty",'
         '"question_opened":"question created by this beat or '
         'empty","question_answered":"earlier question resolved by this beat or empty",'
@@ -1882,6 +1887,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             s["story_beat_n"] = int(beat.get("n") or (len(all_scenes) + 1))
             s["story_pct"] = int(beat.get("pct") or 0)
             s["story_role"] = _s(beat.get("role")) or "beat"
+            # story_engine reads `_role`; this path only ever wrote `story_role`, so every
+            # structural gate reported "beat roles absent" and none of the eleven timing bands
+            # could run. Same value, both names — the planner already knows the role.
+            s["_role"] = s["story_role"]
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",
