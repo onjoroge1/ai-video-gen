@@ -1598,24 +1598,23 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # scene shorter than a scene can usefully be. Budgeting 18 gives 9 scenes at ~10 seconds each,
     # which is both a natural long-form beat and what the model already writes unprompted. It also
     # buys back cadence room: a long sentence and a short one do not fit inside twelve words.
-    _WORD_FLOOR = 18
+    # 25, measured. The planner writes ~25-27 words per scene almost regardless of the number it is
+    # given: asked 19 it wrote 23, asked 16 it wrote 27. Requesting fewer does not produce fewer, it
+    # only widens the overshoot, because there is a floor on what it treats as a coherent scene.
+    # So the lever is scene COUNT, not words per scene — a 171-word budget is 7 scenes at the rate
+    # the model actually writes, not 9 or 14. This is also why cadence kept failing: squeezed scenes
+    # produce a 6-word median, while 25 words comfortably holds a long sentence and a short one.
+    _WORD_FLOOR = 25
     while n_scenes > 4 and n_scenes * _WORD_FLOOR > runtime_word_bounds(duration_sec, n_scenes)[2]:
         n_scenes -= 1
     total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
     # Round, not floor: truncating loses up to a word per scene, and across a long sheet that is a
     # whole scene's worth of runtime lost from the other side.
-    # Ask for ~18% under budget, because the planner reliably overshoots what it is asked for.
-    # Measured across runs: asked for 19 words per scene it wrote 23, landing 209-220 words against
-    # a 166-176 allowance. Compression then has to close ~20%, and it only removes 3-6% per pass —
-    # so whether a run passed came down to how close its first draft happened to land (run 11
-    # converged at 91.8s from 99.7s; run 12 ran out of passes at 106.1s from 113.2s). Correcting the
-    # request is deterministic and free; asking compression to absorb a predictable bias is neither.
-    # The true budget still governs validation — only the ask is adjusted.
-    # The floor governs how many scenes fit the runtime; it must not also clamp the ask, or the
-    # correction is a no-op — max(18, 17.8) is 18, which is what the planner was already
-    # overshooting from.
-    _OVERSHOOT = 0.82
-    wpm = max(12, round(total_words * _OVERSHOOT / max(1, n_scenes)))
+    # No overshoot correction. Scaling the ask down by 0.82 was tried and made things worse: asked
+    # 16 the planner wrote 27, a wider miss than asking 19 and getting 23. The bias is not
+    # proportional to the request, so correcting the request cannot cancel it. Ask for the real
+    # per-scene budget and let scene count carry the runtime.
+    wpm = max(_WORD_FLOOR, round(total_words / max(1, n_scenes)))
     cost = 0.0
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
@@ -1799,6 +1798,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
+    # Hold the planner to the count the runtime budget was derived from. Asked for 7 beats it
+    # returned 9, and nothing enforced the number — so every downstream word calculation was based
+    # on a scene count the script did not have, and the draft arrived over budget by exactly the
+    # ratio of the overrun. Trimming from the end keeps the opening intact; the story validator and
+    # the payoff checks then judge what actually survived.
+    if len(beats) > n_scenes:
+        beats = beats[:n_scenes]
     if not beats:
         beats = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
     for i, b in enumerate(beats):
