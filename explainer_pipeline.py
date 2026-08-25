@@ -1586,8 +1586,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # Plan to the calibrated spoken-runtime window from the first generation call. The hard runtime
     # contract later verifies the landed draft and only invokes a compression pass when the model
     # actually misses, instead of intentionally generating an overlong script and always rewriting it.
+    # Scene count and the 12-word floor have to fit inside the runtime window, and for short
+    # long-form they did not: 90s yields 18 scenes, whose floor demands 216 words against a 161-171
+    # allowance — over the contract before a line is written, which is why the refit returned the
+    # same 152.8s twice. Shed scenes until the floor fits; the bounds move with n_scenes (fewer
+    # inter-scene pauses buys a few words back), so recompute rather than solving once.
+    _WORD_FLOOR = 12
+    while n_scenes > 4 and n_scenes * _WORD_FLOOR > runtime_word_bounds(duration_sec, n_scenes)[2]:
+        n_scenes -= 1
     total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
-    wpm = max(12, total_words // max(1, n_scenes))
+    # Round, not floor: truncating loses up to a word per scene, and across a long sheet that is a
+    # whole scene's worth of runtime lost from the other side.
+    wpm = max(_WORD_FLOOR, round(total_words / max(1, n_scenes)))
     cost = 0.0
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
