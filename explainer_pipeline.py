@@ -486,7 +486,7 @@ Return this exact JSON structure with NO extra keys:
   "scenes": [
     {{
       "id": 1,
-      "narration": "What the narrator says, in TWO OR THREE sentences of DELIBERATELY UNEVEN length — at least one that runs long enough to build (15+ words), and at least one short enough to land as a beat (<=5 words). One even mid-length sentence per scene is the single most common defect in this channel's scripts: it makes every thought the same size, so no reveal has anywhere to land. Natural speech. ~{wpm} words.",
+      "narration": "What the narrator says, in ~{wpm} words TOTAL — that budget is a hard runtime constraint, not a target to exceed. Within it, vary sentence length deliberately: where the budget allows, pair a longer sentence that builds with a short one that lands (<=5 words). One even mid-length sentence per scene is this channel's most common cadence defect — every thought the same size, so no reveal has anywhere to land — but a scene that overruns its word budget breaks the runtime contract before any spend, so never buy variation with extra words.",
       "_role": "this beat's story role, from the list supplied in the STORY FORMAT section below (use the exact role name; omit only if no role fits)",
       "scene_type": "real_world_example | metaphor_scene | educational_diagram | cinematic_intro | experiment_lab | everyday_life | abstract_visualization | recap_scene",
       "environment_type": "best fit for THIS scene (VARY it): classroom | science_lab | home | city | data_center | space | microscopic_world | digital_world | nature | sports_field | simple_whiteboard | abstract_space",
@@ -983,10 +983,26 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         budget_dur = min(duration_sec, n_scenes * 3)   # n_scenes already capped at 24 (≈72s)
         total_words = int(budget_dur * 2.7)
     else:
-        total_words = int(duration_sec * 2.7)          # non-chunked landscape: was 3.2 -> ~21% long
+        # Budget at the rate the RUNTIME PLANNER actually measures, not an optimistic one. 2.7
+        # words/sec here against runtime_planner's 1.95 (minus punctuation and inter-scene pauses,
+        # ~1.83 effective) meant the script was written ~45% over its own contract: a 90s request
+        # produced 279 words and a 152.8s estimate against a 161-171 word allowance, and the refit
+        # returned the same number twice because no rewrite can absorb a gap that large.
+        total_words = int(_planned_words_for(duration_sec, n_scenes))
     # The wpm FLOOR is also part of the cadence bug: max(12,…) forced >=12 words/scene (~4.5s) even
     # after recalibration. Social uses a 6-word floor so per-scene audio can reach ~3s.
-    wpm = max(6 if video_format == "social" else 12, total_words // n_scenes)
+    word_floor = 6 if video_format == "social" else 12
+    # Scene count and word floor have to agree with the runtime, and for short long-form they did
+    # not: a 90s request yields 18 scenes, and 18 x the 12-word floor is 216 words against a ~165
+    # word budget — over the runtime contract before a single line is written, which is why the
+    # refit could not rescue it (it ran twice and returned the same 152.8s both times). Drop scenes
+    # until the floor fits rather than asking for narration that cannot be short enough.
+    if video_format != "social" and n_scenes * word_floor > total_words:
+        n_scenes = max(4, total_words // word_floor)
+    # Round rather than floor: truncating the per-scene budget loses up to one word per scene, which
+    # on an 18-scene script is a whole scene's worth of runtime and pushed the estimate under the
+    # window from the other side.
+    wpm = max(word_floor, round(total_words / max(1, n_scenes)))
 
     # Optional user setting/theme steer — SMART LEAN: use it as the preferred world and
     # metaphor source where it strengthens the explanation; drop it where it'd be forced.
@@ -5955,6 +5971,21 @@ def _story_role_block(format_name: str) -> str:
         "Order them as listed; a role may span more than one scene, and roles that do not fit the "
         "topic may be omitted, but never invent a role name outside this list."
     )
+
+
+def _planned_words_for(duration_sec: float, n_scenes: int) -> int:
+    """Words that fit `duration_sec`, using the same model the runtime contract validates against.
+
+    Mirrors runtime_planner: speech at PLANNED_TTS_WORDS_PER_SECOND, minus the inter-scene pauses
+    and an allowance for sentence punctuation, so the script is written to the budget it will later
+    be measured by rather than to a more generous one.
+    """
+    from runtime_planner import DEFAULT_SCENE_PAUSE_SECONDS, DEFAULT_WORDS_PER_SECOND
+
+    pause_budget = max(0, int(n_scenes) - 1) * DEFAULT_SCENE_PAUSE_SECONDS
+    punctuation_budget = max(0, int(n_scenes)) * 0.28      # ~2 sentence stops per scene
+    speech_seconds = max(1.0, float(duration_sec) - pause_budget - punctuation_budget)
+    return max(20, int(speech_seconds * DEFAULT_WORDS_PER_SECOND))
 
 
 def _repair_claim_phrases(script: dict, log=lambda message: None) -> int:
