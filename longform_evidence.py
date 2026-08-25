@@ -125,6 +125,32 @@ def _visual_beats(scene: dict) -> list[dict]:
             if isinstance(beat, dict) and _text(beat.get("anchor_phrase"))]
 
 
+def _derive_bolt_action(beat: dict, scene: dict, subject: str) -> str:
+    """A concrete Bolt action, never a bare category word.
+
+    The old fallback was `beat.bolt_action or scene.bolt_mode`, and that could not work:
+    validate_longform_story forces bolt_mode into {measurement, demonstration, warning, reaction,
+    assistance}, every one of which is a member of USEFUL_BOLT_PURPOSES — the exact set
+    `action_is_specific` rejects. So whenever the model omitted bolt_action, the code substituted a
+    value guaranteed to fail its own validator, and the run died on bolt_without_useful_action
+    before any spend.
+
+    Naming what the action is performed ON turns the category back into a specific action, which is
+    what the check is actually asking for.
+    """
+    action = _text(beat.get("bolt_action"))
+    if action and action.casefold() not in USEFUL_BOLT_PURPOSES:
+        return action
+    mode = _text(scene.get("bolt_mode")) or _text(beat.get("purpose")) or "demonstration"
+    target = _text(subject) or _text(beat.get("visual"))
+    if not target:
+        return action or ""
+    verb = {"measurement": "measures", "demonstration": "demonstrates", "warning": "warns about",
+            "reaction": "reacts to", "assistance": "helps with", "test": "tests",
+            "decision": "decides on", "action": "acts on"}.get(mode.casefold(), "demonstrates")
+    return f"{verb} {target}"
+
+
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
                      pack: dict, *, opening: bool) -> dict:
     purpose = _text(beat.get("purpose")).casefold() or ("setup" if state_index == 0 else "evidence")
@@ -183,8 +209,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "pure_evidence": pure_evidence,
         "include_human": include_human,
         "include_bolt": include_bolt,
-        "bolt_action": (_text(beat.get("bolt_action")) or _text(scene.get("bolt_mode"))
-                        if include_bolt else ""),
+        "bolt_action": _derive_bolt_action(beat, scene, after or visual) if include_bolt else "",
         "reference_ids": references,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",

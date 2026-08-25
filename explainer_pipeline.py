@@ -5957,6 +5957,63 @@ def _story_role_block(format_name: str) -> str:
     )
 
 
+def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
+    """Make every visual beat's anchor_phrase an exact substring of its own narration.
+
+    Four separate gates depend on this one model-authored field being locatable verbatim: the
+    evidence-state compiler, the measured-audio timing report, the motion plan's semantic-alignment
+    ratio, and the final motion_sync_ratio. The model writes an approximation — it paraphrases,
+    reorders, or quotes wording that survived only until the fact-check rewrote the line — and each
+    of those gates then fails for what is really the same reason.
+
+    The narration is authoritative and already on hand, so the phrase is derived from it rather than
+    trusted: any anchor not found verbatim is replaced with the opening words of the clause it was
+    closest to. Beat zero is pinned to the narration's own opening words, because the shot compiler
+    requires the first shot's span to begin within 1.0s of the scene start and a first anchor taken
+    from mid-sentence can never satisfy that.
+
+    Returns the number of anchors rewritten.
+    """
+    from longform_shots import _derived_visual_beats
+
+    repaired = 0
+    for scene in script.get("scenes") or []:
+        narration = _s(scene.get("narration")).strip()
+        beats = scene.get("visual_beats")
+        if not narration or not isinstance(beats, list) or not beats:
+            continue
+        haystack = narration.casefold()
+        fallbacks = [_s(b.get("anchor_phrase")) for b in _derived_visual_beats(scene)]
+        opening = " ".join(narration.split()[:5])
+        for index, beat in enumerate(beats):
+            if not isinstance(beat, dict):
+                continue
+            anchor = _s(beat.get("anchor_phrase")).strip()
+            wanted = opening if index == 0 else anchor
+            if wanted and wanted.casefold() in haystack and (index or wanted == opening):
+                if beat.get("anchor_phrase") != wanted:
+                    # Keep what the model wrote whenever we overwrite it, on every path — an
+                    # anchor that silently changed is impossible to audit afterwards.
+                    beat["anchor_phrase_model"] = anchor
+                    beat["anchor_phrase"] = wanted
+                    repaired += 1
+                continue
+            replacement = ""
+            if index < len(fallbacks) and fallbacks[index].casefold() in haystack:
+                replacement = fallbacks[index]
+            elif fallbacks and fallbacks[0].casefold() in haystack:
+                replacement = fallbacks[0]
+            else:
+                replacement = opening
+            if replacement and replacement != anchor:
+                beat["anchor_phrase_model"] = anchor
+                beat["anchor_phrase"] = replacement
+                repaired += 1
+    if repaired:
+        log(f"Anchor phrases: rewrote {repaired} to exact narration substrings")
+    return repaired
+
+
 def _review_story_structure(script: dict, requested_format: str, video_format: str, log) -> dict:
     """Measure narration against its story format's structure gates and REPORT ONLY.
 
@@ -6357,6 +6414,7 @@ def run_explainer_pipeline(
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
+        _repair_anchor_phrases(script, log)
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
@@ -6541,6 +6599,7 @@ def run_explainer_pipeline(
             raise ValueError("Measured narration changed a story or claim contract before visual spend.")
         # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
         # from the final narration and fail before the first image if any opening beat lost its proof.
+        _repair_anchor_phrases(script, log)
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         final_evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
@@ -7438,15 +7497,21 @@ def run_explainer_pipeline(
             bubble_side = "left" if "left" in placement else ("right" if "right" in placement else "center")
         # Label the actual motion source so the log doesn't say "kenburns" for an i2v scene.
         _mv = i2v_clips.get(k)
-        _shot_plan = compile_scene_shots(
-            scene, _audio_dur(r["aud"]), k,
-            has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
-            i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
-            word_times=r.get("word_times"),
-            evidence_states=r.get("evidence_states"),
-            motion_state_ids=frozenset(state_motion_clips),
-        ) if video_format != "social" else []
         try:
+            # Inside the try deliberately. This sat outside it, so a shot-compilation raise aborted
+            # the entire run — after every image, TTS call and motion clip had been purchased. The
+            # preflight at the pre-spend gate is NOT equivalent: it forces asset_status="accepted"
+            # on planned states, while here the real statuses give a smaller set with different
+            # spacing, so passing there does not guarantee passing here. A scene that cannot be cut
+            # should be skipped like any other scene failure, not cost the whole render.
+            _shot_plan = compile_scene_shots(
+                scene, _audio_dur(r["aud"]), k,
+                has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
+                i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
+                word_times=r.get("word_times"),
+                evidence_states=r.get("evidence_states"),
+                motion_state_ids=frozenset(state_motion_clips),
+            ) if video_format != "social" else []
             if video_format != "social" and int(r["i"]) in frozen_opening_segments:
                 frozen = frozen_opening_segments[int(r["i"])]
                 if not _clip_is_real(frozen):
