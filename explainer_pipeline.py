@@ -1591,7 +1591,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # allowance — over the contract before a line is written, which is why the refit returned the
     # same 152.8s twice. Shed scenes until the floor fits; the bounds move with n_scenes (fewer
     # inter-scene pauses buys a few words back), so recompute rather than solving once.
-    _WORD_FLOOR = 12
+    # 18, not 12. A 12-word floor let a 90s request keep 14 scenes — 6.4 seconds of speech each,
+    # which is Shorts pacing on a long-form video, and the model would not write to it: asked for
+    # 12 words per scene it produced 18, landing 251 words against a 163-173 allowance, and the
+    # compression pass returned the same 137.1s twice because it was being asked to make every
+    # scene shorter than a scene can usefully be. Budgeting 18 gives 9 scenes at ~10 seconds each,
+    # which is both a natural long-form beat and what the model already writes unprompted. It also
+    # buys back cadence room: a long sentence and a short one do not fit inside twelve words.
+    _WORD_FLOOR = 18
     while n_scenes > 4 and n_scenes * _WORD_FLOOR > runtime_word_bounds(duration_sec, n_scenes)[2]:
         n_scenes -= 1
     total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
