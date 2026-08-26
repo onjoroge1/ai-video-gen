@@ -136,7 +136,14 @@ def build_audio_timing_report(
                 word, start, end = str(item[0]), float(item[1]), float(item[2])
             except (TypeError, ValueError, IndexError):
                 continue
-            if _clean(word) and 0 <= start < end <= duration + 0.25:
+            # start <= end, not start < end. Whisper emits a zero-width span for some words, and
+            # the strict comparison silently DROPPED them -- two of twenty-three in the run that
+            # exposed this. The words survive in the transcript and vanish from the list the gate
+            # searches, so a phrase containing one is torn in half and reported as "not present in
+            # measured speech" when it was spoken perfectly clearly. Losing 2 of 23 words is 91%
+            # coverage, which sails through the check below, so nothing else caught it either.
+            # The bound this filter exists to enforce is the UPPER one: timestamps past the audio.
+            if _clean(word) and 0 <= start <= end <= duration + 0.25:
                 clean_words.append((word, start, end))
         script_word_count = len(str(scene.get("narration") or "").split())
         coverage = len(clean_words) / max(1, script_word_count)
