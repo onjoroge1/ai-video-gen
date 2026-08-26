@@ -6426,7 +6426,14 @@ def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
             continue
         haystack = narration.casefold()
         fallbacks = [_s(b.get("anchor_phrase")) for b in _derived_visual_beats(scene)]
-        opening = " ".join(narration.split()[:5])
+        # Clamp to the FIRST SENTENCE. This took the first five words of the narration blindly,
+        # so a short opening sentence spilled the anchor across the full stop -- "Rewind decades."
+        # became the anchor "Rewind decades. Spicy foods or", which straddles a boundary the
+        # transcriber does not reproduce the same way and which then fails as "not present in
+        # measured speech". A visual beat points at a moment inside one spoken sentence; an anchor
+        # spanning two describes no such moment.
+        first_sentence = re.split(r"(?<=[.!?])\s+", narration.strip())[0] if narration.strip() else ""
+        opening = " ".join(first_sentence.split()[:5])
         for index, beat in enumerate(beats):
             if not isinstance(beat, dict):
                 continue
