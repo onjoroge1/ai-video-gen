@@ -3158,6 +3158,27 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             # strict: this feeds the fatal word-timing gate, so a failed call must say so rather
             # than present as a scene whose narration was never spoken.
             timings = transcribe_words(path, strict=True)
+            # A transcript that is SHORT rather than absent is the failure that has cost the most
+            # today. Every anchor that failed sat at the END of its scene, and re-transcribing the
+            # same file by hand afterwards returned every word -- so the run saw a tail that a
+            # later read did not miss. Whatever the cause (a stream that ended early, a file read
+            # before it settled), the symptom is detectable: far fewer words than the narration
+            # contains. The word-timing gate does not catch it because its 70-130% coverage band
+            # tolerates a missing tail, and the anchor check then reports the shortfall as a
+            # CONTENT error naming a phrase, which is what sent me through four wrong diagnoses.
+            #
+            # One free retry. If the second read agrees with the first the audio really is short
+            # and the gate should fail; if it recovers, a transient cost us nothing.
+            expected_words = len(_s(scene.get("narration")).split())
+            if expected_words and len(timings) < 0.90 * expected_words:
+                retried = transcribe_words(path, strict=True)
+                if len(retried) > len(timings):
+                    log(f"  ⚠ scene {i + 1}: transcript was {len(timings)}/{expected_words} words, "
+                        f"re-read gave {len(retried)} — using the fuller read")
+                    timings = retried
+                else:
+                    log(f"  ⚠ scene {i + 1}: only {len(timings)}/{expected_words} words "
+                        "transcribed on two reads; audio may be truncated")
             # Persist them. These are computed, consumed once by the word-timing gate and thrown
             # away, and that gate's failure message names a PHRASE -- so when it fires there is no
             # record of what was actually heard. Diagnosing one such failure meant re-transcribing
