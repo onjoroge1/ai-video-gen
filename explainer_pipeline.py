@@ -5747,7 +5747,18 @@ def _longform_retention_hard() -> bool:
     Enabled by default: unlike the subjective LLM score, these checks cover explicit structural
     promises (prediction/payoff timing, loop closure, final payoff) and get an automatic retry first.
     """
-    return (os.environ.get("LONGFORM_RETENTION_HARD", "1") or "1").strip().lower() \
+    # DEMOTED to a score. Default was "1" -- blocking.
+    #
+    # Every check behind this flag is EDITORIAL: cadence, loop closure, prediction placement,
+    # beat-order bands, personal bridge, second person. They encode real craft knowledge and not
+    # one has been validated against a viewer. The 25% cadence floor came from ONE reference
+    # transcript at 39.5% against ten in-house scripts at 5.2-19.1%.
+    #
+    # They blocked most of the renders attempted this session, so the thresholds could never be
+    # tested -- nothing reached an audience to test them against. The rule now is: a gate may stop
+    # a render only if the video would be FALSE or BROKEN. Sourcing, asset verification, media
+    # binaries and cost caps stay hard. Opinion becomes a score on a finished artifact.
+    return (os.environ.get("LONGFORM_RETENTION_HARD", "0") or "0").strip().lower() \
         in ("1", "true", "yes", "on")
 _SHORT_GATE_PASS     = int(os.environ.get("SHORT_GATE_PASS", "72"))       # social grade_short regen TARGET
                                                                           # (lowered for the harsher

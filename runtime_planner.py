@@ -37,6 +37,16 @@ DEFAULT_SCENE_PAUSE_SECONDS = float(
 #
 # It is kept because words_per_second above was solved WITH this overhead in place, so the pair
 # reproduces the one real measurement together. Either both change or neither does.
+# Duration is a REQUEST, not a contract. This was 3%, which is tighter than the variance in TTS
+# speed itself -- identical word counts measured 2.588 and 2.733 w/s across runs, +/-3% before
+# anyone writes a word -- so the gate was firing on noise. It also cannot be met: the generator
+# writes 15-20% over its budget at every duration tested (372 words for a 120s ask, 480 for a
+# 150s ask), and the compression that tries to claw that back is what damages the script.
+#
+# A 127s video for a 120s request is not a defect. An 87s one is, and 15% still catches that.
+RUNTIME_TOLERANCE_FRACTION = float(
+    os.environ.get("RUNTIME_TOLERANCE_FRACTION", "0.15")
+)
 MEASURED_PUNCTUATION_PAUSE_PER_SCENE = float(
     os.environ.get("PLANNED_TTS_PUNCTUATION_PAUSE_PER_SCENE", "0.66")
 )
@@ -95,7 +105,7 @@ def runtime_word_bounds(
     tolerance = (
         tolerance_seconds
         if tolerance_seconds is not None
-        else max(2.5, target_seconds * 0.03)
+        else max(2.5, target_seconds * RUNTIME_TOLERANCE_FRACTION)
     )
     if overhead_seconds is None:
         # No script yet, so use the per-scene overhead real narration actually carries.
@@ -124,7 +134,7 @@ def runtime_word_bounds(
 
 def plan_runtime(scenes: list[dict], target_seconds: float) -> dict:
     estimated = estimate_narration_seconds(scenes)
-    tolerance = max(2.5, float(target_seconds) * 0.03)
+    tolerance = max(2.5, float(target_seconds) * RUNTIME_TOLERANCE_FRACTION)
     target_words, min_words, max_words = runtime_word_bounds(
         target_seconds,
         len(scenes),

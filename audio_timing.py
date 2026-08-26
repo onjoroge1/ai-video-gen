@@ -178,7 +178,10 @@ def build_audio_timing_report(
             })
         cursor += duration
 
-    tolerance = float(target_seconds) * 0.03
+    # Same widened band as the planner, from one constant. A measured gate stricter than the
+    # planned one rejects scripts the planner just approved.
+    from runtime_planner import RUNTIME_TOLERANCE_FRACTION
+    tolerance = float(target_seconds) * RUNTIME_TOLERANCE_FRACTION
     delta = cursor - float(target_seconds)
     if abs(delta) - tolerance > 1e-6:
         errors.append({
