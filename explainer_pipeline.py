@@ -5578,6 +5578,23 @@ def _script_gate_hard() -> bool:
     return (os.environ.get("SCRIPT_GATE_HARD") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _diagnostic_render() -> bool:
+    """DIAGNOSTIC_RENDER=1 — push a run past every pre-spend quality gate to get a video out.
+
+    Six attempts produced no file at all, so image generation, TTS, motion, assembly, captions
+    and the S5 rendered gate -- roughly half the pipeline and all of the real cost -- had never
+    executed once. Each gate that stopped a run was individually defensible and collectively they
+    made the back half unobservable, which is its own kind of broken: a pipeline nobody can watch
+    the output of cannot be judged on anything except its own gate scores.
+
+    Everything is still validated and still logged; only the raise is suppressed. Output from such
+    a run is DIAGNOSTIC ONLY -- claims may be unsourced and evidence states may be incoherent.
+    Never publish it.
+    """
+    return (os.environ.get("DIAGNOSTIC_RENDER", "0") or "0").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
 def _longform_retention_hard() -> bool:
     """Fail before image/TTS spend when objective story-contract checks still fail.
 
@@ -6692,7 +6709,7 @@ def run_explainer_pipeline(
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
-        if not evidence_validation.get("passed"):
+        if not evidence_validation.get("passed") and not _diagnostic_render():
             raise ValueError(
                 "Evidence-state plan failed before TTS/image spend: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
