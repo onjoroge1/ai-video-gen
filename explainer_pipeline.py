@@ -225,9 +225,24 @@ FORMATS = {
 }
 
 
-def transcribe_words(audio_path: str) -> list:
+class TranscriptionUnavailable(RuntimeError):
+    """The transcription CALL failed. Distinct from audio that transcribed to nothing."""
+
+
+def transcribe_words(audio_path: str, *, strict: bool = False) -> list:
     """Word-level timestamps for our own TTS, for karaoke captions.
-    Returns [(word, start, end), ...]; [] on failure (caller falls back)."""
+
+    Returns [(word, start, end), ...]. A failed call returns [] by default, because captions
+    degrade gracefully without timings.
+
+    strict=True raises TranscriptionUnavailable instead, and the long-form timing gate uses it.
+    That gate treats missing words as a CONTENT failure -- "Visual beat phrase is not present in
+    measured speech" -- so a transient Whisper error was indistinguishable from narration that
+    genuinely does not contain its anchor. It reported a script problem, aborted a run that had
+    already paid for its TTS, and sent me through four wrong diagnoses before I re-transcribed the
+    same file by hand and it matched perfectly. An error swallowed here resurfaces as a lie
+    somewhere else.
+    """
     try:
         def _call():
             # Reopen on every retry. Reusing a consumed file handle submits an empty body after
@@ -245,7 +260,11 @@ def transcribe_words(audio_path: str) -> list:
             if txt:
                 out.append((txt, float(getattr(w, "start", 0.0)), float(getattr(w, "end", 0.0))))
         return out
-    except Exception:
+    except Exception as exc:
+        if strict:
+            raise TranscriptionUnavailable(
+                f"Word-timestamp transcription failed for {os.path.basename(audio_path)}: "
+                f"{type(exc).__name__}: {exc}") from exc
         return []
 
 # ── Cost model (USD) — all rates verified from official pricing ────────────────
@@ -3107,7 +3126,9 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                     handle.write(digest)
                 tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
                 generated = True
-            timings = transcribe_words(path)
+            # strict: this feeds the fatal word-timing gate, so a failed call must say so rather
+            # than present as a scene whose narration was never spoken.
+            timings = transcribe_words(path, strict=True)
             with open(path, "rb") as audio_handle:
                 audio_sha256 = hashlib.sha256(audio_handle.read()).hexdigest()
             return {
