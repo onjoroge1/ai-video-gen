@@ -7,15 +7,36 @@ import os
 import re
 
 
+# 2.86, from the only real measurement this pipeline has produced: run 52ed138b spoke 228 words
+# in 86.95s of natural-speed TTS, which is 2.857 w/s once the overhead below is subtracted.
+#
+# This was 1.95, and nothing in the tree agreed with it: explainer_pipeline's opening-tranche
+# estimator uses 2.64 for the same physical quantity. Two constants for one fact, ~35% apart, and
+# the runtime contract was built on the wrong one -- so a script the contract passed as "120.0s"
+# rendered as an 87-second video. Every word budget was a third short.
+#
+# ONE observation, one topic, one voice. It is a large correction in the right direction rather
+# than a calibrated value: 1.95 was wrong by 34% and 2.86 reproduces the single measurement we
+# have. It needs several real renders across topics and voices before it deserves trust, and the
+# script-only harness CANNOT confirm it -- the harness predicts, it never runs TTS. Only a full
+# render measures this.
 DEFAULT_WORDS_PER_SECOND = float(
-    os.environ.get("PLANNED_TTS_WORDS_PER_SECOND", "1.95")
+    os.environ.get("PLANNED_TTS_WORDS_PER_SECOND", "2.86")
 )
 DEFAULT_SCENE_PAUSE_SECONDS = float(
     os.environ.get("PLANNED_TTS_SCENE_PAUSE_SECONDS", "0.15")
 )
-# Comma and sentence-end pause a real narration scene carries, measured across three
-# 120s drafts (0.77, 0.82, 0.83 s/scene). Only used before a script exists; once there
-# are scenes, narration_overhead_seconds counts the real punctuation instead.
+# Comma and sentence-end pause assumed per scene before a script exists; once there are scenes,
+# narration_overhead_seconds counts the real punctuation instead.
+#
+# NOT a measurement, despite the commit that introduced it saying so. It was derived as
+# `estimated_seconds - words/1.95` across three drafts, where estimated_seconds came from
+# estimate_narration_seconds itself -- so it measured the estimator against its own punctuation
+# model and could only ever agree with it. The three "independent" figures (0.77, 0.82, 0.83)
+# were restatements of the same formula, not evidence about speech.
+#
+# It is kept because words_per_second above was solved WITH this overhead in place, so the pair
+# reproduces the one real measurement together. Either both change or neither does.
 MEASURED_PUNCTUATION_PAUSE_PER_SCENE = float(
     os.environ.get("PLANNED_TTS_PUNCTUATION_PAUSE_PER_SCENE", "0.66")
 )

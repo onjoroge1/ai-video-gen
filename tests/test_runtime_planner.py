@@ -1,4 +1,5 @@
 from runtime_planner import (
+    DEFAULT_WORDS_PER_SECOND,
     estimate_narration_seconds,
     narration_overhead_seconds,
     narration_word_count,
@@ -17,10 +18,16 @@ def _scenes(words: int, count: int = 18):
 
 
 def test_old_198_word_pilot_is_rejected_before_assets_for_90_second_request():
+    """Still rejected, but the direction flipped when words_per_second was corrected.
+
+    At 1.95 w/s this asserted 198 words OVERRUN a 90s request at >100s. Real TTS measured
+    2.86 w/s, so 198 words UNDERRUN it -- about 74s of speech for 90s of video. The pilot
+    was always outside the contract; the old constant just had the sign wrong.
+    """
     report = plan_runtime(_scenes(198), 90)
 
-    assert report["estimated_seconds"] > 100
     assert report["passed"] is False
+    assert abs(report["delta_seconds"]) > report["tolerance_seconds"]
 
 
 def test_runtime_word_window_targets_the_requested_duration():
@@ -59,8 +66,11 @@ def test_pre_script_fallback_assumes_real_narration_punctuation():
     # carries. Assuming one sentence per scene and no commas made every first draft
     # overshoot by construction: measured drafts run ~0.8s per scene of pause, so a
     # 120s/9-scene ask was ~9 words too generous before the model wrote a line.
+    # Derive from the live constant. This hardcoded 1.95, so correcting words_per_second to
+    # 2.86 made the arithmetic report a negative overhead -- the test was pinned to a number it
+    # was not testing.
     target, _, _ = runtime_word_bounds(120, 9)
-    assumed_overhead = 120 - target / 1.95
+    assumed_overhead = 120 - target / DEFAULT_WORDS_PER_SECOND
     assert assumed_overhead > 5.0, (
         f"fallback assumes only {assumed_overhead:.1f}s of pause across 9 scenes; "
         "measured drafts carry ~7s")
