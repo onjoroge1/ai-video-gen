@@ -3153,7 +3153,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
         # checked against the spoken words. Every pass that rewrites narration invalidates them,
         # and the check below is fatal rather than repairable, so a stale anchor kills a run that
         # has already paid for its TTS.
-        _repair_anchor_phrases(script)
+        rederive_narration_bindings(script)
         report = build_audio_timing_report(
             scenes,
             [item["aud"] for item in results],
@@ -3181,8 +3181,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
         # longer exist. The story and claim contracts below were re-checked and the anchors were
         # not, which is the ordering bug: the next pass measures anchors against speech that no
         # longer contains them and raises unmatched_phrase_timestamp, after the TTS is bought.
-        _repair_anchor_phrases(script)
-        _repair_claim_phrases(script)
+        rederive_narration_bindings(script)
         story_validation = validate_longform_story(script, question or _s(script.get("title")))
         claim_validation = validate_claim_joins(script, dossier)
         if not story_validation.get("passed") or not claim_validation.get("passed"):
@@ -6323,6 +6322,28 @@ def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
     return repaired
 
 
+
+def rederive_narration_bindings(script: dict, log=lambda message: None) -> None:
+    """Re-derive EVERY binding whose source of truth is the narration text.
+
+    Call this after ANY pass that rewrites narration. Three passes do -- the fact-check, the
+    runtime refit and the measured-audio fit -- and each call site used to remember for itself
+    which repairs to re-run. All three got it wrong at least once:
+
+      * the fact-check rewrote narration and left claim phrases pointing at deleted wording
+      * the runtime refit re-ran the anchor repair and not the claim repair, and
+        validate_claim_joins on the very next line failed on bindings that had been correct
+      * the measured-audio fit re-checked the story and claim CONTRACTS while re-deriving
+        neither set of phrases, so the next pass measured anchors against speech that no
+        longer contained them, after the TTS was paid for
+
+    Every one of those is the same bug, and each was found and patched separately because the
+    knowledge of what depends on narration lived at the call sites instead of in one place. A
+    new binding type added later would repeat it a fourth time. Add it HERE, once.
+    """
+    _repair_claim_phrases(script, log)
+    _repair_anchor_phrases(script, log)
+
 def _review_story_structure(script: dict, requested_format: str, video_format: str, log) -> dict:
     """Measure narration against its story format's structure gates and REPORT ONLY.
 
@@ -6602,8 +6623,7 @@ def run_explainer_pipeline(
         # Both bindings are made against pre-fact-check wording and are re-derived here, after the
         # last pass that can rewrite narration and before anything validates them against it.
         if video_format != "social":
-            _repair_claim_phrases(script, log)
-            _repair_anchor_phrases(script, log)
+            rederive_narration_bindings(script, log)
         script["_story_engine"] = _review_story_structure(script, story_format, video_format, log)
         if video_format != "social":
             claim_validation = validate_claim_joins(script, research_dossier)
@@ -6658,7 +6678,7 @@ def run_explainer_pipeline(
         # it. The anchor repair runs after this refit and the claim repair did not, so the run
         # aborted on bindings that were correct for text the refit had already replaced. Same
         # ordering bug as the anchors, at the sibling call site.
-        _repair_claim_phrases(script, log)
+        rederive_narration_bindings(script, log)
         claim_validation = validate_claim_joins(script, research_dossier)
         script["_claim_validation"] = claim_validation
         if not claim_validation.get("passed"):
@@ -6743,7 +6763,7 @@ def run_explainer_pipeline(
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
-        _repair_anchor_phrases(script, log)
+        rederive_narration_bindings(script, log)
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
@@ -6928,7 +6948,7 @@ def run_explainer_pipeline(
             raise ValueError("Measured narration changed a story or claim contract before visual spend.")
         # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
         # from the final narration and fail before the first image if any opening beat lost its proof.
-        _repair_anchor_phrases(script, log)
+        rederive_narration_bindings(script, log)
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         final_evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
