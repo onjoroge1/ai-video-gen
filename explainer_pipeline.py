@@ -5677,6 +5677,18 @@ def _script_gate_hard() -> bool:
     return (os.environ.get("SCRIPT_GATE_HARD") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _claim_ledger_hard() -> bool:
+    """CLAIM_LEDGER_HARD=0 downgrades an unsourced-scene abort to a log. Default on.
+
+    Read in ONE place because there are two of these checks, ~90 lines apart, testing the same
+    condition. Only the first honoured the flag, so a diagnostic render logged the unsourced
+    scene, continued, and was killed by the second -- an escape hatch that existed and did not
+    work, reporting a failure the runtime fit had not caused.
+    """
+    return (os.environ.get("CLAIM_LEDGER_HARD", "1") or "1").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
 def _diagnostic_render() -> bool:
     """DIAGNOSTIC_RENDER=1 — push a run past every pre-spend quality gate to get a video out.
 
@@ -6702,8 +6714,7 @@ def run_explainer_pipeline(
                 # can continue; the failure is still logged and still recorded on the script, and
                 # the result is NOT publishable -- an unbound scene means a factual or causal line
                 # has no source behind it. Default stays on.
-                if (os.environ.get("CLAIM_LEDGER_HARD", "1") or "1").strip().lower() \
-                        in ("1", "true", "yes", "on"):
+                if _claim_ledger_hard():
                     raise ValueError(
                         "Claim ledger failed after script/fact-check before asset spend: "
                         + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
@@ -6749,7 +6760,15 @@ def run_explainer_pipeline(
         rederive_narration_bindings(script, log)
         claim_validation = validate_claim_joins(script, research_dossier)
         script["_claim_validation"] = claim_validation
-        if not claim_validation.get("passed"):
+        if not claim_validation.get("passed") and not _claim_ledger_hard():
+            for item in claim_validation.get("errors", [])[:6]:
+                log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
+        elif not claim_validation.get("passed"):
+            # This is the same condition as the ledger check ~90 lines above, which honours
+            # CLAIM_LEDGER_HARD, and this one did not. A diagnostic render therefore logged the
+            # unsourced scene, continued, and was killed here by its twin -- so the escape hatch
+            # existed and did not work. Run 4e6b46a9 died exactly that way, and the message blamed
+            # the runtime fit for a scene that was already unsourced before the fit ran.
             raise ValueError(
                 "Runtime fit broke the sourced claim joins before TTS/image spend: "
                 + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
