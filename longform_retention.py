@@ -234,6 +234,14 @@ def _issue(code: str, message: str, scene: int | None = None, time_sec: float | 
     return out
 
 
+# Role names that exist ONLY in the mystery vocabulary, so finding one identifies the format from
+# persisted script metadata alone -- which is all this validator is allowed to read. Deliberately
+# excludes names the standard vocabulary also uses (mechanism, resolution, consequence).
+_MYSTERY_ONLY_ROLES = frozenset({
+    "anomaly", "false_belief", "seal", "second_revelation", "scope_shift", "personal_bridge",
+})
+
+
 def validate_longform_story(script: dict, question: str = "") -> dict:
     """Validate structural retention requirements using only persisted script metadata.
 
@@ -392,11 +400,26 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         (errors if int(contract.get("version") or 1) >= 2 else warnings).append(issue)
 
     predictions = [i for i, role in enumerate(roles) if role == "prediction_gate"]
-    needed_predictions = 2 if runtime >= 120 else 1
+    # An evidence-led mystery is told, in its own beat-sheet spec, "At most ONE prediction/guess
+    # prompt to the viewer, and never before the reversal -- it competes with the evidence and
+    # pre-empts the surprise." Asking a 120s mystery for TWO made the format unsatisfiable: the
+    # model obeyed the prompt, wrote one, and this rejected it. Measured across six runs it was
+    # the single most common blocker, 4 of 6. Two gates, one arithmetic, no editorial judgement
+    # needed -- 2 required against at most 1 permitted cannot both hold.
+    #
+    # The 30-second rule is the same conflict on the other axis. "Never before the reversal" puts
+    # the earliest legal prediction at the start of the reversal band, 22-35% of runtime, which is
+    # 26-42s in a 120s video. Requiring it by 30s demands it at 25%, before that band opens in most
+    # placements. So for a mystery the deadline is the reversal, not the clock.
+    is_mystery = any(
+        _text(scene.get("_role") or scene.get("mystery_role")) in _MYSTERY_ONLY_ROLES
+        for scene in scenes)
+    needed_predictions = 1 if is_mystery else (2 if runtime >= 120 else 1)
     checks["prediction_scenes"] = [i + 1 for i in predictions]
+    checks["mystery_prediction_policy"] = is_mystery
     if len(predictions) < needed_predictions:
         errors.append(_issue("too_few_predictions", f"Expected at least {needed_predictions} viewer prediction gate(s)."))
-    elif starts[predictions[0]] > 30.0:
+    elif not is_mystery and starts[predictions[0]] > 30.0:
         errors.append(_issue("late_first_prediction", "The first prediction gate arrives after 30 seconds.",
                              predictions[0] + 1, starts[predictions[0]]))
 
