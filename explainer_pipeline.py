@@ -2441,10 +2441,11 @@ def _enforce_requested_runtime(
     if not scenes or duration_sec <= 0:
         return script
     report = plan_runtime(scenes, duration_sec)
-    # Three passes, not two. The gap is routinely ~20%, and a single compression pass reliably
-    # under-delivers; a run that stops one pass short of the window has paid for the model calls
-    # and thrown the result away.
-    for attempt in range(3):
+    # Five passes. Measured compression is ~2% per pass, not the 3-6% assumed when this was raised
+    # to three: a 120s run went 252 -> 247 -> 241 words and stopped five words short of a 222-236
+    # allowance, having paid for the model calls and thrown the result away. Passes are cheap
+    # relative to a wasted render, and the loop exits the moment the window is reached.
+    for attempt in range(5):
         if report["passed"]:
             break
         target_words, min_words, max_words = runtime_word_bounds(

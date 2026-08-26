@@ -32,6 +32,12 @@ _SUBJECT_STOP = {
     "from", "had", "has", "have", "how", "if", "in", "is", "it", "of", "on", "or",
     "really", "the", "then", "this", "to", "was", "were", "what", "when", "where", "who",
     "why", "will", "with", "would", "you", "your", "happen", "happens", "explained",
+    # Function words that carry no subject. Their absence inflated the requirement: for "Why were
+    # doctors wrong about what causes stomach ulcers?", "about" counted as a subject term, so the
+    # opening had to hit 3 of 6 rather than 3 of 5 — and one of the six was a preposition no
+    # narration would naturally repeat.
+    "about", "into", "over", "under", "between", "through", "during", "after", "before",
+    "actually", "against", "because", "than", "that", "these", "those", "there",
 }
 
 
