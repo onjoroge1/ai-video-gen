@@ -1717,8 +1717,22 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '7b. NARRATIVE DEBT LEDGER: use opens_loop/closes_loop to track every promised question. Open '
         'the central loop in the opening and close it at final_payoff. Each prediction_gate opens a '
         'short sub-loop; a later payoff closes it while opening the next complication. Every opened '
-        'loop MUST close, and never close an id that was not opened earlier. Use short ids such as '
-        '"central", "first_failure", and "hidden_cost".\n'
+        'loop MUST close, and never close an id that was not opened earlier.\n'
+        # "Every opened loop MUST close" was already here and was already correct, and the ledger
+        # still failed to balance in 5 of 6 measured runs -- 1 to 3 loops left open each time. The
+        # model was not closing them under other names either: not one orphan close was recorded
+        # across every run today, so it simply opens more threads than it pays off. The fix is the
+        # one that worked for the word budget: cap the number so closing them all is countable, and
+        # make the last step an explicit check rather than a standing rule. The example ids are gone
+        # because "first_failure" was offered here and then appeared verbatim as an unresolved loop
+        # -- the model was taking the illustration as the assignment.
+        '    OPEN AT MOST TWO LOOPS IN TOTAL: the central one, plus at most one sub-loop. Fewer '
+        'threads paid off in full beats more threads left hanging, and with only a handful of beats '
+        'you cannot service more than two.\n'
+        '    BEFORE YOU RETURN, BALANCE THE LEDGER: list every opens_loop id you used, and for each '
+        'one point to the later beat whose closes_loop repeats that id character for character. '
+        'Matching is exact — "cure" does not close "cure_loop", and a trailing word makes it a '
+        'different id. If any id has no closing beat, either close it or do not open it.\n'
         '8. ESCALATION LADDER, FAMILIAR -> DEEP: climb ME -> MY TOOLS -> MY ENVIRONMENT -> CIVILISATION '
         '-> REALITY. Lead with everyday visible effects; the deep physics/mechanism is the ESCALATION '
         'and the reward, NEVER the setup. Every beat must ESCALATE (raise stakes, deepen the mystery, or '
