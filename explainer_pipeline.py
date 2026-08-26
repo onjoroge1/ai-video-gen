@@ -2477,6 +2477,19 @@ def _enforce_requested_runtime(
                            "never with filler or restatement")
         else:
             instruction = f"you must REMOVE AT LEAST {max(0, current_words - max_words)} words"
+        # Cadence has to survive the refit, and nothing here protected it. The five invariants
+        # below were the whole survivor list, and the compression advice — "remove whole
+        # clauses" — is precisely how a 15-word sentence becomes two 7-word ones. So the
+        # generator was told to write long sentences, the refit was told to cut clauses, and
+        # only the refit's output was measured: every long-form run graded 0-6% of sentences at
+        # 15+ words against a 25% floor. State it the way the word budget is stated — a count of
+        # sentences, not a percentage, since a percentage is not something the model measures.
+        _sentences = [part for scene in scenes
+                      for part in re.split(r"(?<=[.!?])\s+", _s(scene.get("narration")))
+                      if part.strip()]
+        _sentence_total = len(_sentences)
+        _long_now = sum(1 for part in _sentences if len(part.split()) >= 15)
+        _long_needed = max(2, -(-_sentence_total // 4))   # ceil(total/4); math is not imported here
         prompt = (
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
             f"It is currently {current_words} words, which runs "
@@ -2488,6 +2501,11 @@ def _enforce_requested_runtime(
             "word here and there; a 20% reduction is a rewrite, not an edit.\n"
             "THESE SURVIVE EITHER DIRECTION — they are checked immediately afterwards and losing "
             "one fails the run:\n"
+            f"  * At least {_long_needed} of your sentences still run 15 WORDS OR MORE as ONE "
+            f"unbroken sentence (you currently have {_long_now} such sentences out of "
+            f"{_sentence_total}). Splitting a long sentence into two short ones does not remove "
+            "words and DOES fail this — take the words out of restatement and description "
+            "instead. Count them before answering.\n"
             "  * Scene 1 opens on a COLD VISIBLE CONSEQUENCE — something already happening or "
             "already wrong — not on setup or context.\n"
             "  * The exact subject is named in the FIRST FIVE SECONDS, so within roughly the first "
