@@ -411,9 +411,17 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     # the earliest legal prediction at the start of the reversal band, 22-35% of runtime, which is
     # 26-42s in a 120s video. Requiring it by 30s demands it at 25%, before that band opens in most
     # placements. So for a mystery the deadline is the reversal, not the clock.
-    is_mystery = any(
-        _text(scene.get("_role") or scene.get("mystery_role")) in _MYSTERY_ONLY_ROLES
-        for scene in scenes)
+    # Prefer the stamped format. Role-name inference is the fallback for scripts written before
+    # the stamp existed, and it is not reliable on its own: `_role` falls back to `story_role`
+    # when a beat carries no mystery_role, so a replanned mystery can present no mystery names at
+    # all and be judged as a standard explainer against rules its own prompt forbids. That is
+    # exactly what happened to run 9f8a6cd1, which was asked for one prediction on the first pass
+    # and then failed the 30-second rule on the second.
+    is_mystery = (
+        any(_text(scene.get("_story_format")) == "evidence_led_mystery" for scene in scenes)
+        or _text(script.get("_effective_story_format")) == "evidence_led_mystery"
+        or any(_text(scene.get("_role") or scene.get("mystery_role")) in _MYSTERY_ONLY_ROLES
+               for scene in scenes))
     needed_predictions = 1 if is_mystery else (2 if runtime >= 120 else 1)
     checks["prediction_scenes"] = [i + 1 for i in predictions]
     checks["mystery_prediction_policy"] = is_mystery

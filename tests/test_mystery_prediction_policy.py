@@ -64,6 +64,26 @@ def test_a_standard_explainer_still_needs_two_at_long_runtime():
     assert "too_few_predictions" in _codes(report)
 
 
+def test_the_stamped_format_survives_a_replan_that_drops_mystery_roles():
+    """A replan can leave every scene carrying a standard role name.
+
+    `_role` falls back to `story_role` when a beat has no mystery_role, so inference from
+    role names alone reports "standard explainer" and applies rules the mystery prompt
+    forbids. Run 9f8a6cd1 was asked for one prediction on its first pass and then failed
+    the 30-second rule on its second, for exactly this reason.
+    """
+    script = _mystery(1)
+    for scene in script["scenes"]:
+        scene["_role"] = scene["story_role"]        # what a replan leaves behind
+        scene["mystery_role"] = ""
+        scene["_story_format"] = "evidence_led_mystery"
+
+    report = validate_longform_story(script, "why were doctors wrong about ulcers")
+
+    assert "too_few_predictions" not in _codes(report)
+    assert "late_first_prediction" not in _codes(report)
+
+
 def test_a_late_prediction_does_not_fail_a_mystery():
     # "Never before the reversal" puts the earliest legal prediction at 22-35% of runtime,
     # which is past 30s in a 120s video. The deadline for a mystery is the reversal, not

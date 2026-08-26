@@ -1966,6 +1966,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             # mystery grammar for story_engine's timing bands, falling back to story_role so the
             # structural gates still run on a standard explainer.
             s["_role"] = _s(beat.get("mystery_role")) or s["story_role"]
+            # The format itself, stated rather than inferred. validate_longform_story applies a
+            # different prediction policy to a mystery and may only read persisted script metadata,
+            # so it was recovering the format from mystery-only role names. That works on a first
+            # draft and silently stops working after a replan: `_role` above falls back to
+            # `story_role` whenever a beat carries no mystery_role, leaving no mystery name to find,
+            # and the run is then judged as a standard explainer against rules its prompt forbids.
+            s["_story_format"] = effective_story_format
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",
