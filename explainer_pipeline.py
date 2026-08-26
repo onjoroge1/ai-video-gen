@@ -2448,8 +2448,14 @@ def _enforce_requested_runtime(
     for attempt in range(5):
         if report["passed"]:
             break
-        target_words, min_words, max_words = runtime_word_bounds(
-            duration_sec, len(scenes))
+        # Take the bounds from the report, which derived them from the punctuation this
+        # draft actually contains. Recomputing them here assumed one sentence per scene
+        # and no commas, so the loop chased a word target that could not produce the
+        # required seconds: a 120s run landed 227 words inside a 222-236 allowance and
+        # still failed at 123.8s, having converged to a count that was never sufficient.
+        target_words = int(report.get("target_words") or 0)
+        min_words = int(report.get("min_words") or 0)
+        max_words = int(report.get("max_words") or 0)
         payload = [{
             "narration": _s(scene.get("narration")),
             "visual_beats": scene.get("visual_beats") or [],

@@ -32,7 +32,7 @@ except Exception:
 import explainer_pipeline as ep
 from longform_research import validate_claim_joins, validate_research_dossier
 from longform_retention import validate_longform_story
-from runtime_planner import plan_runtime, runtime_word_bounds
+from runtime_planner import plan_runtime
 
 GREEN, RED, DIM, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[0m"
 
@@ -82,7 +82,12 @@ def main() -> int:
 
     # 1. draft-one word count, before any compression
     runtime = plan_runtime(scenes, args.duration)
-    target, low, high = runtime_word_bounds(args.duration, len(scenes))
+    # Same bounds the pipeline enforces: derived from this draft's punctuation, not
+    # from an assumed one-sentence-per-scene. Grading against the assumed window let
+    # the harness pass a script the pipeline would reject on seconds.
+    target = int(runtime.get("target_words") or 0)
+    low = int(runtime.get("min_words") or 0)
+    high = int(runtime.get("max_words") or 0)
     words = int(runtime.get("word_count") or 0)
     ok_words = low <= words <= high
     results.append(ok_words)
