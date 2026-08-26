@@ -3129,6 +3129,24 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             # strict: this feeds the fatal word-timing gate, so a failed call must say so rather
             # than present as a scene whose narration was never spoken.
             timings = transcribe_words(path, strict=True)
+            # Persist them. These are computed, consumed once by the word-timing gate and thrown
+            # away, and that gate's failure message names a PHRASE -- so when it fires there is no
+            # record of what was actually heard. Diagnosing one such failure meant re-transcribing
+            # the file by hand, which produced 24 of 25 words with the anchor present and matching,
+            # proving only that the evidence had not been kept. A few KB per scene buys the
+            # difference between "unreproducible" and "read the file".
+            try:
+                with open(path + ".word_times.json", "w") as timing_handle:
+                    json.dump({
+                        "audio": os.path.basename(path),
+                        "narration": _s(scene.get("narration")),
+                        "narration_words": len(_s(scene.get("narration")).split()),
+                        "transcribed_words": len(timings),
+                        "transcript": " ".join(str(word) for word, _, _ in timings),
+                        "word_times": [[str(w), float(a), float(b)] for w, a, b in timings],
+                    }, timing_handle, indent=1, ensure_ascii=False)
+            except Exception:
+                pass          # diagnostics must never break the render they are diagnosing
             with open(path, "rb") as audio_handle:
                 audio_sha256 = hashlib.sha256(audio_handle.read()).hexdigest()
             return {
