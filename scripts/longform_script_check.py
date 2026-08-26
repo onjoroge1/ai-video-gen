@@ -68,6 +68,13 @@ def main() -> int:
     ep._repair_claim_phrases(script, log)
     ep._repair_anchor_phrases(script, log)
 
+    # The refit too. This claimed to run what the pipeline runs while omitting the single
+    # largest rewriter of narration, so it graded a draft that is never what gets rendered --
+    # and it therefore could not see the pipeline's most persistent defect, that compressing
+    # to the word budget destroys the sentence cadence the generator was asked for. Anything
+    # measured before this point is a statement about draft one, not about the video.
+    ep._enforce_requested_runtime(script, args.duration, cost_sink=costs, log=log)
+
     scenes = script.get("scenes") or []
     if args.show_script:
         print(f"\n=== NARRATION ===")
@@ -80,7 +87,7 @@ def main() -> int:
     print(f"\n=== ACCEPTANCE CRITERIA ===")
     results = []
 
-    # 1. draft-one word count, before any compression
+    # 1. word count as the renderer would see it, after the refit
     runtime = plan_runtime(scenes, args.duration)
     # Same bounds the pipeline enforces: derived from this draft's punctuation, not
     # from an assumed one-sentence-per-scene. Grading against the assumed window let
@@ -91,7 +98,7 @@ def main() -> int:
     words = int(runtime.get("word_count") or 0)
     ok_words = low <= words <= high
     results.append(ok_words)
-    print(f"  {_mark(ok_words)}  draft-one words: {words} (allowed {low}-{high}, "
+    print(f"  {_mark(ok_words)}  narration words: {words} (allowed {low}-{high}, "
           f"{runtime.get('estimated_seconds', 0):.1f}s vs {args.duration}s target, "
           f"{len(scenes)} scenes)")
 
