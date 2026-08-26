@@ -6560,10 +6560,19 @@ def run_explainer_pipeline(
             claim_validation = validate_claim_joins(script, research_dossier)
             script["_claim_validation"] = claim_validation
             if not claim_validation.get("passed"):
-                raise ValueError(
-                    "Claim ledger failed after script/fact-check before asset spend: "
-                    + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
-                )
+                # The only pre-spend blocker with no override, which made it impossible to render
+                # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
+                # can continue; the failure is still logged and still recorded on the script, and
+                # the result is NOT publishable -- an unbound scene means a factual or causal line
+                # has no source behind it. Default stays on.
+                if (os.environ.get("CLAIM_LEDGER_HARD", "1") or "1").strip().lower() \
+                        in ("1", "true", "yes", "on"):
+                    raise ValueError(
+                        "Claim ledger failed after script/fact-check before asset spend: "
+                        + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
+                    )
+                for item in claim_validation.get("errors", [])[:6]:
+                    log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
         n_host = sum(1 for s in scenes if s.get("mascot_present"))
         n_human = sum(1 for s in scenes if s.get("human_present"))
         log(f"Cast: {HUMAN_NAME} leads {n_human}/{len(scenes)} scenes; "
