@@ -2521,14 +2521,42 @@ def _enforce_requested_runtime(
     # here no matter what it returns. The runtime target yields to the sourcing, which is the
     # right way round: runtime is advisory and measured audio is authoritative, while an
     # unsourced factual line is not shippable at all.
-    locked = {index: _s(scene.get("narration"))
-              for index, scene in enumerate(scenes)
-              if scene.get("claim_refs")}
+    # SENTENCES, not scenes. Locking whole scenes was measured at 100% of a real script -- every
+    # scene in an evidence-led format carries a claim, so "do not touch sourced scenes" meant "do
+    # not touch anything", and 379 of 379 words were immobile. The refit and the measured-audio
+    # fit both became no-ops, and a 120s request produced 137.98s of narration against a
+    # 116.40-123.60s allowance. What a source was verified against is a SENTENCE, so that is what
+    # is protected; the rest of the scene stays compressible.
+    locked_sentences: dict[int, list] = {}
+    original: dict[int, str] = {}
+    for index, scene in enumerate(scenes):
+        narration = _s(scene.get("narration"))
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", narration) if part.strip()]
+        keep = []
+        for ref in scene.get("claim_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            phrase = _s(ref.get("narration_phrase")).strip()
+            if not phrase:
+                continue
+            carrier = next((s for s in sentences if phrase.casefold() in s.casefold()), "")
+            if carrier and carrier not in keep:
+                keep.append(carrier)
+        if keep:
+            locked_sentences[index] = keep
+            original[index] = narration
 
-    def _restore_locked(current: list) -> None:
-        for index, narration in locked.items():
-            if index < len(current) and _s(current[index].get("narration")) != narration:
-                current[index]["narration"] = narration
+    def _restore_locked(current: list) -> int:
+        """Put back any scene that lost a sourced sentence. Compression elsewhere is kept."""
+        reverted = 0
+        for index, required in locked_sentences.items():
+            if index >= len(current):
+                continue
+            rewritten = _s(current[index].get("narration"))
+            if any(sentence.casefold() not in rewritten.casefold() for sentence in required):
+                current[index]["narration"] = original[index]
+                reverted += 1
+        return reverted
 
     report = plan_runtime(scenes, duration_sec)
     # Five passes. Measured compression is ~2% per pass, not the 3-6% assumed when this was raised
@@ -2584,13 +2612,17 @@ def _enforce_requested_runtime(
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
             f"It is currently {current_words} words, which runs "
             f"{report.get('estimated_seconds', 0):.0f}s — {instruction}. "
-            + (f"\nSCENES {', '.join(str(i + 1) for i in sorted(locked))} ARE LOCKED — reproduce "
-               "their narration EXACTLY, character for character. Their wording is what a source "
-               "was verified against, so an edit there destroys the citation and fails the run. "
-               "Take every word you need from the other scenes; if the target cannot be reached "
-               "without touching a locked scene, return the locked scenes unchanged and get as "
-               "close as you can. Edits to locked scenes are discarded, so spending effort there "
-               "only costs you the budget elsewhere.\n" if locked else "")
+            + ((
+                "\nTHESE SENTENCES ARE LOCKED — reproduce each one EXACTLY, character for "
+                "character, in the scene it came from. Each is what a source was verified "
+                "against, so an edit there destroys the citation. Everything else in those "
+                "scenes is yours to compress, and that is where the words must come from:\n"
+                + "\n".join(f"  scene {i + 1}: \"{sentence}\""
+                             for i in sorted(locked_sentences)
+                             for sentence in locked_sentences[i])
+                + "\nA scene that loses its locked sentence is reverted WHOLE, losing your "
+                  "compression of the rest of it too.\n"
+              ) if locked_sentences else "")
             + f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
             f"{min_words}-{max_words} words, ideally {target_words} — count them before answering, and "
             f"aim for about {max(1, target_words // max(1, len(scenes)))} words per scene. "
@@ -2653,8 +2685,11 @@ def _enforce_requested_runtime(
                     scene["claim_refs"] = fitted_scene["claim_refs"]
                 if _s(fitted_scene.get("evidence_id")):
                     scene["evidence_id"] = _s(fitted_scene.get("evidence_id"))
-            # Sourced wording is not the model's to spend, whatever it returned.
-            _restore_locked(scenes)
+            # Sourced sentences are not the model's to spend, whatever it returned. A scene that
+            # lost one is put back whole; scenes that kept theirs keep their compression.
+            reverted = _restore_locked(scenes)
+            if reverted:
+                log(f"  ⚠ {reverted} scene(s) reverted — a sourced sentence was rewritten")
             report = plan_runtime(scenes, duration_sec)
             log(
                 f"Runtime fit {attempt + 1}: {report['estimated_seconds']:.1f}s estimated, "

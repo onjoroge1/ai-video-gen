@@ -32,8 +32,8 @@ def _stub_model(monkeypatch, payload):
             "create": staticmethod(lambda **kw: _Resp())})()})())
 
 
-def test_locked_scenes_survive_a_model_that_rewrites_them(monkeypatch):
-    """Drive the real refit with a model that ignores the lock and compresses everything."""
+def test_a_scene_that_loses_its_sourced_sentence_is_reverted(monkeypatch):
+    """Drive the real refit with a model that discards the sourced sentences."""
     original = _script()
     kept = [original["scenes"][0]["narration"], original["scenes"][2]["narration"]]
 
@@ -43,12 +43,35 @@ def test_locked_scenes_survive_a_model_that_rewrites_them(monkeypatch):
         {"narration": "Compressed three."},
     ]}))
 
-    result = ep._enforce_requested_runtime(_script(), 120, log=lambda _m: None)
-    scenes = result["scenes"]
+    scenes = ep._enforce_requested_runtime(_script(), 120, log=lambda _m: None)["scenes"]
 
-    assert scenes[0]["narration"] == kept[0], "sourced scene 1 was edited"
-    assert scenes[2]["narration"] == kept[1], "sourced scene 3 was edited"
+    assert scenes[0]["narration"] == kept[0], "sourced scene 1 lost its claim sentence"
+    assert scenes[2]["narration"] == kept[1], "sourced scene 3 lost its claim sentence"
     assert scenes[1]["narration"] == "Compressed two.", "unsourced scenes must stay editable"
+
+
+def test_compression_is_kept_when_the_sourced_sentence_survives(monkeypatch):
+    """The whole point of locking sentences instead of scenes.
+
+    Scene-level locking immobilised 100% of a real script -- every scene in an evidence-led
+    format carries a claim -- so the refit became a no-op and a 120s request measured 137.98s.
+    A scene that keeps its sourced sentence must keep its compression.
+    """
+    sourced = _script()["scenes"][0]["narration"]
+    trimmed = sourced + " Extra padding removed."
+
+    _stub_model(monkeypatch, json.dumps({"scenes": [
+        {"narration": sourced},              # locked sentence preserved, rest gone
+        {"narration": "Compressed two."},
+        {"narration": "Over 90 percent of duodenal ulcers trace to one bacterium."},
+    ]}))
+
+    script = _script()
+    script["scenes"][0]["narration"] = trimmed
+    scenes = ep._enforce_requested_runtime(script, 120, log=lambda _m: None)["scenes"]
+
+    assert scenes[0]["narration"] == sourced, (
+        "a scene that kept its sourced sentence must keep the compression of the rest")
 
 
 def test_the_prompt_names_the_locked_scenes(monkeypatch):
@@ -67,5 +90,8 @@ def test_the_prompt_names_the_locked_scenes(monkeypatch):
     ep._enforce_requested_runtime(_script(), 120, log=lambda _m: None)
 
     prompt = seen.get("prompt", "")
-    assert "LOCKED" in prompt, "the model must be told which scenes it may not touch"
-    assert "SCENES 1, 3" in prompt, f"locked scene numbers must be named, got: {prompt[:200]}"
+    assert "LOCKED" in prompt, "the model must be told which sentences it may not touch"
+    # The sentences themselves, quoted, so the model can reproduce them character for character.
+    assert "blamed on stress" in prompt, f"locked sentence not quoted, got: {prompt[:300]}"
+    assert "Over 90 percent" in prompt, "second locked sentence not quoted"
+    assert "scene 1:" in prompt and "scene 3:" in prompt, "locked sentences must name their scene"
