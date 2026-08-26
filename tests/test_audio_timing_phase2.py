@@ -129,7 +129,7 @@ def test_longform_audio_is_generated_and_measured_before_visuals(monkeypatch, tm
 
     monkeypatch.setattr(pipeline, "generate_tts", fake_tts)
     monkeypatch.setattr(pipeline, "_audio_dur", lambda path: durations[Path(path).name])
-    monkeypatch.setattr(pipeline, "transcribe_words", lambda path: _timings(
+    monkeypatch.setattr(pipeline, "transcribe_words", lambda path, **_kw: _timings(
         script["scenes"][int(Path(path).stem.split("_")[-1])]["narration"],
         durations[Path(path).name]))
 
@@ -153,7 +153,7 @@ def test_measured_audio_refits_and_rerenders_until_real_duration_passes(monkeypa
 
     monkeypatch.setattr(pipeline, "generate_tts", fake_tts)
     monkeypatch.setattr(pipeline, "_audio_dur", lambda _path: 100.0 if pass_number["value"] == 0 else 90.0)
-    monkeypatch.setattr(pipeline, "transcribe_words", lambda _path: _timings(
+    monkeypatch.setattr(pipeline, "transcribe_words", lambda _path, **_kw: _timings(
         script["scenes"][0]["narration"], 100.0 if pass_number["value"] == 0 else 90.0))
     monkeypatch.setattr(pipeline, "_fit_script_to_measured_audio", fake_fit)
     monkeypatch.setattr(pipeline, "validate_longform_story", lambda *_args: {"passed": True})
@@ -180,7 +180,7 @@ def test_cached_audio_is_regenerated_when_narration_changes(monkeypatch, tmp_pat
 
     monkeypatch.setattr(pipeline, "generate_tts", fake_tts)
     monkeypatch.setattr(pipeline, "_audio_dur", lambda _path: 90.0)
-    monkeypatch.setattr(pipeline, "transcribe_words", lambda _path: _timings(
+    monkeypatch.setattr(pipeline, "transcribe_words", lambda _path, **_kw: _timings(
         script["scenes"][0]["narration"], 90.0))
     pipeline._prepare_longform_audio(
         script, {}, str(tmp_path), "echo", 90.0, tts_costs=[], aux_costs=[])
