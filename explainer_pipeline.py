@@ -6078,6 +6078,15 @@ def _story_role_block(format_name: str) -> str:
         "These are required and must all appear: " + required + ". "
         "Order them as listed; a role may span more than one scene, and roles that do not fit the "
         "topic may be omitted, but never invent a name outside this list."
+        # story_engine.cadence_block was written for exactly the failure we kept measuring, and
+        # its docstring says it must be "injected into EVERY expansion batch". Nothing ever called
+        # it. The pipeline imports get/resolve/check from story_engine and no prompt text, and the
+        # only other 15-word rule lives in the BEAT SHEET prompt, which does not write narration.
+        # So the model producing the narration was never told to write long sentences at all --
+        # which is the whole reason every measured run came back at 5-10% against a 25% floor.
+        # It attaches here because this block is the one the pipeline actually sends, and the
+        # roles it names are the roles the cadence rule keys off.
+        + story_engine.cadence_block(fmt)
     )
 
 
