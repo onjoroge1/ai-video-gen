@@ -1305,9 +1305,17 @@ _SCENE_FIELDS_RULES = (
 # Spoken-track rhythm. Without this the narration becomes a metronome of same-length declaratives
 # (the #1 TTS-monotony retention leak) — force length variance, punch beats, and varied openers.
 _NARRATION_CADENCE = (
+    # "NEVER write every line at the same ~15-word length" named 15 words as the failure, while the
+    # structural gate requires a quarter of sentences to REACH 15. The short register also got a
+    # number and two examples where the long one got only "longer ones", so the only concrete
+    # target in the rule was the short one, and every measured run came back 5-10% long against a
+    # 25% floor. The real defect being warned about is UNIFORMITY, so say uniformity.
     ' NARRATION CADENCE (this is the SPOKEN track — sameness is a retention killer): vary sentence '
     'length HARD — mix SHORT punch lines (≤5 words, e.g. "It was gone." "Nobody noticed.") with '
-    'longer ones; NEVER write every line at the same ~15-word length. Land a short punch beat at '
+    'LONG ones that run 15 words or more in a single unbroken span carrying a full causal step '
+    '(e.g. "The pills sealed the surface, but the bacteria underneath kept the wound open."); what '
+    'kills a track is writing every line at the SAME length, whatever that length is. Land a short '
+    'punch beat at '
     'each tension peak, and ask a genuine direct question at a natural turn in this batch. Vary how '
     'lines open — do NOT start most sentences with "The" or "They". VARY INTENSITY, not only length: '
     'do NOT write every line as a dramatic climax — when every line shouts, none of them lands. Use '
@@ -1921,6 +1929,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
+            + _cadence_rule_block(effective_story_format)
             + opening_direction
             + (' This batch contains the ENDING: after the peak, write ONE brief false-relief beat, then '
                'the FINAL ESCALATION, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT '
@@ -6078,16 +6087,22 @@ def _story_role_block(format_name: str) -> str:
         "These are required and must all appear: " + required + ". "
         "Order them as listed; a role may span more than one scene, and roles that do not fit the "
         "topic may be omitted, but never invent a name outside this list."
-        # story_engine.cadence_block was written for exactly the failure we kept measuring, and
-        # its docstring says it must be "injected into EVERY expansion batch". Nothing ever called
-        # it. The pipeline imports get/resolve/check from story_engine and no prompt text, and the
-        # only other 15-word rule lives in the BEAT SHEET prompt, which does not write narration.
-        # So the model producing the narration was never told to write long sentences at all --
-        # which is the whole reason every measured run came back at 5-10% against a 25% floor.
-        # It attaches here because this block is the one the pipeline actually sends, and the
-        # roles it names are the roles the cadence rule keys off.
-        + story_engine.cadence_block(fmt)
     )
+
+
+def _cadence_rule_block(format_name: str) -> str:
+    """story_engine's cadence rule, for the EXPANSION prompt that writes the narration.
+
+    Its docstring says it must be "injected into EVERY expansion batch", and nothing called it.
+    I first attached it to _story_role_block, which goes onto the BEAT SHEET prompt -- repeating
+    the exact mistake that docstring documents ("stage 1 was fixed and stage 2 was not"). The beat
+    sheet plans beats; it does not write sentences, so a sentence-length rule there is inert.
+    """
+    try:
+        import story_engine
+        return story_engine.cadence_block(story_engine.get(format_name))
+    except Exception:
+        return ""
 
 
 def _planned_words_for(duration_sec: float, n_scenes: int) -> int:
