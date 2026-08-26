@@ -7045,7 +7045,15 @@ def run_explainer_pipeline(
             evidence_validation["errors"] = (
                 evidence_validation.get("errors", []) + final_evidence_timing.get("errors", []))
         script["_evidence_plan"] = evidence_plan
-        if not evidence_validation.get("passed"):
+        if not evidence_validation.get("passed") and _diagnostic_render():
+            for item in evidence_validation.get("errors", [])[:6]:
+                log(f"  ✗ [EVIDENCE PLAN, DIAGNOSTIC_RENDER=1] {item['message']}")
+        elif not evidence_validation.get("passed"):
+            # Twin of the evidence-plan check ~350 lines above, which honours DIAGNOSTIC_RENDER
+            # while this one did not -- so a diagnostic run cleared the first, paid for its TTS,
+            # and died here. Third pair of same-condition checks today where only one respected
+            # its flag, after the two claim-ledger checks and the two runtime gates. Duplicating
+            # a condition without duplicating its escape hatch is the recurring shape.
             raise ValueError(
                 "Measured narration broke the evidence-state plan before visual spend: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
