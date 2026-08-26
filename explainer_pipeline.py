@@ -3287,10 +3287,18 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
         rederive_narration_bindings(script)
         story_validation = validate_longform_story(script, question or _s(script.get("title")))
         claim_validation = validate_claim_joins(script, dossier)
-        if not story_validation.get("passed") or not claim_validation.get("passed"):
+        # Fifth pair to ignore its own escape hatch, and the last on the pre-spend path. Same
+        # shape as the four before it: a condition checked in two places where only one copy
+        # learned about the flag that governs it.
+        rewrite_blocking = []
+        if not claim_validation.get("passed") and _claim_ledger_hard():
+            rewrite_blocking.append("claim ledger")
+        if not story_validation.get("passed") and _longform_retention_hard():
+            rewrite_blocking.append("retention contract")
+        if rewrite_blocking:
             raise ValueError(
-                "Measured runtime rewrite broke the story or claim contract before visual spend."
-            )
+                "Measured runtime rewrite broke the story or claim contract before visual "
+                "spend: " + ", ".join(rewrite_blocking))
 
     if not report.get("passed"):
         raise ValueError(
