@@ -2461,18 +2461,27 @@ def _enforce_requested_runtime(
         # returned 212 and then 210 — it was not measuring. Naming the current count and the exact
         # number of words to remove turns this into a countable edit.
         current_words = int(report.get("word_count") or 0)
-        surplus = max(0, current_words - max_words)
+        # The window has two edges. This only ever asked for removal, so a draft that came in SHORT
+        # sat there being told to remove zero words — a real run went 208 -> 208 across passes,
+        # under a 222-236 allowance, and would have burned every pass changing nothing before
+        # failing. Say which direction, and by how much.
+        if current_words < min_words:
+            instruction = (f"you must ADD AT LEAST {min_words - current_words} words — expand the "
+                           "thinnest beats with concrete detail already supported by the claims, "
+                           "never with filler or restatement")
+        else:
+            instruction = f"you must REMOVE AT LEAST {max(0, current_words - max_words)} words"
         prompt = (
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
             f"It is currently {current_words} words, which runs "
-            f"{report.get('estimated_seconds', 0):.0f}s — you must REMOVE AT LEAST {surplus} words. "
+            f"{report.get('estimated_seconds', 0):.0f}s — {instruction}. "
             f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
             f"{min_words}-{max_words} words, ideally {target_words} — count them before answering, and "
             f"aim for about {max(1, target_words // max(1, len(scenes)))} words per scene. "
-            "Cut whole clauses and redundant restatement rather than trimming a word here and there; "
-            "a 20% reduction is a rewrite, not an edit.\n"
-            "THESE SURVIVE THE CUT — they are checked immediately afterwards and losing one fails "
-            "the run:\n"
+            "When cutting, remove whole clauses and redundant restatement rather than trimming a "
+            "word here and there; a 20% reduction is a rewrite, not an edit.\n"
+            "THESE SURVIVE EITHER DIRECTION — they are checked immediately afterwards and losing "
+            "one fails the run:\n"
             "  * Scene 1 opens on a COLD VISIBLE CONSEQUENCE — something already happening or "
             "already wrong — not on setup or context.\n"
             "  * The exact subject is named in the FIRST FIVE SECONDS, so within roughly the first "
