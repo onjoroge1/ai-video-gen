@@ -1838,6 +1838,27 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if requested_story_format == "evidence_led_mystery" and not mystery_suitable:
         effective_story_format = "standard_explainer"
         fallback_reason = "; ".join(dict.fromkeys(mystery_reasons))
+    # The prediction gate is a STRUCTURAL LABEL, so stop asking for it and place it.
+    #
+    # Four runs died here in four different ways: two required against at most one permitted,
+    # the policy lost after a replan, "at most one" read as permission for none, and then zero
+    # again after that was changed to "exactly one". The last one is the tell. A mystery is asked
+    # to tag scenes with mystery_role from its own vocabulary, which has no prediction_gate in it,
+    # while the validator counts story_role -- so the request lands in the wrong vocabulary and
+    # the model has no reliable way to satisfy it. Rewording an instruction that names the wrong
+    # field cannot fix it.
+    #
+    # Nothing is invented here: the beat already exists and is already being written, and this
+    # only names the one that follows the reversal, which is exactly where the format says a
+    # prediction belongs ("never before the reversal"). Unlike a claim reference, a role label
+    # asserts nothing about the world, so deriving it launders no unverified fact.
+    if effective_story_format == "evidence_led_mystery" and beats:
+        if not any(_s(beat.get("role")) == "prediction_gate" for beat in beats):
+            reversal = next((i for i, beat in enumerate(beats)
+                             if _s(beat.get("mystery_role")) == "reversal"), None)
+            slot = (reversal + 1 if reversal is not None and reversal + 1 < len(beats)
+                    else max(0, len(beats) // 2))
+            beats[slot]["role"] = "prediction_gate"
     character_budget = _apply_character_budget(beats)
     n_scenes = len(beats)
     # Re-derive the per-scene word budget from the ACTUAL beat count. The model may return materially
