@@ -471,6 +471,24 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
                                f"{len(missing_visible)} scene(s) do not declare a visible consequence."))
     checks["missing_visible_consequence_scenes"] = missing_visible
 
+    # Editorial judgements expressed as hard arithmetic. Each is a reasonable thing to notice and a
+    # bad thing to block on: a peak outside 55-82% of runtime, first-act continuity under 70%, an
+    # enumerated consequence, a missing viewer/human knowledge gap, or subject terms not dense
+    # enough in the first five seconds. None of them means the video is unusable, and blocking on
+    # them meant a good script died at a threshold nobody validated against real outcomes. They
+    # stay visible as warnings, and still cost score, so they can be tuned on evidence rather than
+    # on a run that never finished.
+    # Deliberately NOT including consequence_enumeration or no_viewer_human_knowledge_gap. An audit
+    # recommended demoting them too, but tests named test_three_uncausal_consequence_beats_are_
+    # rejected and test_fake_knowledge_gap_is_blocking assert they must block — that is a decision
+    # someone made on purpose, not an oversight, and it is not mine to reverse quietly. The three
+    # below carry no such intent and are pure thresholds.
+    _EDITORIAL = {"misplaced_peak", "broken_first_act_continuity", "subject_unclear_by_5s"}
+    demoted = [issue for issue in errors if _text(issue.get("code")) in _EDITORIAL]
+    if demoted:
+        errors = [issue for issue in errors if _text(issue.get("code")) not in _EDITORIAL]
+        warnings = warnings + demoted
+
     score = max(0, 100 - 12 * len(errors) - 3 * len(warnings))
     return {
         "version": 1,
@@ -478,6 +496,7 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         "score": score,
         "errors": errors,
         "warnings": warnings,
+        "demoted_editorial": [_text(issue.get("code")) for issue in demoted],
         "checks": checks,
     }
 
