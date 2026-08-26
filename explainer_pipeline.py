@@ -3128,6 +3128,11 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
     report: dict = {}
     for attempt in range(3):
         results = render_audio(force=attempt > 0)
+        # Re-bind anchors to whatever the narration says RIGHT NOW, immediately before they are
+        # checked against the spoken words. Every pass that rewrites narration invalidates them,
+        # and the check below is fatal rather than repairable, so a stale anchor kills a run that
+        # has already paid for its TTS.
+        _repair_anchor_phrases(script)
         report = build_audio_timing_report(
             scenes,
             [item["aud"] for item in results],
@@ -3151,6 +3156,12 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             break
         _fit_script_to_measured_audio(
             script, report, target_seconds, cost_sink=aux_costs)
+        # This rewrote the narration, so both phrase bindings now point at wording that may no
+        # longer exist. The story and claim contracts below were re-checked and the anchors were
+        # not, which is the ordering bug: the next pass measures anchors against speech that no
+        # longer contains them and raises unmatched_phrase_timestamp, after the TTS is bought.
+        _repair_anchor_phrases(script)
+        _repair_claim_phrases(script)
         story_validation = validate_longform_story(script, question or _s(script.get("title")))
         claim_validation = validate_claim_joins(script, dossier)
         if not story_validation.get("passed") or not claim_validation.get("passed"):
