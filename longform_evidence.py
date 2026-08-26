@@ -209,7 +209,11 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "pure_evidence": pure_evidence,
         "include_human": include_human,
         "include_bolt": include_bolt,
-        "bolt_action": _derive_bolt_action(beat, scene, after or visual) if include_bolt else "",
+        # `after` already falls back to beat["visual"] where it exists; referencing a bare `visual`
+        # here was a NameError waiting for the first Bolt beat with no state_after — it would crash
+        # instead of producing the incomplete_object_state_spec error this validator is built to
+        # report.
+        "bolt_action": _derive_bolt_action(beat, scene, after) if include_bolt else "",
         "reference_ids": references,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",
