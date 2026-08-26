@@ -6653,6 +6653,12 @@ def run_explainer_pipeline(
         script = _enforce_requested_runtime(
             script, duration_sec, cost_sink=aux_costs, log=log)
         scenes = script.get("scenes", [])
+        # The refit just rewrote the narration, so every phrase binding derived from the previous
+        # wording is stale -- and the check on the very next line is exactly the one that catches
+        # it. The anchor repair runs after this refit and the claim repair did not, so the run
+        # aborted on bindings that were correct for text the refit had already replaced. Same
+        # ordering bug as the anchors, at the sibling call site.
+        _repair_claim_phrases(script, log)
         claim_validation = validate_claim_joins(script, research_dossier)
         script["_claim_validation"] = claim_validation
         if not claim_validation.get("passed"):
