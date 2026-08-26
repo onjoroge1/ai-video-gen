@@ -380,8 +380,12 @@ full causal chain, punctuated by short ones at the reveals ("It was dark." / "Re
 Roughly a quarter to a half of your sentences should run past 15 words. Uniformly clipped narration \
 is the single most common failure in this pipeline: when every line is a punch, none of them lands.
 8. CAUSAL SPINE: connect beats with BUT / THEREFORE / SO — never "and then". One idea per beat.
-9. At most ONE prediction/guess prompt to the viewer, and never before the reversal — it competes \
-with the evidence and pre-empts the surprise. The sealed false belief does that job better.
+9. EXACTLY ONE prediction/guess prompt to the viewer — not zero, not two — and never before the \
+reversal, because before that it competes with the evidence and pre-empts the surprise. One is \
+required: tag that beat's role "prediction_gate". Said as "at most one", with the note that the \
+sealed false belief does the job better, this read as permission to write none, and the retention \
+contract requires one — so the model wrote zero and the run was rejected after the script was paid \
+for. Place it after the reversal and let the sealed false belief carry everything before it.
 
 FIXED ARCHITECTURE (by PERCENT of runtime): {arch}
 """
