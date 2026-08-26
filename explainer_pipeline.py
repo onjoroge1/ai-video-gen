@@ -7077,8 +7077,24 @@ def run_explainer_pipeline(
         retention_validation = validate_longform_story(script, question)
         script["_claim_validation"] = claim_validation
         script["_retention_validation"] = retention_validation
-        if not claim_validation.get("passed") or not retention_validation.get("passed"):
-            raise ValueError("Measured narration changed a story or claim contract before visual spend.")
+        # Fourth pair of same-condition checks to ignore its own escape hatch. This raises on the
+        # claim ledger AND the retention contract, both of which are flag-controlled elsewhere, and
+        # honoured neither -- so a run that legitimately continued past both earlier gates was
+        # killed here by their twin, after paying for TTS. The flags are read here now.
+        blocking = []
+        if not claim_validation.get("passed") and _claim_ledger_hard():
+            blocking.append("claim ledger")
+        if not retention_validation.get("passed") and _longform_retention_hard():
+            blocking.append("retention contract")
+        for label, report in (("claim", claim_validation), ("retention", retention_validation)):
+            if not report.get("passed") and label.replace("claim", "claim ledger").replace(
+                    "retention", "retention contract") not in blocking:
+                for item in (report.get("errors") or [])[:4]:
+                    log(f"  ✗ [{label.upper()}, demoted] {item.get('message')}")
+        if blocking:
+            raise ValueError(
+                "Measured narration changed a story or claim contract before visual spend: "
+                + ", ".join(blocking))
         # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
         # from the final narration and fail before the first image if any opening beat lost its proof.
         rederive_narration_bindings(script, log)
