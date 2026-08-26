@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import shutil
 from pathlib import Path
@@ -288,6 +289,9 @@ def compile_evidence_plan(script: dict) -> dict:
     return plan
 
 
+MAX_VISUAL_STATE_SECONDS = 3.5
+
+
 def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                            opening_only: bool = False) -> dict:
     errors: list[dict] = []
@@ -547,9 +551,24 @@ def validate_evidence_timing(plan: dict, audio_timing: dict) -> dict:
                 "evidence_states_too_dense",
                 f"{count} states in {duration:.2f}s would force {interval:.2f}s flash frames.",
                 scene=int(scene_plan.get("scene_index") or 0) + 1))
+        # The other side of the same interval. This guarded only the dense end, while the
+        # rendered gate hard-fails the sparse end at MAX_VISUAL_STATE_SECONDS -- so a plan
+        # could be approved here and be rejectable on arithmetic already known, with the
+        # rejection arriving after every image and every second of narration was paid for.
+        # A 2-state opening beat is explicitly permitted by opening_state_count and only
+        # clears the ceiling if its scene runs under 7s; long-form scenes run about 13s.
+        if count and interval > MAX_VISUAL_STATE_SECONDS:
+            needed = math.ceil(duration / MAX_VISUAL_STATE_SECONDS)
+            errors.append(_issue(
+                "evidence_states_too_sparse",
+                f"{count} state(s) across {duration:.2f}s holds each for {interval:.2f}s; the "
+                f"rendered gate rejects any hold over {MAX_VISUAL_STATE_SECONDS}s. "
+                f"Plan at least {needed} states.",
+                scene=int(scene_plan.get("scene_index") or 0) + 1))
     return {
         "version": 1, "passed": not errors,
         "minimum_state_seconds": MIN_EVIDENCE_STATE_SECONDS,
+        "maximum_state_seconds": MAX_VISUAL_STATE_SECONDS,
         "scene_average_state_seconds": intervals,
         "errors": errors,
     }
