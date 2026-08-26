@@ -2510,6 +2510,26 @@ def _enforce_requested_runtime(
     scenes = script.get("scenes") or []
     if not scenes or duration_sec <= 0:
         return script
+    # Scenes carrying a claim reference are LOCKED: their wording is what a source was checked
+    # against, so compressing them destroys the sourcing. The pass was already told "Preserve
+    # every factual claim" and cut them anyway, and the repair afterwards can only drop a binding
+    # whose assertion is gone -- which is what then fails validate_claim_joins. Correcting
+    # words_per_second made this worse, not better: the budget went from ~220 words to ~321, so
+    # drafts start further from target and the pass cuts harder to close the gap.
+    #
+    # Locked text is restored verbatim after every pass, so the model cannot spend the budget
+    # here no matter what it returns. The runtime target yields to the sourcing, which is the
+    # right way round: runtime is advisory and measured audio is authoritative, while an
+    # unsourced factual line is not shippable at all.
+    locked = {index: _s(scene.get("narration"))
+              for index, scene in enumerate(scenes)
+              if scene.get("claim_refs")}
+
+    def _restore_locked(current: list) -> None:
+        for index, narration in locked.items():
+            if index < len(current) and _s(current[index].get("narration")) != narration:
+                current[index]["narration"] = narration
+
     report = plan_runtime(scenes, duration_sec)
     # Five passes. Measured compression is ~2% per pass, not the 3-6% assumed when this was raised
     # to three: a 120s run went 252 -> 247 -> 241 words and stopped five words short of a 222-236
@@ -2564,7 +2584,14 @@ def _enforce_requested_runtime(
             f"Fit this explainer narration to {duration_sec} seconds BEFORE voice or image generation. "
             f"It is currently {current_words} words, which runs "
             f"{report.get('estimated_seconds', 0):.0f}s — {instruction}. "
-            f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
+            + (f"\nSCENES {', '.join(str(i + 1) for i in sorted(locked))} ARE LOCKED — reproduce "
+               "their narration EXACTLY, character for character. Their wording is what a source "
+               "was verified against, so an edit there destroys the citation and fails the run. "
+               "Take every word you need from the other scenes; if the target cannot be reached "
+               "without touching a locked scene, return the locked scenes unchanged and get as "
+               "close as you can. Edits to locked scenes are discarded, so spending effort there "
+               "only costs you the budget elsewhere.\n" if locked else "")
+            + f"Keep exactly {len(scenes)} scenes in the same order. The COMPLETE narration must be "
             f"{min_words}-{max_words} words, ideally {target_words} — count them before answering, and "
             f"aim for about {max(1, target_words // max(1, len(scenes)))} words per scene. "
             "When cutting, remove whole clauses and redundant restatement rather than trimming a "
@@ -2626,6 +2653,8 @@ def _enforce_requested_runtime(
                     scene["claim_refs"] = fitted_scene["claim_refs"]
                 if _s(fitted_scene.get("evidence_id")):
                     scene["evidence_id"] = _s(fitted_scene.get("evidence_id"))
+            # Sourced wording is not the model's to spend, whatever it returned.
+            _restore_locked(scenes)
             report = plan_runtime(scenes, duration_sec)
             log(
                 f"Runtime fit {attempt + 1}: {report['estimated_seconds']:.1f}s estimated, "
