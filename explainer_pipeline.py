@@ -3199,7 +3199,18 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             if force and os.path.exists(digest_path):
                 os.remove(digest_path)
             if not os.path.exists(path) or os.path.getsize(path) <= 0:
-                generate_tts(_s(scene.get("narration")), path, voice=voice)
+                # Name an empty scene here. Sending "" to TTS returns a provider 400 reading
+                # "String should have at least 1 character", which says nothing about WHICH scene
+                # lost its narration or which pass emptied it -- run 92efc8d6 died on exactly that
+                # after compressing 294 words across its scenes. A scene with no narration is a
+                # script defect, and the error should say so.
+                narration_text = _s(scene.get("narration")).strip()
+                if not narration_text:
+                    raise ValueError(
+                        f"Scene {i + 1} of {len(scenes)} has empty narration before TTS "
+                        f"(story_role={_s(scene.get('story_role')) or '?'}). A rewrite pass "
+                        "removed every word of it.")
+                generate_tts(narration_text, path, voice=voice)
                 with open(digest_path, "w") as handle:
                     handle.write(digest)
                 tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
