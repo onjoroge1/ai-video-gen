@@ -7741,6 +7741,40 @@ def run_explainer_pipeline(
         if opening_motion and not any(candidate.get("generation_status") == "animated"
                                       for candidate in opening_motion):
             log("ℹ No provider motion for the opening; every clip fell back to Ken Burns.")
+        # PREFLIGHT: every image the shot plan will reference must exist on disk.
+        #
+        # Run f0a244c4 had scene_03_e02.jpg and scene_03_e03.jpg but no scene_03.jpg -- one
+        # evidence state silently failed to produce a file while its siblings succeeded -- and
+        # nothing noticed until ffmpeg was handed the missing path forty minutes and ~$3 later.
+        # The failure arrived as a 900-character command dump naming no scene.
+        #
+        # The pipeline verifies image CONTENT thoroughly: is the flask visible, did the state
+        # change, does Bolt do useful work. It never checked the file was there.
+        _missing = []
+        for _result in opening_results:
+            for _key in ("img", "image", "image_path"):
+                _p = _s(_result.get(_key))
+                if _p and not os.path.exists(_p):
+                    _missing.append(f"scene {int(_result.get('i', 0)) + 1}: {os.path.basename(_p)}")
+        _img_dir = os.path.join(output_dir, "images")
+        for _idx in range(opening_stop):
+            _base = os.path.join(_img_dir, f"scene_{_idx:02d}.jpg")
+            if not os.path.exists(_base):
+                # os.listdir, not glob: glob is not imported at module scope here, and a
+                # NameError inside a preflight would be its own small joke.
+                try:
+                    _siblings = sorted(
+                        name for name in os.listdir(_img_dir)
+                        if name.startswith(f"scene_{_idx:02d}_") and name.endswith(".jpg"))
+                except OSError:
+                    _siblings = []
+                _missing.append(
+                    f"scene {_idx + 1}: scene_{_idx:02d}.jpg was never written"
+                    + (f" (siblings present: {', '.join(_siblings)})" if _siblings else ""))
+        if _missing:
+            raise RuntimeError(
+                "Opening images missing before the 45-second gate render — "
+                + "; ".join(_missing[:6]))
         log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
             (first_minute_preview_path, opening_metrics, opening_cues,
