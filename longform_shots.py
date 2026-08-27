@@ -69,6 +69,17 @@ def _timed_words(narration: str, word_times: list | None, duration: float, *,
     return [(word, i * step, (i + 1) * step) for i, word in enumerate(words)]
 
 
+def _abort_on_unalignable() -> bool:
+    """SHOT_TIMING_HARD=1 restores aborting when measured anchors cannot be spaced.
+
+    Off by default: the fallback produces a watchable video with evenly spaced visuals, and the
+    abort produced no video at all after the narration was paid for.
+    """
+    import os
+    return (os.environ.get("SHOT_TIMING_HARD", "0") or "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def _find_phrase_span(timed: list[tuple[str, float, float]], phrase: str) -> tuple[float, float] | None:
     needle = [_clean_token(word) for word in str(phrase or "").split()]
     needle = [word for word in needle if word]
@@ -218,6 +229,7 @@ def compile_scene_shots(
         state for state in (evidence_states or [])
         if state.get("asset_status") in {"accepted", "reused_exact"}
     ]
+    timing_degraded = False
     if accepted_states:
         count = len(accepted_states)
         if duration / count < MIN_SHOT_SECONDS:
@@ -231,9 +243,19 @@ def compile_scene_shots(
             for index in range(1, len(starts))
         ) and duration - starts[-1] >= MIN_SHOT_SECONDS
         if not valid:
-            if strict_timing:
+            # DEGRADE, do not abort. The even-spacing fallback below already existed and was
+            # gated behind strict_timing, so a scene whose anchors landed slightly too close
+            # destroyed a run that had already bought every second of its narration.
+            #
+            # Measured anchoring is better than even spacing -- a visual lands on the words that
+            # describe it -- but it is a QUALITY difference, not a correctness one. Evenly spaced
+            # visuals over correct narration is a watchable video; no video is not. The scene is
+            # marked so the degradation is auditable rather than silent, and the old behaviour
+            # remains available for a caller that needs measured anchoring or nothing.
+            if strict_timing and _abort_on_unalignable():
                 raise ValueError(
                     "Measured word timings cannot align every evidence state without invalid cuts.")
+            timing_degraded = True
             step = duration / count
             starts = [index * step for index in range(count)]
         shots = []
@@ -269,6 +291,9 @@ def compile_scene_shots(
                 "source_asset_id": state.get("source_asset_id") or "",
                 "verified_visible_information": bool(state.get("verified_visible_information")),
             })
+            if timing_degraded:
+                # Auditable: this scene's visuals are evenly spaced, not anchored to the words.
+                shot["timing_source"] = "even_fallback"
             shots.append(shot)
         return shots
 
