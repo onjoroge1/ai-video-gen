@@ -7556,7 +7556,14 @@ def run_explainer_pipeline(
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
             json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
-        raise RuntimeError("Opening evidence assets were rejected before the render smoke test.")
+        # Asset verification compares a GENERATED IMAGE against the object its evidence state
+        # named, and rejects a mismatch. That is the right check -- an image that does not show
+        # the proof it claims is not evidence -- but under DIAGNOSTIC_RENDER it reports instead
+        # of aborting, because a video with imperfect frames can be watched and judged while no
+        # video cannot. Such a render is NOT publishable: its visuals do not match their plan.
+        if not _diagnostic_render():
+            raise RuntimeError("Opening evidence assets were rejected before the render smoke test.")
+        log("  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] opening evidence assets rejected — continuing")
     if not r0["aud_ok"]:
         raise RuntimeError("Scene 1 audio failed — aborting before generating the other images.")
     try:
@@ -7636,7 +7643,10 @@ def run_explainer_pipeline(
         if any(not result.get("evidence_ok") for result in opening_results):
             with open(evidence_plan_path, "w") as handle:
                 json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
-            raise RuntimeError("One or more first-tranche evidence assets were explicitly rejected.")
+            if not _diagnostic_render():
+                raise RuntimeError(
+                    "One or more first-tranche evidence assets were explicitly rejected.")
+            log("  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] first-tranche assets rejected — continuing")
         evidence_validation = validate_evidence_plan(
             evidence_plan, require_verified_assets=True, opening_only=True)
         with open(evidence_plan_path, "w") as handle:
@@ -7644,10 +7654,15 @@ def run_explainer_pipeline(
         with open(evidence_validation_path, "w") as handle:
             json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
         if not evidence_validation.get("passed"):
-            raise RuntimeError(
-                "Opening evidence gate failed before later visual purchase: "
-                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
-            )
+            # Third of three asset-rejection aborts. All read the same flag: a gate honoured in
+            # one place and not its twin has cost a full run five separate times today.
+            if not _diagnostic_render():
+                raise RuntimeError(
+                    "Opening evidence gate failed before later visual purchase: "
+                    + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+                )
+            for item in evidence_validation.get("errors", [])[:6]:
+                log(f"  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] {item['message']}")
         log(opening_evidence_gate_message(evidence_validation))
         _generate_longform_motion(opening_results, set(range(opening_stop)))
         opening_motion = [candidate for candidate in motion_plan.get("candidates") or []
