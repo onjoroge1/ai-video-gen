@@ -6874,7 +6874,11 @@ def run_explainer_pipeline(
             script = _enforce_requested_runtime(
                 script, duration_sec, cost_sink=aux_costs, log=log)
         else:
+            # Still record the plan. The refit set script["_runtime_plan"] on its way out and
+            # downstream reads it -- skipping the rewrite must not also skip the bookkeeping, or
+            # the run dies on KeyError 'estimated_seconds' with nothing to say about why.
             _report = plan_runtime(script.get("scenes") or [], duration_sec)
+            script["_runtime_plan"] = _report
             log(f"Runtime: {_report['estimated_seconds']:.1f}s estimated for a {duration_sec}s "
                 f"request — not refitting; length is a request.")
         scenes = script.get("scenes", [])
