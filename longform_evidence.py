@@ -121,9 +121,21 @@ def build_continuity_pack(script: dict) -> dict:
 
 
 def _visual_beats(scene: dict) -> list[dict]:
-    beats = scene.get("visual_beats")
-    return [dict(beat) for beat in beats or []
-            if isinstance(beat, dict) and _text(beat.get("anchor_phrase"))]
+    """Beats as objects, coercing a bare string rather than discarding it.
+
+    The planner returns visual_beats as an array of objects, but a prompt edit once shifted it to
+    an array of plain phrases -- and this dropped every one of them, silently, because they were
+    not dicts. The scene then compiled to ZERO states, the opening gate rejected it, and the error
+    said "every opening beat requires two to six evidence states" about a scene whose beats were
+    all present and readable. A shape wobble should cost the extra fields, not the whole beat.
+    """
+    out: list[dict] = []
+    for beat in scene.get("visual_beats") or []:
+        if isinstance(beat, str) and _text(beat):
+            out.append({"anchor_phrase": _text(beat)})
+        elif isinstance(beat, dict) and _text(beat.get("anchor_phrase")):
+            out.append(dict(beat))
+    return out
 
 
 def _derive_bolt_action(beat: dict, scene: dict, subject: str) -> str:
