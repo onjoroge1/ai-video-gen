@@ -6747,8 +6747,20 @@ def run_explainer_pipeline(
             if video_format != "social":
                 checkpoint_evidence = script.get("_evidence_plan") or {}
                 checkpoint_evidence_validation = validate_evidence_plan(checkpoint_evidence)
-                if (checkpoint_evidence.get("version") != 1
-                        or not checkpoint_evidence_validation.get("passed")):
+                # Honour the flag the RUN honoured. Without this the resume path rejects a
+                # checkpoint the pipeline itself just wrote: a diagnostic run is allowed past
+                # bolt_without_useful_action, saves a checkpoint containing it, and then cannot
+                # reload it -- "Resume checkpoint unreadable (ValueError) — starting fresh".
+                #
+                # That discarded an approved script and its assets, rendered a new preview, and
+                # asked for approval again. The human-review record is bound by hash to the exact
+                # preview reviewed, so an approval can NEVER be honoured while resume regenerates:
+                # the gate requires the artifact to persist and resume guarantees it will not.
+                #
+                # Sixth condition today checked in two places where only one read its flag.
+                if checkpoint_evidence.get("version") != 1 or (
+                        not checkpoint_evidence_validation.get("passed")
+                        and not _diagnostic_render()):
                     raise ValueError("Checkpoint predates the evidence-asset contract")
             short_grade = _st.get("short_grade")
             resumed = True
