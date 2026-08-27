@@ -1906,14 +1906,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             #
             # Two rules disagreed and the measurable one wins. The doctrine is protecting the
             # reveal; a prediction that no viewer is still present for protects nothing.
-            cursor, slot = 0.0, 0
-            for index, beat in enumerate(beats):
-                words = len(_s(beat.get("beat")).split()) or 18
-                if cursor + words / 2.64 > 28.0:
-                    break
-                cursor += words / 2.64
-                slot = index
-            beats[max(1, slot)]["role"] = "prediction_gate"
+            # By SCENE INDEX, not by summing beat text. My first attempt measured the beat
+            # DESCRIPTIONS -- one-line summaries -- while validate_longform_story times the
+            # NARRATION each beat expands into. Summaries are a fraction of the length, so 28
+            # seconds of summary spanned most of the sheet and the gate still landed at 34s.
+            # Two word counts for one quantity, which is the shape of half the bugs here.
+            #
+            # A long-form scene runs about 25-30 narration words, roughly 10s at 2.64 w/s, so
+            # the 30-second deadline is the third scene at the latest. Index 1 or 2: never the
+            # cold open, which has to land the anomaly before it can ask anything.
+            beats[min(2, max(1, len(beats) - 1))]["role"] = "prediction_gate"
         # At least one beat must give Bolt real work. missing_useful_bolt_scene blocked run
         # 1aac7cdc, and the same review called it out as a brand-contract miss: "there is no
         # useful Bolt appearance". Assigned to a mechanism or evidence beat, where measuring or
