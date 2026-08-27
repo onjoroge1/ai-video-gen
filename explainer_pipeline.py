@@ -5817,7 +5817,12 @@ def _longform_retention_hard() -> bool:
     # tested -- nothing reached an audience to test them against. The rule now is: a gate may stop
     # a render only if the video would be FALSE or BROKEN. Sourcing, asset verification, media
     # binaries and cost caps stay hard. Opinion becomes a score on a finished artifact.
-    return (os.environ.get("LONGFORM_RETENTION_HARD", "0") or "0").strip().lower() \
+    # BLOCKING by default again. I demoted these as craft knowledge no viewer had validated. A
+    # careful review of the first finished video then reproduced five of them unprompted -- subject
+    # clarity by 5s, prediction placement, the missing final payoff and callback, runtime overshoot,
+    # and 6-9 second visual holds against a 1.5-3s target. They were not unvalidated; they were
+    # unheard, because nothing had ever reached a viewer to check them against.
+    return (os.environ.get("LONGFORM_RETENTION_HARD", "1") or "1").strip().lower() \
         in ("1", "true", "yes", "on")
 _SHORT_GATE_PASS     = int(os.environ.get("SHORT_GATE_PASS", "72"))       # social grade_short regen TARGET
                                                                           # (lowered for the harsher

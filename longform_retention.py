@@ -427,7 +427,12 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     checks["mystery_prediction_policy"] = is_mystery
     if len(predictions) < needed_predictions:
         errors.append(_issue("too_few_predictions", f"Expected at least {needed_predictions} viewer prediction gate(s)."))
-    elif not is_mystery and starts[predictions[0]] > 30.0:
+    # The 30s deadline applies to a mystery too. I exempted it because "never before the reversal"
+    # puts the earliest legal prediction at 26-42s in a 120s video -- but the review found the real
+    # cost: "the first real prediction gate arrives after 34 seconds. This interaction should appear
+    # around 10-15 seconds and then be answered later." The band conflict is real and the answer is
+    # to place the reversal earlier, not to stop measuring.
+    elif starts[predictions[0]] > 30.0:
         errors.append(_issue("late_first_prediction", "The first prediction gate arrives after 30 seconds.",
                              predictions[0] + 1, starts[predictions[0]]))
 
@@ -514,7 +519,12 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     # rejected and test_fake_knowledge_gap_is_blocking assert they must block — that is a decision
     # someone made on purpose, not an oversight, and it is not mine to reverse quietly. The three
     # below carry no such intent and are pure thresholds.
-    _EDITORIAL = {"misplaced_peak", "broken_first_act_continuity", "subject_unclear_by_5s"}
+    # subject_unclear_by_5s is BLOCKING again. I demoted it as unvalidated editorial opinion; an
+    # editorial review of the first finished video then raised it independently -- "it does not say
+    # ulcers until approximately 10 seconds... a viewer could interpret this as a poisoning
+    # experiment, vaccine test, or generic medical history", scoring the hook 68/100. The gate had
+    # already said exactly that before a single image was bought.
+    _EDITORIAL = {"misplaced_peak", "broken_first_act_continuity"}
     demoted = [issue for issue in errors if _text(issue.get("code")) in _EDITORIAL]
     if demoted:
         errors = [issue for issue in errors if _text(issue.get("code")) not in _EDITORIAL]

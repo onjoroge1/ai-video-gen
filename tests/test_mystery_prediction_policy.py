@@ -80,14 +80,22 @@ def test_the_stamped_format_survives_a_replan_that_drops_mystery_roles():
 
     report = validate_longform_story(script, "why were doctors wrong about ulcers")
 
+    # The COUNT relaxation is what this test guards -- one prediction satisfies a mystery where
+    # a standard explainer needs two. The 30-second deadline applies to both again.
     assert "too_few_predictions" not in _codes(report)
-    assert "late_first_prediction" not in _codes(report)
 
 
-def test_a_late_prediction_does_not_fail_a_mystery():
-    # "Never before the reversal" puts the earliest legal prediction at 22-35% of runtime,
-    # which is past 30s in a 120s video. The deadline for a mystery is the reversal, not
-    # the clock, so the 30-second rule must not apply here.
+def test_a_late_prediction_fails_a_mystery_too():
+    """The 30-second deadline applies to a mystery again.
+
+    It was exempted because "never before the reversal" puts the earliest legal prediction at
+    22-35% of runtime, past 30s in a 120s video. An editorial review of the first finished video
+    found what that exemption cost: "the first real prediction gate arrives after 34 seconds.
+    This interaction should appear around 10-15 seconds and then be answered later."
+
+    The band conflict is real. The answer is to place the reversal earlier, not to stop
+    measuring -- an unmeasurable requirement is not a relaxed one, it is an absent one.
+    """
     report = validate_longform_story(_mystery(1), "why were doctors wrong about ulcers")
 
-    assert "late_first_prediction" not in _codes(report)
+    assert "late_first_prediction" in _codes(report)
