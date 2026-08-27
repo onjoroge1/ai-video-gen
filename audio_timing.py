@@ -7,8 +7,27 @@ from difflib import SequenceMatcher
 from typing import Callable
 
 
+# Whisper writes some spoken numbers as digits and others as words, inconsistently WITHIN one
+# sentence: "more than nine in every 10 of them, up to eight in 10". The narration said "ten"
+# both times. So the anchor "more than nine in every ten" could not match the transcript, and no
+# fuzzy fallback bridged it -- "ten" and "10" are simply different tokens.
+#
+# Both forms therefore map to one key. Normalising in a single direction would not help, since
+# either side can carry either form.
+_NUMBER_WORDS = {
+    "zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11",
+    "twelve": "12", "thirteen": "13", "fourteen": "14", "fifteen": "15", "sixteen": "16",
+    "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20", "thirty": "30",
+    "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70", "eighty": "80",
+    "ninety": "90", "hundred": "100", "thousand": "1000", "million": "1000000",
+    "first": "1st", "second": "2nd", "third": "3rd",
+}
+
+
 def _clean(value: str) -> str:
-    return re.sub(r"[^a-z0-9']+", "", str(value or "").casefold())
+    token = re.sub(r"[^a-z0-9']+", "", str(value or "").casefold())
+    return _NUMBER_WORDS.get(token, token)
 
 
 _JOINER = re.compile(r"[\u2010-\u2015\-/]+")
