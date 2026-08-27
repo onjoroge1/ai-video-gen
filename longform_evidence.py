@@ -313,9 +313,14 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         scene_index = int(scene_plan.get("scene_index") or 0)
         states = scene_plan.get("states") if isinstance(scene_plan.get("states"), list) else []
         opening = bool(scene_plan.get("opening"))
-        if opening and not 2 <= len(states) <= 4:
+        # Upper bound raised from 4 to 6. The hold ceiling is physics -- a state held longer
+        # than MAX_VISUAL_STATE_SECONDS is rejected downstream -- and a 45-word opening scene
+        # needs 5 states to satisfy it. Capping at 4 made such a scene unsatisfiable: two rules,
+        # each defensible, that cannot both hold. The floor of 2 stays, because an opening beat
+        # with one state is a still frame.
+        if opening and not 2 <= len(states) <= 6:
             errors.append(_issue(
-                "opening_state_count", "Every opening beat requires two to four evidence states.",
+                "opening_state_count", "Every opening beat requires two to six evidence states.",
                 scene=scene_index + 1))
         accepted_distinct = set()
         verified_detail = False

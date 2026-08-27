@@ -1293,7 +1293,7 @@ _SCENE_FIELDS_RULES = (
     'SECONDS is rejected downstream. Narration runs at about 2.9 words per second, so a scene of '
     'N words runs roughly N/2.9 seconds and needs AT LEAST N/9 states, rounded up: 18 words needs '
     '2, 27 words needs 3, 36 words needs 4, 45 words needs 5. Count the words in the scene you are '
-    'writing and apply that. Within the first 30% of runtime use 3-5 states, later 2-4, '
+    'writing and apply that. Within the first 30% of runtime use 3-4 states, later 2-4, '
     'and always at least the '
     'number the word count requires. '
     'Each object has: "anchor_phrase" (an EXACT consecutive 2-8 word phrase copied from narration '
