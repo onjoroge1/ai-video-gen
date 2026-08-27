@@ -3301,7 +3301,9 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 "Measured audio timing failed: "
                 + "; ".join(error["message"] for error in non_runtime[:6])
             )
-        if attempt >= 2:
+        if attempt >= 2 or not _runtime_is_enforced():
+            # Nothing to gain from re-rendering audio to hit an advisory target, and the rewrite
+            # would invalidate every binding derived from the narration just measured.
             break
         _fit_script_to_measured_audio(
             script, report, target_seconds, cost_sink=aux_costs)
@@ -3336,7 +3338,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
         # damages everything downstream of it.
         #
         # RUNTIME_HARD=1 restores the abort for a caller that genuinely needs a fixed length.
-        if (os.environ.get("RUNTIME_HARD", "0") or "0").strip().lower() in ("1", "true", "yes", "on"):
+        if _runtime_is_enforced():
             raise ValueError(
                 "Measured natural-speed runtime failed before visual spend: "
                 f"{report.get('measured_seconds', 0):.2f}s for {target_seconds:.2f}s target "
@@ -5770,6 +5772,17 @@ def _claim_ledger_hard() -> bool:
         in ("1", "true", "yes", "on")
 
 
+def _runtime_is_enforced() -> bool:
+    """Is the duration target a contract? RUNTIME_HARD=1 says yes; default is no.
+
+    Read by the runtime gate AND by the two passes that rewrite narration to satisfy it, so
+    the enforcement and the work done in its name cannot disagree -- a condition honoured in
+    one place and not another has cost five renders today.
+    """
+    return (os.environ.get("RUNTIME_HARD", "0") or "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def _diagnostic_render() -> bool:
     """DIAGNOSTIC_RENDER=1 — push a run past every pre-spend quality gate to get a video out.
 
@@ -6848,8 +6861,22 @@ def run_explainer_pipeline(
     # cannot bypass the new contract.
     if video_format != "social":
         log("stage:Enforcing requested runtime...")
-        script = _enforce_requested_runtime(
-            script, duration_sec, cost_sink=aux_costs, log=log)
+        # The refit exists ONLY to hit a duration target, and c9803fd made that target advisory.
+        # It was still rewriting narration for a goal nothing enforces -- and every rewrite
+        # invalidates the claim refs, anchor phrases and evidence states derived from that
+        # narration, which is where five of today's failures came from. Run 92efc8d6 compressed
+        # a scene to ZERO words chasing a number that no longer blocks anything, then died
+        # sending an empty string to TTS.
+        #
+        # Rewriting is only worth its damage when the result must fit. RUNTIME_HARD=1 restores it
+        # along with the gate it serves.
+        if _runtime_is_enforced():
+            script = _enforce_requested_runtime(
+                script, duration_sec, cost_sink=aux_costs, log=log)
+        else:
+            _report = plan_runtime(script.get("scenes") or [], duration_sec)
+            log(f"Runtime: {_report['estimated_seconds']:.1f}s estimated for a {duration_sec}s "
+                f"request — not refitting; length is a request.")
         scenes = script.get("scenes", [])
         # The refit just rewrote the narration, so every phrase binding derived from the previous
         # wording is stale -- and the check on the very next line is exactly the one that catches

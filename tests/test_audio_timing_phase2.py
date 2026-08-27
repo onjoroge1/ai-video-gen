@@ -156,6 +156,13 @@ def test_longform_audio_is_generated_and_measured_before_visuals(monkeypatch, tm
 
 
 def test_measured_audio_refits_and_rerenders_until_real_duration_passes(monkeypatch, tmp_path):
+    """The ENFORCED path. Refitting only happens when the duration is a contract.
+
+    Rewriting narration to hit a target costs every binding derived from it -- claim refs,
+    anchor phrases, evidence states -- so it is skipped when the target is advisory, which is
+    now the default. This test asks for the enforced behaviour explicitly.
+    """
+    monkeypatch.setenv("RUNTIME_HARD", "1")
     script = {"title": "Gauge", "scenes": [_scene("one two three four")]}
     pass_number = {"value": 0}
 
