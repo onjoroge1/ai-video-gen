@@ -1827,9 +1827,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "\nSELECTED STRUCTURE — EVIDENCE-LED MYSTERY. First decide whether this topic genuinely "
             "supports a concrete anomaly, reasonable false belief, at least three distinguishable "
             "evidence states, an investigation/test, a reveal that changes interpretation, and a "
-            "recurring subject/object/location. BEAT 1 MUST NAME THE SUBJECT IN ITS FIRST TEN "
-            "WORDS -- the literal topic noun a viewer would search for (\"stomach ulcers\", not "
-            "\"a mysterious illness\"), inside the opening action rather than after it. A cold "
+            "recurring subject/object/location. BEAT 1 MUST CARRY THE FULL SUBJECT PHRASE FROM "
+            "THE QUESTION IN ITS FIRST TEN WORDS -- not one noun but the whole thing, two or more "
+            "of its content words (\"stomach ulcers\" and ideally \"doctors\" or \"cause\" "
+            "too, not \"a mysterious illness\" and not \"ulcers\" alone), inside the opening "
+            "action rather than after it. The check counts how many of the question\'s subject "
+            "words appear, and a single noun is not enough to pass it. A cold "
             "open that shows something arresting without naming what it is about fails "
             "subject_unclear_by_5s before any image is bought, and an editorial review of a "
             "rendered video reached the same verdict: it \"does not say ulcers until "
@@ -1895,7 +1898,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # prediction belongs ("never before the reversal"). Unlike a claim reference, a role label
     # asserts nothing about the world, so deriving it launders no unverified fact.
     if effective_story_format == "evidence_led_mystery" and beats:
-        if not any(_s(beat.get("role")) == "prediction_gate" for beat in beats):
+        # Relocate a LATE one too. This only ran when no beat carried the role, so a prediction
+        # the planner placed at beat 9 stayed at beat 9 and late_first_prediction kept firing --
+        # run 8e1a2a9b, after two commits aimed at this exact check. Adding what is missing and
+        # moving what is misplaced are different jobs and I had only written the first.
+        _existing = [i for i, b in enumerate(beats) if _s(b.get("role")) == "prediction_gate"]
+        if _existing and min(_existing) > 2:
+            for _i in _existing:
+                beats[_i]["role"] = "escalation"
+            _existing = []
+        if not _existing:
             # WITHIN THE FIRST 30 SECONDS, not after the reversal.
             #
             # Placing it after the reversal honoured the format's "never before the reversal",
