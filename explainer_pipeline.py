@@ -3307,11 +3307,24 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 "spend: " + ", ".join(rewrite_blocking))
 
     if not report.get("passed"):
-        raise ValueError(
-            "Measured natural-speed runtime failed before visual spend: "
-            f"{report.get('measured_seconds', 0):.2f}s for {target_seconds:.2f}s target "
-            f"(allowed {report.get('minimum_seconds', 0):.2f}–{report.get('maximum_seconds', 0):.2f}s)."
-        )
+        # ADVISORY. Duration is a request and a longer video is not a defect, so this reports
+        # the number instead of destroying a run that has already paid for its narration.
+        #
+        # It is also the root of a whole failure class rather than a gate in its own right.
+        # Overshoot triggers compression; compression rewrites narration; rewritten narration
+        # deletes sourced sentences, breaks claim joins and staleness the anchor phrases -- and
+        # every one of those cost a render today. Removing the target removes the pass that
+        # damages everything downstream of it.
+        #
+        # RUNTIME_HARD=1 restores the abort for a caller that genuinely needs a fixed length.
+        if (os.environ.get("RUNTIME_HARD", "0") or "0").strip().lower() in ("1", "true", "yes", "on"):
+            raise ValueError(
+                "Measured natural-speed runtime failed before visual spend: "
+                f"{report.get('measured_seconds', 0):.2f}s for {target_seconds:.2f}s target "
+                f"(allowed {report.get('minimum_seconds', 0):.2f}–{report.get('maximum_seconds', 0):.2f}s)."
+            )
+        log(f"⚠ Measured narration is {report.get('measured_seconds', 0):.1f}s for a "
+            f"{target_seconds:.0f}s request — continuing; length is a request, not a contract.")
     script["_audio_timing"] = report
     return results, report
 
