@@ -18,6 +18,9 @@ USEFUL_BOLT_PURPOSES = {
 ASSET_STRATEGIES = {"master", "distinct", "detail_reframe", "exact_reuse"}
 ACCEPTED_ASSET_STATUSES = {"accepted", "reused_exact"}
 MIN_EVIDENCE_STATE_SECONDS = 1.5
+# Imported rather than redefined: a second copy of this number is how the runtime
+# contract ended up 34% wrong while agreeing with itself.
+from runtime_planner import DEFAULT_WORDS_PER_SECOND as WORDS_PER_SECOND
 
 
 def _text(value: Any) -> str:
@@ -240,6 +243,33 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     }
 
 
+def _states_that_fit(beats: list, scene: dict) -> list:
+    """Trim a scene's beats to the number its RUNTIME can hold.
+
+    Each state is held for scene_duration / state_count, and both ends are bounded: shorter than
+    MIN_EVIDENCE_STATE_SECONDS reads as a flash frame, longer than MAX_VISUAL_STATE_SECONDS is
+    rejected by the rendered gate. So the count is not a preference, it is arithmetic on the
+    scene's own length -- and this used a flat beats[:4] regardless of duration.
+
+    Run 9c1fa296 carried both failures at once: "3 states in 4.42s would force 1.47s flash frames"
+    and "3 state(s) across 12.60s holds each for 4.20s". One number cannot serve a 4-second scene
+    and a 13-second one.
+
+    Only TRIMS. A scene with too few beats keeps them and the validator reports it, because adding
+    a state means inventing a visual that no beat asked for -- the same line I held on claim
+    references. Dropping a surplus beat merges coverage; fabricating one asserts content.
+    """
+    if not beats:
+        return beats
+    words = len(_text(scene.get("narration")).split())
+    seconds = words / WORDS_PER_SECOND if words else 0.0
+    if seconds <= 0:
+        return beats[:4]
+    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+    return beats[:max(fewest, most)] if len(beats) > most else beats
+
+
 def compile_evidence_plan(script: dict) -> dict:
     """Compile narration beats into explicit visual states without pretending crops are evidence."""
     scenes = script.get("scenes") or []
@@ -251,7 +281,7 @@ def compile_evidence_plan(script: dict) -> dict:
         beats = _visual_beats(scene)
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
-            for state_index, beat in enumerate(beats[:4])
+            for state_index, beat in enumerate(_states_that_fit(beats, scene))
         ]
         scene_plans.append({
             "scene_index": scene_index,
