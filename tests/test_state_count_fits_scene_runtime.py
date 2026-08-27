@@ -72,3 +72,38 @@ def test_a_well_sized_scene_is_untouched():
 def test_empty_input_survives():
     assert _states_that_fit([], _scene(23)) == []
     assert _states_that_fit(_beats(2), {"narration": ""}) == _beats(2)
+
+
+def test_measured_seconds_override_the_word_estimate():
+    """The plan is re-fitted against real audio, not the prediction it was written from.
+
+    A scene planned at 36 words reads as 12.6s and holds four states. If the TTS actually
+    came in at 5.0s, four states hold 1.25s each -- below the flash-frame floor. Fitting
+    against the estimate and aligning against the measurement is the same planned-versus-
+    measured split that made the runtime contract 34% wrong.
+    """
+    scene = _scene(36)
+    beats = _beats(4)
+
+    assert len(_states_that_fit(beats, scene)) == 4, "planned duration holds four"
+    assert len(_states_that_fit(beats, scene, 5.0)) < 4, "measured 5.0s cannot"
+    assert 5.0 / len(_states_that_fit(beats, scene, 5.0)) >= MIN_EVIDENCE_STATE_SECONDS - 0.02
+
+
+def test_a_longer_measurement_is_not_trimmed():
+    # Measurement cuts both ways: audio longer than predicted keeps every state.
+    assert len(_states_that_fit(_beats(4), _scene(36), 20.0)) == 4
+
+
+def test_the_compiler_accepts_measured_durations():
+    from longform_evidence import compile_evidence_plan
+
+    script = {"scenes": [{
+        "narration": " ".join(["word"] * 36), "story_role": "mechanism",
+        "visual_beats": [{"anchor_phrase": f"phrase {i}"} for i in range(4)],
+    }]}
+
+    planned = compile_evidence_plan(script)
+    measured = compile_evidence_plan(script, scene_seconds={0: 5.0})
+
+    assert len(measured["scenes"][0]["states"]) < len(planned["scenes"][0]["states"])

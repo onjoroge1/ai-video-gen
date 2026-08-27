@@ -7133,7 +7133,17 @@ def run_explainer_pipeline(
         # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
         # from the final narration and fail before the first image if any opening beat lost its proof.
         rederive_narration_bindings(script, log)
-        evidence_plan = compile_evidence_plan(script)
+        # Fit state counts to the audio we MEASURED, not to the word count we predicted. The
+        # pre-TTS compile has only an estimate; this one has the real per-scene durations sitting
+        # in audio_timing, and never used them -- so a scene whose narration came in shorter than
+        # planned carried more states than its audio could hold, and the shot aligner found out
+        # after every second of that narration was bought.
+        measured_scene_seconds = {
+            index: float(entry.get("duration_sec") or 0.0)
+            for index, entry in enumerate(audio_timing.get("scenes") or [])
+            if float(entry.get("duration_sec") or 0.0) > 0
+        }
+        evidence_plan = compile_evidence_plan(script, scene_seconds=measured_scene_seconds)
         evidence_validation = evidence_plan.get("validation") or {}
         final_evidence_timing = validate_evidence_timing(evidence_plan, audio_timing)
         evidence_validation["timing"] = final_evidence_timing

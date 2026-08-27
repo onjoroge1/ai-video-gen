@@ -243,7 +243,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     }
 
 
-def _states_that_fit(beats: list, scene: dict) -> list:
+def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> list:
     """Trim a scene's beats to the number its RUNTIME can hold.
 
     Each state is held for scene_duration / state_count, and both ends are bounded: shorter than
@@ -261,8 +261,12 @@ def _states_that_fit(beats: list, scene: dict) -> list:
     """
     if not beats:
         return beats
-    words = len(_text(scene.get("narration")).split())
-    seconds = words / WORDS_PER_SECOND if words else 0.0
+    # MEASURED seconds when the caller has them. Fitting against the planned word count and
+    # then aligning against real audio is how states that fit on paper failed to fit in fact --
+    # the same planned-versus-measured split that made the runtime contract 34% wrong.
+    if seconds is None:
+        words = len(_text(scene.get("narration")).split())
+        seconds = words / WORDS_PER_SECOND if words else 0.0
     if seconds <= 0:
         return beats[:4]
     # Never below two. One state is a still frame, and opening_state_count requires two, so
@@ -273,9 +277,10 @@ def _states_that_fit(beats: list, scene: dict) -> list:
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
 
-def compile_evidence_plan(script: dict) -> dict:
+def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> dict:
     """Compile narration beats into explicit visual states without pretending crops are evidence."""
     scenes = script.get("scenes") or []
+    measured = scene_seconds or {}
     pack = build_continuity_pack(script)
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
@@ -284,7 +289,8 @@ def compile_evidence_plan(script: dict) -> dict:
         beats = _visual_beats(scene)
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
-            for state_index, beat in enumerate(_states_that_fit(beats, scene))
+            for state_index, beat in enumerate(
+                _states_that_fit(beats, scene, measured.get(scene_index)))
         ]
         scene_plans.append({
             "scene_index": scene_index,
