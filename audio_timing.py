@@ -83,7 +83,22 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
     if candidates:
         candidates.sort(reverse=True)
         best = candidates[0]
-        if len(candidates) == 1 or best[0] - candidates[1][0] >= 0.08:
+        # A rival only counts if it points somewhere ELSE. The guard below exists so a phrase
+        # that occurs twice in a scene does not get timed to the wrong occurrence -- but it was
+        # comparing the best candidate against overlapping windows of the SAME match, which are
+        # the same location viewed at three widths, not competing answers.
+        #
+        # "still smouldering underneath" against a transcript reading "still smoldering
+        # underneath" scored 0.982 at start 22 width 3, with 0.915 at start 22 width 4 right
+        # behind it -- a 0.067 gap, under the 0.08 required, so a one-letter spelling difference
+        # rejected a near-perfect match and killed a run that had already bought its audio.
+        _, best_start, best_width = best
+        best_span = range(best_start, best_start + best_width)
+        rivals = [
+            candidate for candidate in candidates[1:]
+            if not (set(range(candidate[1], candidate[1] + candidate[2])) & set(best_span))
+        ]
+        if not rivals or best[0] - rivals[0][0] >= 0.08:
             _, start, width = best
             return (float(words[start][1]), float(words[start + width - 1][2]),
                     "measured_word_timestamps_fuzzy", round(best[0], 3))
