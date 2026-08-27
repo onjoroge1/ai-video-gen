@@ -35,7 +35,13 @@ def _split_joined(word: str, start: float, end: float) -> list:
 
 
 def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[float, float, str, float] | None:
-    needle = [_clean(token) for token in str(phrase or "").split()]
+    # Split the needle on the SAME joiners as the haystack. _split_joined breaks a
+    # transcriber-fused "two-the" into two tokens; if the phrase is not split identically then a
+    # legitimately hyphenated word ("once-healthy") cleans to "oncehealthy" and can never match
+    # the "once","healthy" the haystack now holds. One-sided tokenisation trades one mismatch for
+    # another -- which is exactly what my first version of this did.
+    needle = [_clean(part) for token in str(phrase or "").split()
+              for part in _JOINER.split(token)]
     needle = [token for token in needle if token]
     haystack = [_clean(item[0]) for item in words]
     if not needle:

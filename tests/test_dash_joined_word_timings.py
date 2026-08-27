@@ -62,3 +62,21 @@ def test_a_clean_transcript_still_matches():
     unfused = [(w, i * 0.4, (i + 1) * 0.4) for i, w in enumerate(NARRATION.split())]
 
     assert _find_span(unfused, ANCHOR)
+
+
+def test_a_genuinely_hyphenated_word_still_matches():
+    """The regression the one-sided split caused.
+
+    _split_joined breaks dash-joined tokens in the HAYSTACK. If the needle is not split the
+    same way, "once-healthy" cleans to "oncehealthy" and can never match the "once","healthy"
+    the haystack now holds -- so fixing the fused-token bug broke every hyphenated anchor.
+    Run 45a87541 died on "A biopsy of his once-healthy stomach", which had been fine before.
+    """
+    spoken = ["A", "biopsy", "of", "his", "once-healthy", "stomach", "comes", "back"]
+    words = []
+    for index, word in enumerate(spoken):
+        words.extend(_split_joined(word, index * 0.4, (index + 1) * 0.4))
+
+    assert _find_span(words, "A biopsy of his once-healthy stomach"), (
+        "a hyphenated anchor must survive the same split its haystack gets"
+    )
