@@ -265,7 +265,10 @@ def _states_that_fit(beats: list, scene: dict) -> list:
     seconds = words / WORDS_PER_SECOND if words else 0.0
     if seconds <= 0:
         return beats[:4]
-    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    # Never below two. One state is a still frame, and opening_state_count requires two, so
+    # trimming to one trades a hold-length complaint for a structural failure. A scene too
+    # short to hold two states honestly is too short, and the timing validator says so.
+    most = max(2, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
     fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
