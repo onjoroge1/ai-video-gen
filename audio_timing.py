@@ -11,6 +11,29 @@ def _clean(value: str) -> str:
     return re.sub(r"[^a-z0-9']+", "", str(value or "").casefold())
 
 
+_JOINER = re.compile(r"[\u2010-\u2015\-/]+")
+
+
+def _split_joined(word: str, start: float, end: float) -> list:
+    """Split a token the transcriber fused with a dash into its real words.
+
+    Whisper emits "two-the" as ONE token for narration punctuated "two. The", and _clean
+    deletes the dash rather than splitting on it -- producing "twothe", a word that appears
+    in no anchor and matches nothing. The words were all spoken and the transcript was
+    complete; the tokenisation destroyed the boundary, so every phrase spanning that point
+    failed as "not present in measured speech" and no fuzzy fallback could recover it.
+
+    The pieces share the original span. That is approximate, but a phrase boundary landing a
+    few hundred milliseconds off is a visual cue timed slightly early -- against the previous
+    behaviour, which was to fail the run outright after buying the audio.
+    """
+    parts = [part for part in _JOINER.split(word) if _clean(part)]
+    if len(parts) <= 1:
+        return [(word, start, end)]
+    step = (end - start) / len(parts)
+    return [(part, start + i * step, start + (i + 1) * step) for i, part in enumerate(parts)]
+
+
 def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[float, float, str, float] | None:
     needle = [_clean(token) for token in str(phrase or "").split()]
     needle = [token for token in needle if token]
@@ -144,7 +167,7 @@ def build_audio_timing_report(
             # coverage, which sails through the check below, so nothing else caught it either.
             # The bound this filter exists to enforce is the UPPER one: timestamps past the audio.
             if _clean(word) and 0 <= start <= end <= duration + 0.25:
-                clean_words.append((word, start, end))
+                clean_words.extend(_split_joined(word, start, end))
         script_word_count = len(str(scene.get("narration") or "").split())
         coverage = len(clean_words) / max(1, script_word_count)
         if not clean_words or not 0.70 <= coverage <= 1.30:
