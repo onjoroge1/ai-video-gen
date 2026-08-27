@@ -1827,7 +1827,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "\nSELECTED STRUCTURE — EVIDENCE-LED MYSTERY. First decide whether this topic genuinely "
             "supports a concrete anomaly, reasonable false belief, at least three distinguishable "
             "evidence states, an investigation/test, a reveal that changes interpretation, and a "
-            "recurring subject/object/location. Set mystery_suitable accordingly. If suitable, this "
+            "recurring subject/object/location. BEAT 1 MUST NAME THE SUBJECT IN ITS FIRST TEN "
+            "WORDS -- the literal topic noun a viewer would search for (\"stomach ulcers\", not "
+            "\"a mysterious illness\"), inside the opening action rather than after it. A cold "
+            "open that shows something arresting without naming what it is about fails "
+            "subject_unclear_by_5s before any image is bought, and an editorial review of a "
+            "rendered video reached the same verdict: it \"does not say ulcers until "
+            "approximately 10 seconds... a viewer could interpret this as a poisoning "
+            "experiment, vaccine test, or generic medical history\". Name it and keep the "
+            "mystery: WHY it happened is the question, WHAT it is about is not. "
+            "Set mystery_suitable accordingly. If suitable, this "
             "instruction overrides the FAST ANSWER, PROMISE + ROADMAP, DISTRIBUTED REWARDS, and FIXED "
             "ARCHITECTURE timing above wherever they conflict: do not announce a roadmap; give local "
             "evidence payoffs but withhold only the deepest causal explanation until 45-70%; each clue "
@@ -1887,11 +1896,36 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # asserts nothing about the world, so deriving it launders no unverified fact.
     if effective_story_format == "evidence_led_mystery" and beats:
         if not any(_s(beat.get("role")) == "prediction_gate" for beat in beats):
-            reversal = next((i for i, beat in enumerate(beats)
-                             if _s(beat.get("mystery_role")) == "reversal"), None)
-            slot = (reversal + 1 if reversal is not None and reversal + 1 < len(beats)
-                    else max(0, len(beats) // 2))
-            beats[slot]["role"] = "prediction_gate"
+            # WITHIN THE FIRST 30 SECONDS, not after the reversal.
+            #
+            # Placing it after the reversal honoured the format's "never before the reversal",
+            # and the reversal sits at 22-35% of runtime -- so the prediction landed at 34s and
+            # late_first_prediction fired. An editorial review of the rendered video reached the
+            # same conclusion independently: "this interaction should appear around 10-15 seconds
+            # and then be answered later."
+            #
+            # Two rules disagreed and the measurable one wins. The doctrine is protecting the
+            # reveal; a prediction that no viewer is still present for protects nothing.
+            cursor, slot = 0.0, 0
+            for index, beat in enumerate(beats):
+                words = len(_s(beat.get("beat")).split()) or 18
+                if cursor + words / 2.64 > 28.0:
+                    break
+                cursor += words / 2.64
+                slot = index
+            beats[max(1, slot)]["role"] = "prediction_gate"
+        # At least one beat must give Bolt real work. missing_useful_bolt_scene blocked run
+        # 1aac7cdc, and the same review called it out as a brand-contract miss: "there is no
+        # useful Bolt appearance". Assigned to a mechanism or evidence beat, where measuring or
+        # demonstrating is what the beat is already doing.
+        _USEFUL = {"measurement", "demonstration", "warning", "reaction", "assistance"}
+        if not any(_s(beat.get("bolt_mode")) in _USEFUL for beat in beats):
+            _slot = next((i for i, b in enumerate(beats)
+                          if _s(b.get("mystery_role")) in {"mechanism", "consequence"}), None)
+            if _slot is None:
+                _slot = min(len(beats) - 1, max(1, len(beats) // 2))
+            beats[_slot]["bolt_mode"] = "demonstration"
+            beats[_slot]["human_present"] = True
     character_budget = _apply_character_budget(beats)
     n_scenes = len(beats)
     # Re-derive the per-scene word budget from the ACTUAL beat count. The model may return materially
