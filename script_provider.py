@@ -146,8 +146,30 @@ class _OpenAIMessages:
         return translate_response(raw, model=target)
 
 
+def script_client(base: Any) -> Any:
+    """An OpenAI client timed for SCRIPT generation, not for images and TTS.
+
+    The pipeline's shared _openai() is built with timeout=90s and max_retries=0, which suits a
+    TTS clip or one image. A script call carries max_tokens up to 20000 and reasons over a long
+    prompt; all three of my first OpenAI harness runs died on APITimeoutError at 90 seconds.
+    Reusing that client was in my own plan and it was wrong -- the settings belong to a
+    different workload.
+
+    Mirrors the Anthropic side instead: a long timeout and real retries, because one failed call
+    aborts a render that has already paid for everything before it.
+    """
+    try:
+        return base.with_options(
+            timeout=float(os.environ.get("OPENAI_SCRIPT_TIMEOUT_SEC", "600")),
+            max_retries=int(os.environ.get("OPENAI_SCRIPT_MAX_RETRIES", "4")),
+        )
+    except Exception:
+        # with_options is the supported path; if a future SDK drops it, a slow client beats none.
+        return base
+
+
 class OpenAIScriptClient:
     """Exposes `.messages.create(...)`, so `_claude()` can return it unchanged."""
 
     def __init__(self, client: Any) -> None:
-        self.messages = _OpenAIMessages(client)
+        self.messages = _OpenAIMessages(script_client(client))
