@@ -8097,7 +8097,14 @@ def run_explainer_pipeline(
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
             json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
-        if not evidence_validation.get("passed"):
+        if not evidence_validation.get("passed") and _diagnostic_render():
+            for item in evidence_validation.get("errors", [])[:6]:
+                log(f"  ⚠ [FINAL ASSETS, DIAGNOSTIC_RENDER=1] {item['message']}")
+        elif not evidence_validation.get("passed"):
+            # Eighth instance, and the worst placed: this runs after EVERY image is bought, so a
+            # diagnostic run waved through three earlier copies of this same check dies here with
+            # the whole spend already committed. Found by the flag-consistency test rather than by
+            # another failed render, which is the point of the test.
             raise RuntimeError(
                 "Final evidence asset validation failed: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
