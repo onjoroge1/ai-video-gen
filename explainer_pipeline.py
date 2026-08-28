@@ -911,6 +911,54 @@ def _sim_ladder_block(title: str) -> str:
     return build_simulation_prompt_block(title, mascot_name=MASCOT_NAME)
 
 
+# ── Operator-supplied script ──────────────────────────────────────────────────────────────
+# A full script pasted into the UI's direction box, rather than a note about tone. Marked
+# explicitly because guessing from length or shape would misread a long creative brief as
+# narration and silently discard the planner.
+#
+# Two things follow from a supplied script, and both save an Opus call: the beat sheet is
+# already written, and the operator owns the facts -- so the research dossier has nothing to
+# verify that they have not already asserted. Sourcing stays mandatory when the PIPELINE writes
+# the script, because there it is asserting claims nobody checked.
+PROVIDED_SCRIPT_MARKER = "SCRIPT:"
+
+
+def parse_provided_script(direction: str) -> list[str] | None:
+    """Scene narrations from an operator-supplied script, or None if none was supplied.
+
+    Scenes are separated by a blank line, or by a leading "1." / "Scene 1:" label. Returns the
+    narration only -- image prompts and scene metadata still have to be derived, which is the
+    one thing a supplied script cannot skip.
+    """
+    text = _s(direction).strip()
+    if not text:
+        return None
+    head, _, body = text.partition(PROVIDED_SCRIPT_MARKER)
+    if not _s(body).strip() or _s(head).strip():
+        # The marker must open the field. A brief that merely mentions the word is direction,
+        # not a script, and treating it as one would throw away the operator's actual note.
+        if not text.upper().startswith(PROVIDED_SCRIPT_MARKER):
+            return None
+        body = text[len(PROVIDED_SCRIPT_MARKER):]
+    chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n", _s(body).strip()) if chunk.strip()]
+    if len(chunks) <= 1:
+        chunks = [chunk.strip() for chunk in
+                  re.split(r"(?:^|\n)\s*(?:Scene\s*)?\d+\s*[.):]\s*", _s(body).strip())
+                  if chunk.strip()]
+    scenes = []
+    for chunk in chunks:
+        cleaned = re.sub(r"^\s*(?:Scene\s*)?\d+\s*[.):]\s*", "", chunk).strip()
+        cleaned = " ".join(cleaned.split())
+        if cleaned:
+            scenes.append(cleaned)
+    return scenes or None
+
+
+def research_is_required(direction: str) -> bool:
+    """Sourcing is mandatory unless the operator wrote the script themselves."""
+    return parse_provided_script(direction) is None
+
+
 def _operator_block(direction: str) -> str:
     """Optional operator/channel creative direction, formatted as a clearly SUBORDINATE addendum. The
     model applies it ONLY where it doesn't conflict with the format, scene structure, JSON output schema,
