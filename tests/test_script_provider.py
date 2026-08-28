@@ -46,21 +46,22 @@ class _FakeClient:
         self.chat = type("C", (), {"completions": _FakeCompletions(raw)})()
 
 
-def test_provider_defaults_to_openai_and_anthropic_is_reachable(monkeypatch):
-    """Default flipped to OpenAI on the operator's instruction.
+def test_provider_defaults_to_anthropic_and_openai_is_opt_in(monkeypatch):
+    """Flipped to OpenAI briefly, reverted on measurement.
 
-    ~$300 went to Anthropic and its key then stopped authenticating. Anthropic must stay
-    reachable by name -- the research call still needs its server-side web_search, and a
-    one-word revert is the whole safety net if the OpenAI scripts disappoint at render scale.
+    Three of four gpt-5.6-luna runs produced unbound factual scenes -- narration asserting facts
+    with no source attached -- against roughly one in six on Anthropic. Disqualifying for a
+    format built on verified evidence, however good the rest was, and the rest was good: cadence
+    cleared 25% in all four runs, and one scored 100/100 with 4/4 criteria.
     """
     monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
-    assert active_provider() == OPENAI
+    assert active_provider() == ANTHROPIC
 
-    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
-    assert active_provider() == ANTHROPIC, "the revert path must work"
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    assert active_provider() == OPENAI, "opting in must still work"
 
     monkeypatch.setenv("SCRIPT_PROVIDER", "gemini")
-    assert active_provider() == OPENAI, "an unknown provider falls back to the default"
+    assert active_provider() == ANTHROPIC, "an unknown provider must not silently switch"
 
 
 def test_text_is_read_the_anthropic_way():
@@ -234,11 +235,12 @@ def test_claude_returns_the_right_client_for_the_provider(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
-    assert isinstance(ep._claude(), OpenAIScriptClient), "default is now OpenAI"
-    assert hasattr(ep._claude().messages, "create")
+    assert type(ep._claude()).__name__ == "Anthropic", "default is Anthropic"
 
-    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
-    assert type(ep._claude()).__name__ == "Anthropic", "the revert path must reach Anthropic"
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    client = ep._claude()
+    assert isinstance(client, OpenAIScriptClient)
+    assert hasattr(client.messages, "create")
 
 
 def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
@@ -253,10 +255,10 @@ def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
         input_tokens = 1_000_000
         output_tokens = 1_000_000
 
-    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
+    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
     anthropic_cost = ep._msg_cost(_U())
 
-    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
     openai_cost = ep._msg_cost(_U())
 
     assert anthropic_cost > 0 and openai_cost > 0, "a zero cost hides spend rather than saving it"

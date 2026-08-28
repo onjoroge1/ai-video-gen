@@ -22,6 +22,7 @@ someone opts in.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 
@@ -30,11 +31,20 @@ OPENAI = "openai"
 
 
 def active_provider() -> str:
-    """Which provider script calls should use. OpenAI by default.
+    """Which provider script calls should use. Anthropic by default.
 
-    Switched on the operator's instruction after ~$300 went to Anthropic and its key stopped
-    authenticating outright. SCRIPT_PROVIDER=anthropic reverts, and the research call never came
-    through here in the first place -- it still needs Anthropic's server-side web_search.
+    Flipped to OpenAI briefly and reverted on measurement. Across four luna runs, THREE produced
+    unbound factual scenes -- narration asserting facts with no source attached -- against roughly
+    one in six on Anthropic. In a format whose premise is verified evidence that is disqualifying,
+    however good the rest looks, and the rest looked good: cadence cleared 25% in all four runs
+    where Anthropic managed it a quarter of the time, and one run scored 100/100 retention with
+    4/4 criteria, which nothing on Anthropic has ever done.
+
+    Cost variance was the other finding: $0.006, $0.007, $0.009 and $0.333 for the same prompt.
+    Budget on the worst case.
+
+    SCRIPT_PROVIDER=openai switches back once the claim instructions transfer. The research call
+    never came through here -- it needs Anthropic's server-side web_search.
 
     The cost driver was never the per-call price. One script pass is under a cent either way; a
     RENDER re-runs the chain -- beat sheet, expansions, fact-check, multi-candidate grading,
@@ -42,7 +52,7 @@ def active_provider() -> str:
     provider swap does far less for the bill than the pre-spend gates do.
     """
     choice = (os.environ.get("SCRIPT_PROVIDER", "") or "").strip().lower()
-    return ANTHROPIC if choice == ANTHROPIC else OPENAI
+    return OPENAI if choice == OPENAI else ANTHROPIC
 
 
 def openai_script_model() -> str:
@@ -218,6 +228,26 @@ def translate_response(raw: Any, *, model: str) -> _Response:
     )
 
 
+
+# One luna call cost $0.333 against $0.006-0.009 in three other runs of the SAME prompt on the
+# SAME topic -- 50x apart. gpt-5-mini did it too, at $0.265. Reasoning tokens bill as output and
+# their volume is invisible in the prompt, so an outlier only shows up on the invoice, long after
+# anyone could say which stage caused it. This names it on the call itself.
+COST_WARN_USD = float(os.environ.get("SCRIPT_CALL_COST_WARN_USD", "0.05"))
+
+
+def _warn_if_expensive(response: Any, model: str) -> None:
+    rate_in = float(os.environ.get("OPENAI_SCRIPT_RATE_IN", "5.0")) / 1_000_000
+    rate_out = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")) / 1_000_000
+    cost = (response.usage.input_tokens * rate_in
+            + response.usage.output_tokens * rate_out)
+    if cost >= COST_WARN_USD:
+        print(f"  ⚠ script call cost ${cost:.3f} on {model} "
+              f"({response.usage.input_tokens} in / {response.usage.output_tokens} out) — over "
+              f"the ${COST_WARN_USD:.2f} threshold (SCRIPT_CALL_COST_WARN_USD)",
+              file=sys.stderr, flush=True)
+
+
 class _OpenAIMessages:
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -262,6 +292,7 @@ class _OpenAIMessages:
                 f"{target} spent its entire {budget}-token budget on reasoning and returned no "
                 f"text (call site asked for {int(max_tokens)}). Raise "
                 f"OPENAI_SCRIPT_REASONING_HEADROOM or lower OPENAI_SCRIPT_REASONING_EFFORT.")
+        _warn_if_expensive(out, target)
         return out
 
 
