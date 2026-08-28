@@ -107,3 +107,23 @@ def test_the_compiler_accepts_measured_durations():
     measured = compile_evidence_plan(script, scene_seconds={0: 5.0})
 
     assert len(measured["scenes"][0]["states"]) < len(planned["scenes"][0]["states"])
+
+
+def test_no_scene_length_is_forced_below_the_flash_frame_floor():
+    """The floor of two must never produce a hold under MIN_EVIDENCE_STATE_SECONDS.
+
+    I added max(2, ...) to satisfy a motion-test fixture whose scenes run ~2 seconds, and it
+    made _states_that_fit emit plans that validate_evidence_timing rejects on the very next
+    check: a 6-word scene is 2.1s, two states hold 1.05s each, below the 1.5s flash floor.
+    A function whose job is to fit states to runtime must not return a count that cannot fit.
+    """
+    for words in range(3, 40):
+        kept = len(_states_that_fit(_beats(4), _scene(words)))
+        hold = _seconds(words) / kept
+        # A scene shorter than one minimum hold cannot be saved by any count -- 3 words is
+        # 1.05s, under the 1.5s floor even at a single state. There the only correct answer is
+        # 1, and the timing validator reports the scene as too short. Asserting a passing hold
+        # for every length asks the function to fix a script problem it cannot see.
+        assert hold >= MIN_EVIDENCE_STATE_SECONDS - 0.02 or kept == 1, (
+            f"{words}w ({_seconds(words):.2f}s) kept {kept} states holding {hold:.2f}s, "
+            f"under the {MIN_EVIDENCE_STATE_SECONDS}s floor with room to trim further")

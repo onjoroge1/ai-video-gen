@@ -269,10 +269,17 @@ def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> 
         seconds = words / WORDS_PER_SECOND if words else 0.0
     if seconds <= 0:
         return beats[:4]
-    # Never below two. One state is a still frame, and opening_state_count requires two, so
-    # trimming to one trades a hold-length complaint for a structural failure. A scene too
-    # short to hold two states honestly is too short, and the timing validator says so.
-    most = max(2, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    # What the runtime can actually hold, with no floor bolted on.
+    #
+    # This was max(2, ...) so a motion-test fixture of ~2-second scenes would keep two states.
+    # That made the function emit plans validate_evidence_timing rejects on the next check: a
+    # 6-word scene is 2.1s, two states hold 1.05s each, under the 1.5s flash floor. A function
+    # whose job is to fit states to runtime must not return a count that cannot fit.
+    #
+    # A scene too short for two states IS too short, and opening_state_count says so honestly.
+    # The fixture was unrealistic -- real long-form scenes run 25-30 words -- and distorting
+    # production arithmetic to satisfy it was the wrong way round.
+    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
     fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
