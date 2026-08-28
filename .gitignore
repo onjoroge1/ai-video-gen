@@ -1,4 +1,8 @@
 .env
+# Backups made while toggling diagnostic flags. These hold live API keys and only .env
+# itself was ignored, so a `git add -A` would have pushed credentials to the remote.
+.env.bak*
+.env.backup*
 youtube_client_secret.json
 youtube_token.json
 
