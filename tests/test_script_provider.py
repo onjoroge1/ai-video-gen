@@ -11,7 +11,8 @@ Tested against recorded response shapes — no API, no key, no spend.
 import pytest
 
 from script_provider import (
-    ANTHROPIC, OPENAI, OpenAIScriptClient, active_provider, translate_response,
+    ANTHROPIC, OPENAI, OpenAIScriptClient, active_provider, reasoning_headroom,
+    translate_response,
 )
 
 
@@ -45,14 +46,21 @@ class _FakeClient:
         self.chat = type("C", (), {"completions": _FakeCompletions(raw)})()
 
 
-def test_provider_defaults_to_anthropic(monkeypatch):
-    # Behaviour must not change until someone opts in.
+def test_provider_defaults_to_openai_and_anthropic_is_reachable(monkeypatch):
+    """Default flipped to OpenAI on the operator's instruction.
+
+    ~$300 went to Anthropic and its key then stopped authenticating. Anthropic must stay
+    reachable by name -- the research call still needs its server-side web_search, and a
+    one-word revert is the whole safety net if the OpenAI scripts disappoint at render scale.
+    """
     monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
-    assert active_provider() == ANTHROPIC
-    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
     assert active_provider() == OPENAI
+
+    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
+    assert active_provider() == ANTHROPIC, "the revert path must work"
+
     monkeypatch.setenv("SCRIPT_PROVIDER", "gemini")
-    assert active_provider() == ANTHROPIC, "an unknown provider must not silently switch"
+    assert active_provider() == OPENAI, "an unknown provider falls back to the default"
 
 
 def test_text_is_read_the_anthropic_way():
@@ -85,7 +93,10 @@ def test_missing_usage_does_not_crash():
     assert out.usage.input_tokens == 0
 
 
-def test_system_becomes_a_message_and_max_tokens_is_renamed():
+def test_system_becomes_a_message_and_max_tokens_is_renamed(monkeypatch):
+    # max_tokens is renamed AND rescaled: the two providers do not mean the same thing by it,
+    # so a bare rename hands most of the answer's budget to reasoning. See the budget test below.
+    monkeypatch.delenv("OPENAI_SCRIPT_REASONING_HEADROOM", raising=False)
     client = OpenAIScriptClient(_FakeClient(_Raw("ok")))
 
     client.messages.create(model="claude-opus-4-8", max_tokens=4096,
@@ -94,7 +105,7 @@ def test_system_becomes_a_message_and_max_tokens_is_renamed():
     sent = client.messages._client.chat.completions.seen
     assert sent["messages"][0] == {"role": "system", "content": "be terse"}
     assert sent["messages"][1] == {"role": "user", "content": "hi"}
-    assert sent["max_completion_tokens"] == 4096
+    assert sent["max_completion_tokens"] == 4096 + reasoning_headroom()
     assert not sent["model"].startswith("claude"), "a Claude model name must not be forwarded"
 
 
@@ -107,6 +118,38 @@ def test_block_list_content_is_flattened():
 
     assert client.messages._client.chat.completions.seen["messages"][0]["content"] == (
         "part one\npart two")
+
+
+def test_images_survive_the_crossing():
+    """The blind-grader trap.
+
+    The quiz's vision QA call sends three base64 image blocks plus one line of text. The
+    flattener kept text and recognised nothing else, so the images vanished and the grader
+    answered a prompt describing pictures it never received. The renderer trusts that verdict
+    enough to deepen a clue crop and to pay for a regenerated reveal, so a blind pass is worse
+    than no pass.
+    """
+    client = OpenAIScriptClient(_FakeClient(_Raw("ok")))
+
+    client.messages.create(messages=[{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "AAAA"}},
+        {"type": "text", "text": 'Answer: "okapi".'}]}])
+
+    content = client.messages._client.chat.completions.seen["messages"][0]["content"]
+    assert isinstance(content, list), "an image message must not collapse to a bare string"
+    assert content[0] == {"type": "image_url",
+                          "image_url": {"url": "data:image/jpeg;base64,AAAA"}}
+    assert {"type": "text", "text": 'Answer: "okapi".'} in content
+
+
+def test_text_only_content_keeps_its_string_shape():
+    # 26 of the 27 calls send text. Widening their shape would be churn with a chance of
+    # regression, so only a message that actually carries an image changes form.
+    client = OpenAIScriptClient(_FakeClient(_Raw("ok")))
+
+    client.messages.create(messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}])
+
+    assert client.messages._client.chat.completions.seen["messages"][0]["content"] == "hi"
 
 
 def test_anthropic_only_kwargs_do_not_raise():
@@ -124,6 +167,64 @@ def test_anthropic_only_kwargs_do_not_raise():
     assert "tools" not in client.messages._client.chat.completions.seen
 
 
+def test_the_answer_budget_is_not_spent_on_reasoning(monkeypatch):
+    """The outage this adapter was built to prevent, caused by the adapter.
+
+    Anthropic's max_tokens caps the visible answer; OpenAI's max_completion_tokens caps hidden
+    reasoning AND the answer together. Forwarded unchanged, the quiz generator's 1800 went 1280
+    to reasoning and returned an empty body, and the render aborted with "quiz generation
+    failed" -- a capped Claude key swapped for a silently broken OpenAI path.
+    """
+    monkeypatch.delenv("OPENAI_SCRIPT_REASONING_HEADROOM", raising=False)
+    client = OpenAIScriptClient(_FakeClient(_Raw("ok")))
+
+    client.messages.create(max_tokens=1800, messages=[{"role": "user", "content": "hi"}])
+
+    sent = client.messages._client.chat.completions.seen
+    assert sent["max_completion_tokens"] == 1800 + reasoning_headroom()
+    assert sent["max_completion_tokens"] > 1800, "the answer must not compete with the reasoning"
+
+
+def test_truncated_empty_output_names_its_own_cause(monkeypatch):
+    """Every caller feeds .text straight to a JSON parser, so an empty body arrives as "the
+    model returned malformed JSON" three layers from the budget that caused it. That misdiagnosis
+    cost a render here already."""
+    monkeypatch.delenv("OPENAI_SCRIPT_REASONING_HEADROOM", raising=False)
+    client = OpenAIScriptClient(_FakeClient(_Raw("", finish_reason="length")))
+
+    with pytest.raises(RuntimeError, match="reasoning"):
+        client.messages.create(max_tokens=450, messages=[{"role": "user", "content": "hi"}])
+
+
+def test_truncated_but_non_empty_output_still_returns(monkeypatch):
+    # A cut-off body is the call site's to judge -- one of them reads stop_reason to tell a
+    # truncation from bad JSON. Only a body with nothing in it is unambiguously the budget.
+    monkeypatch.delenv("OPENAI_SCRIPT_REASONING_HEADROOM", raising=False)
+    client = OpenAIScriptClient(_FakeClient(_Raw('{"items": [', finish_reason="length")))
+
+    out = client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+    assert out.stop_reason == "max_tokens"
+    assert out.content[0].text == '{"items": ['
+
+
+def test_a_model_that_rejects_reasoning_effort_still_runs():
+    """Dropping to default effort beats losing the call over a knob that only lowered cost."""
+    class _PickyCompletions(_FakeCompletions):
+        def create(self, **kwargs):
+            if "reasoning_effort" in kwargs:
+                raise TypeError("unexpected keyword argument 'reasoning_effort'")
+            return super().create(**kwargs)
+
+    client = OpenAIScriptClient(_FakeClient(_Raw("ok")))
+    client.messages._client.chat.completions = _PickyCompletions(_Raw("ok"))
+
+    out = client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+    assert out.content[0].text == "ok"
+    assert "reasoning_effort" not in client.messages._client.chat.completions.seen
+
+
 def test_claude_returns_the_right_client_for_the_provider(monkeypatch):
     """_claude() is the single switch. Both paths must expose messages.create."""
     import explainer_pipeline as ep
@@ -133,12 +234,11 @@ def test_claude_returns_the_right_client_for_the_provider(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
-    assert type(ep._claude()).__name__ == "Anthropic", "default must stay Anthropic"
+    assert isinstance(ep._claude(), OpenAIScriptClient), "default is now OpenAI"
+    assert hasattr(ep._claude().messages, "create")
 
-    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
-    client = ep._claude()
-    assert isinstance(client, OpenAIScriptClient)
-    assert hasattr(client.messages, "create")
+    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
+    assert type(ep._claude()).__name__ == "Anthropic", "the revert path must reach Anthropic"
 
 
 def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
@@ -153,10 +253,10 @@ def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
         input_tokens = 1_000_000
         output_tokens = 1_000_000
 
-    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
+    monkeypatch.setenv("SCRIPT_PROVIDER", "anthropic")
     anthropic_cost = ep._msg_cost(_U())
 
-    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
     openai_cost = ep._msg_cost(_U())
 
     assert anthropic_cost > 0 and openai_cost > 0, "a zero cost hides spend rather than saving it"

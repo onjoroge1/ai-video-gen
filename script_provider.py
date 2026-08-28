@@ -30,13 +30,73 @@ OPENAI = "openai"
 
 
 def active_provider() -> str:
-    """Which provider script calls should use. Anthropic unless explicitly switched."""
+    """Which provider script calls should use. OpenAI by default.
+
+    Switched on the operator's instruction after ~$300 went to Anthropic and its key stopped
+    authenticating outright. SCRIPT_PROVIDER=anthropic reverts, and the research call never came
+    through here in the first place -- it still needs Anthropic's server-side web_search.
+
+    The cost driver was never the per-call price. One script pass is under a cent either way; a
+    RENDER re-runs the chain -- beat sheet, expansions, fact-check, multi-candidate grading,
+    replan, refits -- so a failing render multiplies it 20-40x, and today had ~25 of those. The
+    provider swap does far less for the bill than the pre-spend gates do.
+    """
     choice = (os.environ.get("SCRIPT_PROVIDER", "") or "").strip().lower()
-    return OPENAI if choice == OPENAI else ANTHROPIC
+    return ANTHROPIC if choice == ANTHROPIC else OPENAI
 
 
 def openai_script_model() -> str:
-    return (os.environ.get("OPENAI_SCRIPT_MODEL", "") or "gpt-5").strip()
+    """Default gpt-5.6-luna, measured against gpt-5 and gpt-5-mini on one script pass each.
+
+                    time     cost      cadence   retention   evidence
+      gpt-5.6-luna   442s   $0.009      27%        85/100     4 errors
+      gpt-5         >600s   $0.016      36%         0/100     0 errors
+      gpt-5-mini     931s   $0.265      50%        88/100     1 error
+
+    gpt-5 wrote the best sentences and ignored the structural contract entirely. gpt-5-mini cost
+    THIRTY TIMES luna and ran eight minutes slower -- the "mini" name means smaller weights, not
+    cheaper output, and its reasoning tokens bill as output. Anyone reaching for it to save money
+    would raise this build's script cost 33x. Luna was the only one near Anthropic on both price
+    and speed while respecting the contract.
+
+    All three cleared the 25% cadence bar that Anthropic's median (17%) cleared about a quarter
+    of the time -- consistent across three models, so probably a real difference rather than noise.
+
+    ONE SAMPLE EACH. A confirming batch was still running when this default was set, and luna's
+    4 evidence join errors -- factual scenes with no source attached -- are the number to watch.
+    If those prove systematic rather than a one-off, luna is wrong for an evidence-led format
+    whatever its cadence looks like.
+    """
+    return (os.environ.get("OPENAI_SCRIPT_MODEL", "") or "gpt-5.6-luna").strip()
+
+
+def reasoning_effort() -> str:
+    """How hard the OpenAI model thinks before it writes. Low suits this workload.
+
+    Every call here fills a fixed JSON schema from a long, prescriptive system prompt. That is
+    instruction-following, not deduction, and reasoning tokens are billed as output and counted
+    against the same budget as the answer.
+    """
+    return (os.environ.get("OPENAI_SCRIPT_REASONING_EFFORT", "") or "low").strip()
+
+
+def reasoning_headroom() -> int:
+    """Tokens added on top of a call site's max_tokens to pay for hidden reasoning.
+
+    The two providers do not mean the same thing by a token budget. Anthropic's max_tokens caps
+    the VISIBLE answer; OpenAI's max_completion_tokens caps reasoning AND the visible answer out
+    of one pot. All 27 budgets here were sized against Anthropic's meaning, so forwarding them
+    unchanged silently reassigns most of each one to thinking.
+
+    Measured, not guessed: the quiz generator asks for 1800 and gpt-5 spent 1280 on reasoning at
+    effort=low before writing anything — then hit the cap with an EMPTY body. The pipeline read
+    that as "quiz generation failed" and aborted a render, which is how a saving turns into an
+    outage. The visible answer was 537 tokens; the call site's 1800 was never the problem.
+    """
+    try:
+        return max(0, int(os.environ.get("OPENAI_SCRIPT_REASONING_HEADROOM", "") or 4000))
+    except ValueError:
+        return 4000
 
 
 class _TextBlock:
@@ -97,6 +157,48 @@ def _flatten(content: Any) -> str:
     return str(content or "")
 
 
+def _image_part(block: dict) -> dict | None:
+    """One Anthropic image block as OpenAI's image part, or None if it is not an image."""
+    if block.get("type") != "image":
+        return None
+    source = block.get("source") or {}
+    if source.get("type") == "base64":
+        media_type = str(source.get("media_type") or "image/jpeg")
+        data = str(source.get("data") or "")
+        if not data:
+            return None
+        return {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+    url = str(source.get("url") or "")
+    return {"type": "image_url", "image_url": {"url": url}} if url else None
+
+
+def _content(content: Any) -> Any:
+    """Message content in OpenAI's shape, keeping any images instead of dropping them.
+
+    _flatten answers "what is the text of this message", which is the whole answer for the 26
+    text-only script calls. It was the whole answer for all of them until the quiz's vision QA
+    pass came through here: that call sends three base64 image blocks plus one line of text, and
+    a block the flattener does not recognise simply vanishes. The grader then received a system
+    prompt describing three images it could not see, and answered anyway — a JSON verdict on
+    imaginary images, which the renderer trusts enough to deepen a clue crop and to pay for a
+    regenerated reveal.
+
+    A silently blind QA gate is worse than an absent one, so images become OpenAI content parts.
+    Text-only content still returns a plain string: that is the shape 26 calls already send, and
+    widening it for them would be churn with a chance of regression.
+    """
+    if not isinstance(content, list):
+        return _flatten(content)
+    images = [part for part in (_image_part(b) for b in content if isinstance(b, dict)) if part]
+    if not images:
+        return _flatten(content)
+    text = _flatten(content)
+    parts: list[dict] = list(images)
+    if text:
+        parts.append({"type": "text", "text": text})
+    return parts
+
+
 def translate_response(raw: Any, *, model: str) -> _Response:
     """An OpenAI chat completion, in the shape the Anthropic call sites expect."""
     choice = raw.choices[0]
@@ -136,14 +238,31 @@ class _OpenAIMessages:
         for message in messages or []:
             payload.append({
                 "role": message.get("role", "user"),
-                "content": _flatten(message.get("content")),
+                "content": _content(message.get("content")),
             })
-        raw = self._client.chat.completions.create(
-            model=target,
-            messages=payload,
-            max_completion_tokens=int(max_tokens),
-        )
-        return translate_response(raw, model=target)
+        # max_tokens is the call site's allowance for the ANSWER. OpenAI bills reasoning from the
+        # same budget, so it is forwarded with headroom rather than as-is; see reasoning_headroom.
+        budget = int(max_tokens) + reasoning_headroom()
+        kwargs = {"model": target, "messages": payload, "max_completion_tokens": budget}
+        effort = reasoning_effort()
+        try:
+            raw = self._client.chat.completions.create(reasoning_effort=effort, **kwargs)
+        except Exception as exc:
+            # A non-reasoning model rejects the parameter outright. Losing the call over a knob
+            # that only ever lowered cost would be a worse trade than paying default effort.
+            if "reasoning_effort" not in str(exc):
+                raise
+            raw = self._client.chat.completions.create(**kwargs)
+        out = translate_response(raw, model=target)
+        if out.stop_reason == "max_tokens" and not out.content[0].text.strip():
+            # Empty-because-truncated is the failure this adapter is most likely to hit, and the
+            # least legible: every caller feeds .text to a JSON parser, so it surfaces as "the
+            # model returned malformed JSON" three layers away from the budget that caused it.
+            raise RuntimeError(
+                f"{target} spent its entire {budget}-token budget on reasoning and returned no "
+                f"text (call site asked for {int(max_tokens)}). Raise "
+                f"OPENAI_SCRIPT_REASONING_HEADROOM or lower OPENAI_SCRIPT_REASONING_EFFORT.")
+        return out
 
 
 def script_client(base: Any) -> Any:
