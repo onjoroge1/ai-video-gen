@@ -128,6 +128,10 @@ def test_claude_returns_the_right_client_for_the_provider(monkeypatch):
     """_claude() is the single switch. Both paths must expose messages.create."""
     import explainer_pipeline as ep
 
+    # Constructing either client only needs a key to exist, not to be valid -- pytest does not
+    # load .env, so supply placeholders rather than skipping the assertion that matters.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
     assert type(ep._claude()).__name__ == "Anthropic", "default must stay Anthropic"
 
