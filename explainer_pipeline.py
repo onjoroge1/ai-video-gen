@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import openai
 from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
 import anthropic
+import script_provider
 from openai import OpenAI
 
 from longform_retention import (
@@ -158,6 +159,18 @@ def _retry(fn, *, tries: int = 4, base_delay: float = 2.0, label: str = "API cal
 
 
 def _claude():
+    """The script client. Anthropic by default; OpenAI when SCRIPT_PROVIDER=openai.
+
+    Returns an object exposing `.messages.create(...)` either way, so the 27 plain script call
+    sites are untouched. The research call needs Anthropic's server-side web_search and calls
+    _anthropic_native() directly instead.
+    """
+    if script_provider.active_provider() == script_provider.OPENAI:
+        return script_provider.OpenAIScriptClient(_openai())
+    return _anthropic_native()
+
+
+def _anthropic_native():
     # 180s per-request timeout (+ SDK retries) so a hung connection can't stall script-gen forever
     # (a no-timeout call once appeared to "write a script for an hour").
     # max_retries=6 (was 2): a render makes ~16 Claude calls and ANY one failing aborts the whole job
@@ -277,6 +290,11 @@ _RATE_IMG_OUT     = 30.0 / 1_000_000
 _RATE_TTS_CHAR    = 30.0 / 1_000_000
 _RATE_SCRIPT_IN   = 5.0  / 1_000_000
 _RATE_SCRIPT_OUT  = 25.0 / 1_000_000
+# OpenAI script rates, env-overridable because model choice and pricing both move. Defaults are
+# a deliberate OVER-estimate: a cost report that runs high gets questioned, one that runs low
+# gets believed. Set OPENAI_SCRIPT_RATE_IN/OUT (USD per 1M tokens) to the real figures.
+_RATE_OPENAI_SCRIPT_IN  = float(os.environ.get("OPENAI_SCRIPT_RATE_IN", "5.0")) / 1_000_000
+_RATE_OPENAI_SCRIPT_OUT = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")) / 1_000_000
 # Spend reservation, not a provider pricing assertion. Server-side search pricing can change;
 # reserve a configurable conservative ceiling for every observed request.
 _WEB_SEARCH_COST_CEILING = float(os.environ.get("WEB_SEARCH_COST_CEILING_USD", "0.10"))
@@ -371,9 +389,18 @@ def estimate_cost(n_scenes: int, host_count: int = 0, narration_chars: int = 0,
 
 
 def _msg_cost(usage) -> float:
-    """USD for one Claude (Opus 4.8) message from its usage tokens."""
-    return (getattr(usage, "input_tokens", 0) or 0) * _RATE_SCRIPT_IN + \
-           (getattr(usage, "output_tokens", 0) or 0) * _RATE_SCRIPT_OUT
+    """USD for one script message, at the rates of whichever provider produced it.
+
+    The adapter renames OpenAI's prompt_tokens/completion_tokens to the Anthropic names this
+    function reads, so the counts arrive either way. What does NOT carry over is the price:
+    billing an OpenAI run at Opus rates overstates the saving that motivated the switch, and is
+    the kind of wrong number nobody questions because it flatters the decision.
+    """
+    tokens_in = getattr(usage, "input_tokens", 0) or 0
+    tokens_out = getattr(usage, "output_tokens", 0) or 0
+    if script_provider.active_provider() == script_provider.OPENAI:
+        return tokens_in * _RATE_OPENAI_SCRIPT_IN + tokens_out * _RATE_OPENAI_SCRIPT_OUT
+    return tokens_in * _RATE_SCRIPT_IN + tokens_out * _RATE_SCRIPT_OUT
 
 
 def _image_cost_from_usage(resp) -> float:

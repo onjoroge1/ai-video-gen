@@ -122,3 +122,38 @@ def test_anthropic_only_kwargs_do_not_raise():
                            tools=[{"type": "web_search_20260318"}], betas=["x"])
 
     assert "tools" not in client.messages._client.chat.completions.seen
+
+
+def test_claude_returns_the_right_client_for_the_provider(monkeypatch):
+    """_claude() is the single switch. Both paths must expose messages.create."""
+    import explainer_pipeline as ep
+
+    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
+    assert type(ep._claude()).__name__ == "Anthropic", "default must stay Anthropic"
+
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    client = ep._claude()
+    assert isinstance(client, OpenAIScriptClient)
+    assert hasattr(client.messages, "create")
+
+
+def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
+    """Billing an OpenAI run at Opus rates overstates the saving that motivated the switch.
+
+    That is the kind of wrong number nobody questions, because it flatters the decision. The
+    counts arrive either way -- the adapter renames them -- but the price does not carry over.
+    """
+    import explainer_pipeline as ep
+
+    class _U:
+        input_tokens = 1_000_000
+        output_tokens = 1_000_000
+
+    monkeypatch.delenv("SCRIPT_PROVIDER", raising=False)
+    anthropic_cost = ep._msg_cost(_U())
+
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    openai_cost = ep._msg_cost(_U())
+
+    assert anthropic_cost > 0 and openai_cost > 0, "a zero cost hides spend rather than saving it"
+    assert openai_cost != anthropic_cost, "both providers billed at one rate table"
