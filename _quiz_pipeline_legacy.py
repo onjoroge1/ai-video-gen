@@ -69,6 +69,12 @@ _QUIZ_SYSTEM = (
     "no text, no people. It must be somewhere the animal genuinely belongs and must leave an obvious place "
     "for a large animal to sit in the middle distance. Also give \"pose\" — a few words for how the animal "
     "sits in that scene (e.g. 'swimming low through shallow water, seen side-on').\n"
+    "HABITAT LOOP — the FINAL item must live in the SAME habitat as item 1, and you must give the two of "
+    "them the IDENTICAL \"habitat\" text, word for word. A Short loops instantly, so the video closes on "
+    "the place it opened and the join reads as the game resetting rather than as a cut to somewhere else. "
+    "Choose the final animal to genuinely live there: pick the shared environment FIRST, then the hardest "
+    "animal that truly belongs in it. Never relocate a species to make the loop work. Item 2 is free to "
+    "use a different habitat, and its contrast is what makes the return to the opening scene land.\n"
     "Return ONLY JSON: {\"title\":\"clickable title, e.g. 'Can You Name All 3 From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
     "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
@@ -340,6 +346,18 @@ _DRIFT_CLOSING_PER_SEC = 0.105
 _DRIFT_CLOSING_MAX = 0.24
 
 
+# A Short restarts the instant it ends, so its last frame sits directly against its first with
+# no cut between them. Long enough to read as the scene settling back down, short enough that it
+# comes out of the closing card rather than adding to the runtime.
+_LOOP_DISSOLVE_SEC = 0.4
+# Held after the dissolve so the final frames are the opening frame outright, not 92% of the way
+# into becoming it. Three frames: enough to resolve, too short to read as a hold.
+_LOOP_SETTLE_SEC = 3 / FPS
+# The closing card's text is cleared this far ahead of the picture dissolve, so the two headlines
+# are never on screen together. By then it has been readable for over a second.
+_LOOP_TEXT_CLEAR_SEC = 0.18
+
+
 def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max=None):
     """zoompan `z` that eases z_from -> z_to, then holds, with duration-aware drift on top.
 
@@ -374,6 +392,12 @@ def _render_sequence(specs, out, expected_duration):
     may carry ``overlay`` — a text PNG composited *after* the zoom, so a widening clue never
     drags the header, timer or answer out of the Shorts safe zone — plus ``z_from``/``z_to``
     for the eased progressive crop.
+
+    The LAST spec may carry ``xfade_prev``: instead of being concatenated it cross-dissolves over
+    the tail of everything before it. That is how the video closes on its own opening frame — a
+    Short restarts instantly, so a hard cut there is a cut the viewer sees. ``xfade`` yields
+    ``a + b - d`` seconds, so a closing spec whose duration equals its dissolve leaves the total
+    unchanged and the audio timeline built against it stays valid.
     """
     inputs = []; filters = []; labels = []; slot = 0
     for i, spec in enumerate(specs):
@@ -399,12 +423,44 @@ def _render_sequence(specs, out, expected_duration):
             inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", overlay]
             slot += 1
             filters.append(stage + f"[bg{i}]")
-            filters.append(f"[bg{i}][{over_index}:v]overlay=0:0:format=auto,"
+            over_label = f"[{over_index}:v]"
+            fade = opts.get("overlay_fade")
+            if fade:
+                # Fade the CARD off, not the picture. Both are text in the same rounded rect at
+                # the same place, so cross-dissolving them left the two headlines superimposed
+                # and unreadable for the length of the dissolve.
+                fade_at, fade_for = float(fade[0]), float(fade[1])
+                filters.append(f"[{over_index}:v]format=rgba,"
+                               f"fade=t=out:st={fade_at:.3f}:d={fade_for:.3f}:alpha=1[ovf{i}]")
+                over_label = f"[ovf{i}]"
+            filters.append(f"[bg{i}]{over_label}overlay=0:0:format=auto,"
                            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{i}]")
         else:
             filters.append(stage + f"[v{i}]")
         labels.append(f"[v{i}]")
-    filters.append("".join(labels) + f"concat=n={len(specs)}:v=1:a=0,format=yuv420p[out]")
+    closing = specs[-1][3] if len(specs) > 1 and len(specs[-1]) > 3 else {}
+    dissolve = float(closing.get("xfade_prev") or 0.0)
+    if dissolve > 0:
+        head = sum(float(spec[1]) for spec in specs[:-1])
+        closing_d = float(specs[-1][1])
+        # xfade refuses inputs whose timebases differ, and concat hands back 1/1000000 where a
+        # single segment is still 1/30. Both sides are normalised rather than one, so the filter
+        # is not silently agreeing on whichever timebase happened to arrive first.
+        filters.append("".join(labels[:-1]) + f"concat=n={len(specs)-1}:v=1:a=0,settb=AVTB[pre]")
+        filters.append(f"{labels[-1]}settb=AVTB[loop]")
+        # xfade runs out to `offset + closing_d`, so anchoring the offset at `head - closing_d`
+        # makes the total exactly the head — the closing spec costs no runtime however long it
+        # is, and the audio timeline built against that total stays valid.
+        #
+        # The dissolve must be SHORTER than the spec carrying it. xfade's frames cover the
+        # transition at [0, 1), never reaching 1, so a spec exactly as long as its dissolve ends
+        # ~92% of the way across and the final frame is a blend rather than the opening frame.
+        # The remainder holds the resolved frame, which is the whole point: the last frame the
+        # viewer sees has to BE the first one.
+        filters.append(f"[pre][loop]xfade=transition=fade:duration={dissolve:.3f}:"
+                       f"offset={max(0.0, head - closing_d):.3f},format=yuv420p[out]")
+    else:
+        filters.append("".join(labels) + f"concat=n={len(specs)}:v=1:a=0,format=yuv420p[out]")
     try:
         os.remove(out)
     except OSError:
@@ -691,7 +747,7 @@ def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
     _save_png_atomic(canvas, out)
 
 
-def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink):
+def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, scene_ref=""):
     """Generate an in-habitat clue/reveal pair that share one camera.
 
     Order matters. The flat-colour format generates the silhouette first and grows a reveal out
@@ -703,17 +759,36 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink):
     animal blacked out. The scene is then guaranteed identical and the reveal is a true match
     cut: only the animal changes.
 
+    ``scene_ref`` closes the loop. A Short restarts the instant it ends, so the closing reveal and
+    the opening clue sit against each other with no cut between them. Generating the last scene
+    from its own description gives a different place every time — the reason the loop currently
+    reads as a hard scene change — so the closing round is generated as an EDIT of the opening
+    scene instead: same environment, same camera, only the animal differs. The flat-colour format
+    has always closed its loop this way, by landing the last card on round one's field colour.
+
     Returns ``(mode, ok)``; ``ok`` is False when the silhouette edit could not be produced, so
     the caller can fall back to the flat-colour format rather than ship an unguessable clue.
     """
     scene = ep._s(habitat).strip() or "its natural habitat, cinematic wide shot, natural light"
     stance = ep._s(pose).strip() or "in the middle distance, seen side-on"
-    ep.generate_image(
-        f"Cinematic wildlife photograph. A {answer} {stance} in {scene}. The animal is clearly "
-        "visible, unobstructed, correct species anatomy, occupying roughly a third of the frame. "
-        "Shot on a long lens with natural depth of field, photoreal, rich natural colour, "
-        "volumetric light. No text, letters, numbers, watermark, people, or borders.",
-        reveal_dst, size=size, cost_sink=cost_sink)
+    if scene_ref and os.path.exists(scene_ref):
+        # The opening scene is a photograph we already have, and re-describing it would only
+        # approximate it. Editing it guarantees the viewer lands back in the same place.
+        ep.generate_image(
+            "Keep this photograph's environment EXACTLY as it is — identical camera, framing, "
+            "composition, background, horizon, lighting direction, colour grade and every "
+            f"environmental detail. Replace the animal in it with a {answer} {stance}. The "
+            f"{answer} must be the ONLY animal in the shot: clearly visible, unobstructed, "
+            "correct species anatomy, occupying roughly a third of the frame. Photoreal, rich "
+            "natural colour. No text, letters, numbers, watermark, people, or borders.",
+            reveal_dst, size=size, cost_sink=cost_sink, reference_paths=[scene_ref])
+    else:
+        ep.generate_image(
+            f"Cinematic wildlife photograph. A {answer} {stance} in {scene}. The animal is clearly "
+            "visible, unobstructed, correct species anatomy, occupying roughly a third of the frame. "
+            "Shot on a long lens with natural depth of field, photoreal, rich natural colour, "
+            "volumetric light. No text, letters, numbers, watermark, people, or borders.",
+            reveal_dst, size=size, cost_sink=cost_sink)
     try:
         ep.generate_image(
             "Keep this photograph EXACTLY as it is — identical camera, framing, composition, "
@@ -723,10 +798,28 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink):
             "inside the shape — only its outline should read. Do not move, resize, add or "
             "remove anything else. No text or watermark.",
             clue_dst, size=size, cost_sink=cost_sink, reference_paths=[reveal_dst])
-        return "habitat_pair", True
+        return ("habitat_loop_pair" if scene_ref else "habitat_pair"), True
     except Exception as exc:
         print(f"[quiz] habitat silhouette edit failed: {exc}")
         return "habitat_reveal_only", False
+
+
+def _same_habitat(a, b) -> bool:
+    """Whether two habitat descriptions name the same scene.
+
+    The closing reveal is generated by editing the opening photograph, so if the script gave the
+    final animal a habitat of its own, that edit would move a species somewhere it does not live
+    — an okapi standing on open savanna. This pipeline fact-checks its answers precisely because
+    a wrong one destroys trust, and a wrong environment is the same claim made in pictures.
+
+    The generator is asked for the two habitats word for word, so equality is the signal. It is
+    compared loosely enough to survive punctuation and spacing drift, and no more: a merely
+    similar description is a different place.
+    """
+    def norm(text):
+        return " ".join(re.sub(r"[^a-z0-9 ]+", " ", ep._s(text).strip().lower()).split())
+    first, second = norm(a), norm(b)
+    return bool(first) and first == second
 
 
 def sil_bg_for(idx=0):
@@ -787,7 +880,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
 
     CDN = QUIZ_V2.guess_window_sec / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
-    timing_warnings = []
+    timing_warnings = []; loop_warnings = []; opening_frame = None
     # The round badge was hardcoded to "ANIMAL", so a fruits or planets quiz labelled every
     # round ANIMAL 1/3. The category is a free parameter of this pipeline, so the badge has to
     # follow it: last word, singularised, since categories arrive plural ("wild animals").
@@ -808,8 +901,24 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         closes_loop = i == len(items)
         in_habitat = False
         if HABITAT:
+            habitat_text = it.get("habitat")
+            scene_ref = ""
+            if closes_loop and len(items) > 1:
+                opening_habitat = items[0].get("habitat")
+                if _same_habitat(habitat_text, opening_habitat):
+                    scene_ref = f"{A}/rev1.png"     # the opening scene, as generated
+                    habitat_text = opening_habitat
+                else:
+                    # Shipping the loop would relocate the species; shipping the cut only costs
+                    # the match. Say which one happened rather than silently choosing.
+                    loop_warnings.append(
+                        f"the closing habitat differs from the opening one, so the video ends "
+                        f"on a different place than it starts: opening "
+                        f"\"{ep._s(opening_habitat)[:60]}\" vs closing \"{ep._s(habitat_text)[:60]}\"")
+                    log("⚠ closing habitat does not match the opening one — loop left as a cut")
             reveal_mode, in_habitat = _habitat_pair(
-                answer, it.get("habitat"), it.get("pose"), clue, rev, "1024x1536", costs)
+                answer, habitat_text, it.get("pose"), clue, rev, "1024x1536", costs,
+                scene_ref=scene_ref)
         if not in_habitat:
             # Flat-colour control format: silhouette first, reveal grown out of it.
             if is_silhouette_clue(it.get("clue_visual")):
@@ -861,7 +970,15 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         grade["round"] = i; grade["answer"] = answer; grade["difficulty"] = diff
         grade["reveal_generation_mode"] = reveal_mode
         if grade.get("too_easy"):
-            zoom_ladder[0] = clue_zoom(diff, 0) * 1.25
+            # Deepen the ladder this clue is ACTUALLY using. Reading clue_zoom() here always
+            # returned the flat-colour opener, so a habitat clue jumped 1.16 -> 2.31: the whole
+            # animal became an unreadable black mass bleeding off all four edges, and the scene
+            # it is hidden in disappeared. That is the "moment of least information" the habitat
+            # ladder exists to avoid, applied to the one frame that decides whether anyone
+            # stays. It also broke the ease, stepping 2.31 -> 1.08 instead of 1.16 -> 1.08.
+            # Scaling the ladder's own opener is identical arithmetic on the flat-colour format,
+            # whose opener IS clue_zoom(diff, 0), so that path is unchanged.
+            zoom_ladder[0] = zoom_ladder[0] * 1.25
             _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[0], zoom_ladder[0])
             grade["crop_deepened"] = True
             log(f"Round {i} difficulty QA deepened the opening crop")
@@ -874,6 +991,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             grade["reveal_regenerated"] = True
             log(f"Round {i} identity QA regenerated the answer reveal")
         visual_qa.append(grade)
+        if i == 1:
+            # Frame zero, as it will actually ship: read AFTER the QA block, because a round one
+            # graded too easy opens at a deepened crop and the loop has to land on the frame the
+            # viewer really sees, not the one the ladder nominated.
+            opening_frame = (f"{A}/clue{i}_b.png", countdown_overlays[0], zoom_ladder[0])
 
         # Progressive crops and generative silhouette motion are deliberately separate experiments:
         # combining them would let Kling morph the clue while the crop changes, making the quiz unfair.
@@ -932,10 +1054,15 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                                  {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0,
                                   "drift": _DRIFT_CLOSING_PER_SEC,
                                   "drift_max": _DRIFT_CLOSING_MAX}))
-            render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False,
-                                 {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom,
-                                  "drift": _DRIFT_CLOSING_PER_SEC,
-                                  "drift_max": _DRIFT_CLOSING_MAX}))
+            cta_opts = {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom,
+                        "drift": _DRIFT_CLOSING_PER_SEC, "drift_max": _DRIFT_CLOSING_MAX}
+            # The loop dissolve eats into the tail of this card. Clear its text just before that
+            # starts so the dissolve is scene-to-scene, with only the opening card's text fading
+            # in. A card that merely cross-faded with the next one was illegible in both.
+            text_clear_at = cta_beat - (_LOOP_DISSOLVE_SEC + _LOOP_SETTLE_SEC) - _LOOP_TEXT_CLEAR_SEC
+            if opening_frame and text_clear_at > 0:
+                cta_opts["overlay_fade"] = (text_clear_at, _LOOP_TEXT_CLEAR_SEC)
+            render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False, cta_opts))
             clips.append(f"{A}/r{i}.png"); clips.append(f"{A}/r{i}_cta_t.png")
             dr = answer_beat + cta_beat
         else:
@@ -944,6 +1071,17 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
     TOTAL = t
+    if opening_frame and len(render_specs) > 1:
+        # Close on the frame the video opens on. Rendered through the same base image, overlay
+        # and zoom as round one's first countdown card, so it is that frame rather than a
+        # reconstruction of it — drift is switched off so the dissolve settles on the exact zoom
+        # frame zero starts at instead of a fraction past it. Its duration is consumed entirely
+        # by the cross-dissolve, so TOTAL and the audio timeline below are unaffected.
+        loop_base, loop_overlay, loop_zoom = opening_frame
+        render_specs.append((loop_base, _LOOP_DISSOLVE_SEC + _LOOP_SETTLE_SEC, False, {
+            "overlay": loop_overlay, "z_to": loop_zoom, "drift": 0,
+            "xfade_prev": _LOOP_DISSOLVE_SEC}))
+        clips.append(loop_overlay)
 
     # captions (.srt) + transcript — built DETERMINISTICALLY from the narration timeline (exact text +
     # real offsets), so they're perfectly accurate (no transcription, no dropped words).
@@ -992,7 +1130,10 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     mus = idx; music_ok = bool(music_path)
     if music_ok:
         ins += ["-stream_loop", "-1", "-i", music_path]
-        parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.11,afade=t=out:st={max(0,TOTAL-1.3):.2f}:d=1.3[mus]")
+        # No tail fade. A 1.3s fade to silence is an ending cue, and it played over the very
+        # beat now built to hide the ending; against a full-volume restart it was a
+        # discontinuity either way. A short fade-in covers the seam on the other side.
+        parts.append(f"[{mus}:a]atrim=0:{TOTAL},volume=0.11,afade=t=in:st=0:d=0.35[mus]")
     mix = "".join(f"[s{i}]" for i in range(idx)) + ("[mus]" if music_ok else "")
     parts.append(f"{mix}amix=inputs={idx + (1 if music_ok else 0)}:normalize=0,alimiter=limit=0.95,loudnorm=I=-12:TP=-1.5,aresample=48000[aout]")   # target -12: single-pass undershoots ~2 LU -> lands ~-14
     faud = f"{A}/full_audio.m4a"
@@ -1017,7 +1158,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     if description_path:
         log("YouTube description written")
     cost = round(sum(costs), 3)
-    _deg = list(timing_warnings)
+    _deg = list(timing_warnings) + list(loop_warnings)
     if not os.path.exists(out_mp4):
         _deg = ["final video file was not produced — assembly failed"] + _deg
     fal_used = any(event.get("used") for event in fal_opener)
@@ -1032,6 +1173,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
             "progressive_clues": QUIZ_V2.progressive_clues,
             "subscribe_cta": "integrated_final_reveal", "visual_qa": visual_qa,
+            "habitat_loop_closed": HABITAT and not loop_warnings,
             "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc

@@ -31,8 +31,16 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
   the value of generative motion at the swipe/stay decision without paying to animate every card. It is
   not combined with progressive crops because generative silhouette morphing can make a clue unfair.
 - Bolt appears as a small reveal badge, never as an intro.
-- The final answer carries “NEW QUIZ DAILY · SUBSCRIBE” with a short spoken CTA over the payoff itself.
-  There is no separate outro or subscription card.
+- The final answer carries “GOT ALL 3? · SUBSCRIBE” on screen. The spoken line asks for the replay
+  instead — “Missed one? Go again.” — so the two channels complement rather than repeat, and the ask
+  names an action the loop has already made free. There is no separate outro or subscription card.
+- **The video closes on the frame it opens on.** The last beat cross-dissolves into round one's first
+  countdown card — same base image, same overlay, same zoom, rendered through the same path, so it is
+  that frame rather than a copy of it. The dissolve is absorbed by the closing card and costs no
+  runtime. Habitat pairs make this honest at the content level: round one and the final round share a
+  habitat, and the final animal is chosen to genuinely live there rather than relocated to fit.
+- The music has no tail fade. A fade to silence is an ending cue, and it played over the one beat
+  built to hide the ending.
 - Expected duration is roughly **11 seconds**, designed to invite an immediate replay.
 
 ## Why this is a creative change, not only a trim
@@ -54,6 +62,13 @@ Primary gates after at least 500 Shorts-feed impressions:
 | Average percentage viewed | ~48% | 85% | 110%+ |
 | Average view duration | 16s / 33s | 9s / ~11s | 12s+ / ~11s |
 | End-of-video retention | ~5% | 50% | 70%+ |
+
+Measured after the first three published Rapid Reveal quizzes: **46.0%** and **35.5%** stayed to
+watch at 100%+ APV, on ~1.2K views each. The format clears its minimum gate, so the fallback
+mechanics below are not the next move — the remaining retention is at the two joins, frame zero and
+the ending, and both are addressed above. The 10.5-point spread between those two videos tracked
+first-frame silhouette contrast: a black shape spanning a bright savanna held far better than one
+sitting against dark rainforest foliage.
 
 If stayed-to-watch remains below 30%, test the next first-frame mechanic rather than adding more length:
 

@@ -70,18 +70,25 @@ def clue_zoom(difficulty: str, stage: int) -> float:
 
 
 def final_reveal_narration(answer: str) -> str:
-    """Place the reason-to-return inside the payoff instead of adding a post-game card.
+    """Ask for the replay the loop is about to make effortless.
 
-    "New quiz daily. Subscribe." stated a channel fact and then asked a favour; neither half
-    gave the viewer a reason. A promise does: "tomorrow is harder" is the reason, and the
-    on-screen card carries the ask, so the two channels do not repeat each other.
+    The ending is where the curve falls, and "Subscribe — tomorrow's quiz is harder" worked
+    against that. It asks for a standing commitment, points at a video that does not exist yet,
+    and in doing so announces that this one is over — spending the longest line in the short on
+    the moment we least want the viewer thinking about leaving.
 
-    Names the next video rather than the channel: "tomorrow's quiz" is a specific thing to come
-    back for, where "subscribe" alone asks for a standing commitment and "new quiz daily" states
-    a schedule. Ask first, reason second, so the button press has a why attached to it.
+    The closing beat now dissolves into the opening frame, so a replay costs the viewer nothing:
+    they are already watching it. Naming that action turns the moment of peak satisfaction into
+    the next view rather than an exit, and it plays to what this format already wins on —
+    average percentage viewed sits above 100% because people replay it.
 
-    Measured against ``final_reveal_max_sec``: this line runs 2.74s on a short answer and 3.12s
-    on "Hippopotamus", inside the 3.4s card. The cap is a real ceiling — the card is sized from
-    this narration and anything longer loses its last word.
+    "Missed one?" supplies the reason. It presumes an imperfect score, which is true for most
+    viewers on an expert third round, and makes going again a way to settle it rather than a
+    favour. The on-screen card still carries the subscribe ask, so the spoken and written
+    channels complement each other instead of repeating.
+
+    Measured against ``final_reveal_max_sec``: at the ~16.5 characters/sec this TTS runs, the
+    longest realistic answer lands near 2.1s inside the 3.6s card — about a second shorter than
+    the line it replaces, so it shortens the ending as well as changing what it says.
     """
-    return f"{(answer or '').strip()}! Subscribe — tomorrow's quiz is harder."
+    return f"{(answer or '').strip()}! Missed one? Go again."
