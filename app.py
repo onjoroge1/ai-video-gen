@@ -1285,13 +1285,20 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 "generation_manifest_path": pilot["generation_manifest_path"],
                 "directed_spec_path": pilot["directed_spec_path"],
                 "validation_report_path": pilot["validation_report_path"],
+                "rendered_contract": pilot.get("rendered_contract") or {},
+                "rendered_contract_path": pilot.get("rendered_contract_path"),
+                "rendered_contact_sheet_path": pilot.get("rendered_contact_sheet_path"),
+                "human_review_path": pilot.get("human_review_path"),
+                "first_minute_preview_path": pilot["preview_path"],
                 "directed_pilot": True,
                 # A rendered pilot is not a passed film.  Preserve it for editorial review and
                 # keep full-film processing unavailable until that separate gate exists.
                 "status": "degraded",
-                "degraded_reasons": [
-                    "directed pilot rendered; editorial approval is required before full-film processing"
-                ],
+                "degraded_reasons": ([
+                    "directed pilot failed its automatic rendered grade and cannot be promoted"
+                ] if not (pilot.get("rendered_contract") or {}).get("automated_pass") else [
+                    "directed pilot passed automation; editorial approval is required before full-film processing"
+                ]),
             }
         # QUIZ template (social only): a different backend — Bolt hosts a "What is it?" guessing quiz.
         # The `question` field carries the CATEGORY (e.g. "animals"). Returns an explainer-shaped result.

@@ -31,6 +31,13 @@ import directed_longform as dl
 import user_directed as ud
 from PIL import Image, ImageDraw
 from font_utils import load_font
+from longform_rendered_gate import (
+    build_contact_sheet,
+    create_human_review_record,
+    cross_check_blind_observations,
+    inspect_rendered_opening,
+    score_rendered_contract,
+)
 
 
 PILOT_SECONDS = 45.0
@@ -248,12 +255,22 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
         clip = ep.animate_scene(image_path, shot["visual"], str(cached), 1920, 1080,
                                 cost_sink=cost_sink, err_sink=attempts)
         if not clip or not Path(cached).exists():
+            if provider_sink is not None:
+                provider_sink.append({
+                    "shot_id": shot.get("shot_id"),
+                    "provider": "none",
+                    "model_id": "none",
+                    "generation_status": "failed",
+                    "source_sha256": _sha256_file(image_path),
+                    "provider_attempts": attempts,
+                })
             log("      i2v declined; falling back to a camera path")
             return False
         selected = next((item.split(":", 1)[1] for item in reversed(attempts)
                          if item.startswith("ok:")), "unknown")
         motion_event = {
             "provider": selected, "model_id": ep._motion_model_id(selected),
+            "generation_status": "generated",
             "source_sha256": _sha256_file(image_path),
             "cache_path": str(cached), "provider_attempts": attempts,
         }
@@ -327,6 +344,124 @@ def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS,
     chosen = [scene for scene in spec.scenes
               if start <= scene.start_sec < seconds]
     return chosen or spec.scenes[:1]
+
+
+def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: Path,
+                          shots: list[dict], image_paths: list[str], holds: list[float],
+                          indexed_scenes: list[tuple[int, dl.DirectedScene]],
+                          audio_paths: list[str], motion_events: list[dict],
+                          cost_sink: list, log) -> dict:
+    """Grade the encoded pilot pixels and create immutable editorial-review artifacts.
+
+    The generic rendered gate expects the model-authored pipeline's evidence-plan shape.  A
+    directed contract already contains the equivalent facts, so adapt only the observations
+    needed by the gate; no prompt, intended answer, or operator scoring metadata is shown to the
+    blind judge.
+    """
+    cursor = 0.0
+    gate_shots: list[dict] = []
+    states: list[dict] = []
+    for shot, image_path, hold in zip(shots, image_paths, holds):
+        midpoint = cursor + hold / 2
+        state_id = shot["shot_id"]
+        gate_shots.append({
+            "state_id": state_id,
+            "global_start_sec": round(cursor, 4),
+            "midpoint_sec": round(midpoint, 4),
+            "duration": round(hold, 4),
+            "source": image_path,
+            "verified_visible_information": True,
+        })
+        states.append({
+            "state_id": state_id,
+            "include_bolt": "BOLT" in (shot.get("reference_ids") or []),
+            "pure_evidence": False,
+            "required_objects": [],
+            "verification": {
+                "passed": Path(image_path).is_file(),
+                "bolt_present": "BOLT" in (shot.get("reference_ids") or []),
+                "reasons": [],
+            },
+        })
+        cursor += hold
+
+    evidence_plan = {"scenes": [{"states": states}]}
+    inspection = inspect_rendered_opening(
+        preview, [gate_shots], str(out), evidence_plan)
+    # The directed contract owns its cadence bounds. The shared gate's 3.5-second legacy hold
+    # constant must not silently outrank the JSON's explicit max_unchanged_hold_sec.
+    deterministic = inspection.get("deterministic") or {}
+    deterministic["long_hold_count"] = sum(
+        hold > spec.acceptance.max_unchanged_hold_sec for hold in holds)
+    contact_sheet_path = str(out / "rendered_contact_sheet.jpg")
+    build_contact_sheet(inspection, contact_sheet_path)
+
+    transcript_cues = []
+    cue_cursor = 0.0
+    for (_, scene), audio_path in zip(indexed_scenes, audio_paths):
+        duration = ep._audio_dur(audio_path)
+        transcript_cues.append({
+            "start_sec": round(cue_cursor, 2),
+            "end_sec": round(cue_cursor + duration, 2),
+            "narration": scene.narration,
+        })
+        cue_cursor += duration
+
+    blind = ep._blind_rendered_story_judge(
+        contact_sheet_path, transcript_cues, cost_sink=cost_sink)
+    checked = cross_check_blind_observations(
+        blind, deterministic)
+    factual = dl.validate_directed_spec(spec.model_dump(mode="json"))
+    claim_validation = {
+        "passed": bool(factual.get("valid"))
+        and float(factual.get("evidence_coverage_pct") or 0)
+        >= spec.acceptance.evidence_coverage_pct,
+        "errors": factual.get("issues") or [],
+    }
+    rendered = score_rendered_contract(
+        deterministic=deterministic,
+        blind=checked,
+        story_validation={"checks": {"first_act_continuity_hits": True}, "errors": []},
+        claim_validation=claim_validation,
+        callback_exact=True,
+    )
+    # Directed v1 deliberately freezes a stricter 90-point automatic floor than the generic
+    # long-form gate's 85. Preserve the generic component report, but never let its lower floor
+    # promote this pilot.
+    motion_failures = [
+        event for event in motion_events if event.get("generation_status") == "failed"]
+    if motion_failures:
+        rendered.setdefault("hard_failures", []).append("declared_full_motion_not_generated")
+    rendered["hard_failures"] = sorted(set(rendered.get("hard_failures") or []))
+    directed_pass = bool(
+        rendered.get("score", 0) >= spec.acceptance.automatic_grade_min
+        and not rendered.get("hard_failures")
+        and checked.get("valid") is True
+    )
+    rendered.update({
+        "name": "Directed Long-Form Rendered Pilot Contract",
+        "automatic_grade_floor": spec.acceptance.automatic_grade_min,
+        "automated_pass": directed_pass,
+        "passed": False,
+        "publishable": False,
+        "status": "AUTOMATED_PASS_AWAITING_HUMAN" if directed_pass else "REJECT",
+        "inspection": inspection,
+        "blind_story_judge": checked,
+        "contact_sheet_path": contact_sheet_path,
+        "promotion_rule": "A failed automatic or editorial grade cannot be promoted in place.",
+    })
+    report_path = str(out / "rendered_contract.json")
+    Path(report_path).write_text(
+        json.dumps(rendered, indent=2, ensure_ascii=False), encoding="utf-8")
+    review_path = str(out / "human_review.json")
+    create_human_review_record(report_path, preview, review_path)
+    log(f"Rendered pilot grade: {rendered['score']}/100 ({rendered['status']})")
+    return {
+        "rendered_contract": rendered,
+        "rendered_contract_path": report_path,
+        "rendered_contact_sheet_path": contact_sheet_path,
+        "human_review_path": review_path,
+    }
 
 
 def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "echo",
@@ -582,6 +717,15 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     log(f"Video track: {len(shots)} shots over {sum(holds):.1f}s "
         f"against {spoken:.1f}s narration (delta {sum(holds) - spoken:+.2f}s)")
 
+    judge_costs: list = []
+    grade_artifacts = {}
+    is_pilot = abs(win_start) <= 0.05 and abs(win_end - spec.target.pilot_end_sec) <= 0.05
+    if require_validation and is_pilot:
+        grade_artifacts = _grade_directed_pilot(
+            spec=spec, preview=preview, out=out, shots=shots, image_paths=image_paths,
+            holds=holds, indexed_scenes=indexed_scenes, audio_paths=audio_paths,
+            motion_events=motion_events, cost_sink=judge_costs, log=log)
+
     def _relative(path: str) -> str:
         try:
             return str(Path(path).resolve().relative_to(out.resolve()))
@@ -601,7 +745,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
              "voice": voice, "transformation": "none"},
             {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
-        ],
+        ] + ([{
+            "purpose": "blind_rendered_story_grade", "provider": "anthropic",
+            "model_id": ep.ANTHROPIC_MODEL, "input_mime_type": "image/jpeg",
+        }] if grade_artifacts else []),
         "actual_motion": motion_events,
         "assets": {
             "references": [
@@ -639,16 +786,19 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "tts_cost_usd": round(sum(audio_costs), 4),
         "image_cost_usd": round(sum(image_costs), 4),
         "i2v_cost_usd": round(sum(i2v_costs), 4),
+        "judge_cost_usd": round(sum(judge_costs), 4),
         "animated_shots": animated,
-        "total_cost_usd": round(sum(audio_costs) + sum(image_costs) + sum(i2v_costs), 4),
+        "total_cost_usd": round(
+            sum(audio_costs) + sum(image_costs) + sum(i2v_costs) + sum(judge_costs), 4),
         "shots": len(shots),
         "preview_path": preview,
         "spec_sha256": validation["spec_sha256"],
         "directed_spec_path": validation_paths["directed_spec_path"],
         "validation_report_path": validation_paths["validation_report_path"],
         "generation_manifest_path": str(manifest_path),
+        **grade_artifacts,
     }
     log(f"Window cost: ${report['total_cost_usd']:.3f} "
         f"(tts ${report['tts_cost_usd']:.3f} + images ${report['image_cost_usd']:.3f}"
-        f" + i2v ${report['i2v_cost_usd']:.3f})")
+        f" + i2v ${report['i2v_cost_usd']:.3f} + judge ${report['judge_cost_usd']:.3f})")
     return report
