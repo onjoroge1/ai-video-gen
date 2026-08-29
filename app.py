@@ -18,7 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
+from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile, Request
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +28,7 @@ import artifact_store
 import media_binaries
 import private_access
 import durable_execution
+import agent_actions
 
 app = FastAPI(title="YouTube Pipeline API")
 
@@ -1152,6 +1153,22 @@ class DirectedLongformProcessRequest(BaseModel):
     authorize_paid: bool = False
 
 
+class AgentActionCreateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    operation: Literal["directed_pilot"] = "directed_pilot"
+    spec: dict | None = None
+    bundled_spec_id: Literal["hippo_bacon_directed_v1", ""] = ""
+    cost_ceiling_usd: float = Field(gt=0, le=25)
+
+
+class AgentActionApprovalRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    spec_sha256: str = Field(min_length=64, max_length=64)
+    cost_ceiling_usd: float = Field(gt=0, le=25)
+
+
 class ExplainerPilotBatchRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -2163,7 +2180,8 @@ async def explainer_production_run(production_id: str):
 
 
 async def _enqueue_explainer_request(request: ExplainerRequest,
-                                     background_tasks: BackgroundTasks) -> dict:
+                                     background_tasks: BackgroundTasks,
+                                     *, max_cost_usd: float | None = None) -> dict:
     """Shared queue boundary after a public route has authorized its request shape."""
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
@@ -2180,6 +2198,10 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
                     configured_cap,
                     float(request.directed_spec["target"]["max_cost_usd"]),
                 )
+            if max_cost_usd is not None:
+                if float(max_cost_usd) <= 0:
+                    raise ValueError("max_cost_usd must be positive")
+                job_cost_cap = min(job_cost_cap, float(max_cost_usd))
             row = await asyncio.to_thread(
                 store.enqueue, job_id=job_id, kind="explainer",
                 request=request.model_dump(),
@@ -2202,6 +2224,20 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
     _record_inprogress(job_id, output_dir, request)   # so a crash/reload can be resumed
     background_tasks.add_task(run_explainer_task, job_id, request, output_dir)
     return {"job_id": job_id}
+
+
+def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
+    return ExplainerRequest(
+        question=spec.title,
+        duration_sec=int(round(spec.target.pilot_end_sec)),
+        voice=spec.target.voice,
+        video_format="landscape",
+        motion_mode="standard",
+        story_format="evidence_led_mystery",
+        directed_spec=report["normalized_spec"],
+        directed_spec_sha256=report["spec_sha256"],
+        directed_paid_authorized=True,
+    )
 
 
 @app.get("/api/explainer/directed/schema")
@@ -2243,19 +2279,211 @@ async def explainer_directed_process(request: DirectedLongformProcessRequest,
         )
     except dl.DirectedValidationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    queued = await _enqueue_explainer_request(ExplainerRequest(
-        question=spec.title,
-        duration_sec=int(round(spec.target.pilot_end_sec)),
-        voice=spec.target.voice,
-        video_format="landscape",
-        motion_mode="standard",
-        story_format="evidence_led_mystery",
-        directed_spec=report["normalized_spec"],
-        directed_spec_sha256=report["spec_sha256"],
-        directed_paid_authorized=True,
-    ), background_tasks)
+    queued = await _enqueue_explainer_request(
+        _directed_pilot_request(spec, report), background_tasks)
     return {**queued, "spec_sha256": report["spec_sha256"],
             "scope": "first-45-pilot", "estimated_cost": report["pilot_cost_estimate"]}
+
+
+def _agent_action_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, agent_actions.AgentActionForbidden):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, agent_actions.AgentActionConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=503, detail={
+        "code": "AGENT_ACTION_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
+    })
+
+
+def _claim_token(request: Request) -> str:
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.casefold() != "bearer" or not token.strip():
+        raise HTTPException(status_code=403, detail="Agent action claim token is required")
+    return token.strip()
+
+
+def _agent_approver(request: Request) -> str:
+    session = private_access.verify_session(
+        request.cookies.get(private_access.COOKIE_NAME, ""))
+    if session:
+        return str(session.get("sub") or "studio-operator")
+    if not private_access.auth_required():
+        return "local-operator"
+    raise HTTPException(status_code=401, detail="Authenticated studio session required")
+
+
+def _bundled_directed_spec(spec_id: str) -> dict:
+    if spec_id != "hippo_bacon_directed_v1":
+        raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
+    path = BASE_DIR / "spec" / "hippo_bacon_directed_v1.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/agent/actions/request")
+async def agent_action_request_page():
+    return FileResponse(str(STATIC_DIR / "agent_action_request.html"), media_type="text/html")
+
+
+@app.get("/agent/actions")
+async def agent_action_approval_page():
+    return FileResponse(str(STATIC_DIR / "agent_actions.html"), media_type="text/html")
+
+
+@app.post("/api/agent/actions")
+async def create_agent_action(request: AgentActionCreateRequest):
+    """Create a non-spending proposal. The claim token is returned once and stored only hashed."""
+    import directed_longform as dl
+
+    if bool(request.spec) == bool(request.bundled_spec_id):
+        raise HTTPException(
+            status_code=422, detail="Provide exactly one of spec or bundled_spec_id")
+    payload = request.spec or _bundled_directed_spec(request.bundled_spec_id)
+    encoded_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode())
+    if encoded_size > int(os.environ.get("AGENT_ACTION_MAX_SPEC_BYTES", "1048576")):
+        raise HTTPException(status_code=413, detail="Directed specification is too large")
+    report = dl.validate_directed_spec(payload)
+    if not report.get("valid"):
+        raise HTTPException(status_code=409, detail={
+            "code": "DIRECTED_SPEC_INVALID", "issues": report.get("issues") or [],
+        })
+    estimate = float((report.get("pilot_cost_estimate") or {}).get("estimated_total_usd") or 0)
+    deployment_cap = float(os.environ.get("AGENT_ACTION_MAX_COST_USD", "5.00"))
+    ceiling = float(request.cost_ceiling_usd)
+    if ceiling > deployment_cap:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cost ceiling ${ceiling:.2f} exceeds agent-action cap ${deployment_cap:.2f}")
+    if estimate > ceiling:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Estimated pilot cost ${estimate:.4f} exceeds ceiling ${ceiling:.2f}")
+    claim_token = agent_actions.new_claim_token()
+    ttl = max(300, min(int(os.environ.get("AGENT_ACTION_TTL_SEC", "900")), 3600))
+    try:
+        action = await asyncio.to_thread(
+            agent_actions.repository().create,
+            title=report["title"], spec_sha256=report["spec_sha256"],
+            payload=report["normalized_spec"],
+            claim_token_sha256=agent_actions.token_digest(claim_token),
+            estimated_cost_usd=estimate, cost_ceiling_usd=ceiling, ttl_seconds=ttl)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    return {
+        **agent_actions.public_action(action),
+        "claim_token": claim_token,
+        "approval_path": "/agent/actions",
+        "execute_path": f"/api/agent/actions/{action['action_id']}/execute",
+        "warning": "The claim token is shown once. It cannot access any other studio operation.",
+    }
+
+
+@app.get("/api/agent/actions/pending")
+async def list_pending_agent_actions():
+    try:
+        actions = await asyncio.to_thread(agent_actions.repository().pending)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    return {"actions": [agent_actions.public_action(action) for action in actions]}
+
+
+@app.get("/api/agent/actions/{action_id}")
+async def get_agent_action(action_id: str, request: Request):
+    try:
+        action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    if not action:
+        raise HTTPException(status_code=404, detail="Agent action not found")
+    supplied = _claim_token(request)
+    if not agent_actions.verify_claim_token(action, supplied):
+        raise HTTPException(status_code=403, detail="Invalid agent action claim token")
+    if action.get("job_id") and _durable_execution_required():
+        try:
+            store, _ = _durable_components()
+            job = await asyncio.to_thread(store.get_job, action["job_id"])
+            if job:
+                action["job"] = _durable_job_view(job)
+            import db
+            action["finished_video"] = await asyncio.to_thread(
+                db.finished_video_get, action["job_id"]) or {}
+        except durable_execution.StorageUnavailable:
+            pass
+    return agent_actions.public_action(action, include_private=True)
+
+
+@app.post("/api/agent/actions/{action_id}/approve")
+async def approve_agent_action(action_id: str, approval: AgentActionApprovalRequest,
+                               request: Request):
+    try:
+        action = await asyncio.to_thread(
+            agent_actions.repository().approve, action_id,
+            spec_sha256=approval.spec_sha256,
+            cost_ceiling_usd=approval.cost_ceiling_usd,
+            approver=_agent_approver(request))
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    return agent_actions.public_action(action)
+
+
+@app.post("/api/agent/actions/{action_id}/reject")
+async def reject_agent_action(action_id: str, request: Request):
+    try:
+        action = await asyncio.to_thread(
+            agent_actions.repository().reject, action_id, approver=_agent_approver(request))
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    return agent_actions.public_action(action)
+
+
+@app.post("/api/agent/actions/{action_id}/execute")
+async def execute_agent_action(action_id: str, request: Request,
+                               background_tasks: BackgroundTasks):
+    """Consume one approved action and enqueue exactly its immutable first-45 request."""
+    if not _durable_execution_required():
+        raise HTTPException(status_code=409, detail="Agent actions require durable execution")
+    token = _claim_token(request)
+    try:
+        action = await asyncio.to_thread(
+            agent_actions.repository().claim, action_id, claim_token=token)
+        import directed_longform as dl
+        spec, report = dl.authorize_processing(
+            action["payload"], expected_sha256=action["spec_sha256"], authorize_paid=True)
+        queued = await _enqueue_explainer_request(
+            _directed_pilot_request(spec, report), background_tasks,
+            max_cost_usd=float(action["cost_ceiling_usd"]))
+        action = await asyncio.to_thread(
+            agent_actions.repository().mark_queued, action_id, queued["job_id"])
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    except Exception as exc:
+        try:
+            await asyncio.to_thread(agent_actions.repository().mark_failed, action_id, str(exc))
+        except agent_actions.AgentActionError:
+            pass
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        **agent_actions.public_action(action),
+        "dispatch_path": f"/api/agent/actions/{action_id}/dispatch",
+        "status_path": f"/api/agent/actions/{action_id}",
+    }
+
+
+@app.post("/api/agent/actions/{action_id}/dispatch")
+async def dispatch_agent_action(action_id: str, request: Request):
+    """Idempotently start only the durable job already bound to this action."""
+    token = _claim_token(request)
+    try:
+        action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    if not action or not agent_actions.verify_claim_token(action, token):
+        raise HTTPException(status_code=403, detail="Invalid agent action claim token")
+    if action.get("status") != "queued" or not action.get("job_id"):
+        raise HTTPException(status_code=409, detail="Agent action has no queued job")
+    try:
+        return await _run_durable_explainer_worker(str(action["job_id"]))
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/explainer/generate")
