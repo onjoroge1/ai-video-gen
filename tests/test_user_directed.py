@@ -89,3 +89,26 @@ def test_json_artifact_carries_the_script(tmp_path, parsed):
     assert payload["scene_count"] == len(parsed.scenes)
     assert payload["script"]["scenes"][0]["narration"]
     assert payload["script"]["_operator_supplied"] is True
+
+
+def test_shot_plan_drives_a_two_to_three_second_visual_cadence():
+    """The spec's shot table is the retention contract; parsing must preserve its density.
+
+    The first pilot generated one image per narration scene -- four states across 45 seconds,
+    a change every ten seconds. The spec's own section 9 specifies fifteen. This asserts the
+    parser recovers that table and that no single shot is allowed to hold long enough to read
+    as a slideshow, which is the failure the operator caught by watching.
+    """
+    spec_text = open(SPEC, encoding="utf-8").read()
+    shots = ud.extract_shot_plan(spec_text)
+
+    assert len(shots) >= 15, f"expected the spec's 15-shot table, parsed {len(shots)}"
+
+    holds = [shot["end_sec"] - shot["start_sec"] for shot in shots]
+    assert max(holds) <= 4.0, f"a {max(holds)}s hold is a slideshow, not a cut"
+    assert min(holds) >= 1.5, f"a {min(holds)}s flash is below the readable floor"
+
+    # Contiguous: a gap between shots is dead air on the picture track.
+    for earlier, later in zip(shots, shots[1:]):
+        assert later["start_sec"] <= earlier["end_sec"], (
+            f"gap between {earlier['end_sec']}s and {later['start_sec']}s")

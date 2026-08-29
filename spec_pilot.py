@@ -70,8 +70,19 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
     for scene in scenes:
         index = scene.index
         audio_path = str(out / "audio" / f"scene_{index:02d}.mp3")
-        ep.generate_tts(scene.narration, audio_path, voice=voice)
-        audio_costs.append(len(scene.narration) * ep._RATE_TTS_CHAR)
+        # Reuse narration that is already on disk. The picture is what gets iterated on -- this
+        # is the second pass over the same words -- and TTS is not free. Guarded on the text
+        # matching, so an edited line still re-speaks rather than silently keeping stale audio.
+        sidecar = Path(audio_path).with_suffix(".txt")
+        cached = (Path(audio_path).exists() and Path(audio_path).stat().st_size > 0
+                  and sidecar.exists()
+                  and sidecar.read_text(encoding="utf-8") == scene.narration)
+        if cached:
+            log(f"  scene {index + 1:>2} [{scene.world}] reusing narration on disk")
+        else:
+            ep.generate_tts(scene.narration, audio_path, voice=voice)
+            sidecar.write_text(scene.narration, encoding="utf-8")
+            audio_costs.append(len(scene.narration) * ep._RATE_TTS_CHAR)
         audio_paths.append(audio_path)
         measured = ep._audio_dur(audio_path)
         log(f"  scene {index + 1:>2} [{scene.world}] {measured:5.2f}s  "
@@ -86,35 +97,79 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         log(f"  ⚠ outside the spec's 43-47s pilot window — "
             f"{'trim' if spoken > 47 else 'extend'} the opening sections")
 
-    for scene in scenes:
-        index = scene.index
-        image_path = str(out / "images" / f"scene_{index:02d}.jpg")
-        ep.generate_image(scene.image_prompt, image_path, cost_sink=image_costs)
-        image_paths.append(image_path)
-        log(f"  image {index + 1:>2} ✓")
+    # ONE IMAGE PER SHOT, not per scene. The spec's section 9 lists 15 shots across the first
+    # 45 seconds at 1.8-2.8s each, and that cadence IS the retention contract. Generating one
+    # image per narration scene gave 4 states over 45s -- a state change every ten seconds,
+    # exactly the slideshow the spec exists to prevent, and the operator saw it immediately.
+    shots = ud.extract_shot_plan(Path(spec_path).read_text(encoding="utf-8"))
+    shots = [shot for shot in shots if shot["start_sec"] < PILOT_SECONDS] or []
+    prompts = ud.extract_base_prompts(Path(spec_path).read_text(encoding="utf-8"))
+    negative = prompts.get("negative", "")
+    log(f"Shot plan: {len(shots)} shots "
+        f"(spec section 9 requires at least 15 visual states)")
 
-    # _make_scene_segment, not a hand-rolled ffmpeg call: it already handles Ken Burns motion,
-    # the held tail the crossfade in _assemble expects, and the caption overlay. Rebuilding that
-    # here would drift from the assembler that consumes it.
-    clips = []
-    for scene, image_path, audio_path in zip(scenes, image_paths, audio_paths):
-        clip = str(out / "audio" / f"scene_{scene.index:02d}.mp4")
-        # tail=XFADE_SEC is required, not cosmetic. _assemble crossfades each segment into the
-        # next and expects every segment to be (narration + fade) long so the fade overlaps a
-        # HELD tail rather than covering speech. With tail=0 the xfade offsets run past the end
-        # of the input and ffmpeg exits 254 after every asset has been paid for.
-        ep._make_scene_segment(image_path, audio_path, clip, "", "",
-                               motion=ep._pick_motion("medium", scene.index),
-                               tail=SEGMENT_TAIL_SEC)
-        clips.append(clip)
+    for order, shot in enumerate(shots):
+        world = "alternate_2026" if shot["start_sec"] < 18 else "historical_1910"
+        base = prompts.get(world, "")
+        # The shot's own visual description carries the information; the world template carries
+        # palette and camera language. Negative prompt appended so malformed label text -- which
+        # this spec bans explicitly -- is discouraged on every shot, not just the product macros.
+        prompt = f"{base} Shot: {shot['visual']}."
+        if negative:
+            prompt += f" Avoid: {negative}"
+        image_path = str(out / "images" / f"shot_{order:02d}.jpg")
+        ep.generate_image(prompt, image_path, cost_sink=image_costs)
+        image_paths.append(image_path)
+        log(f"  shot {order + 1:>2} [{shot['start_sec']:>2}-{shot['end_sec']:>2}s] ✓ "
+            f"{shot['visual'][:46]}")
+
+    # Not _make_scene_segment / _assemble any more. Those two are built on a one-image-per-scene
+    # contract: the assembler derives its crossfade offsets from cumulative NARRATION duration,
+    # which structurally caps the visual state count at the scene count. Fifteen shots across
+    # four scenes cannot be expressed in that shape, so the video track is built directly and
+    # muxed against the finished narration instead.
+    # Video is driven by the shot table and muxed against the concatenated narration, so a shot
+    # boundary no longer has to coincide with a sentence boundary. That coupling is what forced
+    # one image per scene and produced the slideshow.
+    concat_list = out / "tmp" / "shots.txt"
+    (out / "tmp").mkdir(parents=True, exist_ok=True)
+    lines = []
+    for order, shot in enumerate(shots):
+        hold = max(1.25, shot["end_sec"] - shot["start_sec"])
+        image_path = image_paths[order]
+        lines.append(f"file '{image_path}'\nduration {hold:.3f}\n")
+    # The concat demuxer ignores the final entry's duration, so the last image is repeated
+    # without one; otherwise the closing shot is dropped entirely.
+    lines.append(f"file '{image_paths[-1]}'\n")
+    concat_list.write_text("".join(lines), encoding="utf-8")
+
+    silent_video = str(out / "tmp" / "video_track.mp4")
+    ep._run_ffmpeg([
+        ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(concat_list),
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,"
+               "crop=1920:1080,format=yuv420p,fps=30",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20", silent_video,
+    ])
+
+    audio_list = out / "tmp" / "audio.txt"
+    audio_list.write_text(
+        "".join(f"file '{path}'\n" for path in audio_paths), encoding="utf-8")
+    narration = str(out / "tmp" / "narration.mp3")
+    ep._run_ffmpeg([ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
+                    "-i", str(audio_list), "-c", "copy", narration])
 
     preview = str(out / "pilot_45s.mp4")
-    # _assemble writes intermediates into tmp_dir and does NOT create it. Without this, ffmpeg
-    # fails with "Error opening output file: No such file or directory" AFTER every image and
-    # every second of narration has been paid for -- and the message names the filtergraph, so
-    # it reads like a broken xfade. I lost two guesses to that before reading stderr.
-    (out / "tmp").mkdir(parents=True, exist_ok=True)
-    ep._assemble(clips, audio_paths, preview, str(out / "tmp"))
+    # -shortest so the film ends with the narration rather than on a held frame if the shot
+    # table and the measured audio disagree, which they will until the opening is lengthened.
+    ep._run_ffmpeg([
+        ep._ffmpeg_bin(), "-nostdin", "-y", "-i", silent_video, "-i", narration,
+        "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", preview,
+    ])
+    shot_seconds = sum(max(1.25, sh["end_sec"] - sh["start_sec"]) for sh in shots)
+    log(f"Video track: {len(shots)} shots over {shot_seconds:.1f}s "
+        f"vs {spoken:.1f}s narration")
 
     report = {
         "title": spec.title,
@@ -126,6 +181,7 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         "tts_cost_usd": round(sum(audio_costs), 4),
         "image_cost_usd": round(sum(image_costs), 4),
         "total_cost_usd": round(sum(audio_costs) + sum(image_costs), 4),
+        "shots": len(shots),
         "preview_path": preview,
     }
     log(f"Pilot cost: ${report['total_cost_usd']:.3f} "

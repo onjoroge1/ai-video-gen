@@ -138,6 +138,28 @@ def extract_beat_anchors(text: str) -> list:
     return sorted(anchors)
 
 
+def extract_shot_plan(text: str) -> list:
+    """The spec's detailed shot table: (start_sec, end_sec, visual, mode).
+
+    Section 9 lists the first 45 seconds shot by shot with its own timings, and those timings
+    are the retention contract -- 15 states, 1.8-2.8s apart. Splitting narration into scenes and
+    giving each one image produced 4 states over 45 seconds, which is the pacing failure the
+    spec exists to prevent. Use the operator's table rather than inventing a cadence.
+    """
+    shots = []
+    row = re.compile(
+        rf"^\|\s*\d+\s*\|\s*(\d+):(\d{{2}})\s*{_DASH}\s*(\d+):(\d{{2}})\s*\|"
+        rf"\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|", re.M)
+    for m1, s1, m2, s2, visual, mode in row.findall(text):
+        shots.append({
+            "start_sec": _seconds(m1, s1),
+            "end_sec": _seconds(m2, s2),
+            "visual": visual.strip(),
+            "mode": mode.strip(),
+        })
+    return sorted(shots, key=lambda shot: shot["start_sec"])
+
+
 def _anchor_for(start_sec: float, anchors: list) -> tuple:
     best = ("", "")
     for begin, beat, anchor in anchors:
