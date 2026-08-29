@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -2201,6 +2201,19 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
 async def explainer_directed_schema():
     import directed_longform as dl
     return dl.json_schema()
+
+
+@app.get("/api/explainer/directed/template")
+async def explainer_directed_template():
+    """Download a fillable contract starter; unresolved placeholders remain fail-closed."""
+    import directed_longform as dl
+    content = json.dumps(dl.starter_template(), indent=2, ensure_ascii=False) + "\n"
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition":
+                 'attachment; filename="directed_longform_v1_template.json"'},
+    )
 
 
 @app.post("/api/explainer/directed/validate")

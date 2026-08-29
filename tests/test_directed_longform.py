@@ -10,6 +10,7 @@ import app as studio
 import directed_longform as dl
 import spec_pilot
 import user_directed
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,8 @@ def _valid_spec():
             "world_id": "history",
             "scene_id": "scene_001",
             "asset_key": f"master_{index + 1:03d}",
+            "asset_prompt": f"Evidence-bearing master {index + 1}",
+            "transformation": "slow push",
             "claim_ids": ["F01"] if index == 5 else [],
             "reference_ids": ["portrait"] if index == 5 else [],
             "overlay_text": "",
@@ -133,6 +136,17 @@ def test_one_asset_key_cannot_hide_different_prompts():
     assert "asset_key_conflict" in {issue["code"] for issue in report["issues"]}
 
 
+def test_reused_master_requires_explicit_per_shot_transformations():
+    payload = _valid_spec()
+    payload["shots"][1]["asset_key"] = payload["shots"][0]["asset_key"]
+    payload["shots"][1]["asset_prompt"] = payload["shots"][0]["asset_prompt"]
+    payload["shots"][1]["transformation"] = ""
+
+    report = dl.validate_directed_spec(payload)
+    assert "asset_reuse_transformation_missing" in {
+        issue["code"] for issue in report["issues"]}
+
+
 def test_world_and_scene_must_match_their_timeline_positions():
     payload = _valid_spec()
     payload["worlds"][0]["end_sec"] = 42.0
@@ -166,6 +180,21 @@ def test_hippo_contract_reports_missing_editorial_work_instead_of_spending():
     assert "bolt_appearance_plan" in codes
 
 
+def test_authored_hippo_json_is_valid_and_inside_the_master_cap():
+    import json
+
+    with open(ROOT / "spec" / "hippo_bacon_directed_v1.json", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    report = dl.validate_directed_spec(payload)
+
+    assert report["valid"] is True
+    assert report["shot_count"] == 181
+    assert report["cost_estimate"]["unique_master_assets"] == 57
+    assert report["evidence_coverage_pct"] == 100.0
+    assert report["planned_bolt_appearances"] == 3
+    assert report["pilot_cost_estimate"]["estimated_total_usd"] < 2.0
+
+
 def test_motion_cache_identity_includes_image_bytes_prompt_and_provider(tmp_path):
     image = tmp_path / "source.jpg"
     image.write_bytes(b"one image")
@@ -196,6 +225,36 @@ def test_identical_motion_requests_share_cache_across_shot_filenames(tmp_path):
     assert first == second
 
 
+def test_exact_directed_text_is_composited_after_image_generation(tmp_path):
+    source = tmp_path / "master.jpg"
+    output = tmp_path / "shot.jpg"
+    Image.new("RGB", (960, 540), (80, 100, 120)).save(source)
+
+    spec_pilot._compose_directed_overlays(
+        str(source), str(output), overlay_text="LAKE COW BACON",
+        world_label="COUNTERFACTUAL — ALTERNATE 2026")
+
+    assert output.is_file()
+    assert output.read_bytes() != source.read_bytes()
+
+
+def test_project_asset_reference_is_verified_before_paid_calls(tmp_path):
+    payload = _valid_spec()
+    bolt = ROOT / "assets" / "mascot" / "bolt.png"
+    import hashlib
+    payload["references"] = [{
+        "reference_id": "portrait", "uri": "asset://mascot/bolt.png",
+        "sha256": hashlib.sha256(bolt.read_bytes()).hexdigest(),
+        "mime_type": "image/png", "license": "project-owned",
+        "origin": "ReelForge mascot",
+    }]
+    spec = dl.DirectedLongformSpec.model_validate(payload)
+
+    resolved = spec_pilot._materialize_references(spec, tmp_path)
+
+    assert Path(resolved["portrait"]).read_bytes() == bolt.read_bytes()
+
+
 def test_renderer_measures_audio_before_any_visual_generation():
     source = inspect.getsource(spec_pilot.render_pilot)
 
@@ -216,8 +275,29 @@ def test_web_ui_exposes_free_validation_before_paid_processing():
     assert "User-directed longform JSON" in html
     assert "/api/explainer/directed/validate" in html
     assert "/api/explainer/directed/process" in html
+    assert "/api/explainer/directed/template" in html
+    assert "Download fillable JSON" in html
     assert "Validate JSON — free" in html
     assert "directed-paid-authorize" in html
+
+
+def test_downloadable_template_is_complete_but_fail_closed_until_filled():
+    template = dl.starter_template()
+    report = dl.validate_directed_spec(template)
+
+    assert len(template["shots"]) == 15
+    assert report["valid"] is False
+    assert "unresolved_source_license" in {issue["code"] for issue in report["issues"]}
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/explainer/directed/template")
+            assert response.status_code == 200
+            assert "attachment" in response.headers["content-disposition"]
+            assert response.json()["schema_version"] == dl.SCHEMA_VERSION
+
+    anyio.run(run)
 
 
 def test_validate_route_is_free_and_process_requires_paid_authorization():

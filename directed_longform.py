@@ -25,6 +25,7 @@ from pydantic import (
 SCHEMA_VERSION = "directed_longform_v1"
 TTS_COST_PER_CHARACTER = 30.0 / 1_000_000
 IMAGE_COST_USD = 0.045
+IMAGE_EDIT_COST_USD = 0.055
 I2V_COST_USD = 0.28
 _UNRESOLVED_LICENSES = {"", "unknown", "unresolved", "tbd", "verify"}
 
@@ -122,6 +123,10 @@ class DirectedShot(_StrictModel):
     world_id: str = Field(min_length=1)
     scene_id: str = ""
     asset_key: str = ""
+    # ``asset_prompt`` defines the paid master image. Multiple shots may reuse that master while
+    # ``visual`` and ``transformation`` describe the crop/camera treatment seen in each shot.
+    asset_prompt: str = ""
+    transformation: str = ""
     claim_ids: list[str] = Field(default_factory=list)
     reference_ids: list[str] = Field(default_factory=list)
     overlay_text: str = ""
@@ -203,7 +208,13 @@ def _cost_estimate(spec: DirectedLongformSpec, *, end_sec: float | None = None) 
         if shot.mode.strip().casefold() == "full motion"
     }
     tts = narration_chars * TTS_COST_PER_CHARACTER
-    images = len(master_keys) * IMAGE_COST_USD
+    referenced_master_keys = {
+        shot.asset_key.strip() or shot.shot_id for shot in shots if shot.reference_ids
+    }
+    images = (
+        (len(master_keys) - len(referenced_master_keys)) * IMAGE_COST_USD
+        + len(referenced_master_keys) * IMAGE_EDIT_COST_USD
+    )
     i2v = len(motion_keys) * I2V_COST_USD
     return {
         "narration_characters": narration_chars,
@@ -282,14 +293,21 @@ def validate_directed_spec(payload: dict) -> dict:
             for world in spec.worlds
         )
 
+    def starts_inside_world(world_id: str, start_sec: float) -> bool:
+        return any(
+            world.world_id == world_id
+            and world.start_sec - 0.05 <= start_sec < world.end_sec + 0.05
+            for world in spec.worlds
+        )
+
     for scene in spec.narration:
         if scene.world_id not in worlds:
             issues.append(_issue("unknown_world", scene.world_id,
                                  f"narration.{scene.scene_id}.world_id"))
-        elif not inside_world(scene.world_id, scene.start_sec, scene.end_sec):
+        elif not starts_inside_world(scene.world_id, scene.start_sec):
             issues.append(_issue(
                 "world_timeline_mismatch",
-                f"{scene.world_id} does not cover {scene.start_sec:.2f}-{scene.end_sec:.2f}s",
+                f"{scene.world_id} is not active at {scene.start_sec:.2f}s",
                 f"narration.{scene.scene_id}.world_id"))
         for claim_id in scene.claim_ids:
             used_claims.add(claim_id)
@@ -327,16 +345,28 @@ def validate_directed_spec(payload: dict) -> dict:
                                      f"shots.{shot.shot_id}.reference_ids"))
 
     asset_contracts: dict[str, tuple] = {}
+    asset_members: dict[str, list[DirectedShot]] = {}
     for shot in spec.shots:
         if not shot.asset_key.strip():
             continue
-        contract = (shot.visual, shot.world_id, tuple(sorted(shot.reference_ids)))
+        master_prompt = shot.asset_prompt.strip() or shot.visual
+        contract = (master_prompt, shot.world_id, tuple(sorted(shot.reference_ids)))
         prior = asset_contracts.setdefault(shot.asset_key, contract)
+        asset_members.setdefault(shot.asset_key, []).append(shot)
         if prior != contract:
             issues.append(_issue(
                 "asset_key_conflict",
-                f"{shot.asset_key} groups shots with different prompts/worlds/references",
+                f"{shot.asset_key} groups shots with different master prompts/worlds/references",
                 f"shots.{shot.shot_id}.asset_key"))
+    for asset_key, members in asset_members.items():
+        if len(members) > 1:
+            missing = [shot.shot_id for shot in members if not shot.transformation.strip()]
+            if missing:
+                issues.append(_issue(
+                    "asset_reuse_transformation_missing",
+                    f"{asset_key} is reused but lacks an explicit transformation on: "
+                    + ", ".join(missing),
+                    f"shots.{missing[0]}.transformation"))
 
     unresolved_claims = claims - used_claims
     coverage = 100.0 if not claims else 100.0 * (len(claims) - len(unresolved_claims)) / len(claims)
@@ -477,3 +507,60 @@ def write_validation_artifacts(report: dict, out_dir: str | Path) -> dict:
 
 def json_schema() -> dict:
     return DirectedLongformSpec.model_json_schema()
+
+
+def starter_template() -> dict:
+    """Return a complete, downloadable contract starter that intentionally cannot spend yet."""
+    shots = []
+    for index in range(15):
+        start = float(index * 3)
+        shots.append({
+            "shot_id": f"shot_{index + 1:03d}",
+            "start_sec": start,
+            "end_sec": start + 3.0,
+            "visual": f"Replace with the visible composition for pilot shot {index + 1}",
+            "mode": "Useful mascot beat" if index == 3 else "Still + camera path",
+            "world_id": "primary_world",
+            "scene_id": "scene_001",
+            "asset_key": f"master_{index + 1:03d}",
+            "asset_prompt": f"Replace with the generation prompt for master {index + 1}",
+            "transformation": "slow push",
+            "claim_ids": ["F01"] if index == 5 else [],
+            "reference_ids": ["REF01"] if index == 5 else [],
+            "overlay_text": "",
+            "labels": ["useful_bolt"] if index == 3 else [],
+        })
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "project_id": "replace-with-project-id",
+        "title": "Replace With Video Title",
+        "negative_prompt": "malformed text, logos, watermarks, anatomy errors",
+        "target": {
+            "duration_sec": 45.0, "pilot_end_sec": 45.0, "format": "landscape",
+            "voice": "echo", "max_cost_usd": 5.0,
+        },
+        "acceptance": DirectedAcceptance().model_dump(mode="json"),
+        "worlds": [{
+            "world_id": "primary_world", "start_sec": 0.0, "end_sec": 45.0,
+            "base_prompt": "Replace with the consistent visual-world prompt",
+            "on_screen_label": "",
+        }],
+        "narration": [{
+            "scene_id": "scene_001", "start_sec": 0.0, "end_sec": 45.0,
+            "narration": "Replace with the exact operator-authored narration for this window.",
+            "world_id": "primary_world", "story_role": "hook", "claim_ids": ["F01"],
+        }],
+        "shots": shots,
+        "evidence": [{
+            "claim_id": "F01", "claim": "Replace with a factual claim",
+            "source_uri": "https://replace-with-source.example",
+            "qualification": "Replace with the exact allowed wording",
+            "license": "unresolved",
+        }],
+        "references": [{
+            "reference_id": "REF01", "uri": "https://replace-with-reference.example",
+            "sha256": "", "mime_type": "image/jpeg", "license": "unresolved",
+            "origin": "Replace with the original archive/provider",
+        }],
+        "prohibited_claims": ["Replace with claims the renderer must never introduce"],
+    }

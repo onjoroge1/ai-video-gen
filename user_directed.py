@@ -355,6 +355,8 @@ def compile_directed_spec(path: str | Path) -> dict:
             # Blank means a unique generated master.  The validator will reject >60 and require
             # the operator to assign deliberate reuse groups rather than silently buying 181.
             "asset_key": "",
+            "asset_prompt": "",
+            "transformation": shot["mode"],
             "claim_ids": [],
             "reference_ids": [],
             "overlay_text": "",
