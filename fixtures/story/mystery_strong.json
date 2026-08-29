@@ -1,0 +1,22 @@
+{
+  "format": "evidence_led_mystery",
+  "beat_roles": [
+    "anomaly",
+    "false_belief",
+    "reversal",
+    "consequence",
+    "mechanism",
+    "resolution"
+  ],
+  "narration": [
+    "In 1962 a survey crew walked into a valley in Siberia and found four hundred hectares of pine lying flat, every trunk pointing outward from one empty clearing. Nothing stood. The centre was bare.",
+    "For sixty years the answer was a meteorite. Ask any geologist then and they would have told you to go and find the crater sitting under the moss. It had to be there. Everyone knew that.",
+    "Then they drilled it. No crater. No iron, and no shocked quartz anywhere in the soil column \u2014 which is the one thing a meteorite strike cannot fail to leave behind.",
+    "That absence should bother you. Whatever flattened that forest shares an orbit with us, and it never had to touch the ground to do what it did.",
+    "The object came apart in the air. Rock entering at fifteen kilometres a second compresses the air ahead of it until the pressure exceeds the strength of the stone, and the whole mass turns to heat and blast in under a second. Several kilometres up. Nothing lands.",
+    "So the crater was never missing. There was never going to be one. The flattened trees are the only evidence the event was ever going to leave behind."
+  ],
+  "expect": {
+    "pass": true
+  }
+}

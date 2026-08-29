@@ -1,8 +1,10 @@
 """Compatibility facade for the quiz renderer with portable media binary resolution.
 
-The renderer implementation is preserved byte-for-byte in ``_quiz_pipeline_legacy.py``.
-This facade only fixes the runtime boundary that was macOS-specific: ffmpeg/ffprobe
-selection and terminal classification of a missing binary/input.
+The renderer implementation lives in ``_quiz_pipeline_legacy.py`` — currently the
+Rapid Reveal V2.1 renderer (see ``docs/QUIZ_RETENTION_V2.md``). This facade only fixes
+the runtime boundary that was macOS-specific: ffmpeg/ffprobe selection and terminal
+classification of a missing binary/input. The module name is historical; sibling
+renderers import this facade as ``qp`` and rely on its re-exported helpers.
 """
 from __future__ import annotations
 

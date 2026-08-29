@@ -836,25 +836,40 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     if not claim_validation.get("passed"):
         hard_failures.append("unsupported_major_claim")
         total = min(total, 59)
+    # Everything above is a judgement about the VIDEO: it is a slideshow, continuity is broken, a
+    # major claim is unsupported. Calibration is a statement about the INSTRUMENT — we have not
+    # established what the pixel thresholds should be. Conflating the two made "we cannot measure
+    # this yet" indistinguishable from "this video is bad", and since no calibrated profile has
+    # ever existed, every long-form run capped at 69 against an 85 bar and aborted before buying
+    # its remaining scenes. A gate nothing can pass is a policy defect, not a quality standard.
+    #
+    # So the instrument failure no longer suppresses the score or blocks the render. It still
+    # blocks PUBLICATION: an uncalibrated run can finish and be reviewed, but it cannot be called
+    # publishable, because the thresholds behind its measurements are unaudited.
     calibration = validate_threshold_profile(threshold_profile, require_calibrated=True)
-    if not calibration["passed"]:
-        hard_failures.append("uncalibrated_rendered_thresholds")
+    calibrated = bool(calibration["passed"])
     if hard_failures:
         total = min(total, 69)
     automated_pass = total >= RELEASE_SCORE and not hard_failures and blind.get("valid", True)
     review = human_review or {"status": "pending", "decision": "pending"}
     human_approved = review.get("decision") == "approve"
+    certified = bool(automated_pass and human_approved and calibrated)
     return {
         "version": RENDERED_GATE_VERSION,
         "name": "Bolt Long-Form Rendered Contract",
         "score": int(total),
         "percent": int(total),
         "grade": "A" if total >= 90 else "B" if total >= 85 else "C" if total >= 70 else "D" if total >= 60 else "F",
-        "status": ("PASS" if automated_pass and human_approved else
+        "status": ("PASS" if certified else
+                   "PASS_UNCERTIFIED" if automated_pass and human_approved else
                    "AUTOMATED_PASS_AWAITING_HUMAN" if automated_pass else "REJECT"),
+        # `passed` keeps meaning "this run may proceed"; `publishable` keeps meaning "this may be
+        # released", and only that second one requires a calibrated instrument.
         "passed": bool(automated_pass and human_approved),
         "automated_pass": automated_pass,
-        "publishable": bool(automated_pass and human_approved),
+        "publishable": certified,
+        "calibrated": calibrated,
+        "uncertified_reason": ("" if calibrated else "uncalibrated_rendered_thresholds"),
         "hard_failures": sorted(set(hard_failures)),
         "threshold_profile": threshold_profile,
         "threshold_calibration": calibration,

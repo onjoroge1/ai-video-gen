@@ -1,0 +1,157 @@
+DOCTORS WERE WRONG ABOUT ULCERS
+Bolt Explains the World — Evidence-Led Mystery Rewrite
+
+FORMAT
+Human-led scientific mystery for social video
+Target runtime: approximately 2:10–2:20, including dramatic pauses
+Primary human objective: Barry Marshall must prove that a living bacterium can survive the stomach and cause disease.
+Antagonistic force: the accepted medical belief that stomach acid makes bacterial infection impossible.
+Causal continuity chain: biopsy slide → discarded culture plates → five-day culture → swallowed beaker → second biopsy → antibiotic prescription.
+Bolt’s role: selective reaction guide and mechanism demonstrator only. Barry Marshall and Robin Warren remain the protagonists.
+
+WHY THE ORIGINAL STORY WAS NOT YET STRONG ENOUGH
+
+1. The title’s real human story did not begin until scene 10. The first nine scenes explained ulcer biology before giving anyone an objective, obstacle, or consequential decision.
+2. The hook summarized the entire story instead of placing the viewer inside its strangest moment.
+3. Bolt appeared in every shot and displaced Barry Marshall, Robin Warren, the skeptical medical establishment, and the patients whose pain kept returning.
+4. The narration listed consequences rather than creating a causal mystery. “What causes ulcers?” was asked, but each answer did not create the next question.
+5. The decorative ticking clock carried no evidence and did not change the characters’ decisions. The biopsy, culture plate, beaker, and second biopsy form a stronger continuity chain.
+6. The overlay “And got the ulcer himself” was inaccurate. Marshall developed acute gastritis—not an ulcer—after drinking the culture.
+7. The cadence was almost entirely medium-length sentences. It needed short landing lines, longer suspense sentences, and moments where the viewer could predict what happened next.
+
+FINAL REWRITTEN TRANSCRIPT
+
+SCENE 1 — 0:00–0:07 — THE IMPOSSIBLE ACTION
+VISUAL: In 1984, Barry Marshall raises a cloudy beaker of live bacteria. Human protagonist fills the frame. Bolt reaches in from the edge as if to stop him.
+NARRATION: Would you swallow a beaker of live bacteria to prove nearly every stomach doctor wrong? In 1984, Barry Marshall did.
+ON-SCREEN TEXT: HE DRANK THE EVIDENCE
+
+SCENE 2 — 0:07–0:18 — THE RELATABLE FAILURE
+VISUAL: A patient wakes at night with burning stomach pain, takes an antacid, feels temporary relief, then doubles over again days later.
+NARRATION: For decades, ulcer patients heard the same explanation: too much stress, spicy food, and excess acid. Antacids quieted the burning. Then it came back.
+ON-SCREEN TEXT: WHY DID IT RETURN?
+
+SCENE 3 — 0:18–0:29 — THE FIRST CONTRADICTION
+VISUAL: In 1981, pathologist Robin Warren studies a stomach biopsy. Curved bacteria cluster beside visibly inflamed tissue.
+NARRATION: Robin Warren had found something that should not exist—curved bacteria living beside inflamed stomach tissue. Wherever the bacteria appeared, inflammation followed.
+ON-SCREEN TEXT: SOMETHING WAS ALIVE
+
+SCENE 4 — 0:29–0:39 — THE ACCEPTED BELIEF
+VISUAL: Medical textbooks and senior doctors insist the stomach is sterile. Acid engulfs ordinary bacteria in a comparison test.
+NARRATION: But how could any microbe survive stomach acid? Medicine’s answer was simple: it could not. So Warren’s bacteria were dismissed as contamination.
+ON-SCREEN TEXT: “IMPOSSIBLE”
+
+SCENE 5 — 0:39–0:52 — THE FAILED EVIDENCE
+VISUAL: Barry Marshall repeatedly checks empty culture plates. After two days, technicians discard them. Easter weekend begins; one batch remains inside the incubator.
+NARRATION: Marshall tried to grow the bacteria. Nothing grew. Again and again, the plates were discarded after two days—until an Easter weekend left one batch incubating for five.
+ON-SCREEN TEXT: THEY STOPPED TOO SOON
+
+SCENE 6 — 0:52–1:02 — THE FIRST PAYOFF
+VISUAL: The incubator opens after the holiday. Colonies cover the plate. Match cut back to earlier “empty” plates being thrown away.
+NARRATION: When the lab reopened, colonies were waiting. The proof had not been absent. They had been throwing it away too early.
+ON-SCREEN TEXT: FIVE DAYS
+
+SCENE 7 — 1:02–1:14 — THE HIDDEN MECHANISM
+VISUAL: Bolt selectively demonstrates inside a stomach cross-section. H. pylori uses flagella to move through mucus while urease creates a less acidic pocket around it.
+NARRATION: So how did it stay alive? H. pylori used urease to weaken the acid immediately around it, then corkscrewed through protective mucus with its flagella.
+ON-SCREEN TEXT: IT MADE ITS OWN SAFE ZONE
+
+SCENE 8 — 1:14–1:24 — THE NEXT OBSTACLE
+VISUAL: Patient biopsies show bacteria and inflammation together, but skeptical doctors point to a correlation-versus-cause diagram. Animal experiments fail.
+NARRATION: But finding bacteria beside an ulcer proved only association. What if damaged stomachs simply attracted the microbe? Marshall still had to prove cause.
+ON-SCREEN TEXT: PRESENT ≠ GUILTY
+
+SCENE 9 — 1:24–1:33 — THE DECISION
+VISUAL: Return to the opening beaker. Barry looks at the rejected research, then at the culture. Bolt lowers his stopping arm as the decision becomes clear.
+NARRATION: He could not deliberately infect a patient, and animal tests had failed. So Marshall made himself the patient.
+ON-SCREEN TEXT: ONE VOLUNTEER
+
+SCENE 10 — 1:33–1:46 — THE PHYSICAL PROOF
+VISUAL: Marshall drinks. A five-day counter advances. He becomes nauseated and vomits. On day ten, a second biopsy reveals acute inflammation and the same curved bacteria.
+NARRATION: About five days later, he became sick. On day ten, a biopsy found acute gastritis—and the same bacteria colonizing a stomach that had been healthy before the drink.
+ON-SCREEN TEXT: DAY 10: GASTRITIS
+
+SCENE 11 — 1:46–1:57 — THE ACCURATE REVERSAL
+VISUAL: “ULCER” is crossed out and replaced with “THE FIRST STEP.” Show chronic infection progressing from gastritis toward ulcer damage over time.
+NARRATION: He had not given himself an ulcer; that can take longer. He had proved that the supposedly impossible infection could enter a healthy stomach and begin the disease process.
+ON-SCREEN TEXT: THE FIRST STEP
+
+SCENE 12 — 1:57–2:11 — THE HUMAN PAYOFF
+VISUAL: A recurring ulcer patient replaces the antacid bottle with a prescribed eradication treatment. The ulcer heals and does not return. Marshall and Warren receive the 2005 Nobel Prize.
+NARRATION: Later studies completed the case: eradicate H. pylori with antibiotics, and many ulcers could be cured instead of repeatedly suppressed. In 2005, Marshall and Warren received the Nobel Prize.
+ON-SCREEN TEXT: TREAT THE CAUSE
+
+SCENE 13 — 2:11–2:20 — CALLBACK / LOOP
+VISUAL: Return to the cloudy beaker from frame one. Match cut from the beaker to the original biopsy slide and then to the healed patient sleeping through the night.
+NARRATION: That beaker did more than infect one doctor. It forced medicine to stop blaming the patient—and start treating the cause.
+ON-SCREEN TEXT: THE PATIENT WASN’T THE PROBLEM
+
+SECOND-PASS STORY AND RETENTION REVIEW
+
+Question: Is the opening merely informative, or does something irreversible happen immediately?
+Answer: The human protagonist is already raising the beaker in frame one, and the drink is identified by seven seconds. The video does not postpone its title promise.
+
+Question: What does Barry want, and is that objective understandable without medical knowledge?
+Answer: He wants to prove that something doctors call impossible is making patients sick. The objective is introduced through a choice anyone understands: would you risk your own body when nobody believes your evidence?
+
+Question: Where does the viewer personally enter the story?
+Answer: Scene 2 uses a familiar cycle—burning pain, temporary relief, and recurrence. The final scene returns to the patient and reframes the old diagnosis as misplaced blame rather than a character flaw.
+
+Question: Does every answer produce the next question?
+Answer: Yes. Bacteria are visible → how can they survive acid? They grow → why did previous cultures fail? Survival is explained → does presence prove cause? Association remains → how can Marshall prove causation? Self-infection produces gastritis → does that prove ulcers? Later eradication studies complete the chain.
+
+Question: Is the strongest reveal saved too late?
+Answer: No. The beaker appears immediately as an early payoff. Retention is then reset around why he drank it and whether the experiment actually proved what he believed.
+
+Question: Is the escalation causal rather than a list?
+Answer: Yes. Each piece of evidence changes the next decision: Warren’s slide recruits Marshall; failed cultures create the Easter discovery; colonies intensify skepticism about causation; failed animal tests lead to self-experimentation; the second biopsy motivates eradication trials.
+
+Question: Is Bolt helping or competing with the story?
+Answer: Bolt appears only at the opening decision, the acid-survival demonstration, and the beaker callback. Human beings carry the discovery, rejection, risk, illness, and cure.
+
+Question: Is the conclusion emotionally larger than “scientists discovered a bacterium”?
+Answer: Yes. The ending reframes ulcer treatment from repeatedly suppressing a supposedly stress-driven problem to treating an infection—and stops presenting the patient’s personality or diet as the fundamental failure.
+
+FINAL QA REQUIREMENTS
+
+- Visible anomaly/action in the first second: Barry raises the live culture.
+- Human objective clear by eight seconds: prove the medical consensus wrong.
+- Early title payoff: the self-experiment is shown immediately, not teased until the ending.
+- New forward question before each previous question fully closes.
+- Major pattern interrupts: returning pain; bacteria on biopsy; five-day Easter culture; association-versus-cause test; day-ten biopsy; “ulcer” correction; Nobel/cure.
+- Human-led visuals use /mascot/human.png. Do not render Bolt as Barry Marshall or Robin Warren.
+- Bolt appears selectively in only three scenes and never replaces the physical evidence.
+- Use the biopsy slide, culture dish, and beaker as exact recurring objects. Do not use the decorative wall clock.
+- Do not say Marshall gave himself an ulcer. He developed histologically confirmed acute gastritis on day ten.
+- Do not claim all ulcers are caused by H. pylori. NSAID use is another common cause of peptic ulcers.
+- End on the beaker-to-biopsy callback; no subscribe request or dead-air outro.
+
+VIEWER-VISIBLE RETENTION GRADE
+
+First-five-second hook: 95/100
+Human objective and conflict: 94/100
+Relatability: 90/100
+Question-to-question propulsion: 93/100
+Causal escalation: 92/100
+Scientific mechanism clarity: 89/100
+Payoff strength: 94/100
+Cadence and sentence variation: 91/100
+Bolt discipline: 96/100
+Loop and rewatch potential: 90/100
+
+STRICT OVERALL GRADE: 92/100
+
+REMAINING RETENTION RISKS
+
+1. At roughly 2:15, this is a story Short rather than a conventional sub-60-second Short. The opening self-experiment must be visually delivered immediately so the runtime feels earned.
+2. Scenes 3–7 contain the densest scientific material. Maintain 2–3-second visual-state changes inside each scene: biopsy zoom, inflammation match, discarded plate, holiday calendar, colony reveal, acid pocket, and mucus traversal.
+3. Do not visually portray senior doctors as foolish caricatures. The antagonist is a plausible scientific assumption reinforced by failed cultures, not personal stupidity.
+4. The Nobel Prize is validation, not the emotional ending. The final emotional image must remain the patient sleeping without recurring pain.
+5. The line about “blaming the patient” is the most relatable payoff, but it must not imply stress was never clinically relevant or that H. pylori causes every ulcer. Keep the explicit NSAID caveat in QA.
+
+SCIENCE SOURCES — NOT SPOKEN
+
+- Nobel Prize, 2005 award and discovery summary: https://www.nobelprize.org/prizes/medicine/2005/summary/
+- Nobel presentation account of Warren’s biopsies and the five-day Easter culture: https://www.nobelprize.org/prizes/medicine/2005/7678-nobelpriset-i-fysiologi-eller-medicin/
+- Marshall et al. self-experiment paper: https://pubmed.ncbi.nlm.nih.gov/3982345/
+- NIDDK peptic-ulcer causes, including H. pylori and NSAIDs: https://www.niddk.nih.gov/health-information/digestive-diseases/peptic-ulcers-stomach-ulcers/symptoms-causes

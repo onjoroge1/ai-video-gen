@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import shutil
 from pathlib import Path
@@ -17,6 +18,9 @@ USEFUL_BOLT_PURPOSES = {
 ASSET_STRATEGIES = {"master", "distinct", "detail_reframe", "exact_reuse"}
 ACCEPTED_ASSET_STATUSES = {"accepted", "reused_exact"}
 MIN_EVIDENCE_STATE_SECONDS = 1.5
+# Imported rather than redefined: a second copy of this number is how the runtime
+# contract ended up 34% wrong while agreeing with itself.
+from runtime_planner import DEFAULT_WORDS_PER_SECOND as WORDS_PER_SECOND
 
 
 def _text(value: Any) -> str:
@@ -120,9 +124,47 @@ def build_continuity_pack(script: dict) -> dict:
 
 
 def _visual_beats(scene: dict) -> list[dict]:
-    beats = scene.get("visual_beats")
-    return [dict(beat) for beat in beats or []
-            if isinstance(beat, dict) and _text(beat.get("anchor_phrase"))]
+    """Beats as objects, coercing a bare string rather than discarding it.
+
+    The planner returns visual_beats as an array of objects, but a prompt edit once shifted it to
+    an array of plain phrases -- and this dropped every one of them, silently, because they were
+    not dicts. The scene then compiled to ZERO states, the opening gate rejected it, and the error
+    said "every opening beat requires two to six evidence states" about a scene whose beats were
+    all present and readable. A shape wobble should cost the extra fields, not the whole beat.
+    """
+    out: list[dict] = []
+    for beat in scene.get("visual_beats") or []:
+        if isinstance(beat, str) and _text(beat):
+            out.append({"anchor_phrase": _text(beat)})
+        elif isinstance(beat, dict) and _text(beat.get("anchor_phrase")):
+            out.append(dict(beat))
+    return out
+
+
+def _derive_bolt_action(beat: dict, scene: dict, subject: str) -> str:
+    """A concrete Bolt action, never a bare category word.
+
+    The old fallback was `beat.bolt_action or scene.bolt_mode`, and that could not work:
+    validate_longform_story forces bolt_mode into {measurement, demonstration, warning, reaction,
+    assistance}, every one of which is a member of USEFUL_BOLT_PURPOSES — the exact set
+    `action_is_specific` rejects. So whenever the model omitted bolt_action, the code substituted a
+    value guaranteed to fail its own validator, and the run died on bolt_without_useful_action
+    before any spend.
+
+    Naming what the action is performed ON turns the category back into a specific action, which is
+    what the check is actually asking for.
+    """
+    action = _text(beat.get("bolt_action"))
+    if action and action.casefold() not in USEFUL_BOLT_PURPOSES:
+        return action
+    mode = _text(scene.get("bolt_mode")) or _text(beat.get("purpose")) or "demonstration"
+    target = _text(subject) or _text(beat.get("visual"))
+    if not target:
+        return action or ""
+    verb = {"measurement": "measures", "demonstration": "demonstrates", "warning": "warns about",
+            "reaction": "reacts to", "assistance": "helps with", "test": "tests",
+            "decision": "decides on", "action": "acts on"}.get(mode.casefold(), "demonstrates")
+    return f"{verb} {target}"
 
 
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
@@ -183,8 +225,11 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "pure_evidence": pure_evidence,
         "include_human": include_human,
         "include_bolt": include_bolt,
-        "bolt_action": (_text(beat.get("bolt_action")) or _text(scene.get("bolt_mode"))
-                        if include_bolt else ""),
+        # `after` already falls back to beat["visual"] where it exists; referencing a bare `visual`
+        # here was a NameError waiting for the first Bolt beat with no state_after — it would crash
+        # instead of producing the incomplete_object_state_spec error this validator is built to
+        # report.
+        "bolt_action": _derive_bolt_action(beat, scene, after) if include_bolt else "",
         "reference_ids": references,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",
@@ -198,9 +243,51 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     }
 
 
-def compile_evidence_plan(script: dict) -> dict:
+def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> list:
+    """Trim a scene's beats to the number its RUNTIME can hold.
+
+    Each state is held for scene_duration / state_count, and both ends are bounded: shorter than
+    MIN_EVIDENCE_STATE_SECONDS reads as a flash frame, longer than MAX_VISUAL_STATE_SECONDS is
+    rejected by the rendered gate. So the count is not a preference, it is arithmetic on the
+    scene's own length -- and this used a flat beats[:4] regardless of duration.
+
+    Run 9c1fa296 carried both failures at once: "3 states in 4.42s would force 1.47s flash frames"
+    and "3 state(s) across 12.60s holds each for 4.20s". One number cannot serve a 4-second scene
+    and a 13-second one.
+
+    Only TRIMS. A scene with too few beats keeps them and the validator reports it, because adding
+    a state means inventing a visual that no beat asked for -- the same line I held on claim
+    references. Dropping a surplus beat merges coverage; fabricating one asserts content.
+    """
+    if not beats:
+        return beats
+    # MEASURED seconds when the caller has them. Fitting against the planned word count and
+    # then aligning against real audio is how states that fit on paper failed to fit in fact --
+    # the same planned-versus-measured split that made the runtime contract 34% wrong.
+    if seconds is None:
+        words = len(_text(scene.get("narration")).split())
+        seconds = words / WORDS_PER_SECOND if words else 0.0
+    if seconds <= 0:
+        return beats[:4]
+    # What the runtime can actually hold, with no floor bolted on.
+    #
+    # This was max(2, ...) so a motion-test fixture of ~2-second scenes would keep two states.
+    # That made the function emit plans validate_evidence_timing rejects on the next check: a
+    # 6-word scene is 2.1s, two states hold 1.05s each, under the 1.5s flash floor. A function
+    # whose job is to fit states to runtime must not return a count that cannot fit.
+    #
+    # A scene too short for two states IS too short, and opening_state_count says so honestly.
+    # The fixture was unrealistic -- real long-form scenes run 25-30 words -- and distorting
+    # production arithmetic to satisfy it was the wrong way round.
+    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+    return beats[:max(fewest, most)] if len(beats) > most else beats
+
+
+def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> dict:
     """Compile narration beats into explicit visual states without pretending crops are evidence."""
     scenes = script.get("scenes") or []
+    measured = scene_seconds or {}
     pack = build_continuity_pack(script)
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
@@ -209,7 +296,8 @@ def compile_evidence_plan(script: dict) -> dict:
         beats = _visual_beats(scene)
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
-            for state_index, beat in enumerate(beats[:4])
+            for state_index, beat in enumerate(
+                _states_that_fit(beats, scene, measured.get(scene_index)))
         ]
         scene_plans.append({
             "scene_index": scene_index,
@@ -259,6 +347,9 @@ def compile_evidence_plan(script: dict) -> dict:
     return plan
 
 
+MAX_VISUAL_STATE_SECONDS = 3.5
+
+
 def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                            opening_only: bool = False) -> dict:
     errors: list[dict] = []
@@ -280,9 +371,14 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         scene_index = int(scene_plan.get("scene_index") or 0)
         states = scene_plan.get("states") if isinstance(scene_plan.get("states"), list) else []
         opening = bool(scene_plan.get("opening"))
-        if opening and not 2 <= len(states) <= 4:
+        # Upper bound raised from 4 to 6. The hold ceiling is physics -- a state held longer
+        # than MAX_VISUAL_STATE_SECONDS is rejected downstream -- and a 45-word opening scene
+        # needs 5 states to satisfy it. Capping at 4 made such a scene unsatisfiable: two rules,
+        # each defensible, that cannot both hold. The floor of 2 stays, because an opening beat
+        # with one state is a still frame.
+        if opening and not 2 <= len(states) <= 6:
             errors.append(_issue(
-                "opening_state_count", "Every opening beat requires two to four evidence states.",
+                "opening_state_count", "Every opening beat requires two to six evidence states.",
                 scene=scene_index + 1))
         accepted_distinct = set()
         verified_detail = False
@@ -518,9 +614,24 @@ def validate_evidence_timing(plan: dict, audio_timing: dict) -> dict:
                 "evidence_states_too_dense",
                 f"{count} states in {duration:.2f}s would force {interval:.2f}s flash frames.",
                 scene=int(scene_plan.get("scene_index") or 0) + 1))
+        # The other side of the same interval. This guarded only the dense end, while the
+        # rendered gate hard-fails the sparse end at MAX_VISUAL_STATE_SECONDS -- so a plan
+        # could be approved here and be rejectable on arithmetic already known, with the
+        # rejection arriving after every image and every second of narration was paid for.
+        # A 2-state opening beat is explicitly permitted by opening_state_count and only
+        # clears the ceiling if its scene runs under 7s; long-form scenes run about 13s.
+        if count and interval > MAX_VISUAL_STATE_SECONDS:
+            needed = math.ceil(duration / MAX_VISUAL_STATE_SECONDS)
+            errors.append(_issue(
+                "evidence_states_too_sparse",
+                f"{count} state(s) across {duration:.2f}s holds each for {interval:.2f}s; the "
+                f"rendered gate rejects any hold over {MAX_VISUAL_STATE_SECONDS}s. "
+                f"Plan at least {needed} states.",
+                scene=int(scene_plan.get("scene_index") or 0) + 1))
     return {
         "version": 1, "passed": not errors,
         "minimum_state_seconds": MIN_EVIDENCE_STATE_SECONDS,
+        "maximum_state_seconds": MAX_VISUAL_STATE_SECONDS,
         "scene_average_state_seconds": intervals,
         "errors": errors,
     }

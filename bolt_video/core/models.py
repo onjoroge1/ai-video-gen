@@ -12,6 +12,7 @@ class VideoFormatId(str, Enum):
     SHORT_EXPLAINER = "short_explainer"
     LONG_EXPLAINER = "long_explainer"
     SIMULATION = "simulation"
+    QUIZ = "quiz"
     TV_REVIEW = "tv_review"
 
 

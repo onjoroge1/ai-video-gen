@@ -1,0 +1,25 @@
+{
+  "format": "evidence_led_mystery",
+  "beat_roles": [
+    "anomaly",
+    "false_belief",
+    "reversal",
+    "consequence",
+    "mechanism",
+    "resolution"
+  ],
+  "narration": [
+    "A reef died fast.",
+    "Scientists blamed heat.",
+    "The water was cold.",
+    "Whole colonies bleached.",
+    "A parasite spread.",
+    "The reef is gone."
+  ],
+  "expect": {
+    "pass": false,
+    "fail": [
+      "cadence"
+    ]
+  }
+}

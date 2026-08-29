@@ -1,4 +1,8 @@
 .env
+# Backups made while toggling diagnostic flags. These hold live API keys and only .env
+# itself was ignored, so a `git add -A` would have pushed credentials to the remote.
+.env.bak*
+.env.backup*
 youtube_client_secret.json
 youtube_token.json
 
@@ -24,3 +28,8 @@ finished_videos/*
 !finished_videos/video_metrics.json
 jobs/
 outputs/
+
+# Local music cache. music_assets.py checks static/music/ before the CDN, so a
+# checksum-verified copy here makes local renders work offline. Deliberately NOT
+# committed: bundling these MP3s is what blew up the Vercel function size.
+static/music/

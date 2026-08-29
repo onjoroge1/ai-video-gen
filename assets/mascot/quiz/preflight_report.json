@@ -1,0 +1,57 @@
+{
+  "point": {
+    "path": "/Users/obadiah/Documents/video/assets/mascot/quiz/point.png",
+    "passed": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "pass": true,
+        "violations": []
+      }
+    ]
+  },
+  "scan": {
+    "path": "/Users/obadiah/Documents/video/assets/mascot/quiz/scan.png",
+    "passed": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "pass": true,
+        "violations": []
+      }
+    ]
+  },
+  "celebrate": {
+    "path": "/Users/obadiah/Documents/video/assets/mascot/quiz/celebrate.png",
+    "passed": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "pass": true,
+        "violations": []
+      }
+    ]
+  },
+  "amazed": {
+    "path": "/Users/obadiah/Documents/video/assets/mascot/quiz/amazed.png",
+    "passed": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "pass": true,
+        "violations": []
+      }
+    ]
+  },
+  "wave": {
+    "path": "/Users/obadiah/Documents/video/assets/mascot/quiz/wave.png",
+    "passed": true,
+    "attempts": [
+      {
+        "attempt": 1,
+        "pass": true,
+        "violations": []
+      }
+    ]
+  }
+}

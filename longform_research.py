@@ -127,6 +127,31 @@ def validate_research_dossier(dossier: dict) -> dict:
     }
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _asserts_fact(narration: str) -> bool:
+    """Does this narration ASSERT something a source must back?
+
+    This used to search the whole scene at once, so a question counted as an assertion. The
+    format instructs the writer to pose questions to the viewer -- "So what was actually eating
+    the stomach lining?" -- and the word "eating" is innocent while "causes", "because" and
+    "leads to" are exactly the vocabulary a question about causation uses. A scene whose only
+    causal word sat inside a question was therefore required to cite a source for a sentence
+    that claims nothing, and when the fact-check rewrote its narration and the binding was
+    dropped, the run was rejected for an assertion it never made.
+
+    A question is not a claim. Everything else is judged exactly as before.
+    """
+    for sentence in _SENTENCE_SPLIT.split(_text(narration)):
+        sentence = sentence.strip()
+        if not sentence or sentence.endswith("?"):
+            continue
+        if _NUMERIC_OR_CAUSAL.search(sentence):
+            return True
+    return False
+
+
 def _claim_index(dossier: dict) -> dict[str, dict]:
     return {
         _text(claim.get("claim_id")): claim
@@ -148,7 +173,7 @@ def validate_claim_joins(script: dict, dossier: dict) -> dict:
         refs = scene.get("claim_refs")
         if not isinstance(refs, list):
             refs = []
-        requires_claim = role in FACT_ROLES or bool(_NUMERIC_OR_CAUSAL.search(narration))
+        requires_claim = role in FACT_ROLES or _asserts_fact(narration)
         if requires_claim and not refs:
             errors.append(_issue(
                 "unbound_factual_scene", "A factual or causal narration scene has no claim reference.",

@@ -21,6 +21,8 @@ FORMAT_REGISTRY = {
                          "Beat-sheet-driven long-form explainer."),
         FormatDescriptor(VideoFormatId.SIMULATION, "Simulation", "9:16", "rule",
                          "Deterministic time-and-magnitude science simulation."),
+        FormatDescriptor(VideoFormatId.QUIZ, "Rapid Quiz", "9:16", "category",
+                         "Cold-open guessing game with immediate clues and rapid reveals."),
         FormatDescriptor(VideoFormatId.TV_REVIEW, "TV Review", "16:9", "script",
                          "Spoiler-scoped episode review with an evolving story board."),
     )

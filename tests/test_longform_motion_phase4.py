@@ -43,8 +43,18 @@ def _script_and_evidence():
         (76, "mechanism", "The archive diagram records the result", "diagram records the result", "blank record", "completed record"),
         (96, "final_payoff", "Alex returns to the red gauge mark", "returns to the red gauge mark", "unread mark", "understood mark"),
     ]
+    # Scenes padded to a realistic length. The specs above are 6-word narrations, about 2.1
+    # seconds, and _states_that_fit correctly trims a 2.1s scene to a single state -- which
+    # opening_state_count then rejects, because two states cannot fit under the 1.5s flash
+    # floor in that time. Real long-form scenes run 25-30 words. The fixture was asking the
+    # compiler to do something physically impossible and calling the refusal a regression.
+    #
+    # Anchors are substrings of the original narration, so appending leaves them valid.
+    _PAD = (" The bench light steadies while the recorder keeps its slow patient count and "
+            "nobody in the room moves to touch it.")
     scenes = []
     for index, (pct, role, narration, anchor, before, after) in enumerate(specs):
+        narration = narration + _PAD
         beats = [_beat(anchor, before, after,
                        purpose="diagram" if role == "mechanism" else "action",
                        pure=role == "mechanism",

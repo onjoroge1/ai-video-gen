@@ -32,6 +32,12 @@ _SUBJECT_STOP = {
     "from", "had", "has", "have", "how", "if", "in", "is", "it", "of", "on", "or",
     "really", "the", "then", "this", "to", "was", "were", "what", "when", "where", "who",
     "why", "will", "with", "would", "you", "your", "happen", "happens", "explained",
+    # Function words that carry no subject. Their absence inflated the requirement: for "Why were
+    # doctors wrong about what causes stomach ulcers?", "about" counted as a subject term, so the
+    # opening had to hit 3 of 6 rather than 3 of 5 — and one of the six was a preposition no
+    # narration would naturally repeat.
+    "about", "into", "over", "under", "between", "through", "during", "after", "before",
+    "actually", "against", "because", "than", "that", "these", "those", "there",
 }
 
 
@@ -228,6 +234,14 @@ def _issue(code: str, message: str, scene: int | None = None, time_sec: float | 
     return out
 
 
+# Role names that exist ONLY in the mystery vocabulary, so finding one identifies the format from
+# persisted script metadata alone -- which is all this validator is allowed to read. Deliberately
+# excludes names the standard vocabulary also uses (mechanism, resolution, consequence).
+_MYSTERY_ONLY_ROLES = frozenset({
+    "anomaly", "false_belief", "seal", "second_revelation", "scope_shift", "personal_bridge",
+})
+
+
 def validate_longform_story(script: dict, question: str = "") -> dict:
     """Validate structural retention requirements using only persisted script metadata.
 
@@ -386,10 +400,38 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         (errors if int(contract.get("version") or 1) >= 2 else warnings).append(issue)
 
     predictions = [i for i, role in enumerate(roles) if role == "prediction_gate"]
-    needed_predictions = 2 if runtime >= 120 else 1
+    # An evidence-led mystery is told, in its own beat-sheet spec, "At most ONE prediction/guess
+    # prompt to the viewer, and never before the reversal -- it competes with the evidence and
+    # pre-empts the surprise." Asking a 120s mystery for TWO made the format unsatisfiable: the
+    # model obeyed the prompt, wrote one, and this rejected it. Measured across six runs it was
+    # the single most common blocker, 4 of 6. Two gates, one arithmetic, no editorial judgement
+    # needed -- 2 required against at most 1 permitted cannot both hold.
+    #
+    # The 30-second rule is the same conflict on the other axis. "Never before the reversal" puts
+    # the earliest legal prediction at the start of the reversal band, 22-35% of runtime, which is
+    # 26-42s in a 120s video. Requiring it by 30s demands it at 25%, before that band opens in most
+    # placements. So for a mystery the deadline is the reversal, not the clock.
+    # Prefer the stamped format. Role-name inference is the fallback for scripts written before
+    # the stamp existed, and it is not reliable on its own: `_role` falls back to `story_role`
+    # when a beat carries no mystery_role, so a replanned mystery can present no mystery names at
+    # all and be judged as a standard explainer against rules its own prompt forbids. That is
+    # exactly what happened to run 9f8a6cd1, which was asked for one prediction on the first pass
+    # and then failed the 30-second rule on the second.
+    is_mystery = (
+        any(_text(scene.get("_story_format")) == "evidence_led_mystery" for scene in scenes)
+        or _text(script.get("_effective_story_format")) == "evidence_led_mystery"
+        or any(_text(scene.get("_role") or scene.get("mystery_role")) in _MYSTERY_ONLY_ROLES
+               for scene in scenes))
+    needed_predictions = 1 if is_mystery else (2 if runtime >= 120 else 1)
     checks["prediction_scenes"] = [i + 1 for i in predictions]
+    checks["mystery_prediction_policy"] = is_mystery
     if len(predictions) < needed_predictions:
         errors.append(_issue("too_few_predictions", f"Expected at least {needed_predictions} viewer prediction gate(s)."))
+    # The 30s deadline applies to a mystery too. I exempted it because "never before the reversal"
+    # puts the earliest legal prediction at 26-42s in a 120s video -- but the review found the real
+    # cost: "the first real prediction gate arrives after 34 seconds. This interaction should appear
+    # around 10-15 seconds and then be answered later." The band conflict is real and the answer is
+    # to place the reversal earlier, not to stop measuring.
     elif starts[predictions[0]] > 30.0:
         errors.append(_issue("late_first_prediction", "The first prediction gate arrives after 30 seconds.",
                              predictions[0] + 1, starts[predictions[0]]))
@@ -465,6 +507,29 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
                                f"{len(missing_visible)} scene(s) do not declare a visible consequence."))
     checks["missing_visible_consequence_scenes"] = missing_visible
 
+    # Editorial judgements expressed as hard arithmetic. Each is a reasonable thing to notice and a
+    # bad thing to block on: a peak outside 55-82% of runtime, first-act continuity under 70%, an
+    # enumerated consequence, a missing viewer/human knowledge gap, or subject terms not dense
+    # enough in the first five seconds. None of them means the video is unusable, and blocking on
+    # them meant a good script died at a threshold nobody validated against real outcomes. They
+    # stay visible as warnings, and still cost score, so they can be tuned on evidence rather than
+    # on a run that never finished.
+    # Deliberately NOT including consequence_enumeration or no_viewer_human_knowledge_gap. An audit
+    # recommended demoting them too, but tests named test_three_uncausal_consequence_beats_are_
+    # rejected and test_fake_knowledge_gap_is_blocking assert they must block — that is a decision
+    # someone made on purpose, not an oversight, and it is not mine to reverse quietly. The three
+    # below carry no such intent and are pure thresholds.
+    # subject_unclear_by_5s is BLOCKING again. I demoted it as unvalidated editorial opinion; an
+    # editorial review of the first finished video then raised it independently -- "it does not say
+    # ulcers until approximately 10 seconds... a viewer could interpret this as a poisoning
+    # experiment, vaccine test, or generic medical history", scoring the hook 68/100. The gate had
+    # already said exactly that before a single image was bought.
+    _EDITORIAL = {"misplaced_peak", "broken_first_act_continuity"}
+    demoted = [issue for issue in errors if _text(issue.get("code")) in _EDITORIAL]
+    if demoted:
+        errors = [issue for issue in errors if _text(issue.get("code")) not in _EDITORIAL]
+        warnings = warnings + demoted
+
     score = max(0, 100 - 12 * len(errors) - 3 * len(warnings))
     return {
         "version": 1,
@@ -472,6 +537,7 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         "score": score,
         "errors": errors,
         "warnings": warnings,
+        "demoted_editorial": [_text(issue.get("code")) for issue in demoted],
         "checks": checks,
     }
 

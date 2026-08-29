@@ -7,12 +7,60 @@ from difflib import SequenceMatcher
 from typing import Callable
 
 
+# Whisper writes some spoken numbers as digits and others as words, inconsistently WITHIN one
+# sentence: "more than nine in every 10 of them, up to eight in 10". The narration said "ten"
+# both times. So the anchor "more than nine in every ten" could not match the transcript, and no
+# fuzzy fallback bridged it -- "ten" and "10" are simply different tokens.
+#
+# Both forms therefore map to one key. Normalising in a single direction would not help, since
+# either side can carry either form.
+_NUMBER_WORDS = {
+    "zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11",
+    "twelve": "12", "thirteen": "13", "fourteen": "14", "fifteen": "15", "sixteen": "16",
+    "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20", "thirty": "30",
+    "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70", "eighty": "80",
+    "ninety": "90", "hundred": "100", "thousand": "1000", "million": "1000000",
+    "first": "1st", "second": "2nd", "third": "3rd",
+}
+
+
 def _clean(value: str) -> str:
-    return re.sub(r"[^a-z0-9']+", "", str(value or "").casefold())
+    token = re.sub(r"[^a-z0-9']+", "", str(value or "").casefold())
+    return _NUMBER_WORDS.get(token, token)
+
+
+_JOINER = re.compile(r"[\u2010-\u2015\-/]+")
+
+
+def _split_joined(word: str, start: float, end: float) -> list:
+    """Split a token the transcriber fused with a dash into its real words.
+
+    Whisper emits "two-the" as ONE token for narration punctuated "two. The", and _clean
+    deletes the dash rather than splitting on it -- producing "twothe", a word that appears
+    in no anchor and matches nothing. The words were all spoken and the transcript was
+    complete; the tokenisation destroyed the boundary, so every phrase spanning that point
+    failed as "not present in measured speech" and no fuzzy fallback could recover it.
+
+    The pieces share the original span. That is approximate, but a phrase boundary landing a
+    few hundred milliseconds off is a visual cue timed slightly early -- against the previous
+    behaviour, which was to fail the run outright after buying the audio.
+    """
+    parts = [part for part in _JOINER.split(word) if _clean(part)]
+    if len(parts) <= 1:
+        return [(word, start, end)]
+    step = (end - start) / len(parts)
+    return [(part, start + i * step, start + (i + 1) * step) for i, part in enumerate(parts)]
 
 
 def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[float, float, str, float] | None:
-    needle = [_clean(token) for token in str(phrase or "").split()]
+    # Split the needle on the SAME joiners as the haystack. _split_joined breaks a
+    # transcriber-fused "two-the" into two tokens; if the phrase is not split identically then a
+    # legitimately hyphenated word ("once-healthy") cleans to "oncehealthy" and can never match
+    # the "once","healthy" the haystack now holds. One-sided tokenisation trades one mismatch for
+    # another -- which is exactly what my first version of this did.
+    needle = [_clean(part) for token in str(phrase or "").split()
+              for part in _JOINER.split(token)]
     needle = [token for token in needle if token]
     haystack = [_clean(item[0]) for item in words]
     if not needle:
@@ -35,7 +83,22 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
     if candidates:
         candidates.sort(reverse=True)
         best = candidates[0]
-        if len(candidates) == 1 or best[0] - candidates[1][0] >= 0.08:
+        # A rival only counts if it points somewhere ELSE. The guard below exists so a phrase
+        # that occurs twice in a scene does not get timed to the wrong occurrence -- but it was
+        # comparing the best candidate against overlapping windows of the SAME match, which are
+        # the same location viewed at three widths, not competing answers.
+        #
+        # "still smouldering underneath" against a transcript reading "still smoldering
+        # underneath" scored 0.982 at start 22 width 3, with 0.915 at start 22 width 4 right
+        # behind it -- a 0.067 gap, under the 0.08 required, so a one-letter spelling difference
+        # rejected a near-perfect match and killed a run that had already bought its audio.
+        _, best_start, best_width = best
+        best_span = range(best_start, best_start + best_width)
+        rivals = [
+            candidate for candidate in candidates[1:]
+            if not (set(range(candidate[1], candidate[1] + candidate[2])) & set(best_span))
+        ]
+        if not rivals or best[0] - rivals[0][0] >= 0.08:
             _, start, width = best
             return (float(words[start][1]), float(words[start + width - 1][2]),
                     "measured_word_timestamps_fuzzy", round(best[0], 3))
@@ -136,8 +199,15 @@ def build_audio_timing_report(
                 word, start, end = str(item[0]), float(item[1]), float(item[2])
             except (TypeError, ValueError, IndexError):
                 continue
-            if _clean(word) and 0 <= start < end <= duration + 0.25:
-                clean_words.append((word, start, end))
+            # start <= end, not start < end. Whisper emits a zero-width span for some words, and
+            # the strict comparison silently DROPPED them -- two of twenty-three in the run that
+            # exposed this. The words survive in the transcript and vanish from the list the gate
+            # searches, so a phrase containing one is torn in half and reported as "not present in
+            # measured speech" when it was spoken perfectly clearly. Losing 2 of 23 words is 91%
+            # coverage, which sails through the check below, so nothing else caught it either.
+            # The bound this filter exists to enforce is the UPPER one: timestamps past the audio.
+            if _clean(word) and 0 <= start <= end <= duration + 0.25:
+                clean_words.extend(_split_joined(word, start, end))
         script_word_count = len(str(scene.get("narration") or "").split())
         coverage = len(clean_words) / max(1, script_word_count)
         if not clean_words or not 0.70 <= coverage <= 1.30:
@@ -171,7 +241,10 @@ def build_audio_timing_report(
             })
         cursor += duration
 
-    tolerance = float(target_seconds) * 0.03
+    # Same widened band as the planner, from one constant. A measured gate stricter than the
+    # planned one rejects scripts the planner just approved.
+    from runtime_planner import RUNTIME_TOLERANCE_FRACTION
+    tolerance = float(target_seconds) * RUNTIME_TOLERANCE_FRACTION
     delta = cursor - float(target_seconds)
     if abs(delta) - tolerance > 1e-6:
         errors.append({

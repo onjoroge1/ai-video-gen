@@ -1,0 +1,9 @@
+LuckiestGuy-Regular.ttf
+  Copyright (c) 2010 Brian J. Bonislawsky DBA Astigmatic (AOETI). All rights reserved.
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+  "Luckiest Guy" is a trademark of Astigmatic (AOETI).
+
+Bundled rather than referenced from ShortGPT/, which is untracked: a font the renderer needs
+must ship with the renderer or every other checkout silently falls back to Arial and the cards
+come out a different shape. The licence permits redistribution with this attribution intact.
