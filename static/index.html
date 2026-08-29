@@ -1572,6 +1572,25 @@
         <span class="field-hint">Alex leads both structures and Bolt assists only when useful. If a topic cannot support a genuine mystery, the plan falls back to Standard before media spend and records the reason.</span>
       </div>
 
+      <details class="field" id="directed-longform-field" style="margin-top:14px; border:1px solid var(--border); border-radius:10px; padding:14px;">
+        <summary style="cursor:pointer; font-weight:700;">User-directed longform JSON</summary>
+        <p class="field-hint" style="margin:10px 0;">Paste or upload a <code>directed_longform_v1</code> contract. Validate is free. Process is disabled until the exact JSON passes and you explicitly authorize the paid first-45 pilot.</p>
+        <input type="file" id="directed-json-file" accept="application/json,.json" class="input-field" onchange="loadDirectedJsonFile(this)" />
+        <textarea id="directed-json" class="input-field" rows="10" style="margin-top:10px; font-family:monospace;" placeholder='{"schema_version":"directed_longform_v1", ...}'></textarea>
+        <div class="result-actions" style="margin-top:10px;">
+          <button type="button" class="btn btn-outline" onclick="validateDirectedLongform()">Validate JSON — free</button>
+          <a class="btn btn-outline" href="/api/explainer/directed/schema" target="_blank">View schema</a>
+        </div>
+        <pre id="directed-validation-report" style="display:none; white-space:pre-wrap; max-height:320px; overflow:auto; margin-top:12px; padding:12px; background:var(--surface); border-radius:8px;"></pre>
+        <label id="directed-paid-label" style="display:none; align-items:center; gap:8px; margin-top:12px; cursor:pointer;">
+          <input type="checkbox" id="directed-paid-authorize" onchange="document.getElementById('directed-process-btn').disabled=!this.checked" />
+          I authorize the estimated paid first-45 pilot for this exact validated JSON.
+        </label>
+        <button type="button" class="btn-generate" id="directed-process-btn" style="display:none; margin-top:12px;" disabled onclick="processDirectedLongform()">
+          PROCESS VALIDATED 45-SECOND PILOT
+        </button>
+      </details>
+
       <div class="field" style="margin-top:14px;">
         <label>Series <span style="opacity:.6;">(optional — format-series mode)</span></label>
         <input type="text" id="expl-series" class="input-field"
@@ -1605,11 +1624,11 @@
           <option value="simulation">Simulation — drop the viewer into an escalating what-if</option>
           <option value="quiz">Quiz — Bolt hosts "What is it?" (Question = a CATEGORY)</option>
         </select>
-        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz = a rapid frame-zero guessing game with three clues and no intro/outro tail — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments").</span>
+        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz V2.2 = a four-round frame-zero guessing game with full-body Bolt reveal performances and no intro/outro tail — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments").</span>
         <div class="field" id="quiz-items-field" style="display:none; margin-top:10px;">
           <label>Quiz rounds</label>
-          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="3" step="1" value="3" />
-          <span class="field-hint">How many items to guess (2–3). Three is the controlled progressive V2.1 format.</span>
+          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="4" step="1" value="4" />
+          <span class="field-hint">How many items to guess (2–4). Four is Rapid Reveal V2.2; the same generated assets also preserve control A for a clean reveal-performance comparison.</span>
         </div>
       </div>
 
@@ -3030,6 +3049,93 @@
       _explActivateStage('assemble');
   }
 
+  let directedValidation = null;
+
+  async function loadDirectedJsonFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    document.getElementById('directed-json').value = await file.text();
+    directedValidation = null;
+    document.getElementById('directed-paid-label').style.display = 'none';
+    document.getElementById('directed-process-btn').style.display = 'none';
+  }
+
+  function _directedPayload() {
+    const raw = document.getElementById('directed-json').value.trim();
+    if (!raw) throw new Error('Paste or upload a directed_longform_v1 JSON contract.');
+    try { return JSON.parse(raw); }
+    catch (err) { throw new Error(`Invalid JSON: ${err.message}`); }
+  }
+
+  async function validateDirectedLongform() {
+    const panel = document.getElementById('directed-validation-report');
+    const paid = document.getElementById('directed-paid-label');
+    const process = document.getElementById('directed-process-btn');
+    directedValidation = null; paid.style.display = 'none'; process.style.display = 'none';
+    try {
+      const response = await fetch('/api/explainer/directed/validate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({spec:_directedPayload()})
+      });
+      if (!response.ok) throw new Error(await response.text());
+      directedValidation = await response.json();
+      const visible = {...directedValidation}; delete visible.normalized_spec;
+      panel.textContent = JSON.stringify(visible, null, 2); panel.style.display = 'block';
+      panel.style.border = `1px solid ${directedValidation.valid ? '#22c55e' : '#ef4444'}`;
+      if (directedValidation.valid) {
+        paid.style.display = 'flex'; process.style.display = 'block';
+        document.getElementById('directed-paid-authorize').checked = false;
+        process.disabled = true;
+      }
+    } catch (err) {
+      panel.textContent = err.message; panel.style.display = 'block';
+      panel.style.border = '1px solid #ef4444';
+    }
+  }
+
+  async function processDirectedLongform() {
+    if (!directedValidation?.valid) return;
+    const button = document.getElementById('directed-process-btn');
+    if (!document.getElementById('directed-paid-authorize').checked) return;
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/explainer/directed/process', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          spec:_directedPayload(), spec_sha256:directedValidation.spec_sha256,
+          authorize_paid:true
+        })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const queued = await response.json();
+      explJobId = queued.job_id;
+      explLog.innerHTML = '';
+      document.getElementById('expl-error-panel').style.display = 'none';
+      document.getElementById('expl-result-panel').style.display = 'none';
+      document.getElementById('expl-progress-panel').style.display = 'block';
+      document.getElementById('expl-job-id-badge').textContent = queued.job_id;
+      _explActivateStage('script');
+      const es = new EventSource(`/api/explainer/status/${queued.job_id}`);
+      es.onmessage = async (event) => {
+        const item = JSON.parse(event.data);
+        if (item.type === 'stage' || item.type === 'log') {
+          addLog(explLog, item.type, item.data); _explDetectStage(item.data);
+        } else if (item.type === 'done') {
+          addLog(explLog, 'done', item.data); es.close(); button.disabled = false;
+          await showExplainerResult(queued.job_id);
+        } else if (item.type === 'error') {
+          addLog(explLog, 'error', item.data); es.close(); button.disabled = false;
+          showError('expl-error-panel', 'expl-error-msg', item.data);
+        }
+      };
+      es.onerror = () => { es.close(); button.disabled = false; };
+      if (queued.dispatch_url) fetch(queued.dispatch_url, {method:'POST'}).catch(() => {});
+    } catch (err) {
+      button.disabled = false;
+      showError('expl-error-panel', 'expl-error-msg', err.message);
+    }
+  }
+
   async function startExplainer() {
     const question = document.getElementById('expl-question').value.trim();
     if (!question) { alert('Please enter a question.'); return; }
@@ -3064,7 +3170,7 @@
       motion_mode:    explFormat === 'social' ? null : document.getElementById('expl-motion-mode').value,
       series:         document.getElementById('expl-series').value.trim(),
       short_template: document.getElementById('expl-template').value,
-      n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
+      n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 4,
       operator_direction: document.getElementById('expl-direction').value.trim(),
       story_format:   (document.getElementById('expl-story-format') || {}).value || 'standard_explainer',
     };
