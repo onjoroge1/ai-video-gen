@@ -66,6 +66,37 @@ class PostgresStore(_legacy.PostgresStore):
     _pilot_schema_ready = False
     _production_schema_ready = False
 
+    def rearm_infrastructure_failure(
+            self, job_id: str, *, error_fragment: str, extra_attempts: int = 3) -> dict:
+        """Add a bounded retry window without changing payload, stages, spend, or cost ceiling."""
+        fragment = str(error_fragment or "").strip()
+        if not fragment or len(fragment) > 160:
+            raise DurableExecutionError("A bounded infrastructure error fragment is required")
+        retries = max(1, min(int(extra_attempts), 3))
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            current = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if (not current or current.get("status") != "error"
+                    or fragment not in str(current.get("error") or "")
+                    or float(current.get("reserved_cost_usd") or 0) != 0
+                    or float(current.get("spent_cost_usd") or 0)
+                    >= float(current.get("max_cost_usd") or 0)):
+                raise DurableExecutionError(
+                    f"Job {job_id} is not eligible for infrastructure rearm")
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+%s),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (retries, job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed", "Infrastructure retry window added", {
+            "prior_error": fragment, "extra_attempts": retries,
+            "spent_cost_usd": row.get("spent_cost_usd"),
+            "max_cost_usd": row.get("max_cost_usd"),
+        })
+        return row
+
     def ensure_pilot_schema(self) -> None:
         self.ensure_schema()
         if self._pilot_schema_ready:

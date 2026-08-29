@@ -2487,6 +2487,16 @@ async def dispatch_agent_action(action_id: str, request: Request):
         if job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
+        elif (job and job.get("status") == "error"
+              and "Required media binary 'ffprobe' was not found" in str(job.get("error") or "")):
+            import media_binaries
+            if not media_binaries.preflight().get("ready"):
+                raise HTTPException(
+                    status_code=409, detail="Media probe repair is not ready on this deployment")
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="Required media binary 'ffprobe' was not found",
+                extra_attempts=3)
         return await _run_durable_explainer_worker(str(action["job_id"]))
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
