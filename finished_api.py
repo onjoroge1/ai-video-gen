@@ -3,15 +3,18 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.background import BackgroundTask
 
 import db
 import artifact_store
-from durable_execution import PostgresStore, StorageUnavailable
+from durable_execution import BlobStore, PostgresStore, StorageUnavailable
 
 
 def _local_index(finished_dir: str) -> dict:
@@ -149,6 +152,22 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
             raise HTTPException(status_code=404, detail=f"Artifact {kind!r} not found")
         remote = artifact.get("download_url") if download else artifact.get("url")
         if remote:
+            if artifact.get("access") == "private":
+                root = tempfile.mkdtemp(prefix=f"finished_{video_id}_")
+                suffix = Path(artifact.get("pathname") or remote).suffix or ".bin"
+                local_path = os.path.join(root, f"{kind}{suffix}")
+                try:
+                    BlobStore().download(artifact, local_path)
+                except StorageUnavailable as exc:
+                    shutil.rmtree(root, ignore_errors=True)
+                    raise HTTPException(status_code=503, detail={
+                        "code": "FINISHED_ARTIFACT_UNAVAILABLE",
+                        "message": str(exc), "retryable": True,
+                    }) from exc
+                filename = os.path.basename(local_path) if download else None
+                return FileResponse(
+                    local_path, media_type=artifact.get("content_type"), filename=filename,
+                    background=BackgroundTask(shutil.rmtree, root, ignore_errors=True))
             return RedirectResponse(remote, status_code=307)
         local_path = artifact.get("local_path")
         if local_path and os.path.isfile(local_path):
