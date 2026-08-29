@@ -731,7 +731,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             return str(path)
 
     for event in motion_events:
-        event["cache_path"] = _relative(event["cache_path"])
+        if event.get("cache_path"):
+            event["cache_path"] = _relative(event["cache_path"])
 
     manifest_path = out / "generation_manifest.json"
     manifest = {
