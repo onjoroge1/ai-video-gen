@@ -241,6 +241,53 @@ def test_agent_dispatch_requeues_only_its_bound_storage_failure(monkeypatch):
     assert calls == [("pilot001", ("storage_error",))]
 
 
+def test_agent_dispatch_rearms_exact_repaired_ffprobe_failure(monkeypatch):
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    token = "one-action-token"
+    now = datetime.now(timezone.utc)
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "directed_pilot", "status": "queued",
+        "title": "Pilot", "spec_sha256": "f" * 64, "estimated_cost_usd": 1.5,
+        "cost_ceiling_usd": 1.6, "created_at": now,
+        "expires_at": now + timedelta(minutes=5), "approved_at": now,
+        "claim_token_sha256": agent_actions.token_digest(token), "job_id": "pilot001",
+        "payload": {}, "error": None,
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+    calls = []
+
+    class Store:
+        def get_job(self, job_id):
+            return {"id": job_id, "status": "error",
+                    "error": "Required media binary 'ffprobe' was not found: install it"}
+
+        def rearm_infrastructure_failure(self, job_id, **kwargs):
+            calls.append((job_id, kwargs))
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+    monkeypatch.setattr(studio.media_binaries, "preflight", lambda: {"ready": True})
+
+    async def worker(job_id):
+        return {"claimed": True, "job": {"id": job_id, "status": "done"}}
+
+    monkeypatch.setattr(studio, "_run_durable_explainer_worker", worker)
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/agent/actions/{ACTION_ID}/dispatch",
+                headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == 200, response.text
+
+    anyio.run(run)
+    assert calls == [("pilot001", {
+        "error_fragment": "Required media binary 'ffprobe' was not found",
+        "extra_attempts": 3,
+    })]
+
+
 def test_public_action_never_exposes_payload_token_or_operator():
     now = datetime.now(timezone.utc)
     action = {
