@@ -280,6 +280,12 @@ def test_generated_jpg_payload_is_normalized_to_jpeg(tmp_path):
         assert image.mode == "RGB"
 
 
+def test_failed_optional_motion_event_needs_no_cache_path():
+    source = inspect.getsource(spec_pilot.render_pilot)
+
+    assert 'if event.get("cache_path")' in source
+
+
 def test_directed_modules_are_in_the_deployable_module_list():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     for module in ("directed_longform", "spec_pilot", "user_directed"):

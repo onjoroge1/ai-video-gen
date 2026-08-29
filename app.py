@@ -2497,6 +2497,14 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="Required media binary 'ffprobe' was not found",
                 extra_attempts=3)
+        elif (job and job.get("status") == "error"
+              and str(job.get("error") or "").strip() == "'cache_path'"):
+            # PR39 repairs a post-render manifest KeyError. The exact match plus the store's
+            # no-reservation/under-cap checks make this a bounded continuation of the immutable
+            # approved job, not a general-purpose retry or new spending authority.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="'cache_path'", extra_attempts=3)
         return await _run_durable_explainer_worker(str(action["job_id"]))
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
