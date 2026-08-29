@@ -264,3 +264,21 @@ def to_json(spec: ParsedSpec, path: str | Path) -> dict:
     }
     Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return payload
+
+def load_shot_plan(spec_path: str | Path) -> list:
+    """The spec's own shot table plus any supplementary tables beside it.
+
+    Section 9 covers only the first 45 seconds. Rather than editing the operator's document to
+    extend it -- their words, their file -- additional sections are authored into sibling
+    `shot_plan_<start>s.md` files and merged here. Later rows win on overlap, so a hand-written
+    correction can be dropped in beside a generated table without deleting anything.
+    """
+    spec_path = Path(spec_path)
+    shots = extract_shot_plan(spec_path.read_text(encoding="utf-8"))
+    for extra in sorted(spec_path.parent.glob("shot_plan_*.md")):
+        shots.extend(extract_shot_plan(extra.read_text(encoding="utf-8")))
+
+    merged: dict = {}
+    for shot in sorted(shots, key=lambda s: s["start_sec"]):
+        merged[shot["start_sec"]] = shot
+    return sorted(merged.values(), key=lambda s: s["start_sec"])
