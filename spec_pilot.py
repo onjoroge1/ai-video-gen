@@ -110,6 +110,41 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log) -> 
             return False
 
 
+# Shots the operator marked "Full motion" get real generated footage; everything else gets a
+# camera path over a still. That split is the spec's own editorial judgement, and it is also
+# the economics: I2V is ~$0.28 a shot against ~$0.04 for a still, and at a 2.7s cut we would
+# be buying 5-second clips and discarding half of every one.
+I2V_MODES = ("Full motion",)
+
+
+def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: str,
+                        cost_sink: list, log) -> bool:
+    """Generate true footage for one shot, trimmed to its hold. False if the provider declined.
+
+    The generated clip is cached beside the still: at ~$0.28 each these are by far the most
+    expensive assets in the film, and a re-render that re-bought them would cost more than the
+    entire stills pass. animate_scene never raises -- it returns None when every provider in the
+    chain fails -- so a decline falls back to the camera path rather than losing the shot.
+    """
+    cached = Path(out_path).with_suffix(".src.mp4")
+    if not (cached.exists() and cached.stat().st_size > 0):
+        clip = ep.animate_scene(image_path, shot["visual"], str(cached), 1920, 1080,
+                                cost_sink=cost_sink)
+        if not clip or not Path(cached).exists():
+            log("      i2v declined; falling back to a camera path")
+            return False
+
+    # Trim to the hold. The provider returns ~5s regardless of what was asked, and the cut
+    # length is set by the narration, not by the clip.
+    ep._run_ffmpeg([
+        ep._ffmpeg_bin(), "-nostdin", "-y", "-i", str(cached), "-t", f"{seconds:.3f}",
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,"
+               "crop=1920:1080,setsar=1,format=yuv420p,fps=30",
+        "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "19", out_path,
+    ])
+    return True
+
+
 def _motion_for(shot: dict, order: int) -> str:
     text = f"{shot['visual']} {shot['mode']}".lower()
     for phrase, preset in _MOVE_WORDS:
@@ -157,7 +192,8 @@ def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS,
 
 
 def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
-                 window: tuple = (0.0, PILOT_SECONDS), log=print) -> dict:
+                 window: tuple = (0.0, PILOT_SECONDS), use_i2v: bool = False,
+                 log=print) -> dict:
     """Render one window of the spec. Defaults to the section-9 pilot gate.
 
     Generalised from a fixed first-45-seconds runner so a later section can be proven without
@@ -298,12 +334,21 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         f"holds {min(holds):.1f}-{max(holds):.1f}s")
 
     clips = []
+    i2v_costs: list = []
+    animated = 0
     for order, (shot, hold) in enumerate(zip(shots, holds)):
-        motion = _motion_for(shot, order)
         clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{order:02d}.mp4")
-        _render_shot(image_paths[order], hold, motion, clip)
+        if use_i2v and shot["mode"] in I2V_MODES and _render_motion_shot(
+                image_paths[order], shot, hold, clip, i2v_costs, log):
+            animated += 1
+            log(f"  shot {order + 1:>2} {hold:4.1f}s  I2V")
+        else:
+            motion = _motion_for(shot, order)
+            _render_shot(image_paths[order], hold, motion, clip)
+            log(f"  shot {order + 1:>2} {hold:4.1f}s  {motion}")
         clips.append(clip)
-        log(f"  shot {order + 1:>2} {hold:4.1f}s  {motion}")
+    if use_i2v:
+        log(f"  {animated}/{len(shots)} shots animated  (i2v ${sum(i2v_costs):.2f})")
 
     concat_list = out / "tmp" / f"shots_{int(win_start):04d}.txt"
     concat_list.write_text(
@@ -342,10 +387,13 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         "full_script_words": spec.words,
         "tts_cost_usd": round(sum(audio_costs), 4),
         "image_cost_usd": round(sum(image_costs), 4),
-        "total_cost_usd": round(sum(audio_costs) + sum(image_costs), 4),
+        "i2v_cost_usd": round(sum(i2v_costs), 4),
+        "animated_shots": animated,
+        "total_cost_usd": round(sum(audio_costs) + sum(image_costs) + sum(i2v_costs), 4),
         "shots": len(shots),
         "preview_path": preview,
     }
-    log(f"Pilot cost: ${report['total_cost_usd']:.3f} "
-        f"(tts ${report['tts_cost_usd']:.3f} + images ${report['image_cost_usd']:.3f})")
+    log(f"Window cost: ${report['total_cost_usd']:.3f} "
+        f"(tts ${report['tts_cost_usd']:.3f} + images ${report['image_cost_usd']:.3f}"
+        f" + i2v ${report['i2v_cost_usd']:.3f})")
     return report
