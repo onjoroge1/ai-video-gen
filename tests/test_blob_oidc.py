@@ -1,4 +1,5 @@
 import blob_compat
+import requests
 
 
 def _clear_blob_env(monkeypatch):
@@ -99,3 +100,73 @@ def test_durable_blobstore_uses_oidc_credentials(monkeypatch):
     store = durable_execution.BlobStore()
     assert store.credentials.mode == "oidc"
     assert store.credentials.store_id == "testStore"
+
+
+def test_upload_auto_retries_private_when_store_rejects_public(tmp_path, monkeypatch):
+    _clear_blob_env(monkeypatch)
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_testStore_secret")
+    source = tmp_path / "checkpoint.tar.gz"
+    source.write_bytes(b"checkpoint")
+    seen = []
+
+    class Response:
+        def __init__(self, access):
+            self.access = access
+            self.status_code = 400 if access == "public" else 200
+            self.text = ('{"error":{"message":"Cannot use public access on a private store."}}'
+                         if access == "public" else "")
+
+        def raise_for_status(self):
+            if self.status_code != 200:
+                raise requests.HTTPError("400 Client Error")
+
+        def json(self):
+            return {
+                "url": "https://testStore.private.blob.vercel-storage.com/checkpoint.tar.gz",
+                "pathname": "jobs/job/checkpoint.tar.gz",
+                "contentType": "application/gzip",
+            }
+
+    def fake_put(_url, **kwargs):
+        access = kwargs["headers"]["x-vercel-blob-access"]
+        seen.append(access)
+        return Response(access)
+
+    monkeypatch.setattr(blob_compat.requests, "put", fake_put)
+    result = blob_compat.upload_file(
+        str(source), "jobs/job/checkpoint.tar.gz", access="auto")
+
+    assert seen == ["public", "private"]
+    assert result["access"] == "private"
+
+
+def test_private_download_sends_blob_credentials(tmp_path, monkeypatch):
+    _clear_blob_env(monkeypatch)
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_testStore_secret")
+    seen = {}
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            assert chunk_size > 0
+            yield b"private-bytes"
+
+        def close(self):
+            return None
+
+    def fake_get(url, **kwargs):
+        seen.update({"url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(blob_compat.requests, "get", fake_get)
+    output = tmp_path / "download.bin"
+    blob_compat.download_file(
+        "https://testStore.private.blob.vercel-storage.com/object",
+        str(output), access="private")
+
+    assert seen["headers"]["Authorization"] == "Bearer vercel_blob_rw_testStore_secret"
+    assert output.read_bytes() == b"private-bytes"

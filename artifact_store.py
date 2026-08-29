@@ -83,7 +83,7 @@ def _upload_file(local_path: str, job_id: str, kind: str) -> dict:
         uploaded = blob_compat.upload_file(
             str(path),
             remote,
-            access="public",
+            access="auto",
             content_type=content_type,
             add_random_suffix=True,
             overwrite=False,

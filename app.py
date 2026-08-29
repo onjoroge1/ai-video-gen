@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile, Request
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -2481,6 +2482,11 @@ async def dispatch_agent_action(action_id: str, request: Request):
     if action.get("status") != "queued" or not action.get("job_id"):
         raise HTTPException(status_code=409, detail="Agent action has no queued job")
     try:
+        store, _ = _durable_components()
+        job = await asyncio.to_thread(store.get_job, str(action["job_id"]))
+        if job and job.get("status") == "storage_error":
+            await asyncio.to_thread(
+                store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
         return await _run_durable_explainer_worker(str(action["job_id"]))
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -2779,6 +2785,23 @@ async def explainer_download(job_id: str):
                 store, _ = _durable_components()
                 record = await asyncio.to_thread(store.finished_get, job_id)
                 if record and record.get("download_url"):
+                    artifact = (record.get("artifacts") or {}).get("video") or {}
+                    if artifact.get("access") == "private":
+                        _, blob = _durable_components()
+                        root = tempfile.mkdtemp(prefix=f"expl_download_{job_id}_")
+                        local_path = os.path.join(root, "video.mp4")
+                        try:
+                            await asyncio.to_thread(blob.download, artifact, local_path)
+                        except durable_execution.StorageUnavailable:
+                            shutil.rmtree(root, ignore_errors=True)
+                            raise
+                        safe = "".join(
+                            c if c.isalnum() or c in " -_" else "_"
+                            for c in record.get("title", "explainer"))
+                        return FileResponse(
+                            local_path, media_type="video/mp4", filename=f"{safe}.mp4",
+                            background=BackgroundTask(
+                                shutil.rmtree, root, ignore_errors=True))
                     return RedirectResponse(record["download_url"], status_code=307)
             except durable_execution.StorageUnavailable as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc

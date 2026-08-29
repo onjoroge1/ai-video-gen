@@ -111,12 +111,21 @@ def _endpoint() -> str:
     return (os.environ.get("VERCEL_BLOB_API_URL") or "https://vercel.com/api/blob").rstrip("/")
 
 
+def configured_access() -> str:
+    """Return the requested Blob visibility, defaulting to safe runtime discovery."""
+    value = (os.environ.get("BLOB_ACCESS") or os.environ.get("VERCEL_BLOB_ACCESS")
+             or "auto").strip().lower()
+    if value not in {"auto", "public", "private"}:
+        raise BlobAuthError("BLOB_ACCESS must be auto, public, or private")
+    return value
+
+
 def upload_file(
     local_path: str,
     remote_path: str,
     *,
     credentials: BlobCredentials | None = None,
-    access: str = "public",
+    access: str = "auto",
     content_type: str = "application/octet-stream",
     add_random_suffix: bool = True,
     overwrite: bool = False,
@@ -130,60 +139,113 @@ def upload_file(
         f"{credentials.store_id or 'store'}:{int(time.time() * 1000)}:"
         f"{uuid.uuid4().hex[:8]}"
     )
-    headers = {
-        **_auth_headers(credentials),
-        "x-api-version": os.environ.get("VERCEL_BLOB_API_VERSION_OVERRIDE", "11"),
-        "x-api-blob-request-id": request_id,
-        "x-api-blob-request-attempt": "0",
-        "x-content-type": content_type,
-        "x-content-length": str(path.stat().st_size),
-        "x-add-random-suffix": "1" if add_random_suffix else "0",
-        "x-allow-overwrite": "1" if overwrite else "0",
-        "x-vercel-blob-access": access,
-        "x-cache-control-max-age": str(max(60, int(cache_control_max_age))),
-    }
-    try:
-        with path.open("rb") as body:
-            response = requests.put(
-                _endpoint(),
-                params={"pathname": remote_path},
-                headers=headers,
-                data=body,
-                timeout=(15, 900),
-            )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        detail = ""
+    requested_access = configured_access() if access == "auto" else access.strip().lower()
+    if requested_access not in {"auto", "public", "private"}:
+        raise BlobAuthError("Blob upload access must be auto, public, or private")
+    candidates = [requested_access] if requested_access != "auto" else ["public", "private"]
+    failure = None
+    payload = None
+    actual_access = ""
+    for attempt, candidate in enumerate(candidates):
+        headers = {
+            **_auth_headers(credentials),
+            "x-api-version": os.environ.get("VERCEL_BLOB_API_VERSION_OVERRIDE", "11"),
+            "x-api-blob-request-id": request_id,
+            "x-api-blob-request-attempt": str(attempt),
+            "x-content-type": content_type,
+            "x-content-length": str(path.stat().st_size),
+            "x-add-random-suffix": "1" if add_random_suffix else "0",
+            "x-allow-overwrite": "1" if overwrite else "0",
+            "x-vercel-blob-access": candidate,
+            "x-cache-control-max-age": str(max(60, int(cache_control_max_age))),
+        }
         try:
-            detail = f" ({response.text[:300]})"
-        except Exception:
-            pass
-        raise BlobAuthError(f"Vercel Blob upload failed: {exc}{detail}") from exc
+            with path.open("rb") as body:
+                response = requests.put(
+                    _endpoint(), params={"pathname": remote_path}, headers=headers,
+                    data=body, timeout=(15, 900))
+            response.raise_for_status()
+            payload = response.json()
+            actual_access = candidate
+            break
+        except Exception as exc:
+            detail = ""
+            try:
+                detail = response.text[:300]
+            except Exception:
+                pass
+            failure = (exc, detail)
+            # Auto mode retries only the exact public/private store mismatch. Other failures
+            # (credentials, quota, networking, malformed requests) remain fail-closed.
+            if not (requested_access == "auto" and candidate == "public"
+                    and "private store" in detail.lower()):
+                break
+    if payload is None:
+        exc, detail = failure or (RuntimeError("unknown upload failure"), "")
+        suffix = f" ({detail})" if detail else ""
+        raise BlobAuthError(f"Vercel Blob upload failed: {exc}{suffix}") from exc
     return {
         "url": payload["url"],
         "download_url": payload.get("downloadUrl") or payload["url"] + "?download=1",
         "pathname": payload.get("pathname") or remote_path,
         "content_type": payload.get("contentType") or content_type,
         "size_bytes": path.stat().st_size,
+        "access": actual_access,
     }
 
 
-def download_public(url: str, local_path: str, *, overwrite: bool = True) -> str:
+def download_file(
+    url: str,
+    local_path: str,
+    *,
+    credentials: BlobCredentials | None = None,
+    access: str = "auto",
+    overwrite: bool = True,
+) -> str:
     dest = Path(local_path)
     if dest.exists() and not overwrite:
         raise BlobAuthError(f"Destination already exists: {dest}")
     dest.parent.mkdir(parents=True, exist_ok=True)
+    requested_access = access.strip().lower()
+    if requested_access not in {"auto", "public", "private"}:
+        raise BlobAuthError("Blob download access must be auto, public, or private")
+    candidates = [requested_access] if requested_access != "auto" else ["public", "private"]
+    failure = None
+    for candidate in candidates:
+        response = None
+        try:
+            headers = {}
+            if candidate == "private":
+                credentials = credentials or resolve_credentials()
+                headers = _auth_headers(credentials)
+            response = requests.get(
+                url, headers=headers, stream=True, timeout=(15, 900))
+            response.raise_for_status()
+            with dest.open("wb") as out:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        out.write(chunk)
+            return str(dest)
+        except Exception as exc:
+            failure = exc
+            try:
+                if response is not None:
+                    response.close()
+            except Exception:
+                pass
+            if requested_access != "auto" or candidate != "public" \
+                    or getattr(response, "status_code", 0) not in {401, 403}:
+                break
     try:
-        response = requests.get(url, stream=True, timeout=(15, 900))
-        response.raise_for_status()
-        with dest.open("wb") as out:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    out.write(chunk)
-    except Exception as exc:
-        raise BlobAuthError(f"Vercel Blob download failed: {exc}") from exc
-    return str(dest)
+        dest.unlink(missing_ok=True)
+    except OSError:
+        pass
+    raise BlobAuthError(f"Vercel Blob download failed: {failure}") from failure
+
+
+def download_public(url: str, local_path: str, *, overwrite: bool = True) -> str:
+    """Compatibility wrapper for known-public legacy objects."""
+    return download_file(url, local_path, access="public", overwrite=overwrite)
 
 
 def delete(url_or_path: str, *, credentials: BlobCredentials | None = None) -> None:

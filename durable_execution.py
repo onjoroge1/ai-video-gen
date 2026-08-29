@@ -288,7 +288,7 @@ class BlobStore:
                 str(path),
                 remote_path,
                 credentials=self.credentials,
-                access="public",
+                access="auto",
                 content_type=content_type,
                 add_random_suffix=True,
                 overwrite=False,
@@ -300,10 +300,12 @@ class BlobStore:
 
     def download(self, artifact: dict, local_path: str) -> str:
         try:
-            blob_compat.download_public(artifact["url"], local_path, overwrite=True)
+            blob_compat.download_file(
+                artifact["url"], local_path, credentials=self.credentials,
+                access=artifact.get("access") or "auto", overwrite=True)
         except blob_compat.BlobAuthError as exc:
             raise StorageUnavailable(f"Blob download failed: {exc}") from exc
-        if file_sha256(local_path) != artifact.get("sha256"):
+        if artifact.get("sha256") and file_sha256(local_path) != artifact.get("sha256"):
             raise StorageUnavailable("Downloaded checkpoint hash does not match its durable manifest")
         return local_path
 

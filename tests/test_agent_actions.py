@@ -197,6 +197,50 @@ def test_agent_action_public_surface_does_not_expand_authority(monkeypatch):
     anyio.run(run)
 
 
+def test_agent_dispatch_requeues_only_its_bound_storage_failure(monkeypatch):
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    token = "one-action-token"
+    now = datetime.now(timezone.utc)
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "directed_pilot", "status": "queued",
+        "title": "Pilot", "spec_sha256": "f" * 64, "estimated_cost_usd": 1.5,
+        "cost_ceiling_usd": 1.6, "created_at": now,
+        "expires_at": now + timedelta(minutes=5), "approved_at": now,
+        "claim_token_sha256": agent_actions.token_digest(token), "job_id": "pilot001",
+        "payload": {}, "error": None,
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+    calls = []
+
+    class Store:
+        def get_job(self, job_id):
+            assert job_id == "pilot001"
+            return {"id": job_id, "status": "storage_error"}
+
+        def requeue(self, job_id, *, allowed_statuses):
+            calls.append((job_id, allowed_statuses))
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+
+    async def worker(job_id):
+        return {"claimed": True, "job": {"id": job_id, "status": "done"}}
+
+    monkeypatch.setattr(studio, "_run_durable_explainer_worker", worker)
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/agent/actions/{ACTION_ID}/dispatch",
+                headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == 200, response.text
+            assert response.json()["claimed"] is True
+
+    anyio.run(run)
+    assert calls == [("pilot001", ("storage_error",))]
+
+
 def test_public_action_never_exposes_payload_token_or_operator():
     now = datetime.now(timezone.utc)
     action = {
