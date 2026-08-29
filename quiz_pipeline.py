@@ -65,6 +65,8 @@ FP = _resolve_media_bin("ffprobe", "FFPROBE_BIN")
 # the resolved paths from this facade.
 _legacy.FF = FF
 _legacy.FP = FP
+_legacy._dur = media_binaries.probe_duration
+_dur = media_binaries.probe_duration
 
 
 def run_quiz_pipeline(*args, **kwargs):

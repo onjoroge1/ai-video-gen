@@ -24,6 +24,7 @@ from io import StringIO
 import requests
 import pandas as pd
 import anthropic
+from media_binaries import probe_duration
 
 from music_assets import MUSIC_CREDIT, get_music_path
 
@@ -501,11 +502,7 @@ def add_audio(video_path: str, mood: str, output_path: str, progress_cb=None) ->
         shutil.copy(video_path, output_path)
         return False
 
-    r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
-        capture_output=True, text=True, check=True,
-    )
-    dur = float(json.loads(r.stdout)["format"]["duration"])
+    dur = probe_duration(video_path)
     fade_out_start = max(0.0, dur - 4.0)
 
     log(f"Music: {mood} (Kevin MacLeod, CC-BY)")
