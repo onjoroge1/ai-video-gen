@@ -692,25 +692,23 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     concat_list = out / "tmp" / f"shots_{int(win_start):04d}.txt"
     concat_list.write_text(
         "".join(f"file '{clip}'\n" for clip in clips), encoding="utf-8")
-    silent_video = str(out / "tmp" / f"video_{int(win_start):04d}.mp4")
-    ep._run_ffmpeg([ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(concat_list), "-c", "copy", silent_video])
-
     audio_list = out / "tmp" / f"audio_{int(win_start):04d}.txt"
     audio_list.write_text(
         "".join(f"file '{path}'\n" for path in audio_paths), encoding="utf-8")
-    narration = str(out / "tmp" / f"narration_{int(win_start):04d}.mp3")
-    ep._run_ffmpeg([ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(audio_list), "-c", "copy", narration])
 
     preview = str(out / f"segment_{int(win_start):04d}_{int(win_end):04d}.mp4")
-    # -shortest so the film ends with the narration rather than on a held frame if the shot
-    # table and the measured audio disagree, which they will until the opening is lengthened.
+    # Mux both concat lists directly. Keeping all clips, then materialising a full silent-video
+    # copy, then materialising the final mux briefly triples the video footprint and exhausts
+    # Vercel's /tmp on a 15-shot opening. -shortest still makes narration the timing authority.
     ep._run_ffmpeg([
-        ep._ffmpeg_bin(), "-nostdin", "-y", "-i", silent_video, "-i", narration,
+        ep._ffmpeg_bin(), "-nostdin", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(concat_list),
+        "-f", "concat", "-safe", "0", "-i", str(audio_list),
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-movflags", "+faststart", preview,
     ])
+    for clip in clips:
+        Path(clip).unlink(missing_ok=True)
     # Report the RESCALED holds, not the spec's planned ones. The earlier version recomputed
     # from the unscaled table and printed "45.0s vs 40.5s" after the rescale had already made
     # them agree -- a log line contradicting the thing it was reporting on.

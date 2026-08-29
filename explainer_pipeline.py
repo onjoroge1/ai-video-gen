@@ -2939,6 +2939,28 @@ def _write_image_result(datum, output_path: str) -> None:
         urllib.request.urlretrieve(datum.url, output_path)
 
 
+def _normalize_generated_image(output_path: str) -> None:
+    """Make the on-disk encoding match a JPEG suffix.
+
+    Image APIs commonly return PNG bytes even when the requested destination ends in ``.jpg``.
+    Directed pilots keep fifteen masters plus derived overlays in the same constrained serverless
+    filesystem, so retaining those lossless payloads can exhaust ``/tmp`` before the final mux.
+    The durable stage hash is verified before this local normalization; future restores perform
+    the same deterministic conversion after download.
+    """
+    if os.path.splitext(output_path)[1].casefold() not in {".jpg", ".jpeg"}:
+        return
+    try:
+        with Image.open(output_path) as source:
+            image = source.convert("RGB").copy()
+        image.save(output_path, "JPEG", quality=92, optimize=True)
+    except (OSError, ValueError):
+        # Provider validation and the durable non-empty/hash checks remain authoritative. Keep
+        # unusual-but-valid SDK/test payloads untouched instead of turning a space optimization
+        # into a generation failure.
+        return
+
+
 def generate_image(prompt: str, output_path: str, reference_paths: list[str] | None = None,
                    cost_sink: list | None = None, size: str = "1536x1024") -> str:
     """Generate a scene image with gpt-image-2.
@@ -2999,6 +3021,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
             stage_key=stage_key, provider="openai-images", request=request,
             estimated_cost=_COST_IMG_HOST if valid_refs else _COST_IMG_BASE,
             output_path=output_path, operation=_durable_call)
+        _normalize_generated_image(output_path)
         if cost_sink is not None:
             cost_sink.append(actual)
     else:
@@ -3006,6 +3029,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
         if cost_sink is not None:
             cost_sink.append(_image_cost_from_usage(resp))
         _write_image_result(resp.data[0], output_path)
+        _normalize_generated_image(output_path)
     return output_path
 
 
