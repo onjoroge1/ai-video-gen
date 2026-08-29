@@ -261,6 +261,23 @@ def test_renderer_measures_audio_before_any_visual_generation():
     assert source.index("measured pilot narration") < source.index("_generate_shot_image")
     assert 'world = shot["world_id"]' in source
     assert '"-movflags", "+faststart"' in source
+    assert '"-f", "concat", "-safe", "0", "-i", str(concat_list)' in source
+    assert "silent_video" not in source
+    assert "for clip in clips" in source
+
+
+def test_generated_jpg_payload_is_normalized_to_jpeg(tmp_path):
+    from explainer_pipeline import _normalize_generated_image
+
+    path = tmp_path / "provider-output.jpg"
+    Image.new("RGBA", (320, 180), (20, 40, 60, 128)).save(path, "PNG")
+
+    _normalize_generated_image(str(path))
+
+    assert path.read_bytes().startswith(bytes((0xFF, 0xD8, 0xFF)))
+    with Image.open(path) as image:
+        assert image.format == "JPEG"
+        assert image.mode == "RGB"
 
 
 def test_directed_modules_are_in_the_deployable_module_list():
