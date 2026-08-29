@@ -61,6 +61,11 @@ metadata. The authenticated `/finished` library survives cold starts and links b
 navigation. Blob objects use random-suffixed public CDN URLs for efficient video playback; the
 library and all generation APIs remain behind the studio login.
 
+Headless assistants never receive that login or a reusable worker secret. They can propose one
+directed pilot through `POST /api/agent/actions`; it remains non-spending until an authenticated
+operator approves the exact spec hash and cost ceiling at `/agent/actions`. A hashed, expiring
+claim token can enqueue that approved first-45 job once and cannot authorize a full film.
+
 `GET /api/production-readiness` reports configuration booleans without exposing any credential.
 
 Long-form explainer execution is also durable in production. The create route writes a queued job

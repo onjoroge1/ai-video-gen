@@ -16,6 +16,7 @@ dependencies = {file = ["requirements.txt"]}
 # namespace packages when Vercel asks uv to build the local project.
 [tool.setuptools]
 py-modules = [
+    "agent_actions",
     "app",
     "artifact_store",
     "audio_timing",

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Request a ReelForge action</title>
+<style>
+:root{color-scheme:dark;--bg:#090b10;--panel:#11151d;--line:#293241;--text:#f5f7fa;--dim:#9ca7b8;--red:#e63946;--green:#39d98a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,sans-serif;padding:28px}
+main{max-width:850px;margin:auto}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;margin:18px 0}
+h1{margin:0 0 8px}p{color:var(--dim)}label{display:block;margin:14px 0 6px;font-weight:700}
+textarea,input,select{width:100%;background:#090c11;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:11px;font:inherit}
+textarea{min-height:180px;font-family:ui-monospace,monospace}button{border:0;border-radius:9px;padding:11px 16px;background:var(--red);color:#fff;font-weight:800;cursor:pointer;margin:8px 8px 0 0}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:#2a3442}.ok{color:var(--green)}pre{white-space:pre-wrap;word-break:break-word;background:#080b10;border-radius:9px;padding:14px}.hidden{display:none}
+</style></head><body><main>
+<h1>Request one directed pilot</h1>
+<p>This page cannot access the studio. It can only propose one immutable first-45 pilot for an authenticated operator to review.</p>
+<section class="card" id="create-card">
+  <label for="source">Specification</label>
+  <select id="source"><option value="hippo">Bundled Hippo Bacon directed v1</option><option value="json">Paste directed JSON</option></select>
+  <div id="json-wrap" class="hidden"><label for="spec">Directed JSON</label><textarea id="spec" placeholder='{"schema_version":"directed_longform_v1", ...}'></textarea></div>
+  <label for="ceiling">Maximum authorized pilot cost (USD)</label><input id="ceiling" type="number" min="0.01" max="5" step="0.01" value="1.60">
+  <button id="create">Create non-spending request</button>
+</section>
+<section class="card hidden" id="status-card"><h2>Action status</h2><pre id="status"></pre>
+  <button class="secondary" id="refresh">Refresh</button><button id="execute" disabled>Execute approved pilot</button>
+  <p id="note"></p></section>
+<script>
+const source=document.getElementById('source'),spec=document.getElementById('spec'),ceiling=document.getElementById('ceiling');
+const statusEl=document.getElementById('status'),card=document.getElementById('status-card'),execute=document.getElementById('execute'),note=document.getElementById('note');
+let actionId=sessionStorage.getItem('agent_action_id')||'',token=sessionStorage.getItem('agent_action_token')||'';
+source.onchange=()=>document.getElementById('json-wrap').classList.toggle('hidden',source.value!=='json');
+async function api(path,options={}){const r=await fetch(path,options);const d=await r.json();if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));return d}
+async function refresh(){if(!actionId)return;const d=await api(`/api/agent/actions/${actionId}`,{headers:{Authorization:`Bearer ${token}`}});card.classList.remove('hidden');statusEl.textContent=JSON.stringify(d,null,2);execute.disabled=d.status!=='approved';note.textContent=d.status==='pending'?'Waiting for an authenticated operator at /agent/actions.':d.status==='approved'?'Approved. Execution will consume this claim once.':''}
+document.getElementById('create').onclick=async()=>{try{let body={operation:'directed_pilot',cost_ceiling_usd:Number(ceiling.value)};if(source.value==='hippo')body.bundled_spec_id='hippo_bacon_directed_v1';else body.spec=JSON.parse(spec.value);const d=await api('/api/agent/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});actionId=d.action_id;token=d.claim_token;sessionStorage.setItem('agent_action_id',actionId);sessionStorage.setItem('agent_action_token',token);await refresh()}catch(e){alert(e.message)}};
+document.getElementById('refresh').onclick=()=>refresh().catch(e=>alert(e.message));
+execute.onclick=async()=>{if(!confirm('Execute this approved first-45 pilot within its displayed cost ceiling?'))return;execute.disabled=true;try{const d=await api(`/api/agent/actions/${actionId}/execute`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});statusEl.textContent=JSON.stringify(d,null,2);note.textContent='Queued. Starting the durable worker…';fetch(d.dispatch_path,{method:'POST',headers:{Authorization:`Bearer ${token}`}}).catch(()=>{});setInterval(()=>refresh().catch(()=>{}),5000)}catch(e){alert(e.message);await refresh()}};
+if(actionId&&token)refresh().catch(()=>{});
+</script></main></body></html>

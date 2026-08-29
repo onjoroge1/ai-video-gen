@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -25,6 +26,22 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 COOKIE_NAME = "reelforge_session"
 PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz"))
+_AGENT_ACTION_ID = re.compile(r"^/api/agent/actions/act_[0-9a-f]{32}(?:/(?:execute|dispatch))?$")
+
+
+def _public_agent_action(scope) -> bool:
+    """Expose only the handshake surface; approval, rejection and listing require a session."""
+    path = scope.get("path", "")
+    method = scope.get("method", "GET").upper()
+    if path == "/agent/actions/request" and method == "GET":
+        return True
+    if path == "/api/agent/actions" and method == "POST":
+        return True
+    if _AGENT_ACTION_ID.fullmatch(path):
+        if path.endswith(("/execute", "/dispatch")):
+            return method == "POST"
+        return method == "GET"
+    return False
 
 
 def _b64encode(raw: bytes) -> str:
@@ -142,7 +159,8 @@ class PrivateAccessMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in PUBLIC_PATHS or verify_session(_cookie_from_scope(scope)):
+        if (path in PUBLIC_PATHS or _public_agent_action(scope)
+                or verify_session(_cookie_from_scope(scope))):
             await self.app(scope, receive, send)
             return
 
