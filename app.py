@@ -1117,7 +1117,7 @@ class ExplainerRequest(BaseModel):
     series: str = ""                  # format-series mode: a recurring series name/pattern
     short_template: str = "auto"      # social only: "auto" (title heuristic) | "explainer"
                                       # (curiosity-gap mystery) | "simulation" (you-change escalation)
-    n_items: int = 3                  # rapid quiz is deliberately capped at 3 rounds
+    n_items: int = 4                  # rapid quiz round count; the cap lives in the quiz contract
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
@@ -1246,7 +1246,10 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 None,
                 lambda: _run_with_runtime(lambda: qp.run_quiz_pipeline(
                     category=request.question, output_dir=output_dir,
-                    n_items=max(2, min(3, request.n_items or 3)),
+                    # Clamp from the creative contract, not a literal. This route had its own
+                    # min(3, ...) which silently outranked the contract: raising max_items there
+                    # would have changed the tests and nothing the API actually renders.
+                    n_items=qp.clamp_quiz_items(request.n_items),
                     voice=request.voice, operator_direction=request.operator_direction, progress_cb=push)),
             )
         else:
