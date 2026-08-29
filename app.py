@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -1285,13 +1285,20 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 "generation_manifest_path": pilot["generation_manifest_path"],
                 "directed_spec_path": pilot["directed_spec_path"],
                 "validation_report_path": pilot["validation_report_path"],
+                "rendered_contract": pilot.get("rendered_contract") or {},
+                "rendered_contract_path": pilot.get("rendered_contract_path"),
+                "rendered_contact_sheet_path": pilot.get("rendered_contact_sheet_path"),
+                "human_review_path": pilot.get("human_review_path"),
+                "first_minute_preview_path": pilot["preview_path"],
                 "directed_pilot": True,
                 # A rendered pilot is not a passed film.  Preserve it for editorial review and
                 # keep full-film processing unavailable until that separate gate exists.
                 "status": "degraded",
-                "degraded_reasons": [
-                    "directed pilot rendered; editorial approval is required before full-film processing"
-                ],
+                "degraded_reasons": ([
+                    "directed pilot failed its automatic rendered grade and cannot be promoted"
+                ] if not (pilot.get("rendered_contract") or {}).get("automated_pass") else [
+                    "directed pilot passed automation; editorial approval is required before full-film processing"
+                ]),
             }
         # QUIZ template (social only): a different backend — Bolt hosts a "What is it?" guessing quiz.
         # The `question` field carries the CATEGORY (e.g. "animals"). Returns an explainer-shaped result.
@@ -2201,6 +2208,19 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
 async def explainer_directed_schema():
     import directed_longform as dl
     return dl.json_schema()
+
+
+@app.get("/api/explainer/directed/template")
+async def explainer_directed_template():
+    """Download a fillable contract starter; unresolved placeholders remain fail-closed."""
+    import directed_longform as dl
+    content = json.dumps(dl.starter_template(), indent=2, ensure_ascii=False) + "\n"
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition":
+                 'attachment; filename="directed_longform_v1_template.json"'},
+    )
 
 
 @app.post("/api/explainer/directed/validate")

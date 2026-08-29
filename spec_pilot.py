@@ -23,11 +23,21 @@ import json
 import os
 import re
 import time
+import urllib.request
 from pathlib import Path
 
 import explainer_pipeline as ep
 import directed_longform as dl
 import user_directed as ud
+from PIL import Image, ImageDraw
+from font_utils import load_font
+from longform_rendered_gate import (
+    build_contact_sheet,
+    create_human_review_record,
+    cross_check_blind_observations,
+    inspect_rendered_opening,
+    score_rendered_contract,
+)
 
 
 PILOT_SECONDS = 45.0
@@ -89,7 +99,8 @@ def _soften(prompt: str) -> tuple[str, list]:
     return prompt, changed
 
 
-def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log) -> bool:
+def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log,
+                         reference_paths: list[str] | None = None) -> bool:
     """Generate one still, softening once if output moderation rejects it.
 
     Returns True if an image exists at image_path. A False is NOT swallowed -- the caller
@@ -97,7 +108,8 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log) -> 
     arriving by a different route.
     """
     try:
-        ep.generate_image(prompt, image_path, cost_sink=cost_sink)
+        ep.generate_image(
+            prompt, image_path, reference_paths=reference_paths, cost_sink=cost_sink)
         return True
     except ep.ContentBlocked as first:
         softened, changed = _soften(prompt)
@@ -106,7 +118,8 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log) -> 
             return False
         log(f"      blocked; retrying softened ({'; '.join(changed)})")
         try:
-            ep.generate_image(softened, image_path, cost_sink=cost_sink)
+            ep.generate_image(
+                softened, image_path, reference_paths=reference_paths, cost_sink=cost_sink)
             return True
         except ep.ContentBlocked as second:
             log(f"      still blocked after softening: {str(second)[:90]}")
@@ -131,6 +144,90 @@ def _sha256_file(path: str | Path) -> str:
 def _content_key(*parts) -> str:
     payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _materialize_references(spec: dl.DirectedLongformSpec, out: Path) -> dict[str, str]:
+    """Resolve and verify declared image references before the first paid provider call."""
+    resolved: dict[str, str] = {}
+    reference_dir = out / "references"
+    reference_dir.mkdir(parents=True, exist_ok=True)
+    repo_assets = Path(__file__).resolve().parent / "assets"
+    for reference in spec.references:
+        if not reference.mime_type.casefold().startswith("image/"):
+            raise dl.DirectedValidationError(
+                f"reference {reference.reference_id} must be an image for image generation")
+        uri = reference.uri.strip()
+        suffix = Path(uri.split("?", 1)[0]).suffix or ".img"
+        destination = reference_dir / f"{reference.reference_id}{suffix}"
+        if uri.startswith("asset://"):
+            source = (repo_assets / uri.removeprefix("asset://")).resolve()
+            if repo_assets.resolve() not in source.parents:
+                raise dl.DirectedValidationError(
+                    f"reference {reference.reference_id} escapes the asset directory")
+            if not source.is_file():
+                raise dl.DirectedValidationError(
+                    f"reference {reference.reference_id} is unavailable: {uri}")
+            destination.write_bytes(source.read_bytes())
+        elif uri.startswith(("https://", "http://")):
+            urllib.request.urlretrieve(uri, destination)
+        else:
+            source = Path(uri.removeprefix("file://")).expanduser().resolve()
+            if not source.is_file():
+                raise dl.DirectedValidationError(
+                    f"reference {reference.reference_id} is unavailable: {uri}")
+            destination.write_bytes(source.read_bytes())
+        if _sha256_file(destination).casefold() != reference.sha256.casefold():
+            destination.unlink(missing_ok=True)
+            raise dl.DirectedValidationError(
+                f"reference {reference.reference_id} SHA-256 does not match its contract")
+        try:
+            with Image.open(destination) as image:
+                image.verify()
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            raise dl.DirectedValidationError(
+                f"reference {reference.reference_id} is not a readable image") from exc
+        resolved[reference.reference_id] = str(destination)
+    return resolved
+
+
+def _compose_directed_overlays(source_path: str, output_path: str, *, overlay_text: str,
+                               world_label: str) -> str:
+    """Composite exact text with Pillow so generated pixels never have to spell it."""
+    image = Image.open(source_path).convert("RGB")
+    draw = ImageDraw.Draw(image, "RGBA")
+    width, height = image.size
+    if world_label.strip():
+        label_font = load_font(None, max(22, int(height * 0.031)), bold=True)
+        label = world_label.strip().upper()
+        box = draw.textbbox((0, 0), label, font=label_font, stroke_width=1)
+        label_width = box[2] - box[0]
+        x, y, pad = int(width * 0.035), int(height * 0.045), int(height * 0.014)
+        draw.rounded_rectangle(
+            (x - pad, y - pad, x + label_width + pad, y + (box[3] - box[1]) + pad),
+            radius=pad, fill=(7, 15, 25, 205), outline=(238, 220, 170, 230), width=2)
+        draw.text((x, y), label, font=label_font, fill=(250, 241, 214, 255),
+                  stroke_width=1, stroke_fill=(0, 0, 0, 220))
+    if overlay_text.strip():
+        lines = [line.strip() for line in overlay_text.split("\n") if line.strip()]
+        text = "\n".join(lines)
+        font = load_font(None, max(34, int(height * 0.058)), bold=True)
+        spacing = int(height * 0.018)
+        box = draw.multiline_textbbox(
+            (0, 0), text, font=font, spacing=spacing, align="center", stroke_width=2)
+        text_width, text_height = box[2] - box[0], box[3] - box[1]
+        x = (width - text_width) / 2
+        y = height * 0.72 - text_height / 2
+        pad_x, pad_y = int(width * 0.035), int(height * 0.025)
+        draw.rounded_rectangle(
+            (x - pad_x, y - pad_y, x + text_width + pad_x, y + text_height + pad_y),
+            radius=int(height * 0.025), fill=(3, 8, 14, 210))
+        draw.multiline_text(
+            (x, y), text, font=font, fill=(255, 255, 255, 255), spacing=spacing,
+            align="center", stroke_width=2, stroke_fill=(0, 0, 0, 255))
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path, "JPEG", quality=94, optimize=True)
+    return output_path
 
 
 def _motion_cache_path(image_path: str, shot: dict, seconds: float, out_path: str) -> Path:
@@ -158,12 +255,22 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
         clip = ep.animate_scene(image_path, shot["visual"], str(cached), 1920, 1080,
                                 cost_sink=cost_sink, err_sink=attempts)
         if not clip or not Path(cached).exists():
+            if provider_sink is not None:
+                provider_sink.append({
+                    "shot_id": shot.get("shot_id"),
+                    "provider": "none",
+                    "model_id": "none",
+                    "generation_status": "failed",
+                    "source_sha256": _sha256_file(image_path),
+                    "provider_attempts": attempts,
+                })
             log("      i2v declined; falling back to a camera path")
             return False
         selected = next((item.split(":", 1)[1] for item in reversed(attempts)
                          if item.startswith("ok:")), "unknown")
         motion_event = {
             "provider": selected, "model_id": ep._motion_model_id(selected),
+            "generation_status": "generated",
             "source_sha256": _sha256_file(image_path),
             "cache_path": str(cached), "provider_attempts": attempts,
         }
@@ -239,6 +346,124 @@ def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS,
     return chosen or spec.scenes[:1]
 
 
+def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: Path,
+                          shots: list[dict], image_paths: list[str], holds: list[float],
+                          indexed_scenes: list[tuple[int, dl.DirectedScene]],
+                          audio_paths: list[str], motion_events: list[dict],
+                          cost_sink: list, log) -> dict:
+    """Grade the encoded pilot pixels and create immutable editorial-review artifacts.
+
+    The generic rendered gate expects the model-authored pipeline's evidence-plan shape.  A
+    directed contract already contains the equivalent facts, so adapt only the observations
+    needed by the gate; no prompt, intended answer, or operator scoring metadata is shown to the
+    blind judge.
+    """
+    cursor = 0.0
+    gate_shots: list[dict] = []
+    states: list[dict] = []
+    for shot, image_path, hold in zip(shots, image_paths, holds):
+        midpoint = cursor + hold / 2
+        state_id = shot["shot_id"]
+        gate_shots.append({
+            "state_id": state_id,
+            "global_start_sec": round(cursor, 4),
+            "midpoint_sec": round(midpoint, 4),
+            "duration": round(hold, 4),
+            "source": image_path,
+            "verified_visible_information": True,
+        })
+        states.append({
+            "state_id": state_id,
+            "include_bolt": "BOLT" in (shot.get("reference_ids") or []),
+            "pure_evidence": False,
+            "required_objects": [],
+            "verification": {
+                "passed": Path(image_path).is_file(),
+                "bolt_present": "BOLT" in (shot.get("reference_ids") or []),
+                "reasons": [],
+            },
+        })
+        cursor += hold
+
+    evidence_plan = {"scenes": [{"states": states}]}
+    inspection = inspect_rendered_opening(
+        preview, [gate_shots], str(out), evidence_plan)
+    # The directed contract owns its cadence bounds. The shared gate's 3.5-second legacy hold
+    # constant must not silently outrank the JSON's explicit max_unchanged_hold_sec.
+    deterministic = inspection.get("deterministic") or {}
+    deterministic["long_hold_count"] = sum(
+        hold > spec.acceptance.max_unchanged_hold_sec for hold in holds)
+    contact_sheet_path = str(out / "rendered_contact_sheet.jpg")
+    build_contact_sheet(inspection, contact_sheet_path)
+
+    transcript_cues = []
+    cue_cursor = 0.0
+    for (_, scene), audio_path in zip(indexed_scenes, audio_paths):
+        duration = ep._audio_dur(audio_path)
+        transcript_cues.append({
+            "start_sec": round(cue_cursor, 2),
+            "end_sec": round(cue_cursor + duration, 2),
+            "narration": scene.narration,
+        })
+        cue_cursor += duration
+
+    blind = ep._blind_rendered_story_judge(
+        contact_sheet_path, transcript_cues, cost_sink=cost_sink)
+    checked = cross_check_blind_observations(
+        blind, deterministic)
+    factual = dl.validate_directed_spec(spec.model_dump(mode="json"))
+    claim_validation = {
+        "passed": bool(factual.get("valid"))
+        and float(factual.get("evidence_coverage_pct") or 0)
+        >= spec.acceptance.evidence_coverage_pct,
+        "errors": factual.get("issues") or [],
+    }
+    rendered = score_rendered_contract(
+        deterministic=deterministic,
+        blind=checked,
+        story_validation={"checks": {"first_act_continuity_hits": True}, "errors": []},
+        claim_validation=claim_validation,
+        callback_exact=True,
+    )
+    # Directed v1 deliberately freezes a stricter 90-point automatic floor than the generic
+    # long-form gate's 85. Preserve the generic component report, but never let its lower floor
+    # promote this pilot.
+    motion_failures = [
+        event for event in motion_events if event.get("generation_status") == "failed"]
+    if motion_failures:
+        rendered.setdefault("hard_failures", []).append("declared_full_motion_not_generated")
+    rendered["hard_failures"] = sorted(set(rendered.get("hard_failures") or []))
+    directed_pass = bool(
+        rendered.get("score", 0) >= spec.acceptance.automatic_grade_min
+        and not rendered.get("hard_failures")
+        and checked.get("valid") is True
+    )
+    rendered.update({
+        "name": "Directed Long-Form Rendered Pilot Contract",
+        "automatic_grade_floor": spec.acceptance.automatic_grade_min,
+        "automated_pass": directed_pass,
+        "passed": False,
+        "publishable": False,
+        "status": "AUTOMATED_PASS_AWAITING_HUMAN" if directed_pass else "REJECT",
+        "inspection": inspection,
+        "blind_story_judge": checked,
+        "contact_sheet_path": contact_sheet_path,
+        "promotion_rule": "A failed automatic or editorial grade cannot be promoted in place.",
+    })
+    report_path = str(out / "rendered_contract.json")
+    Path(report_path).write_text(
+        json.dumps(rendered, indent=2, ensure_ascii=False), encoding="utf-8")
+    review_path = str(out / "human_review.json")
+    create_human_review_record(report_path, preview, review_path)
+    log(f"Rendered pilot grade: {rendered['score']}/100 ({rendered['status']})")
+    return {
+        "rendered_contract": rendered,
+        "rendered_contract_path": report_path,
+        "rendered_contact_sheet_path": contact_sheet_path,
+        "human_review_path": review_path,
+    }
+
+
 def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "echo",
                  window: tuple = (0.0, PILOT_SECONDS), use_i2v: bool = False,
                  validated_sha256: str = "", authorize_paid: bool = False,
@@ -279,6 +504,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     (out / "audio").mkdir(parents=True, exist_ok=True)
     (out / "images").mkdir(parents=True, exist_ok=True)
     validation_paths = dl.write_validation_artifacts(validation, out)
+    reference_files = _materialize_references(spec, out)
 
     log(f"Spec: {spec.title}")
     full_words = sum(len(scene.narration.split()) for scene in spec.narration)
@@ -352,6 +578,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     shots = [shot.model_dump(mode="json") for shot in spec.shots
              if win_start <= shot.start_sec < win_end]
     prompts = {world.world_id: world.base_prompt for world in spec.worlds}
+    world_labels = {world.world_id: world.on_screen_label for world in spec.worlds}
     negative = spec.negative_prompt
     log(f"Shot plan: {len(shots)} shots "
         f"(spec section 9 requires at least 15 visual states)")
@@ -362,26 +589,41 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         # The shot's own visual description carries the information; the world template carries
         # palette and camera language. Negative prompt appended so malformed label text -- which
         # this spec bans explicitly -- is discouraged on every shot, not just the product macros.
-        prompt = f"{base} Shot: {shot['visual']}."
+        master_prompt = shot.get("asset_prompt") or shot["visual"]
+        prompt = f"{base} Master image: {master_prompt}."
         if negative:
             prompt += f" Avoid: {negative}"
         asset_key = shot.get("asset_key") or shot["shot_id"]
         prompt_key = _content_key(asset_key, world, prompt, shot.get("reference_ids") or [])
         safe_key = re.sub(r"[^a-zA-Z0-9._-]+", "-", asset_key).strip("-.")[:48] or "asset"
-        image_path = str(out / "images" / f"{safe_key}.{prompt_key[:16]}.jpg")
+        master_path = str(out / "images" / "masters" / f"{safe_key}.{prompt_key[:16]}.jpg")
+        Path(master_path).parent.mkdir(parents=True, exist_ok=True)
         # Same reuse contract as narration, keyed on the prompt: iterating on camera movement
         # must not re-buy fifteen stills that have not changed. An edited prompt still redraws.
-        sidecar = Path(image_path).with_suffix(".prompt.txt")
-        if (Path(image_path).exists() and Path(image_path).stat().st_size > 0
+        sidecar = Path(master_path).with_suffix(".prompt.txt")
+        if (Path(master_path).exists() and Path(master_path).stat().st_size > 0
                 and sidecar.exists() and sidecar.read_text(encoding="utf-8") == prompt):
             log(f"  shot {order + 1:>2} reusing image on disk")
-        elif _generate_shot_image(prompt, image_path, image_costs, log):
+        elif _generate_shot_image(
+                prompt, master_path, image_costs, log,
+                [reference_files[item] for item in shot.get("reference_ids") or []] or None):
             sidecar.write_text(prompt, encoding="utf-8")
         else:
             blocked.append(order)
             image_paths.append(None)
             log(f"  shot {order + 1:>2} BLOCKED — {shot['visual'][:50]}")
             continue
+        overlay = shot.get("overlay_text") or ""
+        world_label = world_labels.get(world, "")
+        if overlay or world_label:
+            overlay_key = _content_key(prompt_key, overlay, world_label)
+            image_path = str(
+                out / "images" / "shots" / f"{shot['shot_id']}.{overlay_key[:16]}.jpg")
+            if not Path(image_path).exists():
+                _compose_directed_overlays(
+                    master_path, image_path, overlay_text=overlay, world_label=world_label)
+        else:
+            image_path = master_path
         image_paths.append(image_path)
         log(f"  shot {order + 1:>2} [{shot['start_sec']:>2}-{shot['end_sec']:>2}s] ✓ "
             f"{shot['visual'][:46]}")
@@ -475,6 +717,15 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     log(f"Video track: {len(shots)} shots over {sum(holds):.1f}s "
         f"against {spoken:.1f}s narration (delta {sum(holds) - spoken:+.2f}s)")
 
+    judge_costs: list = []
+    grade_artifacts = {}
+    is_pilot = abs(win_start) <= 0.05 and abs(win_end - spec.target.pilot_end_sec) <= 0.05
+    if require_validation and is_pilot:
+        grade_artifacts = _grade_directed_pilot(
+            spec=spec, preview=preview, out=out, shots=shots, image_paths=image_paths,
+            holds=holds, indexed_scenes=indexed_scenes, audio_paths=audio_paths,
+            motion_events=motion_events, cost_sink=judge_costs, log=log)
+
     def _relative(path: str) -> str:
         try:
             return str(Path(path).resolve().relative_to(out.resolve()))
@@ -494,9 +745,19 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
              "voice": voice, "transformation": "none"},
             {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
-        ],
+        ] + ([{
+            "purpose": "blind_rendered_story_grade", "provider": "anthropic",
+            "model_id": ep.ANTHROPIC_MODEL, "input_mime_type": "image/jpeg",
+        }] if grade_artifacts else []),
         "actual_motion": motion_events,
         "assets": {
+            "references": [
+                {"reference_id": reference.reference_id,
+                 "path": _relative(reference_files[reference.reference_id]),
+                 "sha256": reference.sha256, "mime_type": reference.mime_type,
+                 "origin": reference.origin, "license": reference.license}
+                for reference in spec.references
+            ],
             "audio": [
                 {"scene_id": scene.scene_id, "path": _relative(path),
                  "sha256": _sha256_file(path), "mime_type": "audio/mpeg"}
@@ -505,7 +766,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             "images": [
                 {"shot_id": shot["shot_id"], "path": _relative(path),
                  "sha256": _sha256_file(path), "mime_type": "image/jpeg",
-                 "asset_key": shot.get("asset_key") or shot["shot_id"]}
+                 "asset_key": shot.get("asset_key") or shot["shot_id"],
+                 "transformation": shot.get("transformation") or shot.get("mode")}
                 for shot, path in zip(shots, image_paths)
             ],
         },
@@ -524,16 +786,19 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "tts_cost_usd": round(sum(audio_costs), 4),
         "image_cost_usd": round(sum(image_costs), 4),
         "i2v_cost_usd": round(sum(i2v_costs), 4),
+        "judge_cost_usd": round(sum(judge_costs), 4),
         "animated_shots": animated,
-        "total_cost_usd": round(sum(audio_costs) + sum(image_costs) + sum(i2v_costs), 4),
+        "total_cost_usd": round(
+            sum(audio_costs) + sum(image_costs) + sum(i2v_costs) + sum(judge_costs), 4),
         "shots": len(shots),
         "preview_path": preview,
         "spec_sha256": validation["spec_sha256"],
         "directed_spec_path": validation_paths["directed_spec_path"],
         "validation_report_path": validation_paths["validation_report_path"],
         "generation_manifest_path": str(manifest_path),
+        **grade_artifacts,
     }
     log(f"Window cost: ${report['total_cost_usd']:.3f} "
         f"(tts ${report['tts_cost_usd']:.3f} + images ${report['image_cost_usd']:.3f}"
-        f" + i2v ${report['i2v_cost_usd']:.3f})")
+        f" + i2v ${report['i2v_cost_usd']:.3f} + judge ${report['judge_cost_usd']:.3f})")
     return report
