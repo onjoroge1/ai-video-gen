@@ -37,6 +37,54 @@ XFADE_SEC = 0.5
 SEGMENT_TAIL_SEC = XFADE_SEC + 0.35
 
 
+# The spec names a camera intent per shot ("Macro glide", "Rack focus reveals", "Freeze and
+# pull back", "Fast push"). Honour that language rather than alternating presets blindly --
+# the operator wrote the move into the document and it carries the meaning of the beat.
+_MOVE_WORDS = (
+    ("pull back", "kenburns_out"), ("pulls back", "kenburns_out"),
+    ("push", "kenburns_in"), ("macro", "kenburns_in"), ("rack focus", "kenburns_in"),
+    ("glide", "pan_right"), ("crosses", "pan_right"), ("drops", "pan_down"),
+    ("opens toward", "kenburns_in"), ("collapse", "kenburns_out"),
+    ("split screen", "pan_left"), ("freeze", "locked"),
+)
+# Fallback cycle for shots whose description names no move. Adjacent shots must not repeat a
+# direction or the cut reads as a stutter rather than a change of view.
+_CYCLE = ("kenburns_in", "pan_right", "kenburns_out", "pan_left", "zoom_br", "pan_up")
+
+
+def _motion_for(shot: dict, order: int) -> str:
+    text = f"{shot['visual']} {shot['mode']}".lower()
+    for phrase, preset in _MOVE_WORDS:
+        if phrase in text:
+            return preset
+    return _CYCLE[order % len(_CYCLE)]
+
+
+def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
+                 *, width: int = 1920, height: int = 1080, fps: int = 30) -> str:
+    """One still + one camera move, encoded to a clip of exactly `seconds`.
+
+    Uses the pipeline's own _motion presets and its 2x supersample trick: zoompan rounds its
+    crop origin to whole INPUT pixels each frame, so running it at output size makes a slow pan
+    jump a pixel at a time -- visible shake. Feeding a 2x frame makes that rounding sub-pixel.
+    """
+    frames = max(1, int(round(seconds * fps)))
+    z_expr, x_expr, y_expr = ep._motion(motion, frames)
+    ss_w, ss_h = width * 2, height * 2
+    chain = (
+        f"scale={ss_w}:{ss_h}:force_original_aspect_ratio=increase,crop={ss_w}:{ss_h},"
+        f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps},"
+        f"setsar=1,format=yuv420p"
+    )
+    ep._run_ffmpeg([
+        ep._ffmpeg_bin(), "-nostdin", "-y", "-loop", "1", "-i", image_path,
+        "-vf", chain, "-frames:v", str(frames),
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
+        "-r", str(fps), out_path,
+    ])
+    return out_path
+
+
 def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS) -> list:
     """Scenes whose narration falls inside the pilot window.
 
@@ -118,7 +166,15 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         if negative:
             prompt += f" Avoid: {negative}"
         image_path = str(out / "images" / f"shot_{order:02d}.jpg")
-        ep.generate_image(prompt, image_path, cost_sink=image_costs)
+        # Same reuse contract as narration, keyed on the prompt: iterating on camera movement
+        # must not re-buy fifteen stills that have not changed. An edited prompt still redraws.
+        sidecar = Path(image_path).with_suffix(".prompt.txt")
+        if (Path(image_path).exists() and Path(image_path).stat().st_size > 0
+                and sidecar.exists() and sidecar.read_text(encoding="utf-8") == prompt):
+            log(f"  shot {order + 1:>2} reusing image on disk")
+        else:
+            ep.generate_image(prompt, image_path, cost_sink=image_costs)
+            sidecar.write_text(prompt, encoding="utf-8")
         image_paths.append(image_path)
         log(f"  shot {order + 1:>2} [{shot['start_sec']:>2}-{shot['end_sec']:>2}s] ✓ "
             f"{shot['visual'][:46]}")
@@ -131,26 +187,34 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
     # Video is driven by the shot table and muxed against the concatenated narration, so a shot
     # boundary no longer has to coincide with a sentence boundary. That coupling is what forced
     # one image per scene and produced the slideshow.
-    concat_list = out / "tmp" / "shots.txt"
     (out / "tmp").mkdir(parents=True, exist_ok=True)
-    lines = []
-    for order, shot in enumerate(shots):
-        hold = max(1.25, shot["end_sec"] - shot["start_sec"])
-        image_path = image_paths[order]
-        lines.append(f"file '{image_path}'\nduration {hold:.3f}\n")
-    # The concat demuxer ignores the final entry's duration, so the last image is repeated
-    # without one; otherwise the closing shot is dropped entirely.
-    lines.append(f"file '{image_paths[-1]}'\n")
-    concat_list.write_text("".join(lines), encoding="utf-8")
 
+    # Rescale the shot table onto the narration that actually exists. The spec's table spans
+    # 45.0s while the measured narration is shorter, and muxing with -shortest simply amputated
+    # the closing shot. Scaling proportionally keeps all fifteen states and the operator's
+    # relative pacing, costs nothing, and needs no rewrite of their words.
+    planned = max(shot["end_sec"] for shot in shots)
+    scale = spoken / planned
+    holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale) for shot in shots]
+    # Absorb rounding into the final shot so the picture track matches the audio exactly.
+    holds[-1] += spoken - sum(holds)
+    log(f"Shot table rescaled {planned:.1f}s → {spoken:.1f}s (×{scale:.3f}); "
+        f"holds {min(holds):.1f}-{max(holds):.1f}s")
+
+    clips = []
+    for order, (shot, hold) in enumerate(zip(shots, holds)):
+        motion = _motion_for(shot, order)
+        clip = str(out / "tmp" / f"shot_{order:02d}.mp4")
+        _render_shot(image_paths[order], hold, motion, clip)
+        clips.append(clip)
+        log(f"  shot {order + 1:>2} {hold:4.1f}s  {motion}")
+
+    concat_list = out / "tmp" / "shots.txt"
+    concat_list.write_text(
+        "".join(f"file '{clip}'\n" for clip in clips), encoding="utf-8")
     silent_video = str(out / "tmp" / "video_track.mp4")
-    ep._run_ffmpeg([
-        ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(concat_list),
-        "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,"
-               "crop=1920:1080,format=yuv420p,fps=30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20", silent_video,
-    ])
+    ep._run_ffmpeg([ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
+                    "-i", str(concat_list), "-c", "copy", silent_video])
 
     audio_list = out / "tmp" / "audio.txt"
     audio_list.write_text(
@@ -167,9 +231,11 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest", preview,
     ])
-    shot_seconds = sum(max(1.25, sh["end_sec"] - sh["start_sec"]) for sh in shots)
-    log(f"Video track: {len(shots)} shots over {shot_seconds:.1f}s "
-        f"vs {spoken:.1f}s narration")
+    # Report the RESCALED holds, not the spec's planned ones. The earlier version recomputed
+    # from the unscaled table and printed "45.0s vs 40.5s" after the rescale had already made
+    # them agree -- a log line contradicting the thing it was reporting on.
+    log(f"Video track: {len(shots)} shots over {sum(holds):.1f}s "
+        f"against {spoken:.1f}s narration (delta {sum(holds) - spoken:+.2f}s)")
 
     report = {
         "title": spec.title,

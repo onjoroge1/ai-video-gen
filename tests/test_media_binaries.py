@@ -2,15 +2,62 @@
 
 import os
 import shutil
+from unittest import mock
 
 import pytest
 
 import quiz_pipeline as qp
 
 
-def test_media_binaries_are_not_pinned_to_homebrew():
-    assert not qp.FF.startswith("/opt/homebrew/")
-    assert not qp.FP.startswith("/opt/homebrew/")
+def test_ffmpeg_still_resolves_when_the_host_has_no_system_install():
+    """Portability is about the host WITHOUT ffmpeg, not about this laptop's PATH.
+
+    The previous assertion here was `not qp.FF.startswith("/opt/homebrew/")`, which fails on
+    any Mac with Homebrew ffmpeg on PATH even though resolution is perfectly portable. It
+    conflated "this machine happened to resolve to Homebrew" with "the code is pinned to
+    Homebrew" -- and preferring a system install is the documented, intended order.
+
+    The property that actually protects a deploy: with nothing on PATH and no system install,
+    the imageio-ffmpeg wheel declared in requirements.txt still yields a usable binary.
+    """
+    import media_binaries
+
+    # Resolved BEFORE patching: bundled_ffmpeg() itself calls os.path.isfile, so a mock that
+    # consults it recurses.
+    bundled = media_binaries.bundled_ffmpeg()
+    assert bundled, "imageio-ffmpeg is in requirements.txt but not installed in this env"
+
+    media_binaries.reset_cache()
+    try:
+        with mock.patch.object(shutil, "which", return_value=None), \
+             mock.patch.object(os.path, "isfile", lambda p: p == bundled):
+            resolved = media_binaries.resolve("ffmpeg", use_cache=False)
+    finally:
+        media_binaries.reset_cache()
+
+    assert resolved, "no ffmpeg without a system install — the deploy host cannot render"
+    assert resolved == bundled
+    # Deliberately NOT asserting anything about the path prefix. On a Homebrew Python the
+    # wheel's own binary lives under /opt/homebrew/lib/python3.x/site-packages/, so a prefix
+    # check would flag the portable fallback as the pin it was written to detect.
+
+
+def test_ffprobe_has_no_bundled_fallback_and_says_so():
+    """imageio-ffmpeg ships ffmpeg only. A deploy host still has to provide ffprobe.
+
+    Pinned deliberately: this is the half of the portability gap the wheel does NOT close,
+    and preflight is what surfaces it for $0 rather than mid-render. If a future wheel starts
+    bundling ffprobe, this test fails and the docstrings above it need updating.
+    """
+    import media_binaries
+
+    media_binaries.reset_cache()
+    try:
+        with mock.patch.object(shutil, "which", return_value=None), \
+             mock.patch.object(os.path, "isfile", return_value=False):
+            assert media_binaries.resolve("ffprobe", use_cache=False) is None
+    finally:
+        media_binaries.reset_cache()
 
 
 def test_resolved_media_binaries_exist_in_ci():
