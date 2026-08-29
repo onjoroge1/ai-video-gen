@@ -18,12 +18,15 @@ spend by roughly 50x, so this counts what it actually spends rather than trustin
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import time
 from pathlib import Path
 
 import explainer_pipeline as ep
+import directed_longform as dl
 import user_directed as ud
 
 
@@ -117,8 +120,29 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log) -> 
 I2V_MODES = ("Full motion",)
 
 
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _content_key(*parts) -> str:
+    payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _motion_cache_path(image_path: str, shot: dict, seconds: float, out_path: str) -> Path:
+    """Bind paid footage reuse to the image bytes and the complete motion request."""
+    identity = _content_key(
+        _sha256_file(image_path), shot.get("visual"), shot.get("mode"), round(seconds, 3),
+        getattr(ep, "_FAL_MODEL", "fal-image-to-video"), 1920, 1080)
+    return Path(out_path).with_name(f"motion.{identity[:24]}.src.mp4")
+
+
 def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: str,
-                        cost_sink: list, log) -> bool:
+                        cost_sink: list, log, provider_sink: list | None = None) -> bool:
     """Generate true footage for one shot, trimmed to its hold. False if the provider declined.
 
     The generated clip is cached beside the still: at ~$0.28 each these are by far the most
@@ -126,13 +150,37 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
     entire stills pass. animate_scene never raises -- it returns None when every provider in the
     chain fails -- so a decline falls back to the camera path rather than losing the shot.
     """
-    cached = Path(out_path).with_suffix(".src.mp4")
+    cached = _motion_cache_path(image_path, shot, seconds, out_path)
+    metadata_path = Path(str(cached) + ".json")
+    motion_event = None
     if not (cached.exists() and cached.stat().st_size > 0):
+        attempts: list[str] = []
         clip = ep.animate_scene(image_path, shot["visual"], str(cached), 1920, 1080,
-                                cost_sink=cost_sink)
+                                cost_sink=cost_sink, err_sink=attempts)
         if not clip or not Path(cached).exists():
             log("      i2v declined; falling back to a camera path")
             return False
+        selected = next((item.split(":", 1)[1] for item in reversed(attempts)
+                         if item.startswith("ok:")), "unknown")
+        motion_event = {
+            "provider": selected, "model_id": ep._motion_model_id(selected),
+            "source_sha256": _sha256_file(image_path),
+            "cache_path": str(cached), "provider_attempts": attempts,
+        }
+        metadata_path.write_text(
+            json.dumps(motion_event, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif provider_sink is not None:
+        try:
+            motion_event = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            motion_event = {
+                "provider": "unknown-historical-cache", "model_id": "unknown",
+                "source_sha256": _sha256_file(image_path), "cache_path": str(cached),
+                "provider_attempts": [],
+            }
+        motion_event["reused"] = True
+    if provider_sink is not None and motion_event is not None:
+        provider_sink.append({**motion_event, "shot_id": shot.get("shot_id")})
 
     # Trim to the hold. The provider returns ~5s regardless of what was asked, and the cut
     # length is set by the narration, not by the clip.
@@ -191,35 +239,62 @@ def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS,
     return chosen or spec.scenes[:1]
 
 
-def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
+def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "echo",
                  window: tuple = (0.0, PILOT_SECONDS), use_i2v: bool = False,
-                 log=print) -> dict:
+                 validated_sha256: str = "", authorize_paid: bool = False,
+                 require_validation: bool = False, log=print) -> dict:
     """Render one window of the spec. Defaults to the section-9 pilot gate.
 
     Generalised from a fixed first-45-seconds runner so a later section can be proven without
     re-rendering the opening: every asset is cached by content, so only the new window spends.
     """
     win_start, win_end = window
-    spec = ud.parse_spec(spec_path)
-    scenes = pilot_scenes(spec, win_end, win_start)
+    if isinstance(spec_path, dict):
+        payload = spec_path
+    else:
+        source = Path(spec_path)
+        if source.suffix.casefold() == ".json":
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        else:
+            payload = ud.compile_directed_spec(source)
+
+    validation = dl.validate_directed_spec(payload)
+    if require_validation:
+        spec, validation = dl.authorize_processing(
+            payload, expected_sha256=validated_sha256, authorize_paid=authorize_paid)
+    else:
+        # Backwards-compatible local runner: it may inspect a known failed historical pilot, but
+        # malformed JSON still cannot reach a provider.  The API always sets require_validation.
+        if not validation.get("spec_sha256"):
+            raise dl.DirectedValidationError("directed JSON does not match the v1 schema")
+        spec = dl.DirectedLongformSpec.model_validate(validation["normalized_spec"])
+
+    indexed_scenes = [
+        (index, scene) for index, scene in enumerate(spec.narration)
+        if win_start <= scene.start_sec < win_end
+    ]
+    if not indexed_scenes:
+        indexed_scenes = [(0, spec.narration[0])]
     out = Path(out_dir)
     (out / "audio").mkdir(parents=True, exist_ok=True)
     (out / "images").mkdir(parents=True, exist_ok=True)
+    validation_paths = dl.write_validation_artifacts(validation, out)
 
     log(f"Spec: {spec.title}")
-    log(f"Full script: {len(spec.scenes)} scenes, {spec.words} words")
-    log(f"Window: {win_start:.0f}-{win_end:.0f}s → {len(scenes)} scenes, "
-        f"{sum(len(s.narration.split()) for s in scenes)} words")
-    for warning in spec.warnings:
-        log(f"  ⚠ {warning}")
+    full_words = sum(len(scene.narration.split()) for scene in spec.narration)
+    log(f"Full script: {len(spec.narration)} scenes, {full_words} words")
+    log(f"Window: {win_start:.0f}-{win_end:.0f}s → {len(indexed_scenes)} scenes, "
+        f"{sum(len(s.narration.split()) for _, s in indexed_scenes)} words")
+    for issue in validation.get("issues") or []:
+        if issue.get("severity") == "warning":
+            log(f"  ⚠ {issue.get('message')}")
 
     audio_costs: list = []
     image_costs: list = []
     audio_paths, image_paths = [], []
     blocked: list = []
 
-    for scene in scenes:
-        index = scene.index
+    for index, scene in indexed_scenes:
         audio_path = str(out / "audio" / f"scene_{index:02d}.mp3")
         # Reuse narration that is already on disk. The picture is what gets iterated on -- this
         # is the second pass over the same words -- and TTS is not free. Guarded on the text
@@ -229,14 +304,14 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
                   and sidecar.exists()
                   and sidecar.read_text(encoding="utf-8") == scene.narration)
         if cached:
-            log(f"  scene {index + 1:>2} [{scene.world}] reusing narration on disk")
+            log(f"  scene {index + 1:>2} [{scene.world_id}] reusing narration on disk")
         else:
             ep.generate_tts(scene.narration, audio_path, voice=voice)
             sidecar.write_text(scene.narration, encoding="utf-8")
             audio_costs.append(len(scene.narration) * ep._RATE_TTS_CHAR)
         audio_paths.append(audio_path)
         measured = ep._audio_dur(audio_path)
-        log(f"  scene {index + 1:>2} [{scene.world}] {measured:5.2f}s  "
+        log(f"  scene {index + 1:>2} [{scene.world_id}] {measured:5.2f}s  "
             f"{len(scene.narration.split()):>3}w")
 
     spoken = sum(ep._audio_dur(path) for path in audio_paths)
@@ -253,19 +328,36 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         log(f"  ⚠ {abs(drift):.1f}s {'over' if drift > 0 else 'under'} the spec's own timing — "
             f"the picture is rescaled to fit, but the film will drift from the document")
 
+    # The free structural preflight has already passed.  This is the first paid checkpoint: TTS
+    # is measured before any image call.  A failure preserves narration and validation artifacts
+    # but stops visual spending, exactly as the directed production contract requires.
+    if require_validation:
+        is_pilot = abs(win_start) <= 0.05 and abs(win_end - spec.target.pilot_end_sec) <= 0.05
+        if is_pilot and not (
+                spec.acceptance.pilot_runtime_min_sec <= spoken
+                <= spec.acceptance.pilot_runtime_max_sec):
+            raise RuntimeError(
+                f"measured pilot narration {spoken:.2f}s is outside "
+                f"{spec.acceptance.pilot_runtime_min_sec:.2f}-"
+                f"{spec.acceptance.pilot_runtime_max_sec:.2f}s; visual spending stopped")
+        if not is_pilot and abs(drift) > spec.acceptance.runtime_tolerance_sec:
+            raise RuntimeError(
+                f"measured narration differs from the window by {drift:+.2f}s; "
+                "visual spending stopped")
+
     # ONE IMAGE PER SHOT, not per scene. The spec's section 9 lists 15 shots across the first
     # 45 seconds at 1.8-2.8s each, and that cadence IS the retention contract. Generating one
     # image per narration scene gave 4 states over 45s -- a state change every ten seconds,
     # exactly the slideshow the spec exists to prevent, and the operator saw it immediately.
-    shots = [shot for shot in ud.load_shot_plan(spec_path)
-             if win_start <= shot["start_sec"] < win_end]
-    prompts = ud.extract_base_prompts(Path(spec_path).read_text(encoding="utf-8"))
-    negative = prompts.get("negative", "")
+    shots = [shot.model_dump(mode="json") for shot in spec.shots
+             if win_start <= shot.start_sec < win_end]
+    prompts = {world.world_id: world.base_prompt for world in spec.worlds}
+    negative = spec.negative_prompt
     log(f"Shot plan: {len(shots)} shots "
         f"(spec section 9 requires at least 15 visual states)")
 
     for order, shot in enumerate(shots):
-        world = "alternate_2026" if shot["start_sec"] < 18 else "historical_1910"
+        world = shot["world_id"]
         base = prompts.get(world, "")
         # The shot's own visual description carries the information; the world template carries
         # palette and camera language. Negative prompt appended so malformed label text -- which
@@ -273,7 +365,10 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         prompt = f"{base} Shot: {shot['visual']}."
         if negative:
             prompt += f" Avoid: {negative}"
-        image_path = str(out / "images" / f"shot_{int(win_start):04d}_{order:02d}.jpg")
+        asset_key = shot.get("asset_key") or shot["shot_id"]
+        prompt_key = _content_key(asset_key, world, prompt, shot.get("reference_ids") or [])
+        safe_key = re.sub(r"[^a-zA-Z0-9._-]+", "-", asset_key).strip("-.")[:48] or "asset"
+        image_path = str(out / "images" / f"{safe_key}.{prompt_key[:16]}.jpg")
         # Same reuse contract as narration, keyed on the prompt: iterating on camera movement
         # must not re-buy fifteen stills that have not changed. An edited prompt still redraws.
         sidecar = Path(image_path).with_suffix(".prompt.txt")
@@ -335,11 +430,13 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
 
     clips = []
     i2v_costs: list = []
+    motion_events: list = []
     animated = 0
     for order, (shot, hold) in enumerate(zip(shots, holds)):
         clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{order:02d}.mp4")
-        if use_i2v and shot["mode"] in I2V_MODES and _render_motion_shot(
-                image_paths[order], shot, hold, clip, i2v_costs, log):
+        if (use_i2v and shot["mode"].strip().casefold() == "full motion"
+                and _render_motion_shot(
+                    image_paths[order], shot, hold, clip, i2v_costs, log, motion_events)):
             animated += 1
             log(f"  shot {order + 1:>2} {hold:4.1f}s  I2V")
         else:
@@ -370,7 +467,7 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
     ep._run_ffmpeg([
         ep._ffmpeg_bin(), "-nostdin", "-y", "-i", silent_video, "-i", narration,
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest", preview,
+        "-shortest", "-movflags", "+faststart", preview,
     ])
     # Report the RESCALED holds, not the spec's planned ones. The earlier version recomputed
     # from the unscaled table and printed "45.0s vs 40.5s" after the rescale had already made
@@ -378,13 +475,52 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
     log(f"Video track: {len(shots)} shots over {sum(holds):.1f}s "
         f"against {spoken:.1f}s narration (delta {sum(holds) - spoken:+.2f}s)")
 
+    def _relative(path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(out.resolve()))
+        except ValueError:
+            return str(path)
+
+    for event in motion_events:
+        event["cache_path"] = _relative(event["cache_path"])
+
+    manifest_path = out / "generation_manifest.json"
+    manifest = {
+        "schema_version": dl.SCHEMA_VERSION,
+        "spec_sha256": validation["spec_sha256"],
+        "status": "pilot_rendered" if win_end <= spec.target.pilot_end_sec else "segment_rendered",
+        "window": {"start_sec": win_start, "end_sec": win_end},
+        "providers": [
+            {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
+             "voice": voice, "transformation": "none"},
+            {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
+        ],
+        "actual_motion": motion_events,
+        "assets": {
+            "audio": [
+                {"scene_id": scene.scene_id, "path": _relative(path),
+                 "sha256": _sha256_file(path), "mime_type": "audio/mpeg"}
+                for (_, scene), path in zip(indexed_scenes, audio_paths)
+            ],
+            "images": [
+                {"shot_id": shot["shot_id"], "path": _relative(path),
+                 "sha256": _sha256_file(path), "mime_type": "image/jpeg",
+                 "asset_key": shot.get("asset_key") or shot["shot_id"]}
+                for shot, path in zip(shots, image_paths)
+            ],
+        },
+        "actual_audio_transformations": [],
+        "blocked_shots": blocked,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
     report = {
         "title": spec.title,
-        "pilot_scenes": len(scenes),
-        "pilot_words": sum(len(s.narration.split()) for s in scenes),
+        "pilot_scenes": len(indexed_scenes),
+        "pilot_words": sum(len(s.narration.split()) for _, s in indexed_scenes),
         "measured_seconds": round(spoken, 2),
-        "full_script_scenes": len(spec.scenes),
-        "full_script_words": spec.words,
+        "full_script_scenes": len(spec.narration),
+        "full_script_words": full_words,
         "tts_cost_usd": round(sum(audio_costs), 4),
         "image_cost_usd": round(sum(image_costs), 4),
         "i2v_cost_usd": round(sum(i2v_costs), 4),
@@ -392,6 +528,10 @@ def render_pilot(spec_path: str, out_dir: str, *, voice: str = "echo",
         "total_cost_usd": round(sum(audio_costs) + sum(image_costs) + sum(i2v_costs), 4),
         "shots": len(shots),
         "preview_path": preview,
+        "spec_sha256": validation["spec_sha256"],
+        "directed_spec_path": validation_paths["directed_spec_path"],
+        "validation_report_path": validation_paths["validation_report_path"],
+        "generation_manifest_path": str(manifest_path),
     }
     log(f"Window cost: ${report['total_cost_usd']:.3f} "
         f"(tts ${report['tts_cost_usd']:.3f} + images ${report['image_cost_usd']:.3f}"

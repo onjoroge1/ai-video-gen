@@ -1,6 +1,6 @@
 """QUIZ social-short pipeline — a third format alongside explainer/simulation.
 
-Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then three rounds of
+Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then up to four rounds of
 [AI-safe visual clue + timer -> answer reveal]. There is no standalone intro, outro, or subscribe card.
   - AI-SAFE items only (silhouettes / clear photos of animals, planets, objects) — NEVER flags, logos,
     signs, or maps, because gpt-image garbles baked-in text/symbols and a wrong clue breaks the quiz.
@@ -101,7 +101,9 @@ _QUIZ_SYSTEM = (
     "Choose the final animal to genuinely live there: pick the shared environment FIRST, then the hardest "
     "animal that truly belongs in it. Never relocate a species to make the loop work. Item 2 is free to "
     "use a different habitat, and its contrast is what makes the return to the opening scene land.\n"
-    "Return ONLY JSON: {\"title\":\"clickable title, e.g. 'Can You Name All 3 From the Shadow?'\","
+    "The title must either OMIT a numeric item count or match the exact requested item count; never "
+    "promise three when four items were requested. Return ONLY JSON: {\"title\":\"clickable title, "
+    "e.g. 'Can You Name Them From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
     "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
     "\"difficulty\":\"medium|hard|expert\",\"clue_visual\":\"a clean bold black silhouette of a camel in "
@@ -114,7 +116,7 @@ _QUIZ_SYSTEM = (
 )
 
 
-def generate_quiz(category: str, n_items: int = 3, cost_sink: list | None = None, operator_direction: str = "") -> dict:
+def generate_quiz(category: str, n_items: int = 4, cost_sink: list | None = None, operator_direction: str = "") -> dict:
     """LLM quiz for `category`, hard-filtered to AI-safe items. Best-effort ({} on failure)."""
     try:
         r = ep._claude().messages.create(
@@ -133,6 +135,21 @@ def generate_quiz(category: str, n_items: int = 3, cost_sink: list | None = None
     except Exception as e:
         print(f"[quiz] generate failed: {e}")
         return {}
+
+
+_TITLE_COUNT_WORDS = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+
+
+def normalize_quiz_title(title: str, item_count: int, category: str = "items") -> str:
+    """Keep generated packaging truthful when the format's round count changes."""
+    count = clamp_quiz_items(item_count)
+    title = ep._s(title).strip() or f"Can You Name These {category.title()} From the Shadow?"
+    title = re.sub(r"\b[2-6]/[2-6]\b", f"{count}/{count}", title)
+    for number, word in _TITLE_COUNT_WORDS.items():
+        if number != count:
+            title = re.sub(rf"\b{number}\b", str(count), title)
+            title = re.sub(rf"(?i)\b{word}\b", _TITLE_COUNT_WORDS[count], title)
+    return title
 
 
 def factcheck_quiz(quiz: dict, cost_sink: list | None = None) -> tuple[dict, list]:
@@ -270,7 +287,7 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
         # over this same card, so the two channels complement instead of repeating.
         # The count is the caller's: this said "GOT ALL 3?" whatever the round count actually was,
         # which was invisible while the format was capped at three and wrong the moment it wasn't.
-        top = top or "GOT ALL 3? · SUBSCRIBE"
+        top = top or "GOT THEM ALL? · SUBSCRIBE"
     if top:
         # Trimmed ~20% against the flat-colour layout. On a habitat the banner competes with the
         # thing the viewer is supposed to be searching, so it gives the scene back its top third.
@@ -603,7 +620,7 @@ def _vision_image(path):
 
 
 def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_sink=None):
-    """Blind-ish mobile QA for difficulty, fairness, identity, anatomy, and pose continuity."""
+    """Mobile QA for difficulty, readability, identity, anatomy, and pose continuity."""
     try:
         r = ep._claude().messages.create(
             model="claude-opus-4-8", max_tokens=450,
@@ -615,7 +632,11 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
                 "must unmistakably be the answer with correct anatomy and roughly the same pose/composition. "
                 "Return ONLY JSON: {\"first_crop_confidence\":0-100,\"first_guess\":\"...\","
                 "\"too_easy\":bool,\"full_clue_fair\":bool,\"reveal_matches_answer\":bool,"
-                "\"anatomy_ok\":bool,\"pose_continuity\":bool,\"biggest_fix\":\"...\"}. "
+                "\"anatomy_ok\":bool,\"pose_continuity\":bool,"
+                "\"subject_width_pct\":0-100,\"clue_contrast_score\":0-100,"
+                "\"biggest_fix\":\"...\"}. subject_width_pct is the full silhouette's bounding-box "
+                "width as a percentage of IMAGE 2. clue_contrast_score is phone-size separation of the "
+                "silhouette from its immediate background, where 100 is unmistakable and 0 disappears. "
                 "For medium, too_easy means confidence above 80; hard above 65; expert above 50."
             ),
             messages=[{"role": "user", "content": [
@@ -629,6 +650,30 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
         return result if isinstance(result, dict) else None
     except Exception as exc:
         return {"qa_error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+
+
+_READABILITY_WIDTH_MIN = {"medium": 28.0, "hard": 20.0, "expert": 16.0}
+_READABILITY_CONTRAST_MIN = 55.0
+
+
+def quiz_readability_issues(grade: dict, difficulty: str, round_number: int) -> list[str]:
+    """Turn the visual grader's phone-size measurements into an explicit shipping gate."""
+    issues = []
+    width = grade.get("subject_width_pct")
+    contrast = grade.get("clue_contrast_score")
+    if not isinstance(width, (int, float)):
+        issues.append(f"round {round_number} subject occupancy was not measured")
+    elif width < _READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN["hard"]):
+        issues.append(
+            f"round {round_number} clue subject spans {width:.0f}% of frame width; "
+            f"{_READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN['hard']):.0f}% required")
+    if not isinstance(contrast, (int, float)):
+        issues.append(f"round {round_number} clue contrast was not measured")
+    elif contrast < _READABILITY_CONTRAST_MIN:
+        issues.append(
+            f"round {round_number} clue contrast scored {contrast:.0f}/100; "
+            f"{_READABILITY_CONTRAST_MIN:.0f} required")
+    return issues
 
 
 def _composite(base, textpng, out):
@@ -1225,13 +1270,14 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
     return rgb
 
 
-def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: str = "echo",
+def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: str = "echo",
                       progress_cb=None, operator_direction: str = "",
-                      variants: tuple = ("a",)) -> dict:
+                      variants: tuple = ("a", "b"), primary_variant: str = "b") -> dict:
     """Generate + render a full quiz short. Returns {output_path,title,scene_count,...}.
 
     ``variants`` renders the SAME quiz more than once, changing exactly one presentation layer, so
-    an A/B measures that layer and nothing else. "a" is the control and is always produced.
+    an A/B measures that layer and nothing else. "a" is the control and is always produced;
+    V2.2 ships the full-body reveal performer ("b") when that re-cut succeeds.
     """
     def log(m):
         if progress_cb: progress_cb(m)
@@ -1245,7 +1291,9 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         raise RuntimeError("quiz generation failed")
     quiz, fixes = factcheck_quiz(quiz, cost_sink=costs)
     if fixes: log(f"Fact-check corrected {len(fixes)} answer(s)")
-    items = quiz["items"]; title = ep._s(quiz.get("title")) or f"Guess the {category}"
+    items = quiz["items"]
+    title = normalize_quiz_title(quiz.get("title"), len(items), category)
+    quiz["title"] = title
     log(f"Quiz: \"{title}\" — {len(items)} items")
 
     STY = " Polished 3D cartoon, vibrant, high production value, vertical 9:16, no text or letters."
@@ -1267,6 +1315,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
     timing_warnings = []; loop_warnings = []; opening_frame = None; reveal_slots = []
     ladder_warnings = []
+    readability_warnings = []
     # The round badge was hardcoded to "ANIMAL", so a fruits or planets quiz labelled every
     # round ANIMAL 1/3. The category is a free parameter of this pipeline, so the badge has to
     # follow it: last word, singularised, since categories arrive plural ("wild animals").
@@ -1364,6 +1413,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                                    answer, diff, costs) or {}
         grade["round"] = i; grade["answer"] = answer; grade["difficulty"] = diff
         grade["reveal_generation_mode"] = reveal_mode
+        round_readability = quiz_readability_issues(grade, diff, i)
+        if round_readability:
+            grade["readability_failed"] = True
+            readability_warnings.extend(round_readability)
+            for warning in round_readability:
+                log(f"⚠ {warning}")
         if grade.get("too_easy"):
             # Deepen the ladder this clue is ACTUALLY using. Reading clue_zoom() here always
             # returned the flat-colour opener, so a habitat clue jumped 1.16 -> 2.31: the whole
@@ -1629,10 +1684,17 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # rather than ship a pair whose only certainty is that the comparison is invalid.
             log(f"⚠ variant {variant} length {_dur(out_v):.2f}s != control {actual_duration:.2f}s; discarded")
             continue
-        variant_outputs[variant] = out_v
         if not complete:
             log(f"⚠ variant {variant} re-cut only some rounds")
+            continue
+        variant_outputs[variant] = out_v
         log(f"Variant {variant.upper()} rendered → {os.path.basename(out_v)}")
+
+    selected_variant = primary_variant if primary_variant in variant_outputs else "a"
+    primary_output = variant_outputs[selected_variant]
+    if primary_variant not in variant_outputs:
+        readability_warnings.append(
+            f"preferred reveal variant {primary_variant} was unavailable; control A was selected")
 
     # Ready-to-paste YouTube description + tags (best-effort). Runs BEFORE the cost sum so its cost is
     # counted; the app persists description_path → {job}.desc exactly like the explainer path.
@@ -1641,15 +1703,16 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     if description_path:
         log("YouTube description written")
     cost = round(sum(costs), 3)
-    _deg = list(timing_warnings) + list(loop_warnings) + list(ladder_warnings)
-    if not os.path.exists(out_mp4):
+    _deg = (list(timing_warnings) + list(loop_warnings) + list(ladder_warnings)
+            + list(readability_warnings))
+    if not os.path.exists(primary_output):
         _deg = ["final video file was not produced — assembly failed"] + _deg
     fal_used = any(event.get("used") for event in fal_opener)
     log(f"Complete — rapid quiz assembled · ${cost} · first clue at 0.0s · {TOTAL:.1f}s planned"
         + (" · fal opener" if fal_used else ""))
     # Shape matches run_explainer_pipeline so the app's save/index path consumes it unchanged.
-    return {"output_path": out_mp4, "title": title, "category": quiz.get("category", category),
-            "scene_count": len(clips), "duration_sec": round(_dur(out_mp4), 1),
+    return {"output_path": primary_output, "title": title, "category": quiz.get("category", category),
+            "scene_count": len(clips), "duration_sec": round(_dur(primary_output), 1),
             "items": [{"answer": it.get("answer"), "fact": it.get("fact")} for it in items],
             "script": quiz, "hook": q_texts.get(1, ""), "video_format": "social",
             "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
@@ -1659,6 +1722,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "habitat_loop_closed": HABITAT and not loop_warnings,
             "difficulty_ladder_honoured": not ladder_warnings,
             "variants": {k: v for k, v in variant_outputs.items()},
+            "primary_variant": selected_variant,
             "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc

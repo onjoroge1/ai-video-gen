@@ -34,6 +34,13 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 # Which visual world a timestamp belongs to. Taken from the spec's own three-world table rather
 # than inferred from the prose, so a scene cannot silently land in the wrong palette.
 WORLDS = ("alternate_2026", "historical_1910", "modern_evidence")
+WORLD_RANGES = (
+    (0.0, 18.0, "alternate_2026"),
+    (18.0, 325.0, "historical_1910"),
+    (325.0, 415.0, "modern_evidence"),
+    (415.0, 465.0, "historical_1910"),
+    (465.0, 9999.0, "alternate_2026"),
+)
 
 
 @dataclass
@@ -94,6 +101,11 @@ def _world_for(start_sec: float, worlds: list) -> str:
         if begin <= start_sec < end:
             return world
     return WORLDS[0]
+
+
+def world_for_timestamp(start_sec: float) -> str:
+    """Public world router shared by the Markdown adapter and JSON renderer."""
+    return _world_for(float(start_sec), list(WORLD_RANGES))
 
 
 def extract_title(text: str) -> str:
@@ -206,9 +218,7 @@ def parse_spec(path: str | Path, *, words_per_scene: int = 28) -> ParsedSpec:
     # From the spec's own beat map. The closing callback returns to the 2026 grocery case, so
     # the last stretch is NOT 1910 -- getting that wrong would render the final shelf shot in a
     # tobacco-brown hearing-room palette and break the callback the whole film is built on.
-    worlds = [(0, 18, "alternate_2026"), (18, 325, "historical_1910"),
-              (325, 415, "modern_evidence"), (415, 465, "historical_1910"),
-              (465, 9999, "alternate_2026")]
+    worlds = list(WORLD_RANGES)
 
     parsed = ParsedSpec(title=title)
     warnings = parsed.warnings
@@ -263,6 +273,140 @@ def to_json(spec: ParsedSpec, path: str | Path) -> dict:
         "script": spec.as_script(),
     }
     Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return payload
+
+
+def extract_fact_ledger(text: str) -> list:
+    """Read a generic ``F01``-style fact ledger without claiming its licenses are resolved.
+
+    A web source proves where a claim came from; it does not grant reuse rights for images or
+    footage.  The adapter therefore records ``license=unresolved`` and lets the canonical
+    validator block paid processing until the operator supplies the real license decision.
+    """
+    facts = []
+    row = re.compile(
+        r"^\|\s*(F\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$",
+        re.M | re.I)
+    for claim_id, claim, source, qualification in row.findall(text):
+        links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", source)
+        facts.append({
+            "claim_id": claim_id.upper(),
+            "claim": claim.strip(),
+            "source_uri": links[0] if links else source.strip(),
+            "qualification": qualification.strip(),
+            "license": "unresolved",
+        })
+    return facts
+
+
+def compile_directed_spec(path: str | Path) -> dict:
+    """Convert the human Markdown document into the reusable directed-longform v1 JSON shape."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+    parsed = parse_spec(path)
+    shots = load_shot_plan(path)
+    if not shots:
+        raise ValueError("Directed spec has no shot plan")
+    duration = float(max(shot["end_sec"] for shot in shots))
+    prompts = extract_base_prompts(text)
+
+    worlds = []
+    for begin, end, world_id in WORLD_RANGES:
+        if begin >= duration:
+            continue
+        worlds.append({
+            "world_id": world_id,
+            "start_sec": begin,
+            "end_sec": min(end, duration),
+            "base_prompt": prompts.get(world_id) or f"Documentary visual world: {world_id}.",
+            "on_screen_label": (
+                "COUNTERFACTUAL — ALTERNATE 2026" if world_id == "alternate_2026" else
+                "REENACTMENT — 1910" if world_id == "historical_1910" else
+                "COLOMBIA — MODERN EVIDENCE"
+            ),
+        })
+
+    narration = []
+    for index, scene in enumerate(parsed.scenes):
+        end = parsed.scenes[index + 1].start_sec if index + 1 < len(parsed.scenes) else duration
+        narration.append({
+            "scene_id": f"scene_{scene.index + 1:03d}",
+            "start_sec": scene.start_sec,
+            "end_sec": end,
+            "narration": scene.narration,
+            "world_id": scene.world,
+            "story_role": scene.story_role,
+            # Mapping evidence is an editorial assertion.  Do not infer it from keyword overlap.
+            "claim_ids": [],
+        })
+
+    directed_shots = []
+    for index, shot in enumerate(shots):
+        scene = max((item for item in narration if item["start_sec"] <= shot["start_sec"]),
+                    key=lambda item: item["start_sec"], default=narration[0])
+        directed_shots.append({
+            "shot_id": f"shot_{index + 1:03d}",
+            "start_sec": shot["start_sec"],
+            "end_sec": shot["end_sec"],
+            "visual": shot["visual"],
+            "mode": shot["mode"],
+            "world_id": world_for_timestamp(shot["start_sec"]),
+            "scene_id": scene["scene_id"],
+            # Blank means a unique generated master.  The validator will reject >60 and require
+            # the operator to assign deliberate reuse groups rather than silently buying 181.
+            "asset_key": "",
+            "claim_ids": [],
+            "reference_ids": [],
+            "overlay_text": "",
+            "labels": (["useful_bolt"] if "bolt" in shot["visual"].casefold()
+                       or "mascot" in shot["mode"].casefold() else []),
+        })
+
+    slug = re.sub(r"[^a-z0-9]+", "-", parsed.title.casefold()).strip("-")[:80]
+    return {
+        "schema_version": "directed_longform_v1",
+        "project_id": slug or "directed-video",
+        "title": parsed.title,
+        "negative_prompt": prompts.get("negative", ""),
+        "target": {
+            "duration_sec": duration,
+            "pilot_end_sec": min(45.0, duration),
+            "format": "landscape",
+            "voice": "echo",
+            "max_cost_usd": 25.0,
+        },
+        "acceptance": {
+            "runtime_tolerance_sec": 10.0,
+            "pilot_runtime_min_sec": 43.0,
+            "pilot_runtime_max_sec": 47.0,
+            "pilot_min_visual_states": 15,
+            "min_shot_sec": 1.25,
+            "max_unchanged_hold_sec": 5.0,
+            "max_unique_master_assets": 60,
+            "min_useful_bolt_appearances": 1,
+            "max_bolt_appearances": 3,
+            "planned_bolt_appearances": 3,
+            "evidence_coverage_pct": 100.0,
+            "automatic_grade_min": 90.0,
+            "editorial_grade_min": 85.0,
+        },
+        "worlds": worlds,
+        "narration": narration,
+        "shots": directed_shots,
+        "evidence": extract_fact_ledger(text),
+        "references": [],
+        "prohibited_claims": [
+            line[2:].strip() for line in re.findall(
+                r"(?ms)^### Prohibited claims\s*\n(.*?)(?=\n###|\n##|\Z)", text
+            )[0].splitlines() if line.strip().startswith("- ")
+        ] if re.search(r"(?m)^### Prohibited claims\s*$", text) else [],
+    }
+
+
+def to_directed_json(spec_path: str | Path, output_path: str | Path) -> dict:
+    payload = compile_directed_spec(spec_path)
+    Path(output_path).write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return payload
 
 def load_shot_plan(spec_path: str | Path) -> list:

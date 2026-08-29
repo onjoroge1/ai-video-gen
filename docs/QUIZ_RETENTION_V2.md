@@ -1,4 +1,4 @@
-# Quiz Short Retention V2.1 — Progressive Rapid Reveal
+# Quiz Short Retention V2.2 — Four-Payoff Rapid Reveal
 
 ## Measured failure
 
@@ -16,22 +16,24 @@ The retention curve has two different problems:
 The middle declines steadily because each round serializes “Number N. What is it?”, a 2.4-second timer,
 and a reaction reveal. Easy-first clues plus repeated setup make the interaction feel slower than it is.
 
-## V2.1 creative contract
+## V2.2 creative contract
 
 - The **first clue is frame zero**. No mascot intro or logo hold.
-- Three rounds maximum: **medium → hard → expert**. The opener cannot be trivial.
+- Four rounds maximum: **warm-up → too easy? → no hints → final boss**. The opener cannot be trivial.
 - Voice and timer run concurrently over the clue; no separate “What is it?” card.
-- Each 2.4-second guess progressively widens from a tight detail to the complete clue every 0.8 seconds.
-- Reveal: 0.8–1.2 seconds; the final reveal may run up to 2.4 seconds for the integrated daily CTA.
-- A vision QA pass grades first-crop difficulty, full-clue fairness, answer identity, anatomy, and pose.
+- Each 1.8-second guess progressively widens from a tight detail to the complete clue every 0.6 seconds.
+- Reveal: 0.8–1.2 seconds; the final reveal may run up to 3.6 seconds for the integrated replay CTA.
+- A vision QA pass grades first-crop difficulty, full-clue fairness, answer identity, anatomy, pose,
+  subject occupancy and clue/background contrast at phone size.
 - Overly easy openings are cropped tighter; incorrect/anatomically weak reveals regenerate once.
 - Critical headers, timers, answers, and CTA remain inside the Shorts safe zone.
 - Every card has subtle duration-aware motion; no frozen multi-second PNG.
 - Optional `QUIZ_FAL_OPENER=1` uses one fal/Kling clip behind the first countdown only. This isolates
   the value of generative motion at the swipe/stay decision without paying to animate every card. It is
   not combined with progressive crops because generative silhouette morphing can make a clue unfair.
-- Bolt appears as a small reveal badge, never as an intro.
-- The final answer carries “GOT ALL 3? · SUBSCRIBE” on screen. The spoken line asks for the replay
+- Bolt performs as a full-body reveal layer, never as an intro or on a guess frame. The renderer also
+  preserves control A from the identical generated assets so the performance layer can be compared cleanly.
+- The final answer carries “GOT ALL 4? · SUBSCRIBE” on screen. The spoken line asks for the replay
   instead — “Missed one? Go again.” — so the two channels complement rather than repeat, and the ask
   names an action the loop has already made free. There is no separate outro or subscription card.
 - **The video closes on the frame it opens on.** The last beat cross-dissolves into round one's first

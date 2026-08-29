@@ -24,6 +24,7 @@ py-modules = [
     "charts_pipeline",
     "db",
     "durable_execution",
+    "directed_longform",
     "explainer_pipeline",
     "finished_api",
     "font_utils",
@@ -47,8 +48,10 @@ py-modules = [
     "retention_readiness",
     "runtime_planner",
     "sim_drop_pipeline",
+    "spec_pilot",
     "stateboard_pipeline",
     "topic_roi",
+    "user_directed",
 ]
 
 [tool.setuptools.packages.find]

@@ -38,7 +38,7 @@ QUIZ_V2 = QuizCreativeContract()
 
 
 def clamp_quiz_items(item_count: int, maximum: int = QUIZ_V2.max_items) -> int:
-    return max(2, min(maximum, int(item_count or 3)))
+    return max(2, min(maximum, int(item_count or maximum)))
 
 
 _COUNT_WORDS = {2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
@@ -118,7 +118,7 @@ def final_reveal_narration(answer: str) -> str:
     average percentage viewed sits above 100% because people replay it.
 
     "Missed one?" supplies the reason. It presumes an imperfect score, which is true for most
-    viewers on an expert third round, and makes going again a way to settle it rather than a
+    viewers on an expert final round, and makes going again a way to settle it rather than a
     favour. The on-screen card still carries the subscribe ask, so the spoken and written
     channels complement each other instead of repeating.
 

@@ -1121,6 +1121,11 @@ class ExplainerRequest(BaseModel):
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
+    # Internal directed-v1 fields. Public callers must use the validation/process endpoints,
+    # which bind paid approval to an immutable spec hash before constructing this request.
+    directed_spec: dict | None = None
+    directed_spec_sha256: str = ""
+    directed_paid_authorized: bool = False
     # Internal PR7 fields are accepted when a durable worker reconstructs a queued pilot request.
     # The public explainer endpoint rejects controlled_pilot=True; only the paired pilot endpoint
     # can create these values.
@@ -1135,6 +1140,16 @@ class ExplainerRequest(BaseModel):
     selection_sha256: str = ""
     frozen_opening_sha256: str = ""
     production_policy: dict = Field(default_factory=dict)
+
+
+class DirectedLongformValidateRequest(BaseModel):
+    spec: dict
+
+
+class DirectedLongformProcessRequest(BaseModel):
+    spec: dict
+    spec_sha256: str
+    authorize_paid: bool = False
 
 
 class ExplainerPilotBatchRequest(BaseModel):
@@ -1238,9 +1253,49 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
 
     try:
         loop = asyncio.get_event_loop()
+        # Directed v1 is a separate, operator-authored job.  It never enters the model-authored
+        # explainer pipeline and this internal branch is reachable only through validate/process.
+        if request.directed_spec:
+            import spec_pilot
+            import directed_longform as dl
+
+            directed = dl.DirectedLongformSpec.model_validate(request.directed_spec)
+            pilot = await loop.run_in_executor(
+                None,
+                lambda: _run_with_runtime(lambda: spec_pilot.render_pilot(
+                    request.directed_spec, output_dir,
+                    voice=directed.target.voice,
+                    window=(0.0, directed.target.pilot_end_sec),
+                    use_i2v=True,
+                    validated_sha256=request.directed_spec_sha256,
+                    authorize_paid=request.directed_paid_authorized,
+                    require_validation=True,
+                    log=push)),
+            )
+            result = {
+                "output_path": pilot["preview_path"],
+                "title": directed.title,
+                "script": request.directed_spec,
+                "hook": directed.narration[0].narration,
+                "scene_count": pilot["shots"],
+                "duration_sec": pilot["measured_seconds"],
+                "video_format": "landscape",
+                "actual_cost": pilot["total_cost_usd"],
+                "est_cost": pilot["total_cost_usd"],
+                "generation_manifest_path": pilot["generation_manifest_path"],
+                "directed_spec_path": pilot["directed_spec_path"],
+                "validation_report_path": pilot["validation_report_path"],
+                "directed_pilot": True,
+                # A rendered pilot is not a passed film.  Preserve it for editorial review and
+                # keep full-film processing unavailable until that separate gate exists.
+                "status": "degraded",
+                "degraded_reasons": [
+                    "directed pilot rendered; editorial approval is required before full-film processing"
+                ],
+            }
         # QUIZ template (social only): a different backend — Bolt hosts a "What is it?" guessing quiz.
         # The `question` field carries the CATEGORY (e.g. "animals"). Returns an explainer-shaped result.
-        if request.video_format == "social" and request.short_template == "quiz":
+        elif request.video_format == "social" and request.short_template == "quiz":
             import quiz_pipeline as qp
             result = await loop.run_in_executor(
                 None,
@@ -1370,6 +1425,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "claim_report_path": result.get("claim_report_path"),
             "audio_timing_report_path": result.get("audio_timing_report_path"),
             "generation_manifest_path": result.get("generation_manifest_path"),
+            "directed_spec_path": result.get("directed_spec_path"),
+            "validation_report_path": result.get("validation_report_path"),
+            "directed_pilot": bool(result.get("directed_pilot")),
             "story_format_review_path": result.get("story_format_review_path"),
             "evidence_plan_path": result.get("evidence_plan_path"),
             "evidence_validation_path": result.get("evidence_validation_path"),
@@ -1390,12 +1448,16 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "motion_mode": result.get("motion_mode"),
             "i2v_requested": result.get("i2v_requested"),
             "i2v_animated": result.get("i2v_animated"),
+            "quiz_variants": result.get("variants") or {},
+            "quiz_primary_variant": result.get("primary_variant"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
-        template = (request.short_template if request.video_format == "social" else "explainer")
+        template = ("directed-v1" if request.directed_spec else
+                    request.short_template if request.video_format == "social" else "explainer")
         await _archive_finished(job, job_id, result["output_path"], {
             "title": result["title"], "status": job["status"],
-            "format": f"short-{template}" if request.video_format == "social" else "explainer",
+            "format": ("directed-v1-pilot" if request.directed_spec else
+                       f"short-{template}" if request.video_format == "social" else "explainer"),
             "question": request.question, "scene_count": result["scene_count"],
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
@@ -1410,6 +1472,10 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "claims": result.get("claim_report_path"),
                   "timing": result.get("audio_timing_report_path"),
                   "generation-manifest": result.get("generation_manifest_path"),
+                  "directed-spec": result.get("directed_spec_path"),
+                  "directed-validation": result.get("validation_report_path"),
+                  "quiz-control": (result.get("variants") or {}).get("a"),
+                  "quiz-performer": (result.get("variants") or {}).get("b"),
                   "story-format-review": result.get("story_format_review_path"),
                   "evidence-plan": result.get("evidence_plan_path"),
                   "evidence-validation": result.get("evidence_validation_path"),
@@ -2089,29 +2155,28 @@ async def explainer_production_run(production_id: str):
     return run
 
 
-@app.post("/api/explainer/generate")
-async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="question is required")
-    if request.controlled_pilot:
-        raise HTTPException(
-            status_code=403,
-            detail="Controlled pilot fields are internal; use /api/explainer/pilots.")
-    if request.controlled_production:
-        raise HTTPException(
-            status_code=403,
-            detail="Controlled production fields are internal; use /api/explainer/production.")
+async def _enqueue_explainer_request(request: ExplainerRequest,
+                                     background_tasks: BackgroundTasks) -> dict:
+    """Shared queue boundary after a public route has authorized its request shape."""
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
     job_id = str(uuid.uuid4())[:8]
     if _durable_execution_required():
         try:
             store, _ = _durable_components()
+            configured_cap = float(os.environ.get(
+                "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00")))
+            job_cost_cap = configured_cap
+            if request.directed_spec:
+                # The validated contract can tighten the deployment-wide cap, never loosen it.
+                job_cost_cap = min(
+                    configured_cap,
+                    float(request.directed_spec["target"]["max_cost_usd"]),
+                )
             row = await asyncio.to_thread(
                 store.enqueue, job_id=job_id, kind="explainer",
                 request=request.model_dump(),
-                max_cost_usd=float(os.environ.get(
-                    "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00"))),
+                max_cost_usd=job_cost_cap,
                 pipeline_version=durable_execution.version_hash(BASE_DIR),
                 output_prefix=f"jobs/{job_id}")
         except durable_execution.StorageUnavailable as exc:
@@ -2130,6 +2195,66 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
     _record_inprogress(job_id, output_dir, request)   # so a crash/reload can be resumed
     background_tasks.add_task(run_explainer_task, job_id, request, output_dir)
     return {"job_id": job_id}
+
+
+@app.get("/api/explainer/directed/schema")
+async def explainer_directed_schema():
+    import directed_longform as dl
+    return dl.json_schema()
+
+
+@app.post("/api/explainer/directed/validate")
+async def explainer_directed_validate(request: DirectedLongformValidateRequest):
+    """Free, provider-independent validation. No job or artifact is created."""
+    import directed_longform as dl
+    return dl.validate_directed_spec(request.spec)
+
+
+@app.post("/api/explainer/directed/process")
+async def explainer_directed_process(request: DirectedLongformProcessRequest,
+                                     background_tasks: BackgroundTasks):
+    """Queue the validated first-45 directed pilot; never the full film in one leap."""
+    import directed_longform as dl
+    try:
+        spec, report = dl.authorize_processing(
+            request.spec,
+            expected_sha256=request.spec_sha256,
+            authorize_paid=request.authorize_paid,
+        )
+    except dl.DirectedValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    queued = await _enqueue_explainer_request(ExplainerRequest(
+        question=spec.title,
+        duration_sec=int(round(spec.target.pilot_end_sec)),
+        voice=spec.target.voice,
+        video_format="landscape",
+        motion_mode="standard",
+        story_format="evidence_led_mystery",
+        directed_spec=report["normalized_spec"],
+        directed_spec_sha256=report["spec_sha256"],
+        directed_paid_authorized=True,
+    ), background_tasks)
+    return {**queued, "spec_sha256": report["spec_sha256"],
+            "scope": "first-45-pilot", "estimated_cost": report["pilot_cost_estimate"]}
+
+
+@app.post("/api/explainer/generate")
+async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="question is required")
+    if request.directed_spec or request.directed_spec_sha256 or request.directed_paid_authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="Directed fields are internal; use /api/explainer/directed/validate then /process.")
+    if request.controlled_pilot:
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled pilot fields are internal; use /api/explainer/pilots.")
+    if request.controlled_production:
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled production fields are internal; use /api/explainer/production.")
+    return await _enqueue_explainer_request(request, background_tasks)
 
 
 async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
