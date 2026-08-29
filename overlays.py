@@ -12,7 +12,7 @@ import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
 
-from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+from media_binaries import ffmpeg as _ffmpeg_bin, probe_dimensions as _probe_dimensions
 
 # ── Font loading ───────────────────────────────────────────────────────────────
 
@@ -256,13 +256,7 @@ def make_score_banner(width: int, height: int, score_text: str) -> Image.Image:
 # ── Video dimension probe ──────────────────────────────────────────────────────
 
 def video_wh(path: str) -> tuple[int, int]:
-    r = subprocess.run(
-        [_ffprobe_bin(), "-v", "quiet", "-select_streams", "v:0",
-         "-print_format", "json", "-show_streams", path],
-        capture_output=True, text=True, check=True,
-    )
-    s = json.loads(r.stdout)["streams"][0]
-    return int(s["width"]), int(s["height"])
+    return _probe_dimensions(path)
 
 
 # ── Composite banners onto a clip ──────────────────────────────────────────────

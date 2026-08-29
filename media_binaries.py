@@ -12,21 +12,22 @@ Resolution order for each binary:
 3. known system install locations;
 4. for ffmpeg only, the static build bundled in the ``imageio-ffmpeg`` wheel.
 
-Step 4 means a plain ``pip install -r requirements.txt`` yields a usable ffmpeg with no system
-package. ``imageio-ffmpeg`` does **not** bundle ffprobe, so ffprobe still requires the host to
-provide it — which every normal ffmpeg install does. :func:`preflight` exists so that gap is
-reported at startup for $0 instead of surfacing deep inside a render that has already spent
-money on image, motion, and narration calls.
+``imageio-ffmpeg`` does not bundle ffprobe. When the host lacks it, the shared probe helpers read
+duration and dimensions from ffmpeg's input inspection output instead. A plain requirements install
+therefore provides both rendering and the metadata probes ReelForge needs on Vercel.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 
 __all__ = [
     "MediaBinaryError", "ffmpeg", "ffprobe", "resolve", "preflight",
-    "require", "bundled_ffmpeg", "reset_cache",
+    "require", "bundled_ffmpeg", "reset_cache", "probe_media",
+    "probe_duration", "probe_dimensions",
 ]
 
 
@@ -108,6 +109,60 @@ def ffprobe() -> str:
     return require("ffprobe")
 
 
+def probe_media(path: str) -> dict:
+    """Read duration and dimensions with ffprobe or the bundled ffmpeg fallback."""
+    native = resolve("ffprobe")
+    if native:
+        result = subprocess.run(
+            [native, "-v", "quiet", "-print_format", "json", "-show_format",
+             "-show_streams", path],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30.0)
+        if result.returncode == 0:
+            payload = json.loads(result.stdout or "{}")
+            streams = payload.get("streams") or []
+            video = next((item for item in streams if item.get("codec_type") == "video"), {})
+            duration = (payload.get("format") or {}).get("duration")
+            if duration is None:
+                duration = next((item.get("duration") for item in streams
+                                 if item.get("duration") is not None), 0)
+            return {
+                "duration": float(duration or 0),
+                "width": int(video.get("width") or 0),
+                "height": int(video.get("height") or 0),
+                "has_video": bool(video),
+                "source": "ffprobe",
+            }
+
+    # imageio-ffmpeg supplies this binary on Vercel. Inspecting an input exits immediately after
+    # printing its container metadata, so this does not decode the full video.
+    result = subprocess.run(
+        [ffmpeg(), "-hide_banner", "-i", path], capture_output=True, text=True,
+        stdin=subprocess.DEVNULL, timeout=30.0)
+    output = (result.stderr or "") + "\n" + (result.stdout or "")
+    duration_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", output)
+    video_line = next((line for line in output.splitlines() if "Video:" in line), "")
+    dimensions = re.search(r"(?<![\d.])(\d{2,5})x(\d{2,5})(?![\d.])", video_line)
+    if not duration_match:
+        raise MediaBinaryError(f"Could not read media duration from {path!r} with ffmpeg")
+    hours, minutes, seconds = duration_match.groups()
+    return {
+        "duration": int(hours) * 3600 + int(minutes) * 60 + float(seconds),
+        "width": int(dimensions.group(1)) if dimensions else 0,
+        "height": int(dimensions.group(2)) if dimensions else 0,
+        "has_video": bool(dimensions),
+        "source": "ffmpeg-fallback",
+    }
+
+
+def probe_duration(path: str) -> float:
+    return float(probe_media(path)["duration"])
+
+
+def probe_dimensions(path: str) -> tuple[int, int]:
+    result = probe_media(path)
+    return int(result["width"]), int(result["height"])
+
+
 def reset_cache() -> None:
     """Forget resolved paths. Used by tests and after changing the environment."""
     _cache.clear()
@@ -143,12 +198,16 @@ def preflight() -> dict:
             "version": _version(path) if path else "",
         }
     missing = sorted(name for name, item in binaries.items() if not item["executable"])
+    probe_fallback = bool(binaries["ffmpeg"]["executable"])
     return {
-        "ready": not missing,
+        "ready": binaries["ffmpeg"]["executable"] and (
+            binaries["ffprobe"]["executable"] or probe_fallback),
         "binaries": binaries,
         "missing": missing,
+        "probe_source": "ffprobe" if binaries["ffprobe"]["executable"] else (
+            "ffmpeg-fallback" if probe_fallback else "missing"),
         "remedy": (
-            "" if not missing else
+            "" if probe_fallback else
             "Install ffmpeg/ffprobe on the render host (`apt-get install -y ffmpeg`) or set "
             "FFMPEG_BIN/FFPROBE_BIN. `pip install imageio-ffmpeg` supplies ffmpeg only."
         ),

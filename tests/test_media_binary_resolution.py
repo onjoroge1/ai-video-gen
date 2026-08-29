@@ -80,10 +80,27 @@ def test_preflight_reports_a_renderable_host():
 def test_preflight_names_what_is_missing_before_any_spend(monkeypatch):
     _blind(monkeypatch)
     report = mb.preflight()
-    assert report["ready"] is False
+    assert report["ready"] is True
     assert report["missing"] == ["ffprobe"]
     assert report["binaries"]["ffmpeg"]["source"] == "bundled"
-    assert "FFMPEG_BIN/FFPROBE_BIN" in report["remedy"]
+    assert report["probe_source"] == "ffmpeg-fallback"
+    assert report["remedy"] == ""
+
+
+def test_bundled_ffmpeg_probes_media_without_system_ffprobe(tmp_path, monkeypatch):
+    source = tmp_path / "probe.mp4"
+    subprocess.run([
+        mb.ffmpeg(), "-y", "-f", "lavfi", "-i",
+        "color=c=black:s=320x180:d=1", "-an", "-c:v", "libx264", str(source),
+    ], check=True, capture_output=True, timeout=30)
+    _blind(monkeypatch)
+    mb.reset_cache()
+
+    report = mb.probe_media(str(source))
+
+    assert report["source"] == "ffmpeg-fallback"
+    assert report["duration"] >= 0.9
+    assert (report["width"], report["height"]) == (320, 180)
 
 
 def test_preflight_reports_a_completely_unrenderable_host(monkeypatch):

@@ -26,7 +26,8 @@ import urllib.request
 from datetime import datetime, timezone
 
 import openai
-from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_duration, \
+    probe_dimensions as _probe_dimensions, probe_media as _probe_media
 import anthropic
 import script_provider
 from openai import OpenAI
@@ -3238,12 +3239,7 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _audio_dur(path: str) -> float:
-    r = subprocess.run(
-        [_ffprobe_bin(), "-v", "quiet", "-print_format", "json", "-show_format", path],
-        capture_output=True, text=True, check=True,
-        stdin=subprocess.DEVNULL, timeout=30.0,
-    )
-    return float(json.loads(r.stdout)["format"]["duration"])
+    return _probe_duration(path)
 
 
 def _fit_script_to_measured_audio(script: dict, timing_report: dict, target_seconds: float,
@@ -4079,12 +4075,9 @@ def _clip_is_real(path, min_dur=0.8):
     a plausible duration). Guards the i2v success gate so a corrupt/truncated/empty file — or an
     audio-only artifact — can never be reported as a successful animation (the silent-slop bug)."""
     try:
-        import subprocess as _sp
-        w = _sp.run([_ffprobe_bin(), "-v", "error", "-select_streams", "v:0", "-show_entries",
-                     "stream=width", "-of", "csv=p=0", path], capture_output=True, text=True, timeout=20).stdout.strip()
-        d = _sp.run([_ffprobe_bin(), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
-                    capture_output=True, text=True, timeout=20).stdout.strip()
-        return bool(w) and int(w) > 0 and float(d or 0) >= min_dur
+        media = _probe_media(path)
+        return bool(media["has_video"]) and int(media["width"]) > 0 \
+            and float(media["duration"]) >= min_dur
     except Exception:
         return False
 
@@ -6383,10 +6376,7 @@ def _overlay_opening_thumbnail(video_path: str, thumb_path: str, hold: float = 1
     if not (thumb_path and os.path.exists(thumb_path) and os.path.exists(video_path)):
         return False
     try:
-        wh = subprocess.run([_ffprobe_bin(), "-v", "quiet", "-select_streams", "v:0",
-                             "-show_entries", "stream=width,height", "-of", "csv=p=0", video_path],
-                            capture_output=True, text=True).stdout.strip()
-        w, h = [int(x) for x in wh.split(",")[:2]]
+        w, h = _probe_dimensions(video_path)
     except Exception:
         return False
     tmp = video_path + ".thumbfirst.mp4"

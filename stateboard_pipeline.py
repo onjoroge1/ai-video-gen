@@ -11,6 +11,7 @@ is original and generic-by-type (never a copyrighted/proper-noun place); no foot
 is the user's own text, voiced verbatim.
 """
 import os, re, subprocess
+from media_binaries import probe_duration
 import explainer_pipeline as ep       # generate_tts, generate_image
 import board_pipeline as bp           # render_board, extract_state_timeline
 from PIL import Image, ImageDraw
@@ -41,9 +42,7 @@ def _split_chapters(text):
     return parts[:16]
 
 def _dur(p):
-    r = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
-                        "-of","default=nw=1:nk=1", p], capture_output=True, text=True)
-    try: return float(r.stdout.strip())
+    try: return probe_duration(p)
     except Exception: return 0.0
 
 def _cover1080(path):

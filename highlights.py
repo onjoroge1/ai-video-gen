@@ -18,7 +18,7 @@ import wave
 import numpy as np
 import anthropic
 
-from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin
+from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_duration
 
 _client = None
 
@@ -33,11 +33,7 @@ def _get_client():
 # ── Video helpers ──────────────────────────────────────────────────────────────
 
 def _video_duration(video_path: str) -> float:
-    r = subprocess.run(
-        [_ffprobe_bin(), "-v", "quiet", "-print_format", "json", "-show_format", video_path],
-        capture_output=True, text=True, check=True,
-    )
-    return float(json.loads(r.stdout)["format"]["duration"])
+    return _probe_duration(video_path)
 
 
 def _extract_audio_wav(video_path: str, out_wav: str, sample_rate: int = 22050) -> None:
