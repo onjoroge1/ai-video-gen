@@ -22,6 +22,8 @@ import re
 import uuid
 
 import blob_compat
+# A worker must become reclaimable before the hosting function ceiling.
+os.environ.setdefault("DURABLE_JOB_LEASE_SECONDS", "600")
 import _durable_execution_legacy as _legacy
 from _durable_execution_legacy import *  # noqa: F401,F403
 

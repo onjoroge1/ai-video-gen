@@ -2412,6 +2412,56 @@ async def get_agent_action(action_id: str, request: Request):
     return agent_actions.public_action(action, include_private=True)
 
 
+@app.get("/api/agent/actions/{action_id}/public-status")
+async def get_agent_action_public_status(action_id: str):
+    """Read-only, non-sensitive status for an opaque approved action id.
+
+    This intentionally omits the directed spec payload, credentials and claim-token digest.
+    It exists so an AI can monitor an operator-approved render without a second approval.
+    """
+    try:
+        action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    if not action:
+        raise HTTPException(status_code=404, detail="Agent action not found")
+    summary = agent_actions.public_action(action)
+    job_id = str(action.get("job_id") or "")
+    if job_id and _durable_execution_required():
+        try:
+            store, _ = _durable_components()
+            row = await asyncio.to_thread(store.get_job, job_id)
+            if row:
+                summary["job"] = {
+                    "id": row.get("id"),
+                    "status": row.get("status"),
+                    "error": row.get("error"),
+                    "spent_cost_usd": float(row.get("spent_cost_usd") or 0),
+                    "reserved_cost_usd": float(row.get("reserved_cost_usd") or 0),
+                    "max_cost_usd": float(row.get("max_cost_usd") or 0),
+                    "attempts": row.get("attempts"),
+                    "max_attempts": row.get("max_attempts"),
+                    "lease_expires_at": str(row.get("lease_expires_at") or ""),
+                    "updated_at": str(row.get("updated_at") or ""),
+                    "checkpoint_present": bool(row.get("checkpoint")),
+                    "result": row.get("result") or {},
+                }
+            import db
+            finished = await asyncio.to_thread(db.finished_video_get, job_id) or {}
+            if finished:
+                summary["finished_video"] = {
+                    "id": finished.get("id"),
+                    "title": finished.get("title"),
+                    "status": finished.get("status"),
+                    "video_url": finished.get("video_url"),
+                    "download_url": finished.get("download_url"),
+                    "metadata": finished.get("metadata") or {},
+                }
+        except durable_execution.StorageUnavailable:
+            summary["job_status_unavailable"] = True
+    return summary
+
+
 @app.post("/api/agent/actions/{action_id}/approve")
 async def approve_agent_action(action_id: str, approval: AgentActionApprovalRequest,
                                request: Request):
