@@ -1,0 +1,22 @@
+name: Create Hippo V3 action once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/create-hippo-v3-action-once.yml'
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create non-spending V3 proposal
+        run: |
+          set -euo pipefail
+          spec=$(curl -fsSL https://raw.githubusercontent.com/onjoroge1/ai-video-gen/main/spec/hippo_illustrated_story_v3.json)
+          body=$(jq -n --argjson spec "$spec" '{operation:"directed_pilot",spec:$spec,cost_ceiling_usd:1.60}')
+          curl -fsS -X POST \
+            -H 'Content-Type: application/json' \
+            --data "$body" \
+            https://ai-video-gen-nine.vercel.app/api/agent/actions | tee /tmp/action.json
+          jq . /tmp/action.json
