@@ -1,0 +1,48 @@
+name: Apply preview-only last quiz retrieval route
+
+on:
+  push:
+    branches:
+      - qa/cleanup-last-quiz
+
+permissions:
+  contents: write
+
+jobs:
+  apply-route:
+    if: ${{ !contains(github.event.head_commit.message, '[qa-cleanup-route-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply read-only preview route
+        run: python scripts/apply_cleanup_last_quiz_route.py
+      - name: Validate patch
+        run: |
+          python -m compileall -q app.py private_access.py
+          python - <<'PY'
+          from pathlib import Path
+          app = Path('app.py').read_text()
+          access = Path('private_access.py').read_text()
+          token = '097569477bd3df50bb4cf43ed04d1d24'
+          path = f'/api/qa/cleanup-last-quiz-{token}'
+          assert path in app
+          assert path in access
+          assert 'action == "candidates"' in app
+          assert 'action != "download"' in app
+          assert 'qa/cleanup-last-quiz' in app
+          assert app.index('# QA_ONLY_CLEANUP_LAST_QUIZ') < app.index('app.mount("/"')
+          PY
+          git diff --check
+      - name: Commit applied route
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py private_access.py
+          git commit -m "test: apply preview-only last quiz route [qa-cleanup-route-applied]"
+          git push origin HEAD:qa/cleanup-last-quiz
