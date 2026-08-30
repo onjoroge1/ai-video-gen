@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python -m pip install --quiet -r requirements.txt && PYTHONUNBUFFERED=1 python scripts/smoke_quiz_sequence_v23.py",
   "functions": {
     "app.py": {
       "excludeFiles": "{tests/**,bolt_seq/tests/**,bolt_seq/fixtures/**,_e2e_final/**,requirements-dev.txt}",
