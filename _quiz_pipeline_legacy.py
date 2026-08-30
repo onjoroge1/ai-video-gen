@@ -831,11 +831,16 @@ def _render_sequence(specs, out, expected_duration):
     if dissolve > 0:
         head = sum(float(spec[1]) for spec in specs[:-1])
         closing_d = float(specs[-1][1])
-        # xfade refuses inputs whose timebases differ, and concat hands back 1/1000000 where a
-        # single segment is still 1/30. Both sides are normalised rather than one, so the filter
-        # is not silently agreeing on whichever timebase happened to arrive first.
-        filters.append("".join(labels[:-1]) + f"concat=n={len(specs)-1}:v=1:a=0,settb=AVTB[pre]")
-        filters.append(f"{labels[-1]}settb=AVTB[loop]")
+        # xfade requires both inputs to be constant-frame-rate with identical frame rate,
+        # timebase, resolution and pixel format. concat can advertise an undefined 1/0 frame rate
+        # even when every segment was rendered at 30 fps; Vercel's bundled FFmpeg rejects that
+        # before encoding frame zero. Reset timestamps first, then let fps establish explicit CFR
+        # metadata, and finally put both sides on the same AV timebase.
+        filters.append("".join(labels[:-1]) +
+                       f"concat=n={len(specs)-1}:v=1:a=0,format=yuv420p,"
+                       f"setpts=PTS-STARTPTS,fps={FPS},settb=AVTB[pre]")
+        filters.append(f"{labels[-1]}format=yuv420p,setpts=PTS-STARTPTS,"
+                       f"fps={FPS},settb=AVTB[loop]")
         # xfade runs out to `offset + closing_d`, so anchoring the offset at `head - closing_d`
         # makes the total exactly the head — the closing spec costs no runtime however long it
         # is, and the audio timeline built against that total stays valid.
