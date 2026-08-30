@@ -7,10 +7,8 @@ The first render proved the visual compositor, but the default replay line was l
 supply a measured, shorter replay line before invoking the same renderer.
 """
 
-import sys
-
-import quiz_pipeline as qp
 import render_offline_quiz_v23 as renderer
+import quiz_pipeline as qp
 
 
 _original_install = renderer._install_offline_contract
