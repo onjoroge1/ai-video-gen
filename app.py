@@ -2691,10 +2691,13 @@ async def internal_render_worker():
 @app.get("/api/cron/render-recovery")
 async def render_recovery_cron():
     try:
-        result = await _run_durable_explainer_worker()
         store, blob = _durable_components()
+        audio_salvage = await asyncio.to_thread(store.rearm_next_directed_audio_runtime_failure)
+        result = await _run_durable_explainer_worker(
+            str(audio_salvage["id"]) if audio_salvage else None)
         cleanup = await asyncio.to_thread(durable_execution.cleanup_orphans, store, blob)
-        return {**result, "orphan_cleanup": cleanup}
+        return {**result, "directed_audio_salvage": audio_salvage or {},
+                "orphan_cleanup": cleanup}
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail={
             "code": "DURABLE_RECOVERY_STORAGE_FAILURE", "message": str(exc), "retryable": True,

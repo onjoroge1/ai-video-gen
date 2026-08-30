@@ -516,6 +516,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             log(f"  ⚠ {issue.get('message')}")
 
     audio_costs: list = []
+    audio_transformations: list = []
     image_costs: list = []
     audio_paths, image_paths = [], []
     blocked: list = []
@@ -559,6 +560,44 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # but stops visual spending, exactly as the directed production contract requires.
     if require_validation:
         is_pilot = abs(win_start) <= 0.05 and abs(win_end - spec.target.pilot_end_sec) <= 0.05
+        # A small natural-TTS overrun is an audio-layout problem, not a reason to regenerate
+        # the approved narration or weaken the runtime gate.  Fit the already-paid audio with
+        # ffmpeg atempo, preserve pitch, then remeasure and enforce the exact same 43-47s gate.
+        # The 12% ceiling is deliberately narrow; larger misses still fail closed before images.
+        if (is_pilot and spoken > spec.acceptance.pilot_runtime_max_sec
+                and spoken <= spec.acceptance.pilot_runtime_max_sec * 1.12):
+            target_spoken = max(
+                spec.acceptance.pilot_runtime_min_sec + 0.5,
+                spec.acceptance.pilot_runtime_max_sec - 1.0,
+            )
+            speed_factor = spoken / target_spoken
+            original_spoken = spoken
+            if not 1.0 < speed_factor <= 1.12:
+                raise RuntimeError(
+                    f"measured pilot narration {spoken:.2f}s requires unsafe audio retime; "
+                    "visual spending stopped")
+            for (scene_index, scene), audio_path in zip(indexed_scenes, audio_paths):
+                before = ep._audio_dur(audio_path)
+                tmp_path = audio_path + ".runtime-fit.mp3"
+                ep._run_ffmpeg([
+                    ep._ffmpeg_bin(), "-nostdin", "-y", "-i", audio_path,
+                    "-filter:a", f"atempo={speed_factor:.6f}",
+                    "-c:a", "libmp3lame", "-q:a", "2", tmp_path,
+                ], timeout=120.0)
+                os.replace(tmp_path, audio_path)
+                after = ep._audio_dur(audio_path)
+                audio_transformations.append({
+                    "scene_id": scene.scene_id,
+                    "type": "atempo",
+                    "reason": "directed_pilot_runtime_fit",
+                    "speed_factor": round(speed_factor, 6),
+                    "original_runtime_sec": round(before, 3),
+                    "final_runtime_sec": round(after, 3),
+                })
+            spoken = sum(ep._audio_dur(path) for path in audio_paths)
+            drift = spoken - budget
+            log(f"Directed pilot audio runtime fit: {original_spoken:.2f}s → {spoken:.2f}s "
+                f"(atempo ×{speed_factor:.4f}; gate unchanged)")
         if is_pilot and not (
                 spec.acceptance.pilot_runtime_min_sec <= spoken
                 <= spec.acceptance.pilot_runtime_max_sec):
@@ -742,7 +781,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "window": {"start_sec": win_start, "end_sec": win_end},
         "providers": [
             {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
-             "voice": voice, "transformation": "none"},
+             "voice": voice, "transformation": "atempo" if audio_transformations else "none"},
             {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
         ] + ([{
             "purpose": "blind_rendered_story_grade", "provider": "anthropic",
@@ -770,7 +809,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
                 for shot, path in zip(shots, image_paths)
             ],
         },
-        "actual_audio_transformations": [],
+        "actual_audio_transformations": audio_transformations,
         "blocked_shots": blocked,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
