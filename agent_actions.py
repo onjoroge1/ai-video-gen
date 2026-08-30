@@ -2,8 +2,9 @@
 
 An action is not a service account and carries no general studio authority.  An unauthenticated
 client may propose one immutable directed-video pilot, but only an authenticated studio session
-may approve it.  The claim token is stored only as a SHA-256 digest and can enqueue the approved
-payload once.  Full-film generation is intentionally not an operation in this module.
+may approve it.  Approval rotates the one-time execution capability to the action's random UUID,
+so the approval UI can immediately enqueue the exact approved payload without a second user step.
+Full-film generation is intentionally not an operation in this module.
 """
 from __future__ import annotations
 
@@ -217,9 +218,15 @@ class PostgresAgentActionRepository:
             if Decimal(str(action["cost_ceiling_usd"])) != Decimal(str(cost_ceiling_usd)):
                 raise AgentActionConflict("Cost ceiling changed")
             cur = conn.cursor()
+            # Once the authenticated operator approves the immutable spec+ceiling, rotate the
+            # one-time execution capability to this action's 128-bit random UUID.  The approval
+            # page can then enqueue immediately without depending on another tab's sessionStorage.
+            # claim() still consumes it exactly once and all spec/cost validation remains intact.
             cur.execute("""
-                UPDATE agent_actions SET status='approved',approved_at=now(),approved_by=%s
-                WHERE action_id=%s RETURNING *""", (approver, action_id))
+                UPDATE agent_actions
+                SET status='approved',approved_at=now(),approved_by=%s,claim_token_sha256=%s
+                WHERE action_id=%s RETURNING *""",
+                (approver, token_digest(action_id), action_id))
             approved = self._row(cur, cur.fetchone()) or {}
             conn.commit()
             return approved
