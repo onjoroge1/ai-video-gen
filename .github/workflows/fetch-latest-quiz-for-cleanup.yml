@@ -1,0 +1,67 @@
+name: Fetch latest finished quiz for cleanup
+
+on:
+  push:
+    branches:
+      - qa/cleanup-last-quiz
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-quiz:
+    if: ${{ contains(github.event.head_commit.message, '[fetch-last-quiz]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install media tools
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y ffmpeg jq >/dev/null
+
+      - name: Retrieve latest finished quiz and inspection frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa_artifacts/frames
+          BASE="https://ai-video-1tnasb70m-onjoroge1s-projects.vercel.app"
+          ROUTE="/api/qa/cleanup-last-quiz-097569477bd3df50bb4cf43ed04d1d24"
+          COOKIE="$RUNNER_TEMP/vercel-preview-cookies.txt"
+          SHARE="V4qHFgsCLW7p03nVBPzFjMHDGeqlpLVh"
+          rm -f "$COOKIE"
+
+          curl --fail-with-body -sS -L --max-redirs 12 --max-time 120 \
+            -c "$COOKIE" -b "$COOKIE" \
+            "$BASE$ROUTE?action=candidates&_vercel_share=$SHARE" \
+            -o qa_artifacts/candidates.json
+          jq . qa_artifacts/candidates.json
+
+          VIDEO_ID="$(jq -r '.candidates[0].id // empty' qa_artifacts/candidates.json)"
+          test -n "$VIDEO_ID"
+          jq '.candidates[0]' qa_artifacts/candidates.json > qa_artifacts/selected.json
+
+          curl --fail-with-body -sS -L --max-redirs 12 --max-time 240 \
+            -c "$COOKIE" -b "$COOKIE" \
+            "$BASE$ROUTE?action=download&video_id=$VIDEO_ID" \
+            -o qa_artifacts/source-quiz.mp4
+          test "$(stat -c%s qa_artifacts/source-quiz.mp4)" -gt 100000
+
+          ffprobe -v error \
+            -show_entries format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate \
+            -of json qa_artifacts/source-quiz.mp4 > qa_artifacts/ffprobe.json
+          ffmpeg -y -v error -i qa_artifacts/source-quiz.mp4 \
+            -vf "fps=3,scale=270:-2,tile=5x8:padding=4:margin=4" \
+            -frames:v 1 qa_artifacts/contact-sheet.jpg
+          ffmpeg -y -v error -i qa_artifacts/source-quiz.mp4 \
+            -vf "fps=6,scale=540:-2" qa_artifacts/frames/frame-%04d.jpg
+          sha256sum qa_artifacts/source-quiz.mp4 > qa_artifacts/source-quiz.sha256
+
+      - name: Upload source quiz and inspection evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-quiz-for-cleanup
+          path: qa_artifacts/
+          if-no-files-found: error
+          retention-days: 3
