@@ -234,6 +234,30 @@ Do not conceal AI-authored additions as user-authored decisions.
 master prompt, world and references. Every reuse must declare its transformation. Do not fake
 visual novelty by creating repeated directional pans over one master.
 
+### Directed visual-cadence contract
+
+For a normal 45-second user-directed pilot, author and validate the picture track against the
+underlying source assets—not merely the number of shot-table rows:
+
+- A still master normally remains onscreen for **2–3 seconds maximum** before a genuinely new
+  composition replaces it.
+- Crops, overlays, push-ins and pan-direction changes over the same `asset_key` do not count as new
+  images. Their consecutive time is added into one source-image hold.
+- Require an explicit pilot minimum for unique master images. The current bundled illustrated
+  history profile uses 18 unique masters across 45 seconds.
+- A deliberate callback may reuse an earlier master later in the edit; non-consecutive reuse does
+  not create a long hold.
+- Declared generated-video shots use the complete **5-second** provider clip unless the acceptance
+  contract explicitly says otherwise.
+- Front-load the highest-value motion. The current profile requires two 5-second motion shots to
+  begin within the first 15 seconds, then relies on varied 2–3-second still compositions.
+- Vary shot scale and visual grammar—wide, medium, close, macro, overhead, over-shoulder, diagram,
+  reaction and environmental views—rather than generating near-duplicates under new keys.
+
+If the cost ceiling cannot fund the declared unique-image and motion profile, fail validation and
+revise the non-spending spec. Never make the estimate fit by silently reusing one composition for
+5–9 seconds.
+
 ### Evidence and references
 
 - A factual claim must map to declared evidence when required by the spec.
@@ -279,6 +303,10 @@ Validation must verify at minimum:
 - Narration-to-world and narration-to-claim references.
 - Shot-to-scene, evidence and reference mappings.
 - Asset-key prompt identity and transformation declarations.
+- Consecutive source-image hold time across shared asset keys.
+- Pilot minimum for genuinely unique master compositions.
+- Five-second generated-motion duration and opening motion count/window when declared.
+- Duplicate master prompts hidden behind different asset keys.
 - Unique-master cap.
 - Bolt appearance bounds when declared.
 - Evidence coverage.
@@ -308,15 +336,15 @@ broad authentication bypass or reusable public worker.
 
 ### Login/query-string rule
 
-Do not depend on URLs such as:
+The authentication middleware must preserve the full path and query through sign-in. This makes a
+server-supported bundled entry point such as:
 
 ```text
-/agent/actions?pilot=<name>
+/agent/actions?pilot=hippo-v4
 ```
 
-to create an action. Authentication middleware or a login page may preserve only the path and drop
-the query string. If proposal creation lived in that query, the operator would return to an empty
-queue.
+safe to open before or after authentication. Keep an automated test for this exact redirect because
+dropping `pilot=...` returns the operator to an empty queue.
 
 The reliable order is:
 
@@ -328,7 +356,8 @@ save returned action_id
 send operator to /agent/actions
 ```
 
-The query-free approval page is safe because the durable pending row already exists in Postgres.
+For arbitrary inline specs, still create the durable proposal first and send the query-free approval
+page. Only server-advertised bundled IDs may use the convenience query entry point.
 
 ---
 
@@ -767,8 +796,11 @@ Verify:
 - Shot order, timing, world and transformations match the approved spec.
 - The opening consequence/hook is visible immediately.
 - Visual changes meet the spec's minimum state count and hold limits.
+- Source-image changes meet the unique-master floor and 2–3-second consecutive source-hold limit;
+  crops or overlays over one master are not counted as fresh images.
 - Asset reuse is intentional and transformations are real.
-- Motion appears at the declared semantic action, not randomly.
+- Motion appears at the declared semantic action, uses its declared five-second duration and is
+  front-loaded when the acceptance profile requires it.
 - On-screen text is readable and factually aligned.
 - Evidence/reference imagery is used only where declared.
 - Hypothetical and historical visuals cannot be confused.
@@ -1001,6 +1033,9 @@ exists.
 [ ] Treat user narration, claims, shots and thresholds as authoritative
 [ ] Fetch live directed schema/template when needed
 [ ] Compile/normalize complete directed_longform_v1 JSON
+[ ] Measure source-image cadence by asset_key, not by shot-row count
+[ ] Require 2–3s still-master turnover and declared unique-master minimum
+[ ] Require full 5s motion clips and opening motion window when directed
 [ ] POST directed/validate; save normalized spec + spec_sha256 + estimates
 [ ] Resolve every validation issue before proposing spend
 [ ] GET production-readiness through existing authentication

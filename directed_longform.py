@@ -55,8 +55,17 @@ class DirectedAcceptance(_StrictModel):
     pilot_runtime_min_sec: float = Field(default=43.0, gt=0)
     pilot_runtime_max_sec: float = Field(default=47.0, gt=0)
     pilot_min_visual_states: int = Field(default=15, ge=1)
+    # Kept at one for schema compatibility with already-archived v1 contracts. New downloadable
+    # templates and bundled pilots set an explicit density floor; the immutable old artifacts can
+    # still be parsed and diagnosed instead of collapsing into a generic schema error.
+    pilot_min_unique_master_assets: int = Field(default=1, ge=1)
     min_shot_sec: float = Field(default=1.25, gt=0)
-    max_unchanged_hold_sec: float = Field(default=5.0, gt=0)
+    max_unchanged_hold_sec: float = Field(default=3.0, gt=0)
+    max_consecutive_still_asset_sec: float = Field(default=3.0, gt=0)
+    full_motion_duration_sec: float = Field(default=5.0, gt=0)
+    full_motion_duration_tolerance_sec: float = Field(default=0.25, ge=0, le=1.0)
+    frontloaded_motion_count: int = Field(default=0, ge=0)
+    frontloaded_motion_window_sec: float = Field(default=15.0, gt=0)
     max_unique_master_assets: int = Field(default=60, ge=1)
     min_useful_bolt_appearances: int = Field(default=1, ge=0)
     max_bolt_appearances: int = Field(default=3, ge=0)
@@ -71,6 +80,9 @@ class DirectedAcceptance(_StrictModel):
             raise ValueError("pilot_runtime_min_sec cannot exceed pilot_runtime_max_sec")
         if self.min_useful_bolt_appearances > self.max_bolt_appearances:
             raise ValueError("min_useful_bolt_appearances cannot exceed max_bolt_appearances")
+        if self.pilot_min_unique_master_assets > self.max_unique_master_assets:
+            raise ValueError(
+                "pilot_min_unique_master_assets cannot exceed max_unique_master_assets")
         if (self.planned_bolt_appearances is not None
                 and not self.min_useful_bolt_appearances
                 <= self.planned_bolt_appearances
@@ -229,6 +241,63 @@ def _cost_estimate(spec: DirectedLongformSpec, *, end_sec: float | None = None) 
     }
 
 
+def pilot_visual_metrics(spec: DirectedLongformSpec) -> dict:
+    """Measure source-image cadence separately from superficial shot-state cadence.
+
+    A crop, overlay, or camera preset can create several shot rows while the viewer still sees
+    the same underlying composition. The earlier validator counted those rows and therefore
+    certified a 1.8-second cadence even when one master image remained onscreen for 5–9 seconds.
+    """
+    pilot_end = spec.target.pilot_end_sec
+    shots = sorted(
+        (shot for shot in spec.shots if shot.start_sec < pilot_end),
+        key=lambda shot: (shot.start_sec, shot.end_sec),
+    )
+    unique_assets = {shot.asset_key.strip() or shot.shot_id for shot in shots}
+    motion = [shot for shot in shots if shot.mode.strip().casefold() == "full motion"]
+    frontloaded = [
+        shot for shot in motion
+        if shot.start_sec < spec.acceptance.frontloaded_motion_window_sec
+    ]
+
+    runs: list[dict] = []
+    current: dict | None = None
+    for shot in shots:
+        key = shot.asset_key.strip() or shot.shot_id
+        # The renderer sends every mode except the exact "Full motion" value through the still
+        # camera-path encoder. Labels such as "Useful mascot beat" must not evade still cadence.
+        is_still = shot.mode.strip().casefold() != "full motion"
+        contiguous = bool(
+            current and abs(float(shot.start_sec) - float(current["end_sec"])) <= 0.05)
+        if is_still and current and contiguous and current["asset_key"] == key:
+            current["end_sec"] = shot.end_sec
+            current["shot_ids"].append(shot.shot_id)
+            continue
+        if current:
+            runs.append(current)
+            current = None
+        if is_still:
+            current = {
+                "asset_key": key,
+                "start_sec": shot.start_sec,
+                "end_sec": shot.end_sec,
+                "shot_ids": [shot.shot_id],
+            }
+    if current:
+        runs.append(current)
+    for run in runs:
+        run["duration_sec"] = round(float(run["end_sec"]) - float(run["start_sec"]), 3)
+
+    longest = max((float(run["duration_sec"]) for run in runs), default=0.0)
+    return {
+        "pilot_unique_master_assets": len(unique_assets),
+        "pilot_full_motion_assets": len(motion),
+        "frontloaded_motion_assets": len(frontloaded),
+        "max_consecutive_still_asset_sec": round(longest, 3),
+        "consecutive_still_asset_runs": runs,
+    }
+
+
 def validate_directed_spec(payload: dict) -> dict:
     """Validate a directed contract without importing or calling any media provider."""
     try:
@@ -346,10 +415,14 @@ def validate_directed_spec(payload: dict) -> dict:
 
     asset_contracts: dict[str, tuple] = {}
     asset_members: dict[str, list[DirectedShot]] = {}
+    prompt_assets: dict[str, set[str]] = {}
     for shot in spec.shots:
+        asset_key = shot.asset_key.strip() or shot.shot_id
+        master_prompt = shot.asset_prompt.strip() or shot.visual
+        normalized_prompt = re.sub(r"\s+", " ", master_prompt.strip().casefold())
+        prompt_assets.setdefault(normalized_prompt, set()).add(asset_key)
         if not shot.asset_key.strip():
             continue
-        master_prompt = shot.asset_prompt.strip() or shot.visual
         contract = (master_prompt, shot.world_id, tuple(sorted(shot.reference_ids)))
         prior = asset_contracts.setdefault(shot.asset_key, contract)
         asset_members.setdefault(shot.asset_key, []).append(shot)
@@ -367,6 +440,15 @@ def validate_directed_spec(payload: dict) -> dict:
                     f"{asset_key} is reused but lacks an explicit transformation on: "
                     + ", ".join(missing),
                     f"shots.{missing[0]}.transformation"))
+    for asset_keys in prompt_assets.values():
+        if len(asset_keys) > 1:
+            issues.append(_issue(
+                "duplicate_master_composition",
+                "Different asset keys reuse the same master-image prompt: "
+                + ", ".join(sorted(asset_keys))
+                + ". Reuse one key for an intentional callback or author a materially new "
+                  "composition.",
+                "shots"))
 
     unresolved_claims = claims - used_claims
     coverage = 100.0 if not claims else 100.0 * (len(claims) - len(unresolved_claims)) / len(claims)
@@ -410,12 +492,48 @@ def validate_directed_spec(payload: dict) -> dict:
                                  f"shots.{shot.shot_id}"))
     for shot in spec.shots:
         hold = shot.end_sec - shot.start_sec
-        if "still" in shot.mode.casefold() and hold > spec.acceptance.max_unchanged_hold_sec:
+        if (shot.mode.strip().casefold() != "full motion"
+                and hold > spec.acceptance.max_unchanged_hold_sec):
             issues.append(_issue(
                 "unchanged_hold_too_long",
                 f"{shot.shot_id} holds a still for {hold:.2f}s; "
                 f"maximum is {spec.acceptance.max_unchanged_hold_sec:.2f}s",
                 f"shots.{shot.shot_id}"))
+        if shot.mode.strip().casefold() == "full motion":
+            expected = spec.acceptance.full_motion_duration_sec
+            tolerance = spec.acceptance.full_motion_duration_tolerance_sec
+            if abs(hold - expected) > tolerance + 1e-6:
+                issues.append(_issue(
+                    "full_motion_duration_mismatch",
+                    f"{shot.shot_id} plans {hold:.2f}s of generated motion; the contract "
+                    f"requires {expected:.2f}s ± {tolerance:.2f}s",
+                    f"shots.{shot.shot_id}"))
+
+    visual_metrics = pilot_visual_metrics(spec)
+    if (visual_metrics["pilot_unique_master_assets"]
+            < spec.acceptance.pilot_min_unique_master_assets):
+        issues.append(_issue(
+            "pilot_unique_master_assets",
+            f"pilot has {visual_metrics['pilot_unique_master_assets']} genuinely distinct "
+            f"master images; {spec.acceptance.pilot_min_unique_master_assets} required",
+            "shots"))
+    for run in visual_metrics["consecutive_still_asset_runs"]:
+        if (run["duration_sec"]
+                > spec.acceptance.max_consecutive_still_asset_sec + 1e-6):
+            issues.append(_issue(
+                "consecutive_still_asset_too_long",
+                f"{run['asset_key']} remains the source composition for "
+                f"{run['duration_sec']:.2f}s across {', '.join(run['shot_ids'])}; maximum "
+                f"is {spec.acceptance.max_consecutive_still_asset_sec:.2f}s",
+                f"shots.{run['shot_ids'][0]}.asset_key"))
+    if (visual_metrics["frontloaded_motion_assets"]
+            < spec.acceptance.frontloaded_motion_count):
+        issues.append(_issue(
+            "frontloaded_motion_missing",
+            f"pilot has {visual_metrics['frontloaded_motion_assets']} full-motion shots before "
+            f"{spec.acceptance.frontloaded_motion_window_sec:.2f}s; "
+            f"{spec.acceptance.frontloaded_motion_count} required",
+            "shots"))
 
     cost = _cost_estimate(spec)
     pilot_cost = _cost_estimate(spec, end_sec=spec.target.pilot_end_sec)
@@ -466,6 +584,7 @@ def validate_directed_spec(payload: dict) -> dict:
         "scene_count": len(spec.narration),
         "shot_count": len(spec.shots),
         "pilot_visual_states": len(pilot_shots),
+        **visual_metrics,
         "evidence_coverage_pct": round(coverage, 1),
         "planned_bolt_appearances": bolt_count,
         "cost_estimate": cost,
@@ -512,24 +631,38 @@ def json_schema() -> dict:
 def starter_template() -> dict:
     """Return a complete, downloadable contract starter that intentionally cannot spend yet."""
     shots = []
-    for index in range(15):
-        start = float(index * 3)
+    durations = [5.0, 5.0] + [35.0 / 13.0] * 13
+    cursor = 0.0
+    for index, duration in enumerate(durations):
+        start = cursor
+        end = 45.0 if index == len(durations) - 1 else start + duration
+        cursor = end
         shots.append({
             "shot_id": f"shot_{index + 1:03d}",
-            "start_sec": start,
-            "end_sec": start + 3.0,
+            "start_sec": round(start, 4),
+            "end_sec": round(end, 4),
             "visual": f"Replace with the visible composition for pilot shot {index + 1}",
-            "mode": "Useful mascot beat" if index == 3 else "Still + camera path",
+            "mode": "Full motion" if index < 2 else "Still + camera path",
             "world_id": "primary_world",
             "scene_id": "scene_001",
             "asset_key": f"master_{index + 1:03d}",
             "asset_prompt": f"Replace with the generation prompt for master {index + 1}",
-            "transformation": "slow push",
+            "transformation": "five-second generated action" if index < 2 else "slow push",
             "claim_ids": ["F01"] if index == 5 else [],
             "reference_ids": ["REF01"] if index == 5 else [],
             "overlay_text": "",
             "labels": ["useful_bolt"] if index == 3 else [],
         })
+    acceptance = DirectedAcceptance().model_dump(mode="json")
+    acceptance.update({
+        "pilot_min_visual_states": 15,
+        "pilot_min_unique_master_assets": 15,
+        "max_unchanged_hold_sec": 3.0,
+        "max_consecutive_still_asset_sec": 3.0,
+        "full_motion_duration_sec": 5.0,
+        "frontloaded_motion_count": 2,
+        "frontloaded_motion_window_sec": 15.0,
+    })
     return {
         "schema_version": SCHEMA_VERSION,
         "project_id": "replace-with-project-id",
@@ -539,7 +672,7 @@ def starter_template() -> dict:
             "duration_sec": 45.0, "pilot_end_sec": 45.0, "format": "landscape",
             "voice": "echo", "max_cost_usd": 5.0,
         },
-        "acceptance": DirectedAcceptance().model_dump(mode="json"),
+        "acceptance": acceptance,
         "worlds": [{
             "world_id": "primary_world", "start_sec": 0.0, "end_sec": 45.0,
             "base_prompt": "Replace with the consistent visual-world prompt",

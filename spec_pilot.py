@@ -346,6 +346,50 @@ def pilot_scenes(spec: ud.ParsedSpec, seconds: float = PILOT_SECONDS,
     return chosen or spec.scenes[:1]
 
 
+def _actual_source_cadence(shots: list[dict], holds: list[float]) -> dict:
+    """Measure how long the encoded edit keeps one still master, not how many rows name it."""
+    runs: list[dict] = []
+    current: dict | None = None
+    cursor = 0.0
+    unique_assets: set[str] = set()
+    motion_starts: list[float] = []
+    motion_durations: list[float] = []
+    for shot, hold in zip(shots, holds):
+        asset_key = (shot.get("asset_key") or shot.get("shot_id") or "").strip()
+        unique_assets.add(asset_key)
+        is_motion = str(shot.get("mode") or "").strip().casefold() == "full motion"
+        if is_motion:
+            motion_starts.append(cursor)
+            motion_durations.append(float(hold))
+            if current:
+                runs.append(current)
+                current = None
+        elif current and current["asset_key"] == asset_key:
+            current["duration_sec"] += float(hold)
+            current["shot_ids"].append(shot.get("shot_id"))
+        else:
+            if current:
+                runs.append(current)
+            current = {
+                "asset_key": asset_key,
+                "duration_sec": float(hold),
+                "shot_ids": [shot.get("shot_id")],
+            }
+        cursor += float(hold)
+    if current:
+        runs.append(current)
+    for run in runs:
+        run["duration_sec"] = round(run["duration_sec"], 3)
+    return {
+        "unique_master_assets": len(unique_assets),
+        "still_asset_runs": runs,
+        "max_consecutive_still_asset_sec": max(
+            (run["duration_sec"] for run in runs), default=0.0),
+        "motion_starts_sec": [round(value, 3) for value in motion_starts],
+        "motion_durations_sec": [round(value, 3) for value in motion_durations],
+    }
+
+
 def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: Path,
                           shots: list[dict], image_paths: list[str], holds: list[float],
                           indexed_scenes: list[tuple[int, dl.DirectedScene]],
@@ -391,8 +435,14 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
     # The directed contract owns its cadence bounds. The shared gate's 3.5-second legacy hold
     # constant must not silently outrank the JSON's explicit max_unchanged_hold_sec.
     deterministic = inspection.get("deterministic") or {}
-    deterministic["long_hold_count"] = sum(
+    cadence = _actual_source_cadence(shots, holds)
+    shot_hold_failures = sum(
         hold > spec.acceptance.max_unchanged_hold_sec for hold in holds)
+    source_hold_failures = sum(
+        run["duration_sec"] > spec.acceptance.max_consecutive_still_asset_sec
+        for run in cadence["still_asset_runs"])
+    deterministic["long_hold_count"] = shot_hold_failures + source_hold_failures
+    deterministic["directed_source_cadence"] = cadence
     contact_sheet_path = str(out / "rendered_contact_sheet.jpg")
     build_contact_sheet(inspection, contact_sheet_path)
 
@@ -432,6 +482,20 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
         event for event in motion_events if event.get("generation_status") == "failed"]
     if motion_failures:
         rendered.setdefault("hard_failures", []).append("declared_full_motion_not_generated")
+    if source_hold_failures:
+        rendered.setdefault("hard_failures", []).append("directed_source_hold_too_long")
+    if cadence["unique_master_assets"] < spec.acceptance.pilot_min_unique_master_assets:
+        rendered.setdefault("hard_failures", []).append("directed_unique_images_too_few")
+    actual_frontloaded_motion = sum(
+        start < spec.acceptance.frontloaded_motion_window_sec
+        for start in cadence["motion_starts_sec"])
+    if actual_frontloaded_motion < spec.acceptance.frontloaded_motion_count:
+        rendered.setdefault("hard_failures", []).append("directed_motion_not_frontloaded")
+    if any(
+            abs(duration - spec.acceptance.full_motion_duration_sec)
+            > spec.acceptance.full_motion_duration_tolerance_sec
+            for duration in cadence["motion_durations_sec"]):
+        rendered.setdefault("hard_failures", []).append("directed_motion_duration_mismatch")
     rendered["hard_failures"] = sorted(set(rendered.get("hard_failures") or []))
     directed_pass = bool(
         rendered.get("score", 0) >= spec.acceptance.automatic_grade_min

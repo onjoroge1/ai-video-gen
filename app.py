@@ -1159,7 +1159,7 @@ class AgentActionCreateRequest(BaseModel):
 
     operation: Literal["directed_pilot"] = "directed_pilot"
     spec: dict | None = None
-    bundled_spec_id: Literal["hippo_bacon_directed_v1", ""] = ""
+    bundled_spec_id: Literal["hippo_illustrated_story_v4", ""] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
 
 
@@ -2314,9 +2314,9 @@ def _agent_approver(request: Request) -> str:
 
 
 def _bundled_directed_spec(spec_id: str) -> dict:
-    if spec_id != "hippo_bacon_directed_v1":
+    if spec_id != "hippo_illustrated_story_v4":
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
-    path = BASE_DIR / "spec" / "hippo_bacon_directed_v1.json"
+    path = BASE_DIR / "spec" / "hippo_illustrated_story_v4.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
