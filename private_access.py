@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 
 COOKIE_NAME = "reelforge_session"
-PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz"))
+PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz", "/api/qa/cleanup-last-quiz-097569477bd3df50bb4cf43ed04d1d24"))
 _AGENT_ACTION_ID = re.compile(r"^/api/agent/actions/act_[0-9a-f]{32}(?:/(?:execute|dispatch|public-status))?$")
 
 
