@@ -857,9 +857,20 @@ def _render_sequence(specs, out, expected_duration):
         [FF, "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(FPS), out],
         capture_output=True)
-    actual = _dur(out)
-    if result.returncode != 0 or actual < expected_duration - 0.2:
-        err = result.stderr.decode(errors="replace")[-400:] if result.stderr else ""
+    err = result.stderr.decode(errors="replace")[-1600:] if result.stderr else ""
+    # Never probe a failed encode. The previous order called `_dur(out)` first, so an absent or
+    # malformed output raised MediaBinaryError and erased the FFmpeg stderr that explained the
+    # actual filter/codec failure. That made a paid quiz render impossible to diagnose.
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"quiz sequence FFmpeg failed with exit {result.returncode}: {err}")
+    try:
+        actual = _dur(out)
+    except Exception as exc:
+        size = os.path.getsize(out) if os.path.exists(out) else 0
+        raise RuntimeError(
+            f"quiz sequence produced an unreadable output ({size} bytes): {err}") from exc
+    if actual < expected_duration - 0.2:
         raise RuntimeError(f"quiz sequence render failed: expected {expected_duration:.2f}s, "
                            f"got {actual:.2f}s; {err}")
 
