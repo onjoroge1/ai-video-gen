@@ -50,10 +50,14 @@ Path("tests/test_quiz_render_sequence_errors.py").write_text(
 
 import pytest
 
-import _quiz_pipeline_legacy as legacy
-
 
 def test_render_sequence_reports_ffmpeg_stderr_before_probing(monkeypatch, tmp_path):
+    # Import through the public facade at test time. Importing the legacy module during pytest
+    # collection pinned its Mac development fallback before the facade could bind portable FFmpeg,
+    # which then broke unrelated end-to-end render tests on Linux.
+    import quiz_pipeline as facade
+
+    legacy = facade._legacy
     calls = {"probed": False}
 
     def failed_run(*args, **kwargs):
