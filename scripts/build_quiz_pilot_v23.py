@@ -4,7 +4,6 @@ import copy
 import json
 import os
 import shutil
-import stat
 import sys
 import tempfile
 import traceback
@@ -110,29 +109,22 @@ def _require_provider_keys() -> None:
 
 
 def _configure_media_binaries() -> dict:
-    # The quiz renderer imports its binary paths at module import time, so establish the
-    # bundled ffmpeg and an ffprobe-compatible duration wrapper before importing it.
+    # The shared probe already falls back to inspecting media with the bundled ffmpeg when a host
+    # has no ffprobe. Do not invent an ffprobe wrapper: setting FFPROBE_BIN to a wrapper that calls
+    # the shared probe recursively sends probe_media back into the same wrapper until timeout.
     import media_binaries
 
     ffmpeg = media_binaries.ffmpeg()
     os.environ["FFMPEG_BIN"] = ffmpeg
-    ffprobe = media_binaries.resolve("ffprobe", use_cache=False)
-    source = "system"
-    if not ffprobe:
-        wrapper = WORK_DIR / "ffprobe-duration"
-        wrapper.write_text(
-            f"#!{sys.executable}\n"
-            "import sys\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\n"
-            "import media_binaries\n"
-            "print(media_binaries.probe_duration(sys.argv[-1]))\n",
-            encoding="utf-8",
-        )
-        wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        ffprobe = str(wrapper)
-        source = "ffmpeg-duration-wrapper"
-    os.environ["FFPROBE_BIN"] = ffprobe
-    return {"ffmpeg": ffmpeg, "ffprobe": ffprobe, "ffprobe_source": source}
+    os.environ.pop("FFPROBE_BIN", None)
+    media_binaries.reset_cache()
+    ffmpeg = media_binaries.ffmpeg()
+    ffprobe = media_binaries.resolve("ffprobe", use_cache=False) or ""
+    return {
+        "ffmpeg": ffmpeg,
+        "ffprobe": ffprobe,
+        "ffprobe_source": "system" if ffprobe else "ffmpeg-fallback",
+    }
 
 
 def _existing_record() -> dict | None:
