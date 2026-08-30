@@ -134,6 +134,17 @@ class PostgresAgentActionRepository:
             conn = self._connection()
             cur = conn.cursor()
             self._ensure(cur)
+            # Serialize proposals for the same immutable spend boundary.  The API performs a
+            # fast lookup first, but this transaction lock also closes the concurrent-request
+            # race between that lookup and INSERT.
+            boundary = f"{spec_sha256}:{Decimal(str(cost_ceiling_usd))}"
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (boundary,))
+            existing = self._reusable_query(
+                cur, spec_sha256=spec_sha256, cost_ceiling_usd=cost_ceiling_usd)
+            if existing:
+                existing["_reused"] = True
+                conn.commit()
+                return existing
             hourly_limit = max(1, int(os.environ.get("AGENT_ACTION_RATE_LIMIT_PER_HOUR", "10")))
             cur.execute("SELECT count(*) FROM agent_actions WHERE created_at > now()-interval '1 hour'")
             if int(cur.fetchone()[0]) >= hourly_limit:
@@ -193,6 +204,48 @@ class PostgresAgentActionRepository:
                 WHERE status IN ('pending','approved') AND expires_at > now()
                 ORDER BY created_at DESC LIMIT %s""", (max(1, min(limit, 100)),))
             return [self._row(cur, row) or {} for row in cur.fetchall()]
+        except Exception as exc:
+            if isinstance(exc, AgentActionError):
+                raise
+            raise AgentActionStorageError(str(exc)) from exc
+        finally:
+            if conn:
+                conn.close()
+
+    def _reusable_query(self, cur, *, spec_sha256: str,
+                        cost_ceiling_usd: float) -> dict | None:
+        cur.execute("""
+            SELECT * FROM agent_actions
+            WHERE spec_sha256=%s AND cost_ceiling_usd=%s AND (
+                status IN ('executing','queued','failed')
+                OR (status IN ('pending','approved') AND expires_at > now())
+            )
+            ORDER BY CASE status
+                WHEN 'executing' THEN 0
+                WHEN 'queued' THEN 1
+                WHEN 'failed' THEN 2
+                WHEN 'approved' THEN 3
+                ELSE 4
+            END, created_at DESC
+            LIMIT 1
+        """, (spec_sha256, Decimal(str(cost_ceiling_usd))))
+        return self._row(cur, cur.fetchone())
+
+    def reusable_for_spec(self, spec_sha256: str,
+                          cost_ceiling_usd: float) -> dict | None:
+        """Return the authoritative lifecycle for a spec instead of duplicating it.
+
+        A queued/executing action outranks a later pending duplicate.  That ordering lets a
+        convenience URL reconnect to the render that already consumed the one human approval,
+        including its finished artifact, rather than presenting another spend button.
+        """
+        conn = None
+        try:
+            conn = self._connection()
+            cur = conn.cursor()
+            self._ensure(cur)
+            return self._reusable_query(
+                cur, spec_sha256=spec_sha256, cost_ceiling_usd=cost_ceiling_usd)
         except Exception as exc:
             if isinstance(exc, AgentActionError):
                 raise

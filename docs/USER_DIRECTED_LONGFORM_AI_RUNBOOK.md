@@ -1,7 +1,7 @@
 # ReelForge User-Directed Long-Form Generation — AI Execution Runbook
 
 **Status:** Authoritative operating contract  
-**Runbook version:** 1.0 — durable proposal, single approval and first-45 pilot  
+**Runbook version:** 1.1 — durable proposal, single approval and live render console\
 **Scope:** Preparing, validating, approving, rendering, recovering, inspecting and reporting a user-directed ReelForge long-form pilot  
 **Repository:** `onjoroge1/ai-video-gen`  
 **Production studio:** `https://ai-video-gen-nine.vercel.app`  
@@ -54,11 +54,12 @@ The expected behavior is:
 5. Create exactly one durable, immutable, non-spending agent action through the API.
 6. Give the operator the exact title, hash, ceiling and `/agent/actions` link.
 7. After the single approval, verify that the same action queued and dispatched its durable job.
-8. Monitor and, when necessary, recover that same job.
-9. Verify the Blob-backed pilot and `/finished` record.
-10. Inspect the actual MP4 and rendered-story artifacts.
-11. Report technical delivery and editorial acceptance separately.
-12. Remove any temporary recovery harness.
+8. Keep the stable action page connected to sanitized durable progress and spend events.
+9. Monitor and, when necessary, recover that same job.
+10. Present the finished video on the action page and verify the Blob-backed `/finished` record.
+11. Inspect the actual MP4 and rendered-story artifacts.
+12. Report technical delivery and editorial acceptance separately.
+13. Remove any temporary recovery harness.
 
 Do not answer only with “I can run it,” “please approve,” or a workflow description. Advance the
 run as far as the current state allows.
@@ -155,15 +156,16 @@ GET /api/production-readiness
         ↓ only when ready=true
 POST /api/agent/actions                (no spend)
         ↓ save action_id + spec_sha256 + ceiling
-Operator opens /agent/actions
+Operator opens stable /agent/actions?action=<action_id>
         ↓ one “Approve & render exact pilot” click
 Approve → execute → queue → dispatch
         ↓
-GET /api/agent/actions/{action_id}/public-status
+Approval page polls /public-status?after=<event_seq>
+        ↓ sanitized progress, events and spend
         ↓
 Same durable job reaches a terminal state
         ↓
-GET /api/finished/{job_id}
+Approval page embeds /api/finished/{job_id}/artifact/video
         ↓
 GET /api/finished/{job_id}/artifact/video?download=true
         ↓
@@ -443,9 +445,14 @@ for arbitrary user-directed films.
   "scope": "first-45-pilot",
   "expires_at": "<timestamp>",
   "claim_token": "<shown once>",
-  "approval_path": "/agent/actions"
+  "approval_path": "/agent/actions?action=act_<32 hex characters>",
+  "reused": false
 }
 ```
+
+When the same spec and ceiling already have an authoritative lifecycle, the endpoint returns that
+action with `"reused": true` and does not return another claim token. This is a reconnect, not a
+new proposal.
 
 Immediately verify:
 
@@ -462,8 +469,11 @@ used by the approval page.
 
 ### One proposal rule
 
-Create the action once. Do not create duplicates because the approval page is empty, login occurs,
-a response times out or deployment is still building. First query the known action's public status.
+Create the action once. The server must resolve repeated requests for the same exact spec-and-ceiling
+boundary to its existing authoritative lifecycle, prioritizing an executing or queued action over
+any later duplicate pending row. Do not create duplicates because the approval page is empty, login
+occurs, a response times out or deployment is still building. First query the known action's public
+status.
 
 An expired **unapproved** action spent nothing and may be replaced with a newly validated action.
 An approved or queued action must not be replaced merely because its render is slow.
@@ -481,7 +491,7 @@ Spec SHA-256
 Estimated cost
 Hard cost ceiling
 Expiry
-Approval link: https://ai-video-gen-nine.vercel.app/agent/actions
+Approval link: https://ai-video-gen-nine.vercel.app/agent/actions?action=<action_id>
 ```
 
 The card must show the same title, hash and ceiling returned when the action was created. If it does
@@ -494,7 +504,9 @@ Approve & render exact pilot
 ```
 
 That click performs the authenticated hash-and-ceiling approval, then automatically calls execute
-and dispatch. The operator may close the page after it reports that rendering started.
+and dispatch. The page converts to a live render console and retains the stable action URL. It
+shows bounded progress, sanitized durable events, spend against ceiling, and the completed video;
+refreshing or reopening the URL reconnects to the same action and job.
 
 Do not ask the operator to:
 
@@ -517,7 +529,10 @@ If the page says **No pending or approved actions**:
 5. If it is 404, proposal creation never persisted. Re-run the single non-spending POST and verify
    its returned action ID before sending the link.
 
-Never “fix” an empty queue by moving spec construction into approval-page JavaScript.
+Never “fix” an empty queue by creating a second spend candidate. A convenience URL may make the
+same non-spending create request only because the server resolves it idempotently by validated spec
+hash plus exact ceiling and returns the existing lifecycle. Spec construction and GitHub translation
+do not belong in approval-page JavaScript.
 
 ---
 
@@ -567,7 +582,7 @@ completion.
 The public, non-sensitive status endpoint is:
 
 ```http
-GET /api/agent/actions/{action_id}/public-status
+GET /api/agent/actions/{action_id}/public-status?after=<last_event_seq>
 ```
 
 It intentionally omits spec payloads and credentials. Once queued, capture:
@@ -586,7 +601,22 @@ job.checkpoint_present
 job.error
 job.result
 finished_video
+progress.stage / progress.percent
+progress.narration_completed / progress.narration_total
+progress.images_completed / progress.images_total
+progress.motion_completed / progress.motion_total
+events
+next_event_seq
 ```
+
+The action page polls incrementally using `next_event_seq`, retains recent events across each poll,
+and reconnects after refresh using the opaque action ID in its URL. Public events are an allowlisted,
+sanitized application feed. Never expose raw Vercel logs, provider responses, credentials, tokens,
+internal filesystem paths or private Blob URLs in this endpoint.
+
+When `finished_video` exists, the page must embed the authenticated same-origin player path and
+offer the same-origin download path. The operator should not need to find the artifact in a separate
+screen, though `/finished/{job_id}` remains the detailed record.
 
 When authenticated status streaming is available, it may also be observed at:
 
@@ -1042,15 +1072,17 @@ exists.
 [ ] POST /api/agent/actions exactly once with normalized inline spec
 [ ] Verify title, hash, first-45 scope, estimate, ceiling and expiry
 [ ] Save action_id; never expose claim_token
-[ ] Send query-free /agent/actions approval link
+[ ] Send stable /agent/actions?action=<action_id> approval link
 [ ] Require one “Approve & render exact pilot” click only
 [ ] If approval page is empty, inspect saved action_id; do not create client-side spec
 [ ] Verify approval automatically executed, queued and dispatched
 [ ] Capture authoritative job_id
+[ ] Keep the action page on sanitized incremental events and progress
 [ ] Poll public-status; track lease, attempts, spent, reserved and checkpoint
 [ ] On timeout, continue same action/job
 [ ] On recoverable infrastructure failure, recover same job only
 [ ] Verify /api/finished/{job_id} and Blob video artifact
+[ ] Verify the action page embeds the same-origin finished-video player and download
 [ ] Verify SHA-256, decode, duration, streams and dimensions
 [ ] Inspect complete MP4/contact sheet against approved shot plan
 [ ] Report automatic grade, editorial grade and promotion separately

@@ -13,6 +13,7 @@ load_dotenv(override=True)   # override so .env edits (e.g. I2V_PROVIDER) reliab
 import uuid
 import asyncio
 import json
+import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -2320,6 +2321,177 @@ def _bundled_directed_spec(spec_id: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+_AGENT_TERMINAL_JOB_STATUSES = {
+    "done", "degraded", "error", "storage_error", "pilot_awaiting_editorial",
+    "pilot_passed", "pilot_failed", "human_rejected", "format_rejected",
+}
+_AGENT_PUBLIC_EVENT_TYPES = {
+    "queued", "stage", "log", "done", "error", "finalized", "review_required",
+    "format_acknowledgement_required", "pilot_awaiting_editorial", "pilot_passed",
+    "pilot_failed", "storage_error", "infrastructure_rearmed",
+    "directed_audio_fit_rearmed", "pilot_artifacts_persisted",
+}
+_AGENT_PUBLIC_EVENT_MESSAGES = {
+    "queued": "Render queued",
+    "stage": "Render stage updated",
+    "log": "Render progress updated",
+    "done": "Render completed",
+    "error": "A render step failed",
+    "finalized": "Final artifact persisted",
+    "review_required": "Editorial review required",
+    "format_acknowledgement_required": "Format acknowledgement required",
+    "pilot_awaiting_editorial": "Pilot ready for editorial review",
+    "pilot_passed": "Pilot passed review",
+    "pilot_failed": "Pilot did not pass review",
+    "storage_error": "Artifact storage needs recovery",
+    "infrastructure_rearmed": "Infrastructure recovery started",
+    "directed_audio_fit_rearmed": "Narration timing recovery started",
+    "pilot_artifacts_persisted": "Pilot artifacts persisted",
+}
+
+
+def _public_agent_text(value, limit: int = 500) -> str:
+    """Remove infrastructure details while retaining useful editorial progress."""
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = re.sub(r"https?://\S+", "[service]", text)
+    text = re.sub(r"(?<!\w)/(?:tmp|var|root|home|workspace)/\S+", "[path]", text)
+    text = re.sub(
+        r"(?i)\b(authorization|bearer|api[_ -]?key|token|password|passwd|secret|cookie|"
+        r"database[_ -]?url)\b\s*[:=]?\s*\S+",
+        r"\1=[redacted]", text)
+    return text[:max(1, limit)]
+
+
+def _public_agent_event(event: dict) -> dict | None:
+    event_type = str(event.get("event_type") or event.get("type") or "").strip()
+    data = str(event.get("data") or "")
+    stage_status = {
+        "stage_completed": "completed",
+        "stage_reused": "reused",
+        "stage_retry": "retrying",
+    }
+    if event_type in stage_status:
+        kind = data.partition(":")[0].casefold()
+        if kind not in {"tts", "image", "motion"}:
+            kind = "asset"
+        label = {
+            "tts": "Narration segment",
+            "image": "Image",
+            "motion": "Motion clip",
+            "asset": "Render asset",
+        }[kind]
+        return {
+            "seq": int(event.get("seq") or 0),
+            "type": "asset",
+            "kind": kind,
+            "status": stage_status[event_type],
+            "data": f"{label} {stage_status[event_type]}",
+            "created_at": str(event.get("created_at") or ""),
+        }
+    if event_type == "lease":
+        data = "Render worker started"
+        event_type = "stage"
+    elif event_type not in _AGENT_PUBLIC_EVENT_TYPES:
+        return None
+    else:
+        data = _AGENT_PUBLIC_EVENT_MESSAGES[event_type]
+    return {
+        "seq": int(event.get("seq") or 0),
+        "type": event_type,
+        "data": _public_agent_text(data),
+        "created_at": str(event.get("created_at") or ""),
+    }
+
+
+def _agent_action_plan(action: dict) -> dict:
+    payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+    pilot_end = float(target.get("pilot_end_sec") or 45.0)
+    shots = [shot for shot in payload.get("shots") or []
+             if float(shot.get("start_sec") or 0) < pilot_end]
+    narration = [scene for scene in payload.get("narration") or []
+                 if float(scene.get("start_sec") or 0) < pilot_end]
+    masters = {str(shot.get("asset_key") or shot.get("shot_id") or "") for shot in shots}
+    motion = [shot for shot in shots
+              if str(shot.get("mode") or "").strip().casefold() == "full motion"]
+    return {
+        "pilot_seconds": pilot_end,
+        "narration_total": len(narration),
+        "images_total": len(masters),
+        "motion_total": len(motion),
+    }
+
+
+def _agent_action_progress(action: dict, events: list[dict], job_status: str) -> dict:
+    plan = _agent_action_plan(action)
+    completed = {"tts": set(), "image": set(), "motion": set()}
+    for event in events:
+        if str(event.get("event_type") or "") not in {"stage_completed", "stage_reused"}:
+            continue
+        stage_key = str(event.get("data") or "")
+        kind = stage_key.partition(":")[0].casefold()
+        if kind in completed:
+            completed[kind].add(stage_key)
+    counts = {
+        "narration_completed": len(completed["tts"]),
+        "images_completed": len(completed["image"]),
+        "motion_completed": len(completed["motion"]),
+    }
+    total = plan["narration_total"] + plan["images_total"] + plan["motion_total"]
+    done = sum(counts.values())
+    terminal = job_status in _AGENT_TERMINAL_JOB_STATUSES
+    if terminal:
+        stage = job_status
+        percent = 100
+    elif not job_status or job_status == "queued":
+        stage = "queued"
+        percent = 0
+    elif counts["narration_completed"] < plan["narration_total"]:
+        stage = "narration"
+        percent = round(90 * done / max(1, total))
+    elif counts["images_completed"] < plan["images_total"]:
+        stage = "images"
+        percent = round(90 * done / max(1, total))
+    elif counts["motion_completed"] < plan["motion_total"]:
+        stage = "motion"
+        percent = round(90 * done / max(1, total))
+    else:
+        stage = "assembly_and_grading"
+        percent = 92
+    return {**plan, **counts, "stage": stage, "percent": max(0, min(percent, 100))}
+
+
+def _public_agent_result(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return {}
+    safe = {key: result.get(key) for key in (
+        "title", "archived", "directed_pilot", "duration_sec", "scene_count",
+        "actual_cost",
+    ) if result.get(key) is not None}
+    rendered = result.get("rendered_contract")
+    if isinstance(rendered, dict):
+        safe["rendered_contract"] = {key: rendered.get(key) for key in (
+            "score", "status", "automated_pass", "hard_failures",
+        ) if rendered.get(key) is not None}
+    return safe
+
+
+def _agent_action_response(action: dict, *, claim_token: str = "", reused: bool = False) -> dict:
+    action_id = str(action.get("action_id") or "")
+    response = {
+        **agent_actions.public_action(action),
+        "reused": bool(reused),
+        "approval_path": f"/agent/actions?action={action_id}",
+        "execute_path": f"/api/agent/actions/{action_id}/execute",
+        "warning": ("Existing lifecycle returned; no new proposal or spend was created."
+                    if reused else
+                    "The claim token is shown once. It cannot access any other studio operation."),
+    }
+    if claim_token:
+        response["claim_token"] = claim_token
+    return response
+
+
 @app.get("/agent/actions/request")
 async def agent_action_request_page():
     return FileResponse(str(STATIC_DIR / "agent_action_request.html"), media_type="text/html")
@@ -2358,6 +2530,13 @@ async def create_agent_action(request: AgentActionCreateRequest):
         raise HTTPException(
             status_code=409,
             detail=f"Estimated pilot cost ${estimate:.4f} exceeds ceiling ${ceiling:.2f}")
+    try:
+        existing = await asyncio.to_thread(
+            agent_actions.repository().reusable_for_spec, report["spec_sha256"], ceiling)
+    except agent_actions.AgentActionError as exc:
+        raise _agent_action_http_error(exc) from exc
+    if existing:
+        return _agent_action_response(existing, reused=True)
     claim_token = agent_actions.new_claim_token()
     ttl = max(300, min(int(os.environ.get("AGENT_ACTION_TTL_SEC", "900")), 3600))
     try:
@@ -2369,13 +2548,9 @@ async def create_agent_action(request: AgentActionCreateRequest):
             estimated_cost_usd=estimate, cost_ceiling_usd=ceiling, ttl_seconds=ttl)
     except agent_actions.AgentActionError as exc:
         raise _agent_action_http_error(exc) from exc
-    return {
-        **agent_actions.public_action(action),
-        "claim_token": claim_token,
-        "approval_path": "/agent/actions",
-        "execute_path": f"/api/agent/actions/{action['action_id']}/execute",
-        "warning": "The claim token is shown once. It cannot access any other studio operation.",
-    }
+    reused = bool(action.pop("_reused", False))
+    return _agent_action_response(
+        action, claim_token="" if reused else claim_token, reused=reused)
 
 
 @app.get("/api/agent/actions/pending")
@@ -2413,7 +2588,7 @@ async def get_agent_action(action_id: str, request: Request):
 
 
 @app.get("/api/agent/actions/{action_id}/public-status")
-async def get_agent_action_public_status(action_id: str):
+async def get_agent_action_public_status(action_id: str, after: int = 0):
     """Read-only, non-sensitive status for an opaque approved action id.
 
     This intentionally omits the directed spec payload, credentials and claim-token digest.
@@ -2426,16 +2601,29 @@ async def get_agent_action_public_status(action_id: str):
     if not action:
         raise HTTPException(status_code=404, detail="Agent action not found")
     summary = agent_actions.public_action(action)
+    summary["progress"] = _agent_action_progress(action, [], "")
+    summary["events"] = []
+    summary["next_event_seq"] = max(0, int(after))
+    if action.get("status") == "failed":
+        summary["error"] = _public_agent_text(action.get("error"))
     job_id = str(action.get("job_id") or "")
     if job_id and _durable_execution_required():
         try:
             store, _ = _durable_components()
             row = await asyncio.to_thread(store.get_job, job_id)
             if row:
+                all_events = await asyncio.to_thread(store.events, job_id, 0, 1000)
+                visible_events = [item for item in (
+                    _public_agent_event(event) for event in all_events
+                    if int(event.get("seq") or 0) > max(0, int(after))
+                ) if item]
+                next_event_seq = max(
+                    [max(0, int(after)), *[int(event.get("seq") or 0) for event in all_events]])
+                job_status = str(row.get("status") or "")
                 summary["job"] = {
                     "id": row.get("id"),
-                    "status": row.get("status"),
-                    "error": row.get("error"),
+                    "status": job_status,
+                    "error": _public_agent_text(row.get("error")),
                     "spent_cost_usd": float(row.get("spent_cost_usd") or 0),
                     "reserved_cost_usd": float(row.get("reserved_cost_usd") or 0),
                     "max_cost_usd": float(row.get("max_cost_usd") or 0),
@@ -2444,18 +2632,26 @@ async def get_agent_action_public_status(action_id: str):
                     "lease_expires_at": str(row.get("lease_expires_at") or ""),
                     "updated_at": str(row.get("updated_at") or ""),
                     "checkpoint_present": bool(row.get("checkpoint")),
-                    "result": row.get("result") or {},
+                    "result": _public_agent_result(row.get("result") or {}),
                 }
+                summary["progress"] = _agent_action_progress(action, all_events, job_status)
+                summary["events"] = visible_events
+                summary["next_event_seq"] = next_event_seq
             import db
             finished = await asyncio.to_thread(db.finished_video_get, job_id) or {}
             if finished:
+                metadata = finished.get("metadata") or {}
                 summary["finished_video"] = {
                     "id": finished.get("id"),
                     "title": finished.get("title"),
                     "status": finished.get("status"),
-                    "video_url": finished.get("video_url"),
-                    "download_url": finished.get("download_url"),
-                    "metadata": finished.get("metadata") or {},
+                    "metadata": {key: metadata.get(key) for key in (
+                        "actual_cost", "duration_sec", "rendered_contract_score",
+                        "rendered_contract_status", "scene_count",
+                    ) if metadata.get(key) is not None},
+                    "player_path": f"/api/finished/{job_id}/artifact/video",
+                    "download_path": f"/api/finished/{job_id}/artifact/video?download=true",
+                    "detail_path": f"/api/finished/{job_id}",
                 }
         except durable_execution.StorageUnavailable:
             summary["job_status_unavailable"] = True

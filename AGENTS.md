@@ -12,7 +12,8 @@ The intended flow is:
 2. Operator reviews the exact spec hash and hard cost ceiling at `/agent/actions`.
 3. Operator clicks **Approve & render exact pilot** once.
 4. That single approval immediately authorizes, queues, and dispatches exactly that pilot.
-5. AI monitors the resulting job/artifacts and reports the grade/result. No second execute confirmation is expected from the operator.
+5. The same page becomes a live render console: it shows sanitized durable events, progress, spend, and the finished video when available.
+6. AI monitors the same resulting job/artifacts and reports the grade/result. No second execute confirmation is expected from the operator.
 
 Approval is bound to the exact normalized spec SHA-256, cost ceiling, expiry, and `first-45-pilot` scope. Full-film generation is not authorized by this flow.
 
@@ -32,7 +33,7 @@ JSON body for a bundled pilot:
 
 Or provide a complete validated directed spec in `spec` instead of `bundled_spec_id`.
 
-Creation does **not** spend money. The response includes the action ID, immutable spec hash, estimated cost, ceiling and approval path.
+Creation does **not** spend money. The response includes the action ID, immutable spec hash, estimated cost, ceiling and stable action-specific approval path. Repeating the request for the same exact spec-and-ceiling boundary returns its existing pending, executing, queued, completed, or failed lifecycle; it must not create another active proposal.
 
 ## Human approval
 
@@ -56,6 +57,8 @@ with the displayed `spec_sha256` and `cost_ceiling_usd`.
 
 The authenticated approval page automatically follows successful approval with the bounded execute/dispatch calls. Do not ask the operator for a second approval or ask them to return to `/agent/actions/request`.
 
+After approval, keep the operator on the stable `/agent/actions?action=<action_id>` URL. Refreshing that URL must reconnect to the same action and job. Show only allowlisted durable application events—never raw provider responses, runtime logs, internal paths, tokens, credentials, or private Blob URLs. When the finished record exists, present the video through `/api/finished/{job_id}/artifact/video` with an explicit download link.
+
 ## Execution semantics
 
 `POST /api/agent/actions/{action_id}/execute` consumes the approved action once and binds a durable job to it.
@@ -71,6 +74,12 @@ The action status progression is expected to be:
 `pending -> approved -> executing -> queued -> rendering -> completed|failed`
 
 The durable job and finished-video records are the source of truth after queueing. A failed pilot remains a failed artifact; do not manually convert it into a pass or silently lower quality thresholds.
+
+The public status endpoint supports incremental event retrieval:
+
+`GET /api/agent/actions/{action_id}/public-status?after=<last_event_seq>`
+
+Its event list is a sanitized progress feed, not a substitute for private infrastructure observability.
 
 Agents should report at minimum:
 
