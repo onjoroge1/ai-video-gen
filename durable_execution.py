@@ -110,7 +110,7 @@ class PostgresStore(_legacy.PostgresStore):
             cur.execute("""
                 SELECT j.* FROM generation_jobs j
                 WHERE j.status='error'
-                  AND j.error LIKE 'Directed pilot measured narration %visual spending stopped.'
+                  AND j.error ILIKE '%measured pilot narration %visual spending stopped%'
                   AND j.reserved_cost_usd=0
                   AND j.spent_cost_usd < j.max_cost_usd
                   AND j.checkpoint <> '{}'::jsonb
