@@ -101,6 +101,8 @@ At minimum, verify these existing checks are true:
 
 If readiness is false, stop before paid generation. Record the failed checks and report the run as blocked.
 
+**Current limitation:** `ready: true` confirms configuration, authentication, storage, worker, and media-tool availability. It does **not** make a live provider request and therefore does not prove that the configured AI provider account has remaining credit or quota. If the first provider call returns an account-balance, usage-limit, quota, or provider-authentication error, stop immediately and classify the run as a provider failure. Do not continue to image, audio, or rendering stages, and do not manufacture a substitute video.
+
 ---
 
 ## 5. Canonical quiz request
