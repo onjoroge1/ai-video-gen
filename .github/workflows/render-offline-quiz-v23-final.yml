@@ -74,11 +74,17 @@ jobs:
           PY
           sha256sum qa_render/quiz.mp4 > qa_evidence/quiz.sha256
 
-      - name: Enforce the final media and creative contract
+      - name: Enforce final media, creative, and narration contracts
         run: |
           python - <<'PY'
           import json
+          import re
           from pathlib import Path
+
+          def seconds(value: str) -> float:
+              hours, minutes, tail = value.split(":")
+              sec, millis = tail.split(",")
+              return int(hours) * 3600 + int(minutes) * 60 + int(sec) + int(millis) / 1000
 
           result = json.loads(Path("qa_evidence/result.json").read_text())
           probe = json.loads(Path("qa_evidence/ffprobe.json").read_text())
@@ -87,6 +93,33 @@ jobs:
           audio = next(s for s in streams if s.get("codec_type") == "audio")
           duration = float((probe.get("format") or {}).get("duration") or 0)
           answers = [item.get("answer") for item in result.get("items") or []]
+
+          cues = []
+          for block in re.split(r"\n\s*\n", Path("qa_evidence/captions.srt").read_text().strip()):
+              lines = block.splitlines()
+              match = re.match(r"(\d\d:\d\d:\d\d,\d{3}) --> (\d\d:\d\d:\d\d,\d{3})", lines[1])
+              if not match:
+                  raise AssertionError(f"Malformed SRT timing: {block}")
+              cues.append({
+                  "start": seconds(match.group(1)),
+                  "end": seconds(match.group(2)),
+                  "text": " ".join(lines[2:]).strip(),
+              })
+
+          overlaps = []
+          for previous, following in zip(cues, cues[1:]):
+              overlap = round(previous["end"] - following["start"], 3)
+              if overlap > 0.02:
+                  overlaps.append({
+                      "previous": previous["text"],
+                      "following": following["text"],
+                      "overlap_sec": overlap,
+                  })
+          answer_callouts = [
+              round(cue["end"] - cue["start"], 3)
+              for cue in cues
+              if cue["text"] in {"CAPYBARA!", "OKAPI!"}
+          ]
 
           report = {
               "duration_sec": duration,
@@ -105,6 +138,8 @@ jobs:
               "degraded_reasons": result.get("degraded_reasons") or [],
               "actual_cost_usd": result.get("actual_cost"),
               "mascot_present": False,
+              "caption_overlaps": overlaps,
+              "answer_callout_durations_sec": answer_callouts,
           }
           Path("qa_evidence/final-report.json").write_text(json.dumps(report, indent=2))
           print(json.dumps(report, indent=2))
@@ -118,6 +153,9 @@ jobs:
           assert result.get("difficulty_ladder_honoured") is True
           assert result.get("status") == "ok"
           assert not report["degraded_reasons"]
+          assert not overlaps
+          assert len(answer_callouts) == 2
+          assert max(answer_callouts) <= 1.20
           assert 10.0 <= duration <= 14.0
           assert (video.get("width"), video.get("height")) == (1080, 1920)
           assert video.get("codec_name") == "h264"
