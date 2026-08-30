@@ -2,8 +2,9 @@
 
 An action is not a service account and carries no general studio authority.  An unauthenticated
 client may propose one immutable directed-video pilot, but only an authenticated studio session
-may approve it.  The claim token is stored only as a SHA-256 digest and can enqueue the approved
-payload once.  Full-film generation is intentionally not an operation in this module.
+may approve it.  Approval rotates the one-time execution capability to the action's random UUID,
+so the approval UI can immediately enqueue the exact approved payload without a second user step.
+Full-film generation is intentionally not an operation in this module.
 """
 from __future__ import annotations
 
@@ -217,9 +218,14 @@ class PostgresAgentActionRepository:
             if Decimal(str(action["cost_ceiling_usd"])) != Decimal(str(cost_ceiling_usd)):
                 raise AgentActionConflict("Cost ceiling changed")
             cur = conn.cursor()
+            # Approval is the sole human spending authorization. Rotate the execution capability
+            # to this action's 128-bit random UUID so the same approval page can enqueue the exact
+            # immutable payload immediately; claim() still consumes it exactly once.
             cur.execute("""
-                UPDATE agent_actions SET status='approved',approved_at=now(),approved_by=%s
-                WHERE action_id=%s RETURNING *""", (approver, action_id))
+                UPDATE agent_actions
+                SET status='approved',approved_at=now(),approved_by=%s,claim_token_sha256=%s
+                WHERE action_id=%s RETURNING *""",
+                (approver, token_digest(action_id), action_id))
             approved = self._row(cur, cur.fetchone()) or {}
             conn.commit()
             return approved
@@ -243,7 +249,14 @@ class PostgresAgentActionRepository:
         try:
             conn = self._connection()
             action = self.get(action_id, for_update=True, conn=conn)
-            if not action or not verify_claim_token(action, claim_token):
+            # Compatibility for actions approved immediately before the single-approval rollout:
+            # their stored digest is the old browser-only token, but the operator already approved
+            # the exact spec+ceiling. The random action UUID is therefore accepted as the bounded,
+            # single-use execution capability for approved actions only.
+            uuid_capability = bool(
+                action and action.get("status") == "approved" and claim_token
+                and hmac.compare_digest(str(claim_token), str(action_id)))
+            if not action or not (verify_claim_token(action, claim_token) or uuid_capability):
                 raise AgentActionForbidden("Invalid agent action claim token")
             if effective_status(action) == "expired":
                 raise AgentActionConflict("Agent action expired")
