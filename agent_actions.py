@@ -218,10 +218,9 @@ class PostgresAgentActionRepository:
             if Decimal(str(action["cost_ceiling_usd"])) != Decimal(str(cost_ceiling_usd)):
                 raise AgentActionConflict("Cost ceiling changed")
             cur = conn.cursor()
-            # Once the authenticated operator approves the immutable spec+ceiling, rotate the
-            # one-time execution capability to this action's 128-bit random UUID.  The approval
-            # page can then enqueue immediately without depending on another tab's sessionStorage.
-            # claim() still consumes it exactly once and all spec/cost validation remains intact.
+            # Approval is the sole human spending authorization. Rotate the execution capability
+            # to this action's 128-bit random UUID so the same approval page can enqueue the exact
+            # immutable payload immediately; claim() still consumes it exactly once.
             cur.execute("""
                 UPDATE agent_actions
                 SET status='approved',approved_at=now(),approved_by=%s,claim_token_sha256=%s
@@ -250,7 +249,14 @@ class PostgresAgentActionRepository:
         try:
             conn = self._connection()
             action = self.get(action_id, for_update=True, conn=conn)
-            if not action or not verify_claim_token(action, claim_token):
+            # Compatibility for actions approved immediately before the single-approval rollout:
+            # their stored digest is the old browser-only token, but the operator already approved
+            # the exact spec+ceiling. The random action UUID is therefore accepted as the bounded,
+            # single-use execution capability for approved actions only.
+            uuid_capability = bool(
+                action and action.get("status") == "approved" and claim_token
+                and hmac.compare_digest(str(claim_token), str(action_id)))
+            if not action or not (verify_claim_token(action, claim_token) or uuid_capability):
                 raise AgentActionForbidden("Invalid agent action claim token")
             if effective_status(action) == "expired":
                 raise AgentActionConflict("Agent action expired")
