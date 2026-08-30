@@ -1,0 +1,33 @@
+name: Fix directed audio salvage matcher
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix-audio-salvage-matcher.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make matcher case-insensitive and exact to runtime failure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('durable_execution.py')
+          s=p.read_text()
+          old="j.error LIKE 'Directed pilot measured narration %visual spending stopped.'"
+          new="j.error ILIKE '%measured pilot narration %visual spending stopped%'"
+          if old not in s and new not in s:
+              raise SystemExit('matcher anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+          python -m py_compile durable_execution.py
+      - name: Commit matcher fix
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add durable_execution.py
+          git commit -m 'fix: match directed audio runtime failure case-insensitively'
+          git push
