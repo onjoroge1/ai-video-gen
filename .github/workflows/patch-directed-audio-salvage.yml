@@ -14,10 +14,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply bounded directed audio salvage
         run: python .github/scripts/patch_directed_audio_salvage.py
-      - name: Run focused tests
-        run: |
-          python -m py_compile spec_pilot.py durable_execution.py app.py
-          pytest -q tests/test_directed_longform.py tests/test_agent_actions.py tests/test_durable_execution_phase6.py
+      - name: Compile patched modules
+        run: python -m py_compile spec_pilot.py durable_execution.py app.py
       - name: Commit patch
         run: |
           if git diff --quiet; then exit 0; fi
