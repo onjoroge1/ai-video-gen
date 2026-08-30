@@ -1,6 +1,6 @@
 """QUIZ social-short pipeline — a third format alongside explainer/simulation.
 
-Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then up to four rounds of
+Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then three rounds of
 [AI-safe visual clue + timer -> answer reveal]. There is no standalone intro, outro, or subscribe card.
   - AI-SAFE items only (silhouettes / clear photos of animals, planets, objects) — NEVER flags, logos,
     signs, or maps, because gpt-image garbles baked-in text/symbols and a wrong clue breaks the quiz.
@@ -102,7 +102,7 @@ _QUIZ_SYSTEM = (
     "animal that truly belongs in it. Never relocate a species to make the loop work. Item 2 is free to "
     "use a different habitat, and its contrast is what makes the return to the opening scene land.\n"
     "The title must either OMIT a numeric item count or match the exact requested item count; never "
-    "promise three when four items were requested. Return ONLY JSON: {\"title\":\"clickable title, "
+    "promise a count that differs from the rendered rounds. Return ONLY JSON: {\"title\":\"clickable title, "
     "e.g. 'Can You Name Them From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
     "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
@@ -116,7 +116,7 @@ _QUIZ_SYSTEM = (
 )
 
 
-def generate_quiz(category: str, n_items: int = 4, cost_sink: list | None = None, operator_direction: str = "") -> dict:
+def generate_quiz(category: str, n_items: int = 3, cost_sink: list | None = None, operator_direction: str = "") -> dict:
     """LLM quiz for `category`, hard-filtered to AI-safe items. Best-effort ({} on failure)."""
     try:
         r = ep._claude().messages.create(
@@ -1270,7 +1270,7 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
     return rgb
 
 
-def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: str = "echo",
+def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: str = "echo",
                       progress_cb=None, operator_direction: str = "",
                       variants: tuple = ("a", "b"), primary_variant: str = "b") -> dict:
     """Generate + render a full quiz short. Returns {output_path,title,scene_count,...}.

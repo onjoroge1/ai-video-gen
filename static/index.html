@@ -1626,11 +1626,11 @@
           <option value="simulation">Simulation — drop the viewer into an escalating what-if</option>
           <option value="quiz">Quiz — Bolt hosts "What is it?" (Question = a CATEGORY)</option>
         </select>
-        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz V2.2 = a four-round frame-zero guessing game with full-body Bolt reveal performances and no intro/outro tail — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments").</span>
+        <span class="field-hint">Explainer = a mystery that reveals the answer. Simulation = a "you change every second" escalation. Quiz V2.3 = a three-round frame-zero guessing game with full-body Bolt reveal performances and no intro/outro tail — for Quiz, put a CATEGORY in the Question box (e.g. "animals", "planets", "musical instruments").</span>
         <div class="field" id="quiz-items-field" style="display:none; margin-top:10px;">
           <label>Quiz rounds</label>
-          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="4" step="1" value="4" />
-          <span class="field-hint">How many items to guess (2–4). Four is Rapid Reveal V2.2; the same generated assets also preserve control A for a clean reveal-performance comparison.</span>
+          <input type="number" id="expl-quiz-items" class="input-field" min="2" max="3" step="1" value="3" />
+          <span class="field-hint">How many items to guess (2–3). Three is Rapid Reveal V2.3; the same generated assets still preserve control A for a clean reveal-performance comparison.</span>
         </div>
       </div>
 
@@ -3172,7 +3172,7 @@
       motion_mode:    explFormat === 'social' ? null : document.getElementById('expl-motion-mode').value,
       series:         document.getElementById('expl-series').value.trim(),
       short_template: document.getElementById('expl-template').value,
-      n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 4,
+      n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
       operator_direction: document.getElementById('expl-direction').value.trim(),
       story_format:   (document.getElementById('expl-story-format') || {}).value || 'standard_explainer',
     };

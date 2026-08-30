@@ -1,4 +1,4 @@
-# Quiz Short Retention V2.2 — Four-Payoff Rapid Reveal
+# Quiz Short Retention V2.3 — Three-Round Rapid Reveal
 
 ## Measured failure
 
@@ -19,9 +19,9 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
 ## V2.2 creative contract
 
 - The **first clue is frame zero**. No mascot intro or logo hold.
-- Four rounds maximum: **warm-up → too easy? → no hints → final boss**. The opener cannot be trivial.
+- Three rounds maximum: **warm-up → no hints → final boss**. The opener cannot be trivial.
 - Voice and timer run concurrently over the clue; no separate “What is it?” card.
-- Each 1.8-second guess progressively widens from a tight detail to the complete clue every 0.6 seconds.
+- Each 2.4-second guess progressively widens from a tight detail to the complete clue every 0.8 seconds.
 - Reveal: 0.8–1.2 seconds; the final reveal may run up to 3.6 seconds for the integrated replay CTA.
 - A vision QA pass grades first-crop difficulty, full-clue fairness, answer identity, anatomy, pose,
   subject occupancy and clue/background contrast at phone size.
@@ -33,7 +33,7 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
   not combined with progressive crops because generative silhouette morphing can make a clue unfair.
 - Bolt performs as a full-body reveal layer, never as an intro or on a guess frame. The renderer also
   preserves control A from the identical generated assets so the performance layer can be compared cleanly.
-- The final answer carries “GOT ALL 4? · SUBSCRIBE” on screen. The spoken line asks for the replay
+- The final answer carries “GOT ALL 3? · SUBSCRIBE” on screen. The spoken line asks for the replay
   instead — “Missed one? Go again.” — so the two channels complement rather than repeat, and the ask
   names an action the loop has already made free. There is no separate outro or subscription card.
 - **The video closes on the frame it opens on.** The last beat cross-dissolves into round one's first
