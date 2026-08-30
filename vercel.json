@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python -m pip install --quiet -r requirements.txt && PYTHONUNBUFFERED=1 QUIZ_HABITAT=1 QUIZ_FAL_OPENER=0 REQUIRE_DURABLE_ARTIFACTS=0 DURABLE_EXECUTION=0 MAX_VIDEO_COST_USD=2.00 python scripts/build_quiz_pilot_v23.py",
   "functions": {
     "app.py": {
       "excludeFiles": "{tests/**,bolt_seq/tests/**,bolt_seq/fixtures/**,_e2e_final/**,requirements-dev.txt}",
