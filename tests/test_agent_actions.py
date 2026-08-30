@@ -8,6 +8,7 @@ import httpx
 
 import agent_actions
 import app as studio
+import db
 import private_access
 
 
@@ -40,6 +41,14 @@ class FakeActionRepository:
 
     def pending(self):
         return [copy.deepcopy(self.action)] if self.action else []
+
+    def reusable_for_spec(self, spec_sha256, cost_ceiling_usd):
+        if (self.action and self.action.get("spec_sha256") == spec_sha256
+                and float(self.action.get("cost_ceiling_usd") or 0) == float(cost_ceiling_usd)
+                and self.action.get("status") in {
+                    "pending", "approved", "executing", "queued", "failed"}):
+            return copy.deepcopy(self.action)
+        return None
 
     def approve(self, action_id, *, spec_sha256, cost_ceiling_usd, approver):
         if not self.action or action_id != ACTION_ID:
@@ -120,6 +129,16 @@ def test_agent_action_lifecycle_requires_exact_operator_approval(monkeypatch):
             assert repository.action["claim_token_sha256"] == agent_actions.token_digest(token)
             assert token not in json.dumps(repository.action, default=str)
 
+            duplicate = await client.post("/api/agent/actions", json={
+                "operation": "directed_pilot",
+                "bundled_spec_id": "hippo_illustrated_story_v4",
+                "cost_ceiling_usd": 1.60,
+            })
+            assert duplicate.status_code == 200, duplicate.text
+            assert duplicate.json()["action_id"] == ACTION_ID
+            assert duplicate.json()["reused"] is True
+            assert "claim_token" not in duplicate.json()
+
             assert (await client.get("/api/agent/actions/pending")).status_code == 401
             assert (await client.get(f"/api/agent/actions/{ACTION_ID}")).status_code == 403
             visible = await client.get(
@@ -170,6 +189,17 @@ def test_agent_action_lifecycle_requires_exact_operator_approval(monkeypatch):
                 f"/api/agent/actions/{ACTION_ID}/execute",
                 headers={"Authorization": f"Bearer {token}"})
             assert replay.status_code == 409
+            assert len(queued) == 1
+
+            queued_duplicate = await client.post("/api/agent/actions", json={
+                "operation": "directed_pilot",
+                "bundled_spec_id": "hippo_illustrated_story_v4",
+                "cost_ceiling_usd": 1.60,
+            })
+            assert queued_duplicate.status_code == 200
+            assert queued_duplicate.json()["action_id"] == ACTION_ID
+            assert queued_duplicate.json()["status"] == "queued"
+            assert queued_duplicate.json()["reused"] is True
             assert len(queued) == 1
 
     anyio.run(run)
@@ -346,6 +376,93 @@ def test_public_action_never_exposes_payload_token_or_operator():
         assert secret not in serialized
 
 
+def test_public_status_returns_sanitized_progress_and_finished_player(monkeypatch):
+    _secure_environment(monkeypatch)
+    monkeypatch.setattr(studio, "_durable_execution_required", lambda: True)
+    repository = FakeActionRepository()
+    payload = json.loads(
+        (ROOT / "spec" / "hippo_illustrated_story_v4.json").read_text())
+    now = datetime.now(timezone.utc)
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "directed_pilot", "status": "queued",
+        "title": payload["title"], "spec_sha256": "f" * 64,
+        "estimated_cost_usd": 1.3934, "cost_ceiling_usd": 1.6,
+        "created_at": now, "expires_at": now + timedelta(minutes=5),
+        "approved_at": now, "claim_token_sha256": "digest", "job_id": "pilot001",
+        "payload": payload, "error": None,
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+
+    class Store:
+        def get_job(self, job_id):
+            assert job_id == "pilot001"
+            return {
+                "id": job_id, "status": "processing", "error": None,
+                "spent_cost_usd": 0.42, "reserved_cost_usd": 0.28,
+                "max_cost_usd": 1.6, "attempts": 1, "max_attempts": 3,
+                "lease_expires_at": now, "updated_at": now, "checkpoint": {},
+                "result": {"title": payload["title"], "script": {"secret": True},
+                           "video_url": "https://private.example/video.mp4"},
+            }
+
+        def events(self, job_id, after, limit):
+            assert (job_id, after, limit) == ("pilot001", 0, 1000)
+            return [
+                {"seq": 1, "event_type": "lease", "data": "Claimed by secret-worker",
+                 "created_at": now.isoformat()},
+                {"seq": 2, "event_type": "stage_completed", "data": "tts:hash-one",
+                 "created_at": now.isoformat()},
+                {"seq": 3, "event_type": "stage_completed", "data": "image:hash-two",
+                 "created_at": now.isoformat()},
+                {"seq": 4, "event_type": "stage_retry", "data": "motion:hash-three",
+                 "details": {"error": "Bearer super-secret"},
+                 "created_at": now.isoformat()},
+                {"seq": 5, "event_type": "log",
+                 "data": "Saved /tmp/private/file at https://provider.example/x token=secret",
+                 "created_at": now.isoformat()},
+            ]
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+    monkeypatch.setattr(db, "finished_video_get", lambda job_id: {
+        "id": job_id, "title": payload["title"], "status": "degraded",
+        "video_url": "https://private.example/video.mp4",
+        "download_url": "https://private.example/download",
+        "metadata": {"actual_cost": 1.39, "duration_sec": 45.2,
+                     "rendered_contract_score": 91, "internal_path": "/tmp/secret"},
+    })
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/agent/actions/{ACTION_ID}/public-status?after=1")
+            assert response.status_code == 200, response.text
+            status = response.json()
+            assert status["job"]["id"] == "pilot001"
+            assert status["job"]["spent_cost_usd"] == 0.42
+            assert status["job"]["result"] == {
+                "title": payload["title"],
+            }
+            assert status["progress"]["narration_total"] == 5
+            assert status["progress"]["images_total"] == 18
+            assert status["progress"]["motion_total"] == 2
+            assert status["progress"]["narration_completed"] == 1
+            assert status["progress"]["images_completed"] == 1
+            assert status["next_event_seq"] == 5
+            assert [event["seq"] for event in status["events"]] == [2, 3, 4, 5]
+            serialized = json.dumps(status)
+            for secret in ("secret-worker", "super-secret", "/tmp/private/file",
+                           "https://provider.example/x", "https://private.example/video.mp4",
+                           "internal_path", "/tmp/secret"):
+                assert secret not in serialized
+            assert status["events"][-1]["data"] == "Render progress updated"
+            assert status["finished_video"]["player_path"] == (
+                "/api/finished/pilot001/artifact/video")
+            assert status["finished_video"]["download_path"].endswith("?download=true")
+
+    anyio.run(run)
+
+
 def test_agent_action_pages_describe_the_narrow_confirmation_boundary():
     request_html = (ROOT / "static" / "agent_action_request.html").read_text()
     approval_html = (ROOT / "static" / "agent_actions.html").read_text()
@@ -355,3 +472,7 @@ def test_agent_action_pages_describe_the_narrow_confirmation_boundary():
     assert "No entry can authorize a full film" in approval_html
     assert "Spec SHA-256" in approval_html
     assert "Hard ceiling" in approval_html
+    assert "Durable worker events will appear here" in approval_html
+    assert "/public-status?after=" in approval_html
+    assert "player_path" in approval_html
+    assert "history.replaceState" in approval_html
