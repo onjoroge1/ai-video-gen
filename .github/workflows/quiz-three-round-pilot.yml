@@ -34,6 +34,7 @@ jobs:
       - name: Apply controlled three-round rollback
         run: |
           python scripts/apply_quiz_three_round.py
+          python scripts/patch_quiz_three_round_followup.py
           git diff --check
           git diff --stat
 
@@ -51,7 +52,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app.py _quiz_pipeline_legacy.py bolt_video/formats/quiz.py \
-            docs/QUIZ_RETENTION_V2.md tests/test_quiz_contract.py \
+            docs/QUIZ_RETENTION_V2.md static/index.html tests/test_quiz_contract.py \
             tests/test_quiz_three_round_default.py
           git commit -m "fix: restore three-round quiz pacing [quiz3-applied]"
           git push origin HEAD:fix/quiz-three-round-pacing
