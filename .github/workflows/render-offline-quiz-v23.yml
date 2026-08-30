@@ -1,0 +1,102 @@
+name: Render deterministic mascot-free Quiz V2.3
+
+on:
+  push:
+    branches:
+      - qa/cleanup-last-quiz
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    if: ${{ contains(github.event.head_commit.message, '[render-offline-quiz]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install media and font dependencies
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core >/dev/null
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt edge-tts
+
+      - name: Render the three-round quiz
+        env:
+          QUIZ_HABITAT: "1"
+          QUIZ_FAL_OPENER: "0"
+        run: |
+          set -euo pipefail
+          rm -rf qa_render qa_evidence
+          mkdir -p qa_render qa_evidence/frames
+          python scripts/render_offline_quiz_v23.py qa_render | tee qa_evidence/render.log
+          test -s qa_render/quiz.mp4
+          test "$(stat -c%s qa_render/quiz.mp4)" -gt 500000
+
+      - name: Verify media, contract, and representative frames
+        run: |
+          set -euo pipefail
+          ffprobe -v error \
+            -show_entries format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels \
+            -of json qa_render/quiz.mp4 > qa_evidence/ffprobe.json
+          ffmpeg -y -v error -i qa_render/quiz.mp4 \
+            -vf "fps=3,scale=270:-2,tile=5x8:padding=4:margin=4" \
+            -frames:v 1 qa_evidence/contact-sheet.jpg
+          ffmpeg -y -v error -i qa_render/quiz.mp4 \
+            -vf "fps=6,scale=540:-2" qa_evidence/frames/frame-%04d.jpg
+          cp qa_render/result.json qa_evidence/result.json
+          cp qa_render/youtube_description.txt qa_evidence/youtube_description.txt
+          cp qa_render/quiz.srt qa_evidence/quiz.srt
+          cp qa_render/quiz.txt qa_evidence/quiz.txt
+          sha256sum qa_render/quiz.mp4 > qa_evidence/quiz.sha256
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("qa_render/result.json").read_text())
+          probe = json.loads(Path("qa_evidence/ffprobe.json").read_text())
+          streams = probe.get("streams") or []
+          video = next(s for s in streams if s.get("codec_type") == "video")
+          audio = next(s for s in streams if s.get("codec_type") == "audio")
+          duration = float((probe.get("format") or {}).get("duration") or 0)
+          answers = [item.get("answer") for item in result.get("items") or []]
+          assert result.get("quiz_creative") == "rapid_reveal_v2_3"
+          assert result.get("primary_variant") == "a"
+          assert sorted((result.get("variants") or {}).keys()) == ["a"]
+          assert answers == ["CAPYBARA", "OKAPI", "TAPIR"]
+          assert result.get("actual_cost") == 0
+          assert result.get("habitat_loop_closed") is True
+          assert result.get("difficulty_ladder_honoured") is True
+          assert 10.0 <= duration <= 15.0
+          assert (video.get("width"), video.get("height")) == (1080, 1920)
+          assert audio.get("codec_name") in {"aac", "mp3"}
+          assert Path("qa_evidence/contact-sheet.jpg").stat().st_size > 50000
+          print(json.dumps({
+              "duration_sec": duration,
+              "resolution": [video.get("width"), video.get("height")],
+              "video_codec": video.get("codec_name"),
+              "audio_codec": audio.get("codec_name"),
+              "answers": answers,
+              "status": result.get("status"),
+              "degraded_reasons": result.get("degraded_reasons"),
+              "actual_cost": result.get("actual_cost"),
+          }, indent=2))
+          PY
+
+      - name: Upload rendered quiz and QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mascot-free-quiz-v23-${{ github.run_number }}
+          path: |
+            qa_render/quiz.mp4
+            qa_evidence/
+          if-no-files-found: warn
+          retention-days: 7
