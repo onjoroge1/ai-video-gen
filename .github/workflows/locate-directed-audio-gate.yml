@@ -1,0 +1,13 @@
+name: Locate directed audio gate
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/locate-directed-audio-gate.yml']
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate exact directed pilot runtime gate
+        run: |
+          grep -R -n -B 20 -A 35 "visual spending stopped\|Directed pilot measured narration" --include='*.py' . || true
