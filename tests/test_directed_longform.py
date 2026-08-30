@@ -52,8 +52,14 @@ def _valid_spec():
             "pilot_runtime_min_sec": 43.0,
             "pilot_runtime_max_sec": 47.0,
             "pilot_min_visual_states": 15,
+            "pilot_min_unique_master_assets": 15,
             "min_shot_sec": 1.25,
-            "max_unchanged_hold_sec": 5.0,
+            "max_unchanged_hold_sec": 3.0,
+            "max_consecutive_still_asset_sec": 3.0,
+            "full_motion_duration_sec": 5.0,
+            "full_motion_duration_tolerance_sec": 0.25,
+            "frontloaded_motion_count": 0,
+            "frontloaded_motion_window_sec": 15.0,
             "max_unique_master_assets": 60,
             "min_useful_bolt_appearances": 1,
             "max_bolt_appearances": 3,
@@ -93,6 +99,8 @@ def test_valid_spec_returns_an_immutable_hash_and_cost_before_processing():
     assert report["cost_estimate"]["estimated_total_usd"] > 0
     assert report["cost_estimate"]["unique_master_assets"] == 15
     assert report["pilot_cost_estimate"]["shot_count"] == 15
+    assert report["pilot_unique_master_assets"] == 15
+    assert report["max_consecutive_still_asset_sec"] == 3.0
 
 
 def test_paid_processing_requires_the_exact_validated_hash_and_explicit_authorization():
@@ -116,6 +124,7 @@ def test_timeline_evidence_license_and_asset_reuse_fail_closed():
     payload = _valid_spec()
     payload["shots"][1]["start_sec"] += 0.5
     payload["evidence"][0]["license"] = "unresolved"
+    payload["acceptance"]["pilot_min_unique_master_assets"] = 1
     payload["acceptance"]["max_unique_master_assets"] = 3
 
     report = dl.validate_directed_spec(payload)
@@ -180,19 +189,88 @@ def test_hippo_contract_reports_missing_editorial_work_instead_of_spending():
     assert "bolt_appearance_plan" in codes
 
 
-def test_authored_hippo_json_is_valid_and_inside_the_master_cap():
+def test_authored_hippo_v4_is_valid_fast_varied_and_inside_the_pilot_cap():
     import json
 
-    with open(ROOT / "spec" / "hippo_bacon_directed_v1.json", encoding="utf-8") as handle:
+    with open(ROOT / "spec" / "hippo_illustrated_story_v4.json", encoding="utf-8") as handle:
         payload = json.load(handle)
     report = dl.validate_directed_spec(payload)
 
     assert report["valid"] is True
-    assert report["shot_count"] == 181
-    assert report["cost_estimate"]["unique_master_assets"] == 57
+    assert report["shot_count"] == 18
+    assert report["pilot_unique_master_assets"] == 18
+    assert report["max_consecutive_still_asset_sec"] <= 3.0
+    assert report["frontloaded_motion_assets"] == 2
+    motion = [shot for shot in payload["shots"] if shot["mode"] == "Full motion"]
+    assert [shot["end_sec"] - shot["start_sec"] for shot in motion] == [5.0, 5.0]
     assert report["evidence_coverage_pct"] == 100.0
-    assert report["planned_bolt_appearances"] == 3
+    assert report["planned_bolt_appearances"] == 2
     assert report["pilot_cost_estimate"]["estimated_total_usd"] < 2.0
+
+
+def test_source_image_cadence_counts_reframes_as_one_long_hold():
+    payload = _valid_spec()
+    for index in range(3):
+        payload["shots"][index]["asset_key"] = "same-opening-master"
+        payload["shots"][index]["asset_prompt"] = "One unchanged opening composition"
+        payload["shots"][index]["transformation"] = f"reframe {index + 1}"
+    payload["acceptance"]["pilot_min_unique_master_assets"] = 1
+
+    report = dl.validate_directed_spec(payload)
+    codes = {issue["code"] for issue in report["issues"]}
+
+    assert report["max_consecutive_still_asset_sec"] == 9.0
+    assert "consecutive_still_asset_too_long" in codes
+
+
+def test_new_asset_keys_cannot_disguise_duplicate_compositions():
+    payload = _valid_spec()
+    payload["shots"][1]["asset_prompt"] = payload["shots"][0]["asset_prompt"]
+
+    report = dl.validate_directed_spec(payload)
+
+    assert "duplicate_master_composition" in {
+        issue["code"] for issue in report["issues"]}
+
+
+def test_declared_motion_is_five_seconds_and_frontloaded():
+    payload = _valid_spec()
+    payload["shots"][10]["mode"] = "Full motion"
+    payload["acceptance"]["frontloaded_motion_count"] = 1
+
+    report = dl.validate_directed_spec(payload)
+    codes = {issue["code"] for issue in report["issues"]}
+
+    assert "full_motion_duration_mismatch" in codes
+    assert "frontloaded_motion_missing" in codes
+
+
+def test_rendered_cadence_uses_actual_holds_and_breaks_runs_on_motion():
+    shots = [
+        {"shot_id": "a", "asset_key": "same", "mode": "Still"},
+        {"shot_id": "b", "asset_key": "same", "mode": "Still"},
+        {"shot_id": "c", "asset_key": "same", "mode": "Full motion"},
+        {"shot_id": "d", "asset_key": "same", "mode": "Still"},
+    ]
+
+    cadence = spec_pilot._actual_source_cadence(shots, [2.0, 2.0, 5.0, 2.5])
+
+    assert cadence["max_consecutive_still_asset_sec"] == 4.0
+    assert cadence["motion_starts_sec"] == [4.0]
+    assert cadence["motion_durations_sec"] == [5.0]
+    assert [run["duration_sec"] for run in cadence["still_asset_runs"]] == [4.0, 2.5]
+
+
+def test_pre_v4_hippo_specs_fail_the_new_source_cadence_contract():
+    import json
+
+    for filename in ("hippo_bacon_directed_v1.json", "hippo_illustrated_story_v3.json"):
+        with open(ROOT / "spec" / filename, encoding="utf-8") as handle:
+            report = dl.validate_directed_spec(json.load(handle))
+        codes = {issue["code"] for issue in report["issues"]}
+        assert report["valid"] is False
+        assert "consecutive_still_asset_too_long" in codes
+        assert "full_motion_duration_mismatch" in codes
 
 
 def test_motion_cache_identity_includes_image_bytes_prompt_and_provider(tmp_path):
@@ -294,6 +372,7 @@ def test_directed_modules_are_in_the_deployable_module_list():
 
 def test_web_ui_exposes_free_validation_before_paid_processing():
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    approvals = (ROOT / "static" / "agent_actions.html").read_text(encoding="utf-8")
 
     assert "User-directed longform JSON" in html
     assert "/api/explainer/directed/validate" in html
@@ -302,6 +381,8 @@ def test_web_ui_exposes_free_validation_before_paid_processing():
     assert "Download fillable JSON" in html
     assert "Validate JSON — free" in html
     assert "directed-paid-authorize" in html
+    assert "hippo-v4" in approvals
+    assert "hippo_illustrated_story_v4" in approvals
 
 
 def test_downloadable_template_is_complete_but_fail_closed_until_filled():
@@ -309,6 +390,9 @@ def test_downloadable_template_is_complete_but_fail_closed_until_filled():
     report = dl.validate_directed_spec(template)
 
     assert len(template["shots"]) == 15
+    assert [shot["end_sec"] - shot["start_sec"] for shot in template["shots"][:2]] == [5.0, 5.0]
+    assert template["acceptance"]["pilot_min_unique_master_assets"] == 15
+    assert template["acceptance"]["frontloaded_motion_count"] == 2
     assert report["valid"] is False
     assert "unresolved_source_license" in {issue["code"] for issue in report["issues"]}
 

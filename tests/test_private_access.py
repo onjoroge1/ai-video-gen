@@ -36,6 +36,11 @@ def test_middleware_protects_gets_and_api_routes(monkeypatch):
             root = await client.get("/", headers={"Accept": "text/html"}, follow_redirects=False)
             assert root.status_code == 303
             assert root.headers["location"].startswith("/login")
+            approval = await client.get(
+                "/agent/actions?pilot=hippo-v4",
+                headers={"Accept": "text/html"}, follow_redirects=False)
+            assert approval.status_code == 303
+            assert "next=/agent/actions%3Fpilot%3Dhippo-v4" in approval.headers["location"]
             assert (await client.get("/api/private")).status_code == 401
             client.cookies.set(private_access.COOKIE_NAME, private_access.create_session("admin"))
             assert (await client.get("/api/private")).status_code == 200

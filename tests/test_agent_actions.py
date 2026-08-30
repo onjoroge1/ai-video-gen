@@ -107,7 +107,7 @@ def test_agent_action_lifecycle_requires_exact_operator_approval(monkeypatch):
             # Proposal is the only unauthenticated creation surface and cannot spend.
             created = await client.post("/api/agent/actions", json={
                 "operation": "directed_pilot",
-                "bundled_spec_id": "hippo_bacon_directed_v1",
+                "bundled_spec_id": "hippo_illustrated_story_v4",
                 "cost_ceiling_usd": 1.60,
             })
             assert created.status_code == 200, created.text
@@ -186,7 +186,7 @@ def test_agent_action_public_surface_does_not_expand_authority(monkeypatch):
                 "/agent/actions", headers={"Accept": "text/html"})).status_code == 303
             assert (await client.get("/api/agent/actions/pending")).status_code == 401
             assert (await client.post("/api/agent/actions", json={
-                "operation": "full_film", "bundled_spec_id": "hippo_bacon_directed_v1",
+                "operation": "full_film", "bundled_spec_id": "hippo_illustrated_story_v4",
                 "cost_ceiling_usd": 1.60,
             })).status_code == 422
             # A near-match does not accidentally become a public route.

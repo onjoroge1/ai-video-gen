@@ -25,7 +25,7 @@ JSON body for a bundled pilot:
 ```json
 {
   "operation": "directed_pilot",
-  "bundled_spec_id": "hippo_bacon_directed_v1",
+  "bundled_spec_id": "hippo_illustrated_story_v4",
   "cost_ceiling_usd": 1.60
 }
 ```
@@ -42,7 +42,7 @@ Send the operator to:
 
 For the bundled Hippo experiment the convenient entry point is:
 
-`/agent/actions?pilot=hippo`
+`/agent/actions?pilot=hippo-v4`
 
 If necessary, that page creates the non-spending bundled proposal and then presents one button:
 

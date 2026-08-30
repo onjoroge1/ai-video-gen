@@ -192,6 +192,9 @@ class PrivateAccessMiddleware:
             )
             return
         target = path or "/"
+        query = (scope.get("query_string") or b"").decode("latin1")
+        if query:
+            target = f"{target}?{query}"
         await RedirectResponse(f"/login?next={quote(target, safe='/')}", status_code=303)(
             scope, receive, send
         )
