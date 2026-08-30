@@ -29,20 +29,33 @@ jobs:
           BASE="https://ai-video-1tnasb70m-onjoroge1s-projects.vercel.app"
           ROUTE="/api/qa/cleanup-last-quiz-097569477bd3df50bb4cf43ed04d1d24"
           COOKIE="$RUNNER_TEMP/vercel-preview-cookies.txt"
-          SHARE="V4qHFgsCLW7p03nVBPzFjMHDGeqlpLVh"
+          SHARE="TCRDoJ8lxjDGRQS5ye7y4pp2qf0spVSp"
           rm -f "$COOKIE"
 
-          curl --fail-with-body -sS -L --max-redirs 12 --max-time 120 \
+          curl --fail-with-body -sS -L --max-redirs 20 --max-time 120 \
+            -D qa_artifacts/candidates-headers.txt \
             -c "$COOKIE" -b "$COOKIE" \
             "$BASE$ROUTE?action=candidates&_vercel_share=$SHARE" \
             -o qa_artifacts/candidates.json
-          jq . qa_artifacts/candidates.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("qa_artifacts/candidates.json")
+          raw = path.read_text(encoding="utf-8")
+          if not raw.lstrip().startswith("{"):
+              Path("qa_artifacts/candidates-response-head.txt").write_text(raw[:2000])
+              raise SystemExit("Preview grant did not return JSON")
+          data = json.loads(raw)
+          if not data.get("candidates"):
+              raise SystemExit("No finished quiz candidates were returned")
+          print(json.dumps(data, indent=2))
+          PY
 
-          VIDEO_ID="$(jq -r '.candidates[0].id // empty' qa_artifacts/candidates.json)"
-          test -n "$VIDEO_ID"
+          VIDEO_ID="$(jq -r '.candidates[0].id' qa_artifacts/candidates.json)"
           jq '.candidates[0]' qa_artifacts/candidates.json > qa_artifacts/selected.json
 
-          curl --fail-with-body -sS -L --max-redirs 12 --max-time 240 \
+          curl --fail-with-body -sS -L --max-redirs 20 --max-time 240 \
+            -D qa_artifacts/download-headers.txt \
             -c "$COOKIE" -b "$COOKIE" \
             "$BASE$ROUTE?action=download&video_id=$VIDEO_ID" \
             -o qa_artifacts/source-quiz.mp4
@@ -59,9 +72,10 @@ jobs:
           sha256sum qa_artifacts/source-quiz.mp4 > qa_artifacts/source-quiz.sha256
 
       - name: Upload source quiz and inspection evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: latest-quiz-for-cleanup
+          name: latest-quiz-for-cleanup-${{ github.run_number }}
           path: qa_artifacts/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 3
