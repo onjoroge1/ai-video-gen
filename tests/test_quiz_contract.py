@@ -15,11 +15,11 @@ def test_quiz_v2_starts_with_gameplay_and_has_no_post_game_tail():
 
 
 def test_quiz_v2_caps_rounds_and_stays_replayable():
-    assert clamp_quiz_items(6) == 4
-    assert clamp_quiz_items(4) == 4, "four rounds must survive the clamp, not be capped to three"
-    assert clamp_quiz_items(0) == 4, "a missing count must use the V2.2 default"
-    assert QUIZ_V2.estimated_duration(4, reveal_sec=1.0) == 12.0
-    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 13.2
+    assert clamp_quiz_items(6) == 3
+    assert clamp_quiz_items(4) == 3, "the default flow is capped at three rounds"
+    assert clamp_quiz_items(0) == 3, "a missing count must use the V2.3 three-round default"
+    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 11.0
+    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 12.0
 
 
 def test_the_api_clamps_from_the_contract_not_a_literal():
@@ -579,11 +579,11 @@ def test_generated_title_count_is_repaired_to_the_actual_round_count():
     import _quiz_pipeline_legacy as legacy
 
     assert legacy.normalize_quiz_title(
-        "Can You Name All 3 Animals?", 4, "animals") == "Can You Name All 4 Animals?"
+        "Can You Name All 4 Animals?", 4, "animals") == "Can You Name All 3 Animals?"
     assert legacy.normalize_quiz_title(
-        "Can You Name All Three Animals?", 4, "animals") == "Can You Name All Four Animals?"
+        "Can You Name All Four Animals?", 4, "animals") == "Can You Name All Three Animals?"
     assert legacy.normalize_quiz_title(
-        "Can You Name 3 Animals?", 4, "animals") == "Can You Name 4 Animals?"
+        "Can You Name 4 Animals?", 4, "animals") == "Can You Name 3 Animals?"
     assert legacy.normalize_quiz_title(
         "Can You Name Them?", 4, "animals") == "Can You Name Them?"
 
@@ -599,25 +599,29 @@ def test_phone_readability_gate_rejects_tiny_or_low_contrast_clues():
         {"subject_width_pct": 28, "clue_contrast_score": 80}, "hard", 2) == []
 
 
-def test_v22_defaults_to_four_rounds_and_the_complete_performer_variant():
+def test_v23_defaults_to_three_rounds_and_mascot_free_control():
     import inspect
     import _quiz_pipeline_legacy as legacy
 
     signature = inspect.signature(legacy.run_quiz_pipeline)
-    assert signature.parameters["n_items"].default == 4
-    assert signature.parameters["variants"].default == ("a", "b")
-    assert signature.parameters["primary_variant"].default == "b"
+    assert signature.parameters["n_items"].default == 3
+    assert signature.parameters["variants"].default == ("a",)
+    assert signature.parameters["primary_variant"].default == "a"
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert 'variants = ("a",)' in source
+    assert 'primary_variant = "a"' in source
+    assert "bolt=True" not in source, "the product quiz path must not draw a mascot badge"
 
 
-def test_web_ui_and_server_agree_on_v22_round_count():
+def test_web_ui_and_server_agree_on_v23_round_count():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     html = (root / "static" / "index.html").read_text(encoding="utf-8")
     assert 'id="expl-quiz-items"' in html
-    assert 'max="4"' in html and 'value="4"' in html
-    assert "V2.1 format" not in html
-    assert "|| 4" in html
+    assert 'max="3"' in html and 'value="3"' in html
+    assert "Quiz V2.2 = a four-round" not in html
+    assert "|| 3" in html
 
 
 def test_difficulty_is_resolved_before_the_images_are_generated():
@@ -680,7 +684,7 @@ def test_every_card_still_fits_its_box_in_the_display_face():
     the answer card. Both headline and the longest realistic answer are checked at the caps."""
     import _quiz_pipeline_legacy as legacy
 
-    for headline in ("GUESS THE SHADOW!", "GOT ALL 4? · SUBSCRIBE"):
+    for headline in ("GUESS THE SHADOW!", "GOT ALL 3? · SUBSCRIBE"):
         assert legacy._font(76).getlength(headline) <= legacy.W - 240, headline
     for answer in ("AFRICAN WILD DOG!", "HIPPOPOTAMUS!"):
         assert legacy._font(88).getlength(answer) <= legacy.W - 70 - 130, answer
