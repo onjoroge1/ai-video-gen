@@ -1119,7 +1119,7 @@ class ExplainerRequest(BaseModel):
     series: str = ""                  # format-series mode: a recurring series name/pattern
     short_template: str = "auto"      # social only: "auto" (title heuristic) | "explainer"
                                       # (curiosity-gap mystery) | "simulation" (you-change escalation)
-    n_items: int = 4                  # rapid quiz round count; the cap lives in the quiz contract
+    n_items: int = 3                  # rapid quiz default: three rounds; capped by the quiz contract
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"

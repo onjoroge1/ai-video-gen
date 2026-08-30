@@ -15,11 +15,11 @@ def test_quiz_v2_starts_with_gameplay_and_has_no_post_game_tail():
 
 
 def test_quiz_v2_caps_rounds_and_stays_replayable():
-    assert clamp_quiz_items(6) == 4
-    assert clamp_quiz_items(4) == 4, "four rounds must survive the clamp, not be capped to three"
-    assert clamp_quiz_items(0) == 4, "a missing count must use the V2.2 default"
-    assert QUIZ_V2.estimated_duration(4, reveal_sec=1.0) == 12.0
-    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 13.2
+    assert clamp_quiz_items(6) == 3
+    assert clamp_quiz_items(4) == 3, "the default flow is capped at three rounds"
+    assert clamp_quiz_items(0) == 3, "a missing count must use the V2.3 three-round default"
+    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 11.0
+    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 12.0
 
 
 def test_the_api_clamps_from_the_contract_not_a_literal():
@@ -338,154 +338,39 @@ def test_the_countdown_ticks_track_the_guess_window():
     assert "CDN * 1000" in source and "guess_window_sec}" in source
 
 
-def test_bolt_reacts_through_his_face_not_a_pose(tmp_path):
-    """The badge crops to head and shoulders — his arms are outside it.
+def test_quiz_render_path_is_mascot_free():
+    import inspect
+    from pathlib import Path
 
-    A waving pose would be cropped away entirely, so the visor is the only surface a viewer can
-    read a reaction on. Each mood must therefore actually change those pixels, and idle must
-    leave the source art alone.
-    """
-    import numpy as np
+    import _quiz_pipeline_legacy as legacy
+
+    module_source = Path(legacy.__file__).read_text(encoding="utf-8")
+    for marker in (
+        "_paste_bolt_badge", "_draw_bolt_eyes", "_BOLT_MOODS", "_mascot_pose",
+        "_draw_mascot", "_MASCOT_REVEAL_POSES", "performer_specs", "apply_variant",
+    ):
+        assert marker not in module_source, marker
+
+    signature = inspect.signature(legacy.run_quiz_pipeline)
+    assert signature.parameters["variants"].default == ("a",)
+    assert signature.parameters["primary_variant"].default == "a"
+    render_source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "bolt=True" not in render_source
+    assert "bolt_mood" not in render_source
+
+
+def test_answer_overlay_uses_the_full_mascot_free_width(tmp_path):
     from PIL import Image
 
     import _quiz_pipeline_legacy as legacy
 
-    def badge(mood):
-        canvas = Image.new("RGBA", (190, 190), (0, 0, 0, 0))
-        legacy._paste_bolt_badge(canvas, (0, 0), 190, mood=mood)
-        return np.asarray(canvas.convert("RGB")).astype(float)
-
-    idle = badge("idle")
-    eyes = (slice(int(190 * 0.42), int(190 * 0.54)), slice(int(190 * 0.32), int(190 * 0.64)))
-    for mood in ("focus", "alert", "happy"):
-        changed = np.abs(badge(mood)[eyes] - idle[eyes]).mean()
-        assert changed > 1.0, f"{mood} must be visible on the visor, changed {changed:.2f}"
-
-    assert np.abs(badge("idle") - idle).mean() == 0, "idle must not repaint the source art"
-
-
-def test_every_difficulty_maps_to_a_mood():
-    # The ladder drives the face; a difficulty with no mood would silently fall back to one
-    # expression and the reaction would quietly stop tracking the rounds.
-    import _quiz_pipeline_legacy as legacy
-
-    for difficulty in ("medium", "hard", "expert"):
-        assert difficulty in legacy._BOLT_MOODS
-
-
-# ── A/B variants ────────────────────────────────────────────────────────────────
-# Rendering two quizzes and comparing them measures nothing: the animals, habitats and images all
-# differ alongside the layer under test. A variant re-cuts ONE layer off assets already generated,
-# over the same audio timeline, so a difference between the pair can only be that layer.
-
-def _slot(start, end, total, cta_beat=0.0, is_final=False, rnd=1, difficulty="medium"):
-    return {"start": start, "end": end, "round": rnd, "clue": "c.png", "reveal": "r.png",
-            "answer": "OKAPI", "mood": "happy", "difficulty": difficulty, "is_final": is_final,
-            "total": total, "dissolve": 0.42, "cta_overlay": "cta.png",
-            "cta_opts": {"overlay": "cta.png"} if is_final else None, "cta_beat": cta_beat}
-
-
-def test_the_control_variant_is_the_specs_untouched():
-    import _quiz_pipeline_legacy as legacy
-
-    specs = [("a.png", 0.6, False, {}), ("tr.mp4", 0.42, True), ("r.png", 0.68, False, {})]
-    out, complete = legacy.apply_variant(specs, [_slot(1, 3, 1.10)], "a", "/tmp")
-
-    assert out == specs and complete, "'a' is the control and must not be re-cut"
-
-
-def test_a_variant_that_would_move_the_timeline_is_refused(tmp_path, monkeypatch):
-    """One audio track serves every variant, so a re-cut that changes length desynchronises it.
-
-    Refusing beats shipping: a pair of different lengths is not a variant pair, it is two videos,
-    and the only thing it would establish is that the comparison was invalid.
-    """
-    import _quiz_pipeline_legacy as legacy
-
-    monkeypatch.setattr(legacy, "performer_specs",
-                        lambda slot, out_dir: [("x.mp4", slot["total"] + 0.5, True)])
-    specs = [("a.png", 0.6, False, {}), ("tr.mp4", 0.42, True), ("r.png", 0.68, False, {})]
-    out, complete = legacy.apply_variant(specs, [_slot(1, 3, 1.10)], "b", str(tmp_path),
-                                         log=lambda _m: None)
-
-    assert out == specs, "a length-changing re-cut must be dropped, not spliced in"
-    assert not complete
-
-
-def test_a_missing_pose_library_leaves_the_round_alone(tmp_path, monkeypatch):
-    # The cutouts are committed assets. On a checkout without them the control must still render
-    # rather than the run failing, so the variant simply does not happen.
-    import _quiz_pipeline_legacy as legacy
-
-    monkeypatch.setattr(legacy, "_mascot_pose", lambda name: None)
-    assert legacy.performer_specs(_slot(1, 3, 1.10), str(tmp_path)) is None
-
-
-def test_every_difficulty_has_a_reveal_pose():
-    import _quiz_pipeline_legacy as legacy
-
-    for difficulty in ("medium", "hard", "expert"):
-        assert difficulty in legacy._MASCOT_REVEAL_POSES
-
-
-def test_the_pose_library_is_cutouts_not_squares():
-    """A pose that failed to chroma-key is a magenta rectangle pasted over the habitat.
-
-    It would look catastrophic and nothing else in the pipeline checks for it, so the shape of the
-    committed asset is the guard.
-    """
-    import os
-
-    import numpy as np
-    from PIL import Image
-
-    import _quiz_pipeline_legacy as legacy
-
-    for name in set(legacy._MASCOT_REVEAL_POSES.values()) | {"wave"}:
-        path = os.path.join(legacy._MASCOT_DIR, f"{name}.png")
-        if not os.path.exists(path):
-            continue
-        alpha = np.asarray(Image.open(path).convert("RGBA"))[..., 3]
-        coverage = (alpha > 10).mean()
-        assert coverage < 0.95, f"{name} is not keyed — {coverage:.0%} opaque"
-        assert coverage > 0.05, f"{name} keyed away almost everything — {coverage:.0%} opaque"
-
-
-def test_the_mascot_stays_out_of_the_shorts_ui_band():
-    """Anchoring him to the frame bottom put him where the player draws its own furniture.
-
-    The Shorts UI covers roughly the lowest quarter with title and handle; that is exactly why the
-    answer card stops at H-475 instead of running to the bottom. A mascot below that line is a
-    mascot the viewer never sees, and nothing else in the renderer would have caught it.
-    """
-    import math
-
-    import _quiz_pipeline_legacy as legacy
-
-    pose = legacy._mascot_pose("celebrate")
-    if pose is None:
-        return
-    height = int(legacy.H * legacy._MASCOT_FRAME_FRACTION)
-    lowest = max(int((legacy.H - 650) - height - 20 + math.sin(e * 6.2) * (height * 0.055))
-                 for e in (0.2, 0.45, 0.7, 1.0)) + height
-    assert lowest <= legacy.H - 475, (
-        f"mascot reaches y={lowest}; the safe zone ends at {legacy.H - 475}")
-
-
-def test_the_mascot_art_is_trimmed_before_it_is_scaled():
-    """The cutouts keep the generator's 1024x1536 canvas and the robot is about a quarter of it.
-
-    Scaling the untrimmed canvas to a fraction of the frame yields a character a third of the
-    intended size, floating clear of where it was positioned. Both happened.
-    """
-    import _quiz_pipeline_legacy as legacy
-
-    pose = legacy._mascot_pose("celebrate")
-    if pose is None:
-        return
-    assert pose.size != (1024, 1536), "pose must be cropped to its alpha bounding box"
-    alpha_rows = pose.split()[-1].getbbox()
-    assert alpha_rows == (0, 0, pose.width, pose.height), "trimmed art must have no empty margin"
+    out = tmp_path / "answer.png"
+    legacy._text_png(str(out), answer="SECRETARY BIRD!")
+    image = Image.open(out).convert("RGBA")
+    assert image.getbbox() is not None
+    # The answer card starts at x=70. The former Bolt badge shifted it to x=285 and squeezed
+    # long animal names; sample inside the reclaimed band to ensure the card now occupies it.
+    assert image.getpixel((100, legacy.H - 560))[3] > 0
 
 
 def test_a_clip_replacing_a_drifting_still_carries_its_own_move():
@@ -579,11 +464,11 @@ def test_generated_title_count_is_repaired_to_the_actual_round_count():
     import _quiz_pipeline_legacy as legacy
 
     assert legacy.normalize_quiz_title(
-        "Can You Name All 3 Animals?", 4, "animals") == "Can You Name All 4 Animals?"
+        "Can You Name All 4 Animals?", 4, "animals") == "Can You Name All 3 Animals?"
     assert legacy.normalize_quiz_title(
-        "Can You Name All Three Animals?", 4, "animals") == "Can You Name All Four Animals?"
+        "Can You Name All Four Animals?", 4, "animals") == "Can You Name All Three Animals?"
     assert legacy.normalize_quiz_title(
-        "Can You Name 3 Animals?", 4, "animals") == "Can You Name 4 Animals?"
+        "Can You Name 4 Animals?", 4, "animals") == "Can You Name 3 Animals?"
     assert legacy.normalize_quiz_title(
         "Can You Name Them?", 4, "animals") == "Can You Name Them?"
 
@@ -599,25 +484,25 @@ def test_phone_readability_gate_rejects_tiny_or_low_contrast_clues():
         {"subject_width_pct": 28, "clue_contrast_score": 80}, "hard", 2) == []
 
 
-def test_v22_defaults_to_four_rounds_and_the_complete_performer_variant():
+def test_v23_defaults_to_three_rounds_and_mascot_free_reveals():
     import inspect
     import _quiz_pipeline_legacy as legacy
 
     signature = inspect.signature(legacy.run_quiz_pipeline)
-    assert signature.parameters["n_items"].default == 4
-    assert signature.parameters["variants"].default == ("a", "b")
-    assert signature.parameters["primary_variant"].default == "b"
+    assert signature.parameters["n_items"].default == 3
+    assert signature.parameters["variants"].default == ("a",)
+    assert signature.parameters["primary_variant"].default == "a"
 
 
-def test_web_ui_and_server_agree_on_v22_round_count():
+def test_web_ui_and_server_agree_on_v23_round_count():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     html = (root / "static" / "index.html").read_text(encoding="utf-8")
     assert 'id="expl-quiz-items"' in html
-    assert 'max="4"' in html and 'value="4"' in html
-    assert "V2.1 format" not in html
-    assert "|| 4" in html
+    assert 'max="3"' in html and 'value="3"' in html
+    assert "Quiz V2.2 = a four-round" not in html
+    assert "|| 3" in html
 
 
 def test_difficulty_is_resolved_before_the_images_are_generated():

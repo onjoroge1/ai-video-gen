@@ -1,6 +1,6 @@
 """QUIZ social-short pipeline — a third format alongside explainer/simulation.
 
-Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then up to four rounds of
+A rapid "What is it?" quiz starts on the first clue and runs through three rounds of
 [AI-safe visual clue + timer -> answer reveal]. There is no standalone intro, outro, or subscribe card.
   - AI-SAFE items only (silhouettes / clear photos of animals, planets, objects) — NEVER flags, logos,
     signs, or maps, because gpt-image garbles baked-in text/symbols and a wrong clue breaks the quiz.
@@ -9,7 +9,7 @@ Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then up to 
   - Tick on each countdown second + a ding on each reveal + a low music bed.
   - Every clue/reveal drifts subtly; cards never freeze for multi-second stretches.
 
-Standalone module; reuses explainer_pipeline for image/TTS gen + the mascot. Best-effort throughout.
+Standalone module; reuses explainer_pipeline for image and TTS generation. Best-effort throughout.
 """
 import os, re, shutil, subprocess, wave, math, json, base64
 from io import BytesIO
@@ -50,8 +50,9 @@ _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"cor
 
 # ── content generation ───────────────────────────────────────────────────────────
 _QUIZ_SYSTEM = (
-    "You are a YouTube Shorts writer for a fun 'What is it?' guessing quiz hosted by Bolt, a cute robot "
-    "teacher. Given a CATEGORY, produce a quiz.\n"
+    "You are a YouTube Shorts writer for a fast, visual 'What is it?' guessing quiz. Given a "
+    "CATEGORY, produce a quiz. The rendered quiz is mascot-free: the clue, timer, difficulty label, "
+    "answer transformation, and loop carry the experience.\n"
     "VISUAL RULE #1 — AI-SAFE: no text, letters, numbers, logos, FLAGS, MAPS, or road signs in any clue "
     "(an AI image model garbles those and a wrong clue ruins the quiz). Good categories: animals, "
     "planets, fruits/vegetables, everyday objects, musical instruments, sports gear, body parts, dinosaurs.\n"
@@ -102,7 +103,7 @@ _QUIZ_SYSTEM = (
     "animal that truly belongs in it. Never relocate a species to make the loop work. Item 2 is free to "
     "use a different habitat, and its contrast is what makes the return to the opening scene land.\n"
     "The title must either OMIT a numeric item count or match the exact requested item count; never "
-    "promise three when four items were requested. Return ONLY JSON: {\"title\":\"clickable title, "
+    "promise a count that differs from the rendered rounds. Return ONLY JSON: {\"title\":\"clickable title, "
     "e.g. 'Can You Name Them From the Shadow?'\","
     "\"category\":\"e.g. animals\",\"hook\":\"a maximum five-word cold-open challenge\","
     "\"outro\":\"\",\"items\":[{\"subject\":\"camel\","
@@ -116,7 +117,7 @@ _QUIZ_SYSTEM = (
 )
 
 
-def generate_quiz(category: str, n_items: int = 4, cost_sink: list | None = None, operator_direction: str = "") -> dict:
+def generate_quiz(category: str, n_items: int = 3, cost_sink: list | None = None, operator_direction: str = "") -> dict:
     """LLM quiz for `category`, hard-filtered to AI-safe items. Best-effort ({} on failure)."""
     try:
         r = ep._claude().messages.create(
@@ -218,68 +219,9 @@ def _fit_text_size(text, maximum, width, minimum=34):
     return size
 
 
-# Measured off the badge crop, as fractions of its size, so they hold at any badge dimension.
-_EYE_L, _EYE_R, _EYE_Y = 0.375, 0.575, 0.479
-_VISOR_RGB = (13, 25, 24)
-
-
-def _draw_bolt_eyes(badge, size, mood):
-    """Repaint Bolt's eyes to react to the round.
-
-    The badge crops to head and shoulders — his arms are outside it — so a pose cannot read here
-    at all: a wave would be cropped away entirely. The visor is the only expressive surface the
-    viewer actually sees, which makes eyes the whole vocabulary rather than a substitute for one.
-
-    Drawn rather than generated, so a mood costs nothing, stays exactly on-model, and renders
-    identically every run. The vision QA pass grades a rendered frame, so art that varied per run
-    would make that grade unreproducible.
-    """
-    if mood == "idle":
-        return
-    d = ImageDraw.Draw(badge)
-    r = size * 0.031
-    for cx in (_EYE_L, _EYE_R):
-        x, y = cx * size, _EYE_Y * size
-        # Clear the original dot to the visor's own colour before drawing over it.
-        d.ellipse([x - r * 2.2, y - r * 2.4, x + r * 2.2, y + r * 2.4], fill=(*_VISOR_RGB, 255))
-        if mood == "focus":            # narrowed: the clue is getting harder
-            d.rounded_rectangle([x - r * 1.25, y - r * 0.42, x + r * 1.25, y + r * 0.42],
-                                radius=int(r * 0.42), fill=(*CYAN, 255))
-        elif mood == "alert":          # wide: the expert round
-            d.ellipse([x - r * 1.5, y - r * 1.5, x + r * 1.5, y + r * 1.5], fill=(*CYAN, 255))
-        elif mood == "happy":          # upward arc: the answer landed
-            d.arc([x - r * 1.6, y - r * 0.4, x + r * 1.6, y + r * 2.4], 200, 340,
-                  fill=(*CYAN, 255), width=max(2, int(r * 0.8)))
-        else:
-            d.ellipse([x - r, y - r, x + r, y + r], fill=(*CYAN, 255))
-
-
-def _paste_bolt_badge(canvas, xy=(70, 1210), size=190, mood="idle"):
-    """Small reveal-only brand cue; never delays frame-zero gameplay."""
-    try:
-        mascot = Image.open(ep.MASCOT_REF).convert("RGB")
-        w, h = mascot.size
-        head = mascot.crop((int(w * .27), int(h * .01), int(w * .73), int(h * .72)))
-        head = ImageOps.fit(head, (size, size), method=Image.Resampling.LANCZOS)
-        mask = Image.new("L", (size, size), 0)
-        ImageDraw.Draw(mask).ellipse((4, 4, size - 4, size - 4), fill=255)
-        badge = Image.new("RGBA", (size, size), (*NAVY, 255))
-        badge.paste(head.convert("RGBA"), (0, 0), mask)
-        _draw_bolt_eyes(badge, size, mood)
-        ImageDraw.Draw(badge).ellipse((3, 3, size - 4, size - 4), outline=(*CYAN, 255), width=8)
-        canvas.alpha_composite(badge, xy)
-    except Exception:
-        pass
-
-
-# Bolt reacts to the round he is announcing rather than wearing one face all video. Keyed off the
-# difficulty ladder so the escalation the badge already prints is also something he does.
-_BOLT_MOODS = {"medium": "happy", "hard": "focus", "expert": "alert"}
-
-
 def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=None,
-              subscribe=False, round_label=None, bolt=False, answer_size=None,
-              bolt_mood="idle", top_accent="", difficulty_label=""):
+              subscribe=False, round_label=None, answer_size=None,
+              top_accent="", difficulty_label=""):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
     if subscribe:                                          # integrated CTA, not a standalone scene
         # Opens with the question the viewer is already answering in their head, which is what
@@ -322,9 +264,7 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
         d.ellipse([W-160, y0-25, W-65, y0+75], fill=(*NAVY, 255), outline=(*CYAN, 255), width=5)
         _t(d, (W-112, y0+25), str(cd_left), 58, WHITE, stroke=4)
     if answer:
-        if bolt:
-            _paste_bolt_badge(im, mood=bolt_mood)
-        x0 = 285 if bolt else 70
+        x0 = 70
         y0, y1 = H-650, H-475
         d.rounded_rectangle([x0, y0, W-70, y1], radius=30, fill=(*NAVY, 248),
                             outline=(*CYAN, 255), width=6)
@@ -378,67 +318,7 @@ def _draw_burst(canvas, progress, tint, count=26):
     canvas.alpha_composite(layer)
 
 
-_MASCOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "mascot", "quiz")
-_MASCOT_CACHE = {}
-# Bolt is a guest on the reveal, not a tenant of the frame. The critique that prompted this asked
-# for <=20% of frame and for the big motion to land on the answer rather than run under the guess.
-_MASCOT_FRAME_FRACTION = 0.22
-_MASCOT_ENTER_SEC = 0.22
-
-
-def _mascot_pose(name):
-    """Load a committed RGBA cutout, or None when the library has not been generated."""
-    if name not in _MASCOT_CACHE:
-        path = os.path.join(_MASCOT_DIR, f"{name}.png")
-        try:
-            art = Image.open(path).convert("RGBA") if os.path.exists(path) else None
-            if art is not None:
-                # The cutout keeps the generator's 1024x1536 canvas, of which the robot is barely a
-                # quarter. Sizing that whole canvas to a fraction of the frame makes the character
-                # a third of the size asked for and leaves him floating off the bottom edge.
-                box = art.getbbox()
-                if box:
-                    art = art.crop(box)
-            _MASCOT_CACHE[name] = art
-        except Exception:
-            _MASCOT_CACHE[name] = None
-    return _MASCOT_CACHE[name]
-
-
-def _draw_mascot(canvas, pose, elapsed, duration, side="right"):
-    """Slide Bolt in from the frame edge and let him settle with a small bob.
-
-    Procedural rather than an animated clip: it costs nothing per video, renders identically every
-    run, and needs no alpha-video path. The entrance is the point — a character arriving is motion
-    where this format previously had a static frame, which is the measured gap against the
-    reference (mean frame delta 3.30 against its 6.08).
-    """
-    if pose is None:
-        return
-    height = int(H * _MASCOT_FRAME_FRACTION)
-    width = max(1, int(pose.width * height / pose.height))
-    art = pose.resize((width, height), Image.Resampling.LANCZOS)
-    rest_x = W - width - 40 if side == "right" else 40
-    off_x = W + 20 if side == "right" else -width - 20
-    enter = _smoothstep(min(1.0, elapsed / max(0.01, _MASCOT_ENTER_SEC)))
-    # Overshoot slightly past the resting point and settle back, so the arrival has weight instead
-    # of sliding to a stop.
-    settle = math.sin(max(0.0, elapsed - _MASCOT_ENTER_SEC) * 11.0) * width * 0.03 * enter
-    overshoot = -settle if side == "right" else settle
-    x = int(off_x + (rest_x - off_x) * enter + overshoot)
-    # He hovers, so he never fully stops. The first version bobbed by 1.8% of his height — under a
-    # pixel once the frame is analysed, and invisible on a phone. This is the ambient motion the
-    # whole variant exists to add, so it has to be big enough to see.
-    hover = math.sin(elapsed * 6.2) * (height * 0.055) * enter
-    # Stands ON the answer card, not on the frame edge. Anchoring to the bottom put him in the
-    # lowest quarter, which is where the Shorts player draws its own title and handle — the same
-    # reason the answer card itself stops at H-475 rather than running to the bottom.
-    y = int((H - 650) - height - 20 + hover)
-    canvas.alpha_composite(art, (x, y))
-
-
-def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, bolt=True,
-                 mood="idle", pose_name="", side="right"):
+def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None):
     """Wake the scene into its answer instead of cutting to it.
 
     The clue is the same photograph as the reveal with the animal blacked out and the whole frame
@@ -456,7 +336,6 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, bol
     """
     frames = max(2, int(round(duration * FPS)))
     dissolve = float(dissolve or duration)
-    pose = _mascot_pose(pose_name) if pose_name else None
     try:
         clue = Image.open(clue_png).convert("RGB")
         reveal = Image.open(reveal_png).convert("RGB")
@@ -465,7 +344,7 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, bol
         tint = _reveal_tint(reveal_png)
         label = (answer or "").upper() + "!"
         # Pinned to the full word so the type-on does not resize itself mid-word.
-        full_size = _fit_text_size(label, 88, W - (285 if bolt else 70) - 130)
+        full_size = _fit_text_size(label, 88, W - 200)
         seq = out + ".frames"
         shutil.rmtree(seq, ignore_errors=True)
         os.makedirs(seq, exist_ok=True)
@@ -492,11 +371,9 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, bol
             shown = max(1, int(round(len(label) * min(1.0, elapsed / (dissolve * 0.62)))))
             if shown not in cards:
                 card = f"{seq}/card{shown:03d}.png"
-                _text_png(card, answer=label[:shown], bolt=bolt, answer_size=full_size,
-                          bolt_mood=mood)
+                _text_png(card, answer=label[:shown], answer_size=full_size)
                 cards[shown] = card
             base.alpha_composite(Image.open(cards[shown]).convert("RGBA"))
-            _draw_mascot(base, pose, elapsed, duration, side)
             base.convert("RGB").save(f"{seq}/f{n:04d}.png")
         result = subprocess.run(
             [FF, "-y", "-v", "error", "-framerate", str(FPS), "-i", f"{seq}/f%04d.png",
@@ -507,72 +384,6 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, bol
     except Exception as exc:
         print(f"[quiz] reveal clip skipped: {exc}")
         return False
-
-
-# Which pose greets which reveal. The ladder already escalates on screen; the mascot escalates
-# with it, and the final round hands over to a wave because that is where the loop sends the
-# viewer back to round one.
-_MASCOT_REVEAL_POSES = {"medium": "celebrate", "hard": "amazed", "expert": "amazed"}
-
-
-def performer_specs(slot, out_dir):
-    """Re-cut one reveal so Bolt performs across the whole beat instead of a badge sitting in it.
-
-    Variant A spends the reveal as a 0.42s dissolve plus a still hold, and a still hold is a dead
-    frame — the measured gap against the reference is ambient motion (3.30 against 6.08 mean frame
-    delta), not cut frequency, where we already lead 7 beats to 3. Extending the clip over the
-    whole beat is what turns that hold into performance.
-
-    Returns replacement specs summing to EXACTLY ``slot["total"]`` so the shared audio timeline
-    still fits, or None to leave the round as it was.
-    """
-    index = slot["round"]
-    pose = ("wave" if slot["is_final"]
-            else _MASCOT_REVEAL_POSES.get(slot["difficulty"], "celebrate"))
-    if _mascot_pose(pose) is None:
-        return None
-    side = "right" if index % 2 else "left"          # alternate, so entrances do not feel stamped
-    clip = f"{out_dir}/tr{index}_perf.mp4"
-    # The closing card still needs its own beat: the CTA text has to arrive, and the loop dissolve
-    # is cued off the tail of that card. So on the last round the performer covers only the answer
-    # portion and the CTA spec is preserved untouched.
-    clip_d = round(slot["total"] - slot["cta_beat"], 3)
-    if clip_d < 0.2:
-        return None
-    if not _reveal_clip(slot["clue"], slot["reveal"], slot["answer"], clip, clip_d,
-                        dissolve=slot["dissolve"], bolt=False, mood=slot["mood"],
-                        pose_name=pose, side=side):
-        return None
-    specs = [(clip, clip_d, True)]
-    if slot["is_final"]:
-        specs.append((slot["reveal"], slot["cta_beat"], False, dict(slot["cta_opts"])))
-    return specs
-
-
-def apply_variant(render_specs, reveal_slots, variant, out_dir, log=print):
-    """Rebuild the reveal beats for a variant, leaving every other spec byte-identical.
-
-    That identity is the experiment. Countdowns, clue images, audio, captions and the loop close
-    are shared, so a retention difference between variants can only come from the reveal layer —
-    which is not true of two separate generations, where the animals themselves differ.
-    """
-    if variant == "a":
-        return list(render_specs), True
-    specs = list(render_specs)
-    replaced = 0
-    for slot in sorted(reveal_slots, key=lambda s: s["start"], reverse=True):
-        built = performer_specs(slot, out_dir)
-        if not built:
-            continue
-        before = sum(float(spec[1]) for spec in specs[slot["start"]:slot["end"]])
-        after = sum(float(spec[1]) for spec in built)
-        if abs(before - after) > 0.02:
-            log(f"⚠ variant {variant} round {slot['round']} would shift the timeline "
-                f"{before:.2f}s → {after:.2f}s; left unchanged")
-            continue
-        specs[slot["start"]:slot["end"]] = built
-        replaced += 1
-    return specs, replaced == len(reveal_slots)
 
 
 def _fit(src, out, mode="fit", bg=(0, 0, 0)):
@@ -831,11 +642,16 @@ def _render_sequence(specs, out, expected_duration):
     if dissolve > 0:
         head = sum(float(spec[1]) for spec in specs[:-1])
         closing_d = float(specs[-1][1])
-        # xfade refuses inputs whose timebases differ, and concat hands back 1/1000000 where a
-        # single segment is still 1/30. Both sides are normalised rather than one, so the filter
-        # is not silently agreeing on whichever timebase happened to arrive first.
-        filters.append("".join(labels[:-1]) + f"concat=n={len(specs)-1}:v=1:a=0,settb=AVTB[pre]")
-        filters.append(f"{labels[-1]}settb=AVTB[loop]")
+        # xfade requires both inputs to be constant-frame-rate with identical frame rate,
+        # timebase, resolution and pixel format. concat can advertise an undefined 1/0 frame rate
+        # even when every segment was rendered at 30 fps; Vercel's bundled FFmpeg rejects that
+        # before encoding frame zero. Reset timestamps first, then let fps establish explicit CFR
+        # metadata, and finally put both sides on the same AV timebase.
+        filters.append("".join(labels[:-1]) +
+                       f"concat=n={len(specs)-1}:v=1:a=0,format=yuv420p,"
+                       f"setpts=PTS-STARTPTS,fps={FPS},settb=AVTB[pre]")
+        filters.append(f"{labels[-1]}format=yuv420p,setpts=PTS-STARTPTS,"
+                       f"fps={FPS},settb=AVTB[loop]")
         # xfade runs out to `offset + closing_d`, so anchoring the offset at `head - closing_d`
         # makes the total exactly the head — the closing spec costs no runtime however long it
         # is, and the audio timeline built against that total stays valid.
@@ -857,9 +673,20 @@ def _render_sequence(specs, out, expected_duration):
         [FF, "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(FPS), out],
         capture_output=True)
-    actual = _dur(out)
-    if result.returncode != 0 or actual < expected_duration - 0.2:
-        err = result.stderr.decode(errors="replace")[-400:] if result.stderr else ""
+    err = result.stderr.decode(errors="replace")[-1600:] if result.stderr else ""
+    # Never probe a failed encode. The previous order called `_dur(out)` first, so an absent or
+    # malformed output raised MediaBinaryError and erased the FFmpeg stderr that explained the
+    # actual filter/codec failure. That made a paid quiz render impossible to diagnose.
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"quiz sequence FFmpeg failed with exit {result.returncode}: {err}")
+    try:
+        actual = _dur(out)
+    except Exception as exc:
+        size = os.path.getsize(out) if os.path.exists(out) else 0
+        raise RuntimeError(
+            f"quiz sequence produced an unreadable output ({size} bytes): {err}") from exc
+    if actual < expected_duration - 0.2:
         raise RuntimeError(f"quiz sequence render failed: expected {expected_duration:.2f}s, "
                            f"got {actual:.2f}s; {err}")
 
@@ -1270,14 +1097,14 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
     return rgb
 
 
-def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: str = "echo",
+def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: str = "echo",
                       progress_cb=None, operator_direction: str = "",
-                      variants: tuple = ("a", "b"), primary_variant: str = "b") -> dict:
+                      variants: tuple = ("a",), primary_variant: str = "a") -> dict:
     """Generate + render a full quiz short. Returns {output_path,title,scene_count,...}.
 
-    ``variants`` renders the SAME quiz more than once, changing exactly one presentation layer, so
-    an A/B measures that layer and nothing else. "a" is the control and is always produced;
-    V2.2 ships the full-body reveal performer ("b") when that re-cut succeeds.
+    ``variants`` and ``primary_variant`` remain accepted for compatibility with older callers, but
+    Quiz V2.3 deliberately renders one mascot-free presentation. The visual reward is the clue turning
+    into the answer, with typography and the difficulty ladder providing the format identity.
     """
     def log(m):
         if progress_cb: progress_cb(m)
@@ -1313,7 +1140,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
 
     CDN = QUIZ_V2.guess_window_sec / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
-    timing_warnings = []; loop_warnings = []; opening_frame = None; reveal_slots = []
+    timing_warnings = []; loop_warnings = []; opening_frame = None
     ladder_warnings = []
     readability_warnings = []
     # The round badge was hardcoded to "ANIMAL", so a fruits or planets quiz labelled every
@@ -1490,9 +1317,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
         is_final = i == len(items)
-        bolt_mood = _BOLT_MOODS.get(diff, "happy")
-        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False, bolt=True,
-                  answer=answer.upper() + "!", bolt_mood=bolt_mood)
+        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False,
+                  answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
         if is_final:
             # The card is sized from the narration and capped, so a line that outruns the cap
@@ -1518,8 +1344,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
         budget = (CDN if is_final else dr) - _REVEAL_HOLD_MIN_SEC
         trans_d = round(min(_REVEAL_TRANSITION_SEC, budget), 3)
         has_transition = trans_d > 0.05 and _reveal_clip(
-            f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d,
-            mood=bolt_mood)
+            f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d)
         if has_transition:
             render_specs.append((trans_clip, trans_d, True))
             clips.append(trans_clip)
@@ -1537,7 +1362,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
             # stays white, so the two cards read as one channel rather than two designs.
             _text_png(f"{A}/r{i}_cta_t.png", subscribe=True,
                       top=f"GOT ALL {len(items)}? · ", top_accent="SUBSCRIBE",
-                      bolt=True, answer=answer.upper() + "!", bolt_mood="happy")
+                      answer=answer.upper() + "!")
             answer_beat = CDN - trans_d
             cta_beat = max(0.3, dr - CDN)
             answer_end_zoom = 1.0 + min(_DRIFT_CLOSING_MAX, _DRIFT_CLOSING_PER_SEC * answer_beat)
@@ -1560,17 +1385,6 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
             render_specs.append((f"{A}/rev{i}_b.png", dr - trans_d, False,
                                  {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
             clips.append(f"{A}/r{i}.png")
-        # Everything a variant needs to re-cut THIS reveal, captured while the numbers are in
-        # scope. Durations are recorded, never recomputed: both variants must land on the same
-        # timeline or the single audio track stops matching the picture.
-        reveal_slots.append({
-            "start": reveal_spec_start, "end": len(render_specs), "round": i,
-            "clue": f"{A}/clue{i}_b.png", "reveal": f"{A}/rev{i}_b.png", "answer": answer,
-            "mood": bolt_mood, "difficulty": diff, "is_final": is_final, "total": dr,
-            "dissolve": _REVEAL_TRANSITION_SEC, "cta_overlay": f"{A}/r{i}_cta_t.png",
-            "cta_opts": dict(cta_opts) if is_final else None,
-            "cta_beat": cta_beat if is_final else 0.0,
-        })
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
     TOTAL = t
     if opening_frame and len(render_specs) > 1:
@@ -1660,41 +1474,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 4, voice: s
     if mux_result.returncode != 0 or actual_duration < TOTAL - 0.2:
         raise RuntimeError(f"quiz final mux failed: expected {TOTAL:.2f}s, got {actual_duration:.2f}s")
 
-    # Extra variants re-cut ONE layer off the assets already paid for and reuse this exact audio
-    # track. Rendering a second quiz instead would change the animals, the habitats and the
-    # images along with the layer under test, and no retention difference could be attributed.
+    # Preserve the historical variants/primary_variant result shape without compositing a mascot.
+    # Any legacy caller requesting performer B receives the same single V2.3 output rather than a
+    # visually different or partially animated render.
     variant_outputs = {"a": out_mp4}
-    for variant in [v for v in variants if v != "a"]:
-        log(f"stage:Rendering variant {variant.upper()}...")
-        specs, complete = apply_variant(render_specs, reveal_slots, variant, A, log=log)
-        if specs == render_specs:
-            log(f"⚠ variant {variant} produced no change — mascot library missing?")
-            continue
-        vsil_v = f"{A}/video_silent_{variant}.mp4"
-        out_v = os.path.join(output_dir, f"quiz_{variant}.mp4")
-        try:
-            _render_sequence(specs, vsil_v, TOTAL)
-            subprocess.run([FF, "-y", "-i", vsil_v, "-i", faud, "-c:v", "copy", "-c:a", "aac",
-                            "-shortest", "-movflags", "+faststart", out_v], capture_output=True)
-        except Exception as exc:
-            log(f"⚠ variant {variant} render failed, control is unaffected: {exc}")
-            continue
-        if not os.path.exists(out_v) or abs(_dur(out_v) - actual_duration) > 0.15:
-            # A variant of a different length is not a variant; it is a second video. Drop it
-            # rather than ship a pair whose only certainty is that the comparison is invalid.
-            log(f"⚠ variant {variant} length {_dur(out_v):.2f}s != control {actual_duration:.2f}s; discarded")
-            continue
-        if not complete:
-            log(f"⚠ variant {variant} re-cut only some rounds")
-            continue
-        variant_outputs[variant] = out_v
-        log(f"Variant {variant.upper()} rendered → {os.path.basename(out_v)}")
-
-    selected_variant = primary_variant if primary_variant in variant_outputs else "a"
-    primary_output = variant_outputs[selected_variant]
-    if primary_variant not in variant_outputs:
-        readability_warnings.append(
-            f"preferred reveal variant {primary_variant} was unavailable; control A was selected")
+    selected_variant = "a"
+    primary_output = out_mp4
 
     # Ready-to-paste YouTube description + tags (best-effort). Runs BEFORE the cost sum so its cost is
     # counted; the app persists description_path → {job}.desc exactly like the explainer path.

@@ -4,14 +4,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class QuizCreativeContract:
-    version: str = "rapid_reveal_v2_2"
-    # Four rounds at a shorter window. A generated take on this format fitted four payoffs into
-    # ten seconds against our three, on a ~1.4s guess window, and read as markedly faster for it.
-    # Reward frequency is what the viewer feels; 1.8s keeps the clue lookable while adding a
-    # fourth payoff, and every line below had to shrink to stay inside it.
-    max_items: int = 4
+    version: str = "rapid_reveal_v2_3"
+    # Audience data favored the three-payoff arc: removing the fourth round restores a clean
+    # warm-up -> hard -> final-boss escalation. The 2.4-second search window is the proven
+    # three-round pace and keeps the default Short near eleven seconds without rushing play.
+    max_items: int = 3
     first_clue_at_sec: float = 0.0
-    guess_window_sec: float = 1.8
+    guess_window_sec: float = 2.4
     reveal_min_sec: float = 0.8
     reveal_max_sec: float = 1.2
     final_reveal_min_sec: float = 1.6
@@ -54,14 +53,11 @@ def round_narration(category: str, index: int, total: int) -> str:
     everyone" moves to the final round, where it doubles as a re-hook at the point a viewer is
     most likely to leave, instead of being spent in the first two seconds.
 
-    The count was ``"Two" if total == 2 else "Three"``, which was true only while the format was
-    capped at three rounds. At four it made the narration contradict the video on the opening
-    line — the voice promising three animals over four — and it would have done so silently,
-    because nothing downstream compares the spoken count against ``len(items)``.
+    The count stays data-driven rather than hardcoded, so a future experimental item count cannot
+    make the opening narration contradict the number of rounds actually rendered.
 
-    Every line then had to shrink for the 1.8s window: at the measured ~16.5 characters/sec the
-    old opener needed 2.4s and would have talked over the first answer. "are hiding" lost its
-    verb and the final round lost "This fools", which cost the lines nothing they were carrying.
+    The retained lines fit comfortably inside the restored 2.4-second search window. That gives
+    the viewer time to inspect the clue without reintroducing a separate setup card or dead air.
     """
     category = (category or "things").strip().lower()
     if index == 1:
