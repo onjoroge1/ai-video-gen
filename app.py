@@ -3424,7 +3424,6 @@ def _serve_index():
     return resp
 
 
-
 # QA_ONLY_CLEANUP_LAST_QUIZ
 _QA_CLEANUP_LAST_QUIZ_PATH = "/api/qa/cleanup-last-quiz-097569477bd3df50bb4cf43ed04d1d24"
 
