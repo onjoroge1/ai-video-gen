@@ -9,7 +9,7 @@ Bolt hosts a rapid "What is it?" quiz: the first clue is frame zero, then three 
   - Tick on each countdown second + a ding on each reveal + a low music bed.
   - Every clue/reveal drifts subtly; cards never freeze for multi-second stretches.
 
-Standalone module; reuses explainer_pipeline for image/TTS gen + the mascot. Best-effort throughout.
+Standalone module; reuses explainer_pipeline for image/TTS generation. The shipping quiz has no mascot layer.
 """
 import os, re, shutil, subprocess, wave, math, json, base64
 from io import BytesIO
@@ -50,8 +50,8 @@ _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"cor
 
 # ── content generation ───────────────────────────────────────────────────────────
 _QUIZ_SYSTEM = (
-    "You are a YouTube Shorts writer for a fun 'What is it?' guessing quiz hosted by Bolt, a cute robot "
-    "teacher. Given a CATEGORY, produce a quiz.\n"
+    "You are a YouTube Shorts writer for a fast visual 'What is it?' guessing quiz. Given a "
+    "CATEGORY, produce a quiz.\n"
     "VISUAL RULE #1 — AI-SAFE: no text, letters, numbers, logos, FLAGS, MAPS, or road signs in any clue "
     "(an AI image model garbles those and a wrong clue ruins the quiz). Good categories: animals, "
     "planets, fruits/vegetables, everyday objects, musical instruments, sports gear, body parts, dinosaurs.\n"
@@ -1288,12 +1288,12 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
 
 def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: str = "echo",
                       progress_cb=None, operator_direction: str = "",
-                      variants: tuple = ("a", "b"), primary_variant: str = "b") -> dict:
+                      variants: tuple = ("a",), primary_variant: str = "a") -> dict:
     """Generate + render a full quiz short. Returns {output_path,title,scene_count,...}.
 
-    ``variants`` renders the SAME quiz more than once, changing exactly one presentation layer, so
-    an A/B measures that layer and nothing else. "a" is the control and is always produced;
-    V2.2 ships the full-body reveal performer ("b") when that re-cut succeeds.
+    The legacy variant arguments remain for caller compatibility, but the product flow is locked
+    to mascot-free control A. Reveal energy comes from the same-frame silhouette transformation,
+    type-on answer, burst, and camera drift rather than a character overlay.
     """
     def log(m):
         if progress_cb: progress_cb(m)
@@ -1301,6 +1301,10 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     os.makedirs(output_dir, exist_ok=True)
     A = output_dir; costs = []
     n_items = clamp_quiz_items(n_items)
+    # The current mascot cutouts are visually off-model. Keep the compatibility parameters but
+    # fail closed to the clean gameplay render even when an older caller still requests variant B.
+    variants = ("a",)
+    primary_variant = "a"
     log("stage:Writing quiz...")
     quiz = generate_quiz(category, n_items, cost_sink=costs, operator_direction=operator_direction)
     if not quiz or not quiz.get("items"):
@@ -1506,9 +1510,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
         is_final = i == len(items)
-        bolt_mood = _BOLT_MOODS.get(diff, "happy")
-        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False, bolt=True,
-                  answer=answer.upper() + "!", bolt_mood=bolt_mood)
+        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False,
+                  answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
         if is_final:
             # The card is sized from the narration and capped, so a line that outruns the cap
@@ -1535,7 +1538,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         trans_d = round(min(_REVEAL_TRANSITION_SEC, budget), 3)
         has_transition = trans_d > 0.05 and _reveal_clip(
             f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d,
-            mood=bolt_mood)
+            bolt=False)
         if has_transition:
             render_specs.append((trans_clip, trans_d, True))
             clips.append(trans_clip)
@@ -1553,7 +1556,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # stays white, so the two cards read as one channel rather than two designs.
             _text_png(f"{A}/r{i}_cta_t.png", subscribe=True,
                       top=f"GOT ALL {len(items)}? · ", top_accent="SUBSCRIBE",
-                      bolt=True, answer=answer.upper() + "!", bolt_mood="happy")
+                      answer=answer.upper() + "!")
             answer_beat = CDN - trans_d
             cta_beat = max(0.3, dr - CDN)
             answer_end_zoom = 1.0 + min(_DRIFT_CLOSING_MAX, _DRIFT_CLOSING_PER_SEC * answer_beat)
@@ -1582,7 +1585,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         reveal_slots.append({
             "start": reveal_spec_start, "end": len(render_specs), "round": i,
             "clue": f"{A}/clue{i}_b.png", "reveal": f"{A}/rev{i}_b.png", "answer": answer,
-            "mood": bolt_mood, "difficulty": diff, "is_final": is_final, "total": dr,
+            "mood": "idle", "difficulty": diff, "is_final": is_final, "total": dr,
             "dissolve": _REVEAL_TRANSITION_SEC, "cta_overlay": f"{A}/r{i}_cta_t.png",
             "cta_opts": dict(cta_opts) if is_final else None,
             "cta_beat": cta_beat if is_final else 0.0,
@@ -1738,7 +1741,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "habitat_loop_closed": HABITAT and not loop_warnings,
             "difficulty_ladder_honoured": not ladder_warnings,
             "variants": {k: v for k, v in variant_outputs.items()},
-            "primary_variant": selected_variant,
+            "primary_variant": selected_variant, "mascot_overlay": False,
             "planned_duration_sec": round(TOTAL, 2),
             "srt_path": srt_path, "transcript_path": transcript_path,   # app copies these → {job}.srt/.txt
             "description_path": description_path,                        # app copies → {job}.desc

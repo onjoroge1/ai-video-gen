@@ -16,7 +16,7 @@ The retention curve has two different problems:
 The middle declines steadily because each round serializes “Number N. What is it?”, a 2.4-second timer,
 and a reaction reveal. Easy-first clues plus repeated setup make the interaction feel slower than it is.
 
-## V2.2 creative contract
+## V2.3 creative contract
 
 - The **first clue is frame zero**. No mascot intro or logo hold.
 - Three rounds maximum: **warm-up → no hints → final boss**. The opener cannot be trivial.
@@ -31,8 +31,8 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
 - Optional `QUIZ_FAL_OPENER=1` uses one fal/Kling clip behind the first countdown only. This isolates
   the value of generative motion at the swipe/stay decision without paying to animate every card. It is
   not combined with progressive crops because generative silhouette morphing can make a clue unfair.
-- Bolt performs as a full-body reveal layer, never as an intro or on a guess frame. The renderer also
-  preserves control A from the identical generated assets so the performance layer can be compared cleanly.
+- The shipping quiz has **no mascot overlay**. Search and reveal frames stay focused on the animal,
+  timer, answer typography, and same-frame colour transformation; off-model character art cannot cover clues.
 - The final answer carries “GOT ALL 3? · SUBSCRIBE” on screen. The spoken line asks for the replay
   instead — “Missed one? Go again.” — so the two channels complement rather than repeat, and the ask
   names an action the loop has already made free. There is no separate outro or subscription card.
@@ -48,8 +48,9 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
 ## Why this is a creative change, not only a trim
 
 The viewer now receives the product before deciding whether to swipe: a large, legible mystery shape and
-a moving timer. Bolt remains the channel identity, but does not occupy the scarce first-frame real estate.
-The reveal is a color transformation of the same subject, so every 3–4 seconds contains a visual reward.
+a moving timer. Typography, difficulty labels, sound, and reveal choreography carry the format identity
+without a character competing for the frame. The reveal is a color transformation of the same subject,
+so every 3–4 seconds contains a visual reward.
 
 ## Controlled test
 
@@ -78,5 +79,5 @@ If stayed-to-watch remains below 30%, test the next first-frame mechanic rather 
 2. **Odd-one-out:** three visual clues, one does not belong; reveal the causal reason.
 3. **Texture/detail:** replace the shadow with fur, skin, feather, eye, or footprint crops.
 
-Do not restore a standalone host intro or post-game subscription card. The CTA belongs inside the final
-answer reward; branding stays a small non-blocking reveal mark.
+Do not restore a standalone host intro, mascot overlay, or post-game subscription card. The CTA belongs
+inside the final answer reward; the animal and the game remain the visual focus.

@@ -599,14 +599,18 @@ def test_phone_readability_gate_rejects_tiny_or_low_contrast_clues():
         {"subject_width_pct": 28, "clue_contrast_score": 80}, "hard", 2) == []
 
 
-def test_v23_defaults_to_three_rounds_and_the_complete_performer_variant():
+def test_v23_defaults_to_three_rounds_and_mascot_free_control():
     import inspect
     import _quiz_pipeline_legacy as legacy
 
     signature = inspect.signature(legacy.run_quiz_pipeline)
     assert signature.parameters["n_items"].default == 3
-    assert signature.parameters["variants"].default == ("a", "b")
-    assert signature.parameters["primary_variant"].default == "b"
+    assert signature.parameters["variants"].default == ("a",)
+    assert signature.parameters["primary_variant"].default == "a"
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert 'variants = ("a",)' in source
+    assert 'primary_variant = "a"' in source
+    assert "bolt=True" not in source, "the product quiz path must not draw a mascot badge"
 
 
 def test_web_ui_and_server_agree_on_v23_round_count():
@@ -680,7 +684,7 @@ def test_every_card_still_fits_its_box_in_the_display_face():
     the answer card. Both headline and the longest realistic answer are checked at the caps."""
     import _quiz_pipeline_legacy as legacy
 
-    for headline in ("GUESS THE SHADOW!", "GOT ALL 4? · SUBSCRIBE"):
+    for headline in ("GUESS THE SHADOW!", "GOT ALL 3? · SUBSCRIBE"):
         assert legacy._font(76).getlength(headline) <= legacy.W - 240, headline
     for answer in ("AFRICAN WILD DOG!", "HIPPOPOTAMUS!"):
         assert legacy._font(88).getlength(answer) <= legacy.W - 70 - 130, answer
