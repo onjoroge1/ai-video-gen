@@ -12,6 +12,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Running a file from scripts/ puts that directory first on sys.path. Pin the repository root
+# ahead of site-packages so an unrelated PyPI module named quiz_pipeline cannot shadow ours.
+sys.path.insert(0, str(ROOT))
 STATIC_DIR = ROOT / "static" / "quiz-pilot-v23"
 WORK_DIR = Path(tempfile.mkdtemp(prefix="quiz_v23_build_"))
 JOB_ID = "quiz-v23-three-animal-pacing-20260830"
