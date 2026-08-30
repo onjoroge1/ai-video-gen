@@ -1,0 +1,28 @@
+name: Patch directed audio salvage
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/scripts/patch_directed_audio_salvage.py'
+      - '.github/workflows/patch-directed-audio-salvage.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply bounded directed audio salvage
+        run: python .github/scripts/patch_directed_audio_salvage.py
+      - name: Run focused tests
+        run: |
+          python -m py_compile spec_pilot.py durable_execution.py app.py
+          pytest -q tests/test_directed_longform.py tests/test_agent_actions.py tests/test_durable_execution_phase6.py
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add spec_pilot.py durable_execution.py app.py
+          git commit -m 'fix: salvage small directed pilot audio overruns'
+          git push
