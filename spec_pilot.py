@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 import explainer_pipeline as ep
+import durable_execution
 import directed_longform as dl
 import user_directed as ud
 from PIL import Image, ImageDraw
@@ -725,6 +726,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     (out / "tmp").mkdir(parents=True, exist_ok=True)
     clips: list[str] = []
     stream_segments: list[str] = []
+    stream_segment_artifacts: list[dict] = []
     i2v_costs: list = []
     motion_events: list = []
     animated = 0
@@ -762,7 +764,20 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             for item in batch:
                 Path(item).unlink(missing_ok=True)
         manifest.unlink(missing_ok=True)
-        stream_segments.append(segment)
+        runtime = durable_execution.current()
+        if runtime is not None:
+            artifact = runtime.blob.upload(
+                segment,
+                f"jobs/{runtime.job_id}/scratch/remaining-{int(win_start):04d}-"
+                f"{batch_order:03d}.mp4")
+            if artifact.get("access") != "public":
+                raise RuntimeError(
+                    "Directed segment streaming requires a public unlisted Blob store")
+            stream_segment_artifacts.append(artifact)
+            stream_segments.append(str(artifact["url"]))
+            Path(segment).unlink(missing_ok=True)
+        else:
+            stream_segments.append(segment)
         clips.clear()
         after = shutil.disk_usage(str(out))
         log(f"  clip batch compacted; tmp free {after.free / (1024 * 1024):.1f} MiB")
@@ -952,15 +967,27 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # Mux both concat lists directly. Keeping all clips, then materialising a full silent-video
     # copy, then materialising the final mux briefly triples the video footprint and exhausts
     # Vercel's /tmp on a 15-shot opening. -shortest still makes narration the timing authority.
+    remote_segments = any(str(clip).startswith(("https://", "http://")) for clip in clips)
+    video_input = []
+    if remote_segments:
+        video_input.extend([
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+        ])
     ep._run_ffmpeg([
         ep._ffmpeg_bin(), "-nostdin", "-y",
+        *video_input,
         "-f", "concat", "-safe", "0", "-i", str(concat_list),
         "-f", "concat", "-safe", "0", "-i", str(audio_list),
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-movflags", "+faststart", preview,
     ])
     for clip in clips:
-        Path(clip).unlink(missing_ok=True)
+        if not str(clip).startswith(("https://", "http://")):
+            Path(clip).unlink(missing_ok=True)
+    runtime = durable_execution.current()
+    if runtime is not None:
+        for artifact in stream_segment_artifacts:
+            runtime.blob.delete(str(artifact["url"]))
     # Report the RESCALED holds, not the spec's planned ones. The earlier version recomputed
     # from the unscaled table and printed "45.0s vs 40.5s" after the rescale had already made
     # them agree -- a log line contradicting the thing it was reporting on.
