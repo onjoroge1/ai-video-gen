@@ -850,23 +850,50 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     calibrated = bool(calibration["passed"])
     if hard_failures:
         total = min(total, 69)
-    automated_pass = total >= RELEASE_SCORE and not hard_failures and blind.get("valid", True)
+    judge_available = blind.get("valid") is True
+    judge_error = _text(blind.get("judge_error"))
+    # A missing story judge is an unavailable measuring instrument, not evidence that every
+    # creative criterion failed.  The previous implementation converted absent booleans to zero,
+    # emitted a plausible-looking 44/100, and then labelled an otherwise complete video REJECTED.
+    # Downstream code could not distinguish that infrastructure condition from a real editorial
+    # failure.  Keep deterministic hard failures authoritative, but do not publish a composite
+    # score when the majority of its inputs were never observed.
+    automated_score = int(total) if judge_available else None
+    automated_pass = (
+        bool(total >= RELEASE_SCORE and not hard_failures)
+        if judge_available else (False if hard_failures else None)
+    )
     review = human_review or {"status": "pending", "decision": "pending"}
     human_approved = review.get("decision") == "approve"
     certified = bool(automated_pass and human_approved and calibrated)
+    if hard_failures:
+        status = "REJECT"
+    elif not judge_available:
+        status = "UNSCORED_JUDGE_UNAVAILABLE"
+    elif certified:
+        status = "PASS"
+    elif automated_pass and human_approved:
+        status = "PASS_UNCERTIFIED"
+    elif automated_pass:
+        status = "AUTOMATED_PASS_AWAITING_HUMAN"
+    else:
+        status = "REJECT"
     return {
         "version": RENDERED_GATE_VERSION,
         "name": "Bolt Long-Form Rendered Contract",
-        "score": int(total),
-        "percent": int(total),
-        "grade": "A" if total >= 90 else "B" if total >= 85 else "C" if total >= 70 else "D" if total >= 60 else "F",
-        "status": ("PASS" if certified else
-                   "PASS_UNCERTIFIED" if automated_pass and human_approved else
-                   "AUTOMATED_PASS_AWAITING_HUMAN" if automated_pass else "REJECT"),
+        "score": automated_score,
+        "percent": automated_score,
+        "grade": ("UNSCORED" if automated_score is None else
+                  "A" if total >= 90 else "B" if total >= 85 else
+                  "C" if total >= 70 else "D" if total >= 60 else "F"),
+        "status": status,
         # `passed` keeps meaning "this run may proceed"; `publishable` keeps meaning "this may be
         # released", and only that second one requires a calibrated instrument.
         "passed": bool(automated_pass and human_approved),
         "automated_pass": automated_pass,
+        "automated_grade_available": judge_available,
+        "unavailable_components": ([] if judge_available else ["blind_rendered_story_judge"]),
+        "judge_error": judge_error,
         "publishable": certified,
         "calibrated": calibrated,
         "uncertified_reason": ("" if calibrated else "uncalibrated_rendered_thresholds"),
@@ -876,6 +903,70 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         "components": components,
         "human_review": review,
         "disclaimer": "Contract compliance score; it does not predict audience retention.",
+    }
+
+
+def rendered_grade_summary(contract: dict | None, directed_spec: dict | None = None) -> dict:
+    """Return stable delivery/grade fields, including for pre-fix archived contracts.
+
+    Rendered reports are immutable evidence.  This adapter reclassifies the known legacy shape at
+    read time instead of rewriting the historical artifact: a failed blind judge plus no actual
+    hard failure is UNSCORED, while a deterministic defect remains a genuine rejection.
+    """
+    report = contract if isinstance(contract, dict) else {}
+    hard_failures = sorted(set(report.get("hard_failures") or []))
+    blind = report.get("blind_story_judge") if isinstance(
+        report.get("blind_story_judge"), dict) else {}
+    unavailable = bool(
+        report.get("automated_grade_available") is False
+        or (blind.get("valid") is False and blind.get("judge_error"))
+        or str(report.get("status") or "").startswith("UNSCORED_"))
+    instrumentation_failures = []
+    if directed_spec and unavailable and "bolt_absent" in hard_failures:
+        planned_bolt = any(
+            "bolt" in str(shot.get("mode") or "").casefold()
+            or "bolt" in str(shot.get("visual") or "").casefold()
+            or any("bolt" in str(label).casefold() for label in shot.get("labels") or [])
+            or "BOLT" in (shot.get("reference_ids") or [])
+            for shot in directed_spec.get("shots") or [])
+        if planned_bolt:
+            # Directed pilots before v1.2 only told the rendered gate about Bolt through a BOLT
+            # reference ID. V4 used explicit Bolt labels/prompts, so the instrument recorded
+            # bolt_absent without looking at those declarations. Preserve the raw artifact but do
+            # not let that known adapter miss masquerade as a pixel-observed creative defect.
+            hard_failures = [item for item in hard_failures if item != "bolt_absent"]
+            instrumentation_failures.append("legacy_bolt_metadata_not_mapped")
+    if hard_failures:
+        automated_status = "REJECT"
+        automated_pass = False
+        score = report.get("score")
+    elif unavailable:
+        automated_status = "UNSCORED_JUDGE_UNAVAILABLE"
+        automated_pass = None
+        score = None
+    else:
+        automated_status = str(report.get("status") or "NOT_RECORDED")
+        automated_pass = report.get("automated_pass")
+        score = report.get("score")
+    editorial = report.get("human_review") if isinstance(report.get("human_review"), dict) else {}
+    editorial_status = (
+        "approved" if editorial.get("decision") == "approve" else
+        "rejected" if editorial.get("decision") == "reject" else "pending")
+    promotion = (
+        "blocked" if hard_failures or editorial_status == "rejected" else
+        "eligible" if automated_pass is True and editorial_status == "approved" else
+        "awaiting_editorial")
+    return {
+        "technical_status": "completed",
+        "automated_status": automated_status,
+        "automated_score": score,
+        "automated_pass": automated_pass,
+        "automated_grade_available": not unavailable,
+        "editorial_status": editorial_status,
+        "promotion_status": promotion,
+        "hard_failures": hard_failures,
+        "judge_error": _text(report.get("judge_error") or blind.get("judge_error")),
+        "instrumentation_failures": instrumentation_failures,
     }
 
 

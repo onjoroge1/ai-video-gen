@@ -68,6 +68,48 @@ class PostgresStore(_legacy.PostgresStore):
     _pilot_schema_ready = False
     _production_schema_ready = False
 
+    def reclassify_delivered_directed_pilot(self, job_id: str, grading: dict) -> dict:
+        """Correct the legacy `degraded` overload after inspecting immutable grade evidence.
+
+        This changes lifecycle labels only. It never edits the rendered contract, video, spend,
+        request, or artifact hashes. Deterministic hard failures remain ineligible.
+        """
+        if grading.get("technical_status") != "completed" or grading.get("hard_failures"):
+            raise DurableExecutionError("Only technically complete pilots without hard failures qualify")
+        patch = {
+            "technical_status": "completed",
+            "automated_grade_status": grading.get("automated_status"),
+            "editorial_status": grading.get("editorial_status"),
+            "promotion_status": grading.get("promotion_status"),
+            "legacy_delivery_status": "degraded",
+        }
+        changed = False
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if not row:
+                raise DurableExecutionError(f"Directed pilot job {job_id} does not exist")
+            if row.get("status") == "degraded":
+                cur.execute("""
+                    UPDATE generation_jobs SET status='done',result=result || %s::jsonb,
+                        updated_at=now() WHERE id=%s
+                """, (json.dumps(patch), job_id))
+                changed = True
+            elif row.get("status") != "done":
+                raise DurableExecutionError(
+                    f"Directed pilot {job_id} is not a delivered legacy job")
+            cur.execute("""
+                UPDATE finished_videos SET status='done',metadata=metadata || %s::jsonb,
+                    updated_at=now() WHERE id=%s
+            """, (json.dumps(patch), job_id))
+            if cur.rowcount != 1:
+                raise DurableExecutionError(f"Finished directed pilot {job_id} does not exist")
+        if changed:
+            self.append_event(
+                job_id, "delivery_reclassified",
+                "Technical delivery separated from unavailable automated grade", patch)
+        return self.get_job(job_id) or {}
+
     def rearm_infrastructure_failure(
             self, job_id: str, *, error_fragment: str, extra_attempts: int = 3) -> dict:
         """Add a bounded retry window without changing payload, stages, spend, or cost ceiling."""

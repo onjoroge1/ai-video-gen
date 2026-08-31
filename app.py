@@ -1129,6 +1129,14 @@ class ExplainerRequest(BaseModel):
     directed_spec: dict | None = None
     directed_spec_sha256: str = ""
     directed_paid_authorized: bool = False
+    # Internal continuation fields. Only a separately approved directed_full_film agent action may
+    # construct them; the public generic endpoint rejects every one below.
+    directed_full_film: bool = False
+    directed_authorization_sha256: str = ""
+    directed_promotion: dict = Field(default_factory=dict)
+    directed_parent_action_id: str = ""
+    directed_parent_job_id: str = ""
+    directed_parent_video_sha256: str = ""
     # Internal PR7 fields are accepted when a durable worker reconstructs a queued pilot request.
     # The public explainer endpoint rejects controlled_pilot=True; only the paired pilot endpoint
     # can create these values.
@@ -1158,10 +1166,14 @@ class DirectedLongformProcessRequest(BaseModel):
 class AgentActionCreateRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
-    operation: Literal["directed_pilot"] = "directed_pilot"
+    operation: Literal["directed_pilot", "directed_full_film"] = "directed_pilot"
     spec: dict | None = None
-    bundled_spec_id: Literal["hippo_illustrated_story_v4", ""] = ""
+    bundled_spec_id: Literal[
+        "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m", ""
+    ] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
+    parent_action_id: str = ""
+    parent_job_id: str = ""
 
 
 class AgentActionApprovalRequest(BaseModel):
@@ -1275,50 +1287,78 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         # Directed v1 is a separate, operator-authored job.  It never enters the model-authored
         # explainer pipeline and this internal branch is reachable only through validate/process.
         if request.directed_spec:
-            import spec_pilot
             import directed_longform as dl
 
             directed = dl.DirectedLongformSpec.model_validate(request.directed_spec)
-            pilot = await loop.run_in_executor(
-                None,
-                lambda: _run_with_runtime(lambda: spec_pilot.render_pilot(
-                    request.directed_spec, output_dir,
-                    voice=directed.target.voice,
-                    window=(0.0, directed.target.pilot_end_sec),
-                    use_i2v=True,
-                    validated_sha256=request.directed_spec_sha256,
-                    authorize_paid=request.directed_paid_authorized,
-                    require_validation=True,
-                    log=push)),
-            )
-            result = {
-                "output_path": pilot["preview_path"],
-                "title": directed.title,
-                "script": request.directed_spec,
-                "hook": directed.narration[0].narration,
-                "scene_count": pilot["shots"],
-                "duration_sec": pilot["measured_seconds"],
-                "video_format": "landscape",
-                "actual_cost": pilot["total_cost_usd"],
-                "est_cost": pilot["total_cost_usd"],
-                "generation_manifest_path": pilot["generation_manifest_path"],
-                "directed_spec_path": pilot["directed_spec_path"],
-                "validation_report_path": pilot["validation_report_path"],
-                "rendered_contract": pilot.get("rendered_contract") or {},
-                "rendered_contract_path": pilot.get("rendered_contract_path"),
-                "rendered_contact_sheet_path": pilot.get("rendered_contact_sheet_path"),
-                "human_review_path": pilot.get("human_review_path"),
-                "first_minute_preview_path": pilot["preview_path"],
-                "directed_pilot": True,
-                # A rendered pilot is not a passed film.  Preserve it for editorial review and
-                # keep full-film processing unavailable until that separate gate exists.
-                "status": "degraded",
-                "degraded_reasons": ([
-                    "directed pilot failed its automatic rendered grade and cannot be promoted"
-                ] if not (pilot.get("rendered_contract") or {}).get("automated_pass") else [
-                    "directed pilot passed automation; editorial approval is required before full-film processing"
-                ]),
-            }
+            if request.directed_full_film:
+                if not durable_runtime:
+                    raise RuntimeError("Directed full films require durable Blob/Postgres storage")
+                import db
+                finished = await asyncio.to_thread(
+                    db.finished_video_get, request.directed_parent_job_id) or {}
+                artifact = (finished.get("artifacts") or {}).get("video") or {}
+                if artifact.get("sha256") != request.directed_parent_video_sha256:
+                    raise RuntimeError("Accepted parent pilot artifact no longer matches approval")
+                parent_path = os.path.join(output_dir, "accepted_pilot.mp4")
+                await asyncio.to_thread(durable_runtime.blob.download, artifact, parent_path)
+                import directed_full_film as dff
+                envelope = {"spec": request.directed_spec,
+                            "promotion": request.directed_promotion}
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: _run_with_runtime(lambda: dff.render_remaining(
+                        envelope=envelope,
+                        authorization_hash=request.directed_authorization_sha256,
+                        parent_video_path=parent_path,
+                        out_dir=output_dir,
+                        voice=directed.target.voice,
+                        authorize_paid=request.directed_paid_authorized,
+                        log=push)),
+                )
+            else:
+                import spec_pilot
+                pilot = await loop.run_in_executor(
+                    None,
+                    lambda: _run_with_runtime(lambda: spec_pilot.render_pilot(
+                        request.directed_spec, output_dir,
+                        voice=directed.target.voice,
+                        window=(0.0, directed.target.pilot_end_sec),
+                        use_i2v=True,
+                        validated_sha256=request.directed_spec_sha256,
+                        authorize_paid=request.directed_paid_authorized,
+                        require_validation=True,
+                        log=push)),
+                )
+                from longform_rendered_gate import rendered_grade_summary
+                grade_summary = rendered_grade_summary(pilot.get("rendered_contract") or {})
+                result = {
+                    "output_path": pilot["preview_path"],
+                    "title": directed.title,
+                    "script": request.directed_spec,
+                    "hook": directed.narration[0].narration,
+                    "scene_count": pilot["shots"],
+                    "duration_sec": pilot["measured_seconds"],
+                    "video_format": "landscape",
+                    "actual_cost": pilot["total_cost_usd"],
+                    "est_cost": pilot["total_cost_usd"],
+                    "generation_manifest_path": pilot["generation_manifest_path"],
+                    "directed_spec_path": pilot["directed_spec_path"],
+                    "validation_report_path": pilot["validation_report_path"],
+                    "rendered_contract": pilot.get("rendered_contract") or {},
+                    "rendered_contract_path": pilot.get("rendered_contract_path"),
+                    "rendered_contact_sheet_path": pilot.get("rendered_contact_sheet_path"),
+                    "human_review_path": pilot.get("human_review_path"),
+                    "first_minute_preview_path": pilot["preview_path"],
+                    "directed_pilot": True,
+                    # Delivery and review are orthogonal. A complete MP4 is technically complete;
+                    # automated/editorial/promotion state is carried explicitly below.
+                    "status": "ok",
+                    "technical_status": grade_summary["technical_status"],
+                    "automated_grade_status": grade_summary["automated_status"],
+                    "editorial_status": grade_summary["editorial_status"],
+                    "promotion_status": grade_summary["promotion_status"],
+                    "degraded_reasons": [],
+                }
         # QUIZ template (social only): a different backend — Bolt hosts a "What is it?" guessing quiz.
         # The `question` field carries the CATEGORY (e.g. "animals"). Returns an explainer-shaped result.
         elif request.video_format == "social" and request.short_template == "quiz":
@@ -1454,6 +1494,14 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "directed_spec_path": result.get("directed_spec_path"),
             "validation_report_path": result.get("validation_report_path"),
             "directed_pilot": bool(result.get("directed_pilot")),
+            "directed_full_film": bool(result.get("directed_full_film")),
+            "pilot_reused": bool(result.get("pilot_reused")),
+            "parent_job_id": result.get("parent_job_id"),
+            "parent_video_sha256": result.get("parent_video_sha256"),
+            "technical_status": result.get("technical_status"),
+            "automated_grade_status": result.get("automated_grade_status"),
+            "editorial_status": result.get("editorial_status"),
+            "promotion_status": result.get("promotion_status"),
             "story_format_review_path": result.get("story_format_review_path"),
             "evidence_plan_path": result.get("evidence_plan_path"),
             "evidence_validation_path": result.get("evidence_validation_path"),
@@ -1465,6 +1513,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "rendered_contract_path": result.get("rendered_contract_path"),
             "rendered_contact_sheet_path": result.get("rendered_contact_sheet_path"),
             "human_review_path": result.get("human_review_path"),
+            "full_delivery_report_path": result.get("full_delivery_report_path"),
             "diagnostic_preview_path": result.get("diagnostic_preview_path"),
             "readiness_json_path": result.get("readiness_json_path"),
             "first_minute_preview_path": result.get("first_minute_preview_path"),
@@ -1482,13 +1531,21 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     request.short_template if request.video_format == "social" else "explainer")
         await _archive_finished(job, job_id, result["output_path"], {
             "title": result["title"], "status": job["status"],
-            "format": ("directed-v1-pilot" if request.directed_spec else
+            "format": ("directed-v1-full" if request.directed_full_film else
+                       "directed-v1-pilot" if request.directed_spec else
                        f"short-{template}" if request.video_format == "social" else "explainer"),
             "question": request.question, "scene_count": result["scene_count"],
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
             "rendered_contract_score": (result.get("rendered_contract") or {}).get("score"),
             "rendered_contract_status": (result.get("rendered_contract") or {}).get("status"),
+            "technical_status": result.get("technical_status"),
+            "automated_grade_status": result.get("automated_grade_status"),
+            "editorial_status": result.get("editorial_status"),
+            "promotion_status": result.get("promotion_status"),
+            "pilot_reused": bool(result.get("pilot_reused")),
+            "parent_job_id": result.get("parent_job_id"),
+            "parent_video_sha256": result.get("parent_video_sha256"),
         }, extra={"txt": result.get("transcript_path"), "srt": result.get("srt_path"),
                   "script": os.path.join(output_dir, "_state.json"),
                   "desc": result.get("description_path"), "thumb": result.get("thumbnail_path"),
@@ -1513,6 +1570,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "rendered-contract": result.get("rendered_contract_path"),
                   "rendered-contact-sheet": result.get("rendered_contact_sheet_path"),
                   "human-review": result.get("human_review_path"),
+                  "full-delivery": result.get("full_delivery_report_path"),
                   "diagnostic-preview": result.get("diagnostic_preview_path"),
                   "readiness": result.get("readiness_json_path"),
                   "opening_preview": result.get("first_minute_preview_path")},
@@ -2242,6 +2300,29 @@ def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
     )
 
 
+def _directed_full_film_request(envelope: dict, authorization_hash: str,
+                                report: dict, promotion: dict) -> ExplainerRequest:
+    spec = dl_spec = report["normalized_spec"]
+    target = dl_spec["target"]
+    return ExplainerRequest(
+        question=dl_spec["title"],
+        duration_sec=int(round(float(target["duration_sec"]))),
+        voice=target["voice"],
+        video_format="landscape",
+        motion_mode="standard",
+        story_format="evidence_led_mystery",
+        directed_spec=spec,
+        directed_spec_sha256=report["spec_sha256"],
+        directed_paid_authorized=True,
+        directed_full_film=True,
+        directed_authorization_sha256=authorization_hash,
+        directed_promotion=promotion,
+        directed_parent_action_id=promotion["parent_action_id"],
+        directed_parent_job_id=promotion["parent_job_id"],
+        directed_parent_video_sha256=promotion["parent_video_sha256"],
+    )
+
+
 @app.get("/api/explainer/directed/schema")
 async def explainer_directed_schema():
     import directed_longform as dl
@@ -2315,10 +2396,68 @@ def _agent_approver(request: Request) -> str:
 
 
 def _bundled_directed_spec(spec_id: str) -> dict:
-    if spec_id != "hippo_illustrated_story_v4":
+    names = {
+        "hippo_illustrated_story_v4": "hippo_illustrated_story_v4.json",
+        "hippo_illustrated_story_v4_full_5m": "hippo_illustrated_story_v4_full_5m.json",
+    }
+    if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
-    path = BASE_DIR / "spec" / "hippo_illustrated_story_v4.json"
+    path = BASE_DIR / "spec" / names[spec_id]
+    if not path.is_file():
+        raise HTTPException(status_code=503, detail="Bundled directed specification is unavailable")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _directed_parent_pilot_context(parent_action_id: str, parent_job_id: str) -> dict:
+    """Verify the immutable parent pilot and read its raw grade without exposing Blob URLs."""
+    import directed_longform as dl
+    from longform_rendered_gate import rendered_grade_summary
+
+    action = agent_actions.repository().get(str(parent_action_id))
+    if (not action or action.get("operation") != agent_actions.DIRECTED_PILOT_OPERATION
+            or str(action.get("job_id") or "") != str(parent_job_id)):
+        raise agent_actions.AgentActionConflict("Parent pilot action/job binding is invalid")
+    parent_spec = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    parent_report = dl.validate_directed_spec(parent_spec)
+    if (not parent_report.get("valid")
+            or parent_report.get("spec_sha256") != action.get("spec_sha256")):
+        raise agent_actions.AgentActionConflict("Parent pilot specification hash is invalid")
+    import db
+    finished = db.finished_video_get(str(parent_job_id)) or {}
+    artifacts = finished.get("artifacts") if isinstance(finished.get("artifacts"), dict) else {}
+    video = artifacts.get("video") if isinstance(artifacts.get("video"), dict) else {}
+    rendered_artifact = artifacts.get("rendered-contract") \
+        if isinstance(artifacts.get("rendered-contract"), dict) else {}
+    if not finished or not video.get("url") or not video.get("sha256"):
+        raise agent_actions.AgentActionConflict("Parent pilot has no durable video artifact")
+    if not rendered_artifact.get("url"):
+        raise agent_actions.AgentActionConflict("Parent pilot has no durable rendered-grade artifact")
+    store, blob = _durable_components()
+    root = tempfile.mkdtemp(prefix="directed_parent_grade_")
+    try:
+        grade_path = os.path.join(root, "rendered_contract.json")
+        blob.download(rendered_artifact, grade_path)
+        with open(grade_path, encoding="utf-8") as handle:
+            contract = json.load(handle)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    grading = rendered_grade_summary(contract, parent_spec)
+    if grading["hard_failures"]:
+        raise agent_actions.AgentActionConflict(
+            "Parent pilot has deterministic grade failures and cannot be promoted")
+    # PR50 fixes the legacy lifecycle label in place while preserving the immutable report that
+    # explains why the old row said degraded. This is a zero-spend metadata correction.
+    if finished.get("status") == "degraded":
+        store.reclassify_delivered_directed_pilot(str(parent_job_id), grading)
+        finished = db.finished_video_get(str(parent_job_id)) or finished
+    return {
+        "action": action,
+        "spec": parent_report["normalized_spec"],
+        "finished": finished,
+        "video_artifact": video,
+        "rendered_contract": contract,
+        "grading": grading,
+    }
 
 
 _AGENT_TERMINAL_JOB_STATUSES = {
@@ -2405,17 +2544,23 @@ def _public_agent_event(event: dict) -> dict | None:
 
 def _agent_action_plan(action: dict) -> dict:
     payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    promotion = payload.get("promotion") if isinstance(payload.get("promotion"), dict) else {}
+    if action.get("operation") == agent_actions.DIRECTED_FULL_FILM_OPERATION:
+        payload = payload.get("spec") if isinstance(payload.get("spec"), dict) else {}
     target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
-    pilot_end = float(target.get("pilot_end_sec") or 45.0)
+    start = float(promotion.get("start_sec") or 0.0)
+    end = float(promotion.get("end_sec") or target.get("pilot_end_sec") or 45.0)
     shots = [shot for shot in payload.get("shots") or []
-             if float(shot.get("start_sec") or 0) < pilot_end]
+             if start <= float(shot.get("start_sec") or 0) < end]
     narration = [scene for scene in payload.get("narration") or []
-                 if float(scene.get("start_sec") or 0) < pilot_end]
+                 if start <= float(scene.get("start_sec") or 0) < end]
     masters = {str(shot.get("asset_key") or shot.get("shot_id") or "") for shot in shots}
     motion = [shot for shot in shots
               if str(shot.get("mode") or "").strip().casefold() == "full motion"]
     return {
-        "pilot_seconds": pilot_end,
+        "pilot_seconds": float(target.get("pilot_end_sec") or 45.0),
+        "window_start_sec": start,
+        "window_end_sec": end,
         "narration_total": len(narration),
         "images_total": len(masters),
         "motion_total": len(motion),
@@ -2465,14 +2610,17 @@ def _public_agent_result(result: dict) -> dict:
     if not isinstance(result, dict):
         return {}
     safe = {key: result.get(key) for key in (
-        "title", "archived", "directed_pilot", "duration_sec", "scene_count",
-        "actual_cost",
+        "title", "archived", "directed_pilot", "directed_full_film", "pilot_reused",
+        "parent_job_id", "duration_sec", "scene_count", "actual_cost", "technical_status",
+        "automated_grade_status", "editorial_status", "promotion_status",
     ) if result.get(key) is not None}
     rendered = result.get("rendered_contract")
     if isinstance(rendered, dict):
+        from longform_rendered_gate import rendered_grade_summary
         safe["rendered_contract"] = {key: rendered.get(key) for key in (
-            "score", "status", "automated_pass", "hard_failures",
+            "score", "status", "automated_pass", "automated_grade_available", "hard_failures",
         ) if rendered.get(key) is not None}
+        safe["grading"] = rendered_grade_summary(rendered)
     return safe
 
 
@@ -2510,17 +2658,53 @@ async def create_agent_action(request: AgentActionCreateRequest):
     if bool(request.spec) == bool(request.bundled_spec_id):
         raise HTTPException(
             status_code=422, detail="Provide exactly one of spec or bundled_spec_id")
-    payload = request.spec or _bundled_directed_spec(request.bundled_spec_id)
+    source_spec = request.spec or _bundled_directed_spec(request.bundled_spec_id)
+    operation = request.operation
+    if operation == agent_actions.DIRECTED_FULL_FILM_OPERATION:
+        import directed_full_film as dff
+        if not request.parent_action_id or not request.parent_job_id:
+            raise HTTPException(
+                status_code=422,
+                detail="A remaining-film action requires its parent action and job IDs")
+        try:
+            parent = await asyncio.to_thread(
+                _directed_parent_pilot_context,
+                request.parent_action_id, request.parent_job_id)
+            payload, report = dff.build_envelope(
+                full_spec=source_spec,
+                parent_spec=parent["spec"],
+                parent_action_id=request.parent_action_id,
+                parent_job_id=request.parent_job_id,
+                parent_video_sha256=parent["video_artifact"]["sha256"],
+            )
+        except (agent_actions.AgentActionError, dff.DirectedFullFilmError) as exc:
+            if isinstance(exc, agent_actions.AgentActionError):
+                raise _agent_action_http_error(exc) from exc
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        authorization_hash = report["authorization_sha256"]
+        estimate = float(
+            (report.get("remaining_cost_estimate") or {}).get("estimated_total_usd") or 0)
+        deployment_cap = float(os.environ.get("AGENT_ACTION_FULL_MAX_COST_USD", "10.00"))
+        title = report["title"]
+    else:
+        if request.parent_action_id or request.parent_job_id:
+            raise HTTPException(status_code=422, detail="Pilot actions cannot name a parent film")
+        if request.bundled_spec_id == "hippo_illustrated_story_v4_full_5m":
+            raise HTTPException(status_code=422, detail="The five-minute bundle requires full-film scope")
+        report = dl.validate_directed_spec(source_spec)
+        if not report.get("valid"):
+            raise HTTPException(status_code=409, detail={
+                "code": "DIRECTED_SPEC_INVALID", "issues": report.get("issues") or [],
+            })
+        payload = report["normalized_spec"]
+        authorization_hash = report["spec_sha256"]
+        estimate = float(
+            (report.get("pilot_cost_estimate") or {}).get("estimated_total_usd") or 0)
+        deployment_cap = float(os.environ.get("AGENT_ACTION_MAX_COST_USD", "5.00"))
+        title = report["title"]
     encoded_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode())
     if encoded_size > int(os.environ.get("AGENT_ACTION_MAX_SPEC_BYTES", "1048576")):
         raise HTTPException(status_code=413, detail="Directed specification is too large")
-    report = dl.validate_directed_spec(payload)
-    if not report.get("valid"):
-        raise HTTPException(status_code=409, detail={
-            "code": "DIRECTED_SPEC_INVALID", "issues": report.get("issues") or [],
-        })
-    estimate = float((report.get("pilot_cost_estimate") or {}).get("estimated_total_usd") or 0)
-    deployment_cap = float(os.environ.get("AGENT_ACTION_MAX_COST_USD", "5.00"))
     ceiling = float(request.cost_ceiling_usd)
     if ceiling > deployment_cap:
         raise HTTPException(
@@ -2529,10 +2713,11 @@ async def create_agent_action(request: AgentActionCreateRequest):
     if estimate > ceiling:
         raise HTTPException(
             status_code=409,
-            detail=f"Estimated pilot cost ${estimate:.4f} exceeds ceiling ${ceiling:.2f}")
+            detail=f"Estimated action cost ${estimate:.4f} exceeds ceiling ${ceiling:.2f}")
     try:
         existing = await asyncio.to_thread(
-            agent_actions.repository().reusable_for_spec, report["spec_sha256"], ceiling)
+            agent_actions.repository().reusable_for_spec,
+            authorization_hash, ceiling, operation)
     except agent_actions.AgentActionError as exc:
         raise _agent_action_http_error(exc) from exc
     if existing:
@@ -2542,8 +2727,8 @@ async def create_agent_action(request: AgentActionCreateRequest):
     try:
         action = await asyncio.to_thread(
             agent_actions.repository().create,
-            title=report["title"], spec_sha256=report["spec_sha256"],
-            payload=report["normalized_spec"],
+            title=title, spec_sha256=authorization_hash,
+            payload=payload, operation=operation,
             claim_token_sha256=agent_actions.token_digest(claim_token),
             estimated_cost_usd=estimate, cost_ceiling_usd=ceiling, ttl_seconds=ttl)
     except agent_actions.AgentActionError as exc:
@@ -2647,7 +2832,9 @@ async def get_agent_action_public_status(action_id: str, after: int = 0):
                     "status": finished.get("status"),
                     "metadata": {key: metadata.get(key) for key in (
                         "actual_cost", "duration_sec", "rendered_contract_score",
-                        "rendered_contract_status", "scene_count",
+                        "rendered_contract_status", "scene_count", "technical_status",
+                        "automated_grade_status", "editorial_status", "promotion_status",
+                        "pilot_reused", "parent_job_id",
                     ) if metadata.get(key) is not None},
                     "player_path": f"/api/finished/{job_id}/artifact/video",
                     "download_path": f"/api/finished/{job_id}/artifact/video?download=true",
@@ -2685,18 +2872,31 @@ async def reject_agent_action(action_id: str, request: Request):
 @app.post("/api/agent/actions/{action_id}/execute")
 async def execute_agent_action(action_id: str, request: Request,
                                background_tasks: BackgroundTasks):
-    """Consume one approved action and enqueue exactly its immutable first-45 request."""
+    """Consume one approved action and enqueue exactly its immutable spend boundary."""
     if not _durable_execution_required():
         raise HTTPException(status_code=409, detail="Agent actions require durable execution")
     token = _claim_token(request)
     try:
         action = await asyncio.to_thread(
             agent_actions.repository().claim, action_id, claim_token=token)
-        import directed_longform as dl
-        spec, report = dl.authorize_processing(
-            action["payload"], expected_sha256=action["spec_sha256"], authorize_paid=True)
+        if action.get("operation") == agent_actions.DIRECTED_FULL_FILM_OPERATION:
+            import directed_full_film as dff
+            report, promotion = dff.validate_envelope(
+                action["payload"], expected_sha256=action["spec_sha256"])
+            parent = await asyncio.to_thread(
+                _directed_parent_pilot_context,
+                promotion["parent_action_id"], promotion["parent_job_id"])
+            if parent["video_artifact"]["sha256"] != promotion["parent_video_sha256"]:
+                raise dff.DirectedFullFilmError("Parent video changed after approval")
+            directed_request = _directed_full_film_request(
+                action["payload"], action["spec_sha256"], report, promotion)
+        else:
+            import directed_longform as dl
+            spec, report = dl.authorize_processing(
+                action["payload"], expected_sha256=action["spec_sha256"], authorize_paid=True)
+            directed_request = _directed_pilot_request(spec, report)
         queued = await _enqueue_explainer_request(
-            _directed_pilot_request(spec, report), background_tasks,
+            directed_request, background_tasks,
             max_cost_usd=float(action["cost_ceiling_usd"]))
         action = await asyncio.to_thread(
             agent_actions.repository().mark_queued, action_id, queued["job_id"])
@@ -2760,7 +2960,11 @@ async def dispatch_agent_action(action_id: str, request: Request):
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
-    if request.directed_spec or request.directed_spec_sha256 or request.directed_paid_authorized:
+    if (request.directed_spec or request.directed_spec_sha256
+            or request.directed_paid_authorized or request.directed_full_film
+            or request.directed_authorization_sha256 or request.directed_promotion
+            or request.directed_parent_action_id or request.directed_parent_job_id
+            or request.directed_parent_video_sha256):
         raise HTTPException(
             status_code=403,
             detail="Directed fields are internal; use /api/explainer/directed/validate then /process.")

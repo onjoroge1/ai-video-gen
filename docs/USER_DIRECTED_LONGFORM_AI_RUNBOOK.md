@@ -1,13 +1,13 @@
 # ReelForge User-Directed Long-Form Generation — AI Execution Runbook
 
 **Status:** Authoritative operating contract  
-**Runbook version:** 1.1 — durable proposal, single approval and live render console\
-**Scope:** Preparing, validating, approving, rendering, recovering, inspecting and reporting a user-directed ReelForge long-form pilot  
+**Runbook version:** 1.2 — truthful grading and hash-bound remaining-film promotion\
+**Scope:** Preparing, validating, approving, rendering, promoting, recovering, inspecting and reporting a user-directed ReelForge long-form video
 **Repository:** `onjoroge1/ai-video-gen`  
 **Production studio:** `https://ai-video-gen-nine.vercel.app`  
 **Approval page:** `https://ai-video-gen-nine.vercel.app/agent/actions`  
 **Finished library:** `https://ai-video-gen-nine.vercel.app/finished`  
-**Last revised:** 2026-08-30
+**Last revised:** 2026-08-31
 
 > **AI instruction:** Read this entire file before attempting a user-directed long-form run. Execute
 > the workflow during the current task; do not stop at a plan. The user directs the creative. Keep
@@ -97,15 +97,18 @@ expiry and `first-45-pilot` scope. Clicking **Approve & render exact pilot** onc
 Approval is not valid for edited bytes, a higher ceiling, another action, a second pilot or a full
 film.
 
-### C. Full-film spend — not authorized here
+### C. Remaining-film spend — a separate operator approval
 
-The current user-directed endpoint deliberately renders only the first-45 pilot. A technically
-complete pilot, automatic pass or editorial pass does not authorize the remaining film.
+A technically complete pilot, automatic pass or editorial pass does not authorize later scenes.
+Create a separate `directed_full_film` action bound to the exact parent action, parent job, parent
+video SHA-256, unchanged opening contract, full spec hash, `remaining-45-to-300` scope, estimate and
+hard ceiling.
 
-Do not use the pilot action to render the full film. Full-film processing requires a separately
-implemented, hash-bound promotion path and a separate explicit authorization. If that path is not
-available in the deployed app, report the limitation truthfully; do not improvise a local render or
-send internal controlled-production fields to a public endpoint.
+Clicking **Approve & render remaining film** authorizes only the 0:45–5:00 window. The worker reuses
+the accepted pilot artifact, generates only the remaining narration, images and motion, concatenates
+the frozen opening, and exposes the full video on the same action page. If this separately scoped
+path is unavailable in the deployed app, report that limitation; never reuse the pilot approval or
+improvise an unbound render.
 
 ---
 
@@ -136,7 +139,12 @@ send internal controlled-production fields to a public endpoint.
     attempts, leases, cost, errors, manifests, grade artifacts and final artifact hash.
 13. **Never expose credentials.** Do not print, commit or return cookies, passwords, app secrets,
     worker secrets, database URLs, Blob tokens or provider keys.
-14. **Do not change `main` merely to run a pilot.** Temporary recovery infrastructure belongs on a
+14. **Separate delivery from grading.** A completed MP4 is technically complete. An unavailable
+    story judge is `UNSCORED_JUDGE_UNAVAILABLE`, not a fabricated low score or technical
+    degradation. Deterministic hard failures remain real rejections.
+15. **Reuse the accepted opening.** A remaining-film action may not regenerate, alter or charge for
+    0:00–0:45.
+16. **Do not change `main` merely to run a pilot.** Temporary recovery infrastructure belongs on a
     disposable QA branch and must not be merged.
 
 ---
@@ -172,6 +180,12 @@ GET /api/finished/{job_id}/artifact/video?download=true
 Probe and inspect actual Blob-backed MP4 + grade artifacts
         ↓
 Report technical delivery, editorial result and promotion status
+        ↓ only when operator requests the full film
+POST /api/agent/actions operation=directed_full_film
+        ↓ binds parent action/job/video SHA + unchanged opening + 0:45–5:00 estimate
+Operator clicks “Approve & render remaining film” once
+        ↓ generate only later window; reuse frozen pilot
+Blob-backed directed-v1-full record + embedded five-minute video
 ```
 
 The AI must create the proposal before sending the approval link. This makes proposal existence
@@ -431,6 +445,38 @@ Use a bundle only if the production API currently supports that exact ID. A JSON
 GitHub or `/static` does not make it a supported server bundle. Prefer the inline normalized spec
 for arbitrary user-directed films.
 
+### Create a remaining-film proposal
+
+After the operator accepts a technically complete pilot, create a new non-spending action:
+
+```http
+POST /api/agent/actions
+Content-Type: application/json
+
+{
+  "operation": "directed_full_film",
+  "bundled_spec_id": "hippo_illustrated_story_v4_full_5m",
+  "parent_action_id": "<accepted pilot action>",
+  "parent_job_id": "<accepted pilot job>",
+  "cost_ceiling_usd": 6.00
+}
+```
+
+The ceiling is an example for this validated bundle, not a universal default. The returned estimate
+is for 0:45–5:00 only. Before creating the proposal, the server must verify:
+
+- The parent action is a durable directed pilot bound to the stated job.
+- The parent normalized spec still matches its stored SHA-256.
+- The Blob-backed pilot video and rendered-grade artifacts exist.
+- The parent video SHA-256 matches the artifact record.
+- No deterministic rendered-grade hard failure blocks promotion.
+- The full spec preserves every opening narration and shot row through 0:45.
+- The remaining-window estimate fits both the requested ceiling and deployment cap.
+
+The action's displayed authorization SHA-256 covers the full spec and the complete promotion
+envelope. Approval must show `remaining-45-to-300`, the parent job/video hash, estimated new spend,
+and the hard ceiling. The accepted pilot's prior spend is sunk and excluded.
+
 ### Expected response
 
 ```json
@@ -503,6 +549,15 @@ The one button is:
 Approve & render exact pilot
 ```
 
+For a separately scoped continuation action, the one button is:
+
+```text
+Approve & render remaining film
+```
+
+That button authorizes only the displayed later window. It does not re-authorize or regenerate the
+pilot.
+
 That click performs the authenticated hash-and-ceiling approval, then automatically calls execute
 and dispatch. The page converts to a live render console and retains the stable action URL. It
 shows bounded progress, sanitized durable events, spend against ceiling, and the completed video;
@@ -547,7 +602,9 @@ POST /api/agent/actions/{action_id}/dispatch
 ```
 
 Execution consumes the approval exactly once, revalidates the stored payload and hash, and binds one
-durable job to the action. Dispatch starts only that already-bound job.
+durable job to the action. A pilot action reconstructs only the first-45 request. A remaining-film
+action revalidates the parent binding and reconstructs only the 0:45–5:00 request with frozen-pilot
+reuse. Dispatch starts only that already-bound job.
 
 Expected action-side progression is:
 
@@ -863,7 +920,23 @@ Promotion decision: eligible, rejected or awaiting editorial review
 ```
 
 The automatic grade must inspect the encoded rendered story, not only source metadata. A story judge
-that did not run is not a clean high score; report unavailable grade components and their effect.
+that did not run is neither a pass nor a creative rejection. Report it as
+`UNSCORED_JUDGE_UNAVAILABLE` with no numeric composite score. Do not convert absent judge booleans
+into zeros. Deterministic pixel, cadence, continuity and claim failures remain authoritative and may
+still produce `REJECT` when the story judge is unavailable.
+
+Use four separate fields everywhere downstream:
+
+```text
+technical_status       = completed | failed
+automated_grade_status = pass | reject | unscored
+editorial_status       = pending | approved | rejected
+promotion_status       = blocked | awaiting_editorial | eligible | full_film_completed
+```
+
+Legacy immutable reports are not rewritten. A read-time classification may correct an old durable
+delivery label from `degraded` to `done` only after it verifies the raw rendered report has no
+deterministic hard failures. Preserve the old report, original label, artifact hashes and spend.
 
 A pilot below `automatic_grade_min` is rejected for promotion even if the MP4 plays. A pilot above
 the automatic floor may still require editorial review. Editorial review must use the approved
@@ -1050,9 +1123,21 @@ required by the spec. Technical delivery does not imply promotion.
 
 ### Full-film completion
 
-This runbook does not define full-film completion because the current deployed user-directed action
-authorizes only the first-45 pilot. Never claim the long-form film is complete when only its pilot
-exists.
+A user-directed full film is complete only when:
+
+```text
+a separately approved directed_full_film action exists
+AND its authorization hash binds the exact parent action/job/video hash and five-minute spec
+AND the full spec preserves the accepted 0:00–0:45 narration and shots
+AND the worker generates only 0:45–5:00
+AND the accepted pilot is reused without new pilot spend
+AND the concatenated MP4 is duration-checked, decodable and fast-started
+AND the full delivery report records both parent and final video hashes
+AND a Blob-backed directed-v1-full finished record exists
+AND the action page embeds the full video
+```
+
+Full-film technical completion does not imply editorial publication approval.
 
 ---
 
@@ -1088,5 +1173,10 @@ exists.
 [ ] Report automatic grade, editorial grade and promotion separately
 [ ] Preserve failed/degraded artifacts without manual conversion
 [ ] State clearly that full film is not authorized by the pilot
+[ ] When requested, create a separate remaining-film action bound to parent action/job/video hashes
+[ ] Verify the full spec preserves every accepted 0:00–0:45 narration and shot row
+[ ] Display remaining-window estimate and ceiling; exclude sunk pilot spend
+[ ] Verify execution renders only 0:45–5:00 and reuses the frozen pilot
+[ ] Verify the Blob-backed directed-v1-full record and final delivery report
 [ ] Remove temporary recovery infrastructure
 ```

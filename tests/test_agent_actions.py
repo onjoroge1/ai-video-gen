@@ -42,8 +42,10 @@ class FakeActionRepository:
     def pending(self):
         return [copy.deepcopy(self.action)] if self.action else []
 
-    def reusable_for_spec(self, spec_sha256, cost_ceiling_usd):
+    def reusable_for_spec(self, spec_sha256, cost_ceiling_usd,
+                          operation=agent_actions.DIRECTED_PILOT_OPERATION):
         if (self.action and self.action.get("spec_sha256") == spec_sha256
+                and self.action.get("operation") == operation
                 and float(self.action.get("cost_ceiling_usd") or 0) == float(cost_ceiling_usd)
                 and self.action.get("status") in {
                     "pending", "approved", "executing", "queued", "failed"}):
@@ -469,8 +471,9 @@ def test_agent_action_pages_describe_the_narrow_confirmation_boundary():
     assert "Create non-spending request" in request_html
     assert "Execute approved pilot" in request_html
     assert "first-45" in request_html
-    assert "No entry can authorize a full film" in approval_html
-    assert "Spec SHA-256" in approval_html
+    assert "A pilot and its remaining film are separate actions" in approval_html
+    assert "Approve & render remaining film" in approval_html
+    assert "Authorization SHA-256" in approval_html
     assert "Hard ceiling" in approval_html
     assert "Durable worker events will appear here" in approval_html
     assert "/public-status?after=" in approval_html

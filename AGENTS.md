@@ -2,7 +2,7 @@
 
 This file is the canonical contract for AI agents that want to request a paid ReelForge video render.
 
-## Core rule: one human approval only
+## Core rule: one approval per immutable spend boundary
 
 An AI may prepare and submit an immutable first-45-second directed pilot request. The AI must never require the operator to approve the same spend twice.
 
@@ -15,7 +15,9 @@ The intended flow is:
 5. The same page becomes a live render console: it shows sanitized durable events, progress, spend, and the finished video when available.
 6. AI monitors the same resulting job/artifacts and reports the grade/result. No second execute confirmation is expected from the operator.
 
-Approval is bound to the exact normalized spec SHA-256, cost ceiling, expiry, and `first-45-pilot` scope. Full-film generation is not authorized by this flow.
+Approval is bound to the exact normalized spec SHA-256, cost ceiling, expiry, and
+`first-45-pilot` scope. It never authorizes the rest of the film. A completed pilot may be followed
+by one separately hash-bound `directed_full_film` action for only the remaining window.
 
 ## Create a proposal
 
@@ -34,6 +36,26 @@ JSON body for a bundled pilot:
 Or provide a complete validated directed spec in `spec` instead of `bundled_spec_id`.
 
 Creation does **not** spend money. The response includes the action ID, immutable spec hash, estimated cost, ceiling and stable action-specific approval path. Repeating the request for the same exact spec-and-ceiling boundary returns its existing pending, executing, queued, completed, or failed lifecycle; it must not create another active proposal.
+
+## Promote an accepted pilot
+
+The full-film proposal is also non-spending. It must name the exact pilot action and job:
+
+```json
+{
+  "operation": "directed_full_film",
+  "bundled_spec_id": "hippo_illustrated_story_v4_full_5m",
+  "parent_action_id": "<accepted pilot action>",
+  "parent_job_id": "<accepted pilot job>",
+  "cost_ceiling_usd": 6.00
+}
+```
+
+The server verifies the parent spec, raw rendered-grade artifact, video SHA-256, and unchanged
+0:00–0:45 narration/shot contract. The approval hash covers those parent identifiers and hashes,
+the five-minute spec, the `remaining-45-to-300` scope, estimate, and ceiling. Execution downloads
+the frozen pilot, generates only 0:45–5:00, and concatenates the accepted opening. Never regenerate
+or charge for the pilot under this action.
 
 ## Human approval
 
@@ -73,7 +95,11 @@ The action status progression is expected to be:
 
 `pending -> approved -> executing -> queued -> rendering -> completed|failed`
 
-The durable job and finished-video records are the source of truth after queueing. A failed pilot remains a failed artifact; do not manually convert it into a pass or silently lower quality thresholds.
+The durable job and finished-video records are the source of truth after queueing. A failed pilot
+remains a failed artifact; do not manually convert it into a pass or silently lower quality
+thresholds. Technical delivery, automated grade, editorial grade, and promotion state are separate
+fields. An unavailable story judge is `UNSCORED_JUDGE_UNAVAILABLE`, not a numeric reject and not
+technical degradation. Deterministic hard failures still block promotion.
 
 The public status endpoint supports incremental event retrieval:
 
@@ -99,6 +125,7 @@ Agents should report at minimum:
 - Never mutate the spec after approval. Create a new action for a changed spec.
 - Never exceed the displayed hard cost ceiling.
 - Never use a first-45 approval to generate a full film.
+- Never let a remaining-film action regenerate or charge for the accepted pilot.
 - Never require a second human approval for the same immutable pilot.
 
 If the user says they approved the pilot, first verify the production action/job state. Under the current flow the render should already have been queued and dispatched by that single approval.

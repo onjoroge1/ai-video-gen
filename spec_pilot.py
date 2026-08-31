@@ -36,6 +36,7 @@ from longform_rendered_gate import (
     create_human_review_record,
     cross_check_blind_observations,
     inspect_rendered_opening,
+    rendered_grade_summary,
     score_rendered_contract,
 )
 
@@ -416,14 +417,20 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
             "source": image_path,
             "verified_visible_information": True,
         })
+        labels = " ".join(str(item) for item in shot.get("labels") or [])
+        has_bolt = bool(
+            "BOLT" in (shot.get("reference_ids") or [])
+            or "bolt" in str(shot.get("mode") or "").casefold()
+            or "bolt" in str(shot.get("visual") or "").casefold()
+            or "bolt" in labels.casefold())
         states.append({
             "state_id": state_id,
-            "include_bolt": "BOLT" in (shot.get("reference_ids") or []),
+            "include_bolt": has_bolt,
             "pure_evidence": False,
             "required_objects": [],
             "verification": {
                 "passed": Path(image_path).is_file(),
-                "bolt_present": "BOLT" in (shot.get("reference_ids") or []),
+                "bolt_present": has_bolt,
                 "reasons": [],
             },
         })
@@ -497,29 +504,41 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
             for duration in cadence["motion_durations_sec"]):
         rendered.setdefault("hard_failures", []).append("directed_motion_duration_mismatch")
     rendered["hard_failures"] = sorted(set(rendered.get("hard_failures") or []))
-    directed_pass = bool(
-        rendered.get("score", 0) >= spec.acceptance.automatic_grade_min
-        and not rendered.get("hard_failures")
-        and checked.get("valid") is True
+    score = rendered.get("score")
+    grade_available = checked.get("valid") is True
+    directed_pass = (
+        bool(score >= spec.acceptance.automatic_grade_min
+             and not rendered.get("hard_failures"))
+        if grade_available and score is not None else
+        (False if rendered.get("hard_failures") else None)
+    )
+    status = (
+        "REJECT" if rendered.get("hard_failures") else
+        "UNSCORED_JUDGE_UNAVAILABLE" if not grade_available else
+        "AUTOMATED_PASS_AWAITING_HUMAN" if directed_pass else "REJECT"
     )
     rendered.update({
         "name": "Directed Long-Form Rendered Pilot Contract",
         "automatic_grade_floor": spec.acceptance.automatic_grade_min,
         "automated_pass": directed_pass,
+        "automated_grade_available": grade_available,
         "passed": False,
         "publishable": False,
-        "status": "AUTOMATED_PASS_AWAITING_HUMAN" if directed_pass else "REJECT",
+        "status": status,
         "inspection": inspection,
         "blind_story_judge": checked,
         "contact_sheet_path": contact_sheet_path,
         "promotion_rule": "A failed automatic or editorial grade cannot be promoted in place.",
     })
+    rendered["grade_summary"] = rendered_grade_summary(rendered)
     report_path = str(out / "rendered_contract.json")
     Path(report_path).write_text(
         json.dumps(rendered, indent=2, ensure_ascii=False), encoding="utf-8")
     review_path = str(out / "human_review.json")
     create_human_review_record(report_path, preview, review_path)
-    log(f"Rendered pilot grade: {rendered['score']}/100 ({rendered['status']})")
+    grade_label = (f"{rendered['score']}/100" if rendered.get("score") is not None
+                   else "unscored")
+    log(f"Rendered pilot grade: {grade_label} ({rendered['status']})")
     return {
         "rendered_contract": rendered,
         "rendered_contract_path": report_path,

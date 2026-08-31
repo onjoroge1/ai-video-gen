@@ -1,0 +1,2493 @@
+{
+  "schema_version": "directed_longform_v1",
+  "project_id": "hippo-illustrated-story-v4-full-5m",
+  "title": "What If America Had Adopted Hippo Meat? — Full Illustrated History",
+  "negative_prompt": "generic documentary b-roll, static slideshow, repeated composition, repeated crop of the previous image, repetitive Ken Burns treatment, unreadable generated text, malformed lettering, duplicated animals, extra limbs, gore, plastic CGI skin, modern objects in 1910 scenes, fake seals",
+  "target": {
+    "duration_sec": 300.0,
+    "pilot_end_sec": 45.0,
+    "format": "landscape",
+    "voice": "echo",
+    "max_cost_usd": 7.0
+  },
+  "acceptance": {
+    "runtime_tolerance_sec": 12.0,
+    "pilot_runtime_min_sec": 43.0,
+    "pilot_runtime_max_sec": 47.0,
+    "pilot_min_visual_states": 18,
+    "pilot_min_unique_master_assets": 18,
+    "min_shot_sec": 1.25,
+    "max_unchanged_hold_sec": 3.0,
+    "max_consecutive_still_asset_sec": 3.0,
+    "full_motion_duration_sec": 5.0,
+    "full_motion_duration_tolerance_sec": 0.25,
+    "frontloaded_motion_count": 2,
+    "frontloaded_motion_window_sec": 15.0,
+    "max_unique_master_assets": 117,
+    "min_useful_bolt_appearances": 1,
+    "max_bolt_appearances": 3,
+    "planned_bolt_appearances": 2,
+    "evidence_coverage_pct": 100.0,
+    "automatic_grade_min": 90.0,
+    "editorial_grade_min": 85.0
+  },
+  "worlds": [
+    {
+      "world_id": "illustrated_america",
+      "start_sec": 0.0,
+      "end_sec": 45.0,
+      "base_prompt": "Premium editorial illustrated-history visual essay with cinematic depth and tactile detail. Alternate materially different wide, medium, close, macro, overhead, over-shoulder, diagram and reaction compositions. Every new noun, action, place, joke or historical turn gets a genuinely new master image; never disguise a repeated composition as a crop.",
+      "on_screen_label": "THE AMERICA WE ALMOST GOT"
+    },
+    {
+      "world_id": "historical_1910",
+      "start_sec": 45.0,
+      "end_sec": 180.0,
+      "base_prompt": "Premium editorial illustrated history grounded in 1910 materials, clothing and architecture; cinematic depth, tactile ink and paper, varied camera scales, no fake archive.",
+      "on_screen_label": "GENERATED ILLUSTRATION — 1910"
+    },
+    {
+      "world_id": "counterfactual_gulf",
+      "start_sec": 180.0,
+      "end_sec": 220.0,
+      "base_prompt": "Cinematic alternate-history Gulf Coast simulation, plausible ecology and infrastructure, premium editorial realism, consequences visibly hypothetical, no disaster sensationalism.",
+      "on_screen_label": "COUNTERFACTUAL SIMULATION"
+    },
+    {
+      "world_id": "modern_evidence",
+      "start_sec": 220.0,
+      "end_sec": 265.0,
+      "base_prompt": "Modern Colombia evidence sequence in premium editorial illustration, specific river ecology, research and management work, respectful documentary framing, no fake news footage.",
+      "on_screen_label": "MODERN COLOMBIA — ILLUSTRATED EVIDENCE"
+    },
+    {
+      "world_id": "historical_1910",
+      "start_sec": 265.0,
+      "end_sec": 287.5,
+      "base_prompt": "Premium editorial illustrated history grounded in 1910 materials, clothing and architecture; cinematic depth, tactile ink and paper, varied camera scales, no fake archive.",
+      "on_screen_label": "GENERATED ILLUSTRATION — 1910"
+    },
+    {
+      "world_id": "counterfactual_gulf",
+      "start_sec": 287.5,
+      "end_sec": 300.0,
+      "base_prompt": "Cinematic alternate-history Gulf Coast simulation, plausible ecology and infrastructure, premium editorial realism, consequences visibly hypothetical, no disaster sensationalism.",
+      "on_screen_label": "COUNTERFACTUAL SIMULATION"
+    }
+  ],
+  "narration": [
+    {
+      "scene_id": "s1_hook",
+      "start_sec": 0.0,
+      "end_sec": 9.0,
+      "narration": "This burger almost wasn't beef. In another America, the family cookout, the grocery aisle, even the diner special could have meant one enormous thing: hippo.",
+      "world_id": "illustrated_america",
+      "story_role": "visible consequence hook",
+      "claim_ids": []
+    },
+    {
+      "scene_id": "s2_problem",
+      "start_sec": 9.0,
+      "end_sec": 18.0,
+      "narration": "The strange part is this wasn't a joke. In 1910, meat prices were a political problem, and Americans were hunting for a new source of cheap protein.",
+      "world_id": "illustrated_america",
+      "story_role": "problem and context",
+      "claim_ids": []
+    },
+    {
+      "scene_id": "s3_plan",
+      "start_sec": 18.0,
+      "end_sec": 27.0,
+      "narration": "One proposal sounded impossible: bring hippopotamuses to Louisiana, let them eat invasive water plants, then turn the animals themselves into dinner.",
+      "world_id": "illustrated_america",
+      "story_role": "absurd plan reveal",
+      "claim_ids": []
+    },
+    {
+      "scene_id": "s4_altworld",
+      "start_sec": 27.0,
+      "end_sec": 36.0,
+      "narration": "Now picture the plan actually working. Bayous become hippo ranches. Butchers learn a whole new animal. Menus stop looking strange because hippo becomes normal.",
+      "world_id": "illustrated_america",
+      "story_role": "alternate-world escalation",
+      "claim_ids": []
+    },
+    {
+      "scene_id": "s5_callback",
+      "start_sec": 36.0,
+      "end_sec": 45.0,
+      "narration": "It never became the American dinner table. But that ordinary burger is now a reminder: history isn't only what happened. It's also the weird futures we barely avoided.",
+      "world_id": "illustrated_america",
+      "story_role": "callback and meaning",
+      "claim_ids": []
+    },
+    {
+      "scene_id": "s6_two_crises",
+      "start_sec": 45.0,
+      "end_sec": 77.5,
+      "narration": "So why did serious people consider it? Start with two real problems. Working families were furious about rising meat prices. Louisiana's waterways were clogged by water hyacinth, an imported plant that spread into floating mats, slowed boats, and resisted removal. Representative Robert Broussard saw expensive protein, unwanted vegetation, and miles of warm wet habitat. On paper, they seemed to click together: feed the weeds to a giant animal, then feed the animal to America.",
+      "world_id": "historical_1910",
+      "story_role": "two real crises",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ]
+    },
+    {
+      "scene_id": "s7_the_pitch",
+      "start_sec": 77.5,
+      "end_sec": 115.0,
+      "narration": "In March 1910, Broussard brought House Resolution 23261 before the House Agriculture Committee. It asked for two hundred fifty thousand dollars to import useful wild animals. Hippos were the star: put them in Louisiana and Florida, let them consume the plant, and turn their enormous bodies into affordable meat. Supporters softened the shock with a brilliant nickname—lake cow bacon. The phrase made a dangerous African megaherbivore sound like something that already belonged beside eggs at breakfast.",
+      "world_id": "historical_1910",
+      "story_role": "seductive congressional pitch",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ]
+    },
+    {
+      "scene_id": "s8_bigger_plan",
+      "start_sec": 115.0,
+      "end_sec": 145.0,
+      "narration": "And the plan did not stop at hippos. Witnesses imagined a redesigned American food system stocked with animals from around the world: antelope on family farms, African buffalo in the West, yaks in the Rockies, even rhinoceroses in the Southwest. To supporters, disgust was just habit wearing a costume. Cattle had once been foreign too. If Americans learned to call a hippo a lake cow, perhaps taste and commerce would do the rest. For a country anxious about food, it was a seductive promise: no sacrifice, only abundance.",
+      "world_id": "historical_1910",
+      "story_role": "national ambition escalation",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ]
+    },
+    {
+      "scene_id": "s9_two_questions",
+      "start_sec": 145.0,
+      "end_sec": 180.0,
+      "narration": "Then the committee reached two practical questions. Could hippos be contained on ordinary farms? And would they actually live on water hyacinth? Broussard's witnesses answered yes. That completed the machine: plant becomes hippo; hippo becomes meat; two problems disappear. But modern biology flips the diagram. Hippos spend daylight in water, yet usually leave it at night to graze grass, sometimes traveling miles. Water hyacinth is about ninety-five percent water. A herd could chew enormous bulk and still go searching on land for real fuel.",
+      "world_id": "historical_1910",
+      "story_role": "committee challenge and reversal",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ]
+    },
+    {
+      "scene_id": "s10_new_problem",
+      "start_sec": 180.0,
+      "end_sec": 220.0,
+      "narration": "Now picture the first Louisiana herd after the novelty fades. The animals do not stay politely inside a carpet of weeds. They climb banks, cross roads, enter crops, and move toward new waterways. An adult hippo is territorial, immensely powerful, and dangerous around boats and shorelines. A cattle fence is not proof against an animal weighing several thousand pounds. Their waste also carries nutrients from land into water, where concentrated inputs can alter algae, oxygen, fish, and water quality. The proposed cure could become a second invasive problem—mobile, breeding, and much harder to remove than a floating plant.",
+      "world_id": "counterfactual_gulf",
+      "story_role": "informed alternate-America consequence",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ]
+    },
+    {
+      "scene_id": "s11_colombia",
+      "start_sec": 220.0,
+      "end_sec": 265.0,
+      "narration": "That is an informed counterfactual, not a prediction. But Colombia has run part of the experiment. In the 1980s, Pablo Escobar imported four hippos for a private zoo. After his death, the animals were difficult to capture, so they remained. They bred. Some left the estate, and descendants spread through the Magdalena River basin. Scientists have documented rapid growth and warned about disturbed habitat, changed water chemistry, conflict with people, and pressure on native species. Colombia has tried sterilization, relocation, confinement, and plans for euthanasia—each costly, difficult, or politically painful. Four founders needed only warm water, grass, room, and time.",
+      "world_id": "modern_evidence",
+      "story_role": "real-world analogue",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ]
+    },
+    {
+      "scene_id": "s12_decision",
+      "start_sec": 265.0,
+      "end_sec": 287.5,
+      "narration": "Back in Washington, the committee remained unconvinced and shelved the proposal. There was no dramatic national vote, and no documented near-miss by a handful of ballots. The real ending was quieter: practical questions went unanswered, priorities changed, and the folder stopped moving. That anticlimax may be the point. History is not only made by heroic rescues. Sometimes a strange future disappears because skeptical people refuse to turn a confident idea into infrastructure.",
+      "world_id": "historical_1910",
+      "story_role": "documented congressional outcome",
+      "claim_ids": [
+        "F11"
+      ]
+    },
+    {
+      "scene_id": "s13_final_callback",
+      "start_sec": 287.5,
+      "end_sec": 300.0,
+      "narration": "Return to the ordinary burger from the opening. Hippo meat was never the impossible part. The impossible promise was importing a powerful animal and receiving only the benefit. Our world is shaped by plans that worked—and by the weird futures that never made it off the page.",
+      "world_id": "counterfactual_gulf",
+      "story_role": "opening callback and final meaning",
+      "claim_ids": []
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "v4_01",
+      "start_sec": 0.0,
+      "end_sec": 5.0,
+      "visual": "Five-second opening move through an alternate-American cookout toward a hippo burger reveal",
+      "mode": "Full motion",
+      "world_id": "illustrated_america",
+      "scene_id": "s1_hook",
+      "asset_key": "v4_motion_cookout",
+      "asset_prompt": "Wide low-angle alternate-American backyard cookout, family and grill in depth, hero burger entering foreground on a tray, subtle hippo icon on serving paper, warm summer light, room for a forward camera move.",
+      "transformation": "five-second forward dolly from family cookout to burger reveal with grill smoke and natural hand movement",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THIS ALMOST WASN'T BEEF",
+      "labels": [
+        "frontloaded_motion"
+      ]
+    },
+    {
+      "shot_id": "v4_02",
+      "start_sec": 5.0,
+      "end_sec": 7.0,
+      "visual": "Bolt reacts to a hippo-burger menu card",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s1_hook",
+      "asset_key": "v4_bolt_menu",
+      "asset_prompt": "Medium reaction composition at a cookout table, Bolt mascot doing a useful surprised double-take toward a blank menu card, burger and guests softly framed behind him, editorial illustrated realism.",
+      "transformation": "brief reaction push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "HIPPO BURGER?",
+      "labels": [
+        "Bolt reaction"
+      ]
+    },
+    {
+      "shot_id": "v4_03",
+      "start_sec": 7.0,
+      "end_sec": 9.0,
+      "visual": "Alternate-America shopper places hippo meat into an ordinary grocery cart",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s1_hook",
+      "asset_key": "v4_market_cart",
+      "asset_prompt": "Over-shoulder supermarket composition, shopper placing a clearly packaged hypothetical hippo product into a cart beside milk and cereal, colorful modern aisle receding diagonally, ordinary behavior in an absurd timeline.",
+      "transformation": "short lateral drift",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "NORMAL IN ANOTHER AMERICA",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_04",
+      "start_sec": 9.0,
+      "end_sec": 14.0,
+      "visual": "Five-second 1910 price-crisis sequence at a butcher counter",
+      "mode": "Full motion",
+      "world_id": "illustrated_america",
+      "scene_id": "s2_problem",
+      "asset_key": "v4_motion_price_board",
+      "asset_prompt": "Wide 1910 butcher-shop interior, worried customers and proprietor beside a large blank chalk price board, newspapers on counter, historically grounded clothing and fixtures, strong layered depth for a lateral camera move.",
+      "transformation": "five-second lateral move as butcher changes a price tile, customer reacts and newspaper slides onto counter",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "1910: MEAT PRICES BECAME POLITICAL",
+      "labels": [
+        "frontloaded_motion"
+      ]
+    },
+    {
+      "shot_id": "v4_05",
+      "start_sec": 14.0,
+      "end_sec": 16.0,
+      "visual": "Newspaper and household receipts show the meat-price argument",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s2_problem",
+      "asset_key": "v4_newspaper_macro",
+      "asset_prompt": "Top-down macro editorial composition of 1910 newspapers, household ledger, coins and butcher receipts, one hand circling a rising total, tactile paper and ink without generated readable headlines.",
+      "transformation": "top-down micro push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "AMERICA WANTED CHEAPER PROTEIN",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_06",
+      "start_sec": 16.0,
+      "end_sec": 18.0,
+      "visual": "Sparse butcher display and anxious family",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s2_problem",
+      "asset_key": "v4_sparse_counter",
+      "asset_prompt": "Symmetrical wide 1910 market-counter composition with sparse wrapped goods, anxious working family at left and proprietor at right, empty foreground emphasizing scarcity, historically grounded cinematic illustration.",
+      "transformation": "slow pull back",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THE PROBLEM WAS REAL",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_07",
+      "start_sec": 18.0,
+      "end_sec": 20.25,
+      "visual": "Louisiana map receives an impossible hippo proposal",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s3_plan",
+      "asset_key": "v4_louisiana_map",
+      "asset_prompt": "Oblique overhead view of a 1910 Gulf Coast map on a wooden planning table, Louisiana highlighted with shipping route and separate hippo-shaped brass marker, hands entering from opposite edges.",
+      "transformation": "diagonal map push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THE PROPOSAL: ADD HIPPOS",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_08",
+      "start_sec": 20.25,
+      "end_sec": 22.5,
+      "visual": "Lawmakers confront a giant hippo easel",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s3_plan",
+      "asset_key": "v4_committee_wide",
+      "asset_prompt": "Deep wide 1910 committee-room composition, serious lawmakers tiny around a long table while an oversized hippo silhouette diagram dominates the easel, visual joke from scale contrast, period realism.",
+      "transformation": "slow push toward absurd easel",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THIS WASN'T A JOKE",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_09",
+      "start_sec": 22.5,
+      "end_sec": 24.75,
+      "visual": "Hippos-to-plants-to-dinner mechanism diagram",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s3_plan",
+      "asset_key": "v4_mechanism_diagram",
+      "asset_prompt": "Clean close editorial diagram on cream paper, three large pictograms only: hippo, floating water plants, covered dinner plate, connected by bold arrows, period hand pointing, no generated words.",
+      "transformation": "three-step insert move",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "HIPPOS → WEEDS → DINNER",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_10",
+      "start_sec": 24.75,
+      "end_sec": 27.0,
+      "visual": "Plant-choked Louisiana bayou before the hippos arrive",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s3_plan",
+      "asset_key": "v4_bayou_before",
+      "asset_prompt": "Water-level establishing shot of a Louisiana bayou heavily choked with floating plants, cypress knees close foreground, skiff trapped in middle distance, no hippos yet, humid cinematic illustrated realism.",
+      "transformation": "water-level glide",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "ONE PLAN. TWO PROBLEMS?",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_11",
+      "start_sec": 27.0,
+      "end_sec": 29.25,
+      "visual": "Hippos enter the bayou and eat through the vegetation",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s4_altworld",
+      "asset_key": "v4_bayou_hippos",
+      "asset_prompt": "Low telephoto riverbank composition of realistic hippos pushing through Louisiana water plants, torn vegetation opening a path behind them, cypress forest compressed in background, energetic illustrated realism.",
+      "transformation": "quick push through plants",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "EAT THE WEEDS",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_12",
+      "start_sec": 29.25,
+      "end_sec": 31.5,
+      "visual": "Alternate Louisiana hippo ranch becomes ordinary infrastructure",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s4_altworld",
+      "asset_key": "v4_ranch_aerial",
+      "asset_prompt": "High aerial three-quarter composition of a plausible alternate-history Louisiana hippo ranch, water paddocks, fences, skiffs and ranch hands forming readable geometry, several realistic hippos, everyone treating it as routine.",
+      "transformation": "aerial drift",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "HIPPO COUNTRY",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_13",
+      "start_sec": 31.5,
+      "end_sec": 33.75,
+      "visual": "Butcher studies a tasteful hippo cuts chart",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s4_altworld",
+      "asset_key": "v4_alt_butcher",
+      "asset_prompt": "Tight over-shoulder alternate-history butcher composition, proprietor studying a tasteful numbered hippo anatomy chart while a customer points to one section, wrapped products only, no gore, warm shop light.",
+      "transformation": "over-shoulder rack push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "NEW ANIMAL. NEW CUTS.",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_14",
+      "start_sec": 33.75,
+      "end_sec": 36.0,
+      "visual": "Hippo special feels normal in a crowded diner",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s4_altworld",
+      "asset_key": "v4_diner_booth",
+      "asset_prompt": "Eye-level aisle composition inside a busy alternate-history 1910s diner, waiter carrying a covered plate past crowded booths, blank special board behind, patrons chatting normally, lively illustrated realism.",
+      "transformation": "fast aisle push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "TODAY'S SPECIAL: HIPPO",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_15",
+      "start_sec": 36.0,
+      "end_sec": 38.25,
+      "visual": "Return to our timeline through a different burger composition",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s5_callback",
+      "asset_key": "v4_burger_callback",
+      "asset_prompt": "Extreme macro side profile of an ordinary beef burger held in two hands at a modern cookout, shallow depth of field with no tray and no menu, materially different from the opening wide composition, warm natural light.",
+      "transformation": "callback match push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "BACK TO OUR TIMELINE",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_16",
+      "start_sec": 38.25,
+      "end_sec": 40.5,
+      "visual": "Real supermarket aisle shows the future that did not happen",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s5_callback",
+      "asset_key": "v4_real_market",
+      "asset_prompt": "Centered one-point-perspective modern supermarket meat aisle with ordinary beef and chicken packages, lone shopper small in distance, clean cool light, visual echo of the alternate market without repeating its composition.",
+      "transformation": "centered pull back",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THE FUTURE THAT DIDN'T HAPPEN",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_17",
+      "start_sec": 40.5,
+      "end_sec": 42.75,
+      "visual": "A ghosted hippo package marks the timeline America avoided",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s5_callback",
+      "asset_key": "v4_ghost_future",
+      "asset_prompt": "Graphic split composition: ordinary wrapped beef product solid on left, faint translucent hypothetical hippo-shaped package silhouette on right dissolving into blueprint lines, dark neutral background, premium editorial illustration.",
+      "transformation": "subtle dissolve push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "HISTORY CHOSE OTHERWISE",
+      "labels": []
+    },
+    {
+      "shot_id": "v4_18",
+      "start_sec": 42.75,
+      "end_sec": 45.0,
+      "visual": "Bolt closes on the ordinary burger and the weird future behind it",
+      "mode": "Still",
+      "world_id": "illustrated_america",
+      "scene_id": "s5_callback",
+      "asset_key": "v4_bolt_close",
+      "asset_prompt": "Medium-wide closing composition, Bolt mascot holding an ordinary burger at lower left while a small hippo-shaped thought-cloud opens over a softly lit American cookout behind him, thoughtful rather than shocked, premium illustration.",
+      "transformation": "gentle closing push",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "THE AMERICA WE ALMOST GOT",
+      "labels": [
+        "Bolt callback"
+      ]
+    },
+    {
+      "shot_id": "v4f_019",
+      "start_sec": 45.0,
+      "end_sec": 47.5,
+      "visual": "working family counts coins beside a nearly empty 1910 market basket",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_019",
+      "asset_prompt": "wide establishing composition: working family counts coins beside a nearly empty 1910 market basket. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_020",
+      "start_sec": 47.5,
+      "end_sec": 50.0,
+      "visual": "butcher changes a blank price tile as customers react",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_020",
+      "asset_prompt": "tight human close-up composition: butcher changes a blank price tile as customers react. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_021",
+      "start_sec": 50.0,
+      "end_sec": 52.5,
+      "visual": "macro ledger of household food costs with coins and wrapped parcels",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_021",
+      "asset_prompt": "over-shoulder composition: macro ledger of household food costs with coins and wrapped parcels. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_022",
+      "start_sec": 52.5,
+      "end_sec": 55.0,
+      "visual": "busy street crowd studies a butcher window",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_022",
+      "asset_prompt": "macro insert composition: busy street crowd studies a butcher window. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_023",
+      "start_sec": 55.0,
+      "end_sec": 57.5,
+      "visual": "Louisiana skiff trapped behind a wall of water hyacinth",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_023",
+      "asset_prompt": "high overhead composition: Louisiana skiff trapped behind a wall of water hyacinth. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_024",
+      "start_sec": 57.5,
+      "end_sec": 60.0,
+      "visual": "overhead bayou map filling with green plant mats",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_024",
+      "asset_prompt": "low-angle environmental composition: overhead bayou map filling with green plant mats. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_025",
+      "start_sec": 60.0,
+      "end_sec": 62.5,
+      "visual": "fisher pulls an oar through tangled invasive plants",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_025",
+      "asset_prompt": "symmetrical diagram composition: fisher pulls an oar through tangled invasive plants. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_026",
+      "start_sec": 62.5,
+      "end_sec": 65.0,
+      "visual": "workers drag heavy wet hyacinth onto a barge",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_026",
+      "asset_prompt": "deep three-quarter composition: workers drag heavy wet hyacinth onto a barge. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_027",
+      "start_sec": 65.0,
+      "end_sec": 67.5,
+      "visual": "Broussard studies two problem photographs on his desk",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_027",
+      "asset_prompt": "telephoto reaction composition: Broussard studies two problem photographs on his desk. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_028",
+      "start_sec": 67.5,
+      "end_sec": 70.0,
+      "visual": "split tableau of costly food and blocked waterways",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_028",
+      "asset_prompt": "oblique tabletop composition: split tableau of costly food and blocked waterways. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_029",
+      "start_sec": 70.0,
+      "end_sec": 72.5,
+      "visual": "two puzzle-piece diagrams approach each other without touching",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_029",
+      "asset_prompt": "water-level composition: two puzzle-piece diagrams approach each other without touching. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_030",
+      "start_sec": 72.5,
+      "end_sec": 75.0,
+      "visual": "hippo-shaped marker lands between meat ledger and bayou map",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_030",
+      "asset_prompt": "graphic split-frame composition: hippo-shaped marker lands between meat ledger and bayou map. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_031",
+      "start_sec": 75.0,
+      "end_sec": 77.5,
+      "visual": "absurd machine diagram links weeds, hippo, and dinner plate",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s6_two_crises",
+      "asset_key": "v4f_master_031",
+      "asset_prompt": "wide establishing composition: absurd machine diagram links weeds, hippo, and dinner plate. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F04"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_032",
+      "start_sec": 77.5,
+      "end_sec": 80.0,
+      "visual": "motion through a 1910 corridor toward Broussard carrying a bill folder",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_032",
+      "asset_prompt": "tight human close-up composition: motion through a 1910 corridor toward Broussard carrying a bill folder. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_033",
+      "start_sec": 80.0,
+      "end_sec": 82.5,
+      "visual": "close portrait of Broussard placing the proposal on a committee desk",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_033",
+      "asset_prompt": "over-shoulder composition: close portrait of Broussard placing the proposal on a committee desk. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_034",
+      "start_sec": 82.5,
+      "end_sec": 85.0,
+      "visual": "top-down document composition with exact title area left blank",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_034",
+      "asset_prompt": "macro insert composition: top-down document composition with exact title area left blank. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_035",
+      "start_sec": 85.0,
+      "end_sec": 87.5,
+      "visual": "committee members lean toward a large Gulf Coast map",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_035",
+      "asset_prompt": "high overhead composition: committee members lean toward a large Gulf Coast map. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_036",
+      "start_sec": 87.5,
+      "end_sec": 90.0,
+      "visual": "period money appropriation diagram with stacks of coins",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_036",
+      "asset_prompt": "low-angle environmental composition: period money appropriation diagram with stacks of coins. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_037",
+      "start_sec": 90.0,
+      "end_sec": 95.0,
+      "visual": "cargo ship route arcs from Africa toward the Gulf Coast",
+      "mode": "Full motion",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_037",
+      "asset_prompt": "symmetrical diagram composition: cargo ship route arcs from Africa toward the Gulf Coast. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "five-second semantic motion with natural subject action and camera travel",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": [
+        "full_motion",
+        "causal_turn"
+      ]
+    },
+    {
+      "shot_id": "v4f_038",
+      "start_sec": 95.0,
+      "end_sec": 97.5,
+      "visual": "Florida and Louisiana highlighted on a relief map",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_038",
+      "asset_prompt": "deep three-quarter composition: Florida and Louisiana highlighted on a relief map. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_039",
+      "start_sec": 97.5,
+      "end_sec": 100.0,
+      "visual": "plant mat transforms into a hippo silhouette in a visual equation",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_039",
+      "asset_prompt": "telephoto reaction composition: plant mat transforms into a hippo silhouette in a visual equation. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_040",
+      "start_sec": 100.0,
+      "end_sec": 102.5,
+      "visual": "covered breakfast plate receives a hypothetical bacon package",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_040",
+      "asset_prompt": "oblique tabletop composition: covered breakfast plate receives a hypothetical bacon package. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_041",
+      "start_sec": 102.5,
+      "end_sec": 105.0,
+      "visual": "newspaper illustrator sketches the friendly lake-cow nickname",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_041",
+      "asset_prompt": "water-level composition: newspaper illustrator sketches the friendly lake-cow nickname. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_042",
+      "start_sec": 105.0,
+      "end_sec": 107.5,
+      "visual": "visual joke of a hippo squeezed into a pastoral cattle engraving",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_042",
+      "asset_prompt": "graphic split-frame composition: visual joke of a hippo squeezed into a pastoral cattle engraving. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_043",
+      "start_sec": 107.5,
+      "end_sec": 110.0,
+      "visual": "serious witness points to a waterfront-farm model",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_043",
+      "asset_prompt": "wide establishing composition: serious witness points to a waterfront-farm model. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_044",
+      "start_sec": 110.0,
+      "end_sec": 112.5,
+      "visual": "committee clerk compares animal scale to a human silhouette",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_044",
+      "asset_prompt": "tight human close-up composition: committee clerk compares animal scale to a human silhouette. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_045",
+      "start_sec": 112.5,
+      "end_sec": 115.0,
+      "visual": "breakfast table normalizes the impossible package in alternate history",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s7_the_pitch",
+      "asset_key": "v4f_master_045",
+      "asset_prompt": "over-shoulder composition: breakfast table normalizes the impossible package in alternate history. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_046",
+      "start_sec": 115.0,
+      "end_sec": 117.5,
+      "visual": "large United States map unfolds across the committee wall",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_046",
+      "asset_prompt": "macro insert composition: large United States map unfolds across the committee wall. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_047",
+      "start_sec": 117.5,
+      "end_sec": 120.0,
+      "visual": "antelope icons populate tidy eastern farm plots",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_047",
+      "asset_prompt": "high overhead composition: antelope icons populate tidy eastern farm plots. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_048",
+      "start_sec": 120.0,
+      "end_sec": 122.5,
+      "visual": "African buffalo silhouettes spread across a western range",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_048",
+      "asset_prompt": "low-angle environmental composition: African buffalo silhouettes spread across a western range. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_049",
+      "start_sec": 122.5,
+      "end_sec": 125.0,
+      "visual": "yak caravan appears along snowy Rocky Mountain ridges",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_049",
+      "asset_prompt": "symmetrical diagram composition: yak caravan appears along snowy Rocky Mountain ridges. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_050",
+      "start_sec": 125.0,
+      "end_sec": 127.5,
+      "visual": "rhinoceros proposal marker rests over a desert landscape",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_050",
+      "asset_prompt": "deep three-quarter composition: rhinoceros proposal marker rests over a desert landscape. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_051",
+      "start_sec": 127.5,
+      "end_sec": 130.0,
+      "visual": "committee room becomes a visual menagerie around Broussard",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_051",
+      "asset_prompt": "telephoto reaction composition: committee room becomes a visual menagerie around Broussard. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_052",
+      "start_sec": 130.0,
+      "end_sec": 132.5,
+      "visual": "family farm engraving morphs into an exotic animal collage",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_052",
+      "asset_prompt": "oblique tabletop composition: family farm engraving morphs into an exotic animal collage. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_053",
+      "start_sec": 132.5,
+      "end_sec": 135.0,
+      "visual": "cattle portrait and hippo portrait hang as parallel imports",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_053",
+      "asset_prompt": "water-level composition: cattle portrait and hippo portrait hang as parallel imports. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_054",
+      "start_sec": 135.0,
+      "end_sec": 137.5,
+      "visual": "skeptical diner faces two covered plates in a visual joke",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_054",
+      "asset_prompt": "graphic split-frame composition: skeptical diner faces two covered plates in a visual joke. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_055",
+      "start_sec": 137.5,
+      "end_sec": 140.0,
+      "visual": "merchant imagines refrigerated railcars carrying new products",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_055",
+      "asset_prompt": "wide establishing composition: merchant imagines refrigerated railcars carrying new products. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_056",
+      "start_sec": 140.0,
+      "end_sec": 142.5,
+      "visual": "bright abundance board crowds with impossible animal choices",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_056",
+      "asset_prompt": "tight human close-up composition: bright abundance board crowds with impossible animal choices. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_057",
+      "start_sec": 142.5,
+      "end_sec": 145.0,
+      "visual": "Broussard stands before the completed continental redesign",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s8_bigger_plan",
+      "asset_key": "v4f_master_057",
+      "asset_prompt": "over-shoulder composition: Broussard stands before the completed continental redesign. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F01",
+        "F05"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_058",
+      "start_sec": 145.0,
+      "end_sec": 147.5,
+      "visual": "motion across a silent committee table toward two blank question cards",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_058",
+      "asset_prompt": "macro insert composition: motion across a silent committee table toward two blank question cards. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "TWO QUESTIONS CHANGE THE STORY",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_059",
+      "start_sec": 147.5,
+      "end_sec": 150.0,
+      "visual": "close-up of a lawmaker pointing toward a farm fence model",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_059",
+      "asset_prompt": "high overhead composition: close-up of a lawmaker pointing toward a farm fence model. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_060",
+      "start_sec": 150.0,
+      "end_sec": 155.0,
+      "visual": "second lawmaker lifts a jar of water hyacinth",
+      "mode": "Full motion",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_060",
+      "asset_prompt": "low-angle environmental composition: second lawmaker lifts a jar of water hyacinth. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "five-second semantic motion with natural subject action and camera travel",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": [
+        "full_motion",
+        "causal_turn"
+      ]
+    },
+    {
+      "shot_id": "v4f_061",
+      "start_sec": 155.0,
+      "end_sec": 157.5,
+      "visual": "clean promise diagram shows plant turning into hippo",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_061",
+      "asset_prompt": "symmetrical diagram composition: clean promise diagram shows plant turning into hippo. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_062",
+      "start_sec": 157.5,
+      "end_sec": 160.0,
+      "visual": "same diagram continues from hippo to covered dinner plate",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_062",
+      "asset_prompt": "deep three-quarter composition: same diagram continues from hippo to covered dinner plate. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_063",
+      "start_sec": 160.0,
+      "end_sec": 162.5,
+      "visual": "bright promise board rotates toward a darker evidence side",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_063",
+      "asset_prompt": "telephoto reaction composition: bright promise board rotates toward a darker evidence side. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_064",
+      "start_sec": 162.5,
+      "end_sec": 165.0,
+      "visual": "daytime hippos rest shoulder-deep in water",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_064",
+      "asset_prompt": "oblique tabletop composition: daytime hippos rest shoulder-deep in water. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_065",
+      "start_sec": 165.0,
+      "end_sec": 167.5,
+      "visual": "night cutaway shows hippos climbing onto a grassy bank",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_065",
+      "asset_prompt": "water-level composition: night cutaway shows hippos climbing onto a grassy bank. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_066",
+      "start_sec": 167.5,
+      "end_sec": 170.0,
+      "visual": "overhead tracking diagram traces a long grazing route",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_066",
+      "asset_prompt": "graphic split-frame composition: overhead tracking diagram traces a long grazing route. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_067",
+      "start_sec": 170.0,
+      "end_sec": 172.5,
+      "visual": "macro cross-section of watery hyacinth stems",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_067",
+      "asset_prompt": "wide establishing composition: macro cross-section of watery hyacinth stems. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_068",
+      "start_sec": 172.5,
+      "end_sec": 175.0,
+      "visual": "balance scale compares huge wet plant bulk with little energy",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_068",
+      "asset_prompt": "tight human close-up composition: balance scale compares huge wet plant bulk with little energy. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_069",
+      "start_sec": 175.0,
+      "end_sec": 177.5,
+      "visual": "hungry herd leaves a plant-choked channel for pasture",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_069",
+      "asset_prompt": "over-shoulder composition: hungry herd leaves a plant-choked channel for pasture. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_070",
+      "start_sec": 177.5,
+      "end_sec": 180.0,
+      "visual": "committee promise diagram fractures along the diet assumption",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s9_two_questions",
+      "asset_key": "v4f_master_070",
+      "asset_prompt": "macro insert composition: committee promise diagram fractures along the diet assumption. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_071",
+      "start_sec": 180.0,
+      "end_sec": 182.5,
+      "visual": "counterfactual Louisiana herd leaves the bayou after sunset",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_071",
+      "asset_prompt": "high overhead composition: counterfactual Louisiana herd leaves the bayou after sunset. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_072",
+      "start_sec": 182.5,
+      "end_sec": 185.0,
+      "visual": "low bank view of hippos climbing toward a grassy field",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_072",
+      "asset_prompt": "low-angle environmental composition: low bank view of hippos climbing toward a grassy field. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_073",
+      "start_sec": 185.0,
+      "end_sec": 187.5,
+      "visual": "farmer's lantern reveals tracks through a crop row",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_073",
+      "asset_prompt": "symmetrical diagram composition: farmer's lantern reveals tracks through a crop row. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_074",
+      "start_sec": 187.5,
+      "end_sec": 190.0,
+      "visual": "night road headlights stop before a hippo crossing",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_074",
+      "asset_prompt": "deep three-quarter composition: night road headlights stop before a hippo crossing. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_075",
+      "start_sec": 190.0,
+      "end_sec": 192.5,
+      "visual": "wide aerial shows several waterways connected by grazing paths",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_075",
+      "asset_prompt": "telephoto reaction composition: wide aerial shows several waterways connected by grazing paths. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_076",
+      "start_sec": 192.5,
+      "end_sec": 195.0,
+      "visual": "massive hippo leans against a cattle-scale fence",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_076",
+      "asset_prompt": "oblique tabletop composition: massive hippo leans against a cattle-scale fence. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_077",
+      "start_sec": 195.0,
+      "end_sec": 197.5,
+      "visual": "broken fence rail lies beside deep muddy footprints",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_077",
+      "asset_prompt": "water-level composition: broken fence rail lies beside deep muddy footprints. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_078",
+      "start_sec": 197.5,
+      "end_sec": 200.0,
+      "visual": "small skiff rounds a bend toward a territorial animal",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_078",
+      "asset_prompt": "graphic split-frame composition: small skiff rounds a bend toward a territorial animal. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_079",
+      "start_sec": 200.0,
+      "end_sec": 202.5,
+      "visual": "shoreline family retreats from an unexpected hippo",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_079",
+      "asset_prompt": "wide establishing composition: shoreline family retreats from an unexpected hippo. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_080",
+      "start_sec": 202.5,
+      "end_sec": 205.0,
+      "visual": "map markers spread outward from the first ranch",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_080",
+      "asset_prompt": "tight human close-up composition: map markers spread outward from the first ranch. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_081",
+      "start_sec": 205.0,
+      "end_sec": 207.5,
+      "visual": "cross-section shows nutrients moving from grassland into river",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_081",
+      "asset_prompt": "over-shoulder composition: cross-section shows nutrients moving from grassland into river. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_082",
+      "start_sec": 207.5,
+      "end_sec": 210.0,
+      "visual": "microscope-inspired view of algae increasing in green water",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_082",
+      "asset_prompt": "macro insert composition: microscope-inspired view of algae increasing in green water. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_083",
+      "start_sec": 210.0,
+      "end_sec": 212.5,
+      "visual": "fish silhouettes gather near a low-oxygen warning zone",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_083",
+      "asset_prompt": "high overhead composition: fish silhouettes gather near a low-oxygen warning zone. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_084",
+      "start_sec": 212.5,
+      "end_sec": 215.0,
+      "visual": "plant problem card gains a second moving hippo problem card",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_084",
+      "asset_prompt": "low-angle environmental composition: plant problem card gains a second moving hippo problem card. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_085",
+      "start_sec": 215.0,
+      "end_sec": 217.5,
+      "visual": "maintenance crew faces both weeds and a breached enclosure",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_085",
+      "asset_prompt": "symmetrical diagram composition: maintenance crew faces both weeds and a breached enclosure. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_086",
+      "start_sec": 217.5,
+      "end_sec": 220.0,
+      "visual": "alternate-America emergency map fills with connected incidents",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s10_new_problem",
+      "asset_key": "v4f_master_086",
+      "asset_prompt": "deep three-quarter composition: alternate-America emergency map fills with connected incidents. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F06",
+        "F07"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_087",
+      "start_sec": 220.0,
+      "end_sec": 225.0,
+      "visual": "motion match cut from fictional Louisiana water to Colombia river basin",
+      "mode": "Full motion",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_087",
+      "asset_prompt": "telephoto reaction composition: motion match cut from fictional Louisiana water to Colombia river basin. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "five-second semantic motion with natural subject action and camera travel",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "COLOMBIA RAN PART OF THE EXPERIMENT",
+      "labels": [
+        "full_motion",
+        "causal_turn"
+      ]
+    },
+    {
+      "shot_id": "v4f_088",
+      "start_sec": 225.0,
+      "end_sec": 227.5,
+      "visual": "four hippos stand as distinct founders in a wide landscape",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_088",
+      "asset_prompt": "oblique tabletop composition: four hippos stand as distinct founders in a wide landscape. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_089",
+      "start_sec": 227.5,
+      "end_sec": 230.0,
+      "visual": "abandoned enclosure remains after people and other animals leave",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_089",
+      "asset_prompt": "water-level composition: abandoned enclosure remains after people and other animals leave. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_090",
+      "start_sec": 230.0,
+      "end_sec": 232.5,
+      "visual": "mother and calf establish a new family group",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_090",
+      "asset_prompt": "graphic split-frame composition: mother and calf establish a new family group. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_091",
+      "start_sec": 232.5,
+      "end_sec": 235.0,
+      "visual": "young hippo follows a river channel beyond the estate",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_091",
+      "asset_prompt": "wide establishing composition: young hippo follows a river channel beyond the estate. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_092",
+      "start_sec": 235.0,
+      "end_sec": 237.5,
+      "visual": "satellite-style basin map lights up downstream locations",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_092",
+      "asset_prompt": "tight human close-up composition: satellite-style basin map lights up downstream locations. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_093",
+      "start_sec": 237.5,
+      "end_sec": 240.0,
+      "visual": "timeline multiplies four silhouettes into many generations",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_093",
+      "asset_prompt": "over-shoulder composition: timeline multiplies four silhouettes into many generations. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_094",
+      "start_sec": 240.0,
+      "end_sec": 242.5,
+      "visual": "scientists collect water samples from a small boat",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_094",
+      "asset_prompt": "macro insert composition: scientists collect water samples from a small boat. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_095",
+      "start_sec": 242.5,
+      "end_sec": 245.0,
+      "visual": "laboratory vials compare clearer and nutrient-rich water",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_095",
+      "asset_prompt": "high overhead composition: laboratory vials compare clearer and nutrient-rich water. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_096",
+      "start_sec": 245.0,
+      "end_sec": 247.5,
+      "visual": "native wildlife shares a narrowing riverbank",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_096",
+      "asset_prompt": "low-angle environmental composition: native wildlife shares a narrowing riverbank. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_097",
+      "start_sec": 247.5,
+      "end_sec": 250.0,
+      "visual": "local road user watches a hippo emerge at dusk",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_097",
+      "asset_prompt": "symmetrical diagram composition: local road user watches a hippo emerge at dusk. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_098",
+      "start_sec": 250.0,
+      "end_sec": 252.5,
+      "visual": "veterinary team prepares a field sterilization procedure without gore",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_098",
+      "asset_prompt": "deep three-quarter composition: veterinary team prepares a field sterilization procedure without gore. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_099",
+      "start_sec": 252.5,
+      "end_sec": 255.0,
+      "visual": "transport crate and crane show the scale of relocation",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_099",
+      "asset_prompt": "telephoto reaction composition: transport crate and crane show the scale of relocation. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_100",
+      "start_sec": 255.0,
+      "end_sec": 257.5,
+      "visual": "reinforced confinement paddock requires heavy infrastructure",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_100",
+      "asset_prompt": "oblique tabletop composition: reinforced confinement paddock requires heavy infrastructure. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_101",
+      "start_sec": 257.5,
+      "end_sec": 260.0,
+      "visual": "public meeting divides over difficult management choices",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_101",
+      "asset_prompt": "water-level composition: public meeting divides over difficult management choices. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_102",
+      "start_sec": 260.0,
+      "end_sec": 262.5,
+      "visual": "four icons sit beside the sprawling river network they began",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_102",
+      "asset_prompt": "graphic split-frame composition: four icons sit beside the sprawling river network they began. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_103",
+      "start_sec": 262.5,
+      "end_sec": 265.0,
+      "visual": "motion match cut from fictional Louisiana water to Colombia river basin",
+      "mode": "Still",
+      "world_id": "modern_evidence",
+      "scene_id": "s11_colombia",
+      "asset_key": "v4f_master_103",
+      "asset_prompt": "wide establishing composition: motion match cut from fictional Louisiana water to Colombia river basin. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [
+        "F08",
+        "F09"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_104",
+      "start_sec": 265.0,
+      "end_sec": 267.5,
+      "visual": "committee members exchange skeptical looks after testimony",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_104",
+      "asset_prompt": "tight human close-up composition: committee members exchange skeptical looks after testimony. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "THE COMMITTEE SHELVED IT",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_105",
+      "start_sec": 267.5,
+      "end_sec": 270.0,
+      "visual": "empty witness chair faces unanswered question cards",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_105",
+      "asset_prompt": "over-shoulder composition: empty witness chair faces unanswered question cards. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_106",
+      "start_sec": 270.0,
+      "end_sec": 272.5,
+      "visual": "clerk closes the H.R. 23261 folder",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_106",
+      "asset_prompt": "macro insert composition: clerk closes the H.R. 23261 folder. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second macro insert editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_107",
+      "start_sec": 272.5,
+      "end_sec": 275.0,
+      "visual": "wide committee room empties without a vote",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_107",
+      "asset_prompt": "high overhead composition: wide committee room empties without a vote. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second high overhead editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_108",
+      "start_sec": 275.0,
+      "end_sec": 277.5,
+      "visual": "bill folder enters an archive shelf instead of a ballot box",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_108",
+      "asset_prompt": "low-angle environmental composition: bill folder enters an archive shelf instead of a ballot box. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second low-angle environmental editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_109",
+      "start_sec": 277.5,
+      "end_sec": 280.0,
+      "visual": "newspaper fantasy of victory dissolves before printing",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_109",
+      "asset_prompt": "symmetrical diagram composition: newspaper fantasy of victory dissolves before printing. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second symmetrical diagram editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_110",
+      "start_sec": 280.0,
+      "end_sec": 282.5,
+      "visual": "unused Louisiana ranch blueprint gathers dust",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_110",
+      "asset_prompt": "deep three-quarter composition: unused Louisiana ranch blueprint gathers dust. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second deep three-quarter editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_111",
+      "start_sec": 282.5,
+      "end_sec": 285.0,
+      "visual": "ordinary bayou remains without hippo infrastructure",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_111",
+      "asset_prompt": "telephoto reaction composition: ordinary bayou remains without hippo infrastructure. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second telephoto reaction editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_112",
+      "start_sec": 285.0,
+      "end_sec": 287.5,
+      "visual": "quiet archive corridor holds the future that stopped",
+      "mode": "Still",
+      "world_id": "historical_1910",
+      "scene_id": "s12_decision",
+      "asset_key": "v4f_master_112",
+      "asset_prompt": "oblique tabletop composition: quiet archive corridor holds the future that stopped. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second oblique tabletop editorial hold with restrained camera path",
+      "claim_ids": [
+        "F11"
+      ],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_113",
+      "start_sec": 287.5,
+      "end_sec": 290.0,
+      "visual": "ordinary cookout burger returns in an exact thematic callback",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s13_final_callback",
+      "asset_key": "v4f_master_113",
+      "asset_prompt": "water-level composition: ordinary cookout burger returns in an exact thematic callback. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second water-level editorial hold with restrained camera path",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_114",
+      "start_sec": 290.0,
+      "end_sec": 292.5,
+      "visual": "ghosted lake-cow package appears beside it then fades",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s13_final_callback",
+      "asset_key": "v4f_master_114",
+      "asset_prompt": "graphic split-frame composition: ghosted lake-cow package appears beside it then fades. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second graphic split-frame editorial hold with restrained camera path",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_115",
+      "start_sec": 292.5,
+      "end_sec": 295.0,
+      "visual": "bayou ranch and grocery aisle collapse into blueprint lines",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s13_final_callback",
+      "asset_key": "v4f_master_115",
+      "asset_prompt": "wide establishing composition: bayou ranch and grocery aisle collapse into blueprint lines. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second wide establishing editorial hold with restrained camera path",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_116",
+      "start_sec": 295.0,
+      "end_sec": 297.5,
+      "visual": "archived proposal page closes over the alternate timeline",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s13_final_callback",
+      "asset_key": "v4f_master_116",
+      "asset_prompt": "tight human close-up composition: archived proposal page closes over the alternate timeline. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second tight human close-up editorial hold with restrained camera path",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    },
+    {
+      "shot_id": "v4f_117",
+      "start_sec": 297.5,
+      "end_sec": 300.0,
+      "visual": "wide real American cookout continues without the imagined product",
+      "mode": "Still",
+      "world_id": "counterfactual_gulf",
+      "scene_id": "s13_final_callback",
+      "asset_key": "v4f_master_117",
+      "asset_prompt": "over-shoulder composition: wide real American cookout continues without the imagined product. Materially distinct subject, camera position, foreground and background from adjacent shots; no generated readable text.",
+      "transformation": "2.5-second over-shoulder editorial hold with restrained camera path",
+      "claim_ids": [],
+      "reference_ids": [],
+      "overlay_text": "",
+      "labels": []
+    }
+  ],
+  "evidence": [
+    {
+      "claim_id": "F01",
+      "claim": "Robert F. Broussard introduced a federal hippo-import proposal in 1910.",
+      "source_uri": "https://history.house.gov/People/Detail/9939",
+      "qualification": "Use proposed or introduced; never nearly passed.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F02",
+      "claim": "H.R. 23261 was discussed by the House Agriculture Committee in March 1910.",
+      "source_uri": "https://babel.hathitrust.org/cgi/pt?id=nyp.33433008733986&seq=341&view=1up",
+      "qualification": "Preserve the document number and historical setting.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F03",
+      "claim": "The proposal sought a 250,000-dollar federal appropriation.",
+      "source_uri": "https://www.smithsonianmag.com/history/how-the-us-almost-became-a-nation-of-hippo-ranchers-180982244/",
+      "qualification": "Do not add a time-sensitive modern conversion in narration.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F04",
+      "claim": "Meat-price anxiety and invasive water hyacinth drove the public pitch.",
+      "source_uri": "https://www.smithsonianmag.com/history/how-the-us-almost-became-a-nation-of-hippo-ranchers-180982244/",
+      "qualification": "Describe them as important pressures, not the only national concerns.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F05",
+      "claim": "Lake cow bacon was promotional language associated with the proposal.",
+      "source_uri": "https://www.smithsonianmag.com/history/how-the-us-almost-became-a-nation-of-hippo-ranchers-180982244/",
+      "qualification": "All branded packages are clearly counterfactual illustrations.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F06",
+      "claim": "Hippos usually leave water at night to graze grass.",
+      "source_uri": "https://animals.sandiegozoo.org/animals/hippo",
+      "qualification": "Do not claim hippos never consume aquatic plants.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F07",
+      "claim": "Water hyacinth is roughly 95 percent water and poor primary feed.",
+      "source_uri": "https://www.smithsonianmag.com/history/how-the-us-almost-became-a-nation-of-hippo-ranchers-180982244/",
+      "qualification": "Present this as modern evidence unavailable to the witnesses.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F08",
+      "claim": "Colombia's invasive hippos descended from four imported animals and dispersed.",
+      "source_uri": "https://doi.org/10.1017/S0030605318001588",
+      "qualification": "Use Colombia as an analogue, never proof of an identical Louisiana outcome.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F09",
+      "claim": "Research documents growth and ecological-management concerns in Colombia.",
+      "source_uri": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10106455/",
+      "qualification": "Avoid unsupported live population counts.",
+      "license": "citation-only factual source; no source media reused"
+    },
+    {
+      "claim_id": "F11",
+      "claim": "The committee did not advance the proposal.",
+      "source_uri": "https://www.smithsonianmag.com/history/how-the-us-almost-became-a-nation-of-hippo-ranchers-180982244/",
+      "qualification": "Explicitly reject the near-passage legend.",
+      "license": "citation-only factual source; no source media reused"
+    }
+  ],
+  "references": [],
+  "prohibited_claims": [
+    "Do not state that Congress passed a law importing hippos.",
+    "Do not state that hippo meat became commercially common in the United States.",
+    "Alternate-history supermarket, ranch, diner and butcher frames must be presented as hypothetical, not historical fact.",
+    "Do not state that the proposal passed committee or came within a few votes.",
+    "Do not claim Colombia proves Louisiana would have produced an identical outcome.",
+    "Do not state a current Colombia population count without a newly verified source.",
+    "Do not present generated historical or Colombia imagery as archival footage."
+  ]
+}

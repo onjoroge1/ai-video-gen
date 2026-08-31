@@ -1,10 +1,11 @@
 """Persistent, single-use action approvals for narrow headless ReelForge operations.
 
 An action is not a service account and carries no general studio authority.  An unauthenticated
-client may propose one immutable directed-video pilot, but only an authenticated studio session
-may approve it.  Approval rotates the one-time execution capability to the action's random UUID,
-so the approval UI can immediately enqueue the exact approved payload without a second user step.
-Full-film generation is intentionally not an operation in this module.
+client may propose one immutable directed-video spend boundary, but only an authenticated studio
+session may approve it. Approval rotates the one-time execution capability to the action's random
+UUID, so the approval UI can immediately enqueue the exact approved payload without a second user
+step. A remaining-film action is separately hash-bound to its accepted pilot and never inherits the
+pilot's spend authority.
 """
 from __future__ import annotations
 
@@ -21,7 +22,11 @@ from typing import Any
 import db
 
 
-OPERATION = "directed_pilot"
+DIRECTED_PILOT_OPERATION = "directed_pilot"
+DIRECTED_FULL_FILM_OPERATION = "directed_full_film"
+OPERATIONS = {DIRECTED_PILOT_OPERATION, DIRECTED_FULL_FILM_OPERATION}
+# Compatibility name used by older tests and callers.
+OPERATION = DIRECTED_PILOT_OPERATION
 class AgentActionError(RuntimeError):
     pass
 
@@ -50,6 +55,9 @@ def verify_claim_token(action: dict, supplied: str) -> bool:
 
 def public_action(action: dict, *, include_private: bool = False) -> dict:
     """Return the auditable summary; never return the normalized spec or token digest."""
+    operation = str(action.get("operation") or DIRECTED_PILOT_OPERATION)
+    payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    promotion = payload.get("promotion") if isinstance(payload.get("promotion"), dict) else {}
     out = {
         "action_id": action.get("action_id"),
         "operation": action.get("operation"),
@@ -58,11 +66,20 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
         "spec_sha256": action.get("spec_sha256"),
         "estimated_cost_usd": float(action.get("estimated_cost_usd") or 0),
         "cost_ceiling_usd": float(action.get("cost_ceiling_usd") or 0),
-        "scope": "first-45-pilot",
+        "scope": (promotion.get("scope") or "remaining-45-to-300"
+                  if operation == DIRECTED_FULL_FILM_OPERATION else "first-45-pilot"),
         "created_at": _iso(action.get("created_at")),
         "expires_at": _iso(action.get("expires_at")),
         "approved_at": _iso(action.get("approved_at")),
     }
+    if operation == DIRECTED_FULL_FILM_OPERATION:
+        out["parent_job_id"] = promotion.get("parent_job_id") or ""
+        out["parent_action_id"] = promotion.get("parent_action_id") or ""
+        out["parent_video_sha256"] = promotion.get("parent_video_sha256") or ""
+        out["content_spec_sha256"] = promotion.get("content_spec_sha256") or ""
+        out["start_sec"] = float(promotion.get("start_sec") or 45.0)
+        out["end_sec"] = float(promotion.get("end_sec") or 300.0)
+        out["pilot_reused"] = True
     if include_private:
         out["job_id"] = action.get("job_id") or ""
         out["job"] = action.get("job") or {}
@@ -128,7 +145,10 @@ class PostgresAgentActionRepository:
 
     def create(self, *, title: str, spec_sha256: str, payload: dict,
                claim_token_sha256: str, estimated_cost_usd: float,
-               cost_ceiling_usd: float, ttl_seconds: int) -> dict:
+               cost_ceiling_usd: float, ttl_seconds: int,
+               operation: str = DIRECTED_PILOT_OPERATION) -> dict:
+        if operation not in OPERATIONS:
+            raise AgentActionConflict(f"Unsupported agent action operation: {operation}")
         conn = None
         try:
             conn = self._connection()
@@ -137,10 +157,11 @@ class PostgresAgentActionRepository:
             # Serialize proposals for the same immutable spend boundary.  The API performs a
             # fast lookup first, but this transaction lock also closes the concurrent-request
             # race between that lookup and INSERT.
-            boundary = f"{spec_sha256}:{Decimal(str(cost_ceiling_usd))}"
+            boundary = f"{operation}:{spec_sha256}:{Decimal(str(cost_ceiling_usd))}"
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (boundary,))
             existing = self._reusable_query(
-                cur, spec_sha256=spec_sha256, cost_ceiling_usd=cost_ceiling_usd)
+                cur, operation=operation, spec_sha256=spec_sha256,
+                cost_ceiling_usd=cost_ceiling_usd)
             if existing:
                 existing["_reused"] = True
                 conn.commit()
@@ -157,7 +178,7 @@ class PostgresAgentActionRepository:
                 VALUES (%s,%s,'pending',%s,%s,%s::jsonb,%s,%s,%s,
                         now()+(%s * interval '1 second'))
                 RETURNING *
-                """, (action_id, OPERATION, title, spec_sha256,
+                """, (action_id, operation, title, spec_sha256,
                         json.dumps(payload, separators=(",", ":")), claim_token_sha256,
                         Decimal(str(estimated_cost_usd)), Decimal(str(cost_ceiling_usd)),
                         int(ttl_seconds)))
@@ -212,11 +233,11 @@ class PostgresAgentActionRepository:
             if conn:
                 conn.close()
 
-    def _reusable_query(self, cur, *, spec_sha256: str,
+    def _reusable_query(self, cur, *, operation: str, spec_sha256: str,
                         cost_ceiling_usd: float) -> dict | None:
         cur.execute("""
             SELECT * FROM agent_actions
-            WHERE spec_sha256=%s AND cost_ceiling_usd=%s AND (
+            WHERE operation=%s AND spec_sha256=%s AND cost_ceiling_usd=%s AND (
                 status IN ('executing','queued','failed')
                 OR (status IN ('pending','approved') AND expires_at > now())
             )
@@ -228,11 +249,11 @@ class PostgresAgentActionRepository:
                 ELSE 4
             END, created_at DESC
             LIMIT 1
-        """, (spec_sha256, Decimal(str(cost_ceiling_usd))))
+        """, (operation, spec_sha256, Decimal(str(cost_ceiling_usd))))
         return self._row(cur, cur.fetchone())
 
-    def reusable_for_spec(self, spec_sha256: str,
-                          cost_ceiling_usd: float) -> dict | None:
+    def reusable_for_spec(self, spec_sha256: str, cost_ceiling_usd: float,
+                          operation: str = DIRECTED_PILOT_OPERATION) -> dict | None:
         """Return the authoritative lifecycle for a spec instead of duplicating it.
 
         A queued/executing action outranks a later pending duplicate.  That ordering lets a
@@ -245,7 +266,8 @@ class PostgresAgentActionRepository:
             cur = conn.cursor()
             self._ensure(cur)
             return self._reusable_query(
-                cur, spec_sha256=spec_sha256, cost_ceiling_usd=cost_ceiling_usd)
+                cur, operation=operation, spec_sha256=spec_sha256,
+                cost_ceiling_usd=cost_ceiling_usd)
         except Exception as exc:
             if isinstance(exc, AgentActionError):
                 raise

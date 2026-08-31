@@ -26,6 +26,7 @@ py-modules = [
     "charts_pipeline",
     "db",
     "durable_execution",
+    "directed_full_film",
     "directed_longform",
     "explainer_pipeline",
     "finished_api",
