@@ -2959,6 +2959,13 @@ async def dispatch_agent_action(action_id: str, request: Request):
             # its idempotency key; completed narration/images remain reuse-only.
             await asyncio.to_thread(
                 store.rearm_disk_exhaustion, str(action["job_id"]), extra_attempts=3)
+        if job and ((job.get("request") or {}).get("directed_full_film") is True):
+            # Paid stages are individually durable and idempotent, but a five-minute film can
+            # span several hosting-function windows. Preserve enough claim attempts to finish
+            # the same hash-bound job; this does not raise or replace its approved cost ceiling.
+            await asyncio.to_thread(
+                store.ensure_directed_full_film_recovery_window, str(action["job_id"]),
+                minimum_remaining_attempts=12)
         return await _run_durable_explainer_worker(str(action["job_id"]))
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
