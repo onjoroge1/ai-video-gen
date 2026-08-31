@@ -6780,6 +6780,7 @@ def run_explainer_pipeline(
     short_template: str = "auto",   # social only: auto | explainer | simulation
     operator_direction: str = "",   # optional per-video/channel creative direction (subordinate to rules)
     story_format: str = "standard_explainer",
+    visual_style: str = "cinematic",
     controlled_pilot: bool = False,
     pilot_batch_id: str = "",
     pilot_kind: str = "",
@@ -6795,6 +6796,17 @@ def run_explainer_pipeline(
     os.makedirs(output_dir, exist_ok=True)
     stable_standard_longform = _stable_standard_longform(
         video_format, story_format, controlled_pilot)
+    import illustrated_story as illustrated_story_lane
+    illustrated_story_on = illustrated_story_lane.is_enabled(
+        visual_style=visual_style,
+        video_format=video_format,
+        story_format=story_format,
+        controlled_pilot=controlled_pilot,
+    )
+    script_operator_direction = (
+        illustrated_story_lane.story_direction(question, operator_direction)
+        if illustrated_story_on else operator_direction
+    )
     research_mode = _ordinary_research_mode(stable_standard_longform)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
@@ -6804,7 +6816,11 @@ def run_explainer_pipeline(
               else normalize_motion_mode(motion_mode, legacy_i2v=i2v))
     )
     requested_motion_mode = resolved_motion_mode
-    if (stable_standard_longform and resolved_motion_mode != "stills"
+    if illustrated_story_on:
+        # V1 is deliberately a still/Ken Burns lane. Reuse the stable renderer before adding
+        # another provider, motion contract, or failure surface.
+        resolved_motion_mode = "stills"
+    elif (stable_standard_longform and resolved_motion_mode != "stills"
             and not I2V_PROVIDER):
         # The UI defaults to Standard Motion, while readiness can legitimately run without a
         # motion provider. That mismatch used to reject the default request before script writing.
@@ -6849,13 +6865,17 @@ def run_explainer_pipeline(
     generation_manifest = _generation_manifest_payload(
         video_format=video_format, motion_mode=resolved_motion_mode,
         threshold_profile=threshold_profile)
+    generation_manifest["visual_style"] = visual_style
     if stable_standard_longform:
         generation_manifest["pipeline_profile"] = "stable_standard_longform"
+    if illustrated_story_on:
+        generation_manifest["creative_lane"] = "illustrated_story_v1"
     if requested_motion_mode != resolved_motion_mode:
         generation_manifest["motion_fallback"] = {
             "requested": requested_motion_mode,
             "effective": resolved_motion_mode,
-            "reason": "motion_provider_not_configured",
+            "reason": ("illustrated_story_uses_stable_stills"
+                       if illustrated_story_on else "motion_provider_not_configured"),
         }
     _write_generation_manifest(generation_manifest_path, generation_manifest)
     pilot_control_path = None
@@ -6899,9 +6919,14 @@ def run_explainer_pipeline(
         if stable_standard_longform:
             log("Long-form profile: stable Standard (quality gates report; "
                 "technical/cost failures still block)")
+        if illustrated_story_on:
+            log("Creative lane: Illustrated Story v1 — intent-led storyboard, four-location budget")
         log(f"Motion treatment: {resolved_motion_mode}")
         if requested_motion_mode != resolved_motion_mode:
-            log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
+            if illustrated_story_on:
+                log("Illustrated Story v1 uses the stable stills/Ken Burns path by design.")
+            else:
+                log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
         if resolved_motion_mode != "stills" and not I2V_PROVIDER:
             raise ValueError(
                 "Standard/Full Motion requires I2V_PROVIDER. Configure a motion provider or choose Stills.")
@@ -6927,6 +6952,7 @@ def run_explainer_pipeline(
     rendered_contact_sheet_path = None
     human_review_path = None
     story_format_review_path = None
+    storyboard_path = None
     diagnostic_preview_path = None
     evidence_plan: dict = {}
     evidence_validation: dict | None = None
@@ -7023,7 +7049,7 @@ def run_explainer_pipeline(
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
             script = generate_graded_script(question, duration_sec, style, image_guidance,
                                             video_format, series, cost_sink=aux_costs, log=log,
-                                            operator_direction=operator_direction,
+                                            operator_direction=script_operator_direction,
                                             story_format=story_format,
                                             research_dossier=research_dossier)
         scenes = script.get("scenes", [])
@@ -7151,6 +7177,36 @@ def run_explainer_pipeline(
             "Runtime contract: PASS — %(estimated_seconds).1fs estimated for "
             "%(target_seconds).0fs target (%(word_count)d words)" % _rp
         )
+
+    if illustrated_story_on:
+        log("stage:Building illustrated storyboard...")
+        storyboard = illustrated_story_lane.build_storyboard(script, question)
+        if not (storyboard.get("validation") or {}).get("passed"):
+            raise ValueError(
+                "Illustrated storyboard failed: "
+                + "; ".join((storyboard.get("validation") or {}).get("errors") or [])
+            )
+        storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
+        with open(storyboard_path, "w", encoding="utf-8") as handle:
+            json.dump(storyboard, handle, indent=2, ensure_ascii=False)
+        generation_manifest["illustrated_story"] = {
+            "schema_version": storyboard.get("schema_version"),
+            "storyboard_file": os.path.basename(storyboard_path),
+            "beat_count": len(storyboard.get("beats") or []),
+            "location_count": len((storyboard.get("visual_bible") or {}).get("locations") or []),
+        }
+        _write_generation_manifest(generation_manifest_path, generation_manifest)
+        log("Illustrated storyboard: PASS — %d beats across %d recurring locations"
+            % (len(storyboard.get("beats") or []),
+               len((storyboard.get("visual_bible") or {}).get("locations") or [])))
+        try:
+            temporary_state = state_path + ".tmp"
+            with open(temporary_state, "w", encoding="utf-8") as handle:
+                json.dump({"script": script, "style_mode": style_mode,
+                           "short_grade": short_grade, "video_format": video_format}, handle)
+            os.replace(temporary_state, state_path)
+        except OSError:
+            pass
 
     # Objective long-form gate: inspect the persisted story roles and narrative-debt ledger before
     # any image/TTS spend. The planner already received one automatic retry in
@@ -7287,15 +7343,18 @@ def run_explainer_pipeline(
             " out of the very top strip.").format(mascot=MASCOT_NAME)
     else:
         framing = " Keep the focal subject out of the very top strip so a title caption can overlay."
-    style_suffix = (
-        f" Render style: {CHANNEL_STYLE}; style mode: {style_mode}."
-        f"{framing}"
-        " Avoid: generic centered layouts, flat empty compositions, diagram-like looks,"
-        " and repetitive galaxy/nebula/starfield backdrops unless the topic is truly about"
-        " space. No text, letters, numbers, labels, arrows, UI, watermark, or accidental"
-        " writing — titles are added later by the renderer."
-        + (_LITERAL_SCENE_DIRECTION if _LITERAL_IMAGERY else "")
-    )
+    if illustrated_story_on:
+        style_suffix = illustrated_story_lane.visual_style_suffix(framing)
+    else:
+        style_suffix = (
+            f" Render style: {CHANNEL_STYLE}; style mode: {style_mode}."
+            f"{framing}"
+            " Avoid: generic centered layouts, flat empty compositions, diagram-like looks,"
+            " and repetitive galaxy/nebula/starfield backdrops unless the topic is truly about"
+            " space. No text, letters, numbers, labels, arrows, UI, watermark, or accidental"
+            " writing — titles are added later by the renderer."
+            + (_LITERAL_SCENE_DIRECTION if _LITERAL_IMAGERY else "")
+        )
 
     def _full_prompt(scene: dict, cartoon_lean: bool = False) -> str:
         body = _s(scene.get("image_prompt")).rstrip(".")
@@ -8731,6 +8790,7 @@ def run_explainer_pipeline(
         "hook":          script.get("hook", ""),
         "scene_count":   rendered,
         "video_format":  video_format,
+        "visual_style":  visual_style,
         "motion_mode":   resolved_motion_mode,
         "dropped":       dropped,
         "filler":        filler,
@@ -8760,6 +8820,7 @@ def run_explainer_pipeline(
         "rendered_contact_sheet_path": rendered_contact_sheet_path,
         "human_review_path": human_review_path,
         "story_format_review_path": story_format_review_path,
+        "storyboard_path": storyboard_path,
         "diagnostic_preview_path": diagnostic_preview_path,
         "readiness_report_path": readiness_report_path,
         "readiness_json_path": readiness_json_path,
