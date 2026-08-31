@@ -192,6 +192,33 @@ class PostgresStore(_legacy.PostgresStore):
         })
         return row
 
+    def ensure_directed_full_film_recovery_window(
+            self, job_id: str, *, minimum_remaining_attempts: int = 12) -> dict:
+        """Keep an approved, stage-idempotent full film resumable across function windows.
+
+        A five-minute directed film can legitimately require several serverless invocations even
+        after every paid provider result is durable.  This changes only the retry counter; the
+        immutable request, authorization hash, stage idempotency keys, reservations, accumulated
+        spend, and hard cost ceiling remain untouched.
+        """
+        remaining = max(1, min(int(minimum_remaining_attempts), 12))
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            current = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            request = current.get("request") if isinstance(current.get("request"), dict) else {}
+            if (not current or request.get("directed_full_film") is not True
+                    or float(current.get("spent_cost_usd") or 0)
+                    >= float(current.get("max_cost_usd") or 0)):
+                raise DurableExecutionError(
+                    f"Job {job_id} is not eligible for directed full-film recovery")
+            cur.execute("""
+                UPDATE generation_jobs
+                SET max_attempts=GREATEST(max_attempts,attempts+%s),updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (remaining, job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        return row
+
     def rearm_next_directed_audio_runtime_failure(self) -> dict | None:
         """Requeue one approved directed pilot stopped at the pre-image audio runtime gate.
 
