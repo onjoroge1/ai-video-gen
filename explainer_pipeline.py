@@ -8005,7 +8005,10 @@ def run_explainer_pipeline(
             })
             with open(rendered_contract_path, "w") as handle:
                 json.dump(rendered_contract, handle, indent=2, ensure_ascii=False)
-            log(f"Rendered opening contract: {rendered_contract['score']}/100 "
+            rendered_grade_label = (
+                f"{rendered_contract['score']}/100"
+                if rendered_contract.get("score") is not None else "unscored")
+            log(f"Rendered opening contract: {rendered_grade_label} "
                 f"({rendered_contract['status']})")
             if controlled_pilot:
                 # PR7 stops here by contract.  Both automated passes and automated failures receive
@@ -8135,12 +8138,12 @@ def run_explainer_pipeline(
                 # computed, still written to rendered_contract.json, and still logged.
                 if not _diagnostic_render():
                     raise RuntimeError(
-                        f"Rendered opening scored {rendered_contract['score']}/100; "
+                        f"Rendered opening was {rendered_grade_label}; "
                         f"hard failures: {', '.join(rendered_contract.get('hard_failures') or ['score floor'])}. "
                         f"Aborted before purchasing {len(scenes) - opening_stop} later scenes."
                     )
-                log(f"  ⚠ [RENDERED GATE, DIAGNOSTIC_RENDER=1] scored "
-                    f"{rendered_contract['score']}/100 — "
+                log(f"  ⚠ [RENDERED GATE, DIAGNOSTIC_RENDER=1] result "
+                    f"{rendered_grade_label} — "
                     f"{', '.join(rendered_contract.get('hard_failures') or ['score floor'])} — continuing")
             if not rendered_contract.get("passed"):
                 if prior_review_bound and prior_review.get("decision") == "reject":
@@ -8157,7 +8160,7 @@ def run_explainer_pipeline(
                 # diagnostic runs, which is what makes a full video reachable at all.
                 if _diagnostic_render():
                     log("  ⚠ [HUMAN REVIEW, DIAGNOSTIC_RENDER=1] skipping editorial approval — "
-                        f"grade {rendered_contract.get('score')}/100 written to "
+                        f"grade {rendered_grade_label} written to "
                         f"{os.path.basename(rendered_contract_path)}; continuing to full render")
                 else:
                     raise HumanReviewRequired(

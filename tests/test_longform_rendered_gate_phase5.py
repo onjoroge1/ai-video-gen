@@ -20,6 +20,7 @@ from longform_rendered_gate import (
     diagnostic_disposition,
     diagnostic_mode_allowed,
     inspect_rendered_opening,
+    rendered_grade_summary,
     render_low_cost_animatic,
     score_rendered_contract,
     watermark_rejected_preview,
@@ -170,6 +171,94 @@ def test_a_real_defect_still_blocks_regardless_of_calibration():
     assert report["passed"] is False and report["publishable"] is False
 
 
+def test_unavailable_blind_judge_is_unscored_not_a_fake_rejection():
+    report = _score(blind={"valid": False, "judge_error": "ProviderUnavailable: timeout"})
+    assert report["score"] is None
+    assert report["grade"] == "UNSCORED"
+    assert report["status"] == "UNSCORED_JUDGE_UNAVAILABLE"
+    assert report["automated_pass"] is None
+    assert report["automated_grade_available"] is False
+    assert report["hard_failures"] == []
+
+
+def test_unavailable_judge_does_not_hide_a_deterministic_failure():
+    report = _score(
+        facts=_facts(slideshow=True),
+        blind={"valid": False, "judge_error": "ProviderUnavailable: timeout"},
+    )
+    assert report["status"] == "REJECT"
+    assert report["automated_pass"] is False
+    assert "slideshow_behavior" in report["hard_failures"]
+
+
+def test_legacy_fake_low_score_is_reclassified_without_rewriting_evidence():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "automated_pass": False,
+        "hard_failures": [],
+        "blind_story_judge": {
+            "valid": False,
+            "judge_error": "ProviderUnavailable: missing key",
+        },
+    }
+    summary = rendered_grade_summary(legacy)
+    assert legacy["score"] == 44
+    assert summary["technical_status"] == "completed"
+    assert summary["automated_score"] is None
+    assert summary["automated_status"] == "UNSCORED_JUDGE_UNAVAILABLE"
+    assert summary["promotion_status"] == "awaiting_editorial"
+
+
+def test_legacy_bolt_adapter_miss_is_instrumentation_not_a_creative_failure():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "automated_pass": False,
+        "hard_failures": ["bolt_absent"],
+        "blind_story_judge": {
+            "valid": False,
+            "judge_error": "ProviderUnavailable: missing key",
+        },
+    }
+    directed_spec = {
+        "shots": [{
+            "shot_id": "shot-1",
+            "mode": "illustrated still",
+            "visual": "Bolt points to the evidence map",
+            "labels": ["BOLT_CAMEO"],
+            "reference_ids": [],
+        }],
+    }
+
+    summary = rendered_grade_summary(legacy, directed_spec)
+
+    assert legacy["hard_failures"] == ["bolt_absent"]
+    assert summary["hard_failures"] == []
+    assert summary["automated_status"] == "UNSCORED_JUDGE_UNAVAILABLE"
+    assert summary["instrumentation_failures"] == ["legacy_bolt_metadata_not_mapped"]
+    assert summary["promotion_status"] == "awaiting_editorial"
+
+
+def test_legacy_bolt_failure_remains_a_rejection_without_directed_declaration():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "automated_pass": False,
+        "hard_failures": ["bolt_absent"],
+        "blind_story_judge": {
+            "valid": False,
+            "judge_error": "ProviderUnavailable: missing key",
+        },
+    }
+
+    summary = rendered_grade_summary(legacy)
+
+    assert summary["hard_failures"] == ["bolt_absent"]
+    assert summary["automated_status"] == "REJECT"
+    assert summary["promotion_status"] == "blocked"
+
+
 def test_real_calibration_requires_balanced_human_labeled_samples():
     samples = []
     for index in range(20):
@@ -284,11 +373,13 @@ def test_automated_observations_cannot_overrule_deterministic_facts():
     assert len(checked["cross_check_contradictions"]) == 3
 
 
-def test_invalid_blind_judge_response_fails_closed():
+def test_invalid_blind_judge_response_fails_closed_as_unscored():
     checked = cross_check_blind_observations({"judge_error": "timeout"}, _facts())
     report = _score(blind=checked)
     assert checked["valid"] is False
-    assert report["automated_pass"] is False
+    assert report["automated_pass"] is None
+    assert report["score"] is None
+    assert report["status"] == "UNSCORED_JUDGE_UNAVAILABLE"
 
 
 def test_old_moon_diagnostic_is_frozen_at_39_percent():

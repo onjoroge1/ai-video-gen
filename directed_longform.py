@@ -204,13 +204,14 @@ def _ordered_timeline(items, *, target: float, name: str, issues: list[dict]) ->
                              name))
 
 
-def _cost_estimate(spec: DirectedLongformSpec, *, end_sec: float | None = None) -> dict:
-    scenes = spec.narration if end_sec is None else [
-        scene for scene in spec.narration if scene.start_sec < end_sec
-    ]
-    shots = spec.shots if end_sec is None else [
-        shot for shot in spec.shots if shot.start_sec < end_sec
-    ]
+def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
+                   end_sec: float | None = None) -> dict:
+    scenes = [scene for scene in spec.narration
+              if scene.start_sec >= start_sec - 0.001
+              and (end_sec is None or scene.start_sec < end_sec)]
+    shots = [shot for shot in spec.shots
+             if shot.start_sec >= start_sec - 0.001
+             and (end_sec is None or shot.start_sec < end_sec)]
     narration_chars = sum(len(scene.narration) for scene in scenes)
     master_keys = {shot.asset_key.strip() or shot.shot_id for shot in shots}
     motion_keys = {
@@ -239,6 +240,16 @@ def _cost_estimate(spec: DirectedLongformSpec, *, end_sec: float | None = None) 
         "i2v_usd": round(i2v, 4),
         "estimated_total_usd": round(tts + images + i2v, 4),
     }
+
+
+def window_cost_estimate(payload: DirectedLongformSpec | dict, start_sec: float,
+                         end_sec: float) -> dict:
+    """Provider-independent estimate for a separately authorized timeline window."""
+    spec = payload if isinstance(payload, DirectedLongformSpec) \
+        else DirectedLongformSpec.model_validate(payload)
+    if start_sec < 0 or end_sec <= start_sec or end_sec > spec.target.duration_sec + 0.05:
+        raise DirectedValidationError("Invalid directed cost-estimate window")
+    return _cost_estimate(spec, start_sec=float(start_sec), end_sec=float(end_sec))
 
 
 def pilot_visual_metrics(spec: DirectedLongformSpec) -> dict:
