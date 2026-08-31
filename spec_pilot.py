@@ -57,10 +57,13 @@ XFADE_SEC = 0.5
 # chain and ffmpeg exited 254 after every asset was paid for. The margin absorbs that drift and
 # is held frames, not covered speech.
 SEGMENT_TAIL_SEC = XFADE_SEC + 0.35
-# Keep enough headroom for one 1080p FFmpeg output plus atomic Blob upload bookkeeping.
-# Raising ENOSPC deliberately routes the attempt through the existing durable storage-recovery
-# path before FFmpeg leaves a partial file or corrupts the job checkpoint.
-MIN_RENDER_TMP_FREE_BYTES = 256 * 1024 * 1024
+# A streamed shot retains one source JPEG and one short 1080p encode at a time. Vercel's
+# production image has about 130 MiB free before our files, so the former 256 MiB floor rejected
+# an otherwise empty worker forever. Keep a conservative 64 MiB default (well above observed
+# 2–3 second CRF-23 shot sizes) and allow operators to raise it on larger worker disks.
+MIN_RENDER_TMP_FREE_BYTES = max(
+    32, int(os.environ.get("DIRECTED_TMP_MIN_FREE_MIB", "64"))
+) * 1024 * 1024
 
 
 def _require_tmp_headroom(path: str | Path, operation: str, log) -> None:
