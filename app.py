@@ -1170,7 +1170,8 @@ class AgentActionCreateRequest(BaseModel):
     operation: Literal["directed_pilot", "directed_full_film"] = "directed_pilot"
     spec: dict | None = None
     bundled_spec_id: Literal[
-        "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m", ""
+        "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m",
+        "hippo_illustrated_story_v4_recovery_opening", ""
     ] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
     parent_action_id: str = ""
@@ -2500,6 +2501,8 @@ def _bundled_directed_spec(spec_id: str) -> dict:
     names = {
         "hippo_illustrated_story_v4": "hippo_illustrated_story_v4.json",
         "hippo_illustrated_story_v4_full_5m": "hippo_illustrated_story_v4_full_5m.json",
+        "hippo_illustrated_story_v4_recovery_opening":
+            "hippo_illustrated_story_v4_recovery_opening.json",
     }
     if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
