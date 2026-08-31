@@ -366,6 +366,53 @@ class PostgresStore(_legacy.PostgresStore):
             })))
             return row
 
+    def rearm_next_directed_remainder_salvage(self) -> dict | None:
+        """Rearm one full-film job to persist its paid remainder when the opening is gone."""
+        self.ensure_schema()
+        with self._tx() as (_, cur):
+            cur.execute("""
+                SELECT j.* FROM generation_jobs j
+                WHERE j.status='error'
+                  AND j.error ILIKE '%Accepted pilot bytes are absent%'
+                  AND j.request->>'directed_full_film'='true'
+                  AND j.reserved_cost_usd=0
+                  AND j.spent_cost_usd < j.max_cost_usd
+                  AND j.checkpoint <> '{}'::jsonb
+                  AND EXISTS (
+                      SELECT 1 FROM agent_actions a
+                      WHERE a.job_id=j.id AND a.operation='directed_full_film'
+                        AND a.status='queued'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM generation_events e
+                      WHERE e.job_id=j.id
+                        AND e.event_type='directed_remainder_salvage_auto_rearmed'
+                  )
+                ORDER BY j.updated_at ASC
+                FOR UPDATE SKIP LOCKED LIMIT 1
+            """)
+            current = self._json_ready(self._row(cur, cur.fetchone()))
+            if not current:
+                return None
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+12),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (current["id"],))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            cur.execute("""
+                INSERT INTO generation_events(job_id,event_type,data,details)
+                VALUES (%s,'directed_remainder_salvage_auto_rearmed',
+                        'Directed film rearmed to persist authorized remainder without lost opening',
+                        %s::jsonb)
+            """, (row["id"], json.dumps({
+                "prior_error": current.get("error"),
+                "spent_cost_usd": row.get("spent_cost_usd"),
+                "max_cost_usd": row.get("max_cost_usd"),
+            })))
+            return row
+
     def rearm_next_directed_audio_runtime_failure(self) -> dict | None:
         """Requeue one approved directed pilot stopped at the pre-image audio runtime gate.
 

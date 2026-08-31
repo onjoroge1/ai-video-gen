@@ -1380,7 +1380,19 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                         f"artifacts ({len(missing)} direct candidates and "
                         f"{len(checkpoint_records)} checkpoints checked)")
 
-                await asyncio.to_thread(restore_parent_video, parent_path)
+                parent_video_available = True
+                try:
+                    await asyncio.to_thread(restore_parent_video, parent_path)
+                except durable_execution.StorageUnavailable as exc:
+                    if "Accepted pilot bytes are absent" not in str(exc):
+                        raise
+                    parent_video_available = False
+                    durable_runtime.event(
+                        "parent_pilot_irretrievable",
+                        "Approved opening object is gone; preserving the authorized remainder",
+                        {"parent_job_id": request.directed_parent_job_id,
+                         "sha256": request.directed_parent_video_sha256},
+                    )
                 import directed_full_film as dff
                 envelope = {"spec": request.directed_spec,
                             "promotion": request.directed_promotion}
@@ -1393,7 +1405,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                         out_dir=output_dir,
                         voice=directed.target.voice,
                         authorize_paid=request.directed_paid_authorized,
-                        restore_parent_video=restore_parent_video,
+                        restore_parent_video=(restore_parent_video
+                                              if parent_video_available else None),
+                        parent_video_available=parent_video_available,
                         log=push)),
                 )
             else:
@@ -3201,6 +3215,7 @@ async def render_recovery_cron():
         audio_salvage = await asyncio.to_thread(store.rearm_next_directed_audio_runtime_failure)
         parent_blob_salvage = None
         parent_archive_salvage = None
+        remainder_salvage = None
         disk_salvage = None
         if not audio_salvage:
             parent_blob_salvage = await asyncio.to_thread(
@@ -3209,14 +3224,20 @@ async def render_recovery_cron():
             parent_archive_salvage = await asyncio.to_thread(
                 store.rearm_next_directed_parent_archive_failure)
         if not audio_salvage and not parent_blob_salvage and not parent_archive_salvage:
+            remainder_salvage = await asyncio.to_thread(
+                store.rearm_next_directed_remainder_salvage)
+        if (not audio_salvage and not parent_blob_salvage and not parent_archive_salvage
+                and not remainder_salvage):
             disk_salvage = await asyncio.to_thread(store.requeue_next_directed_storage_error)
-        selected = audio_salvage or parent_blob_salvage or parent_archive_salvage or disk_salvage
+        selected = (audio_salvage or parent_blob_salvage or parent_archive_salvage
+                    or remainder_salvage or disk_salvage)
         result = await _run_durable_explainer_worker(
             str(selected["id"]) if selected else None)
         cleanup = await asyncio.to_thread(durable_execution.cleanup_orphans, store, blob)
         return {**result, "directed_audio_salvage": audio_salvage or {},
                 "directed_parent_blob_salvage": parent_blob_salvage or {},
                 "directed_parent_archive_salvage": parent_archive_salvage or {},
+                "directed_remainder_salvage": remainder_salvage or {},
                 "directed_storage_salvage": disk_salvage or {},
                 "orphan_cleanup": cleanup}
     except durable_execution.StorageUnavailable as exc:
