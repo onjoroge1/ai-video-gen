@@ -7,8 +7,8 @@ record so neither source artifact is overwritten.
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
+import struct
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,17 +34,51 @@ def _video(record: dict | None) -> dict:
     return ((record or {}).get("artifacts") or {}).get("video") or {}
 
 
+def _mp4_top_level_boxes(path: str | Path) -> list[str]:
+    """Parse top-level ISO-BMFF boxes so a fragmented MP4 cannot pass as browser-safe."""
+    total = Path(path).stat().st_size
+    offset = 0
+    boxes: list[str] = []
+    with open(path, "rb") as handle:
+        while offset + 8 <= total:
+            handle.seek(offset)
+            header = handle.read(8)
+            size, raw_type = struct.unpack(">I4s", header)
+            header_size = 8
+            if size == 1:
+                extended = handle.read(8)
+                if len(extended) != 8:
+                    raise HippoRecoveryError("MP4 has a truncated extended box header")
+                size = struct.unpack(">Q", extended)[0]
+                header_size = 16
+            elif size == 0:
+                size = total - offset
+            if size < header_size or offset + size > total:
+                raise HippoRecoveryError("MP4 has an invalid top-level box size")
+            boxes.append(raw_type.decode("latin-1"))
+            offset += size
+    if offset != total:
+        raise HippoRecoveryError("MP4 has trailing bytes outside a top-level box")
+    return boxes
+
+
 def assemble_if_ready(*, opening_job_id: str, remainder_job_id: str, target_id: str,
                       blob) -> dict:
     existing = db.finished_video_get(target_id)
-    if existing:
+    existing_metadata = (existing or {}).get("metadata") or {}
+    if (existing and existing_metadata.get("container_profile") == "standard_mp4"
+            and existing_metadata.get("browser_safe_container") is True):
+        print(f"[hippo-recovery] browser-safe target already complete: {target_id}")
         return {"status": "already_complete", "id": target_id}
+    if existing:
+        print(f"[hippo-recovery] rebuilding unsafe fragmented target: {target_id}")
 
     opening_record = db.finished_video_get(opening_job_id)
     remainder_record = db.finished_video_get(remainder_job_id)
     opening = _video(opening_record)
     remainder = _video(remainder_record)
     if not opening or not remainder:
+        print("[hippo-recovery] waiting for immutable opening and remainder artifacts")
         return {
             "status": "waiting",
             "opening_ready": bool(opening),
@@ -55,6 +89,7 @@ def assemble_if_ready(*, opening_job_id: str, remainder_job_id: str, target_id: 
     output = root / "what_if_america_adopted_hippo_meat_full.mp4"
     manifest = root / "concat.txt"
     try:
+        print("[hippo-recovery] starting zero-spend standard-MP4 stream concat")
         runtime = SimpleNamespace(blob=blob)
         with spec_pilot._blob_segment_inputs([opening, remainder], runtime) as urls:
             manifest.write_text(
@@ -66,10 +101,13 @@ def assemble_if_ready(*, opening_job_id: str, remainder_job_id: str, target_id: 
                 "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
                 "-f", "concat", "-safe", "0", "-i", str(manifest),
                 "-map", "0:v", "-map", "0:a", "-c", "copy",
-                "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
                 str(output),
             ], timeout=600.0)
 
+        boxes = _mp4_top_level_boxes(output)
+        if "moov" not in boxes or "moof" in boxes:
+            raise HippoRecoveryError(
+                f"Recovered film is not browser-safe standard MP4; boxes={boxes}")
         duration = ep._audio_dur(str(output))
         if not 297.0 <= duration <= 303.0:
             raise HippoRecoveryError(
@@ -95,6 +133,9 @@ def assemble_if_ready(*, opening_job_id: str, remainder_job_id: str, target_id: 
                 "editorial_status": "pending",
                 "promotion_status": "full_film_recovered",
                 "duration_sec": round(duration, 2),
+                "container_profile": "standard_mp4",
+                "browser_safe_container": True,
+                "top_level_boxes": boxes,
                 "actual_cost": 0.0,
                 "assembly_provider_spend_usd": 0.0,
                 "opening_job_id": opening_job_id,
@@ -106,11 +147,15 @@ def assemble_if_ready(*, opening_job_id: str, remainder_job_id: str, target_id: 
                 "recovery_note": "Deleted opening rebuilt under separate approval; remainder reused.",
             },
         }
+        print(
+            f"[hippo-recovery] validated standard MP4 duration={duration:.2f}s "
+            f"size={artifact.get('size_bytes')} boxes={boxes}")
         if not db.finished_video_upsert(record):
             try:
                 blob.delete(str(artifact["url"]))
             finally:
                 raise HippoRecoveryError("Recovered film upload could not be indexed")
+        print(f"[hippo-recovery] indexed browser-safe recovered film: {target_id}")
         return {
             "status": "completed",
             "id": target_id,
