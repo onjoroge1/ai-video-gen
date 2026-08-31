@@ -274,6 +274,52 @@ def test_legacy_bolt_failure_remains_a_rejection_without_directed_declaration():
     assert summary["promotion_status"] == "blocked"
 
 
+def test_legacy_motion_duration_is_not_misclassified_as_a_long_still():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "hard_failures": ["long_visual_hold"],
+        "blind_story_judge": {"valid": False},
+        "inspection": {"deterministic": {"directed_source_cadence": {
+            "max_consecutive_still_asset_sec": 2.99,
+            "motion_durations_sec": [5.0, 5.0],
+        }}},
+    }
+    directed_spec = {"acceptance": {
+        "max_unchanged_hold_sec": 3.0,
+        "max_consecutive_still_asset_sec": 3.0,
+    }}
+
+    summary = rendered_grade_summary(legacy, directed_spec)
+
+    assert summary["hard_failures"] == []
+    assert summary["automated_status"] == "UNSCORED_JUDGE_UNAVAILABLE"
+    assert summary["instrumentation_failures"] == [
+        "legacy_motion_counted_as_unchanged_hold"]
+
+
+def test_actual_legacy_long_still_remains_a_hard_failure():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "hard_failures": ["long_visual_hold"],
+        "blind_story_judge": {"valid": False},
+        "inspection": {"deterministic": {"directed_source_cadence": {
+            "max_consecutive_still_asset_sec": 3.2,
+            "motion_durations_sec": [5.0],
+        }}},
+    }
+    directed_spec = {"acceptance": {
+        "max_unchanged_hold_sec": 3.0,
+        "max_consecutive_still_asset_sec": 3.0,
+    }}
+
+    summary = rendered_grade_summary(legacy, directed_spec)
+
+    assert summary["hard_failures"] == ["long_visual_hold"]
+    assert summary["automated_status"] == "REJECT"
+
+
 def test_real_calibration_requires_balanced_human_labeled_samples():
     samples = []
     for index in range(20):
