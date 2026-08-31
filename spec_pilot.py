@@ -23,10 +23,14 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 import urllib.request
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import requests
 import explainer_pipeline as ep
 import durable_execution
 import directed_longform as dl
@@ -52,6 +56,56 @@ XFADE_SEC = 0.5
 # chain and ffmpeg exited 254 after every asset was paid for. The margin absorbs that drift and
 # is held frames, not covered speech.
 SEGMENT_TAIL_SEC = XFADE_SEC + 0.35
+
+
+@contextmanager
+def _blob_segment_inputs(artifacts: list[dict], runtime):
+    """Yield FFmpeg-readable URLs without exposing a private Blob token to FFmpeg."""
+    if not artifacts or all(item.get("access") == "public" for item in artifacts):
+        yield [str(item["url"]) for item in artifacts]
+        return
+
+    credentials = runtime.blob.credentials
+    upstream_headers = {"Authorization": f"Bearer {credentials.token}"}
+    if credentials.store_id:
+        upstream_headers["x-vercel-blob-store-id"] = credentials.store_id
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib handler contract
+            try:
+                index = int(self.path.strip("/").split("?", 1)[0])
+                artifact = artifacts[index]
+            except (ValueError, IndexError):
+                self.send_error(404)
+                return
+            headers = dict(upstream_headers)
+            if self.headers.get("Range"):
+                headers["Range"] = self.headers["Range"]
+            with requests.get(
+                    str(artifact["url"]), headers=headers, stream=True,
+                    timeout=(15, 900)) as response:
+                self.send_response(response.status_code)
+                for name in ("Content-Length", "Content-Range", "Accept-Ranges", "Content-Type"):
+                    if response.headers.get(name):
+                        self.send_header(name, response.headers[name])
+                self.end_headers()
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        self.wfile.write(chunk)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        yield [f"http://127.0.0.1:{port}/{index}" for index in range(len(artifacts))]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 # The spec names a camera intent per shot ("Macro glide", "Rack focus reveals", "Freeze and
@@ -770,9 +824,6 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
                 segment,
                 f"jobs/{runtime.job_id}/scratch/remaining-{int(win_start):04d}-"
                 f"{batch_order:03d}.mp4")
-            if artifact.get("access") != "public":
-                raise RuntimeError(
-                    "Directed segment streaming requires a public unlisted Blob store")
             stream_segment_artifacts.append(artifact)
             stream_segments.append(str(artifact["url"]))
             Path(segment).unlink(missing_ok=True)
@@ -956,9 +1007,6 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     if use_i2v:
         log(f"  {animated}/{len(shots)} shots animated  (i2v ${sum(i2v_costs):.2f})")
 
-    concat_list = out / "tmp" / f"shots_{int(win_start):04d}.txt"
-    concat_list.write_text(
-        "".join(f"file '{clip}'\n" for clip in clips), encoding="utf-8")
     audio_list = out / "tmp" / f"audio_{int(win_start):04d}.txt"
     audio_list.write_text(
         "".join(f"file '{path}'\n" for path in audio_paths), encoding="utf-8")
@@ -967,24 +1015,29 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # Mux both concat lists directly. Keeping all clips, then materialising a full silent-video
     # copy, then materialising the final mux briefly triples the video footprint and exhausts
     # Vercel's /tmp on a 15-shot opening. -shortest still makes narration the timing authority.
-    remote_segments = any(str(clip).startswith(("https://", "http://")) for clip in clips)
-    video_input = []
-    if remote_segments:
-        video_input.extend([
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+    runtime = durable_execution.current()
+    with _blob_segment_inputs(stream_segment_artifacts, runtime) as remote_urls:
+        assembly_clips = remote_urls if stream_segment_artifacts else clips
+        concat_list = out / "tmp" / f"shots_{int(win_start):04d}.txt"
+        concat_list.write_text(
+            "".join(f"file '{clip}'\n" for clip in assembly_clips), encoding="utf-8")
+        remote_segments = bool(stream_segment_artifacts)
+        video_input = []
+        if remote_segments:
+            video_input.extend([
+                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+            ])
+        ep._run_ffmpeg([
+            ep._ffmpeg_bin(), "-nostdin", "-y",
+            *video_input,
+            "-f", "concat", "-safe", "0", "-i", str(concat_list),
+            "-f", "concat", "-safe", "0", "-i", str(audio_list),
+            "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
+            "-b:a", "192k", "-shortest", "-movflags", "+faststart", preview,
         ])
-    ep._run_ffmpeg([
-        ep._ffmpeg_bin(), "-nostdin", "-y",
-        *video_input,
-        "-f", "concat", "-safe", "0", "-i", str(concat_list),
-        "-f", "concat", "-safe", "0", "-i", str(audio_list),
-        "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest", "-movflags", "+faststart", preview,
-    ])
     for clip in clips:
         if not str(clip).startswith(("https://", "http://")):
             Path(clip).unlink(missing_ok=True)
-    runtime = durable_execution.current()
     if runtime is not None:
         for artifact in stream_segment_artifacts:
             runtime.blob.delete(str(artifact["url"]))
