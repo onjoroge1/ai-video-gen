@@ -2443,8 +2443,9 @@ def _directed_parent_pilot_context(parent_action_id: str, parent_job_id: str) ->
         shutil.rmtree(root, ignore_errors=True)
     grading = rendered_grade_summary(contract, parent_spec)
     if grading["hard_failures"]:
+        failure_codes = ", ".join(str(item) for item in grading["hard_failures"])
         raise agent_actions.AgentActionConflict(
-            "Parent pilot has deterministic grade failures and cannot be promoted")
+            f"Parent pilot deterministic grade failures: {failure_codes}")
     # PR50 fixes the legacy lifecycle label in place while preserving the immutable report that
     # explains why the old row said degraded. This is a zero-spend metadata correction.
     if finished.get("status") == "degraded":

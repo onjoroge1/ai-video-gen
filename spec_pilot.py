@@ -443,8 +443,13 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
     # constant must not silently outrank the JSON's explicit max_unchanged_hold_sec.
     deterministic = inspection.get("deterministic") or {}
     cadence = _actual_source_cadence(shots, holds)
+    # A five-second generated motion clip is not an unchanged visual hold.  The old count included
+    # Full motion rows and made the fast-cadence V4 contract fail precisely because it contained
+    # the front-loaded motion the contract required.
     shot_hold_failures = sum(
-        hold > spec.acceptance.max_unchanged_hold_sec for hold in holds)
+        hold > spec.acceptance.max_unchanged_hold_sec
+        for shot, hold in zip(shots, holds)
+        if str(shot.get("mode") or "").strip().casefold() != "full motion")
     source_hold_failures = sum(
         run["duration_sec"] > spec.acceptance.max_consecutive_still_asset_sec
         for run in cadence["still_asset_runs"])
