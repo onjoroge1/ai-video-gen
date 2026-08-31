@@ -18,6 +18,7 @@ spend by roughly 50x, so this counts what it actually spends rather than trustin
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -56,6 +57,23 @@ XFADE_SEC = 0.5
 # chain and ffmpeg exited 254 after every asset was paid for. The margin absorbs that drift and
 # is held frames, not covered speech.
 SEGMENT_TAIL_SEC = XFADE_SEC + 0.35
+# Keep enough headroom for one 1080p FFmpeg output plus atomic Blob upload bookkeeping.
+# Raising ENOSPC deliberately routes the attempt through the existing durable storage-recovery
+# path before FFmpeg leaves a partial file or corrupts the job checkpoint.
+MIN_RENDER_TMP_FREE_BYTES = 256 * 1024 * 1024
+
+
+def _require_tmp_headroom(path: str | Path, operation: str, log) -> None:
+    usage = shutil.disk_usage(str(path))
+    free_mib = usage.free / (1024 * 1024)
+    log(f"  disk preflight before {operation}: {free_mib:.1f} MiB free")
+    if usage.free < MIN_RENDER_TMP_FREE_BYTES:
+        raise OSError(
+            errno.ENOSPC,
+            f"durable recovery paused before {operation}: only {free_mib:.1f} MiB free",
+            str(path),
+        )
+
 
 
 @contextmanager
@@ -792,10 +810,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
 
     def compact_stream_clips(*, force: bool = False) -> None:
         """Collapse bounded groups of shot clips before they can fill serverless /tmp."""
-        # Vercel's Python cold start installs the application dependency set into this same
-        # ephemeral volume. Three 1080p clips leaves headroom for that runtime plus FFmpeg's
-        # copy output; larger batches can exhaust /tmp before the segment reaches Blob.
-        batch_size = 3
+        # Upload every completed clip immediately. Even a three-clip batch briefly retained
+        # those clips plus a fourth concatenated copy, which can exhaust Vercel's shared /tmp.
+        # A one-clip batch performs no concat and changes neither frames nor encoding quality.
+        batch_size = 1
         if not streaming_render or (len(clips) < batch_size and not force):
             return
         if not clips:
@@ -852,6 +870,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  I2V")
         else:
             motion = _motion_for(shot, stream_order)
+            _require_tmp_headroom(out, f"shot {stream_order + 1} render", log)
             # Recovery may need to replay dozens of already-paid sources inside one function
             # window.  The preset changes encoder search effort, not resolution, CRF, frames,
             # motion, or content; veryfast keeps that deterministic replay below the lease limit.
@@ -1030,6 +1049,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             video_input.extend([
                 "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
             ])
+        _require_tmp_headroom(out, "final streamed assembly", log)
         ep._run_ffmpeg([
             ep._ffmpeg_bin(), "-nostdin", "-y",
             *video_input,
