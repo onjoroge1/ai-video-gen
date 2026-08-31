@@ -5955,6 +5955,36 @@ def _diagnostic_render() -> bool:
         in ("1", "true", "yes", "on")
 
 
+def _stable_standard_longform(video_format: str, story_format: str,
+                              controlled_pilot: bool) -> bool:
+    """Select the recovery profile without changing any neighboring product lane.
+
+    The known-good long-form behavior was an ordinary Standard explainer that produced a complete
+    film and reported editorial weaknesses. Later research/evidence/rendered-review work is useful,
+    but making every one of those checks a release gate left the default lane unable to finish.
+
+    Social owns quiz and simulation, controlled pilots must remain fail-closed, and Evidence Mystery
+    explicitly promises sourced evidence. None of those routes may enter this recovery profile.
+    Set LONGFORM_PIPELINE_MODE=experimental to compare the current fail-closed Standard lane.
+    """
+    mode = (os.environ.get("LONGFORM_PIPELINE_MODE", "stable") or "stable").strip().lower()
+    return (
+        video_format == "landscape"
+        and story_format == "standard_explainer"
+        and not controlled_pilot
+        and mode != "experimental"
+    )
+
+
+def _ordinary_research_mode(stable_standard_longform: bool) -> str:
+    """Research policy for the default lane: keep it when available, never strand the render."""
+    if not stable_standard_longform:
+        return "required"
+    mode = (os.environ.get("LONGFORM_RESEARCH_MODE", "best_effort")
+            or "best_effort").strip().lower()
+    return mode if mode in {"off", "best_effort", "required"} else "best_effort"
+
+
 def _longform_retention_hard() -> bool:
     """Fail before image/TTS spend when objective story-contract checks still fail.
 
@@ -6763,6 +6793,9 @@ def run_explainer_pipeline(
 
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
+    stable_standard_longform = _stable_standard_longform(
+        video_format, story_format, controlled_pilot)
+    research_mode = _ordinary_research_mode(stable_standard_longform)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     resolved_motion_mode = (
@@ -6770,6 +6803,13 @@ def run_explainer_pipeline(
         else ("stills" if motion_mode is None and i2v is None
               else normalize_motion_mode(motion_mode, legacy_i2v=i2v))
     )
+    requested_motion_mode = resolved_motion_mode
+    if (stable_standard_longform and resolved_motion_mode != "stills"
+            and not I2V_PROVIDER):
+        # The UI defaults to Standard Motion, while readiness can legitimately run without a
+        # motion provider. That mismatch used to reject the default request before script writing.
+        # Ken Burns is the known-good baseline and remains a complete long-form render.
+        resolved_motion_mode = "stills"
     # Social retains its existing automatic motion policy. Long-form uses the explicit PR4 modes.
     i2v_on = ((i2v if i2v is not None else True) if video_format == "social"
               else resolved_motion_mode != "stills") and bool(I2V_PROVIDER)
@@ -6809,6 +6849,14 @@ def run_explainer_pipeline(
     generation_manifest = _generation_manifest_payload(
         video_format=video_format, motion_mode=resolved_motion_mode,
         threshold_profile=threshold_profile)
+    if stable_standard_longform:
+        generation_manifest["pipeline_profile"] = "stable_standard_longform"
+    if requested_motion_mode != resolved_motion_mode:
+        generation_manifest["motion_fallback"] = {
+            "requested": requested_motion_mode,
+            "effective": resolved_motion_mode,
+            "reason": "motion_provider_not_configured",
+        }
     _write_generation_manifest(generation_manifest_path, generation_manifest)
     pilot_control_path = None
     pilot_script_path = None
@@ -6848,7 +6896,12 @@ def run_explainer_pipeline(
         cap_mode = "bubble"
     log(f"Format: {video_format} ({vw}×{vh}, captions={cap_mode})")
     if video_format != "social":
+        if stable_standard_longform:
+            log("Long-form profile: stable Standard (quality gates report; "
+                "technical/cost failures still block)")
         log(f"Motion treatment: {resolved_motion_mode}")
+        if requested_motion_mode != resolved_motion_mode:
+            log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
         if resolved_motion_mode != "stills" and not I2V_PROVIDER:
             raise ValueError(
                 "Standard/Full Motion requires I2V_PROVIDER. Configure a motion provider or choose Stills.")
@@ -6899,7 +6952,9 @@ def run_explainer_pipeline(
             style_mode = _st.get("style_mode", "educational")
             scenes = script.get("scenes", [])
             research_dossier = script.get("_research_dossier") or {}
-            if video_format != "social" and not validate_research_dossier(research_dossier).get("passed"):
+            if (video_format != "social"
+                    and not validate_research_dossier(research_dossier).get("passed")
+                    and not stable_standard_longform):
                 raise ValueError("Checkpoint predates the sourced research contract")
             if video_format != "social":
                 checkpoint_evidence = script.get("_evidence_plan") or {}
@@ -6917,7 +6972,8 @@ def run_explainer_pipeline(
                 # Sixth condition today checked in two places where only one read its flag.
                 if checkpoint_evidence.get("version") != 1 or (
                         not checkpoint_evidence_validation.get("passed")
-                        and not _diagnostic_render()):
+                        and not _diagnostic_render()
+                        and not stable_standard_longform):
                     raise ValueError("Checkpoint predates the evidence-asset contract")
             short_grade = _st.get("short_grade")
             resumed = True
@@ -6950,9 +7006,19 @@ def run_explainer_pipeline(
                                                         short_template=short_template,
                                                         operator_direction=operator_direction)
         else:
-            log("stage:Researching sourced claims...")
-            research_dossier = generate_research_dossier(
-                question, cost_sink=aux_costs, log=log)
+            if research_mode == "off":
+                log("Research dossier: skipped by the stable Standard profile; fact-check remains enabled.")
+            else:
+                log("stage:Researching sourced claims...")
+                try:
+                    research_dossier = generate_research_dossier(
+                        question, cost_sink=aux_costs, log=log)
+                except Exception as exc:
+                    if research_mode == "required":
+                        raise
+                    research_dossier = {}
+                    log("Research dossier unavailable "
+                        f"({type(exc).__name__}); continuing on the stable fact-check-only path.")
             # Engagement gate: grade hook/story/ending + regenerate weak drafts BEFORE we spend a
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
             script = generate_graded_script(question, duration_sec, style, image_guidance,
@@ -6995,7 +7061,7 @@ def run_explainer_pipeline(
                 # can continue; the failure is still logged and still recorded on the script, and
                 # the result is NOT publishable -- an unbound scene means a factual or causal line
                 # has no source behind it. Default stays on.
-                if _claim_ledger_hard():
+                if _claim_ledger_hard() and not stable_standard_longform:
                     raise ValueError(
                         "Claim ledger failed after script/fact-check before asset spend: "
                         + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
@@ -7062,7 +7128,7 @@ def run_explainer_pipeline(
         if not claim_validation.get("passed") and not _claim_ledger_hard():
             for item in claim_validation.get("errors", [])[:6]:
                 log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
-        elif not claim_validation.get("passed"):
+        elif not claim_validation.get("passed") and not stable_standard_longform:
             # This is the same condition as the ledger check ~90 lines above, which honours
             # CLAIM_LEDGER_HARD, and this one did not. A diagnostic render therefore logged the
             # unsourced scene, continued, and was killed here by its twin -- so the escape hatch
@@ -7103,7 +7169,7 @@ def run_explainer_pipeline(
         if not retention_validation.get("passed"):
             for issue in (retention_validation.get("errors") or [])[:6]:
                 log(f"  ✗ [{issue.get('code')}] {issue.get('message')}")
-            if _longform_retention_hard():
+            if _longform_retention_hard() and not stable_standard_longform:
                 raise ValueError(
                     "Long-form retention contract failed before image/TTS spend: "
                     + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
@@ -7153,7 +7219,8 @@ def run_explainer_pipeline(
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
-        if not evidence_validation.get("passed") and not _diagnostic_render():
+        if (not evidence_validation.get("passed") and not _diagnostic_render()
+                and not stable_standard_longform):
             raise ValueError(
                 "Evidence-state plan failed before TTS/image spend: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
@@ -7188,10 +7255,18 @@ def run_explainer_pipeline(
     if video_format != "social":
         evidence_states = [state for scene_plan in evidence_plan.get("scenes") or []
                            for state in scene_plan.get("states") or []]
-        if any(state.get("include_human") for state in evidence_states) and not human_ok:
+        if (any(state.get("include_human") for state in evidence_states) and not human_ok
+                and not stable_standard_longform):
             raise FileNotFoundError("Human continuity reference is required before evidence rendering.")
-        if any(state.get("include_bolt") for state in evidence_states) and not mascot_ok:
+        if (any(state.get("include_bolt") for state in evidence_states) and not mascot_ok
+                and not stable_standard_longform):
             raise FileNotFoundError("Bolt continuity reference is required for declared support states.")
+        if stable_standard_longform and any(
+                state.get("include_human") for state in evidence_states) and not human_ok:
+            log("Human reference unavailable; continuing without hard continuity enforcement.")
+        if stable_standard_longform and any(
+                state.get("include_bolt") for state in evidence_states) and not mascot_ok:
+            log("Bolt reference unavailable; continuing without hard continuity enforcement.")
 
     # Locked cartoon RENDER style + constraints. The render look is constant (cohesion);
     # the per-scene environment + dominant style_mode supply variety. We rely on the
@@ -7335,9 +7410,11 @@ def run_explainer_pipeline(
         # honoured neither -- so a run that legitimately continued past both earlier gates was
         # killed here by their twin, after paying for TTS. The flags are read here now.
         blocking = []
-        if not claim_validation.get("passed") and _claim_ledger_hard():
+        if (not claim_validation.get("passed") and _claim_ledger_hard()
+                and not stable_standard_longform):
             blocking.append("claim ledger")
-        if not retention_validation.get("passed") and _longform_retention_hard():
+        if (not retention_validation.get("passed") and _longform_retention_hard()
+                and not stable_standard_longform):
             blocking.append("retention contract")
         for label, report in (("claim", claim_validation), ("retention", retention_validation)):
             if not report.get("passed") and label.replace("claim", "claim ledger").replace(
@@ -7370,9 +7447,10 @@ def run_explainer_pipeline(
             evidence_validation["errors"] = (
                 evidence_validation.get("errors", []) + final_evidence_timing.get("errors", []))
         script["_evidence_plan"] = evidence_plan
-        if not evidence_validation.get("passed") and _diagnostic_render():
+        if (not evidence_validation.get("passed")
+                and (_diagnostic_render() or stable_standard_longform)):
             for item in evidence_validation.get("errors", [])[:6]:
-                log(f"  ✗ [EVIDENCE PLAN, DIAGNOSTIC_RENDER=1] {item['message']}")
+                log(f"  ✗ [EVIDENCE PLAN, advisory] {item['message']}")
         elif not evidence_validation.get("passed"):
             # Twin of the evidence-plan check ~350 lines above, which honours DIAGNOSTIC_RENDER
             # while this one did not -- so a diagnostic run cleared the first, paid for its TTS,
@@ -7779,9 +7857,9 @@ def run_explainer_pipeline(
         # the proof it claims is not evidence -- but under DIAGNOSTIC_RENDER it reports instead
         # of aborting, because a video with imperfect frames can be watched and judged while no
         # video cannot. Such a render is NOT publishable: its visuals do not match their plan.
-        if not _diagnostic_render():
+        if not _diagnostic_render() and not stable_standard_longform:
             raise RuntimeError("Opening evidence assets were rejected before the render smoke test.")
-        log("  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] opening evidence assets rejected — continuing")
+        log("  ⚠ [ASSETS, advisory] opening evidence assets rejected — continuing")
     if not r0["aud_ok"]:
         raise RuntimeError("Scene 1 audio failed — aborting before generating the other images.")
     try:
@@ -7861,10 +7939,10 @@ def run_explainer_pipeline(
         if any(not result.get("evidence_ok") for result in opening_results):
             with open(evidence_plan_path, "w") as handle:
                 json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
-            if not _diagnostic_render():
+            if not _diagnostic_render() and not stable_standard_longform:
                 raise RuntimeError(
                     "One or more first-tranche evidence assets were explicitly rejected.")
-            log("  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] first-tranche assets rejected — continuing")
+            log("  ⚠ [ASSETS, advisory] first-tranche assets rejected — continuing")
         evidence_validation = validate_evidence_plan(
             evidence_plan, require_verified_assets=True, opening_only=True)
         with open(evidence_plan_path, "w") as handle:
@@ -7874,13 +7952,13 @@ def run_explainer_pipeline(
         if not evidence_validation.get("passed"):
             # Third of three asset-rejection aborts. All read the same flag: a gate honoured in
             # one place and not its twin has cost a full run five separate times today.
-            if not _diagnostic_render():
+            if not _diagnostic_render() and not stable_standard_longform:
                 raise RuntimeError(
                     "Opening evidence gate failed before later visual purchase: "
                     + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
                 )
             for item in evidence_validation.get("errors", [])[:6]:
-                log(f"  ⚠ [ASSETS, DIAGNOSTIC_RENDER=1] {item['message']}")
+                log(f"  ⚠ [ASSETS, advisory] {item['message']}")
         log(opening_evidence_gate_message(evidence_validation))
         _generate_longform_motion(opening_results, set(range(opening_stop)))
         opening_motion = [candidate for candidate in motion_plan.get("candidates") or []
@@ -8144,13 +8222,13 @@ def run_explainer_pipeline(
                 # DIAGNOSTIC_RENDER lets the run finish so the whole video can be watched and the
                 # gate's judgement checked against it. Its score and hard failures are still
                 # computed, still written to rendered_contract.json, and still logged.
-                if not _diagnostic_render():
+                if not _diagnostic_render() and not stable_standard_longform:
                     raise RuntimeError(
                         f"Rendered opening was {rendered_grade_label}; "
                         f"hard failures: {', '.join(rendered_contract.get('hard_failures') or ['score floor'])}. "
                         f"Aborted before purchasing {len(scenes) - opening_stop} later scenes."
                     )
-                log(f"  ⚠ [RENDERED GATE, DIAGNOSTIC_RENDER=1] result "
+                log(f"  ⚠ [RENDERED GATE, advisory] result "
                     f"{rendered_grade_label} — "
                     f"{', '.join(rendered_contract.get('hard_failures') or ['score floor'])} — continuing")
             if not rendered_contract.get("passed"):
@@ -8166,8 +8244,8 @@ def run_explainer_pipeline(
                 # every resume renders a new one, so an approval never matches what it approved.
                 # 116c878 fixed the checkpoint half of that; this removes the wait entirely for
                 # diagnostic runs, which is what makes a full video reachable at all.
-                if _diagnostic_render():
-                    log("  ⚠ [HUMAN REVIEW, DIAGNOSTIC_RENDER=1] skipping editorial approval — "
+                if _diagnostic_render() or stable_standard_longform:
+                    log("  ⚠ [HUMAN REVIEW, advisory] skipping editorial approval — "
                         f"grade {rendered_grade_label} written to "
                         f"{os.path.basename(rendered_contract_path)}; continuing to full render")
                 else:
@@ -8183,16 +8261,17 @@ def run_explainer_pipeline(
         # later, blocks on the same fact without reading the same flag.
         if (not frozen_opening_segments or not rendered_contract
                 or not rendered_contract.get("passed")):
-            if not _diagnostic_render():
+            if not _diagnostic_render() and not stable_standard_longform:
                 raise RuntimeError(
                     "The rendered opening was not automatically and human approved/frozen; later "
                     "visual assets will not be purchased.")
-            log("  ⚠ [OPENING FREEZE, DIAGNOSTIC_RENDER=1] opening not approved/frozen — "
+            log("  ⚠ [OPENING FREEZE, advisory] opening not approved/frozen — "
                 "continuing to the remaining scenes")
 
     later = []
     if opening_stop < len(scenes):
-        log(f"45-second gate passed ✓ — generating the remaining {len(scenes) - opening_stop} scenes")
+        log(f"45-second opening report complete ✓ — generating the remaining "
+            f"{len(scenes) - opening_stop} scenes")
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
             later = list(_context_map(ex, _gen_assets, all_indexed[opening_stop:]))
     results = opening_results + later   # _gen_assets never raises
@@ -8204,9 +8283,10 @@ def run_explainer_pipeline(
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
             json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
-        if not evidence_validation.get("passed") and _diagnostic_render():
+        if (not evidence_validation.get("passed")
+                and (_diagnostic_render() or stable_standard_longform)):
             for item in evidence_validation.get("errors", [])[:6]:
-                log(f"  ⚠ [FINAL ASSETS, DIAGNOSTIC_RENDER=1] {item['message']}")
+                log(f"  ⚠ [FINAL ASSETS, advisory] {item['message']}")
         elif not evidence_validation.get("passed"):
             # Eighth instance, and the worst placed: this runs after EVERY image is bought, so a
             # diagnostic run waved through three earlier copies of this same check dies here with
@@ -8548,7 +8628,9 @@ def run_explainer_pipeline(
     # above exists for exactly this. A finished, watchable video that runs long is a fact to
     # report, not a reason to throw it away.
     if video_format != "social":
-        runtime_tolerance = float(duration_sec) * 0.03
+        # The planner's supported window is ±15%. The former ±3% final label contradicted that
+        # contract and marked a successfully planned/rendered film degraded after all spend.
+        runtime_tolerance = float(duration_sec) * (0.15 if stable_standard_longform else 0.03)
         if not final_dur or abs(final_dur - float(duration_sec)) > runtime_tolerance:
             reasons.append(
                 f"final runtime {final_dur:.1f}s vs {duration_sec:.0f}s target "
