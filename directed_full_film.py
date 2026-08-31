@@ -141,21 +141,28 @@ def _write_text_artifacts(spec: dl.DirectedLongformSpec, out: Path) -> tuple[str
 
 def render_remaining(*, envelope: dict, authorization_hash: str, parent_video_path: str,
                      out_dir: str, voice: str = "echo", authorize_paid: bool = False,
-                     restore_parent_video=None, log=print) -> dict:
-    """Render only 45–300 seconds and prepend the immutable accepted opening."""
+                     restore_parent_video=None, parent_video_available: bool = True,
+                     log=print) -> dict:
+    """Render 45–300 seconds and prepend the opening when its exact bytes are available.
+
+    If the approved opening object has been irretrievably deleted, the authorized remainder is
+    still completed and returned as a durable 255-second recovery artifact. Rebuilding and joining
+    the opening remains a separate, explicitly approved operation.
+    """
     if authorize_paid is not True:
         raise DirectedFullFilmError("Explicit remaining-film authorization is required")
     report, promotion = validate_envelope(envelope, expected_sha256=authorization_hash)
     parent_path = Path(parent_video_path)
-    if not parent_path.is_file():
-        raise DirectedFullFilmError("Accepted pilot video is unavailable")
-    if file_sha256(parent_path) != promotion["parent_video_sha256"]:
+    parent_available = bool(parent_video_available and parent_path.is_file())
+    if parent_available and file_sha256(parent_path) != promotion["parent_video_sha256"]:
         raise DirectedFullFilmError("Accepted pilot video SHA-256 changed")
+    if not parent_available:
+        log("Accepted pilot bytes are unavailable; preserving the authorized remainder separately")
     # The accepted pilot is already immutable in Blob and is not needed while the remaining
     # 255 seconds are rendered. Keeping that large MP4 beside restored images and shot batches
     # consumed a material fraction of Vercel's /tmp and repeatedly stranded otherwise durable
     # work. Verify it first, release the local copy, and restore only for final concatenation.
-    if restore_parent_video is not None:
+    if parent_available and restore_parent_video is not None:
         parent_path.unlink(missing_ok=True)
         log("Released local accepted pilot during remaining-film render")
     spec = dl.DirectedLongformSpec.model_validate(report["normalized_spec"])
@@ -168,6 +175,64 @@ def render_remaining(*, envelope: dict, authorization_hash: str, parent_video_pa
         window=(promotion["start_sec"], promotion["end_sec"]), use_i2v=True,
         validated_sha256=report["spec_sha256"], authorize_paid=True,
         require_validation=True, log=log)
+    if not parent_available:
+        output = Path(segment["preview_path"])
+        measured = ep._audio_dur(str(output))
+        expected = float(promotion["end_sec"]) - float(promotion["start_sec"])
+        if abs(measured - expected) > spec.acceptance.runtime_tolerance_sec:
+            raise DirectedFullFilmError(
+                f"salvaged remainder runtime {measured:.2f}s is outside the 255-second tolerance")
+        transcript_path, srt_path = _write_text_artifacts(spec, out)
+        delivery = {
+            "schema_version": 1,
+            "status": "REMAINDER_SALVAGED_AWAITING_OPENING",
+            "scope": SCOPE,
+            "authorization_sha256": authorization_hash,
+            "content_spec_sha256": report["spec_sha256"],
+            "parent_action_id": promotion["parent_action_id"],
+            "parent_job_id": promotion["parent_job_id"],
+            "missing_parent_video_sha256": promotion["parent_video_sha256"],
+            "pilot_reused": False,
+            "remaining_window": {"start_sec": promotion["start_sec"],
+                                 "end_sec": promotion["end_sec"]},
+            "remaining_cost_usd": segment["total_cost_usd"],
+            "measured_duration_sec": round(measured, 3),
+            "video_sha256": file_sha256(output),
+            "remaining_shots": segment["shots"],
+            "remaining_animated_shots": segment["animated_shots"],
+        }
+        delivery_path = out / "remaining_delivery_report.json"
+        delivery_path.write_text(json.dumps(delivery, indent=2), encoding="utf-8")
+        log(f"Authorized remainder preserved at {measured:.2f}s; replacement opening required")
+        return {
+            "output_path": str(output),
+            "title": spec.title + " — recovered remainder",
+            "script": report["normalized_spec"],
+            "hook": spec.narration[0].narration,
+            "scene_count": len(spec.narration),
+            "shot_count": len(spec.shots),
+            "remaining_shot_count": segment["shots"],
+            "duration_sec": round(measured, 2),
+            "video_format": "landscape",
+            "actual_cost": segment["total_cost_usd"],
+            "est_cost": promotion["remaining_cost_estimate"]["estimated_total_usd"],
+            "status": "ok",
+            "technical_status": "completed",
+            "automated_grade_status": "NOT_RUN_REMAINDER_ONLY",
+            "editorial_status": "blocked_on_replacement_opening",
+            "promotion_status": "remainder_salvaged_waiting_opening",
+            "degraded_reasons": ["approved opening object was deleted before final assembly"],
+            "directed_full_film": True,
+            "pilot_reused": False,
+            "parent_job_id": promotion["parent_job_id"],
+            "parent_video_sha256": promotion["parent_video_sha256"],
+            "transcript_path": transcript_path,
+            "srt_path": srt_path,
+            "generation_manifest_path": segment["generation_manifest_path"],
+            "directed_spec_path": segment["directed_spec_path"],
+            "validation_report_path": segment["validation_report_path"],
+            "full_delivery_report_path": str(delivery_path),
+        }
     log("stage:Assembling accepted pilot + remaining film")
     if restore_parent_video is not None:
         restore_parent_video(str(parent_path))
