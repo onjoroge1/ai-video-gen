@@ -141,7 +141,7 @@ def _write_text_artifacts(spec: dl.DirectedLongformSpec, out: Path) -> tuple[str
 
 def render_remaining(*, envelope: dict, authorization_hash: str, parent_video_path: str,
                      out_dir: str, voice: str = "echo", authorize_paid: bool = False,
-                     log=print) -> dict:
+                     restore_parent_video=None, log=print) -> dict:
     """Render only 45–300 seconds and prepend the immutable accepted opening."""
     if authorize_paid is not True:
         raise DirectedFullFilmError("Explicit remaining-film authorization is required")
@@ -151,6 +151,13 @@ def render_remaining(*, envelope: dict, authorization_hash: str, parent_video_pa
         raise DirectedFullFilmError("Accepted pilot video is unavailable")
     if file_sha256(parent_path) != promotion["parent_video_sha256"]:
         raise DirectedFullFilmError("Accepted pilot video SHA-256 changed")
+    # The accepted pilot is already immutable in Blob and is not needed while the remaining
+    # 255 seconds are rendered. Keeping that large MP4 beside restored images and shot batches
+    # consumed a material fraction of Vercel's /tmp and repeatedly stranded otherwise durable
+    # work. Verify it first, release the local copy, and restore only for final concatenation.
+    if restore_parent_video is not None:
+        parent_path.unlink(missing_ok=True)
+        log("Released local accepted pilot during remaining-film render")
     spec = dl.DirectedLongformSpec.model_validate(report["normalized_spec"])
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -162,6 +169,10 @@ def render_remaining(*, envelope: dict, authorization_hash: str, parent_video_pa
         validated_sha256=report["spec_sha256"], authorize_paid=True,
         require_validation=True, log=log)
     log("stage:Assembling accepted pilot + remaining film")
+    if restore_parent_video is not None:
+        restore_parent_video(str(parent_path))
+        if file_sha256(parent_path) != promotion["parent_video_sha256"]:
+            raise DirectedFullFilmError("Restored accepted pilot video SHA-256 changed")
     concat = out / "full_film_concat.txt"
     concat.write_text(
         f"file '{parent_path.resolve()}'\nfile '{Path(segment['preview_path']).resolve()}'\n",

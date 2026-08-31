@@ -1313,6 +1313,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                         out_dir=output_dir,
                         voice=directed.target.voice,
                         authorize_paid=request.directed_paid_authorized,
+                        restore_parent_video=lambda path: durable_runtime.blob.download(
+                            artifact, path),
                         log=push)),
                 )
             else:
