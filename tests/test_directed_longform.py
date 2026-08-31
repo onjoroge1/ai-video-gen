@@ -350,7 +350,9 @@ def test_remaining_film_streams_and_releases_source_images():
     assert "streaming_render" in source
     assert "flush_stream()" in source
     assert "Path(path).unlink(missing_ok=True)" in source
-    assert '_render_shot(path, hold, motion, clip, preset="veryfast")' in source
+    assert '_render_shot(path, hold, motion, clip, preset="veryfast", crf=23)' in source
+    assert "compact_stream_clips(force=True)" in source
+    assert "clips[:] = stream_segments" in source
     assert source.index("flush_stream()", source.index("for order, shot in enumerate(shots)")) \
         < source.index("pending_stream = {", source.index("for order, shot in enumerate(shots)"))
 

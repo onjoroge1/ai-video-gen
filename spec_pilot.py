@@ -311,7 +311,7 @@ def _motion_for(shot: dict, order: int) -> str:
 
 def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
                  *, width: int = 1920, height: int = 1080, fps: int = 30,
-                 preset: str = "medium") -> str:
+                 preset: str = "medium", crf: int = 19) -> str:
     """One still + one camera move, encoded to a clip of exactly `seconds`.
 
     Uses the pipeline's own _motion presets and its 2x supersample trick: zoompan rounds its
@@ -329,7 +329,7 @@ def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
     ep._run_ffmpeg([
         ep._ffmpeg_bin(), "-nostdin", "-y", "-loop", "1", "-i", image_path,
         "-vf", chain, "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", preset, "-crf", "19", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
         "-r", str(fps), out_path,
     ])
     return out_path
@@ -723,6 +723,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     planned_holds[-1] += spoken - sum(planned_holds)
     (out / "tmp").mkdir(parents=True, exist_ok=True)
     clips: list[str] = []
+    stream_segments: list[str] = []
     i2v_costs: list = []
     motion_events: list = []
     animated = 0
@@ -731,6 +732,34 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     stream_image_assets: list[dict] = []
     pending_stream: dict | None = None
     leading_blocked_seconds = 0.0
+
+    def compact_stream_clips(*, force: bool = False) -> None:
+        """Collapse bounded groups of shot clips before they can fill serverless /tmp."""
+        batch_size = 12
+        if not streaming_render or (len(clips) < batch_size and not force):
+            return
+        if not clips:
+            return
+        batch = list(clips)
+        batch_order = len(stream_shots)
+        manifest = out / "tmp" / f"stream_batch_{int(win_start):04d}_{batch_order:03d}.txt"
+        manifest.write_text(
+            "".join(f"file '{Path(item).resolve()}'\n" for item in batch), encoding="utf-8")
+        segment = str(
+            out / "tmp" / f"stream_segment_{int(win_start):04d}_{batch_order:03d}.mp4")
+        if len(batch) == 1:
+            segment = batch[0]
+        else:
+            ep._run_ffmpeg([
+                ep._ffmpeg_bin(), "-nostdin", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(manifest), "-map", "0:v", "-c:v", "copy",
+                "-movflags", "+faststart", segment,
+            ])
+            for item in batch:
+                Path(item).unlink(missing_ok=True)
+        manifest.unlink(missing_ok=True)
+        stream_segments.append(segment)
+        clips.clear()
 
     def flush_stream() -> None:
         nonlocal pending_stream, animated
@@ -751,9 +780,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             # Recovery may need to replay dozens of already-paid sources inside one function
             # window.  The preset changes encoder search effort, not resolution, CRF, frames,
             # motion, or content; veryfast keeps that deterministic replay below the lease limit.
-            _render_shot(path, hold, motion, clip, preset="veryfast")
+            _render_shot(path, hold, motion, clip, preset="veryfast", crf=23)
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  {motion}")
         clips.append(clip)
+        compact_stream_clips()
         stream_shots.append(shot)
         stream_holds.append(hold)
         stream_image_assets.append(pending_stream["asset"])
@@ -840,6 +870,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         if pending_stream and leading_blocked_seconds:
             pending_stream["hold"] += leading_blocked_seconds
         flush_stream()
+        compact_stream_clips(force=True)
+        clips[:] = stream_segments
         if not stream_shots:
             raise RuntimeError(
                 f"every shot in {win_start:.0f}-{win_end:.0f}s was blocked by image moderation")
