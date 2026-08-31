@@ -1124,6 +1124,7 @@ class ExplainerRequest(BaseModel):
     operator_direction: str = ""      # optional creative direction; enriches the script prompt,
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
+    visual_style: Literal["cinematic", "illustrated_story"] = "cinematic"
     # Internal directed-v1 fields. Public callers must use the validation/process endpoints,
     # which bind paid approval to an immutable spec hash before constructing this request.
     directed_spec: dict | None = None
@@ -1487,6 +1488,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     short_template=request.short_template,
                     operator_direction=request.operator_direction,
                     story_format=request.story_format,
+                    visual_style=request.visual_style,
                     controlled_pilot=request.controlled_pilot,
                     pilot_batch_id=request.pilot_batch_id,
                     pilot_kind=request.pilot_kind,
@@ -1570,6 +1572,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "hook":        result["hook"],
             "scene_count": result["scene_count"],
             "video_format": result.get("video_format"),
+            "visual_style": result.get("visual_style"),
+            "storyboard_path": result.get("storyboard_path"),
             "est_cost":    result.get("est_cost"),
             "actual_cost": result.get("actual_cost"),
             "dropped":     result.get("dropped", 0),
@@ -1630,6 +1634,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                        "directed-v1-pilot" if request.directed_spec else
                        f"short-{template}" if request.video_format == "social" else "explainer"),
             "question": request.question, "scene_count": result["scene_count"],
+            "visual_style": result.get("visual_style") or request.visual_style,
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
             "rendered_contract_score": (result.get("rendered_contract") or {}).get("score"),
@@ -1655,6 +1660,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "quiz-control": (result.get("variants") or {}).get("a"),
                   "quiz-performer": (result.get("variants") or {}).get("b"),
                   "story-format-review": result.get("story_format_review_path"),
+                  "storyboard": result.get("storyboard_path"),
                   "evidence-plan": result.get("evidence_plan_path"),
                   "evidence-validation": result.get("evidence_validation_path"),
                   "continuity": result.get("continuity_pack_path"),
@@ -3080,6 +3086,16 @@ async def dispatch_agent_action(action_id: str, request: Request):
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    import illustrated_story as illustrated_story_lane
+    try:
+        illustrated_story_lane.validate_request(
+            visual_style=request.visual_style,
+            video_format=request.video_format,
+            story_format=request.story_format,
+            controlled_pilot=request.controlled_pilot,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if (request.directed_spec or request.directed_spec_sha256
             or request.directed_paid_authorized or request.directed_full_film
             or request.directed_authorization_sha256 or request.directed_promotion
@@ -3156,6 +3172,7 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "rendered_contact_sheet_path": "rendered_contact_sheet.jpg",
         "human_review_path": "human_review.json",
         "story_format_review_path": "story_format_review.json",
+        "storyboard_path": "illustrated_storyboard.json",
         "generation_manifest_path": "generation_manifest.json",
         "pilot_control_path": "pilot_control.json",
         "pilot_script_path": "pilot_script.json",
