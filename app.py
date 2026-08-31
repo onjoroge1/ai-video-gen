@@ -2961,6 +2961,16 @@ async def dispatch_agent_action(action_id: str, request: Request):
             # its idempotency key; completed narration/images remain reuse-only.
             await asyncio.to_thread(
                 store.rearm_disk_exhaustion, str(action["job_id"]), extra_attempts=3)
+        elif (job and job.get("status") == "error"
+              and str(job.get("error") or "").strip()
+              == "Directed segment streaming requires a public unlisted Blob store"):
+            # PR61 added authenticated localhost streaming for private Blob stores. Rearm only
+            # the exact obsolete fail-closed guard; payload, stages, spend, and ceiling remain
+            # immutable, and the generic infrastructure helper requires zero reservation.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="Directed segment streaming requires a public unlisted Blob store",
+                extra_attempts=3)
         if job and ((job.get("request") or {}).get("directed_full_film") is True):
             # Paid stages are individually durable and idempotent, but a five-minute film can
             # span several hosting-function windows. Preserve enough claim attempts to finish
