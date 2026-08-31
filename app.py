@@ -1330,9 +1330,55 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                             if "404" not in str(exc) and "Not Found" not in str(exc):
                                 raise
                             missing.append(str(candidate.get("pathname") or "unknown"))
+                    # A checkpoint archive may still contain the rendered preview even
+                    # when direct final/snapshot objects were removed. Inspect archives without
+                    # extracting paths, and accept bytes only if they match the approved SHA.
+                    import hashlib
+                    import tempfile
+                    import tarfile
+                    checkpoint_records = [
+                        item for item in durable_runtime.store.artifacts(
+                            str(request.directed_parent_job_id))
+                        if item.get("kind") == "checkpoint"
+                    ]
+                    for checkpoint in checkpoint_records:
+                        work = tempfile.mkdtemp(prefix="parent_pilot_recovery_")
+                        archive = os.path.join(work, "checkpoint.tar.gz")
+                        candidate_path = os.path.join(work, "candidate.mp4")
+                        try:
+                            try:
+                                durable_runtime.blob.download(checkpoint, archive)
+                            except durable_execution.StorageUnavailable as exc:
+                                if "404" in str(exc) or "Not Found" in str(exc):
+                                    continue
+                                raise
+                            with tarfile.open(archive, "r:gz") as bundle:
+                                for member in bundle.getmembers():
+                                    if not member.isfile() or not member.name.casefold().endswith(".mp4"):
+                                        continue
+                                    source = bundle.extractfile(member)
+                                    if source is None:
+                                        continue
+                                    digest = hashlib.sha256()
+                                    with source, open(candidate_path, "wb") as destination:
+                                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                                            digest.update(chunk)
+                                            destination.write(chunk)
+                                    if digest.hexdigest() == expected_sha:
+                                        shutil.copyfile(candidate_path, path)
+                                        durable_runtime.event(
+                                            "parent_pilot_checkpoint_restored",
+                                            "Accepted pilot restored from durable checkpoint archive",
+                                            {"sha256": expected_sha,
+                                             "stage_key": checkpoint.get("stage_key")},
+                                        )
+                                        return path
+                        finally:
+                            shutil.rmtree(work, ignore_errors=True)
                     raise durable_execution.StorageUnavailable(
-                        "Accepted pilot is missing from the finished pointer and every "
-                        f"same-hash immutable snapshot ({len(missing)} candidates checked)")
+                        "Accepted pilot bytes are absent from finished, snapshot, and checkpoint "
+                        f"artifacts ({len(missing)} direct candidates and "
+                        f"{len(checkpoint_records)} checkpoints checked)")
 
                 await asyncio.to_thread(restore_parent_video, parent_path)
                 import directed_full_film as dff
@@ -3154,18 +3200,23 @@ async def render_recovery_cron():
         store, blob = _durable_components()
         audio_salvage = await asyncio.to_thread(store.rearm_next_directed_audio_runtime_failure)
         parent_blob_salvage = None
+        parent_archive_salvage = None
         disk_salvage = None
         if not audio_salvage:
             parent_blob_salvage = await asyncio.to_thread(
                 store.rearm_next_directed_parent_blob_failure)
         if not audio_salvage and not parent_blob_salvage:
+            parent_archive_salvage = await asyncio.to_thread(
+                store.rearm_next_directed_parent_archive_failure)
+        if not audio_salvage and not parent_blob_salvage and not parent_archive_salvage:
             disk_salvage = await asyncio.to_thread(store.requeue_next_directed_storage_error)
-        selected = audio_salvage or parent_blob_salvage or disk_salvage
+        selected = audio_salvage or parent_blob_salvage or parent_archive_salvage or disk_salvage
         result = await _run_durable_explainer_worker(
             str(selected["id"]) if selected else None)
         cleanup = await asyncio.to_thread(durable_execution.cleanup_orphans, store, blob)
         return {**result, "directed_audio_salvage": audio_salvage or {},
                 "directed_parent_blob_salvage": parent_blob_salvage or {},
+                "directed_parent_archive_salvage": parent_archive_salvage or {},
                 "directed_storage_salvage": disk_salvage or {},
                 "orphan_cleanup": cleanup}
     except durable_execution.StorageUnavailable as exc:
