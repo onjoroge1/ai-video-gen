@@ -710,6 +710,55 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     log(f"Shot plan: {len(shots)} shots "
         f"(spec section 9 requires at least 15 visual states)")
 
+    # Full films cannot retain ~100 source images until the assembly pass: even compact JPEGs
+    # eventually fill a serverless worker's /tmp.  Their timing is already known, so keep only
+    # one pending source image, render it when the next usable shot is known, then release it.
+    # The pilot keeps the historical all-images path because its grader needs those sources.
+    streaming_render = bool(require_validation and win_start >= spec.target.pilot_end_sec - 0.05)
+    planned = max(shot["end_sec"] for shot in shots) - win_start
+    scale = spoken / planned
+    planned_holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale)
+                     for shot in shots]
+    planned_holds[-1] += spoken - sum(planned_holds)
+    (out / "tmp").mkdir(parents=True, exist_ok=True)
+    clips: list[str] = []
+    i2v_costs: list = []
+    motion_events: list = []
+    animated = 0
+    stream_shots: list[dict] = []
+    stream_holds: list[float] = []
+    stream_image_assets: list[dict] = []
+    pending_stream: dict | None = None
+    leading_blocked_seconds = 0.0
+
+    def flush_stream() -> None:
+        nonlocal pending_stream, animated
+        if not pending_stream:
+            return
+        stream_order = len(stream_shots)
+        shot = pending_stream["shot"]
+        hold = float(pending_stream["hold"])
+        path = str(pending_stream["path"])
+        clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{stream_order:03d}.mp4")
+        if (use_i2v and shot["mode"].strip().casefold() == "full motion"
+                and _render_motion_shot(
+                    path, shot, hold, clip, i2v_costs, log, motion_events)):
+            animated += 1
+            log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  I2V")
+        else:
+            motion = _motion_for(shot, stream_order)
+            _render_shot(path, hold, motion, clip)
+            log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  {motion}")
+        clips.append(clip)
+        stream_shots.append(shot)
+        stream_holds.append(hold)
+        stream_image_assets.append(pending_stream["asset"])
+        Path(path).unlink(missing_ok=True)
+        prompt_sidecar = pending_stream.get("sidecar")
+        if prompt_sidecar:
+            Path(prompt_sidecar).unlink(missing_ok=True)
+        pending_stream = None
+
     for order, shot in enumerate(shots):
         world = shot["world_id"]
         base = prompts.get(world, "")
@@ -738,6 +787,12 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         else:
             blocked.append(order)
             image_paths.append(None)
+            if streaming_render:
+                hole = planned_holds[order]
+                if pending_stream:
+                    pending_stream["hold"] += hole
+                else:
+                    leading_blocked_seconds += hole
             log(f"  shot {order + 1:>2} BLOCKED — {shot['visual'][:50]}")
             continue
         overlay = shot.get("overlay_text") or ""
@@ -757,8 +812,36 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         else:
             image_path = master_path
         image_paths.append(image_path)
+        if streaming_render:
+            # Delay one shot so a following moderation block can donate its duration to the
+            # preceding visual exactly as the historical renderer did.  This bounds live source
+            # media to at most two images without changing shot order or the narration clock.
+            flush_stream()
+            hold = planned_holds[order] + leading_blocked_seconds
+            leading_blocked_seconds = 0.0
+            pending_stream = {
+                "shot": shot, "hold": hold, "path": image_path, "sidecar": str(sidecar),
+                "asset": {
+                    "shot_id": shot["shot_id"],
+                    "path": str(Path(image_path).resolve().relative_to(out.resolve())),
+                    "sha256": _sha256_file(image_path), "mime_type": "image/jpeg",
+                    "asset_key": shot.get("asset_key") or shot["shot_id"],
+                    "transformation": shot.get("transformation") or shot.get("mode"),
+                },
+            }
         log(f"  shot {order + 1:>2} [{shot['start_sec']:>2}-{shot['end_sec']:>2}s] ✓ "
             f"{shot['visual'][:46]}")
+
+    if streaming_render:
+        if pending_stream and leading_blocked_seconds:
+            pending_stream["hold"] += leading_blocked_seconds
+        flush_stream()
+        if not stream_shots:
+            raise RuntimeError(
+                f"every shot in {win_start:.0f}-{win_end:.0f}s was blocked by image moderation")
+        shots = stream_shots
+        holds = stream_holds
+        image_paths = []
 
     # Not _make_scene_segment / _assemble any more. Those two are built on a one-image-per-scene
     # contract: the assembler derives its crossfade offsets from cumulative NARRATION duration,
@@ -768,12 +851,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # Video is driven by the shot table and muxed against the concatenated narration, so a shot
     # boundary no longer has to coincide with a sentence boundary. That coupling is what forced
     # one image per scene and produced the slideshow.
-    (out / "tmp").mkdir(parents=True, exist_ok=True)
-
     # Drop blocked shots and give their seconds to the preceding shot, so the picture track
     # still covers the narration exactly. This LOWERS the state count, which is the very thing
     # the shot table exists to protect -- so it is reported as a defect, never absorbed quietly.
-    if blocked:
+    if blocked and not streaming_render:
         kept = [(shot, path) for shot, path in zip(shots, image_paths) if path]
         if not kept:
             raise RuntimeError(
@@ -794,19 +875,16 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # 45.0s while the measured narration is shorter, and muxing with -shortest simply amputated
     # the closing shot. Scaling proportionally keeps all fifteen states and the operator's
     # relative pacing, costs nothing, and needs no rewrite of their words.
-    planned = max(shot["end_sec"] for shot in shots) - win_start
-    scale = spoken / planned
-    holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale) for shot in shots]
-    # Absorb rounding into the final shot so the picture track matches the audio exactly.
-    holds[-1] += spoken - sum(holds)
+    if not streaming_render:
+        planned = max(shot["end_sec"] for shot in shots) - win_start
+        scale = spoken / planned
+        holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale)
+                 for shot in shots]
+        holds[-1] += spoken - sum(holds)
     log(f"Shot table rescaled {planned:.1f}s → {spoken:.1f}s (×{scale:.3f}); "
         f"holds {min(holds):.1f}-{max(holds):.1f}s")
 
-    clips = []
-    i2v_costs: list = []
-    motion_events: list = []
-    animated = 0
-    for order, (shot, hold) in enumerate(zip(shots, holds)):
+    for order, (shot, hold) in ([] if streaming_render else enumerate(zip(shots, holds))):
         clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{order:02d}.mp4")
         if (use_i2v and shot["mode"].strip().casefold() == "full motion"
                 and _render_motion_shot(
@@ -894,7 +972,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
                  "sha256": _sha256_file(path), "mime_type": "audio/mpeg"}
                 for (_, scene), path in zip(indexed_scenes, audio_paths)
             ],
-            "images": [
+            "images": stream_image_assets if streaming_render else [
                 {"shot_id": shot["shot_id"], "path": _relative(path),
                  "sha256": _sha256_file(path), "mime_type": "image/jpeg",
                  "asset_key": shot.get("asset_key") or shot["shot_id"],
