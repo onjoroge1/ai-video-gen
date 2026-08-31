@@ -938,6 +938,26 @@ def rendered_grade_summary(contract: dict | None, directed_spec: dict | None = N
             # not let that known adapter miss masquerade as a pixel-observed creative defect.
             hard_failures = [item for item in hard_failures if item != "bolt_absent"]
             instrumentation_failures.append("legacy_bolt_metadata_not_mapped")
+    if directed_spec and unavailable and "long_visual_hold" in hard_failures:
+        acceptance = directed_spec.get("acceptance") \
+            if isinstance(directed_spec.get("acceptance"), dict) else {}
+        inspection = report.get("inspection") \
+            if isinstance(report.get("inspection"), dict) else {}
+        deterministic = inspection.get("deterministic") \
+            if isinstance(inspection.get("deterministic"), dict) else {}
+        cadence = deterministic.get("directed_source_cadence") \
+            if isinstance(deterministic.get("directed_source_cadence"), dict) else {}
+        still_limit = float(acceptance.get("max_consecutive_still_asset_sec") or 0)
+        unchanged_limit = float(acceptance.get("max_unchanged_hold_sec") or 0)
+        actual_still_max = float(cadence.get("max_consecutive_still_asset_sec") or 0)
+        motion_durations = [float(item) for item in cadence.get("motion_durations_sec") or []]
+        legacy_counted_motion_as_hold = bool(
+            still_limit > 0 and unchanged_limit > 0 and cadence
+            and actual_still_max <= still_limit + 0.01
+            and any(duration > unchanged_limit + 0.01 for duration in motion_durations))
+        if legacy_counted_motion_as_hold:
+            hard_failures = [item for item in hard_failures if item != "long_visual_hold"]
+            instrumentation_failures.append("legacy_motion_counted_as_unchanged_hold")
     if hard_failures:
         automated_status = "REJECT"
         automated_pass = False
