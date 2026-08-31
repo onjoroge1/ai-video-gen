@@ -141,6 +141,57 @@ class PostgresStore(_legacy.PostgresStore):
         })
         return row
 
+    def rearm_disk_exhaustion(self, job_id: str, *, extra_attempts: int = 3) -> dict:
+        """Resume one ENOSPC job while preserving a single ambiguous paid-stage reservation.
+
+        A worker can run out of local disk while restoring an already-completed Blob artifact.
+        Another paid stage may still be in ``retry`` from an earlier interrupted attempt.  Its
+        reservation must not be erased: prepare_stage will reuse its stable idempotency key, and
+        complete_stage will settle the same reservation.  This method therefore accepts exactly
+        one bounded retry/running stage whose reservation reconciles to the job total.
+        """
+        retries = max(1, min(int(extra_attempts), 3))
+        error_fragment = "No space left on device"
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            current = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            reserved = float(current.get("reserved_cost_usd") or 0)
+            if (not current or current.get("status") != "error"
+                    or error_fragment not in str(current.get("error") or "")
+                    or float(current.get("spent_cost_usd") or 0)
+                    >= float(current.get("max_cost_usd") or 0)):
+                raise DurableExecutionError(f"Job {job_id} is not eligible for disk recovery")
+            cur.execute("""
+                SELECT stage_key,status,reserved_cost_usd FROM generation_stages
+                WHERE job_id=%s AND status IN ('running','retry') FOR UPDATE
+            """, (job_id,))
+            open_stages = [self._json_ready(self._row(cur, raw)) or {}
+                           for raw in cur.fetchall()]
+            stage_reserved = sum(float(item.get("reserved_cost_usd") or 0)
+                                 for item in open_stages)
+            if (reserved == 0 and open_stages) or len(open_stages) > 1 \
+                    or abs(stage_reserved - reserved) > 0.0001 \
+                    or reserved > float(current.get("max_inflight_call_usd") or 0):
+                raise DurableExecutionError(
+                    f"Job {job_id} has ambiguous stage reservations; disk recovery stopped")
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+%s),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (retries, job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "disk_exhaustion_rearmed",
+                          "Bounded local-disk recovery window added", {
+            "prior_error": error_fragment,
+            "extra_attempts": retries,
+            "preserved_reserved_cost_usd": reserved,
+            "preserved_stage_key": (open_stages[0].get("stage_key") if open_stages else None),
+            "spent_cost_usd": row.get("spent_cost_usd"),
+            "max_cost_usd": row.get("max_cost_usd"),
+        })
+        return row
+
     def rearm_next_directed_audio_runtime_failure(self) -> dict | None:
         """Requeue one approved directed pilot stopped at the pre-image audio runtime gate.
 

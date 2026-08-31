@@ -2953,7 +2953,11 @@ def _normalize_generated_image(output_path: str) -> None:
     try:
         with Image.open(output_path) as source:
             image = source.convert("RGB").copy()
-        image.save(output_path, "JPEG", quality=92, optimize=True)
+        # These files are render inputs, not archival masters.  A five-minute directed film can
+        # have roughly one hundred of them plus derived overlays in Vercel's bounded /tmp.  Q82
+        # is visually transparent once H.264 encodes the moving frame, while keeping the complete
+        # working set comfortably below the function filesystem ceiling.
+        image.save(output_path, "JPEG", quality=82, optimize=True, progressive=True)
     except (OSError, ValueError):
         # Provider validation and the durable non-empty/hash checks remain authoritative. Keep
         # unusual-but-valid SDK/test payloads untouched instead of turning a space optimization
@@ -3015,6 +3019,10 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
             resp = _retry(lambda: _call(idempotency_key), tries=6, label="image generation")
             actual = _image_cost_from_usage(resp)
             _write_image_result(resp.data[0], output_path)
+            # Normalize before paid_file uploads the immutable stage artifact.  Older completed
+            # stages are normalized immediately after restore below, so an interrupted long film
+            # can mix old and new artifacts without buying either one again.
+            _normalize_generated_image(output_path)
             return {"model": IMAGE_MODEL, "output": rel}, actual
 
         _, actual, _ = runtime.paid_file(

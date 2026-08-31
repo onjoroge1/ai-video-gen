@@ -227,7 +227,7 @@ def _compose_directed_overlays(source_path: str, output_path: str, *, overlay_te
             (x, y), text, font=font, fill=(255, 255, 255, 255), spacing=spacing,
             align="center", stroke_width=2, stroke_fill=(0, 0, 0, 255))
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    image.save(output_path, "JPEG", quality=94, optimize=True)
+    image.save(output_path, "JPEG", quality=82, optimize=True, progressive=True)
     return output_path
 
 
@@ -749,6 +749,11 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             if not Path(image_path).exists():
                 _compose_directed_overlays(
                     master_path, image_path, overlay_text=overlay, world_label=world_label)
+            # The composited shot is the only render input from this point onward.  The durable
+            # stage artifact remains in Blob and will restore the master if a later worker needs
+            # it, so retaining both local JPEGs only doubles /tmp usage without adding recovery.
+            Path(master_path).unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
         else:
             image_path = master_path
         image_paths.append(image_path)

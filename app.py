@@ -2952,6 +2952,13 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="'cache_path'", extra_attempts=3)
+        elif (job and job.get("status") == "error"
+              and "No space left on device" in str(job.get("error") or "")):
+            # Resume the immutable approved job after the bounded-media-cache repair.  The store
+            # verifies any outstanding reservation belongs to at most one retry stage and keeps
+            # its idempotency key; completed narration/images remain reuse-only.
+            await asyncio.to_thread(
+                store.rearm_disk_exhaustion, str(action["job_id"]), extra_attempts=3)
         return await _run_durable_explainer_worker(str(action["job_id"]))
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
