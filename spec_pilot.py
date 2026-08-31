@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 import urllib.request
 from pathlib import Path
@@ -741,6 +742,9 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         if not clips:
             return
         batch = list(clips)
+        before = shutil.disk_usage(str(out))
+        log(f"  compacting {len(batch)} shot clip(s); "
+            f"tmp free {before.free / (1024 * 1024):.1f} MiB")
         batch_order = len(stream_shots)
         manifest = out / "tmp" / f"stream_batch_{int(win_start):04d}_{batch_order:03d}.txt"
         manifest.write_text(
@@ -760,6 +764,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         manifest.unlink(missing_ok=True)
         stream_segments.append(segment)
         clips.clear()
+        after = shutil.disk_usage(str(out))
+        log(f"  clip batch compacted; tmp free {after.free / (1024 * 1024):.1f} MiB")
 
     def flush_stream() -> None:
         nonlocal pending_stream, animated
