@@ -218,7 +218,6 @@ def test_legacy_bolt_adapter_miss_is_instrumentation_not_a_creative_failure():
         "hard_failures": ["bolt_absent"],
         "blind_story_judge": {
             "valid": False,
-            "judge_error": "ProviderUnavailable: missing key",
         },
     }
     directed_spec = {
@@ -237,6 +236,22 @@ def test_legacy_bolt_adapter_miss_is_instrumentation_not_a_creative_failure():
     assert summary["hard_failures"] == []
     assert summary["automated_status"] == "UNSCORED_JUDGE_UNAVAILABLE"
     assert summary["instrumentation_failures"] == ["legacy_bolt_metadata_not_mapped"]
+    assert summary["promotion_status"] == "awaiting_editorial"
+
+
+def test_legacy_invalid_judge_without_error_text_is_still_unscored():
+    legacy = {
+        "score": 44,
+        "status": "REJECT",
+        "automated_pass": False,
+        "hard_failures": [],
+        "blind_story_judge": {"valid": False},
+    }
+
+    summary = rendered_grade_summary(legacy)
+
+    assert summary["automated_score"] is None
+    assert summary["automated_status"] == "UNSCORED_JUDGE_UNAVAILABLE"
     assert summary["promotion_status"] == "awaiting_editorial"
 
 
