@@ -310,7 +310,8 @@ def _motion_for(shot: dict, order: int) -> str:
 
 
 def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
-                 *, width: int = 1920, height: int = 1080, fps: int = 30) -> str:
+                 *, width: int = 1920, height: int = 1080, fps: int = 30,
+                 preset: str = "medium") -> str:
     """One still + one camera move, encoded to a clip of exactly `seconds`.
 
     Uses the pipeline's own _motion presets and its 2x supersample trick: zoompan rounds its
@@ -328,7 +329,7 @@ def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
     ep._run_ffmpeg([
         ep._ffmpeg_bin(), "-nostdin", "-y", "-loop", "1", "-i", image_path,
         "-vf", chain, "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", preset, "-crf", "19", "-pix_fmt", "yuv420p",
         "-r", str(fps), out_path,
     ])
     return out_path
@@ -747,7 +748,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  I2V")
         else:
             motion = _motion_for(shot, stream_order)
-            _render_shot(path, hold, motion, clip)
+            # Recovery may need to replay dozens of already-paid sources inside one function
+            # window.  The preset changes encoder search effort, not resolution, CRF, frames,
+            # motion, or content; veryfast keeps that deterministic replay below the lease limit.
+            _render_shot(path, hold, motion, clip, preset="veryfast")
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  {motion}")
         clips.append(clip)
         stream_shots.append(shot)
