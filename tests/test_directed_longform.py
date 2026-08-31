@@ -344,6 +344,16 @@ def test_renderer_measures_audio_before_any_visual_generation():
     assert "for clip in clips" in source
 
 
+def test_remaining_film_streams_and_releases_source_images():
+    source = inspect.getsource(spec_pilot.render_pilot)
+
+    assert "streaming_render" in source
+    assert "flush_stream()" in source
+    assert "Path(path).unlink(missing_ok=True)" in source
+    assert source.index("flush_stream()", source.index("for order, shot in enumerate(shots)")) \
+        < source.index("pending_stream = {", source.index("for order, shot in enumerate(shots)"))
+
+
 def test_generated_jpg_payload_is_normalized_to_jpeg(tmp_path):
     from explainer_pipeline import _normalize_generated_image
 
