@@ -3254,11 +3254,20 @@ async def render_recovery_cron():
         result = await _run_durable_explainer_worker(
             str(selected["id"]) if selected else None)
         cleanup = await asyncio.to_thread(durable_execution.cleanup_orphans, store, blob)
+        import hippo_recovery
+        recovered_full_film = await asyncio.to_thread(
+            hippo_recovery.assemble_if_ready,
+            opening_job_id="5937d67c",
+            remainder_job_id="54696b1d",
+            target_id="hippo-v4-recovered-full",
+            blob=blob,
+        )
         return {**result, "directed_audio_salvage": audio_salvage or {},
                 "directed_parent_blob_salvage": parent_blob_salvage or {},
                 "directed_parent_archive_salvage": parent_archive_salvage or {},
                 "directed_remainder_salvage": remainder_salvage or {},
                 "directed_storage_salvage": disk_salvage or {},
+                "recovered_full_film": recovered_full_film,
                 "orphan_cleanup": cleanup}
     except durable_execution.StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail={
