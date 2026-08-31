@@ -358,6 +358,21 @@ def test_generated_jpg_payload_is_normalized_to_jpeg(tmp_path):
         assert image.mode == "RGB"
 
 
+def test_generated_jpg_is_compacted_for_bounded_serverless_workspace(tmp_path):
+    from explainer_pipeline import _normalize_generated_image
+
+    path = tmp_path / "long-film-master.jpg"
+    Image.effect_noise((1536, 1024), 80).convert("RGB").save(path, "PNG")
+    provider_size = path.stat().st_size
+
+    _normalize_generated_image(str(path))
+
+    assert path.stat().st_size < provider_size * 0.45
+    source = inspect.getsource(__import__("explainer_pipeline").generate_image)
+    assert source.index("_normalize_generated_image(output_path)") < source.index(
+        "runtime.paid_file")
+
+
 def test_failed_optional_motion_event_needs_no_cache_path():
     source = inspect.getsource(spec_pilot.render_pilot)
 

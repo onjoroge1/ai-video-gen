@@ -362,6 +362,50 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
     assert calls == [("pilot001", {"error_fragment": "'cache_path'", "extra_attempts": 3})]
 
 
+def test_agent_dispatch_rearms_exact_disk_exhaustion_without_new_job(monkeypatch):
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    token = "one-action-token"
+    now = datetime.now(timezone.utc)
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "directed_full_film", "status": "queued",
+        "title": "Full film", "spec_sha256": "f" * 64, "estimated_cost_usd": 5.4,
+        "cost_ceiling_usd": 6.0, "created_at": now,
+        "expires_at": now + timedelta(minutes=5), "approved_at": now,
+        "claim_token_sha256": agent_actions.token_digest(token), "job_id": "full001",
+        "payload": {}, "error": None,
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+    calls = []
+
+    class Store:
+        def get_job(self, job_id):
+            return {"id": job_id, "status": "error",
+                    "error": "Blob download failed: [Errno 28] No space left on device"}
+
+        def rearm_disk_exhaustion(self, job_id, **kwargs):
+            calls.append((job_id, kwargs))
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+
+    async def worker(job_id):
+        return {"claimed": True, "job": {"id": job_id, "status": "processing"}}
+
+    monkeypatch.setattr(studio, "_run_durable_explainer_worker", worker)
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/agent/actions/{ACTION_ID}/dispatch",
+                headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == 200, response.text
+            assert response.json()["job"]["id"] == "full001"
+
+    anyio.run(run)
+    assert calls == [("full001", {"extra_attempts": 3})]
+
+
 def test_public_action_never_exposes_payload_token_or_operator():
     now = datetime.now(timezone.utc)
     action = {
