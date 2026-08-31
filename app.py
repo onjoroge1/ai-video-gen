@@ -1300,7 +1300,41 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 if artifact.get("sha256") != request.directed_parent_video_sha256:
                     raise RuntimeError("Accepted parent pilot artifact no longer matches approval")
                 parent_path = os.path.join(output_dir, "accepted_pilot.mp4")
-                await asyncio.to_thread(durable_runtime.blob.download, artifact, parent_path)
+
+                def restore_parent_video(path: str) -> str:
+                    # The finished-video pointer may outlive its Blob object. Directed pilots also
+                    # persist immutable snapshot artifacts, so recover only from another MP4 with
+                    # the exact SHA approved for promotion; never regenerate or accept new bytes.
+                    expected_sha = request.directed_parent_video_sha256
+                    candidates = [artifact]
+                    for item in durable_runtime.store.artifacts(
+                            str(request.directed_parent_job_id)):
+                        same_hash = item.get("sha256") == expected_sha
+                        media = str(item.get("content_type") or "").casefold().startswith("video/") \
+                            or str(item.get("pathname") or "").casefold().endswith(".mp4")
+                        if same_hash and media and item.get("url") != artifact.get("url"):
+                            candidates.append(item)
+                    missing = []
+                    for candidate in candidates:
+                        try:
+                            durable_runtime.blob.download(candidate, path)
+                            if candidate.get("url") != artifact.get("url"):
+                                durable_runtime.event(
+                                    "parent_pilot_snapshot_restored",
+                                    "Accepted pilot restored from immutable snapshot",
+                                    {"sha256": expected_sha,
+                                     "stage_key": candidate.get("stage_key")},
+                                )
+                            return path
+                        except durable_execution.StorageUnavailable as exc:
+                            if "404" not in str(exc) and "Not Found" not in str(exc):
+                                raise
+                            missing.append(str(candidate.get("pathname") or "unknown"))
+                    raise durable_execution.StorageUnavailable(
+                        "Accepted pilot is missing from the finished pointer and every "
+                        f"same-hash immutable snapshot ({len(missing)} candidates checked)")
+
+                await asyncio.to_thread(restore_parent_video, parent_path)
                 import directed_full_film as dff
                 envelope = {"spec": request.directed_spec,
                             "promotion": request.directed_promotion}
@@ -1313,8 +1347,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                         out_dir=output_dir,
                         voice=directed.target.voice,
                         authorize_paid=request.directed_paid_authorized,
-                        restore_parent_video=lambda path: durable_runtime.blob.download(
-                            artifact, path),
+                        restore_parent_video=restore_parent_video,
                         log=push)),
                 )
             else:
