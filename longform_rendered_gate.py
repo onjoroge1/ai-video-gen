@@ -919,7 +919,9 @@ def rendered_grade_summary(contract: dict | None, directed_spec: dict | None = N
         report.get("blind_story_judge"), dict) else {}
     unavailable = bool(
         report.get("automated_grade_available") is False
-        or (blind.get("valid") is False and blind.get("judge_error"))
+        # Legacy archived judges did not always persist `judge_error`; `valid: false` is itself
+        # the stable contract signal that no trustworthy automated story grade was produced.
+        or blind.get("valid") is False
         or str(report.get("status") or "").startswith("UNSCORED_"))
     instrumentation_failures = []
     if directed_spec and unavailable and "bolt_absent" in hard_failures:
