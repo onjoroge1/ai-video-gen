@@ -792,7 +792,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
 
     def compact_stream_clips(*, force: bool = False) -> None:
         """Collapse bounded groups of shot clips before they can fill serverless /tmp."""
-        batch_size = 12
+        # Vercel's Python cold start installs the application dependency set into this same
+        # ephemeral volume. Three 1080p clips leaves headroom for that runtime plus FFmpeg's
+        # copy output; larger batches can exhaust /tmp before the segment reaches Blob.
+        batch_size = 3
         if not streaming_render or (len(clips) < batch_size and not force):
             return
         if not clips:
