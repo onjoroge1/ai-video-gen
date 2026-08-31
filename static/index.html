@@ -1549,6 +1549,14 @@
             <option value="dramatic and cinematic">Cinematic</option>
           </select>
         </div>
+        <div class="field" id="visual-style-field">
+          <label>Visual creative <span style="opacity:.6;">(long-form)</span></label>
+          <select id="expl-visual-style" onchange="if(this.value==='illustrated_story') document.getElementById('expl-story-format').value='standard_explainer'">
+            <option value="cinematic">Cinematic evidence — existing lane</option>
+            <option value="illustrated_story">Illustrated Story — recurring cast + storyboard</option>
+          </select>
+          <span class="field-hint">Illustrated Story uses Standard structure, a four-location budget, recurring characters, and stable still/Ken Burns assembly.</span>
+        </div>
       </div>
       <div class="field" style="margin-top:14px;">
         <label>Theme / setting <span style="opacity:.6;">(optional)</span></label>
@@ -3175,6 +3183,7 @@
       n_items:        parseInt(document.getElementById('expl-quiz-items').value) || 3,
       operator_direction: document.getElementById('expl-direction').value.trim(),
       story_format:   (document.getElementById('expl-story-format') || {}).value || 'standard_explainer',
+      visual_style:  explFormat === 'social' ? 'cinematic' : document.getElementById('expl-visual-style').value,
     };
 
     let res;
