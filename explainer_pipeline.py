@@ -1518,6 +1518,58 @@ def _subject_terms(title: str) -> list:
     return [w for w in words if w.lower() not in _HOOK_STOP and len(w) > 2]
 
 
+def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
+    """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
+
+    A hook one word over is not a story defect the way a misordered beat is — the reference hooks
+    run 4 to 15 words and a 19-word one is the same hook said less tightly. But it is also not
+    something to trim mechanically: cutting words off "a poison everyone knew about got a friendly
+    name" leaves a sentence that no longer promises anything, which is how the hinge trim earlier
+    in this build deleted the turn while every check went green.
+
+    The hook is ALSO spoken: finalize_narration writes it into scene 1's narration verbatim. So the
+    rewrite lands in both places or in neither — changing only the field the validator reads would
+    leave the narrator saying the old line while the contract passed on the new one.
+
+    Best-effort in the manner of _ensure_hook_names_subject: any failure returns the script
+    unchanged, so it can only help.
+    """
+    import causal_story as _cs
+
+    hook = _s(script.get("hook"))
+    if not hook or len(hook.split()) <= _cs.MAX_HOOK_WORDS:
+        return script, 0.0
+    cost = 0.0
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=300,
+            system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
+            messages=[{"role": "user", "content":
+                       f'This opening line is {len(hook.split())} words and must be at most '
+                       f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
+                       "Rewrite it shorter. It must still PROMISE the shape of the story rather "
+                       "than summarise it, keep the same subject and the same intrigue, and read "
+                       "aloud as one clean sentence. Do not add a new claim. Do not make it "
+                       'generic. Return {"hook":"..."}'}],
+        )
+        cost = _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(cost)
+        parsed, repair_cost = _parse_script_json(response.content[0].text)
+        cost += repair_cost or 0.0
+        rewritten = _s((parsed or {}).get("hook"))
+    except Exception:
+        return script, cost
+    if not rewritten or len(rewritten.split()) > _cs.MAX_HOOK_WORDS:
+        return script, cost                       # still over: leave the original alone
+
+    scenes = script.get("scenes") or []
+    if scenes and hook in _s(scenes[0].get("narration")):
+        scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
+    script["hook"] = rewritten
+    return script, cost
+
+
 def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tuple[dict, float]:
     """Guarantee the opening NAMES the subject (zero-friction). Deterministic pre-filter first (no
     cost when the literal subject terms already appear in lines 1-3); otherwise an LLM judge either
@@ -7805,6 +7857,9 @@ def run_explainer_pipeline(
 
     if illustrated_story_on:
         log("stage:Building illustrated storyboard...")
+        # Last chance before the gate that measures it. LONG_HOOK was the single remaining
+        # failure on an otherwise renderable draft — 19 words against a budget of 18.
+        script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
             storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []

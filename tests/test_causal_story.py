@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import causal_story as cs
+import story_engines as se
 
 # Own directory: story_engine.selftest() globs every json under fixtures/story and
 # grades it with its own gates, which do not apply to this contract.
@@ -729,3 +730,29 @@ def test_an_over_long_hinge_still_fails_validation():
         "runtime_sec": 100.0, "hook": {"line": "A short hook that promises the turn."},
         "start_state": "before", "opening_object": "the trawler", "steps": steps})["errors"]}
     assert "SOFT_HINGE" in codes
+
+
+def test_a_stray_closing_beat_is_demoted_to_a_role_the_engine_has():
+    """Generalization was the unconditional demotion target. For an engine whose sequence has no
+    generalization that invents a beat which can never pass — a generalization needs two parallel
+    cases, and accumulating_indictment fetches none by design. A render died on
+    THIN_GENERALIZATION for a beat the repair itself had created."""
+    steps = [{"step_id": "s1", "role": "setup", "caused_by": "", "chapter": 1},
+             {"step_id": "s2", "role": "escalation", "caused_by": "s1", "chapter": 1},
+             {"step_id": "s3", "role": "verdict", "caused_by": "s2", "chapter": 2},
+             {"step_id": "s4", "role": "verdict", "caused_by": "s3", "chapter": 2}]
+    fixed, _ = cs.repair_chain(steps, se.get(se.ACCUMULATING_INDICTMENT))
+
+    roles = [s["role"] for s in fixed]
+    assert cs.GENERALIZATION not in roles, "this engine has no generalization in its sequence"
+    assert all(role in se.get(se.ACCUMULATING_INDICTMENT)["sequence"] for role in roles), \
+        "repair must only ever produce roles the declared engine actually runs"
+    assert fixed[-1]["role"] == cs.VERDICT, "the real close survives"
+
+
+def test_an_engine_that_has_generalization_still_gets_it():
+    steps = [{"step_id": "s1", "role": "setup", "caused_by": "", "chapter": 1},
+             {"step_id": "s2", "role": "tool", "caused_by": "s1", "chapter": 1},
+             {"step_id": "s3", "role": "tool", "caused_by": "s2", "chapter": 2}]
+    fixed, _ = cs.repair_chain(steps, se.get(se.BACKFIRING_SOLUTION))
+    assert fixed[1]["role"] == cs.GENERALIZATION

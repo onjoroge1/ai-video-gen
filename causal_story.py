@@ -711,10 +711,19 @@ def repair_chain(steps: list[dict], engine: dict | None = None) -> tuple[list[di
     elif engine and steps[-1]["role"] != closing:
         note(len(steps) - 1, "role", steps[-1]["role"], closing)
         steps[-1]["role"] = closing
+    # Demote a stray closing beat to a role the ENGINE actually has. Generalization was the
+    # unconditional target, and for an engine whose sequence has no generalization that manufactures
+    # a beat which can never pass: a generalization needs two parallel cases to show a pattern, and
+    # accumulating_indictment fetches none on purpose — "the counterfactual carries the argument,
+    # which is why the close is a verdict". A render died on THIN_GENERALIZATION for a case the
+    # repair itself had invented. Power reversal has no generalization either, so this hit both of
+    # the engines the corpus backs best.
+    sequence = (engine or {}).get("sequence") or ()
+    demoted = GENERALIZATION if GENERALIZATION in sequence else ESCALATION
     for index, step in enumerate(steps[:-1]):
         if step["role"] in CLOSING_ROLES:
-            note(index, "role", step["role"], GENERALIZATION)
-            step["role"] = GENERALIZATION
+            note(index, "role", step["role"], demoted)
+            step["role"] = demoted
 
     # 3. The first beat is the setup; a later one is a beat that continues the story.
     if steps[0]["role"] != SETUP:

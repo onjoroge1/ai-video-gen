@@ -748,3 +748,68 @@ def test_the_pin_overrides_whatever_the_model_returns():
         encoding="utf-8")
     assert "engine_id = (pinned_engine if pinned_engine in _se.ENGINES" in source, \
         "the pin must win over the parsed engine, not merely be suggested in the prompt"
+
+
+def _hook_script(hook, narration=None):
+    return {"hook": hook,
+            "scenes": [{"narration": narration if narration is not None else hook + " Step one."}]}
+
+
+def test_a_hook_inside_the_budget_costs_nothing_and_changes_nothing():
+    import explainer_pipeline as ep
+    script = _hook_script("A short hook that promises the story.")
+    out, cost = ep._ensure_hook_fits_budget(script)
+    assert cost == 0.0 and out["hook"] == "A short hook that promises the story."
+
+
+def test_an_over_long_hook_is_rewritten_in_BOTH_places(monkeypatch):
+    """finalize_narration writes the hook into scene 1 verbatim, so rewriting only the field the
+    validator reads would leave the narrator saying the old line while the contract passed."""
+    import explainer_pipeline as ep
+    long_hook = " ".join(["word"] * 25)
+    monkeypatch.setattr(ep, "_ensure_hook_fits_budget_call",
+                        None, raising=False)
+    monkeypatch.setattr(ep, "_claude", lambda: _FakeClaude('{"hook":"A tight new promise."}'))
+    monkeypatch.setattr(ep, "_msg_cost", lambda usage: 0.01)
+
+    script = _hook_script(long_hook, narration=long_hook + " Step one. It begins.")
+    out, _ = ep._ensure_hook_fits_budget(script)
+
+    assert out["hook"] == "A tight new promise."
+    assert out["scenes"][0]["narration"].startswith("A tight new promise.")
+    assert "word word" not in out["scenes"][0]["narration"], "the spoken copy must change too"
+    assert "It begins." in out["scenes"][0]["narration"], "replace the hook, not the scene"
+
+
+def test_a_rewrite_that_is_still_too_long_leaves_the_original_alone(monkeypatch):
+    """Fail closed. A truncated hook that no longer promises anything is the hinge-trim mistake."""
+    import explainer_pipeline as ep
+    long_hook = " ".join(["word"] * 25)
+    monkeypatch.setattr(ep, "_claude",
+                        lambda: _FakeClaude('{"hook":"%s"}' % " ".join(["still"] * 22)))
+    monkeypatch.setattr(ep, "_msg_cost", lambda usage: 0.01)
+
+    out, _ = ep._ensure_hook_fits_budget(_hook_script(long_hook))
+    assert out["hook"] == long_hook
+
+
+def test_an_unavailable_model_leaves_the_script_unchanged(monkeypatch):
+    import explainer_pipeline as ep
+    long_hook = " ".join(["word"] * 25)
+
+    def _boom():
+        raise RuntimeError("no credits")
+    monkeypatch.setattr(ep, "_claude", _boom)
+    out, _ = ep._ensure_hook_fits_budget(_hook_script(long_hook))
+    assert out["hook"] == long_hook
+
+
+class _FakeClaude:
+    def __init__(self, text):
+        self._text = text
+
+    @property
+    def messages(self):
+        import types
+        return types.SimpleNamespace(create=lambda **kw: types.SimpleNamespace(
+            content=[types.SimpleNamespace(text=self._text)], usage=None))
