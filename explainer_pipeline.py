@@ -228,6 +228,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # Image model: gpt-image-2 is SOTA at instruction-following (so cinematic composition
 # prompts land) and ~25% cheaper output than gpt-image-1. Supports reference-image edits.
 ANTHROPIC_MODEL = "claude-opus-4-8"
+# Narration cap for the hinge beat, sourced from the story contract so the
+# expansion prompt and the validator cannot drift apart.
+_HINGE_WORDS = __import__("causal_story").MAX_HINGE_WORDS
 IMAGE_MODEL = "gpt-image-2"
 TTS_MODEL = "tts-1-hd"
 TRANSCRIPTION_MODEL = "whisper-1"
@@ -298,6 +301,10 @@ _RATE_OPENAI_SCRIPT_IN  = float(os.environ.get("OPENAI_SCRIPT_RATE_IN", "5.0")) 
 _RATE_OPENAI_SCRIPT_OUT = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")) / 1_000_000
 # Spend reservation, not a provider pricing assertion. Server-side search pricing can change;
 # reserve a configurable conservative ceiling for every observed request.
+_WEB_SEARCH_MAX_USES = 5
+# Spoken after the hook and before "Step one", exactly as both references do. It sets the
+# register and licenses simplification; measured identical in both reference videos.
+_CAUSAL_FORMAT_TAG = "explained like you are five"
 _WEB_SEARCH_COST_CEILING = float(os.environ.get("WEB_SEARCH_COST_CEILING_USD", "0.10"))
 
 # Pre-spend ESTIMATE only (actual spend is read from real usage tokens per call).
@@ -1037,7 +1044,9 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
                     series: str = "", improve_note: str = "", short_template: str = "auto",
                     operator_direction: str = "", premise_contract: dict | None = None,
                     story_format: str = "standard_explainer",
-                    research_dossier: dict | None = None) -> dict:
+                    research_dossier: dict | None = None,
+                    causal_lane: bool = False,
+                    pinned_engine: str = "") -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -1058,7 +1067,8 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
     else:
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
                                       series, improve_note, operator_direction, story_format,
-                                      research_dossier)
+                                      research_dossier, causal_lane,
+                                      pinned_engine=pinned_engine)
         # A sourced long-form draft must not be rewritten by a claim-unaware hook patch. The
         # fail-closed story validator rejects a missing subject and the replan keeps bindings intact.
         if not research_dossier:
@@ -1508,6 +1518,58 @@ def _subject_terms(title: str) -> list:
     return [w for w in words if w.lower() not in _HOOK_STOP and len(w) > 2]
 
 
+def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
+    """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
+
+    A hook one word over is not a story defect the way a misordered beat is — the reference hooks
+    run 4 to 15 words and a 19-word one is the same hook said less tightly. But it is also not
+    something to trim mechanically: cutting words off "a poison everyone knew about got a friendly
+    name" leaves a sentence that no longer promises anything, which is how the hinge trim earlier
+    in this build deleted the turn while every check went green.
+
+    The hook is ALSO spoken: finalize_narration writes it into scene 1's narration verbatim. So the
+    rewrite lands in both places or in neither — changing only the field the validator reads would
+    leave the narrator saying the old line while the contract passed on the new one.
+
+    Best-effort in the manner of _ensure_hook_names_subject: any failure returns the script
+    unchanged, so it can only help.
+    """
+    import causal_story as _cs
+
+    hook = _s(script.get("hook"))
+    if not hook or len(hook.split()) <= _cs.MAX_HOOK_WORDS:
+        return script, 0.0
+    cost = 0.0
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=300,
+            system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
+            messages=[{"role": "user", "content":
+                       f'This opening line is {len(hook.split())} words and must be at most '
+                       f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
+                       "Rewrite it shorter. It must still PROMISE the shape of the story rather "
+                       "than summarise it, keep the same subject and the same intrigue, and read "
+                       "aloud as one clean sentence. Do not add a new claim. Do not make it "
+                       'generic. Return {"hook":"..."}'}],
+        )
+        cost = _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(cost)
+        parsed, repair_cost = _parse_script_json(response.content[0].text)
+        cost += repair_cost or 0.0
+        rewritten = _s((parsed or {}).get("hook"))
+    except Exception:
+        return script, cost
+    if not rewritten or len(rewritten.split()) > _cs.MAX_HOOK_WORDS:
+        return script, cost                       # still over: leave the original alone
+
+    scenes = script.get("scenes") or []
+    if scenes and hook in _s(scenes[0].get("narration")):
+        scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
+    script["hook"] = rewritten
+    return script, cost
+
+
 def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tuple[dict, float]:
     """Guarantee the opening NAMES the subject (zero-friction). Deterministic pre-filter first (no
     cost when the literal subject terms already appear in lines 1-3); otherwise an LLM judge either
@@ -1685,10 +1747,201 @@ def _opening_expansion_direction(story_format: str, is_first: bool) -> str:
     )
 
 
+def _assign_causal_spine(beats: list, question: str, duration_sec: int,
+                         mechanism_beat: int = 0,
+                         pinned_engine: str = "") -> tuple[list, float]:
+    """Label a planned beat sheet with the causal chain. One call, one job, no other vocabulary.
+
+    Returns the beats with causal_role/caused_by/chapter set, plus the call cost. The result is
+    always passed through `causal_story.repair_chain`, so this call is allowed to be imperfect:
+    the mechanically decidable mistakes are fixed for free rather than re-bought.
+    """
+    import causal_story as _cs
+    import story_engines as _se
+
+    compact = [{"n": b.get("n"), "beat": _s(b.get("beat"))} for b in beats]
+    prompt = (
+        f'A {duration_sec}-second explainer answering: "{question}" has been planned as this '
+        f'ordered list of {len(compact)} beats.\n'
+        + json.dumps(compact, ensure_ascii=False)
+        + "\n\nLabel the CAUSAL CHAIN over these beats. Do not rewrite, reorder, merge, split or "
+        "reword them — the order is fixed and the words are not yours to change.\n"
+        "\n\nFIRST choose ONE narrative engine. Do not blend two — a planner asked to satisfy two "
+        "role systems at once returned duplicate roles and an escalation after its own reversal.\n"
+        + _se.catalogue() + "\n\n"
+        'Return ONLY JSON: {"engine":"<engine id>","spine":[{"n":<beat number>,"causal_role":"...",'
+        '"caused_by":<the beat number this happens BECAUSE of; 0 for beat 1 only>,'
+        '"chapter":<int>}],"parallel_cases":[{"domain":"","problem":"","solution":"","result":""}]}\n'
+        "\nLabel the beats with the role order of the engine you chose, above.\n"
+        + (f"Beat {mechanism_beat} was PLANNED as the beat that states the governing principle. "
+           "Label it mechanism and build the rest of the chain around it.\n"
+           if mechanism_beat else "")
+        +
+        "BEFORE YOU RETURN, WALK YOUR LABELS ONCE MORE: read your chosen engine's beat order and "
+        "check that each role you used appears in that same order along the beat list. A required "
+        "role sitting out of order is the most common way this fails and it is rejected before "
+        "any spend. If the beats genuinely do not fit the engine's order, choose a different "
+        "engine rather than mislabelling them into this one.\n"
+        f"- setup, intervention, false_resolution, hinge, mechanism and reversal appear EXACTLY "
+        "ONCE each. Count them before you answer. Only escalation and generalization repeat.\n"
+        "- Beat 1 is the setup. The last beat is the tool or the verdict.\n"
+        "- Nothing follows the reversal except generalization and the close.\n"
+        "- THE HINGE. It is the beat that asserts the apparent success is NOT real, and it comes "
+        "straight after the false_resolution. It is a flat statement, never a question, and it "
+        "names no new topic. Reference hinges read like \"Except the problem is not solved.\" and "
+        "\"The system works perfectly until the rains stop.\" A beat that asks which of two "
+        "causes mattered, or that says a variant of \"here is the strange part\", is NOT a hinge: "
+        "the first poses a choice and the second announces a turn without making one. If no beat "
+        "asserts that the success failed, label no hinge at all rather than promoting the "
+        "nearest question.\n"
+        f"- The mechanism beat must sit in the first {_cs.MECHANISM_DEADLINE_PCT:.0%} of the list.\n"
+        f"- Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} chapters, numbered from 1 "
+        "with no gaps, each a contiguous run of beats.\n"
+        f"- parallel_cases: at least {_cs.MIN_PARALLEL_CASES} real cases from OTHER domains that "
+        "show the same pattern, but ONLY if you label a generalization beat; otherwise [].")
+
+    o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=4000,
+                                  messages=[{"role": "user", "content": prompt}])
+    parsed, cost = _parse_script_json(o.content[0].text)
+    cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+
+    by_n = {}
+    for row in (parsed.get("spine") or []):
+        if isinstance(row, dict) and row.get("n") is not None:
+            try:
+                by_n[int(row["n"])] = row
+            except (TypeError, ValueError):
+                continue
+    ids = [f"scene_{b['n']:03d}" for b in beats]
+    steps = []
+    for index, beat in enumerate(beats):
+        row = by_n.get(beat["n"], {})
+        try:
+            parent = int(row.get("caused_by") or 0)
+        except (TypeError, ValueError):
+            parent = 0
+        steps.append({
+            "step_id": ids[index],
+            "role": _s(row.get("causal_role")).lower(),
+            "chapter": int(row.get("chapter") or 0) if str(row.get("chapter") or "").strip().isdigit() else 0,
+            "caused_by": f"scene_{parent:03d}" if 0 < parent <= len(beats) else "",
+        })
+
+    # The pin wins over whatever came back. A replan re-ran this call and freely re-picked, so
+    # one render planned its story as an accumulating indictment, then an accidental invention —
+    # an engine with no reference in the corpus — then back again. Each attempt was therefore
+    # fixing a DIFFERENT contract from the one that had just failed, which is why the retry loop
+    # needed three passes to converge on a single error.
+    engine_id = (pinned_engine if pinned_engine in _se.ENGINES
+                 else _se.resolve_id(parsed.get("engine")))
+    engine = _se.get(engine_id)
+    # Pin the slot the SHEET planned. The labelling call is free to disagree about everything
+    # else, but not about where the principle lands: it sees beat text without runtime, so it
+    # cannot judge the deadline, and four runs of letting it choose put the mechanism near 35%.
+    # The sheet knows each beat's pct, so the sheet decides and this enforces.
+    changes_note = ""
+    if mechanism_beat:
+        pinned = next((index for index, beat in enumerate(beats)
+                       if beat.get("n") == mechanism_beat), None)
+        if pinned is None:
+            changes_note = f"planned mechanism beat {mechanism_beat} is not in the sheet"
+        elif steps[pinned]["role"] == _cs.MECHANISM:
+            pass                                    # the labeller already agreed
+        elif steps[pinned]["role"] in _cs._REPEATABLE:
+            # Only overwrite connective tissue. Pinning over a required singleton was measured
+            # destroying the chain: writing the mechanism onto the false_resolution beat left the
+            # story with no false resolution, so repair then demoted the hinge that had nothing
+            # left to break. A slot conflict is a planning disagreement and validation should
+            # report it, not a licence to delete a required beat.
+            for index, step in enumerate(steps):
+                if step["role"] == _cs.MECHANISM and index != pinned:
+                    step["role"] = _cs.ESCALATION
+            steps[pinned]["role"] = _cs.MECHANISM
+            changes_note = f"mechanism pinned to planned beat {mechanism_beat}"
+        else:
+            changes_note = (f"planned mechanism beat {mechanism_beat} is already "
+                            f"{steps[pinned]['role']}; left as labelled")
+
+    steps, changes = _cs.repair_chain(steps, engine)
+    if changes_note:
+        changes.append(changes_note)
+    for index, beat in enumerate(beats):
+        beat["causal_role"] = steps[index]["role"]
+        beat["chapter"] = steps[index]["chapter"]
+        parent = steps[index]["caused_by"]
+        beat["caused_by"] = int(parent.rsplit("_", 1)[1]) if parent else 0
+    if parsed.get("parallel_cases"):
+        beats[0]["_parallel_cases"] = parsed["parallel_cases"]
+    beats[0]["_causal_repairs"] = changes
+    beats[0]["_story_engine"] = engine_id
+    return beats, cost
+
+
+def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 0.0) -> str:
+    """The retrieved reference for this engine, rendered for a prompt. "" when there is none.
+
+    Returns EMPTY rather than falling back to another engine's reference. Cobra and famine share no
+    subject and the same structure, which is why retrieval is keyed on engine at all; handing a
+    backfiring_solution blueprint to a power_reversal script would teach the wrong shape while
+    looking like it worked. Two of five engines have no reference, and for those the generator
+    keeps the hand-written rules it has always used.
+    """
+    try:
+        import reference_corpus as _rc
+        # Read here rather than threaded through generate_graded_script -> generate_script ->
+        # _generate_script_chunked. Adherence is one global policy knob, not per-scene data, and
+        # threading a flag through that chain is exactly how causal_lane got dropped at one of its
+        # two call sites — every scene came back with a blank role and the run was wasted. The
+        # explicit argument stays for tests and for a caller that wants to override.
+        adherence = (adherence or os.getenv("BLUEPRINT_ADHERENCE", "").strip()
+                     or _rc.DEFAULT_ADHERENCE)
+        # A kill switch, so the lane can be rolled back to the hand-written rules without a deploy
+        # — and so the blueprint's effect can be A/B'd rather than assumed.
+        if adherence == "off":
+            return ""
+        if adherence not in _rc.ADHERENCE_LEVELS:
+            print(f"[blueprint] unknown adherence {adherence!r}, using {_rc.DEFAULT_ADHERENCE}")
+            adherence = _rc.DEFAULT_ADHERENCE
+        # story_engines.resolve_id() is deliberately lenient — it maps anything unrecognised to the
+        # default engine, which is right when you need SOME engine to validate against. It is wrong
+        # here: it turns "I do not know this engine" into "teach it the backfiring_solution format",
+        # silently, on a lane where the wrong shape still generates, validates and renders. Retrieval
+        # demands an exact hit.
+        import story_engines as _se
+        if engine_id not in _se.ENGINES:
+            return ""
+        references = _rc.by_engine(engine_id)
+        if not references:
+            return ""
+        # Nearest runtime, not first alphabetically. Once an engine has more than one reference the
+        # choice stops being cosmetic: the corpus spans 101s to 225s, and letting a 101-second video
+        # teach a 220-second one hands over pacing and beat counts that cannot fit. Alphabetical
+        # order encodes nothing, so it would have picked exactly that pairing half the time.
+        chosen = references[0]
+        if target_runtime:
+            measured = [r for r in references if r.gating_metrics().get("runtime_sec")]
+            if measured:
+                chosen = min(measured, key=lambda r: abs(
+                    float(r.gating_metrics()["runtime_sec"]) - float(target_runtime)))
+        block = _rc.blueprint_block(chosen, adherence)
+        if block:
+            print(f"[blueprint] {chosen.name} ({engine_id}) at {adherence} adherence"
+                  + (f", nearest of {len(references)} by runtime" if len(references) > 1 else ""))
+        return block
+    except Exception as exc:
+        # A missing or malformed corpus must never take down a paid render. The hand-written rules
+        # in the expansion prompt are the floor, and they are what shipped before this existed.
+        print(f"[blueprint] unavailable, continuing without: {type(exc).__name__}: {str(exc)[:120]}")
+        return ""
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
                              improve_note="", operator_direction="",
                              story_format="standard_explainer",
-                             research_dossier: dict | None = None) -> dict:
+                             research_dossier: dict | None = None,
+                             causal_lane: bool = False,
+                             adherence: str = "",
+                             pinned_engine: str = "") -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -1734,6 +1987,59 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     wpm = max(_WORD_FLOOR, round(total_words / max(1, n_scenes)))
     cost = 0.0
 
+    # The causal lane needs three more fields per beat, and needs them HERE rather than at
+    # expansion: the sheet is the only call that sees the whole spine at once, so it is the only
+    # place a chain can be planned rather than stitched together batch by batch. Everything below
+    # is additive — an empty string leaves the cinematic lane's prompt byte-identical.
+    causal_keys = ""
+    causal_rules = ""
+    causal_cases = ""
+    if causal_lane:
+        import causal_story as _cs
+        causal_cases = (
+            '"mechanism_beat":<int — the beat number that STATES THE GOVERNING PRINCIPLE in one '
+            'sentence: the rule that makes everything after it inevitable. Its pct MUST be under '
+            f'{int(_cs.MECHANISM_DEADLINE_PCT * 100)}. This is a structural slot like peak_scene, '
+            'not a preference: plan the beat there. Four measured runs placed the explanation near '
+            '35% and every one was rejected before render, because a labelling pass downstream can '
+            'only mark the beat you wrote — it cannot move it earlier>,'
+            '"parallel_cases":[{"domain":"","problem":"","solution":"","result":""}] — '
+            f'at least {_cs.MIN_PARALLEL_CASES} when any beat is a generalization, each with the '
+            'same four parts in the same order so the repetition itself carries the argument; '
+            '[] when there is no generalization beat,')
+        causal_keys = (
+            ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",'
+            '"caused_by":<the beat number n this beat happens BECAUSE of; 0 for the setup only>,'
+            '"chapter":<int, the spoken chapter this beat belongs to>')
+        causal_rules = (
+            f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
+            "the situation inverts. Name the shape, not the topic; do not summarize the video.\n"
+            "\nDECLARED CAUSAL CHAIN — this video is a chain, not a list:\n"
+            f"A. Roles run in order: setup, intervention, false_resolution, hinge, mechanism, then at "
+            f"least {_cs.MIN_ESCALATIONS} escalation beats, then reversal, then optional "
+            "generalization, then tool or verdict LAST. setup/intervention/false_resolution/hinge/"
+            "mechanism/reversal appear EXACTLY ONCE.\n"
+            "A2. BEFORE YOU RETURN, COUNT THEM. Walk your beats and tally how many carry each of "
+            "setup, intervention, false_resolution, hinge, mechanism and reversal. Each tally must "
+            "be exactly 1. A second setup or a third false_resolution is the most common way this "
+            "structure fails, and the run is rejected before any spend when it happens. Only "
+            "escalation and generalization may repeat.\n"
+            "A3. Nothing follows the reversal except generalization and the closing tool or "
+            "verdict. If you have an escalation after the reversal, it belongs before it.\n"
+            "B. Every beat except the setup sets caused_by to the number of an EARLIER beat it "
+            "follows from. If a beat would still make sense in a different position it is a fact, "
+            "not a beat, and must be cut.\n"
+            f"C. mechanism_beat names the beat that states the governing principle, and its pct "
+            f"must be under {int(_cs.MECHANISM_DEADLINE_PCT * 100)}. Write that beat early and give "
+            "it the rule in one sentence. Everything after it demonstrates it — do not restate the "
+            "answer at intervals. A cold-open consequence and an early payoff do NOT satisfy this: "
+            "they say WHAT happened, the mechanism says WHY it had to.\n"
+            "D. The hinge beat is at most "
+            f"{_cs.MAX_HINGE_WORDS} words and breaks the false_resolution.\n"
+            f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} spoken chapters, "
+            "numbered from 1 with no gaps, and say the number out loud in the narration of the "
+            "beat that opens each one.\n")
+
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
     beat_prompt = (
         f'Plan a {max(1, duration_sec // 60)}-minute YouTube explainer answering: "{question}".\n'
@@ -1750,6 +2056,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '"contradictory_evidence","viewer_initial_belief","viewer_belief_after_reveal",'
         '"opening_object","final_callback_object" (MUST exactly equal opening_object),'
         '"mystery_suitable":true|false,"mystery_unsuitable_reason":"",'
+        + causal_cases +
         '"style_mode"(educational|scientific|cinematic'
         '|fun),"stages":[2-4 SHORT ALL-CAPS act labels naming the escalating journey, e.g. '
         '["SIGNALS","MATTER","LIFE"] or ["YOUR BODY","THE PLANET","REALITY"]; for a topic with distinct '
@@ -1779,6 +2086,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'than beats, so REUSE a claim across every beat that leans on it rather than leaving beats '
         'unbound, and if a beat has no ledger claim to stand on, write it as narrative or visual '
         'description instead of asserting a fact. Leave [] only for a genuinely non-factual beat. '
+        'A beat that RESTATES or summarises a mechanism an earlier beat established still asserts it, so it carries the same claim_ref as the beat that introduced it — reuse the id rather than leaving the restatement unbound. '
+        'BINDING IS NOT A BUDGET THAT RUNS OUT. Every factual beat needs a claim_id wherever it sits: a date like 2005, a measured rise, a percentage or a named canal, in the opening as much as the close. Instructing that the ending be bound first was measured making this WORSE, not better — the model bound the last beats and arrived with six unbound beats at the START instead, so the failure moved rather than went away. There is no order to work in. Bind them all. '
         'BEFORE YOU RETURN, WALK THE BEATS ONCE MORE: for each one, does its narration contain a '
         'number, a date, a proper name, a percentage, or any of because/so/therefore/which caused? '
         'If yes, it MUST carry a claim_ref, and you should be able to name which claim_id without '
@@ -1791,7 +2100,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'empty","question_answered":"earlier question resolved by this beat or empty",'
         '"new_complication":"larger problem created by the answer or empty","visible_consequence":'
         '"the concrete change visible on screen","opens_loop":"short stable loop id or empty",'
-        '"closes_loop":"short stable loop id or empty"}]}.\n'
+        '"closes_loop":"short stable loop id or empty"' + causal_keys + '}]}.\n'
+        + causal_rules +
         'IRON RULES — viewers clicked to find out WHAT HAPPENS, not to be taught what a thing IS. Build '
         'an ESCALATING STORY WITH DISTRIBUTED REWARDS, not an expanding explanation:\n'
         '1. Each fact/mechanic/idea appears in EXACTLY ONE beat. NEVER plan to re-explain something an '
@@ -1959,6 +2269,30 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         beats = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
     for i, b in enumerate(beats):
         b["n"] = i + 1                                  # canonical renumber
+
+    # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
+    # one branch is a NameError on the others the moment the prompt concatenates it.
+    blueprint_block = ""
+    if causal_lane:
+        # SECOND PASS, ONE JOB. The first real run of this lane put the causal vocabulary inside
+        # the beat-sheet prompt alongside the pacing vocabulary (cold_consequence, payoff, rehook,
+        # ...), the IRON RULES, the claim walk and the stages roadmap. The plan came back with two
+        # setups, three false_resolutions and escalations after the reversal — the two vocabularies
+        # blended. This call sees ONLY the beat list and labels the chain, which is the whole
+        # instruction. Deterministic repair then fixes what it still gets wrong, so a second bad
+        # label costs nothing rather than failing the run.
+        try:
+            planned_mechanism = int(plan.get("mechanism_beat") or 0)
+        except (TypeError, ValueError):
+            planned_mechanism = 0
+        beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
+                                                 planned_mechanism, pinned_engine)
+        cost += spine_cost
+        # RETRIEVAL HAPPENS HERE, not earlier, because the engine is not known until this call
+        # returns: _assign_causal_spine chooses it. The corpus is keyed on engine, so a blueprint
+        # fetched before the choice would be a blueprint for the wrong format.
+        blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
+                                              duration_sec)
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -2058,6 +2392,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "bolt_mode": _s(beat.get("bolt_mode")) or "absent",
             "claim_refs": beat.get("claim_refs") or [],
             "evidence_id": _s(beat.get("evidence_id")),
+            # Present only on the causal lane; the storyboard reads these off the finished scene.
+            **({"narration_words": _HINGE_WORDS} if causal_lane
+               and _s(beat.get("causal_role")).lower() == "hinge" else {}),
+            **({"causal_role": _s(beat.get("causal_role")),
+                "caused_by": beat.get("caused_by") or "",
+                "chapter": beat.get("chapter") or 0} if causal_lane else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -2124,8 +2464,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'brackets is INTERNAL — do not speak it or any scaffolding word aloud ("first payoff", '
             '"here\'s the peak", "the reveal", "the hook", "prediction gate", "stage two"); the viewer '
             f'must FEEL the beat through its content, not hear it announced:\n{assigned}\n{seam}'
-            f'Each narration ≈ {wpm} words.{theme_line}\n'
-            'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
+            f'Each narration ≈ {wpm} words'
+            + (', EXCEPT any beat carrying a "narration_words" value, whose narration must be at '
+               'most that many words in total — that beat is a deliberate short landing and the '
+               'shared budget does not apply to it' if causal_lane else '')
+            + f'.{theme_line}\n'
+            + ((f'THE HINGE IS ONE SHORT SENTENCE: the assigned beat whose causal_role is '
+                f'"hinge" must have narration of AT MOST {_HINGE_WORDS} words IN TOTAL — one '
+                'flat statement asserting that the apparent success is not real. Never a '
+                'question. Do not explain it, do not add a second sentence, do not soften it. It '
+                'is the turn of the whole video and it works by being abrupt.\n')
+               if causal_lane else '')
+            + (('OPEN EACH NEW CHAPTER OUT LOUD: when an assigned beat starts a chapter number '
+                'that the beat before it did not have, its narration MUST begin with that chapter '
+                'spoken as words — "Step one.", "Step two.", and so on — as its own short sentence '
+                'before anything else. This is the retention device the format is built on; the '
+                'chapter number existing in the plan is not the same as the narrator saying it.\n')
+               if causal_lane else '')
+            + blueprint_block
+            + 'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
             + _cadence_rule_block(effective_story_format)
@@ -2172,6 +2529,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             # `story_role` whenever a beat carries no mystery_role, leaving no mystery name to find,
             # and the run is then judged as a standard explainer against rules its prompt forbids.
             s["_story_format"] = effective_story_format
+            if causal_lane:
+                # The storyboard resolves the chain by scene id, while the planner reasons in beat
+                # numbers because that is what it can see on the sheet. Translate once, here, so a
+                # renumbering later cannot silently break every caused_by edge at the same time.
+                s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
+                s["causal_role"] = _s(beat.get("causal_role"))
+                s["chapter"] = int(beat.get("chapter") or 0)
+                parent = beat.get("caused_by")
+                try:
+                    parent = int(parent)
+                except (TypeError, ValueError):
+                    parent = 0
+                s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",
@@ -2216,13 +2586,31 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     plan["story_format_effective"] = effective_story_format
     plan["story_format_fallback_reason"] = fallback_reason
     plan["character_budget"] = character_budget
+    # The spoken hook, the chapter marker and the hinge cap are properties of the FINISHED
+    # narration, so this runs once every scene exists, after the ids are assigned and before the
+    # contract is built from them.
+    #
+    # The hook is passed in because it is SPOKEN. Until now it reached only the YouTube description
+    # and the video's first words were the numeral "Step one."
+    _narration_repairs = []
+    if causal_lane:
+        import causal_story as _cs
+        for _scene in all_scenes:
+            _scene.setdefault("chapter", 0)
+        _narration_repairs = _cs.finalize_narration(
+            all_scenes, hook=_s(plan.get("hook")), format_tag=_CAUSAL_FORMAT_TAG)
+
     story_contract = build_story_contract(question, plan, beats, all_scenes, duration_sec)
     return {
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
         "style_mode": style_mode,
         "scenes": all_scenes,
+        "_narration_repairs": _narration_repairs,
         "_script_cost_usd": round(cost, 4),
+        "_story_engine": (beats[0].get("_story_engine") if beats else "") or "",
+        "_parallel_cases": (beats[0].get("_parallel_cases") if beats else None) or [],
+        "_causal_repairs": (beats[0].get("_causal_repairs") if beats else None) or [],
         "_beats": len(beats),
         "_peak_scene": peak,
         "_payoffs": payoffs,
@@ -2437,14 +2825,23 @@ def _research_cache_enabled() -> bool:
     return os.environ.get("RESEARCH_CACHE", "1") == "1"
 
 
-def _research_cache_path(question: str) -> str:
+def _research_cache_path(question: str, request: str = "") -> str:
+    """Cache key: model + question + the REQUEST that produced the dossier.
+
+    Keying on the question alone meant improving the research prompt had no effect on any topic
+    already cached. Measured: the claim target was raised and comparable-case claims added, the
+    fresh run produced 16 verified claims — and the next run silently reused an 8-claim dossier
+    from before both changes and failed on six unbound scenes. Fingerprinting the request makes a
+    prompt change invalidate its own cache, so nobody has to remember to bump a version.
+    """
     root = os.environ.get("RESEARCH_CACHE_DIR", "").strip() or os.path.join(
         tempfile.gettempdir(), "reelforge", "research")
-    key = hashlib.sha256(f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}".encode()).hexdigest()
+    key = hashlib.sha256(
+        f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}|{_s(request)}".encode()).hexdigest()
     return os.path.join(root, f"{key[:32]}.json")
 
 
-def _cached_research_dossier(question: str, log) -> dict | None:
+def _cached_research_dossier(question: str, request: str, log) -> dict | None:
     """Reuse a previously VALIDATED dossier for the same question.
 
     Web search is a metered server tool, and a research call spends several of those uses. Anything
@@ -2456,7 +2853,7 @@ def _cached_research_dossier(question: str, log) -> dict | None:
     """
     if not _research_cache_enabled():
         return None
-    path = _research_cache_path(question)
+    path = _research_cache_path(question, request)
     try:
         with open(path, encoding="utf-8") as handle:
             dossier = json.load(handle)
@@ -2470,10 +2867,10 @@ def _cached_research_dossier(question: str, log) -> dict | None:
     return dossier
 
 
-def _store_research_dossier(question: str, dossier: dict) -> None:
+def _store_research_dossier(question: str, dossier: dict, request: str = "") -> None:
     if not _research_cache_enabled():
         return
-    path = _research_cache_path(question)
+    path = _research_cache_path(question, request)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
@@ -2485,17 +2882,26 @@ def _store_research_dossier(question: str, dossier: dict) -> None:
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
-    cached = _cached_research_dossier(question, log)
-    if cached:
-        return cached
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 12-18 material claims needed to answer it accurately. Every claim must use a URL "
+        "ledger of 22-28 material claims needed to answer it accurately. Ask for more than the video "
+        "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
+        "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
+        "that attrition rather than discovering it at the claim ledger. Every claim must use a URL "
         "that appears in your web-search results. Cite peer-reviewed papers, government and "
         "public-health bodies, universities, museums or named institutional publications — not "
         "encyclopedias, forums or blogs, which are rejected however accurate. Each cited page is "
         "retrieved and its text checked against your support_quote, so quote a short distinctive "
-        "sentence you are confident appears on that page, and prefer publicly readable sources. "
+        "sentence you are confident appears on that page. Strongly prefer pages whose full text "
+        "is publicly readable without a subscription: government agencies, space agencies, "
+        "open-access journals and museum or university pages. Publisher portals that usually "
+        "show only an abstract behind a paywall cost the ledger a claim even when the paper is "
+        "authoritative, because the checker cannot read the sentence you quoted. "
+        "Include 3-5 claims about COMPARABLE CASES in other places or domains that show the same "
+        "pattern as this topic — the video may generalise at the end, and a comparison it "
+        "cannot source is rejected before render. Give each comparable case the same "
+        "treatment as the rest: a real URL from your search results and a quote you expect "
+        "to find on that page. "
         "For a hypothetical, separate the changed premise, "
         "direct calculations, established baseline facts, modeled consequences, and speculation. "
         "Return ONLY JSON with this schema: "
@@ -2505,8 +2911,19 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         '"calculation":"formula or empty","assumptions":[],"geographic_scope":"global|regional|local|site-specific",'
         '"timescale":"immediate|hours|years|millions of years|other explicit value",'
         '"confidence":"high|medium|speculative","allowed_exaggeration":false,"material":true}]}. '
-        "Do not include narration_phrase or evidence_id yet; the story compiler binds those later."
+        "Do not include narration_phrase or evidence_id yet; the story compiler binds those later. "
+        "Call the web_search tool DIRECTLY as a tool invocation. Do not attempt to invoke it "
+        "from inside code execution or a shell — it is not callable that way, the attempts "
+        "consume the search budget, and a measured run exhausted its quota that way after a "
+        "single successful search. If the search budget runs out before you can support "
+        "12 claims, return the claims you CAN support and set research_status to "
+        "\"search_budget_exhausted\". Never emit a placeholder support_quote such as "
+        "\"NOT_YET_VERIFIED\"; omit the claim instead."
     )
+    # Consult the cache only now that the request exists, because the request is part of the key.
+    cached = _cached_research_dossier(question, prompt, log)
+    if cached:
+        return cached
     response = _claude().messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=10000,
@@ -2519,8 +2936,13 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         # claim_verify now retrieves each cited page itself, the model does not need the page
         # contents in context at all — it needs to find good sources and say what it expects to
         # find on them. Verification is what decides whether it was right.
-        tools=[{"type": "web_search_20260318", "name": "web_search", "max_uses": 5,
-                "response_inclusion": "full"}],
+        #
+        # response_inclusion="full" contradicted exactly that reasoning and was measured doing so:
+        # it pulled whole page bodies back into context for 92,235 input tokens on a single call,
+        # to supply text this function has already decided it does not use. Dropping it restores
+        # the design the comment above describes.
+        tools=[{"type": "web_search_20260318", "name": "web_search",
+                "max_uses": _WEB_SEARCH_MAX_USES}],
         messages=[{"role": "user", "content": prompt}],
         # The client default is 180s, chosen so a hung script-gen call cannot stall a render. This
         # one call is structurally longer than that budget: it runs up to five server-side web
@@ -2536,7 +2958,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     dossier["version"] = 1
     dossier["citation_records"] = _provider_citation_records(response)
     dossier["citation_urls"] = _provider_citation_urls(response)
-    dossier["web_search_max_uses"] = 5
+    dossier["web_search_max_uses"] = _WEB_SEARCH_MAX_USES
     dossier["provider"] = "anthropic_server_web_search"
     server_usage = getattr(response.usage, "server_tool_use", None)
     search_requests = int(getattr(server_usage, "web_search_requests", 0) or 0)
@@ -2564,13 +2986,20 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         f"{validation['citation_count']} cited URLs")
     if not validation["passed"]:
         codes = collections.Counter(_s(item.get("code")) for item in validation["errors"])
+        searches = dossier.get("web_search_requests") or 0
+        if searches <= 1 and not (dossier.get("claims") or []):
+            raise ValueError(
+                "Research dossier failed before scripting: the provider completed only "
+                f"{searches} web search(es), so there was nothing to build a ledger from. This is "
+                "a search-budget or provider-availability problem, not a bad topic — check "
+                "web_search quota before changing the prompt.")
         raise ValueError(
             "Research dossier failed before scripting "
             f"[{dossier['quotable_excerpt_count']} quotable excerpts available; "
             + ", ".join(f"{code}x{count}" for code, count in codes.most_common(4)) + "]: "
             + "; ".join(item["message"] for item in validation["errors"][:3])
         )
-    _store_research_dossier(question, dossier)
+    _store_research_dossier(question, dossier, prompt)
     return dossier
 
 
@@ -3116,8 +3545,21 @@ _EVIDENCE_VERIFY_SYSTEM = (
 
 def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                           cost_sink: list | None = None,
-                          reference_paths: list[str] | None = None) -> dict:
-    """Vision-verify object state and continuity. Invalid/unavailable judgment fails closed."""
+                          reference_paths: list[str] | None = None,
+                          identity_by_silhouette: bool = False) -> dict:
+    """Vision-verify object state and continuity. Invalid/unavailable judgment fails closed.
+
+    `identity_by_silhouette` changes WHAT counts as the same person, and exists because the
+    illustrated lane draws figures with blank faces on purpose — that is how the reference videos
+    hold one character across seventy shots without a face ever having to match.
+
+    Judged against a photoreal reference, those images were rejected for the very thing that makes
+    them work: "target face is a blank featureless white oval, cannot match Alex's identity". A
+    measured pilot lost 46 of 62 states that way, and because only accepted states become shots
+    (longform_shots.compile_scene_shots), the cadence collapsed from a planned 3.5s per shot to
+    7.79s. The verifier was not wrong; it was applying a photoreal standard to a deliberately
+    non-photoreal lane.
+    """
     try:
         def image_block(path: str) -> dict:
             with open(path, "rb") as handle:
@@ -3135,13 +3577,27 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
             "state_after": state.get("state_after"),
             "expect_human_identity": bool(state.get("include_human")),
             "expect_clothing": bool(state.get("include_human")),
+            # What "the same person" means on this lane. Blank faces are the illustrated style
+            # working, not a defect, so identity is read off the anchors that actually survive
+            # regeneration: clothing colour, silhouette, headwear and props.
+            "identity_evidence": ("clothing_colour_silhouette_headwear_props"
+                                  if identity_by_silhouette else "facial_and_clothing"),
             "expect_location": bool(state.get("location_id")),
             "expect_opening_object": bool(state.get("opening_object_id")),
             "pure_evidence": bool(state.get("pure_evidence")),
             "continuity": continuity_pack,
         }
+        instruction = "TARGET EVIDENCE IMAGE ABOVE. Verify it against:\n"
+        if identity_by_silhouette:
+            instruction += (
+                "IDENTITY RULE FOR THIS IMAGE: the figures are drawn with blank or near-blank "
+                "faces by design. Do NOT judge human_identity_matches on facial features, hair, "
+                "stubble or skin. Judge it on clothing colour, silhouette, headwear and carried "
+                "props against the reference. A blank face is correct and must not be a reason "
+                "to fail. Set human_identity_matches false only when those anchors genuinely "
+                "differ.\n")
         content = [image_block(image_path), {
-            "type": "text", "text": "TARGET EVIDENCE IMAGE ABOVE. Verify it against:\n"
+            "type": "text", "text": instruction
             + json.dumps(expected, ensure_ascii=False)}]
         for index, reference in enumerate(reference_paths or []):
             if os.path.isfile(reference):
@@ -5976,13 +6432,44 @@ def _stable_standard_longform(video_format: str, story_format: str,
     )
 
 
-def _ordinary_research_mode(stable_standard_longform: bool) -> str:
-    """Research policy for the default lane: keep it when available, never strand the render."""
+def _ordinary_research_mode(stable_standard_longform: bool,
+                            illustrated_story_on: bool = False) -> str:
+    """Research policy for the default lane: keep it when available, never strand the render.
+
+    The illustrated/causal lane is the exception. Its entire claim is that one thing CAUSED the
+    next, which is the hardest kind of assertion to make and the easiest to get wrong — so its
+    DEFAULT is a required dossier rather than the recovery profile's best-effort setting.
+
+    An explicit LONGFORM_RESEARCH_MODE wins WITHIN the recovery profile, on either lane. Two
+    mistakes were made here in turn and both are worth keeping straight:
+
+    The first version returned "required" for the illustrated lane before reading the environment
+    at all, so the override the docstring promised did nothing — a run started with
+    LONGFORM_RESEARCH_MODE=off called the provider anyway.
+
+    The correction then over-reached and let the override apply everywhere, which would have let
+    an environment variable switch sourcing off on lanes that were never in the recovery profile
+    at all: Evidence Mystery, social and controlled pilots. Those promise sourced evidence and
+    must stay fail-closed no matter what is exported. The escape hatch belongs to the profile
+    that needed one, and nowhere else.
+    """
     if not stable_standard_longform:
         return "required"
-    mode = (os.environ.get("LONGFORM_RESEARCH_MODE", "best_effort")
-            or "best_effort").strip().lower()
-    return mode if mode in {"off", "best_effort", "required"} else "best_effort"
+    override = (os.environ.get("LONGFORM_RESEARCH_MODE", "") or "").strip().lower()
+    if override in {"off", "best_effort", "required"}:
+        return override
+    return "required" if illustrated_story_on else "best_effort"
+
+
+def _illustrated_storyboard_hard() -> bool:
+    """Blocks by default. ILLUSTRATED_STORYBOARD_HARD=0 downgrades it to a report.
+
+    Same shape as CLAIM_LEDGER_HARD and DIAGNOSTIC_RENDER: an unvalidated storyboard means the
+    causal chain was never confirmed, so the output is diagnostic and not publishable — but a gate
+    with no escape hatch made it impossible to look at a finished video at all.
+    """
+    return (os.environ.get("ILLUSTRATED_STORYBOARD_HARD", "1") or "1").strip().lower() \
+        not in ("0", "false", "no", "off")
 
 
 def _longform_retention_hard() -> bool:
@@ -6122,10 +6609,109 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
         return script, 0.0
 
 
+def _causal_contract_report(script: dict, question: str) -> tuple[bool, list[str]]:
+    """Does this draft satisfy the causal contract? Non-mutating, provider-free, free to call.
+
+    The storyboard builder writes beats onto the scenes it inspects, so this works on a copy: the
+    replan needs to compare two candidates without either inspection leaving marks on a draft that
+    may then be discarded.
+    """
+    try:
+        import copy as _copy
+        import illustrated_story as _ils
+        board = _ils.build_storyboard(_copy.deepcopy(script), question)
+        validation = board.get("validation") or {}
+        return bool(validation.get("passed")), list(validation.get("errors") or [])
+    except Exception as exc:                       # a draft too broken to inspect is not valid
+        return False, [f"storyboard could not be built ({type(exc).__name__})"]
+
+
+def _script_cache_enabled() -> bool:
+    """Development-only reuse of an expensive script, OFF unless SCRIPT_CACHE=1.
+
+    Deliberately not on by default, unlike the research cache. Evidence for a question does not
+    change between renders, so reusing it is honest; a SCRIPT is the creative output, and silently
+    serving the same one for every render of a topic would be a product decision disguised as an
+    optimisation.
+
+    It exists because iterating on everything downstream — storyboard, causal contract, claim
+    binding, the render itself — cost a full research-plus-script-plus-replan cycle per attempt,
+    and those stages are where the failures actually were.
+
+    Same pytest rule as the research cache, and for the same reason: a stubbed generator writes a
+    perfectly valid script, which the cache would then serve to the next test instead of the thing
+    under test.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return (os.environ.get("SCRIPT_CACHE", "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _script_cache_path(question: str, fingerprint: str) -> str:
+    root = os.environ.get("SCRIPT_CACHE_DIR", "").strip() or os.path.join(
+        tempfile.gettempdir(), "reelforge", "script")
+    key = hashlib.sha256(
+        f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}|{fingerprint}".encode()).hexdigest()
+    return os.path.join(root, f"{key[:32]}.json")
+
+
+def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: str,
+                        causal_lane: bool, operator_direction: str,
+                        research_dossier: dict | None) -> str:
+    """Everything that would make a cached script the wrong script.
+
+    Includes the SOURCE of the functions that build the prompts, so editing a prompt invalidates
+    its own cache. The dossier cache learned this the hard way: keyed on the question alone, an
+    improved research prompt kept serving an 8-claim dossier from before the change and cost a
+    pilot run to notice.
+    """
+    import inspect
+    try:
+        prompt_source = "".join(
+            inspect.getsource(fn) for fn in (_generate_script_chunked, _assign_causal_spine))
+    except Exception:
+        prompt_source = "unavailable"
+    claims = ",".join(sorted(_s(c.get("claim_id")) for c in (research_dossier or {}).get("claims") or []))
+    return hashlib.sha256("|".join([
+        str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
+        _s(operator_direction), claims, prompt_source,
+    ]).encode()).hexdigest()
+
+
+def _cached_graded_script(question: str, fingerprint: str, log) -> dict | None:
+    if not _script_cache_enabled():
+        return None
+    try:
+        with open(_script_cache_path(question, fingerprint), encoding="utf-8") as handle:
+            script = json.load(handle)
+    except Exception:
+        return None
+    if not (script.get("scenes") or []):
+        return None
+    log(f"Script: reusing {len(script['scenes'])} cached scenes for this question "
+        f"(SCRIPT_CACHE=0 to force a fresh write) — DEVELOPMENT REUSE, not a fresh draft")
+    return script
+
+
+def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
+    if not _script_cache_enabled() or not (script.get("scenes") or []):
+        return
+    path = _script_cache_path(question, fingerprint)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        temporary = path + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(script, handle)
+        os.replace(temporary, path)
+    except Exception:
+        pass
+
+
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
-                           research_dossier: dict | None = None) -> dict:
+                           research_dossier: dict | None = None,
+                           causal_lane: bool = False) -> dict:
     """Generate a script, engagement-grade it, and ELEVATE a sub-target draft by surgically revising
     its weakest axis (up to `_SCRIPT_GATE_RETRIES` passes), keeping the best-scoring version. Returns
     that draft. Stores the winning grade on `script['_grade']`. Never blocks: a grader failure accepts
@@ -6133,26 +6719,72 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     climbs toward the PASS target instead of gambling on a new roll."""
     import copy
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
+                           causal_lane=causal_lane,
                            video_format=video_format, series=series, operator_direction=operator_direction,
                            story_format=story_format, research_dossier=research_dossier)
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
-    for _ in range(max(0, _LONGFORM_CONTRACT_RETRIES)):
-        if best_validation.get("passed"):
+    # Two contracts want different things from the same script, and only one of them was steering
+    # the replan. The long-form contract asks for earlier prediction gates and denser payoffs; the
+    # causal contract asks for the mechanism inside the first fifth and a hinge under ten words. A
+    # replan told only about the first duly fixed pacing and pushed the mechanism from inside the
+    # deadline out to 82s, so the run cleared the contract it was shown and died on the one it was
+    # not. The causal state is now carried through the loop and shown to the replan.
+    best_causal_ok, best_causal_errors = (
+        _causal_contract_report(best, question) if causal_lane else (True, []))
+    # Attempts are numbered because the message below used to say "replanning once" whatever the
+    # retry budget was, which is false for any budget above one and hides how close a run came.
+    _attempts = max(0, _LONGFORM_CONTRACT_RETRIES)
+    for _attempt in range(1, _attempts + 1):
+        if best_validation.get("passed") and best_causal_ok:
             break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
-        log(f"Long-form contract {best_validation.get('score', 0)}/100 — replanning once before render: {fixes}")
+        if causal_lane and not best_causal_ok:
+            causal_fixes = "; ".join(
+                issue.get("message", str(issue)) if isinstance(issue, dict) else str(issue)
+                for issue in best_causal_errors[:4])
+            fixes = (fixes + "; " if fixes else "") + (
+                "CAUSAL CONTRACT (these are equally blocking, and fixing the pacing above must "
+                "not break them): " + causal_fixes)
+        log(f"Long-form contract {best_validation.get('score', 0)}/100"
+            + ("" if best_causal_ok else " + causal contract failing")
+            + f" — replan {_attempt}/{_attempts} before render: {fixes}")
         cand = generate_script(
             question, duration_sec, style, image_guidance=image_guidance,
             video_format=video_format, series=series, operator_direction=operator_direction,
             story_format=story_format,
             research_dossier=research_dossier,
+            # The replan MUST carry the lane. Without it this call rebuilds every scene through
+            # the plain path, so the causal_role/caused_by/chapter fields the storyboard reads are
+            # simply absent — a pilot got all the way past research, fact-check and the runtime
+            # contract before failing with a blank role on all 22 scenes. A replanned script is
+            # still a script for the same lane.
+            causal_lane=causal_lane,
+            # Same engine as the draft being repaired. Without this the replan re-picks and ends
+            # up fixing a different contract from the one that failed.
+            pinned_engine=_s(best.get("_story_engine")),
             improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
         )
         total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
         cand_validation = validate_longform_story(cand, question)
-        if validation_rank(cand_validation) < validation_rank(best_validation):
+        cand_causal_ok, cand_causal_errors = (
+            _causal_contract_report(cand, question) if causal_lane else (True, []))
+        better_on_contract = validation_rank(cand_validation) < validation_rank(best_validation)
+        # Causal validity DOMINATES the contract score. Ranking on the score alone let a candidate
+        # that scored better on pacing replace one that was causally sound, which is how a draft
+        # that would render became a draft that could not.
+        if not causal_lane:
+            accept = better_on_contract
+        elif cand_causal_ok != best_causal_ok:
+            accept = cand_causal_ok
+        else:
+            accept = better_on_contract
+        if accept:
             best, best_validation = cand, cand_validation
+            best_causal_ok, best_causal_errors = cand_causal_ok, cand_causal_errors
+    if causal_lane and not best_causal_ok:
+        log(f"Causal contract still failing after {_attempts} replan(s) — keeping the closest "
+            "draft; the storyboard gate below is where this stops.")
     # Track every beat-sheet/expansion attempt, including a discarded retry.
     best["_script_cost_usd"] = round(total_generation_cost, 4)
     best["_retention_validation"] = best_validation
@@ -6807,7 +7439,12 @@ def run_explainer_pipeline(
         illustrated_story_lane.story_direction(question, operator_direction)
         if illustrated_story_on else operator_direction
     )
-    research_mode = _ordinary_research_mode(stable_standard_longform)
+    research_mode = _ordinary_research_mode(stable_standard_longform, illustrated_story_on)
+    # The recovery profile demoted every gate so the default lane could finish at all. That is
+    # right for the gates it was aimed at — editorial opinion, missing reference art, rendered
+    # approval — and wrong for sourcing. A causal story asserts that one event caused the next,
+    # so on this lane the claim ledger, research dossier and evidence plan block again.
+    sourcing_advisory = stable_standard_longform and not illustrated_story_on
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     resolved_motion_mode = (
@@ -6980,7 +7617,7 @@ def run_explainer_pipeline(
             research_dossier = script.get("_research_dossier") or {}
             if (video_format != "social"
                     and not validate_research_dossier(research_dossier).get("passed")
-                    and not stable_standard_longform):
+                    and not sourcing_advisory):
                 raise ValueError("Checkpoint predates the sourced research contract")
             if video_format != "social":
                 checkpoint_evidence = script.get("_evidence_plan") or {}
@@ -6999,7 +7636,7 @@ def run_explainer_pipeline(
                 if checkpoint_evidence.get("version") != 1 or (
                         not checkpoint_evidence_validation.get("passed")
                         and not _diagnostic_render()
-                        and not stable_standard_longform):
+                        and not sourcing_advisory):
                     raise ValueError("Checkpoint predates the evidence-asset contract")
             short_grade = _st.get("short_grade")
             resumed = True
@@ -7047,11 +7684,23 @@ def run_explainer_pipeline(
                         f"({type(exc).__name__}); continuing on the stable fact-check-only path.")
             # Engagement gate: grade hook/story/ending + regenerate weak drafts BEFORE we spend a
             # cent on images/TTS/render. Best-effort — a grader failure accepts the draft.
-            script = generate_graded_script(question, duration_sec, style, image_guidance,
-                                            video_format, series, cost_sink=aux_costs, log=log,
-                                            operator_direction=script_operator_direction,
-                                            story_format=story_format,
-                                            research_dossier=research_dossier)
+            # Everything after this point — fact-check, claim binding, the storyboard, the causal
+            # contract, the render — was costing a full research-plus-script-plus-replan cycle to
+            # test, and those later stages are where the failures were. Off unless SCRIPT_CACHE=1.
+            script_fingerprint = _script_fingerprint(
+                duration_sec=duration_sec, video_format=video_format, story_format=story_format,
+                causal_lane=illustrated_story_on,
+                operator_direction=script_operator_direction,
+                research_dossier=research_dossier)
+            script = _cached_graded_script(question, script_fingerprint, log)
+            if script is None:
+                script = generate_graded_script(question, duration_sec, style, image_guidance,
+                                                video_format, series, cost_sink=aux_costs, log=log,
+                                                operator_direction=script_operator_direction,
+                                                story_format=story_format,
+                                                research_dossier=research_dossier,
+                                                causal_lane=illustrated_story_on)
+                # Deliberately NOT stored here: see the store after the claim ledger.
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
@@ -7077,7 +7726,15 @@ def run_explainer_pipeline(
         # last pass that can rewrite narration and before anything validates them against it.
         if video_format != "social":
             rederive_narration_bindings(script, log)
-        script["_story_engine"] = _review_story_structure(script, story_format, video_format, log)
+        # NOT `_story_engine`. That key already holds the causal engine id chosen by
+        # _assign_causal_spine, and this returns a report dict from the story_engine module —
+        # a different, stdlib-only prose analyser one letter away in name. Overwriting it
+        # destroyed the engine identity mid-run: illustrated_story reads the key expecting a
+        # string, se.get() resolved the dict through a lenient resolve_id to DEFAULT_ENGINE,
+        # and an accumulating-indictment story was failed for lacking the `tool` beat that
+        # only The Backfiring Solution requires. Three renders died there.
+        script["_story_structure_review"] = _review_story_structure(
+            script, story_format, video_format, log)
         if video_format != "social":
             claim_validation = validate_claim_joins(script, research_dossier)
             script["_claim_validation"] = claim_validation
@@ -7087,13 +7744,33 @@ def run_explainer_pipeline(
                 # can continue; the failure is still logged and still recorded on the script, and
                 # the result is NOT publishable -- an unbound scene means a factual or causal line
                 # has no source behind it. Default stays on.
-                if _claim_ledger_hard() and not stable_standard_longform:
+                if _claim_ledger_hard() and not sourcing_advisory:
+                    # Name the scenes. The validator records a scene index on every issue and the
+                    # raised message threw it away, so three identical sentences said a scene was
+                    # unbound without saying which — the same shape of unhelpful error that sent
+                    # the research-dossier investigation looking for a parser bug that did not
+                    # exist. An operator cannot judge whether a rule is too broad or a script is
+                    # genuinely unsourced without seeing the line.
+                    detail = []
+                    for item in claim_validation.get("errors", [])[:6]:
+                        index = item.get("scene")
+                        text = ""
+                        if isinstance(index, int) and 1 <= index <= len(script.get("scenes") or []):
+                            role = _s(script["scenes"][index - 1].get("story_role"))
+                            text = (f" [scene {index}, role={role or '?'}: "
+                                    f"{_s(script['scenes'][index - 1].get('narration'))[:90]}]")
+                        detail.append(f"{item['message']}{text}")
                     raise ValueError(
                         "Claim ledger failed after script/fact-check before asset spend: "
-                        + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
+                        + "; ".join(detail)
                     )
                 for item in claim_validation.get("errors", [])[:6]:
                     log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
+            elif script_fingerprint:
+                # Survived fact-check and the ledger, so it is worth reusing. Caching at
+                # generation instead cached a draft that failed the ledger six scenes later, and
+                # the next run would have iterated against it.
+                _store_graded_script(question, script_fingerprint, script)
         n_host = sum(1 for s in scenes if s.get("mascot_present"))
         n_human = sum(1 for s in scenes if s.get("human_present"))
         log(f"Cast: {HUMAN_NAME} leads {n_human}/{len(scenes)} scenes; "
@@ -7154,7 +7831,7 @@ def run_explainer_pipeline(
         if not claim_validation.get("passed") and not _claim_ledger_hard():
             for item in claim_validation.get("errors", [])[:6]:
                 log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
-        elif not claim_validation.get("passed") and not stable_standard_longform:
+        elif not claim_validation.get("passed") and not sourcing_advisory:
             # This is the same condition as the ledger check ~90 lines above, which honours
             # CLAIM_LEDGER_HARD, and this one did not. A diagnostic render therefore logged the
             # unsourced scene, continued, and was killed here by its twin -- so the escape hatch
@@ -7180,12 +7857,26 @@ def run_explainer_pipeline(
 
     if illustrated_story_on:
         log("stage:Building illustrated storyboard...")
+        # Last chance before the gate that measures it. LONG_HOOK was the single remaining
+        # failure on an otherwise renderable draft — 19 words against a budget of 18.
+        script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
-            raise ValueError(
-                "Illustrated storyboard failed: "
-                + "; ".join((storyboard.get("validation") or {}).get("errors") or [])
-            )
+            storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []
+            # ILLUSTRATED_STORYBOARD_HARD=0 downgrades this to a report, matching the escape hatch
+            # every other pre-spend gate here already has. It exists because thirteen runs stopped
+            # before the renderer and nobody had yet seen a frame — the imagery, cadence and
+            # caption questions this lane was built to answer were all still unexamined.
+            #
+            # Output from such a run is DIAGNOSTIC ONLY. An unvalidated storyboard means the
+            # causal chain behind the video was never confirmed. Do not publish it.
+            if _illustrated_storyboard_hard():
+                raise ValueError("Illustrated storyboard failed: "
+                                 + "; ".join(storyboard_errors))
+            log("Illustrated storyboard: FAILING but downgraded by ILLUSTRATED_STORYBOARD_HARD=0 "
+                "— this render is DIAGNOSTIC ONLY and must not be published")
+            for error in storyboard_errors[:6]:
+                log(f"  ✗ [STORYBOARD, ILLUSTRATED_STORYBOARD_HARD=0] {error}")
         storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
         with open(storyboard_path, "w", encoding="utf-8") as handle:
             json.dump(storyboard, handle, indent=2, ensure_ascii=False)
@@ -7276,7 +7967,7 @@ def run_explainer_pipeline(
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
         if (not evidence_validation.get("passed") and not _diagnostic_render()
-                and not stable_standard_longform):
+                and not sourcing_advisory):
             raise ValueError(
                 "Evidence-state plan failed before TTS/image spend: "
                 + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
@@ -7470,9 +8161,14 @@ def run_explainer_pipeline(
         # killed here by their twin, after paying for TTS. The flags are read here now.
         blocking = []
         if (not claim_validation.get("passed") and _claim_ledger_hard()
-                and not stable_standard_longform):
+                and not sourcing_advisory):
             blocking.append("claim ledger")
         if (not retention_validation.get("passed") and _longform_retention_hard()
+                # Editorial, not falsity — so it reads the recovery flag like its pre-TTS twin,
+                # NOT the sourcing flag. Classifying the ten sourcing sites by line number swept
+                # this one up with the claim-ledger checks beside it, which re-armed a gate the
+                # classification explicitly said should stay advisory. The count-based test passed
+                # because the count was still ten; it never checked WHICH ten.
                 and not stable_standard_longform):
             blocking.append("retention contract")
         for label, report in (("claim", claim_validation), ("retention", retention_validation)):
@@ -7641,7 +8337,8 @@ def run_explainer_pipeline(
                     _make_detail_reframe(source_path, state_path)
                     verification = verify_evidence_asset(
                         state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
-                        reference_paths=[source_path])
+                        reference_paths=[source_path],
+                        identity_by_silhouette=illustrated_story_on)
                 else:
                     continuity_source = source_path or (master_path if state_index else "")
                     refs = _evidence_reference_paths(
@@ -7662,7 +8359,8 @@ def run_explainer_pipeline(
                                 state_path, reference_paths=refs, cost_sink=img_costs, size=img_size)
                     verification = verify_evidence_asset(
                         state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
-                        reference_paths=refs)
+                        reference_paths=refs,
+                        identity_by_silhouette=illustrated_story_on)
             except Exception as exc:
                 generation_error = f"{type(exc).__name__}: {str(exc)[:160]}"
                 verification = None
@@ -7916,7 +8614,7 @@ def run_explainer_pipeline(
         # the proof it claims is not evidence -- but under DIAGNOSTIC_RENDER it reports instead
         # of aborting, because a video with imperfect frames can be watched and judged while no
         # video cannot. Such a render is NOT publishable: its visuals do not match their plan.
-        if not _diagnostic_render() and not stable_standard_longform:
+        if not _diagnostic_render() and not sourcing_advisory:
             raise RuntimeError("Opening evidence assets were rejected before the render smoke test.")
         log("  ⚠ [ASSETS, advisory] opening evidence assets rejected — continuing")
     if not r0["aud_ok"]:
@@ -7998,7 +8696,7 @@ def run_explainer_pipeline(
         if any(not result.get("evidence_ok") for result in opening_results):
             with open(evidence_plan_path, "w") as handle:
                 json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
-            if not _diagnostic_render() and not stable_standard_longform:
+            if not _diagnostic_render() and not sourcing_advisory:
                 raise RuntimeError(
                     "One or more first-tranche evidence assets were explicitly rejected.")
             log("  ⚠ [ASSETS, advisory] first-tranche assets rejected — continuing")
@@ -8011,7 +8709,7 @@ def run_explainer_pipeline(
         if not evidence_validation.get("passed"):
             # Third of three asset-rejection aborts. All read the same flag: a gate honoured in
             # one place and not its twin has cost a full run five separate times today.
-            if not _diagnostic_render() and not stable_standard_longform:
+            if not _diagnostic_render() and not sourcing_advisory:
                 raise RuntimeError(
                     "Opening evidence gate failed before later visual purchase: "
                     + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
@@ -8578,6 +9276,23 @@ def run_explainer_pipeline(
     if rendered_shot_plan:
         log("Visual cadence: %(shot_count)d shots, %(avg_still_seconds).2fs average still, "
             "%(max_still_seconds).2fs max still" % shot_metrics)
+        # Report the collapse, not just the survivors.
+        #
+        # Only states whose image was ACCEPTED become shots (longform_shots.compile_scene_shots),
+        # so every rejected image silently lengthens the holds around it. A measured pilot planned
+        # 62 states at 3.5s, lost 46 to verification, and shipped 28 shots at 7.79s — against
+        # references at 2.36s and 3.38s. Every line in that log read as success: "recovered on
+        # retry", "PASS", "Complete". Nothing anywhere printed 62 and 28 next to each other.
+        _planned_states = sum(
+            len(scene_plan.get("states") or []) for scene_plan in (evidence_plan.get("scenes") or []))
+        if _planned_states:
+            _delivered = shot_metrics["shot_count"]
+            log(f"Visual states: {_planned_states} planned -> {_delivered} rendered "
+                f"({_delivered / _planned_states:.0%} survived verification)")
+            if _delivered < _planned_states * 0.75:
+                log(f"⚠ {_planned_states - _delivered} planned visual states never reached the "
+                    "screen; the holds around them absorbed the time. This is the cadence defect, "
+                    "not a rendering detail.")
     # Was an abort at the most expensive point in the run — after every image, every motion clip
     # and every scene render, immediately before assembly. validate_motion_plan applies the same
     # 90% threshold pre-spend, so this could only fire on the difference between planned and

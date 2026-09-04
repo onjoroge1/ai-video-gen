@@ -1,0 +1,147 @@
+{
+  "format": "causal_story_v1",
+  "source": "Ingested from savefromins.com  1 540P.MP4; timings measured with ffmpeg/whisper, roles and causal edges labelled by hand from the transcript.",
+  "note": "Third reference and the shortest at 101s, well under the 170-220s the format bands were fitted to. Second reference for ACCUMULATING_INDICTMENT, so that engine is no longer defined by a single video.",
+  "measured": {
+    "runtime_sec": 101.3,
+    "visual_states": 47,
+    "mean_hold_sec": 2.16,
+    "median_hold_sec": 1.9,
+    "max_hold_sec": 6.17,
+    "words": 327,
+    "words_per_minute": 193.682,
+    "spoken_chapter_markers": 5,
+    "mean_volume_db": -17.1,
+    "hook_words": 13.0,
+    "median_sentence": 11.0,
+    "short_landing_pct": 0.345,
+    "step_markers": 5.0
+  },
+  "observed": {
+    "hook_type": "Opens with a provocative counter-intuitive claim framed as 'explained like you're five', paired with a simple cartoon of two figures exchanging money while a wronged party walks away ignored, establishing the injustice immediately.",
+    "story_pattern": "Numbered step-by-step structure ('Step 1' through 'Step 5') that walks chronologically through a historical process, each step adding a twist or escalating scale, building toward a shocking modern-day connection.",
+    "recurring_characters": "Generic archetypes rather than named individuals: authority figures in period dress (suited officials, top-hatted men), an affected/wronged population, a board of decision-makers, and a modern presenter figure appearing near the end.",
+    "location_reuse": "Rotates through distinct illustrated settings — a symbolic doorway scene, a monumental government building, ornate wood-paneled council rooms, bustling document-processing halls, and a split-screen contrasting modern life with the historical past.",
+    "visual_composition": "Flat hand-drawn cartoon illustrations in muted sepia/pastel tones, alternating between wide crowd scenes, close-up single-character shots, and top-down/isometric bureaucratic tableaus to vary pacing.",
+    "on_screen_text": "A single large capitalized word from the narration is centered on each frame as a running caption, keyword-by-keyword, in bold white text with black outline.",
+    "narrator_tone": "Calm, explanatory, and matter-of-fact with a deliberate 'simplify the complex' teaching cadence, using understated framing to let the shocking facts land on their own.",
+    "humour_and_interrupts": "Dry ironic framing ('almost like an insurance claim'), casual asides that undercut the gravity, and the 'explained like you're five' conceit that lightens heavy subject matter.",
+    "reveal_placement": "The biggest gut-punch reveal — that the debt was still being paid off by ordinary people generations later, into the present era — lands in the final third right before the sponsor pivot.",
+    "ending_callback": "Abruptly transitions from the historical payoff to a sponsor pitch, branding the story as 'just one story inside' an app, comparing it to a popular learning app, and closing with a flattering call-to-action to try it."
+  },
+  "story": {
+    "title": "America Freed the Slaves and Paid Their Owners Instead",
+    "runtime_sec": 101.3,
+    "format_tag": "explained like you are five",
+    "engine": "accumulating_indictment",
+    "opening_object": "the payment",
+    "start_state": "slavery is still legal inside the nation's own capital",
+    "hook": {
+      "line": "America freed the slaves and paid their owners instead."
+    },
+    "steps": [
+      {
+        "step_id": "law",
+        "role": "setup",
+        "start_sec": 5,
+        "label": "April 1862, slavery legal in the capital",
+        "situation": "The Civil War is underway but slavery is still legal inside Washington itself, and Congress passes a law to end it there first.",
+        "chapter": 1
+      },
+      {
+        "step_id": "signed",
+        "role": "false_resolution",
+        "start_sec": 14,
+        "label": "Lincoln signs it",
+        "situation": "Lincoln signs the law, and it reads as emancipation simply arriving.",
+        "caused_by": "law",
+        "chapter": 1
+      },
+      {
+        "step_id": "twist",
+        "role": "intervention",
+        "start_sec": 18,
+        "label": "A board, and a petition to file",
+        "situation": "The government sets up a board of commissioners and invites loyal slave owners to file a petition for their loss of property.",
+        "caused_by": "signed",
+        "chapter": 2
+      },
+      {
+        "step_id": "principle",
+        "role": "mechanism",
+        "start_sec": 20,
+        "label": "The injustice is treated as property",
+        "situation": "A government that ends an injustice by compensating the people who profited from it has priced the injustice as property rather than repudiated it.",
+        "caused_by": "twist",
+        "chapter": 2
+      },
+      {
+        "step_id": "paid",
+        "role": "escalation",
+        "start_sec": 26,
+        "label": "Three hundred dollars a person",
+        "situation": "For every enslaved person freed, the former owner is paid up to three hundred dollars.",
+        "caused_by": "principle",
+        "chapter": 2
+      },
+      {
+        "step_id": "nothing",
+        "role": "escalation",
+        "start_sec": 34,
+        "label": "The freed receive nothing",
+        "situation": "Over nine months the board approves 930 petitions freeing nearly three thousand people, none of whom receive payment, land, or anything for their years of labour.",
+        "caused_by": "paid",
+        "chapter": 3
+      },
+      {
+        "step_id": "emigrate",
+        "role": "escalation",
+        "start_sec": 46,
+        "label": "A bonus for leaving",
+        "situation": "The law offers the owner a further hundred dollars if the freed person agrees to emigrate out of the country entirely.",
+        "caused_by": "nothing",
+        "chapter": 3
+      },
+      {
+        "step_id": "britain",
+        "role": "escalation",
+        "start_sec": 53,
+        "label": "Britain had done it bigger",
+        "situation": "Britain had run the same arrangement thirty years earlier at vastly larger scale, paying its slave owners twenty million pounds, roughly forty per cent of the government's annual budget.",
+        "caused_by": "emigrate",
+        "chapter": 4
+      },
+      {
+        "step_id": "bonds",
+        "role": "escalation",
+        "start_sec": 71,
+        "label": "Rolled into government debt",
+        "situation": "The sum was so large it was rolled into government bonds that ordinary taxpayers quietly paid off for generations.",
+        "caused_by": "britain",
+        "chapter": 5
+      },
+      {
+        "step_id": "until2015",
+        "role": "reversal",
+        "start_sec": 85,
+        "label": "Not settled until 2015",
+        "situation": "The loan was not fully settled until 2015.",
+        "caused_by": "bonds",
+        "chapter": 5
+      },
+      {
+        "step_id": "today",
+        "role": "verdict",
+        "start_sec": 93,
+        "label": "People alive today paid the owners",
+        "situation": "People alive today, filing their taxes, were still making the payment to slave owners long after slavery itself had become ancient history.",
+        "caused_by": "until2015",
+        "chapter": 5
+      }
+    ],
+    "parallel_cases": []
+  },
+  "expect": {
+    "pass": true
+  }
+}

@@ -37,7 +37,10 @@ class _StrictModel(BaseModel):
 class DirectedTarget(_StrictModel):
     duration_sec: float = Field(gt=0)
     pilot_end_sec: float = Field(default=45.0, gt=0)
-    format: Literal["landscape"] = "landscape"
+    # Portrait is what the reference videos actually are (9:16, 712x1276 measured). The lane
+    # was landscape-only, which meant the cheap vertical pilot could not be run at all and
+    # every composition was framed for the wrong aspect.
+    format: Literal["landscape", "portrait"] = "landscape"
     voice: str = "echo"
     max_cost_usd: float = Field(default=25.0, gt=0)
 

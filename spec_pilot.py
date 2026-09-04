@@ -178,7 +178,8 @@ def _soften(prompt: str) -> tuple[str, list]:
 
 
 def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log,
-                         reference_paths: list[str] | None = None) -> bool:
+                         reference_paths: list[str] | None = None,
+                         image_size: str = "1536x1024") -> bool:
     """Generate one still, softening once if output moderation rejects it.
 
     Returns True if an image exists at image_path. A False is NOT swallowed -- the caller
@@ -187,7 +188,8 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log,
     """
     try:
         ep.generate_image(
-            prompt, image_path, reference_paths=reference_paths, cost_sink=cost_sink)
+            prompt, image_path, reference_paths=reference_paths, cost_sink=cost_sink,
+            size=image_size)
         return True
     except ep.ContentBlocked as first:
         softened, changed = _soften(prompt)
@@ -197,7 +199,8 @@ def _generate_shot_image(prompt: str, image_path: str, cost_sink: list, log,
         log(f"      blocked; retrying softened ({'; '.join(changed)})")
         try:
             ep.generate_image(
-                softened, image_path, reference_paths=reference_paths, cost_sink=cost_sink)
+                softened, image_path, reference_paths=reference_paths, cost_sink=cost_sink,
+                size=image_size)
             return True
         except ep.ContentBlocked as second:
             log(f"      still blocked after softening: {str(second)[:90]}")
@@ -317,8 +320,11 @@ def _motion_cache_path(image_path: str, shot: dict, seconds: float, out_path: st
 
 
 def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: str,
-                        cost_sink: list, log, provider_sink: list | None = None) -> bool:
+                        cost_sink: list, log, provider_sink: list | None = None,
+                        frame: dict | None = None) -> bool:
     """Generate true footage for one shot, trimmed to its hold. False if the provider declined.
+
+    `frame` is the delivery size. It defaults to landscape so existing callers are unchanged.
 
     The generated clip is cached beside the still: at ~$0.28 each these are by far the most
     expensive assets in the film, and a re-render that re-bought them would cost more than the
@@ -367,12 +373,15 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
     if provider_sink is not None and motion_event is not None:
         provider_sink.append({**motion_event, "shot_id": shot.get("shot_id")})
 
+    frame = frame or FRAME["landscape"]
     # Trim to the hold. The provider returns ~5s regardless of what was asked, and the cut
     # length is set by the narration, not by the clip.
     ep._run_ffmpeg([
         ep._ffmpeg_bin(), "-nostdin", "-y", "-i", str(cached), "-t", f"{seconds:.3f}",
-        "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,"
-               "crop=1920:1080,setsar=1,format=yuv420p,fps=30",
+        # Was hardcoded landscape; a portrait render would have been letterboxed here after
+        # every still had already been generated in the right aspect.
+        "-vf", f"scale={frame['w']}:{frame['h']}:force_original_aspect_ratio=increase,"
+               f"crop={frame['w']}:{frame['h']},setsar=1,format=yuv420p,fps=30",
         "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "19", out_path,
     ])
     return True
@@ -384,6 +393,18 @@ def _motion_for(shot: dict, order: int) -> str:
         if phrase in text:
             return preset
     return _CYCLE[order % len(_CYCLE)]
+
+
+# 9:16 measured from the reference videos (712x1276); 1080x1920 is the standard delivery size.
+# gpt-image-2 takes "1024x1536" for portrait and "1536x1024" for landscape.
+FRAME = {
+    "landscape": {"w": 1920, "h": 1080, "image_size": "1536x1024"},
+    "portrait": {"w": 1080, "h": 1920, "image_size": "1024x1536"},
+}
+
+
+def frame_for(spec_format: str) -> dict:
+    return FRAME.get(str(spec_format or "").strip().lower(), FRAME["landscape"])
 
 
 def _render_shot(image_path: str, seconds: float, motion: str, out_path: str,
@@ -660,6 +681,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             raise dl.DirectedValidationError("directed JSON does not match the v1 schema")
         spec = dl.DirectedLongformSpec.model_validate(validation["normalized_spec"])
 
+    # One frame decision for the whole render: the stills, the motion trims and the final encode
+    # all read it, so a portrait spec cannot end up with landscape images or a letterboxed clip.
+    _frame = frame_for(spec.target.format)
+
     indexed_scenes = [
         (index, scene) for index, scene in enumerate(spec.narration)
         if win_start <= scene.start_sec < win_end
@@ -868,7 +893,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{stream_order:03d}.mp4")
         if (use_i2v and shot["mode"].strip().casefold() == "full motion"
                 and _render_motion_shot(
-                    path, shot, hold, clip, i2v_costs, log, motion_events)):
+                    path, shot, hold, clip, i2v_costs, log, motion_events,
+                    frame=_frame)):
             animated += 1
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  I2V")
         else:
@@ -877,7 +903,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             # Recovery may need to replay dozens of already-paid sources inside one function
             # window.  The preset changes encoder search effort, not resolution, CRF, frames,
             # motion, or content; veryfast keeps that deterministic replay below the lease limit.
-            _render_shot(path, hold, motion, clip, preset="veryfast", crf=23)
+            _render_shot(path, hold, motion, clip, preset="veryfast", crf=23,
+                         width=_frame["w"], height=_frame["h"])
             log(f"  shot {stream_order + 1:>2} {hold:4.1f}s  {motion}")
         clips.append(clip)
         compact_stream_clips()
@@ -913,7 +940,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             log(f"  shot {order + 1:>2} reusing image on disk")
         elif _generate_shot_image(
                 prompt, master_path, image_costs, log,
-                [reference_files[item] for item in shot.get("reference_ids") or []] or None):
+                [reference_files[item] for item in shot.get("reference_ids") or []] or None,
+                image_size=_frame["image_size"]):
             sidecar.write_text(prompt, encoding="utf-8")
         else:
             blocked.append(order)
@@ -1021,12 +1049,14 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         clip = str(out / "tmp" / f"shot_{int(win_start):04d}_{order:02d}.mp4")
         if (use_i2v and shot["mode"].strip().casefold() == "full motion"
                 and _render_motion_shot(
-                    image_paths[order], shot, hold, clip, i2v_costs, log, motion_events)):
+                    image_paths[order], shot, hold, clip, i2v_costs, log,
+                    motion_events, frame=_frame)):
             animated += 1
             log(f"  shot {order + 1:>2} {hold:4.1f}s  I2V")
         else:
             motion = _motion_for(shot, order)
-            _render_shot(image_paths[order], hold, motion, clip)
+            _render_shot(image_paths[order], hold, motion, clip,
+                         width=_frame["w"], height=_frame["h"])
             log(f"  shot {order + 1:>2} {hold:4.1f}s  {motion}")
         clips.append(clip)
     if use_i2v:

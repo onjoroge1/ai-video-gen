@@ -9,9 +9,21 @@ from urllib.parse import urlparse
 
 SOURCE_TYPES = {"primary", "authoritative_secondary"}
 CONFIDENCE_LEVELS = {"high", "medium", "speculative"}
+# Roles whose beats assert that something HAPPENED or IS TRUE, and therefore need a source even
+# when the sentence carries no number or causal connective.
+#
+# "false_relief" was in this set and is not one of them. It is the "it looks like it is over"
+# pause before the turn, and it asserts a feeling: a pilot was blocked because
+# "For a moment, it all looks final. A sea erased, a desert that fights back." carries no
+# checkable claim, and the only honest way to satisfy the rule would have been to staple a source
+# to a line that claims nothing — citation theatre, which is worse than the gap.
+#
+# This narrows the ROLE trigger only. `_asserts_fact` still runs on every scene, so a false-relief
+# beat that does state something ("the dam held for three years") is caught by its content exactly
+# as before. Nothing that makes a claim becomes exempt.
 FACT_ROLES = {
     "rules", "mechanism", "payoff", "escalation", "reversal", "branch",
-    "false_relief", "final_escalation", "final_payoff",
+    "final_escalation", "final_payoff",
 }
 _GLOBAL_WORDS = re.compile(r"\b(global(?:ly)?|worldwide|everywhere|all countries|the whole world)\b", re.I)
 _HEDGE_WORDS = re.compile(r"\b(may|might|could|possibly|plausibly|in this scenario|model suggests)\b", re.I)

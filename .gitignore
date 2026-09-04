@@ -33,3 +33,8 @@ outputs/
 # checksum-verified copy here makes local renders work offline. Deliberately NOT
 # committed: bundling these MP3s is what blew up the Vercel function size.
 static/music/
+
+# Ingester scratch output. The reviewed fixture in fixtures/causal/ is the artifact;
+# a committed draft beside it is a stale duplicate that reads as authoritative.
+references/*.draft.json
+references/transcripts/*.wav

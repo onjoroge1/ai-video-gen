@@ -1,0 +1,138 @@
+{
+  "format": "causal_story_v1",
+  "source": "Ingested from savefromins.com  1 720P 5.MP4; timings measured with ffmpeg/whisper, roles and causal edges labelled by hand from the transcript.",
+  "note": "Fourth reference. It fits POWER_REVERSAL only once the omen sequence is left out of the chain: the video states its mechanism during the setup, before anyone acts, and no engine has a slot for an action between the mechanism and the hinge. Labelling it any other way required inverting two beats against the video's real order, which is the failure this corpus exists to avoid. Its 4-word hook also sits BELOW the hook_words band floor of 5.",
+  "measured": {
+    "runtime_sec": 127.4,
+    "visual_states": 55,
+    "mean_hold_sec": 2.32,
+    "median_hold_sec": 1.93,
+    "max_hold_sec": 6.2,
+    "words": 351,
+    "words_per_minute": 165.306,
+    "spoken_chapter_markers": 4,
+    "mean_volume_db": -17.4,
+    "hook_words": 4.0,
+    "median_sentence": 6.0,
+    "short_landing_pct": 0.46,
+    "step_markers": 4.0
+  },
+  "observed": {
+    "hook_type": "Opens with a direct question posed to the viewer ('what happened here?') followed by a promise to explain it in the simplest possible terms, immediately grounding the scene in a specific time and populated place.",
+    "story_pattern": "Chronological cause-and-effect told in explicitly numbered steps (Step 1, Step 2...), moving from calm normalcy, to warning signs, to catastrophe, to aftermath and modern rediscovery.",
+    "recurring_characters": "Generic round-headed stick figures in period-appropriate robes and hats act as an anonymous crowd standing in for the affected population; no individual named protagonist, they react collectively with neutral then worried faces.",
+    "location_reuse": "A single central landmark (the mountain) recurs across many frames from different angles and states — serene, smoking, erupting — anchoring continuity while surrounding street and landscape scenes rotate.",
+    "visual_composition": "Hand-drawn illustrated cartoon panels in warm muted palette, mostly wide crowd or landscape shots with occasional single-character close-ups; the closing frames switch to a diagram-style app comparison layout with phone mockups.",
+    "on_screen_text": "Short 2-4 word captions centered in the frame that echo a key fragment of the current narration, appearing one phrase at a time as subtitles rather than full sentences.",
+    "narrator_tone": "Calm, matter-of-fact educational voice using short punchy declarative sentences, escalating in drama at the disaster beat with emphatic repetition ('Instantly. Not slowly. Instantly.').",
+    "humour_and_interrupts": "Light irony from the naive figures ('nobody knows that either') and mundane preserved details; no comedic cutaways, tension held straight until the sponsor pivot.",
+    "reveal_placement": "The emotional payoff — that the destroying force perfectly preserved the scene — lands in the final third, delivered as a poignant twist after the aftermath is described.",
+    "ending_callback": "Abruptly pivots from the story to a sponsor plug, framing the tale as 'just one story inside' an app and issuing a download call-to-action with a status-boost promise."
+  },
+  "story": {
+    "title": "What Happened at Pompeii",
+    "runtime_sec": 127.4,
+    "format_tag": "explained like you are five",
+    "engine": "power_reversal",
+    "opening_object": "the mountain",
+    "start_state": "a wealthy Roman city lives at the foot of a mountain nobody knows is a volcano",
+    "hook": {
+      "line": "What happened at Pompeii?"
+    },
+    "steps": [
+      {
+        "step_id": "city",
+        "role": "setup",
+        "start_sec": 3,
+        "label": "79 AD, a city at the base of a mountain",
+        "situation": "Pompeii is a wealthy Roman city of twenty thousand people sitting at the foot of Mount Vesuvius.",
+        "chapter": 1
+      },
+      {
+        "step_id": "beautiful",
+        "role": "false_resolution",
+        "start_sec": 14,
+        "label": "The mountain is simply there",
+        "situation": "The mountain is beautiful, covered in vineyards, and the soil around it is the richest in the region.",
+        "caused_by": "city",
+        "chapter": 1
+      },
+      {
+        "step_id": "noword",
+        "role": "mechanism",
+        "start_sec": 22,
+        "label": "A danger with no name cannot be seen",
+        "situation": "Nobody knows it is a volcano because the Romans have no word for volcano, and a danger that cannot be named cannot be prepared for.",
+        "caused_by": "beautiful",
+        "chapter": 1
+      },
+      {
+        "step_id": "stay",
+        "role": "hinge",
+        "start_sec": 44,
+        "label": "They do not evacuate",
+        "situation": "They do not evacuate.",
+        "caused_by": "noword",
+        "chapter": 2
+      },
+      {
+        "step_id": "erupts",
+        "role": "escalation",
+        "start_sec": 47,
+        "label": "A column twenty-one miles high",
+        "situation": "Vesuvius explodes at one in the afternoon, throwing ash and gas twenty-one miles into the sky and turning noon black.",
+        "caused_by": "stay",
+        "chapter": 2
+      },
+      {
+        "step_id": "indoors",
+        "role": "escalation",
+        "start_sec": 62,
+        "label": "Waiting it out indoors",
+        "situation": "Most people shelter inside, ash piles on the rooftops, and the buildings collapse under the weight.",
+        "caused_by": "erupts",
+        "chapter": 3
+      },
+      {
+        "step_id": "surge",
+        "role": "escalation",
+        "start_sec": 72,
+        "label": "Four minutes",
+        "situation": "A wave of superheated gas at seven hundred degrees reaches the city in four minutes and everyone still inside dies instantly.",
+        "caused_by": "indoors",
+        "chapter": 3
+      },
+      {
+        "step_id": "voids",
+        "role": "escalation",
+        "start_sec": 82,
+        "label": "Body-shaped voids",
+        "situation": "What remains are body-shaped voids left in the hardened ash.",
+        "caused_by": "surge",
+        "chapter": 3
+      },
+      {
+        "step_id": "buried",
+        "role": "reversal",
+        "start_sec": 89,
+        "label": "Buried, and then found",
+        "situation": "The city is buried under twenty feet of volcanic material and forgotten for seventeen hundred years, then rediscovered exactly as it was left, with bread still in the ovens and graffiti still on the walls.",
+        "caused_by": "voids",
+        "chapter": 4
+      },
+      {
+        "step_id": "preserved",
+        "role": "verdict",
+        "start_sec": 115,
+        "label": "Preserved by the mountain that destroyed it",
+        "situation": "Pompeii is the most complete picture of ancient Roman life ever found, preserved perfectly by the mountain that destroyed it.",
+        "caused_by": "buried",
+        "chapter": 4
+      }
+    ],
+    "parallel_cases": []
+  },
+  "expect": {
+    "pass": true
+  }
+}

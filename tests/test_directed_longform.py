@@ -350,7 +350,11 @@ def test_remaining_film_streams_and_releases_source_images():
     assert "streaming_render" in source
     assert "flush_stream()" in source
     assert "Path(path).unlink(missing_ok=True)" in source
-    assert '_render_shot(path, hold, motion, clip, preset="veryfast", crf=23)' in source
+    # What this guards is the LOW-MEMORY encode on the streaming path, not one exact call string.
+    # The literal match broke when width/height were threaded through for portrait support, which
+    # is a change to the frame, not to the memory behaviour under test.
+    stream_call = source[source.index("_render_shot(path, hold, motion, clip"):][:200]
+    assert 'preset="veryfast"' in stream_call and "crf=23" in stream_call
     assert "compact_stream_clips(force=True)" in source
     assert "clips[:] = stream_segments" in source
     assert source.index("flush_stream()", source.index("for order, shot in enumerate(shots)")) \
