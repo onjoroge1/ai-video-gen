@@ -11,17 +11,21 @@ A rapid "What is it?" quiz starts on the first clue and runs through three round
 
 Standalone module; reuses explainer_pipeline for image and TTS generation. Best-effort throughout.
 """
-import os, re, shutil, subprocess, wave, math, json, base64
+import os, re, shutil, subprocess, wave, math, json, base64, functools
 from io import BytesIO
 import numpy as np
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageOps, ImageFont
 import explainer_pipeline as ep
 from bolt_video.formats.quiz import (
+    CLOSING_BANNER,
+    CLOSING_FOOTER,
+    FIRST_REVEAL_REACTION,
     QUIZ_V2,
     clamp_quiz_items,
     clue_zoom,
     final_reveal_narration,
     round_narration,
+    score_tiers,
     tier_label,
 )
 from font_utils import load_font
@@ -186,6 +190,74 @@ def factcheck_quiz(quiz: dict, cost_sink: list | None = None) -> tuple[dict, lis
 def _font(s): return load_font(DISPLAY_FONT, s, bold=True)
 
 
+# The display face carries no emoji glyph and PIL performs no font fallback, so an emoji sent
+# through the normal text path is drawn as *nothing*: zero width, no tofu box, no exception. A
+# score ladder written "0/3 😭 · 3/3 🐐" renders as "0/3 · 3/3" and still looks deliberate, which
+# is the failure mode that hides. These resolve explicitly and callers skip the element when the
+# host has no emoji face rather than shipping a card with holes in it.
+_EMOJI_FONTS = (
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
+    "/usr/local/share/fonts/NotoColorEmoji.ttf",
+    "/usr/share/fonts/NotoColorEmoji.ttf",
+)
+# Colour emoji faces are bitmap strikes: they render only at the sizes they ship and raise for
+# anything else, so a glyph is drawn at its native strike and resampled to the size the layout
+# wants rather than requested at that size. 96 is Apple's, 109 is Noto's.
+_EMOJI_STRIKES = (96, 109, 137, 128, 64)
+
+
+@functools.lru_cache(maxsize=1)
+def _emoji_face():
+    """The host's colour emoji font and its native strike size, or ``(None, 0)``."""
+    override = os.environ.get("QUIZ_EMOJI_FONT", "").strip()
+    for path in ((override,) if override else ()) + _EMOJI_FONTS:
+        if not path or not os.path.exists(path):
+            continue
+        for strike in _EMOJI_STRIKES:
+            try:
+                return ImageFont.truetype(path, strike), strike
+            except (OSError, ValueError):
+                continue
+    return None, 0
+
+
+def emoji_available() -> bool:
+    """Whether emoji elements can be drawn at all on this host."""
+    return _emoji_face()[0] is not None
+
+
+def _emoji_glyph(emoji, box):
+    """One colour emoji as an RGBA image whose longest side is ``box`` pixels, or None."""
+    face, strike = _emoji_face()
+    if not face or not emoji:
+        return None
+    tile = Image.new("RGBA", (strike * 3, strike * 3), (0, 0, 0, 0))
+    try:
+        ImageDraw.Draw(tile).text((strike // 2, strike // 2), emoji, font=face,
+                                  embedded_color=True)
+    except (OSError, ValueError):
+        return None
+    bbox = tile.getbbox()
+    if not bbox:
+        return None
+    glyph = tile.crop(bbox)
+    scale = float(box) / max(glyph.width, glyph.height)
+    return glyph.resize((max(1, round(glyph.width * scale)), max(1, round(glyph.height * scale))),
+                        Image.LANCZOS)
+
+
+def _paste_emoji(im, emoji, center, box):
+    """Composite one emoji centred on ``center``. Returns the width drawn, 0 when unavailable."""
+    glyph = _emoji_glyph(emoji, box)
+    if glyph is None:
+        return 0
+    im.alpha_composite(glyph, (round(center[0] - glyph.width / 2),
+                               round(center[1] - glyph.height / 2)))
+    return glyph.width
+
+
 def _t_two(d, xy, left, right, size, fill_left, fill_right, stroke=8, sc=NAVY):
     """One headline, two colours, still centred as a whole.
 
@@ -221,7 +293,7 @@ def _fit_text_size(text, maximum, width, minimum=34):
 
 def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=None,
               subscribe=False, round_label=None, answer_size=None,
-              top_accent="", difficulty_label=""):
+              top_accent="", difficulty_label="", top_emoji="", score_row=None, footer=""):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
     if subscribe:                                          # integrated CTA, not a standalone scene
         # Opens with the question the viewer is already answering in their head, which is what
@@ -236,11 +308,21 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
         d.rounded_rectangle([95, 158, W-95, 302], radius=28, fill=(*NAVY, 240))
         # The display face is narrower than the old Arial Bold, so the same words fit at a larger
         # size: the headline can be shouted rather than merely legible.
-        title_size = _fit_text_size(top + top_accent, 76, W - 240)
+        # An emoji in the banner is punctuation, not decoration: it carries the reaction the
+        # narration deliberately does not speak. It is measured out of the text budget first, so
+        # a headline never centres itself over space the glyph is about to occupy.
+        emoji_box = 84 if (top_emoji and emoji_available()) else 0
+        emoji_gap = 20 if emoji_box else 0
+        title_size = _fit_text_size(top + top_accent, 76, W - 240 - emoji_box - emoji_gap)
+        title_w = _font(title_size).getlength(top + top_accent)
+        title_cx = W//2 - (emoji_box + emoji_gap) / 2
         if top_accent:
-            _t_two(d, (W//2, 222), top, top_accent, title_size, WHITE, YEL, stroke=7)
+            _t_two(d, (title_cx, 222), top, top_accent, title_size, WHITE, YEL, stroke=7)
         else:
-            _t(d, (W//2, 222), top, title_size, WHITE, stroke=7)
+            _t(d, (title_cx, 222), top, title_size, WHITE, stroke=7)
+        if emoji_box:
+            _paste_emoji(im, top_emoji,
+                         (title_cx + title_w / 2 + emoji_gap + emoji_box / 2, 222), emoji_box)
     if round_label:
         # Colour still climbs with the real difficulty; only the word the viewer reads changes.
         dc = _DIFF_COLORS.get(difficulty.lower(), (245, 180, 60))
@@ -275,6 +357,30 @@ def _text_png(path, top=None, answer=None, score=None, difficulty=None, cd_left=
         _t(d, ((x0 + W - 70)//2, (y0+y1)//2), answer, answer_size, CYAN, stroke=7)
     if score:
         d.rounded_rectangle([W-330, 280, W-40, 400], radius=26, fill=(*RED, 255)); _t(d, (W-185, 340), score, 74, WHITE, stroke=6)
+    if score_row and emoji_available():
+        # Sits under the answer and above the Shorts chrome. The numbers alone are a scoreboard
+        # for a game that already ended; the reaction against each rung is what turns "drop your
+        # score" from a request into a multiple-choice question with an answer worth picking.
+        # Skipped wholesale without an emoji face rather than drawn as bare numbers — half of
+        # this element is the half that would silently vanish.
+        row_y, box, gap, pitch = H - 415, 62, 12, 34
+        label_font = _font(46)
+        widths = [label_font.getlength(label) + gap + box for label, _ in score_row]
+        x = W / 2 - (sum(widths) + pitch * (len(score_row) - 1)) / 2
+        for (label, emoji), width in zip(score_row, widths):
+            _t(d, (x, row_y), label, 46, WHITE, anchor="lm", stroke=5)
+            _paste_emoji(im, emoji,
+                         (x + label_font.getlength(label) + gap + box / 2, row_y), box)
+            x += width + pitch
+    if footer:
+        # "Follow" is never spoken. A promise of a next round reads as an offer where the same
+        # ask in the voice track reads as a chore, and the voice slot is spent on the question
+        # that earns the comment instead.
+        footer_size = _fit_text_size(footer, 50, W - 320)
+        fw = int(_font(footer_size).getlength(footer)) + 80
+        d.rounded_rectangle([W//2 - fw//2, H-368, W//2 + fw//2, H-300], radius=22,
+                            fill=(*CYAN, 255))
+        _t(d, (W//2, H-334), footer, footer_size, NAVY, stroke=0)
     _save_png_atomic(im, path)
 
 def _smoothstep(p):
@@ -445,9 +551,13 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
                 "\"too_easy\":bool,\"full_clue_fair\":bool,\"reveal_matches_answer\":bool,"
                 "\"anatomy_ok\":bool,\"pose_continuity\":bool,"
                 "\"subject_width_pct\":0-100,\"clue_contrast_score\":0-100,"
+                "\"first_crop_contrast_score\":0-100,"
                 "\"biggest_fix\":\"...\"}. subject_width_pct is the full silhouette's bounding-box "
                 "width as a percentage of IMAGE 2. clue_contrast_score is phone-size separation of the "
-                "silhouette from its immediate background, where 100 is unmistakable and 0 disappears. "
+                "silhouette from its immediate background in IMAGE 2, where 100 is unmistakable and 0 "
+                "disappears. first_crop_contrast_score is that same judgement made on IMAGE 1 alone — "
+                "the frame the viewer decides on before anything else is seen — scored independently, "
+                "because a clue can separate cleanly in the wide shot and vanish inside the crop. "
                 "For medium, too_easy means confidence above 80; hard above 65; expert above 50."
             ),
             messages=[{"role": "user", "content": [
@@ -484,7 +594,39 @@ def quiz_readability_issues(grade: dict, difficulty: str, round_number: int) -> 
         issues.append(
             f"round {round_number} clue contrast scored {contrast:.0f}/100; "
             f"{_READABILITY_CONTRAST_MIN:.0f} required")
+    first_crop = grade.get("first_crop_contrast_score")
+    if not isinstance(first_crop, (int, float)):
+        issues.append(f"round {round_number} frame-zero contrast was not measured")
+    elif first_crop < _READABILITY_CONTRAST_MIN:
+        issues.append(
+            f"round {round_number} frame-zero contrast scored {first_crop:.0f}/100; "
+            f"{_READABILITY_CONTRAST_MIN:.0f} required")
     return issues
+
+
+def _width_failed(grade: dict, difficulty: str) -> bool:
+    """Whether the clue's subject came back smaller than its tier allows, or unmeasured.
+
+    Missing counts as failed, for the same reason it does on contrast: an unmeasured clue is
+    exactly the one nobody has checked.
+    """
+    width = grade.get("subject_width_pct")
+    floor = _READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN["hard"])
+    return not isinstance(width, (int, float)) or width < floor
+
+
+def _contrast_failed(grade: dict) -> bool:
+    """Whether either contrast measurement came back under the bar, or missing.
+
+    Missing counts as failed. An unmeasured frame zero is the state this gate existed in for its
+    whole life — the score was never requested, nothing read it, and every render reported a clean
+    pass — so treating absence as acceptable would rebuild exactly that.
+    """
+    for key in ("clue_contrast_score", "first_crop_contrast_score"):
+        value = grade.get(key)
+        if not isinstance(value, (int, float)) or value < _READABILITY_CONTRAST_MIN:
+            return True
+    return False
 
 
 def _composite(base, textpng, out):
@@ -967,6 +1109,27 @@ def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
 # hard/expert poses straight back: a subject rendered large, sharp and unscreened is legible
 # whatever pose it was given. Distance is the format's own difficulty lever — the premise is that
 # something is hiding — and it costs no obscurity, because a wildebeest is still a wildebeest.
+# The repair framing, scaled by tier.
+#
+# The tier prompts describe the subject in fractions ("roughly a fifth of the frame") wrapped in
+# language that pushes it away ("well back in the middle distance", "partly screened"), and the
+# model under-delivers against them by about half: expert returned 12%, 12% and 8% against its own
+# 16% floor across three renders. Stating a measurable FLOOR instead of a descriptive target fixed
+# that immediately — but a flat "at least one third" overcorrected to 60% on expert, which made the
+# final boss the largest subject in the video and inverted the ladder it is supposed to climb.
+#
+# So the ask tracks each tier's own floor with a little headroom rather than one number for all
+# three. The order is deliberately the inverse of the floors: medium is meant to be the easiest to
+# spot, expert the hardest, and a repair that ignores that trades one defect for another.
+_CLOSE_UP_SPAN = {"medium": "one third", "hard": "one quarter", "expert": "one fifth"}
+
+
+def _close_framing(difficulty: str) -> str:
+    span = _CLOSE_UP_SPAN.get((difficulty or "hard").strip().lower(), _CLOSE_UP_SPAN["hard"])
+    return ("positioned distinctly CLOSER to camera than a wide establishing shot — the animal's "
+            f"body must span AT LEAST {span} of the image width — fully inside the frame, "
+            "unobstructed by foliage, and sharply readable")
+
 _HABITAT_FRAMING = {
     "medium": "occupying roughly a third of the frame, clearly visible and unobstructed",
     "hard": ("occupying roughly a quarter of the frame, set back into the scene, and partly "
@@ -978,7 +1141,7 @@ _HABITAT_FRAMING = {
 
 
 def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, scene_ref="",
-                  difficulty="medium"):
+                  difficulty="medium", high_key=False, close_up=False):
     """Generate an in-habitat clue/reveal pair that share one camera.
 
     Order matters. The flat-colour format generates the silhouette first and grows a reveal out
@@ -1002,8 +1165,39 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, 
     """
     scene = ep._s(habitat).strip() or "its natural habitat, cinematic wide shot, natural light"
     stance = ep._s(pose).strip() or "in the middle distance, seen side-on"
-    framing = _HABITAT_FRAMING.get((difficulty or "medium").strip().lower(),
-                                   _HABITAT_FRAMING["medium"])
+    # A silhouette is only as legible as whatever sits behind it, and separation at frame zero is
+    # the one variable this format has actually measured against retention. When a scene fails
+    # that bar the answer is not a different animal or a tighter crop — it is a brighter place to
+    # stand, so the retry names the background it needs instead of re-rolling the same prompt.
+    # Two ways to make a silhouette separate, and which one is legal depends on the round.
+    #
+    # A fresh scene can simply be lit differently. The loop-closing round cannot: it is an edit of
+    # the opening scene, and "keep this environment exactly" against "light it differently" is one
+    # instruction twice with opposite signs — a model given both obeys whichever it weights higher
+    # and the caller cannot tell which. So that round moves the ANIMAL instead of the light. The
+    # environment is untouched, which is what the loop actually requires; only where the subject
+    # stands within it changes. Suppressing the repair entirely, as this first did, left the one
+    # round that is always the hardest tier unable to fix its contrast at all.
+    if not high_key:
+        key_light = ""
+    elif scene_ref:
+        key_light = (
+            " CRITICAL: place the animal against an OPEN, BRIGHT part of this same scene — "
+            "silhouetted against sky, water, mist or a sunlit clearing rather than dark foliage, "
+            "shadowed rock or dense canopy. Do NOT change the environment, the lighting, the "
+            "colour grade or the camera; only choose where within the existing scene it stands.")
+    else:
+        key_light = (
+            " CRITICAL: the background immediately behind the animal must be BRIGHT and OPEN — open "
+            "sky, sunlit water, pale sand, snow, or bleached open grassland — so that a solid black "
+            "silhouette of the animal would read unmistakably against it at phone size. No dark "
+            "foliage, shadowed rock, dense canopy or deep forest behind the subject.")
+    # close_up overrides the tier's framing rather than appending to it: "well back in the middle
+    # distance" and "closer to camera" are the same instruction twice with opposite signs, and a
+    # model handed both keeps the one it weights higher.
+    framing = (_close_framing(difficulty) if close_up
+               else _HABITAT_FRAMING.get((difficulty or "medium").strip().lower(),
+                                         _HABITAT_FRAMING["medium"]))
     if scene_ref and os.path.exists(scene_ref):
         # The opening scene is a photograph we already have, and re-describing it would only
         # approximate it. Editing it guarantees the viewer lands back in the same place.
@@ -1013,14 +1207,14 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, 
             f"environmental detail. Replace the animal in it with a {answer} {stance}. The "
             f"{answer} must be the ONLY animal in the shot, with correct species anatomy, "
             f"{framing}. Photoreal, rich natural colour. No text, letters, numbers, watermark, "
-            "people, or borders.",
+            "people, or borders." + key_light,
             reveal_dst, size=size, cost_sink=cost_sink, reference_paths=[scene_ref])
     else:
         ep.generate_image(
             f"Cinematic wildlife photograph. A {answer} {stance} in {scene}, {framing}. Correct "
             "species anatomy. Shot on a long lens with natural depth of field, photoreal, rich "
             "natural colour, volumetric light. No text, letters, numbers, watermark, people, "
-            "or borders.",
+            "or borders." + key_light,
             reveal_dst, size=size, cost_sink=cost_sink)
     try:
         ep.generate_image(
@@ -1202,23 +1396,6 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                                            bg_name=loop_name if closes_loop else "")
         if i == 1:
             loop_rgb = _edge_background(clue) if in_habitat else bg
-        # A habitat fills the frame, so it is cropped to portrait rather than padded — a letterbox
-        # would announce that the clue and the reveal are the same still.
-        _fit(clue, f"{A}/clue{i}_b.png", "fit" if in_habitat else "pad", bg=bg)
-        _fit(rev, f"{A}/rev{i}_b.png", "fit" if in_habitat else "pad",
-             bg=loop_rgb if closes_loop else _edge_background(rev))
-        if in_habitat:
-            # The scene sleeps while you guess and wakes on the answer. Dimming the clue also
-            # buys the black silhouette the separation it needs to stay readable against a
-            # detailed background, which a flat field gave it for free.
-            _dim(f"{A}/clue{i}_b.png", f"{A}/clue{i}_b.png", 0.62, 0.72)
-            _dim(f"{A}/rev{i}_b.png", f"{A}/rev{i}_b.png", 1.06, 1.10)
-        # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
-        # removing ~1.5-2 seconds of setup from every round.
-        audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
-        caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
-        audio.append(("CD", t, "cd"))
-        countdown_overlays = []; countdown_outputs = []; countdown_bases = []
         # The ladder drives the eased render; the cropped PNGs still exist because the vision
         # QA pass grades the actual opening crop, and the fal opener needs flat cards.
         # A habitat clue is a scene to search, not a shape to uncrop. The flat-colour ladder
@@ -1227,19 +1404,113 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # instead: the whole scene reads immediately and each 0.8s stage still lands a beat.
         zoom_ladder = ([1.16, 1.08, 1.0] if in_habitat
                        else [clue_zoom(diff, stage) for stage in range(3)])
+        countdown_bases = [f"{A}/clue{i}_stage{stage}.png" for stage in range(3)]
+
+        def _prepare_clue_bases():
+            """Derive every frame the render reads from the clue/reveal pair now on disk.
+
+            Frame zero is three transformations downstream of a generated image — fit, dim, crop —
+            so the contrast repair below has to re-run the render's own steps rather than just
+            re-score the source. Re-grading without this would measure a file nothing plays.
+            """
+            # A habitat fills the frame, so it is cropped to portrait rather than padded — a
+            # letterbox would announce that the clue and the reveal are the same still.
+            _fit(clue, f"{A}/clue{i}_b.png", "fit" if in_habitat else "pad", bg=bg)
+            _fit(rev, f"{A}/rev{i}_b.png", "fit" if in_habitat else "pad",
+                 bg=loop_rgb if closes_loop else _edge_background(rev))
+            if in_habitat:
+                # The scene sleeps while you guess and wakes on the answer. Dimming the clue also
+                # buys the black silhouette the separation it needs to stay readable against a
+                # detailed background, which a flat field gave it for free.
+                _dim(f"{A}/clue{i}_b.png", f"{A}/clue{i}_b.png", 0.62, 0.72)
+                _dim(f"{A}/rev{i}_b.png", f"{A}/rev{i}_b.png", 1.06, 1.10)
+            for stage in range(3):
+                _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[stage], zoom_ladder[stage])
+
+        _prepare_clue_bases()
+        # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
+        # removing ~1.5-2 seconds of setup from every round.
+        audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
+        caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
+        audio.append(("CD", t, "cd"))
+        countdown_overlays = []; countdown_outputs = []
         for stage, k in enumerate((3, 2, 1)):
-            stage_base = f"{A}/clue{i}_stage{stage}.png"
-            _progressive_crop(f"{A}/clue{i}_b.png", stage_base, zoom_ladder[stage])
-            countdown_bases.append(stage_base)
             _text_png(f"{A}/cd{i}_{k}_t.png", top=clue_banner, top_accent=clue_banner_accent,
                       difficulty=diff, difficulty_label=tier_label(i, len(items)),
                       round_label=f"{round_noun} {i}/{len(items)}", cd_left=k)
             countdown_overlays.append(f"{A}/cd{i}_{k}_t.png")
             countdown_outputs.append(f"{A}/c{i}1_{k}.mp4")
-        grade = grade_quiz_visuals(countdown_bases[0], f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png",
+
+        def _grade_round(mode):
+            g = grade_quiz_visuals(countdown_bases[0], f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png",
                                    answer, diff, costs) or {}
-        grade["round"] = i; grade["answer"] = answer; grade["difficulty"] = diff
-        grade["reveal_generation_mode"] = reveal_mode
+            g["round"] = i; g["answer"] = answer; g["difficulty"] = diff
+            g["reveal_generation_mode"] = mode
+            return g
+
+        grade = _grade_round(reveal_mode)
+        # One repair pass for every habitat defect the pair can fix, so a round failing contrast,
+        # framing and identity costs ONE regeneration instead of three. Each flag maps to a prompt
+        # adjustment and they compose: a dark, distant, wrong-looking animal comes back lit, nearer
+        # and correct in a single generation.
+        #
+        # Frame zero is the swipe decision, and silhouette contrast there is the only variable this
+        # format has ever measured against retention: the 10.5-point spread between the first two
+        # V2.3 quizzes tracked it. Subject width is the other half of the same question — a clue too
+        # small to see is not a hard clue, it is an unanswerable one, and the expert tier returned
+        # 12%, 12% and 8% against a 16% floor across three consecutive renders while every one of
+        # them shipped as a warning.
+        if in_habitat:
+            contrast_bad = _contrast_failed(grade)
+            width_bad = _width_failed(grade, diff)
+            identity_bad = (grade.get("reveal_matches_answer") is False
+                            or grade.get("anatomy_ok") is False)
+            # A loop-closing round is generated as an edit of the opening scene, which is what makes
+            # the Short loop on a match cut. Relighting it trades that loop for a frame the viewer
+            # reaches ten seconds in, so the relight alone is suppressed there. Moving the animal
+            # nearer or correcting its anatomy leaves the environment untouched, so those are not.
+            # The loop round repairs its contrast too — by moving the animal to an open part of
+            # the scene rather than relighting it, which _habitat_pair picks by scene_ref. It is
+            # always the expert tier and always the round most likely to need it, so excluding it
+            # excluded the case that matters.
+            relight = contrast_bad
+            if relight or width_bad or identity_bad:
+                reasons = ([f"frame-zero contrast below {_READABILITY_CONTRAST_MIN:.0f}"] if relight
+                           else [])
+                if width_bad:
+                    reasons.append("subject too small for its tier")
+                if identity_bad:
+                    reasons.append("reveal identity or anatomy")
+                log(f"Round {i} regenerating the habitat pair — {', '.join(reasons)}")
+                # The PAIR, never the reveal alone. The clue is an edit of the reveal's pixels, so
+                # repairing one without the other leaves a silhouette that does not match the animal
+                # it turns into. And never through _generate_reveal: that belongs to the flat-colour
+                # format — its prompt says "no habitat" outright — and calling it here swapped a
+                # rainforest reveal for a studio cutout on a flat field, losing the match cut and,
+                # on the closing round, the loop. It was recorded as a success.
+                repair_mode, repair_ok = _habitat_pair(
+                    answer, habitat_text, it.get("pose"), clue, rev, "1024x1536", costs,
+                    scene_ref=scene_ref, difficulty=diff, high_key=relight, close_up=width_bad)
+                tags = "".join(t for t, on in (("_high_key", relight), ("_close", width_bad)) if on)
+                if repair_ok:
+                    if i == 1:
+                        # Round one's scene is what the closing card pads to, so a repaired opener
+                        # moves the loop colour with it.
+                        loop_rgb = _edge_background(clue)
+                    _prepare_clue_bases()
+                    grade = _grade_round(f"{repair_mode}{tags}")
+                else:
+                    readability_warnings.append(
+                        f"round {i} needed a habitat repair ({', '.join(reasons)}) but the pair "
+                        f"could not be regenerated, so the original shipped unrepaired")
+                    log(f"⚠ Round {i} habitat repair failed — original kept")
+                grade["pair_repaired"] = True
+                grade["pair_repair_reasons"] = reasons
+                grade["pair_repair_succeeded"] = repair_ok and not (
+                    _contrast_failed(grade) or _width_failed(grade, diff))
+                log(f"Round {i} habitat repair "
+                    + ("cleared every gate" if grade["pair_repair_succeeded"]
+                       else "did not clear every gate"))
         round_readability = quiz_readability_issues(grade, diff, i)
         if round_readability:
             grade["readability_failed"] = True
@@ -1279,7 +1550,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                 f"crop at {grade.get('first_crop_confidence')}% confidence — the item is easier "
                 f"than its tier claims")
             log(f"⚠ Round {i} ({diff}) was identified from the opening crop — ladder not honoured")
-        if grade.get("reveal_matches_answer") is False or grade.get("anatomy_ok") is False:
+        if (not in_habitat
+                and (grade.get("reveal_matches_answer") is False
+                     or grade.get("anatomy_ok") is False)):
+            # Flat-colour format only. The habitat path repairs its pair above, in the same pass as
+            # contrast and framing; routing it here instead is what previously swapped its scene for
+            # a studio cutout on a flat field.
             grade["repair_generation_mode"] = _generate_reveal(
                 answer, it.get("clue_visual"), clue, rev, "1024x1536", costs,
                 reference_first=False, strict=True, bg_name=loop_name if closes_loop else "")
@@ -1317,7 +1593,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
         is_final = i == len(items)
-        _text_png(f"{A}/r{i}_t.png", top=None, subscribe=False,
+        # Round one is the only reveal with room to spare: a one-word answer leaves most of a
+        # second of card with nothing to say. Later rounds stay clean — a reaction on every
+        # reveal is a running commentary, and this only works while it is a single interruption.
+        react_top, react_emoji = (FIRST_REVEAL_REACTION if i == 1 and len(items) > 1
+                                  else (None, ""))
+        _text_png(f"{A}/r{i}_t.png", top=react_top, top_emoji=react_emoji, subscribe=False,
                   answer=answer.upper() + "!")
         _composite(f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", f"{A}/r{i}.png")
         if is_final:
@@ -1361,7 +1642,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # Same accent split as the clue banner: the ask gets the colour, the score question
             # stays white, so the two cards read as one channel rather than two designs.
             _text_png(f"{A}/r{i}_cta_t.png", subscribe=True,
-                      top=f"GOT ALL {len(items)}? · ", top_accent="SUBSCRIBE",
+                      top=CLOSING_BANNER[0], top_accent=CLOSING_BANNER[1],
+                      score_row=score_tiers(len(items)), footer=CLOSING_FOOTER,
                       answer=answer.upper() + "!")
             answer_beat = CDN - trans_d
             cta_beat = max(0.3, dr - CDN)
@@ -1385,7 +1667,9 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             render_specs.append((f"{A}/rev{i}_b.png", dr - trans_d, False,
                                  {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
             clips.append(f"{A}/r{i}.png")
-        audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
+        audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding"))
+        caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i]))
+        t += dr
     TOTAL = t
     if opening_frame and len(render_specs) > 1:
         # Close on the frame the video opens on. Rendered through the same base image, overlay

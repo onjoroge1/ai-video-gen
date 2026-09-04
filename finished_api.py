@@ -58,15 +58,48 @@ def _local_record(video_id: str, raw: dict) -> dict:
 
 
 def _local_rows(finished_dir: str, query: str, limit: int, offset: int) -> list:
+    rows = _local_candidates(finished_dir, query)
+    page = rows[offset:offset + max(1, min(limit, 200))]
+    for row in page:
+        row.pop("_sort_key", None)
+    return page
+
+
+def _local_candidates(finished_dir: str, query: str) -> list:
+    """Every local row matching ``query``, newest first and NOT yet paged.
+
+    Kept separate from ``_local_rows`` because merging two independently paged lists produces a
+    page that is right by accident at most: page two of a merge has to be computed from the whole
+    of both sources, not from page two of each.
+    """
     rows = [_local_record(video_id, raw)
             for video_id, raw in _local_index(finished_dir).items()]
     if query:
         needle = query.lower()
         rows = [row for row in rows
                 if needle in row["title"].lower() or needle in row["id"].lower()]
-    # Newest first, and before the slice — sorting after paging would just reorder page one.
+    # Newest first, and before any slice — sorting after paging would just reorder page one.
     rows.sort(key=lambda row: row.get("_sort_key") or 0.0, reverse=True)
-    page = rows[offset:offset + max(1, min(limit, 200))]
+    return rows
+
+
+def _merge_rows(db_rows: list, local_rows: list, limit: int, offset: int) -> list:
+    """Postgres rows first, then any local render the database has never heard of.
+
+    Falling back only when Postgres returned NOTHING meant one indexed row was enough to hide
+    every local render — 154 of them here, including every quiz in this session, while the grid
+    read "12 finished videos" and looked complete. A library that silently omits most of its
+    contents is worse than one that is empty, because nothing about it looks wrong.
+
+    Postgres stays authoritative on conflict: a row that exists in both is the uploaded one, and
+    that is the copy with durable URLs.
+    """
+    known = {row.get("id") for row in db_rows}
+    merged = list(db_rows) + [row for row in local_rows if row.get("id") not in known]
+    # Both halves are already newest-first, but only within themselves; interleaving by timestamp
+    # is what makes a fresh local render appear above a stale uploaded one.
+    merged.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+    page = merged[offset:offset + max(1, min(limit, 200))]
     for row in page:
         row.pop("_sort_key", None)
     return page
@@ -108,19 +141,26 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
             raise HTTPException(status_code=503, detail={
                 "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
             }) from exc
-        # Same rule as _get: an empty database must not hide local renders. Falling back only
-        # when the database returned nothing keeps Postgres authoritative wherever it is
-        # populated, and keeps production fail-closed via durable_storage_required().
-        if not rows:
-            if artifact_store.durable_storage_required():
-                if not db.db_enabled():
-                    raise HTTPException(status_code=503, detail={
-                        "code": "FINISHED_STORAGE_UNAVAILABLE",
-                        "message": "DATABASE_URL is required for the finished library",
-                        "retryable": True,
-                    })
-            else:
-                rows = _local_rows(finished_dir, q, limit, offset)
+        # Same rule as _get: the database must not hide local renders. It used to fall back only
+        # when Postgres returned NOTHING, so a single indexed row hid every local one — and
+        # production stays fail-closed the same way it always did, through
+        # durable_storage_required() rather than through the mere presence of a database.
+        if artifact_store.durable_storage_required():
+            if not db.db_enabled():
+                raise HTTPException(status_code=503, detail={
+                    "code": "FINISHED_STORAGE_UNAVAILABLE",
+                    "message": "DATABASE_URL is required for the finished library",
+                    "retryable": True,
+                })
+        else:
+            # Ask Postgres for the whole matching set rather than one page: the merge has to see
+            # every candidate before it can page the combined list correctly.
+            try:
+                all_db = (PostgresStore().finished_list(limit=200, offset=0, query=q)
+                          if db.db_enabled() else [])
+            except StorageUnavailable:
+                all_db = []
+            rows = _merge_rows(all_db, _local_candidates(finished_dir, q), limit, offset)
         for row in rows:
             row.setdefault("storage", "blob" if row.get("video_url") else "local")
         return {"videos": rows, "count": len(rows), "limit": limit, "offset": offset}

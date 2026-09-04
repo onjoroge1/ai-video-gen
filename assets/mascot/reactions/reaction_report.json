@@ -1,0 +1,101 @@
+{
+  "smug": {
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/quiz-retention-shorts-af3396/assets/mascot/reactions/smug.mp4",
+    "passed": true,
+    "clip": {
+      "ok": true,
+      "frames": 33,
+      "size": [
+        540,
+        874
+      ],
+      "mean_opaque_pct": 42.1,
+      "duration_sec": 1.1,
+      "leak_trimmed_from_sec": 1.4
+    },
+    "audit": {
+      "pass": true,
+      "violations": [],
+      "sampled": 3
+    },
+    "still": {
+      "passed": true
+    }
+  },
+  "hyped": {
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/quiz-retention-shorts-af3396/assets/mascot/reactions/hyped.mp4",
+    "passed": true,
+    "audit": {
+      "pass": true,
+      "violations": [],
+      "sampled": 3
+    },
+    "graded_in_place": true
+  },
+  "shock": {
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/quiz-retention-shorts-af3396/assets/mascot/reactions/shock.mp4",
+    "passed": true,
+    "clip": {
+      "ok": true,
+      "frames": 42,
+      "size": [
+        540,
+        788
+      ],
+      "mean_opaque_pct": 37.2,
+      "duration_sec": 1.4,
+      "leak_trimmed_from_sec": null
+    },
+    "audit": {
+      "pass": true,
+      "violations": [],
+      "sampled": 3
+    },
+    "still": {
+      "passed": true
+    }
+  },
+  "dead": {
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/quiz-retention-shorts-af3396/assets/mascot/reactions/dead.mp4",
+    "passed": true,
+    "clip": {
+      "ok": true,
+      "frames": 54,
+      "size": [
+        540,
+        646
+      ],
+      "mean_opaque_pct": 47.9,
+      "duration_sec": 1.8,
+      "leak_trimmed_from_sec": null
+    },
+    "audit": {
+      "pass": true,
+      "violations": [],
+      "sampled": 3
+    },
+    "still": {
+      "passed": true
+    }
+  },
+  "clap": {
+    "reused": true,
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/quiz-retention-shorts-af3396/assets/mascot/reactions/clap.mp4",
+    "passed": true,
+    "audit": {
+      "pass": true,
+      "violations": [],
+      "sampled": 3
+    },
+    "clip": {
+      "ok": true,
+      "frames": 48,
+      "size": [
+        540,
+        1208
+      ],
+      "mean_opaque_pct": 55.4,
+      "duration_sec": 1.6
+    }
+  }
+}
