@@ -1,0 +1,176 @@
+{
+  "format": "causal_story_v1",
+  "source": "Reference video transcribed and timed with ffmpeg/whisper; 220s vertical explainer.",
+  "note": "The contract is derived from this video, so it must validate. If a change to causal_story.py makes this fixture fail, the change has drifted away from the reference.",
+  "measured": {
+    "runtime_sec": 219.97,
+    "visual_states": 65,
+    "mean_hold_sec": 3.38,
+    "median_hold_sec": 3.37,
+    "max_hold_sec": 8.3,
+    "words": 673,
+    "words_per_minute": 183.573,
+    "spoken_chapter_markers": 6,
+    "mean_volume_db": -17.3,
+    "hook_words": 15.0,
+    "median_sentence": 6.0,
+    "short_landing_pct": 0.404,
+    "step_markers": 6.0
+  },
+  "observed": {
+    "hook_type": "Opens with a bold promise framing: an authority tried to solve a problem and accidentally made it far worse, explicitly stated to be explained in the simplest possible terms ('like you are five'), immediately setting a curiosity gap.",
+    "story_pattern": "Numbered chronological steps (step one through step six) walk through a cause-and-effect chain: problem introduced, well-meaning solution deployed, unintended exploitation emerges, authority reacts, situation ends worse than the start, then abstracts into a named general principle with multiple parallel examples.",
+    "recurring_characters": "Simple round-headed stick figures represent everyone — the authority figures (marked by uniform hats), the ordinary population (marked by regional dress), and a lone narrator-avatar figure who appears solo to deliver lessons directly to camera with pointing and expressive gestures.",
+    "location_reuse": "A rotating set of era-appropriate backdrops (grand official building, interior office, marketplace street, back-alley slum) reused to anchor each narrative beat, alternating with plain single-color backgrounds for the direct-address and principle moments.",
+    "visual_composition": "Hand-drawn cartoon illustrations in warm sepia/amber tones; wide establishing scenes for story beats, schematic diagrams (branching multiplier chart, before/after cause arrows, world map) for abstract points, and tight centered close-ups of the avatar for lesson delivery.",
+    "on_screen_text": "A single bold word (the current keyword being spoken) sits centered on screen as a karaoke-style caption, changing continuously in sync with narration rather than showing full sentences.",
+    "narrator_tone": "Conversational, wry and explanatory; builds suspense with short punchy declaratives and deadpan reversals, treating the audience as smart but needing things spelled out plainly.",
+    "humour_and_interrupts": "Comedy comes from dramatic irony and understatement — the logical-sounding plan repeatedly backfiring — plus visual gags like an overwhelming swarm and mock-'sensible' bureaucratic reactions.",
+    "reveal_placement": "The core twist (the exploit backfiring) lands around the one-third to halfway mark, followed by a later reveal naming the general principle, then rapid-fire parallel real-world examples to reinforce it.",
+    "ending_callback": "Closes by circling back to the opening theme, poses a reflective rhetorical question tying the abstract lesson to the viewer's own life, then delivers a sponsor plug and a call-to-action to try an app."
+  },
+  "story": {
+    "title": "The Cobra Effect",
+    "runtime_sec": 220.0,
+    "format_tag": "explained like you are five",
+    "engine": "backfiring_solution",
+    "opening_object": "cobra farms",
+    "start_state": "Delhi has a wild cobra population that is killing people",
+    "hook": {
+      "line": "How the British Empire tried to solve a problem and accidentally made it much worse.",
+      "withheld_subject": "cobras"
+    },
+    "steps": [
+      {
+        "step_id": "setup",
+        "role": "setup",
+        "start_sec": 5.0,
+        "label": "1800 colonial India",
+        "situation": "Delhi is full of venomous cobras, in the streets and in the homes, killing people.",
+        "chapter": 1
+      },
+      {
+        "step_id": "bounty",
+        "role": "intervention",
+        "start_sec": 17.0,
+        "label": "The bounty",
+        "caused_by": "setup",
+        "situation": "The colonial government pays a cash bounty for every dead cobra brought in.",
+        "chapter": 1
+      },
+      {
+        "step_id": "looks_solved",
+        "role": "false_resolution",
+        "start_sec": 23.0,
+        "label": "Problem solved",
+        "caused_by": "bounty",
+        "situation": "Simple, logical, efficient. Kill a cobra, get paid, fewer cobras.",
+        "chapter": 1
+      },
+      {
+        "step_id": "except",
+        "role": "hinge",
+        "start_sec": 29.0,
+        "label": "Except",
+        "caused_by": "looks_solved",
+        "situation": "Except the problem is not solved.",
+        "chapter": 1
+      },
+      {
+        "step_id": "principle",
+        "role": "mechanism",
+        "start_sec": 36.0,
+        "label": "Incentives beat intentions",
+        "caused_by": "except",
+        "situation": "Give people a financial incentive and they will find a way to maximize it, whether you intended that or not.",
+        "chapter": 1
+      },
+      {
+        "step_id": "breeding",
+        "role": "escalation",
+        "start_sec": 53.0,
+        "label": "You can breed them",
+        "caused_by": "principle",
+        "situation": "People realize they do not have to hunt cobras. They can breed them at home, in boxes, for almost nothing.",
+        "chapter": 2
+      },
+      {
+        "step_id": "farms",
+        "role": "escalation",
+        "start_sec": 66.0,
+        "label": "Cobra farms",
+        "caused_by": "breeding",
+        "situation": "Cobra farms appear, thousands of snakes bred specifically to be killed for British money.",
+        "chapter": 2
+      },
+      {
+        "step_id": "cancelled",
+        "role": "escalation",
+        "start_sec": 74.0,
+        "label": "The bounty is cancelled",
+        "caused_by": "farms",
+        "situation": "The government sees impossible payment volumes, investigates, finds the farms and cancels the bounty.",
+        "chapter": 3
+      },
+      {
+        "step_id": "released",
+        "role": "escalation",
+        "start_sec": 95.0,
+        "label": "Released",
+        "caused_by": "cancelled",
+        "situation": "The farms are now worthless, so the farmers release thousands of captive-bred cobras into the streets.",
+        "chapter": 3
+      },
+      {
+        "step_id": "worse",
+        "role": "reversal",
+        "start_sec": 104.0,
+        "label": "Worse than before",
+        "caused_by": "released",
+        "situation": "The cobra population is now significantly larger than when the government started trying to fix it.",
+        "chapter": 4
+      },
+      {
+        "step_id": "everywhere",
+        "role": "generalization",
+        "start_sec": 138.0,
+        "label": "The pattern is everywhere",
+        "caused_by": "worse",
+        "situation": "The same shape repeats wherever a measure replaces the goal it was meant to track.",
+        "chapter": 5
+      },
+      {
+        "step_id": "ask_yourself",
+        "role": "tool",
+        "start_sec": 206.0,
+        "label": "What are the cobra farms?",
+        "caused_by": "everywhere",
+        "situation": "Next time someone offers a simple solution to a complicated problem, ask what the cobra farms are.",
+        "chapter": 6
+      }
+    ],
+    "parallel_cases": [
+      {
+        "domain": "Vietnam under French rule",
+        "problem": "too many rats",
+        "solution": "a bounty paid per rat tail",
+        "result": "rat farms, then release, then more rats than before"
+      },
+      {
+        "domain": "1990s American schools",
+        "problem": "measuring school quality",
+        "solution": "rank schools by test scores",
+        "result": "teaching to the test; scores rose while learning fell"
+      },
+      {
+        "domain": "2000s mortgage lending",
+        "problem": "rewarding bank growth",
+        "solution": "pay banks per mortgage issued",
+        "result": "mortgages to anyone, and the 2008 financial crisis"
+      }
+    ]
+  },
+  "expect": {
+    "pass": true
+  }
+}

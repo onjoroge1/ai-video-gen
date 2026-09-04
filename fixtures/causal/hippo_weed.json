@@ -1,0 +1,128 @@
+{
+  "format": "causal_story_v1",
+  "source": "Operator-written script for the 1910 American hippo-import proposal, relabelled to the causal contract. Third reference, and the first NOT derived from a video: it is a reveal-structured story whose principle lands at 55% of runtime.",
+  "note": "Held out like the famine fixture. It corrected two things the contract had wrong: the almost_happened_plan sequence (written from imagination, actually the backfiring order) and the assumption that every story can state its principle in the first fifth.",
+  "story": {
+    "title": "America Almost Fought a Weed With Hippos",
+    "runtime_sec": 208.0,
+    "format_tag": "explained like you are five",
+    "opening_object": "the three-step weed-to-hippo-to-bacon plan",
+    "start_state": "Southern waterways are choked by introduced water hyacinth while Americans are angry about rising meat prices",
+    "hook": {
+      "line": "America once considered fighting a weed with hippopotamuses.",
+      "withheld_subject": "hippos"
+    },
+    "steps": [
+      {
+        "step_id": "beautiful_mistake",
+        "role": "setup",
+        "start_sec": 22.0,
+        "label": "The beautiful mistake",
+        "situation": "Water hyacinth is handed out in New Orleans as a fashionable garden plant, then spreads through Southern waterways.",
+        "chapter": 1
+      },
+      {
+        "step_id": "two_crises",
+        "role": "escalation",
+        "start_sec": 50.0,
+        "label": "Too many weeds, not enough cheap meat",
+        "caused_by": "beautiful_mistake",
+        "situation": "The plant blocks canals while rising meat prices create pressure for a new low-cost food source.",
+        "chapter": 2
+      },
+      {
+        "step_id": "hippo_pitch",
+        "role": "intervention",
+        "start_sec": 60.0,
+        "label": "Import the hippos",
+        "caused_by": "two_crises",
+        "situation": "Representative Robert Broussard proposes importing African animals, especially hippos, to turn the weed problem into a meat supply.",
+        "chapter": 2
+      },
+      {
+        "step_id": "lake_cow_bacon",
+        "role": "false_resolution",
+        "start_sec": 77.0,
+        "label": "Lake cow bacon",
+        "caused_by": "hippo_pitch",
+        "situation": "Advocates present hippos as a simple two-for-one solution: fence them in, feed them water hyacinth, and sell the meat.",
+        "chapter": 2
+      },
+      {
+        "step_id": "shelved",
+        "role": "hinge",
+        "start_sec": 105.0,
+        "label": "Congress pauses",
+        "caused_by": "lake_cow_bacon",
+        "situation": "Congress paused and shelved the bill.",
+        "chapter": 3
+      },
+      {
+        "step_id": "wrong_menu",
+        "role": "mechanism",
+        "start_sec": 114.0,
+        "label": "The solution refuses the job",
+        "caused_by": "shelved",
+        "situation": "Hippos mainly graze on land at night, while water hyacinth is mostly water and nutritionally poor, so the assumed feeding system fails.",
+        "chapter": 3
+      },
+      {
+        "step_id": "pollution_machine",
+        "role": "escalation",
+        "start_sec": 136.0,
+        "label": "The cleanup animal pollutes",
+        "caused_by": "wrong_menu",
+        "situation": "Hippos add nutrients and disturbance to waterways, potentially worsening algae, water quality, and harm to native fish.",
+        "chapter": 3
+      },
+      {
+        "step_id": "escape",
+        "role": "escalation",
+        "start_sec": 148.0,
+        "label": "The solution spreads",
+        "caused_by": "pollution_machine",
+        "situation": "Escaped hippos can reproduce and spread through connected waterways, creating a second invasive-species problem.",
+        "chapter": 3
+      },
+      {
+        "step_id": "hippo_affairs",
+        "role": "reversal",
+        "start_sec": 161.0,
+        "label": "A larger problem than before",
+        "caused_by": "escape",
+        "situation": "The imagined American South still has water hyacinth but now also needs fences, patrols, warnings, and permanent hippo control.",
+        "chapter": 4
+      },
+      {
+        "step_id": "verdict",
+        "role": "verdict",
+        "start_sec": 171.0,
+        "label": "The invasion America avoided",
+        "caused_by": "hippo_affairs",
+        "situation": "America did not merely miss hippo bacon; it avoided replacing a purple plant invasion with a two-ton mammal invasion.",
+        "chapter": 4
+      },
+      {
+        "step_id": "step_four",
+        "role": "tool",
+        "start_sec": 190.0,
+        "label": "What is step four?",
+        "caused_by": "verdict",
+        "situation": "When an idea claims to solve two problems at once, ask what happens if the solution refuses its assigned job.",
+        "chapter": 4
+      }
+    ],
+    "parallel_cases": [
+      {
+        "domain": "Colombia after Pablo Escobar's private zoo",
+        "problem": "four captive hippos are left unmanaged",
+        "solution": "the animals are allowed to remain in the surrounding habitat",
+        "result": "their descendants multiply, spread through waterways, and create a difficult ecological-control problem"
+      }
+    ],
+    "engine": "almost_happened_plan"
+  },
+  "expect": {
+    "pass": true
+  }
+}

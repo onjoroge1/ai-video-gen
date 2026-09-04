@@ -1,0 +1,174 @@
+{
+  "format": "causal_story_v1",
+  "source": "Ingested from savefromins.com  1 720P 6.MP4; timings measured with ffmpeg/whisper, roles and causal edges labelled by hand from the transcript.",
+  "note": "Fifth reference. The first video to back POWER_REVERSAL, whose sequence until now was written from imagination with no reference attached — the same condition that produced two engine sequences a later reference had to correct.",
+  "measured": {
+    "runtime_sec": 224.83,
+    "visual_states": 113,
+    "mean_hold_sec": 1.99,
+    "median_hold_sec": 1.97,
+    "max_hold_sec": 5.2,
+    "words": 693,
+    "words_per_minute": 184.937,
+    "spoken_chapter_markers": 4,
+    "mean_volume_db": -17.4,
+    "hook_words": 10.0,
+    "median_sentence": 7.0,
+    "short_landing_pct": 0.311,
+    "step_markers": 4.0
+  },
+  "observed": {
+    "hook_type": "Opens with a 'explained like you are five' framing of a famous downfall, immediately front-loading staggering scale statistics (largest empire, population count, fortune value) to establish stakes before any story begins.",
+    "story_pattern": "Explicitly numbered chronological steps ('Step one', 'Step two', etc.) marching through a rise-then-collapse arc, each step introducing a fresh crisis that compounds the previous one, building toward an inevitable violent climax and a long delayed aftermath.",
+    "recurring_characters": "Simple round-headed stick figures in plain robes stand in for all people; the central authority figure and their family recur, plus faceless crowds, soldiers in helmets, and uniformed officials, none individualized beyond hats or costume tint.",
+    "location_reuse": "Rotates between a handful of reused settings: an opulent interior (palace/throne), a luxury vehicle, a snowy impoverished exterior, geographic maps with route arrows, and a grim basement/burial site for the finale.",
+    "visual_composition": "Hand-drawn sketch style with warm muted palette; alternates wide establishing scenes, single-character close portraits centered in frame, labeled maps with arrows, and split-panel comic layouts for the closing beats.",
+    "on_screen_text": "A short two-to-three word caption sits centered low in each frame, echoing a key fragment of the current narration line rather than full sentences, acting as a keyword anchor.",
+    "narrator_tone": "Cool, plain-spoken and darkly matter-of-fact; uses clipped declarative sentences and grim understatement, letting brutal facts land without emotional embellishment.",
+    "humour_and_interrupts": "Dry ironic asides puncture the gravity (e.g. deadpan 'both explanations and the same' style observations), plus deliberately blunt phrasing that undercuts the tragedy with mordant wit.",
+    "reveal_placement": "A macabre twist is saved for the final third — an ironic detail (hidden valuables) that both prolonged the horror and later served as the identifying evidence, delivered as a grim payoff.",
+    "ending_callback": "Closes by pivoting to a sponsored app plug, reframing the whole video as 'just one story' inside the product and delivering a direct download call-to-action."
+  },
+  "story": {
+    "title": "The Fall of the Romanovs",
+    "runtime_sec": 224.83,
+    "format_tag": "explained like you are five",
+    "engine": "power_reversal",
+    "opening_object": "the family jewels",
+    "start_state": "one family holds more wealth and land than any in human history",
+    "hook": {
+      "line": "The fall of the Romanovs, explained like you are five."
+    },
+    "steps": [
+      {
+        "step_id": "tsar",
+        "role": "setup",
+        "start_sec": 2,
+        "label": "1894, the largest empire on earth",
+        "situation": "Nicholas II becomes Tsar and inherits one sixth of the world's land, 130 million people and the greatest personal fortune any family has held.",
+        "chapter": 1
+      },
+      {
+        "step_id": "sealed",
+        "role": "false_resolution",
+        "start_sec": 20,
+        "label": "Three hundred years, and it looks permanent",
+        "situation": "The family lives sealed from the country it rules, in a closed world of palaces and private trains, and the dynasty appears as settled as it has been for three centuries.",
+        "caused_by": "tsar",
+        "chapter": 1
+      },
+      {
+        "step_id": "rasputin",
+        "role": "intervention",
+        "start_sec": 35,
+        "label": "A mystic who stops the bleeding",
+        "situation": "Alexandra, desperate over her son's haemophilia, brings in a Siberian mystic who stops the bleeding when no doctor can, and the family comes to trust him completely.",
+        "caused_by": "sealed",
+        "chapter": 1
+      },
+      {
+        "step_id": "blind",
+        "role": "mechanism",
+        "start_sec": 44,
+        "label": "Not noticing and not caring end the same way",
+        "situation": "A ruler sealed from his own country cannot see the power gathering against him, and whether he does not notice or does not care makes no difference to the outcome.",
+        "caused_by": "rasputin",
+        "chapter": 1
+      },
+      {
+        "step_id": "starving",
+        "role": "hinge",
+        "start_sec": 48,
+        "label": "Outside the palace walls",
+        "situation": "Outside the palace walls, Russia is starving.",
+        "caused_by": "blind",
+        "chapter": 1
+      },
+      {
+        "step_id": "japan",
+        "role": "escalation",
+        "start_sec": 54,
+        "label": "1905, defeat and revolution",
+        "situation": "Russia loses a war to Japan, the humiliation triggers revolution, the army fires on marching workers, and the promised reforms never arrive.",
+        "caused_by": "starving",
+        "chapter": 2
+      },
+      {
+        "step_id": "war",
+        "role": "escalation",
+        "start_sec": 70,
+        "label": "Sent in without rifles",
+        "situation": "Fifteen million men are mobilised without enough rifles and two million die in the first year.",
+        "caused_by": "japan",
+        "chapter": 2
+      },
+      {
+        "step_id": "command",
+        "role": "escalation",
+        "start_sec": 85,
+        "label": "Every defeat is now personal",
+        "situation": "Nicholas takes personal command of the army, so every defeat becomes his, while the government at home is run by the mystic's favourites.",
+        "caused_by": "war",
+        "chapter": 2
+      },
+      {
+        "step_id": "murder",
+        "role": "escalation",
+        "start_sec": 93,
+        "label": "Too late to matter",
+        "situation": "The aristocracy murders the mystic, and it does not save the dynasty.",
+        "caused_by": "command",
+        "chapter": 2
+      },
+      {
+        "step_id": "strike",
+        "role": "escalation",
+        "start_sec": 99,
+        "label": "The soldiers join the strikers",
+        "situation": "Workers strike, and the soldiers sent to shoot them join them instead.",
+        "caused_by": "murder",
+        "chapter": 3
+      },
+      {
+        "step_id": "abdicate",
+        "role": "escalation",
+        "start_sec": 115,
+        "label": "A signature in a railway carriage",
+        "situation": "Three hundred years of rule end with a signature on a train.",
+        "caused_by": "strike",
+        "chapter": 3
+      },
+      {
+        "step_id": "captivity",
+        "role": "escalation",
+        "start_sec": 125,
+        "label": "Still expecting rescue",
+        "situation": "The family is moved east into captivity for sixteen months, still believing they will be rescued.",
+        "caused_by": "abdicate",
+        "chapter": 3
+      },
+      {
+        "step_id": "basement",
+        "role": "reversal",
+        "start_sec": 139,
+        "label": "Eleven minutes",
+        "situation": "The richest family in human history is taken to a basement by the workers they never saw, and killed in about eleven minutes.",
+        "caused_by": "captivity",
+        "chapter": 4
+      },
+      {
+        "step_id": "jewels",
+        "role": "verdict",
+        "start_sec": 190,
+        "label": "The family jewels, found with the bones",
+        "situation": "The family jewels sewn into their clothing as escape money deflected the first bullets and lengthened the killing, and were found with the bones eighty years later.",
+        "caused_by": "basement",
+        "chapter": 4
+      }
+    ],
+    "parallel_cases": []
+  },
+  "expect": {
+    "pass": true
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "title": "Why Cities Ripped Out Their Streetcars",
+  "hook": "A city's proudest machine became the very thing it paid to destroy.",
+  "_story_contract": {
+    "human_subject": "the American municipal streetcar system, run by a private transit company",
+    "subject_goal": "to move workers cheaply across a growing city and turn a steady profit",
+    "accepted_belief": "the streetcar was the backbone of the city, permanent and profitable",
+    "opening_object": "a steel streetcar rail set into the pavement"
+  },
+  "scenes": [
+    {
+      "scene_id": "scene_001",
+      "causal_role": "setup",
+      "chapter": 1,
+      "caused_by": "",
+      "narration": "Step one. Picture a city stitched together by steel, where a private company laid rails down every main street and ran electric cars along them from dawn to midnight. The streetcar was the backbone. Workers rode it to the factory, families rode it to the park, and the fare stayed fixed at a nickel because the city liked it that way. The rail in the pavement looked permanent.",
+      "environment_type": "city_street",
+      "human_intention": "run a profitable transit network across the whole city",
+      "expected_outcome": "steady riders, steady nickels, steady growth",
+      "actual_outcome": "the system thrives and looks unshakable",
+      "continuity_anchor": "a steel streetcar rail set into the pavement"
+    },
+    {
+      "scene_id": "scene_002",
+      "causal_role": "intervention",
+      "chapter": 1,
+      "caused_by": "scene_001",
+      "narration": "The company needed permission to operate on public streets, so decades earlier it signed a franchise deal with city hall. In exchange for the exclusive right to those rails, it agreed to freeze the fare at five cents forever. It seemed a small price for a monopoly.",
+      "environment_type": "city_hall_office",
+      "human_intention": "lock in a monopoly on the streets by accepting a fixed fare",
+      "expected_outcome": "guaranteed riders forever at an acceptable price",
+      "actual_outcome": "the fare freeze is written into a binding contract",
+      "continuity_anchor": "the franchise contract on the clerk's desk"
+    },
+    {
+      "scene_id": "scene_003",
+      "causal_role": "false_resolution",
+      "chapter": 1,
+      "caused_by": "scene_002",
+      "narration": "For years, it worked. The cars ran full, the nickels piled up, and the company reinvested in more track. Everyone agreed the deal was brilliant.",
+      "environment_type": "city_street",
+      "human_intention": "enjoy the profits of a locked-in monopoly",
+      "expected_outcome": "endless prosperity from the fare-freeze bargain",
+      "actual_outcome": "the system looks like a permanent success",
+      "continuity_anchor": "a nickel dropped into the fare box"
+    },
+    {
+      "scene_id": "scene_004",
+      "causal_role": "hinge",
+      "chapter": 2,
+      "caused_by": "scene_003",
+      "narration": "Step two. Then prices rose, and the nickel could not.",
+      "environment_type": "transit_company_office",
+      "human_intention": "keep operating as costs begin to climb",
+      "expected_outcome": "adjust the fare to match rising expenses",
+      "actual_outcome": "the frozen fare cannot legally move",
+      "continuity_anchor": "the franchise contract on the desk"
+    },
+    {
+      "scene_id": "scene_005",
+      "causal_role": "mechanism",
+      "chapter": 2,
+      "caused_by": "scene_004",
+      "narration": "Here is the principle that runs the whole story. A price fixed by contract cannot follow the cost of the thing it pays for. When inflation, wages, and copper all climb but the fare is chained to a nickel, every ride starts losing money instead of making it. The company was now trapped by the very deal that had protected it.",
+      "environment_type": "transit_company_office",
+      "human_intention": "cover rising costs from a fare it is forbidden to raise",
+      "expected_outcome": "revenue keeps pace with expenses",
+      "actual_outcome": "each ride quietly turns into a loss",
+      "continuity_anchor": "a nickel dropped into the fare box"
+    },
+    {
+      "scene_id": "scene_006",
+      "causal_role": "escalation",
+      "chapter": 3,
+      "caused_by": "scene_005",
+      "narration": "Step three. Because the fare could not rise, the company squeezed the only things it still controlled. It skipped repairs, delayed replacing worn track, and let the cars rattle. The service got slower and shabbier by the season.",
+      "environment_type": "city_street",
+      "human_intention": "cut costs anywhere the contract allows",
+      "expected_outcome": "survive until conditions improve",
+      "actual_outcome": "the rails deteriorate and rides grow miserable",
+      "continuity_anchor": "the steel rail, now cracked and buckling in the pavement"
+    },
+    {
+      "scene_id": "scene_007",
+      "causal_role": "escalation",
+      "chapter": 3,
+      "caused_by": "scene_006",
+      "narration": "Because the service decayed, riders who could afford another option left. And a new option had arrived. The automobile rolled down the same streets the streetcar was chained to, and the bus followed close behind. Both went where no rail could reach.",
+      "environment_type": "city_street",
+      "human_intention": "hold on to the passengers it still has",
+      "expected_outcome": "loyal riders stay for lack of alternatives",
+      "actual_outcome": "cars and buses siphon away the paying crowd",
+      "continuity_anchor": "the cracked rail beside fresh tire tracks"
+    },
+    {
+      "scene_id": "scene_008",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_007",
+      "narration": "Step four. Fewer riders meant fewer nickels, and fewer nickels meant even less money for the track. The company slid deeper into debt with every mile it was contractually bound to keep running. It was now paying to operate lines that lost money on purpose.",
+      "environment_type": "transit_company_office",
+      "human_intention": "stop the bleeding without breaking the franchise",
+      "expected_outcome": "trim the worst lines and stabilize",
+      "actual_outcome": "the contract forces it to keep the losing routes open",
+      "continuity_anchor": "the franchise contract, now stamped and worn"
+    },
+    {
+      "scene_id": "scene_009",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_008",
+      "narration": "Because the rails were now a liability chained to a bad contract, buyers appeared with a plan. Bus operators and their financiers bought the failing systems, not to save them, but to shut them down. A bus needs no track and no franchise freeze. Bolt, watching from the curb, measured the paving crew and frowned.",
+      "environment_type": "city_street",
+      "human_intention": "acquire the streetcar lines cheaply",
+      "expected_outcome": "convert riders to flexible, cheaper buses",
+      "actual_outcome": "the new owners begin dismantling the network",
+      "continuity_anchor": "the steel rail, marked for removal"
+    },
+    {
+      "scene_id": "scene_010",
+      "causal_role": "escalation",
+      "chapter": 5,
+      "caused_by": "scene_009",
+      "narration": "Step five. Because the buses now owned the routes, the crews came out with torches and pried the rails from the streets. The city, tired of a decrepit system and eager for modern buses, cheered them on. The very thing it had built to last was hauled away as scrap.",
+      "environment_type": "city_street",
+      "human_intention": "modernize by replacing rail with buses",
+      "expected_outcome": "faster, cheaper, more flexible transit",
+      "actual_outcome": "the permanent backbone is physically ripped out",
+      "continuity_anchor": "the steel rail being pried loose from the pavement"
+    },
+    {
+      "scene_id": "scene_011",
+      "causal_role": "reversal",
+      "chapter": 6,
+      "caused_by": "scene_010",
+      "narration": "Step six. And here is where it ends up worse than it began. The city that started with a full, paid, city-wide electric network ended with clogged streets, buses stuck in car traffic, and no rails left to fall back on. The nickel that was supposed to protect the rider had destroyed the thing the rider needed. What was permanent is now a scar under the asphalt.",
+      "environment_type": "city_street",
+      "human_intention": "enjoy the promised modern transit future",
+      "expected_outcome": "cheaper and better mobility for everyone",
+      "actual_outcome": "worse transit than the day the story opened",
+      "continuity_anchor": "the empty groove in the pavement where the rail once sat"
+    },
+    {
+      "scene_id": "scene_012",
+      "causal_role": "generalization",
+      "chapter": 7,
+      "caused_by": "scene_011",
+      "narration": "Step seven. This shape repeats wherever a price is frozen against a rising cost. In housing, rent control froze the rent, landlords stopped maintaining the building, and the units decayed into unlivable ruin. In utilities, capped water rates froze the fee, the utility deferred pipe repairs, and the mains burst underground.",
+      "environment_type": "city_hall_office",
+      "human_intention": "protect consumers by fixing a price",
+      "expected_outcome": "affordable, stable service",
+      "actual_outcome": "the frozen price starves the thing it was meant to preserve",
+      "continuity_anchor": "the franchise contract laid beside a rent ledger"
+    },
+    {
+      "scene_id": "scene_013",
+      "causal_role": "generalization",
+      "chapter": 7,
+      "caused_by": "scene_012",
+      "narration": "Each case runs the same four beats. A good thing exists, a price is frozen to keep it fair, the frozen price forces quiet neglect, and the good thing collapses. The intention was protection. The result was ruin.",
+      "environment_type": "city_hall_office",
+      "human_intention": "learn the common lesson across the cases",
+      "expected_outcome": "these look like unrelated failures",
+      "actual_outcome": "they are the same mechanism wearing different clothes",
+      "continuity_anchor": "the stack of frozen contracts on the desk"
+    },
+    {
+      "scene_id": "scene_014",
+      "causal_role": "tool",
+      "chapter": 8,
+      "caused_by": "scene_013",
+      "narration": "Step eight. So carry this question wherever a price is promised to hold forever. Look for the rail under the pavement: the good thing whose upkeep depends on money the frozen price no longer sends. Ask what happens to it when costs rise and the fare cannot. If nothing answers, you already know where the rail is going.",
+      "environment_type": "city_street",
+      "human_intention": "hand the viewer a diagnostic tool",
+      "expected_outcome": "the viewer spots the next frozen-price trap early",
+      "actual_outcome": "the viewer learns to find the buried rail before it is torn out",
+      "continuity_anchor": "the empty groove where the steel rail used to be"
+    }
+  ]
+}

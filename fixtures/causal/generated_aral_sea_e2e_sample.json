@@ -1,0 +1,3653 @@
+{
+  "title": "Why Did the Aral Sea Disappear?",
+  "hook": "A sea the size of Ireland vanished in a single lifetime \u2014 and people did it on purpose.",
+  "style_mode": "scientific",
+  "scenes": [
+    {
+      "narration": "Step one. A full-size fishing trawler rusts on cracked sand out here, its hull once ridden by a sea thirty metres deep.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A rusted full-size fishing trawler tilted on vast cracked desert sand under harsh daylight, warm coral hull streaked with rust in the midground; Alex, an adult man with short brown hair, light stubble, navy overshirt, gray T-shirt, dark jeans and sneakers, stands small in the foreground looking up at the towering wreck; the unexpected concrete element: a single dry fishing net still snagged over the bow rail, hanging into empty air where water should be; distant flat salt horizon in the background, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "understand why a ship is stranded in a desert",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c01",
+          "narration_phrase": "a sea thirty metres deep",
+          "evidence_id": "e01"
+        }
+      ],
+      "evidence_id": "e01",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "thirty metres deep"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff5a3c",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "A full-size fishing trawler",
+          "purpose": "setup",
+          "visual": "towering rusted trawler on dry sand",
+          "state_before": "ship expected in water",
+          "state_after": "ship marooned on sand",
+          "required_objects": [
+            "rusted fishing trawler",
+            "cracked desert sand"
+          ],
+          "forbidden_objects": [
+            "water",
+            "waves"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "once ridden by a sea",
+          "purpose": "consequence",
+          "visual": "dry net dangling into empty air",
+          "state_before": "net imagined in sea",
+          "state_after": "net over bare sand",
+          "required_objects": [
+            "dry fishing net",
+            "trawler bow rail"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "net snagged on bow rail",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "medium",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "rusts on cracked sand",
+      "story_beat_n": 1,
+      "story_pct": 2,
+      "story_role": "cold_consequence",
+      "_role": "cold_consequence",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_001",
+      "causal_role": "setup",
+      "chapter": 1,
+      "caused_by": "",
+      "question_opened": "where did an entire sea go?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a trawler stranded in desert",
+      "opens_loop": "where_water",
+      "closes_loop": "",
+      "human_intention": "understand why a ship is stranded in a desert",
+      "human_belief": "the water must have dried up somehow",
+      "viewer_knows": "a ship marooned on dry seabed",
+      "human_knows": "the sand around him was once seafloor",
+      "expected_outcome": "he expects a simple drought answer",
+      "actual_outcome": "the scale of the loss is staggering",
+      "belief_changed": "",
+      "decision_caused": "Alex decides to trace where the water went",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "so the vanished sea demands an explanation",
+      "id": 1
+    },
+    {
+      "narration": "This was the Aral Sea \u2014 once the world's fourth-largest lake, sprawling roughly the size of Ireland. Then, within one lifetime, it vanished.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Same rusted trawler on cracked sand, now framed against a vast empty basin stretching to the horizon; Alex stands beside the hull with one hand resting on cold rusted metal, gazing across the enormous flat expanse; the unexpected concrete element: a lone weathered wooden mooring post still standing far out in the dry seabed, a relic of a vanished harbour; warm coral rust tones, dusty pale sand, low sun casting long shadows, asymmetric wide composition, no glow, no text",
+      "human_present": true,
+      "human_action": "grasp what was lost",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c02",
+          "narration_phrase": "world's fourth-largest lake",
+          "evidence_id": "e02"
+        }
+      ],
+      "evidence_id": "e02",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "vanished"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff5a3c",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "This was the Aral Sea",
+          "purpose": "setup",
+          "visual": "trawler against vast empty basin",
+          "state_before": "unknown wreck",
+          "state_after": "named vanished sea",
+          "required_objects": [
+            "rusted trawler",
+            "empty desert basin"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        },
+        {
+          "anchor_phrase": "roughly the size of Ireland",
+          "purpose": "evidence",
+          "visual": "lone mooring post far out on dry bed",
+          "state_before": "harbour under water",
+          "state_after": "harbour stranded dry",
+          "required_objects": [
+            "wooden mooring post",
+            "dry seabed"
+          ],
+          "forbidden_objects": [
+            "boats in water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "within one lifetime, it vanished",
+          "purpose": "consequence",
+          "visual": "empty horizon where sea once rolled",
+          "state_before": "sea present",
+          "state_after": "sea gone",
+          "required_objects": [
+            "flat salt horizon"
+          ],
+          "forbidden_objects": [
+            "waves"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "distant flat empty horizon",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "wide",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "rests a hand on",
+      "story_beat_n": 2,
+      "story_pct": 6,
+      "story_role": "promise",
+      "_role": "promise",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_002",
+      "causal_role": "escalation",
+      "chapter": 1,
+      "caused_by": "scene_001",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "map of a vast lake shrinking",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "grasp what was lost",
+      "human_belief": "this was a huge body of water",
+      "viewer_knows": "maps showing a vast blue lake",
+      "human_knows": "historical extent of the sea",
+      "expected_outcome": "such a giant can't just vanish",
+      "actual_outcome": "it did, within one lifetime",
+      "belief_changed": "",
+      "decision_caused": "Alex resolves to find the mechanism",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "therefore its disappearance is an extraordinary claim",
+      "id": 2
+    },
+    {
+      "narration": "Step one. The obvious suspect is drought. So did the skies stop giving rain? Bolt checked the records \u2014 rainfall here barely changed.",
+      "scene_type": "experiment_lab",
+      "environment_type": "nature",
+      "image_prompt": "Bolt, a small rounded matte-white robot with mint-green panel accents, glossy dark screen-face showing two cyan dot eyes, single antenna with glowing cyan sphere, hovering on a smooth base, holds up a small rain gauge measuring collected water beside the trawler on cracked sand; Alex crouches nearby watching the reading; the unexpected concrete element: a battered yellow tin rain gauge half-buried in the dry seabed, still holding a shallow ordinary amount of rainwater; overcast pale sky, dusty ground, asymmetric composition, Bolt in curious pose, no glow, no text",
+      "human_present": true,
+      "human_action": "test the drought explanation",
+      "mascot_present": true,
+      "bolt_mode": "measurement",
+      "claim_refs": [
+        {
+          "claim_id": "c03",
+          "narration_phrase": "rainfall here barely changed",
+          "evidence_id": "e03"
+        }
+      ],
+      "evidence_id": "e03",
+      "shot_type": "medium",
+      "text_overlay": "STEP ONE",
+      "text_sub": "",
+      "text": {
+        "placement": "upper_left",
+        "alignment": "left",
+        "emphasis_words": [
+          "drought",
+          "barely changed"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ffd23c",
+        "subtitle_color": "#dddddd",
+        "card": true
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "The obvious suspect is drought",
+          "purpose": "setup",
+          "visual": "Bolt raising rain gauge",
+          "state_before": "question of drought unanswered",
+          "state_after": "gauge being read",
+          "required_objects": [
+            "yellow rain gauge",
+            "Bolt"
+          ],
+          "forbidden_objects": [
+            "floating diagram"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": true,
+          "bolt_action": "holds up rain gauge to measure collected rainfall",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "did the skies stop giving rain",
+          "purpose": "action",
+          "visual": "Alex crouching to inspect the gauge",
+          "state_before": "unread gauge",
+          "state_after": "reading examined",
+          "required_objects": [
+            "rain gauge with shallow water"
+          ],
+          "forbidden_objects": [
+            "dry cracked gauge empty"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": true,
+          "bolt_action": "tilts gauge toward Alex to show ordinary water level",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "rainfall here barely changed",
+          "purpose": "consequence",
+          "visual": "ordinary rainwater in tin gauge",
+          "state_before": "suspected empty from drought",
+          "state_after": "gauge holds normal rain",
+          "required_objects": [
+            "gauge holding rainwater"
+          ],
+          "forbidden_objects": [
+            "bone-dry cracked interior"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "water level inside gauge",
+          "pure_evidence": false,
+          "human_visible": false,
+          "bolt_visible": true,
+          "bolt_action": "points to the unchanged water line",
+          "new_information": false,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "holds up a small rain gauge",
+      "story_beat_n": 3,
+      "story_pct": 9,
+      "story_role": "payoff",
+      "_role": "payoff",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_003",
+      "causal_role": "escalation",
+      "chapter": 1,
+      "caused_by": "scene_002",
+      "question_opened": "if not drought, what?",
+      "question_answered": "was it drought? no",
+      "new_complication": "the water must have been lost some other way",
+      "visible_consequence": "flat rainfall graph beside a collapsing shoreline",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "test the drought explanation",
+      "human_belief": "maybe the climate dried it out",
+      "viewer_knows": "rainfall records staying roughly flat",
+      "human_knows": "the region was always dry desert",
+      "expected_outcome": "drought explains the loss",
+      "actual_outcome": "rainfall didn't drop enough to explain it",
+      "belief_changed": "drought did it -> drought can't explain it",
+      "decision_caused": "Alex looks at the incoming rivers instead",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "but the climate barely changed",
+      "id": 3
+    },
+    {
+      "narration": "So if the sky wasn't the culprit, look to the ground. The Aral had no river out. It lived on two rivers flowing in: the Amu Darya and the Syr Darya.",
+      "scene_type": "educational_diagram",
+      "environment_type": "simple_whiteboard",
+      "image_prompt": "A large hand-drawn relief map on a weathered field table set on the dry seabed; the Aral basin painted warm coral, two electric-blue river lines snaking down into it from distant mountains, no outflow anywhere; Alex traces one river line with a finger; the unexpected concrete element: a small carved wooden channel model laid across the map where the two rivers meet the sea, water actually trickling along the grooves into the basin; daylight, dusty tones, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "map the water budget",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c04",
+          "narration_phrase": "lived on two rivers flowing in",
+          "evidence_id": "e04"
+        }
+      ],
+      "evidence_id": "e04",
+      "shot_type": "medium",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "no river out",
+          "two rivers"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#2f8fff",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "look to the ground",
+          "purpose": "setup",
+          "visual": "relief map of basin and rivers",
+          "state_before": "sky ruled out",
+          "state_after": "map introduced",
+          "required_objects": [
+            "relief map",
+            "two blue river lines"
+          ],
+          "forbidden_objects": [
+            "outflow river"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "had no river out",
+          "purpose": "evidence",
+          "visual": "basin with no exit channel",
+          "state_before": "assumed drainage exists",
+          "state_after": "sealed terminal basin shown",
+          "required_objects": [
+            "closed coral basin on map"
+          ],
+          "forbidden_objects": [
+            "outflow channel"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "two rivers flowing in",
+          "purpose": "consequence",
+          "visual": "water trickling along grooved channel model into basin",
+          "state_before": "dry grooves",
+          "state_after": "water feeding basin",
+          "required_objects": [
+            "wooden channel model",
+            "trickling water"
+          ],
+          "forbidden_objects": [
+            "dry empty grooves"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "left_to_right"
+        }
+      ],
+      "motion_anchor_phrase": "traces one river line",
+      "story_beat_n": 4,
+      "story_pct": 13,
+      "story_role": "rules",
+      "_role": "rules",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_004",
+      "causal_role": "escalation",
+      "chapter": 1,
+      "caused_by": "scene_003",
+      "question_opened": "do the rivers still arrive?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "two blue rivers feeding a lake",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "map the water budget",
+      "human_belief": "the rivers keep it filled",
+      "viewer_knows": "two rivers feeding the lake on a map",
+      "human_knows": "a terminal lake balances inflow against evaporation",
+      "expected_outcome": "cut the inflow and the balance breaks",
+      "actual_outcome": "the rivers are the whole story",
+      "belief_changed": "",
+      "decision_caused": "Alex checks whether the rivers still reach the sea",
+      "continuity_anchor": "river map",
+      "causal_link": "therefore the sea depends entirely on those two rivers",
+      "id": 4
+    },
+    {
+      "narration": "Here's the balance. A closed lake holds its level only while inflow matches what evaporates. Cut the inflow, and it must shrink until it's gone.",
+      "scene_type": "educational_diagram",
+      "environment_type": "simple_whiteboard",
+      "image_prompt": "The same field table map, now with a clear glass tank set beside it acting as a physical model of the lake; a thin electric-blue inflow tube trickles water in at one end while heat lamps evaporate from the surface, the level sitting perfectly steady; the unexpected concrete element: a hand pinching the inflow tube shut, and the water level in the tank visibly dropping mid-demonstration; Alex operates the model, dusty daylight, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "state the governing rule",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c05",
+          "narration_phrase": "inflow matches what evaporates",
+          "evidence_id": "e05"
+        }
+      ],
+      "evidence_id": "e05",
+      "shot_type": "medium",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "inflow",
+          "shrink until it's gone"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#2f8fff",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "A closed lake holds its level",
+          "purpose": "setup",
+          "visual": "glass tank with steady water level",
+          "state_before": "model idle",
+          "state_after": "steady balanced level",
+          "required_objects": [
+            "glass tank",
+            "inflow tube",
+            "heat lamp"
+          ],
+          "forbidden_objects": [
+            "overflowing tank"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "while inflow matches what evaporates",
+          "purpose": "evidence",
+          "visual": "balanced inflow and evaporation",
+          "state_before": "level fluctuating",
+          "state_after": "level held steady",
+          "required_objects": [
+            "trickling inflow tube",
+            "steady water line"
+          ],
+          "forbidden_objects": [
+            "pinched tube"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "steady water line in tank",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "Cut the inflow",
+          "purpose": "action",
+          "visual": "hand pinching tube, level dropping",
+          "state_before": "tube flowing, level steady",
+          "state_after": "tube shut, level falling",
+          "required_objects": [
+            "pinched inflow tube",
+            "lowered water line"
+          ],
+          "forbidden_objects": [
+            "rising water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "push_in"
+        }
+      ],
+      "motion_anchor_phrase": "pinches the inflow tube",
+      "story_beat_n": 5,
+      "story_pct": 17,
+      "story_role": "mechanism",
+      "_role": "mechanism",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_005",
+      "causal_role": "mechanism",
+      "chapter": 1,
+      "caused_by": "scene_004",
+      "question_opened": "who took the river water?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a balance scale tipping as inflow is removed",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "state the governing rule",
+      "human_belief": "balance is fragile",
+      "viewer_knows": "a scale weighing inflow against evaporation",
+      "human_knows": "evaporation in this desert is enormous",
+      "expected_outcome": "cutting inflow guarantees shrinkage",
+      "actual_outcome": "the rule is confirmed",
+      "belief_changed": "",
+      "decision_caused": "Alex asks what took the river water",
+      "continuity_anchor": "river map",
+      "causal_link": "so if inflow drops, the sea must fall",
+      "id": 5
+    },
+    {
+      "narration": "Step two. In the 1960s, engineers dug enormous canals, carving both rivers away from the sea and out across the desert toward vast cotton fields.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A wide desert construction scene: a massive dug earthen canal cuts diagonally across sandy ground, electric-blue water being channelled away from a distant basin toward rows of green cotton plants near the horizon; Alex stands on the canal bank watching the diverted flow; the unexpected concrete element: an old iron sluice gate wide open, the entire river bending sharply through it away from the sea; excavator tracks in dirt, dusty daylight, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "find where the water was sent",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c06",
+          "narration_phrase": "engineers dug enormous canals",
+          "evidence_id": "e06"
+        }
+      ],
+      "evidence_id": "e06",
+      "shot_type": "wide",
+      "text_overlay": "STEP TWO",
+      "text_sub": "",
+      "text": {
+        "placement": "upper_left",
+        "alignment": "left",
+        "emphasis_words": [
+          "canals",
+          "cotton fields"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff9a2f",
+        "subtitle_color": "#dddddd",
+        "card": true
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "engineers dug enormous canals",
+          "purpose": "setup",
+          "visual": "massive canal cut across desert",
+          "state_before": "river running to sea",
+          "state_after": "canal carved into ground",
+          "required_objects": [
+            "dug earthen canal",
+            "excavator tracks"
+          ],
+          "forbidden_objects": [
+            "intact untouched riverbank"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "carving both rivers away",
+          "purpose": "action",
+          "visual": "open sluice gate bending river away",
+          "state_before": "river flowing to basin",
+          "state_after": "river diverted through gate",
+          "required_objects": [
+            "iron sluice gate",
+            "diverted blue water"
+          ],
+          "forbidden_objects": [
+            "river reaching sea"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "right_to_left"
+        },
+        {
+          "anchor_phrase": "toward vast cotton fields",
+          "purpose": "consequence",
+          "visual": "water reaching green cotton rows",
+          "state_before": "desert dry",
+          "state_after": "cotton fields irrigated",
+          "required_objects": [
+            "green cotton plants",
+            "canal water"
+          ],
+          "forbidden_objects": [
+            "barren empty field"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        }
+      ],
+      "motion_anchor_phrase": "water divert away",
+      "story_beat_n": 6,
+      "story_pct": 21,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_006",
+      "causal_role": "intervention",
+      "chapter": 2,
+      "caused_by": "scene_005",
+      "question_opened": "how much water was taken?",
+      "question_answered": "who took the river water? irrigation",
+      "new_complication": "",
+      "visible_consequence": "canals slicing water into cotton fields",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "find where the water was sent",
+      "human_belief": "the water was redirected deliberately",
+      "viewer_knows": "canals branching off the rivers into fields",
+      "human_knows": "cotton needs vast irrigation",
+      "expected_outcome": "diversion will starve the sea",
+      "actual_outcome": "the rivers were carved away for farming",
+      "belief_changed": "nature drained it -> people diverted it",
+      "decision_caused": "Alex measures how much river water was taken",
+      "continuity_anchor": "river map with canals",
+      "causal_link": "therefore the inflow was engineered away",
+      "id": 6
+    },
+    {
+      "narration": "And one canal did the most damage. Bolt gauged the Karakum's flow \u2014 it drank enough water to green a desert the size of a small country.",
+      "scene_type": "experiment_lab",
+      "environment_type": "nature",
+      "image_prompt": "Bolt hovers over a huge open canal, lowering a flow meter into the fast-moving orange-tinged diverted current, cyan eyes fixed on the reading; Alex watches from the bank; the unexpected concrete element: the canal so wide it dwarfs a full-grown tree floating downstream in the current like a twig; sandy banks, distant green irrigated strip, dusty daylight, Bolt in acting-out-the-beat pose measuring flow, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "quantify the diversion",
+      "mascot_present": true,
+      "bolt_mode": "measurement",
+      "claim_refs": [
+        {
+          "claim_id": "c07",
+          "narration_phrase": "the Karakum's flow",
+          "evidence_id": "e07"
+        }
+      ],
+      "evidence_id": "e07",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "most damage",
+          "small country"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff9a2f",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "one canal did the most damage",
+          "purpose": "setup",
+          "visual": "enormous canal with rushing current",
+          "state_before": "canal unmeasured",
+          "state_after": "scale revealed",
+          "required_objects": [
+            "wide canal",
+            "fast current"
+          ],
+          "forbidden_objects": [
+            "narrow ditch"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "Bolt gauged the Karakum's flow",
+          "purpose": "action",
+          "visual": "Bolt lowering flow meter into current",
+          "state_before": "flow unknown",
+          "state_after": "flow being measured",
+          "required_objects": [
+            "flow meter",
+            "Bolt",
+            "canal water"
+          ],
+          "forbidden_objects": [
+            "floating diagram"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": true,
+          "bolt_action": "lowers a flow meter into the canal current to measure volume",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "green a desert the size of a small country",
+          "purpose": "consequence",
+          "visual": "full tree floating like a twig in the vast current",
+          "state_before": "canal size ambiguous",
+          "state_after": "immense scale shown",
+          "required_objects": [
+            "floating tree in canal"
+          ],
+          "forbidden_objects": [
+            "small stream"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "right_to_left"
+        }
+      ],
+      "motion_anchor_phrase": "lowering a flow meter",
+      "story_beat_n": 7,
+      "story_pct": 25,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_007",
+      "causal_role": "escalation",
+      "chapter": 2,
+      "caused_by": "scene_006",
+      "question_opened": "",
+      "question_answered": "how much water was taken? enough to drain a country",
+      "new_complication": "",
+      "visible_consequence": "a giant canal draining across desert",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "quantify the diversion",
+      "human_belief": "the diversion was massive",
+      "viewer_knows": "a single canal snaking hundreds of kilometres",
+      "human_knows": "much water leaked or evaporated in transit",
+      "expected_outcome": "this scale must starve the sea fast",
+      "actual_outcome": "one canal alone was enormous",
+      "belief_changed": "",
+      "decision_caused": "Alex checks the sea's response",
+      "continuity_anchor": "canal on the map",
+      "causal_link": "so a single canal bled off a huge fraction of the inflow",
+      "id": 7
+    },
+    {
+      "narration": "For a while, it truly looked like a triumph. Cotton exports boomed, warehouses filled, and the region grew rich on white gold.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A sunlit cotton harvest scene: rows of lush green cotton plants heavy with white bolls stretching to the horizon, workers carrying overflowing baskets toward stacked bales; Alex stands among the rows lifting a fluffy white boll; the unexpected concrete element: a single dry cracked patch of pale salt breaking through the soil between two thriving cotton rows, unnoticed underfoot; warm afternoon light, prosperous busy field, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "weigh the payoff of the plan",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c08",
+          "narration_phrase": "Cotton exports boomed",
+          "evidence_id": "e08"
+        }
+      ],
+      "evidence_id": "e08",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "triumph",
+          "white gold"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#4caf50",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "it truly looked like a triumph",
+          "purpose": "setup",
+          "visual": "lush cotton fields to horizon",
+          "state_before": "desert barren",
+          "state_after": "fields thriving",
+          "required_objects": [
+            "green cotton plants with white bolls"
+          ],
+          "forbidden_objects": [
+            "withered plants"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "warehouses filled",
+          "purpose": "evidence",
+          "visual": "stacked cotton bales and full baskets",
+          "state_before": "empty storage",
+          "state_after": "overflowing harvest",
+          "required_objects": [
+            "cotton bales",
+            "overflowing baskets"
+          ],
+          "forbidden_objects": [
+            "empty warehouse"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "grew rich on white gold",
+          "purpose": "consequence",
+          "visual": "salt patch breaking through soil between rows",
+          "state_before": "soil healthy",
+          "state_after": "hidden salt surfacing",
+          "required_objects": [
+            "cracked pale salt patch in soil"
+          ],
+          "forbidden_objects": [
+            "uniform dark soil"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "push_in"
+        }
+      ],
+      "motion_anchor_phrase": "lifts a white cotton boll",
+      "story_beat_n": 8,
+      "story_pct": 29,
+      "story_role": "false_relief",
+      "_role": "false_relief",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_008",
+      "causal_role": "false_resolution",
+      "chapter": 2,
+      "caused_by": "scene_007",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "a hidden collapse was accelerating",
+      "visible_consequence": "prosperous cotton harvest",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "weigh the payoff of the plan",
+      "human_belief": "maybe the trade-off worked",
+      "viewer_knows": "fields of white cotton, loaded trucks",
+      "human_knows": "the sea was quietly falling",
+      "expected_outcome": "progress justified the cost",
+      "actual_outcome": "the boom hid a collapse building underneath",
+      "belief_changed": "",
+      "decision_caused": "Alex checks the shoreline over the years",
+      "continuity_anchor": "cotton fields",
+      "causal_link": "but the visible success masked the sea's decline",
+      "id": 8
+    },
+    {
+      "narration": "Step three. Then the sea started falling nearly a metre every year.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A receding shoreline on the Aral: pale exposed lakebed stretching far, faint parallel tide-lines marking where the water sat each year, retreating toward a thin distant strip of blue; Alex stands on the newest dry band looking back at the stranded old shore; the unexpected concrete element: a wooden dock still standing far out on dry ground, its ladder descending into cracked sand instead of water; low light, dusty tones, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "see the sea's response to the cut",
+      "mascot_present": true,
+      "bolt_mode": "measurement",
+      "claim_refs": [
+        {
+          "claim_id": "c09",
+          "narration_phrase": "nearly a metre every year",
+          "evidence_id": "e09"
+        }
+      ],
+      "evidence_id": "e09",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "falling",
+          "every year"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff5a3c",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "the sea started falling",
+          "purpose": "setup",
+          "visual": "receding shoreline with tide-lines",
+          "state_before": "full shoreline",
+          "state_after": "water pulled back",
+          "required_objects": [
+            "exposed lakebed",
+            "parallel tide-lines"
+          ],
+          "forbidden_objects": [
+            "water at old shore"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        },
+        {
+          "anchor_phrase": "nearly a metre every year",
+          "purpose": "consequence",
+          "visual": "dock ladder descending into dry sand",
+          "state_before": "dock over water",
+          "state_after": "dock over cracked ground",
+          "required_objects": [
+            "wooden dock",
+            "ladder into dry sand"
+          ],
+          "forbidden_objects": [
+            "water under dock"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        }
+      ],
+      "motion_anchor_phrase": "looking toward the retreating water",
+      "story_beat_n": 9,
+      "story_pct": 33,
+      "story_role": "payoff",
+      "_role": "payoff",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_009",
+      "causal_role": "hinge",
+      "chapter": 3,
+      "caused_by": "scene_006",
+      "question_opened": "",
+      "question_answered": "where did the water go? evaporated once inflow was cut",
+      "new_complication": "",
+      "visible_consequence": "shoreline retreating year by year",
+      "opens_loop": "",
+      "closes_loop": "where_water",
+      "human_intention": "see the sea's response to the cut",
+      "human_belief": "the sea is falling fast",
+      "viewer_knows": "satellite images of a receding shoreline",
+      "human_knows": "a metre a year across a huge basin is vast volume",
+      "expected_outcome": "decline would be slow",
+      "actual_outcome": "the sea fell startlingly fast",
+      "belief_changed": "",
+      "decision_caused": "Alex tracks how far the shore retreated",
+      "continuity_anchor": "receding shoreline",
+      "causal_link": "therefore starved of inflow, the level plunged",
+      "id": 9
+    },
+    {
+      "narration": "This trawler was left behind as the water retreated dozens of kilometres, until whole harbours stood high and dry, far from any shore.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "The same rusted trawler, now clearly seen from a distance amid a graveyard of several other stranded fishing boats scattered across the cracked seabed; Alex walks between two of the marooned hulls, tiny against them; the unexpected concrete element: a rusted anchor still dropped and dug into dry sand beside a boat, its chain taut against nothing but dust; flat empty horizon, dusty daylight, asymmetric composition, no glow, no text",
+      "human_present": true,
+      "human_action": "connect the ship to the retreat",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c10",
+          "narration_phrase": "water retreated dozens of kilometres",
+          "evidence_id": "e10"
+        }
+      ],
+      "evidence_id": "e10",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "harbours stood high and dry"
+        ],
+        "title_color": "#ffffff",
+        "accent_color": "#ff5a3c",
+        "subtitle_color": "#dddddd",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "This trawler was left behind",
+          "purpose": "setup",
+          "visual": "trawler among graveyard of stranded boats",
+          "state_before": "single wreck",
+          "state_after": "whole fleet marooned",
+          "required_objects": [
+            "rusted trawler",
+            "multiple stranded boats"
+          ],
+          "forbidden_objects": [
+            "boats in water"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "water retreated dozens of kilometres",
+          "purpose": "action",
+          "visual": "Alex walking small between hulls",
+          "state_before": "shore nearby",
+          "state_after": "shore vanished far off",
+          "required_objects": [
+            "stranded boat hulls",
+            "cracked seabed"
+          ],
+          "forbidden_objects": [
+            "nearby waterline"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "harbours stood high and dry",
+          "purpose": "consequence",
+          "visual": "dropped anchor buried in dry sand, chain taut",
+          "state_before": "anchor in seabed under water",
+          "state_after": "anchor gripping bare dust",
+          "required_objects": [
+            "rusted anchor",
+            "chain in dry sand"
+          ],
+          "forbidden_objects": [
+            "water around anchor"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "walks between the stranded boats",
+      "story_beat_n": 10,
+      "story_pct": 37,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_010",
+      "causal_role": "escalation",
+      "chapter": 3,
+      "caused_by": "scene_009",
+      "question_opened": "what happened to the water that remained?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "harbour left kilometres from the water",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "connect the ship to the retreat",
+      "human_belief": "this ship was abandoned by fleeing water",
+      "viewer_knows": "the stranded trawler back in view",
+      "human_knows": "the port it left from is now inland",
+      "expected_outcome": "the retreat stranded the fleet",
+      "actual_outcome": "whole harbours were left high and dry",
+      "belief_changed": "",
+      "decision_caused": "Alex asks what the shrinking did to the water itself",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "so as the shore fled, ships were marooned",
+      "id": 10
+    },
+    {
+      "n": 11,
+      "narration": "Now the sea is shrinking fast. So which turns nastier first \u2014 the fish, the drinking water, or the air you breathe? Guess now.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Alex crouches at the edge of a dwindling warm-coral-tinted pool trapped in cracked seabed, wide desert stretching behind him under a pale sky; foreground shows a lone dead fish half-buried in salt crust as the single striking element, mid-ground the shrinking pool, background a distant abandoned wharf. Dry, dusty, cinematic, no glow.",
+      "human_present": true,
+      "human_action": "predict the next damage",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [],
+      "evidence_id": "",
+      "shot_type": "medium",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "fish",
+          "water",
+          "air"
+        ],
+        "title_color": "warm coral",
+        "accent_color": "yellow",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Now the sea is shrinking fast",
+          "purpose": "setup",
+          "visual": "Alex beside a shrinking coral-tinted pool in cracked seabed",
+          "state_before": "broad pool",
+          "state_after": "narrow trapped pool",
+          "required_objects": [
+            "shrinking pool of water",
+            "cracked salt seabed"
+          ],
+          "forbidden_objects": [
+            "diagram",
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "the fish, the drinking water",
+          "purpose": "evidence",
+          "visual": "lone dead fish in the salt crust",
+          "state_before": "pool with life",
+          "state_after": "stranded dead fish",
+          "required_objects": [
+            "dead fish on salt crust"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "dead fish half-buried in salt",
+          "pure_evidence": false,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "Guess now",
+          "purpose": "consequence",
+          "visual": "Alex facing camera, dusty wind starting",
+          "state_before": "still air",
+          "state_after": "faint dust drifting",
+          "required_objects": [
+            "dusty air",
+            "Alex"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "the sea is shrinking",
+      "story_beat_n": 11,
+      "story_pct": 41,
+      "story_role": "prediction_gate",
+      "_role": "prediction_gate",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_011",
+      "causal_role": "escalation",
+      "chapter": 3,
+      "caused_by": "scene_009",
+      "question_opened": "what breaks first as the sea shrinks?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a poll of three outcomes on screen",
+      "opens_loop": "what_breaks",
+      "closes_loop": "",
+      "human_intention": "predict the next damage",
+      "human_belief": "probably the fish die first",
+      "viewer_knows": "a shrinking, thickening pool of water",
+      "human_knows": "less water means concentrating salt",
+      "expected_outcome": "one clear first casualty",
+      "actual_outcome": "the guess sets up a surprise",
+      "belief_changed": "",
+      "decision_caused": "Alex tests the water's saltiness",
+      "continuity_anchor": "shrinking pool",
+      "causal_link": "but the shrinking triggers a chain of harms",
+      "id": 11
+    },
+    {
+      "n": 12,
+      "narration": "Step four. Water evaporated. Salt could not. So every year the leftover sea concentrated, thickening into a brine several times saltier than the ocean itself.",
+      "scene_type": "experiment_lab",
+      "environment_type": "nature",
+      "image_prompt": "Bolt hovers at the shore of the residual pool holding a slender probe dipped into the water, his mint-green panels and cyan dot-eyes clear; foreground a salinity probe with white salt crystals crusting its tip as the striking element, mid-ground the coral-tinted brine pool, background salt-white flats. Alex kneels beside, watching crystals form on a rock. Curious pose, grounded daylight.",
+      "human_present": true,
+      "human_action": "measure the salinity",
+      "mascot_present": true,
+      "bolt_mode": "measurement",
+      "claim_refs": [
+        {
+          "claim_id": "c11",
+          "narration_phrase": "several times saltier than the ocean",
+          "evidence_id": "e11"
+        }
+      ],
+      "evidence_id": "e11",
+      "shot_type": "close",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "brine",
+          "saltier"
+        ],
+        "title_color": "warm coral",
+        "accent_color": "orange",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Water evaporated",
+          "purpose": "setup",
+          "visual": "brine pool with water level dropping, salt ring left behind",
+          "state_before": "higher water with faint salt ring",
+          "state_after": "lower water with thick salt ring",
+          "required_objects": [
+            "brine pool",
+            "salt ring on shore"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "the leftover sea concentrated",
+          "purpose": "action",
+          "visual": "Bolt dipping salinity probe into the pool",
+          "state_before": "clean probe tip",
+          "state_after": "probe tip crusted with white salt crystals",
+          "required_objects": [
+            "salinity probe",
+            "brine pool"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": false,
+          "bolt_visible": true,
+          "bolt_action": "Bolt dips a salinity probe into the brine and its tip crusts with salt",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "saltier than the ocean itself",
+          "purpose": "consequence",
+          "visual": "salt crystals crusting on the lifted rock",
+          "state_before": "wet dark rock",
+          "state_after": "rock coated in white salt crust",
+          "required_objects": [
+            "salt-encrusted rock"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "salt crystals on rock surface",
+          "pure_evidence": true,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "the leftover sea concentrated",
+      "story_beat_n": 12,
+      "story_pct": 45,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_012",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_009",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "salt crusting a thickening pool",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "measure the salinity",
+      "human_belief": "the water is turning to brine",
+      "viewer_knows": "a salinity meter climbing past ocean levels",
+      "human_knows": "salt doesn't evaporate with the water",
+      "expected_outcome": "saltier water stresses life",
+      "actual_outcome": "the sea became a brine",
+      "belief_changed": "",
+      "decision_caused": "Alex checks whether fish can survive it",
+      "continuity_anchor": "salinity meter",
+      "causal_link": "because water evaporated but salt could not",
+      "id": 12
+    },
+    {
+      "n": 13,
+      "narration": "Nothing living could take it. The brine wiped out nearly every fish species, and a fishery that once employed tens of thousands simply collapsed.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Alex stands among a graveyard of tilted wooden fishing boats marooned on dry salt flats, hulls peeling and red-rusted; foreground a single frayed fishing net stiffened flat with dried salt draped over a boat rail as the striking element, mid-ground rows of idle boats, background empty white horizon. Overcast light, desolate, no water anywhere. Nervous pose absent \u2014 human only.",
+      "human_present": true,
+      "human_action": "trace the human cost",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c12",
+          "narration_phrase": "fishery that once employed tens of thousands simply collapsed",
+          "evidence_id": "e12"
+        }
+      ],
+      "evidence_id": "e12",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "collapsed"
+        ],
+        "title_color": "red",
+        "accent_color": "red",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Nothing living could take it",
+          "purpose": "setup",
+          "visual": "rows of marooned idle fishing boats on salt flats",
+          "state_before": "boats near water",
+          "state_after": "boats stranded on dry salt",
+          "required_objects": [
+            "idle fishing boats",
+            "dry salt flats"
+          ],
+          "forbidden_objects": [
+            "water",
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "nearly every fish species",
+          "purpose": "evidence",
+          "visual": "salt-stiffened fishing net on boat rail",
+          "state_before": "net draped loose",
+          "state_after": "net lifted, brittle and stiff",
+          "required_objects": [
+            "salt-stiffened fishing net"
+          ],
+          "forbidden_objects": [
+            "water",
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "simply collapsed",
+          "purpose": "consequence",
+          "visual": "wide empty view of abandoned harbour boats",
+          "state_before": "working harbour implied",
+          "state_after": "deserted boat graveyard",
+          "required_objects": [
+            "abandoned boats",
+            "empty horizon"
+          ],
+          "forbidden_objects": [
+            "people working",
+            "text overlay"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "deserted boats to horizon",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        }
+      ],
+      "motion_anchor_phrase": "nearly every fish species",
+      "story_beat_n": 13,
+      "story_pct": 49,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_013",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_012",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "abandoned canneries",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "trace the human cost",
+      "human_belief": "the fishing towns are finished",
+      "viewer_knows": "empty canneries and idle boats",
+      "human_knows": "fish can't breed in brine",
+      "expected_outcome": "the industry ends",
+      "actual_outcome": "the entire fishery died",
+      "belief_changed": "",
+      "decision_caused": "Alex looks at what the exposed seabed became",
+      "continuity_anchor": "idle fishing boats",
+      "causal_link": "therefore the brine wiped out the fish",
+      "id": 13
+    },
+    {
+      "n": 14,
+      "narration": "Step four. The drained seabed baked into tens of thousands of square kilometres of pale dust \u2014 laced with old salt and pesticide.",
+      "scene_type": "experiment_lab",
+      "environment_type": "nature",
+      "image_prompt": "Bolt hovers low over the cracked white seabed scooping a sample of pale powder into a shallow collection tray, his cyan eyes reflecting the glare; foreground the tray of chalky salt-and-pesticide dust with faint orange residue streaks as the striking element, mid-ground endless cracked salt plain, background heat-shimmered horizon. Alex crouches beside pressing a gloved hand into the powder. Pointing-guide pose, harsh sun.",
+      "human_present": true,
+      "human_action": "examine the new desert",
+      "mascot_present": true,
+      "bolt_mode": "measurement",
+      "claim_refs": [
+        {
+          "claim_id": "c13",
+          "narration_phrase": "laced with old salt and pesticide",
+          "evidence_id": "e13"
+        }
+      ],
+      "evidence_id": "e13",
+      "shot_type": "close",
+      "text_overlay": "STEP FOUR",
+      "text_sub": "",
+      "text": {
+        "placement": "upper_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "dust",
+          "pesticide"
+        ],
+        "title_color": "orange",
+        "accent_color": "orange",
+        "subtitle_color": "white",
+        "card": true
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "The drained seabed baked",
+          "purpose": "setup",
+          "visual": "vast cracked white seabed under harsh sun",
+          "state_before": "damp mud bed",
+          "state_after": "baked cracked dust plain",
+          "required_objects": [
+            "cracked salt seabed"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "pale dust",
+          "purpose": "action",
+          "visual": "Alex lifting a fistful of crumbling powder",
+          "state_before": "undisturbed dust surface",
+          "state_after": "dust crumbling from raised fist",
+          "required_objects": [
+            "fistful of pale dust"
+          ],
+          "forbidden_objects": [
+            "text overlay in image"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "laced with old salt and pesticide",
+          "purpose": "evidence",
+          "visual": "Bolt's tray of pale powder with faint orange residue streaks",
+          "state_before": "empty collection tray",
+          "state_after": "tray holding streaked toxic dust sample",
+          "required_objects": [
+            "collection tray with pale dust",
+            "orange residue streaks"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": false,
+          "bolt_visible": true,
+          "bolt_action": "Bolt scoops seabed powder into a tray revealing orange pesticide residue",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "pale dust",
+      "story_beat_n": 14,
+      "story_pct": 53,
+      "story_role": "payoff",
+      "_role": "payoff",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_014",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_009",
+      "question_opened": "where does the dust go?",
+      "question_answered": "what breaks first? the fish, then the air",
+      "new_complication": "",
+      "visible_consequence": "toxic dust plain stretching away",
+      "opens_loop": "",
+      "closes_loop": "what_breaks",
+      "human_intention": "examine the new desert",
+      "human_belief": "the dry bed is just barren land",
+      "viewer_knows": "a white salt-crusted plain to the horizon",
+      "human_knows": "decades of farm runoff settled in that soil",
+      "expected_outcome": "empty ground, nothing more",
+      "actual_outcome": "the seabed is a reservoir of toxic dust",
+      "belief_changed": "it's just dry land -> it's poisoned dust",
+      "decision_caused": "Alex checks where the wind carries it",
+      "continuity_anchor": "salt-crusted seabed",
+      "causal_link": "so the retreating water exposed toxic sediment",
+      "id": 14
+    },
+    {
+      "n": 15,
+      "narration": "Then the wind arrives. It lifts the poisoned dust into towering storms that carry salt onto farmland hundreds of kilometres away.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Alex braces against fierce wind as a wall of pale-orange dust rolls across the salt plain toward him; foreground a green crop seedling in tilled soil already dusted white with settling salt as the striking element, mid-ground the advancing dust wall, background darkened storm sky. Cinematic, gritty, real weather. Human shielding face, no mascot.",
+      "human_present": true,
+      "human_action": "track the dust's reach",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c14",
+          "narration_phrase": "salt onto farmland hundreds of kilometres away",
+          "evidence_id": "e14"
+        }
+      ],
+      "evidence_id": "e14",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "storms",
+          "salt",
+          "farmland"
+        ],
+        "title_color": "orange",
+        "accent_color": "red",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Then the wind arrives",
+          "purpose": "setup",
+          "visual": "dust wall rising off the salt plain",
+          "state_before": "still dusty plain",
+          "state_after": "towering dust storm advancing",
+          "required_objects": [
+            "pale-orange dust storm wall"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "towering storms",
+          "purpose": "action",
+          "visual": "Alex braced as dust engulfs the foreground",
+          "state_before": "clear air near Alex",
+          "state_after": "dust swirling around Alex",
+          "required_objects": [
+            "dust storm",
+            "Alex shielding face"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "salt onto farmland hundreds of kilometres away",
+          "purpose": "consequence",
+          "visual": "green seedling in soil dusted with settling white salt",
+          "state_before": "clean green seedling",
+          "state_after": "seedling coated in white salt film",
+          "required_objects": [
+            "green crop seedling",
+            "white salt dust on soil"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "It lifts the poisoned dust",
+      "story_beat_n": 15,
+      "story_pct": 57,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_015",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_014",
+      "question_opened": "",
+      "question_answered": "where does the dust go? onto distant farmland",
+      "new_complication": "the disaster now poisons the fields that caused it",
+      "visible_consequence": "salt falling on green fields",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "track the dust's reach",
+      "human_belief": "the damage stays local",
+      "viewer_knows": "dust storms sweeping off the dry bed",
+      "human_knows": "salt fallout ruins the very cotton fields it fed",
+      "expected_outcome": "the damage would stay near the sea",
+      "actual_outcome": "the dust poisons the farms that caused it",
+      "belief_changed": "",
+      "decision_caused": "Alex asks whether this loop feeds itself",
+      "continuity_anchor": "dust storm",
+      "causal_link": "therefore the dry bed became a dust engine",
+      "id": 15
+    },
+    {
+      "n": 16,
+      "narration": "Salted fields grew stubborn. To rinse the poison out, farmers pulled still more river water \u2014 so the sea starved even faster.",
+      "scene_type": "educational_diagram",
+      "environment_type": "nature",
+      "image_prompt": "Alex stands at the edge of an irrigation ditch flooding a salt-crusted cotton field, muddy water sheeting across white ground; foreground a single cotton plant with wilted leaves standing in a puddle ringed by white salt as the striking element, mid-ground the flooding ditch drawing from a canal, background dry shrinking sea horizon. One faint electric-blue looping arrow etched in the mud showing water pulled from the sea back to the field. Acting-out-the-beat framing, daylight.",
+      "human_present": true,
+      "human_action": "find the feedback loop",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c14",
+          "narration_phrase": "farmers pulled still more river water",
+          "evidence_id": "e14"
+        }
+      ],
+      "evidence_id": "e14",
+      "shot_type": "medium",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "starved",
+          "faster"
+        ],
+        "title_color": "electric blue",
+        "accent_color": "red",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Salted fields grew stubborn",
+          "purpose": "setup",
+          "visual": "salt-crusted cotton field with wilted plant",
+          "state_before": "green field",
+          "state_after": "salt-crusted struggling field",
+          "required_objects": [
+            "salt-crusted cotton field",
+            "wilted cotton plant"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "farmers pulled still more river water",
+          "purpose": "action",
+          "visual": "irrigation ditch flooding water across the field",
+          "state_before": "dry ditch",
+          "state_after": "ditch sheeting muddy water over field",
+          "required_objects": [
+            "flooding irrigation ditch"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "the sea starved even faster",
+          "purpose": "consequence",
+          "visual": "electric-blue looping arrow in mud from field to shrinking sea",
+          "state_before": "field and sea separate",
+          "state_after": "loop drawn linking field back to draining sea",
+          "required_objects": [
+            "looping arrow etched in mud",
+            "shrinking sea horizon"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        }
+      ],
+      "motion_anchor_phrase": "farmers pulled still more river water",
+      "story_beat_n": 16,
+      "story_pct": 61,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_016",
+      "causal_role": "escalation",
+      "chapter": 4,
+      "caused_by": "scene_015",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "a runaway feedback loop",
+      "visible_consequence": "a vicious cycle diagram closing",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "find the feedback loop",
+      "human_belief": "the system is now self-reinforcing",
+      "viewer_knows": "an arrow looping from dust back to more diversion",
+      "human_knows": "flushing salt demands extra irrigation",
+      "expected_outcome": "the loop accelerates the loss",
+      "actual_outcome": "the collapse feeds itself",
+      "belief_changed": "",
+      "decision_caused": "Alex asks if this was inevitable or a choice",
+      "continuity_anchor": "looping arrow diagram",
+      "causal_link": "because salted soil demanded more water still",
+      "id": 16
+    },
+    {
+      "n": 17,
+      "narration": "Step five. Here's the part that stops you cold. The planners weren't blindsided. They calculated the sea would shrink \u2014 and judged cotton worth more.",
+      "scene_type": "real_world_example",
+      "environment_type": "home",
+      "image_prompt": "Alex sits at a worn desk under a bare bulb examining spread-out yellowed archival planning documents with hand-drawn maps of canals; foreground a single old drafting compass resting on a map where a projected future shoreline is drawn far inside the original coast as the striking element, mid-ground scattered blueprints, background a dim office wall. Bolt hovers close, cyan eyes wide in shocked pose reacting to the drawings. Muted amber light, archival mood.",
+      "human_present": true,
+      "human_action": "uncover intent behind the collapse",
+      "mascot_present": true,
+      "bolt_mode": "reaction",
+      "claim_refs": [
+        {
+          "claim_id": "c15",
+          "narration_phrase": "They calculated the sea would shrink",
+          "evidence_id": "e15"
+        }
+      ],
+      "evidence_id": "e15",
+      "shot_type": "close",
+      "text_overlay": "BY DESIGN",
+      "text_sub": "",
+      "text": {
+        "placement": "upper_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "calculated",
+          "worth"
+        ],
+        "title_color": "red",
+        "accent_color": "yellow",
+        "subtitle_color": "white",
+        "card": true
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "Here's the part that stops you cold",
+          "purpose": "setup",
+          "visual": "Alex opening yellowed archival planning documents",
+          "state_before": "folded closed documents",
+          "state_after": "maps spread open on desk",
+          "required_objects": [
+            "yellowed planning documents",
+            "canal maps"
+          ],
+          "forbidden_objects": [
+            "modern devices"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "They calculated the sea would shrink",
+          "purpose": "evidence",
+          "visual": "drafting compass on map showing projected shrunken shoreline",
+          "state_before": "map with original coast",
+          "state_after": "map revealing drawn future shoreline inside old coast",
+          "required_objects": [
+            "drafting compass",
+            "map with projected shoreline"
+          ],
+          "forbidden_objects": [
+            "text headline in image"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "projected future shoreline drawn inside coast",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "judged cotton worth more",
+          "purpose": "consequence",
+          "visual": "Bolt reacting shocked over the documents",
+          "state_before": "Bolt neutral",
+          "state_after": "Bolt shocked, leaning over maps",
+          "required_objects": [
+            "Bolt",
+            "planning documents"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": true,
+          "bolt_action": "Bolt leans in shocked, cyan eyes widening at the deliberate shrinkage drawings",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "They calculated the sea would shrink",
+      "story_beat_n": 17,
+      "story_pct": 68,
+      "story_role": "reversal",
+      "_role": "reversal",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_017",
+      "causal_role": "escalation",
+      "chapter": 5,
+      "caused_by": "scene_006",
+      "question_opened": "could any of it be reversed?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "documents naming the sea as expendable",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "uncover intent behind the collapse",
+      "human_belief": "maybe it was an unforeseen mistake",
+      "viewer_knows": "archival plans describing the sea's decline as acceptable",
+      "human_knows": "the shrinkage was forecast, not surprising",
+      "expected_outcome": "a tragic blunder",
+      "actual_outcome": "a deliberate trade-off",
+      "belief_changed": "an accident -> a calculated sacrifice",
+      "decision_caused": "Alex reframes the whole disaster as a choice",
+      "continuity_anchor": "archival planning documents",
+      "causal_link": "therefore the vanishing was chosen, not stumbled into",
+      "id": 17
+    },
+    {
+      "n": 18,
+      "narration": "By the 2000s, almost nothing remained. The single sea had split into scattered fragments, having lost about ninety percent of its water.",
+      "scene_type": "abstract_visualization",
+      "environment_type": "space",
+      "image_prompt": "An overhead satellite-style view of the Aral basin rendered on a lit planning table Alex leans over, the once-vast electric-blue water shape reduced to a few small disconnected fragments on tan desert; foreground a scale model where a wide blue lake shape has visibly collapsed to broken puddles as the striking element, mid-ground the table edge, background dim room. Alex traces the vanished outline with a finger. Neutral-presenter, cool overhead light.",
+      "human_present": true,
+      "human_action": "measure the final scale",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c16",
+          "narration_phrase": "lost about ninety percent of its water",
+          "evidence_id": "e16"
+        }
+      ],
+      "evidence_id": "e16",
+      "shot_type": "aerial",
+      "text_overlay": "90% GONE",
+      "text_sub": "",
+      "text": {
+        "placement": "upper_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "fragments",
+          "ninety percent"
+        ],
+        "title_color": "red",
+        "accent_color": "electric blue",
+        "subtitle_color": "white",
+        "card": true
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "almost nothing remained",
+          "purpose": "setup",
+          "visual": "overhead basin view showing shrunken water",
+          "state_before": "full lake outline",
+          "state_after": "tiny remaining water patches",
+          "required_objects": [
+            "satellite basin model",
+            "reduced blue water"
+          ],
+          "forbidden_objects": [],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": true,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "aerial",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "split into scattered fragments",
+          "purpose": "evidence",
+          "visual": "blue lake shape broken into disconnected puddles",
+          "state_before": "one connected lake",
+          "state_after": "several separated fragments",
+          "required_objects": [
+            "disconnected blue water fragments",
+            "tan desert"
+          ],
+          "forbidden_objects": [],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "aerial",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "ninety percent of its water",
+          "purpose": "consequence",
+          "visual": "Alex tracing the ghost outline of the vanished sea",
+          "state_before": "unmarked model",
+          "state_after": "finger tracing lost original coastline",
+          "required_objects": [
+            "planning table model",
+            "original coastline outline"
+          ],
+          "forbidden_objects": [],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "pull_out"
+        }
+      ],
+      "motion_anchor_phrase": "split into scattered fragments",
+      "story_beat_n": 18,
+      "story_pct": 74,
+      "story_role": "final_escalation",
+      "_role": "final_escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_018",
+      "causal_role": "reversal",
+      "chapter": 5,
+      "caused_by": "scene_016",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a sea shrinking to ponds on the map",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "measure the final scale",
+      "human_belief": "almost all of it is gone",
+      "viewer_knows": "satellite time-lapse shrinking to scattered ponds",
+      "human_knows": "the sea broke into separate lobes",
+      "expected_outcome": "heavy loss",
+      "actual_outcome": "near-total disappearance",
+      "belief_changed": "",
+      "decision_caused": "Alex asks whether anything can be saved",
+      "continuity_anchor": "satellite time-lapse",
+      "causal_link": "so decades of diversion left almost nothing",
+      "id": 18
+    },
+    {
+      "n": 19,
+      "narration": "Step six. But look north. A dam raised in 2005 caught the Syr Darya, and behind it the small northern basin slowly, genuinely began to refill.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Alex stands atop a low earthen dam wall stretching across dry flats, green-blue water pooling and rising on the near side; foreground a fresh reed shoot sprouting green at the returning waterline as the striking element, mid-ground the dam embankment holding back the water, background a small recovered basin under bright sky. Relieved pose, hopeful daylight, no mascot.",
+      "human_present": true,
+      "human_action": "look for recovery",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c17",
+          "narration_phrase": "A dam raised in 2005 caught the Syr Darya",
+          "evidence_id": "e17"
+        }
+      ],
+      "evidence_id": "e17",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "dam",
+          "refill"
+        ],
+        "title_color": "green",
+        "accent_color": "green",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "But look north",
+          "purpose": "setup",
+          "visual": "earthen dam across dry flats with water on one side",
+          "state_before": "open dry channel",
+          "state_after": "dam holding rising water",
+          "required_objects": [
+            "earthen dam wall",
+            "pooling green-blue water"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "caught the Syr Darya",
+          "purpose": "evidence",
+          "visual": "water level risen behind the dam embankment",
+          "state_before": "low trickle",
+          "state_after": "filled basin behind dam",
+          "required_objects": [
+            "dam embankment",
+            "rising water"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "genuinely began to refill",
+          "purpose": "consequence",
+          "visual": "fresh green reed shoot at the returning waterline",
+          "state_before": "bare salt shore",
+          "state_after": "green reed sprouting at wet edge",
+          "required_objects": [
+            "green reed shoot",
+            "waterline"
+          ],
+          "forbidden_objects": [
+            "text overlay"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "close",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "genuinely began to refill",
+      "story_beat_n": 19,
+      "story_pct": 79,
+      "story_role": "false_relief",
+      "_role": "false_relief",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_019",
+      "causal_role": "generalization",
+      "chapter": 6,
+      "caused_by": "scene_018",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "water rising behind a dam",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "look for recovery",
+      "human_belief": "maybe it can come back",
+      "viewer_knows": "the northern lobe rising behind a dam",
+      "human_knows": "only one river was recaptured",
+      "expected_outcome": "the sea might return",
+      "actual_outcome": "only a fraction recovered",
+      "belief_changed": "",
+      "decision_caused": "Alex checks the southern basin",
+      "continuity_anchor": "the Kokaral dam",
+      "causal_link": "but only one small basin was saved",
+      "id": 19
+    },
+    {
+      "n": 20,
+      "narration": "The south got no such rescue. Its river was never returned, so the vast southern basin stays exactly what it became \u2014 a salt desert.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "Alex stands alone at the centre of an immense flat white salt desert reaching to every horizon, no water in sight; foreground the dried skeleton of a boat's wooden ribs half-swallowed by salt crust as the striking element, mid-ground endless cracked salt polygons, background heat-shimmered emptiness under a bleached sky. Neutral-presenter pose, stark harsh light, desolate scale.",
+      "human_present": true,
+      "human_action": "confront the unhealed basin",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "claim_refs": [
+        {
+          "claim_id": "c18",
+          "narration_phrase": "the vast southern basin stays exactly what it became",
+          "evidence_id": "e18"
+        }
+      ],
+      "evidence_id": "e18",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "salt desert"
+        ],
+        "title_color": "red",
+        "accent_color": "orange",
+        "subtitle_color": "white",
+        "card": false
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "The south got no such rescue",
+          "purpose": "setup",
+          "visual": "immense flat white salt desert to the horizon",
+          "state_before": "expectation of water",
+          "state_after": "total dry salt expanse",
+          "required_objects": [
+            "white salt desert",
+            "cracked salt polygons"
+          ],
+          "forbidden_objects": [
+            "water",
+            "text overlay"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": true,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        },
+        {
+          "anchor_phrase": "Its river was never returned",
+          "purpose": "evidence",
+          "visual": "Alex small against the endless empty plain",
+          "state_before": "near view",
+          "state_after": "Alex dwarfed by scale of desert",
+          "required_objects": [
+            "salt desert horizon",
+            "Alex"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "a salt desert",
+          "purpose": "consequence",
+          "visual": "salt-buried wooden boat ribs in the crust",
+          "state_before": "expected shoreline",
+          "state_after": "boat skeleton entombed in salt",
+          "required_objects": [
+            "salt-buried boat ribs"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "Alex walks out across",
+      "story_beat_n": 20,
+      "story_pct": 85,
+      "story_role": "final_escalation",
+      "_role": "final_escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_020",
+      "causal_role": "generalization",
+      "chapter": 6,
+      "caused_by": "scene_018",
+      "question_opened": "",
+      "question_answered": "could it be reversed? only partly",
+      "new_complication": "",
+      "visible_consequence": "endless salt flat where a sea was",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "confront the unhealed basin",
+      "human_belief": "most of it is gone for good",
+      "viewer_knows": "the southern basin still white and empty",
+      "human_knows": "the Amu Darya still rarely reaches the sea",
+      "expected_outcome": "recovery everywhere",
+      "actual_outcome": "the largest part stays dead",
+      "belief_changed": "",
+      "decision_caused": "Alex weighs the full verdict",
+      "continuity_anchor": "southern salt desert",
+      "causal_link": "because its river was never restored",
+      "id": 20
+    },
+    {
+      "n": 21,
+      "narration": "The Aral is not alone. In California, Owens Lake vanished the same way. Chad's great lake withered too. Cut a lake's rivers, and it always dies.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A cracked, salt-white lakebed under harsh daylight; in the foreground a dried wooden rowboat half-buried in warm coral dust, its oars still resting in the locks. Middle ground shows a low ridge where three separate dry basins recede into the distance, each ringed by pale salt crusts. Faint red-tinged mineral stains streak the exposed ground marking where water once stood. A lone weathered mooring post tilts where a shoreline used to be. No text, no signs. Asymmetric composition, natural light, documentary realism.",
+      "human_present": true,
+      "human_action": "generalise the pattern",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "left",
+        "emphasis_words": [
+          "always dies"
+        ],
+        "title_color": "#E8E4D8",
+        "accent_color": "#C0392B",
+        "subtitle_color": "#FFFFFF",
+        "card": "none"
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "The Aral is not alone",
+          "purpose": "setup",
+          "visual": "Alex on a cracked salt lakebed with a stranded rowboat",
+          "state_before": "single familiar dry basin",
+          "state_after": "a second unfamiliar dry basin revealed",
+          "required_objects": [
+            "cracked salt lakebed",
+            "dried wooden rowboat"
+          ],
+          "forbidden_objects": [
+            "water",
+            "green vegetation"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "left_to_right"
+        },
+        {
+          "anchor_phrase": "Owens Lake vanished the same way",
+          "purpose": "evidence",
+          "visual": "a distinct dry basin with salt crusts",
+          "state_before": "first basin in view",
+          "state_after": "a clearly different second basin",
+          "required_objects": [
+            "salt-crusted dry basin",
+            "tilted mooring post"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "medium",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "Cut a lake's rivers",
+          "purpose": "consequence",
+          "visual": "three receding dry basins stretching to the horizon",
+          "state_before": "two basins shown",
+          "state_after": "three parched basins aligned together",
+          "required_objects": [
+            "three dry lake basins"
+          ],
+          "forbidden_objects": [
+            "water",
+            "boats afloat"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "three receding basins on the ridge line",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": false,
+          "shot_size": "aerial",
+          "camera_direction": "pull_out"
+        }
+      ],
+      "motion_anchor_phrase": "Cut a lake's rivers",
+      "story_beat_n": 21,
+      "story_pct": 89,
+      "story_role": "escalation",
+      "_role": "escalation",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_021",
+      "causal_role": "generalization",
+      "chapter": 6,
+      "caused_by": "scene_018",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a montage of three drained lakes",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "generalise the pattern",
+      "human_belief": "this is a repeatable failure mode",
+      "viewer_knows": "three dying lakes side by side",
+      "human_knows": "each lost its inflow to human demand",
+      "expected_outcome": "the Aral is unique",
+      "actual_outcome": "it's one of many",
+      "belief_changed": "a one-off tragedy -> a repeatable pattern",
+      "decision_caused": "Alex states the rule aloud",
+      "continuity_anchor": "three shrinking lakes",
+      "causal_link": "so cutting a lake's inflow reliably drains it",
+      "claim_refs": [],
+      "evidence_id": "e19",
+      "id": 21
+    },
+    {
+      "n": 22,
+      "narration": "Step seven. So here is the answer. The Aral Sea never dried up. It was drained \u2014 river by river, canal by canal \u2014 to grow cotton in a desert.",
+      "scene_type": "real_world_example",
+      "environment_type": "nature",
+      "image_prompt": "A full-size rusting fishing trawler beached on cracked sand under a wide pale sky, its orange-red corroded hull dominating the frame. In the foreground, a single fluffy white cotton boll rests on the dry seabed at the trawler's shadow, incongruous against the salt crust. Middle ground shows faint dried channel scars in the ground curving away toward the horizon like drained veins. Warm coral dust, muted red rust streaks. No water anywhere. No text, no signs. Asymmetric composition, documentary daylight realism.",
+      "human_present": true,
+      "human_action": "answer the title",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "shot_type": "wide",
+      "text_overlay": "DRAINED",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "drained",
+          "cotton"
+        ],
+        "title_color": "#E8E4D8",
+        "accent_color": "#E67E22",
+        "subtitle_color": "#FFFFFF",
+        "card": "soft"
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "So here is the answer",
+          "purpose": "setup",
+          "visual": "Alex beside the rusting trawler on cracked seabed",
+          "state_before": "trawler as unexplained mystery",
+          "state_after": "trawler as resolved evidence",
+          "required_objects": [
+            "rusting fishing trawler",
+            "cracked seabed"
+          ],
+          "forbidden_objects": [
+            "water",
+            "waves"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "It was drained",
+          "purpose": "consequence",
+          "visual": "dried channel scars curving away from the trawler",
+          "state_before": "empty seabed",
+          "state_after": "visible drained-river scars in the ground",
+          "required_objects": [
+            "dried channel scars in ground"
+          ],
+          "forbidden_objects": [
+            "flowing water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": true,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "aerial",
+          "camera_direction": "pull_out"
+        },
+        {
+          "anchor_phrase": "to grow cotton in a desert",
+          "purpose": "evidence",
+          "visual": "single white cotton boll in Alex's palm on the seabed",
+          "state_before": "bare cracked ground",
+          "state_after": "cotton boll held against the dead seabed",
+          "required_objects": [
+            "white cotton boll",
+            "cracked seabed"
+          ],
+          "forbidden_objects": [
+            "cotton field",
+            "green plants"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "cotton boll in Alex's hand",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        }
+      ],
+      "motion_anchor_phrase": "to grow cotton in a desert",
+      "story_beat_n": 22,
+      "story_pct": 94,
+      "story_role": "final_payoff",
+      "_role": "final_payoff",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_022",
+      "causal_role": "generalization",
+      "chapter": 7,
+      "caused_by": "scene_017",
+      "question_opened": "",
+      "question_answered": "where did an entire sea go? diverted into cotton fields",
+      "new_complication": "",
+      "visible_consequence": "the causal chain drawn end to end",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "answer the title",
+      "human_belief": "the cause is human diversion, not drought",
+      "viewer_knows": "the full chain from canals to salt desert",
+      "human_knows": "every link was a human choice",
+      "expected_outcome": "a clear verdict",
+      "actual_outcome": "the title is answered",
+      "belief_changed": "nature killed it -> people diverted its rivers",
+      "decision_caused": "Alex delivers the verdict",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "therefore the whole chain resolves the mystery",
+      "claim_refs": [],
+      "evidence_id": "e06",
+      "id": 22
+    },
+    {
+      "n": 23,
+      "narration": "This trawler was never lost to nature. It sits here as a monument \u2014 proof of a sea we chose to spend, one field at a time.",
+      "scene_type": "cinematic_intro",
+      "environment_type": "nature",
+      "image_prompt": "Low golden-hour light on the rusting fishing trawler alone on the vast cracked seabed, its long shadow stretching across the salt. In the foreground, a single small brass ship's bell lies half-buried in the coral dust, silent and green with corrosion, the one object that once rang over open water. The horizon is bare desert where a sea used to meet the sky. Alex stands small at the hull's base, hand resting on the cold metal. Warm coral and muted red tones, no glow, no text, no signs. Wide reflective composition.",
+      "human_present": true,
+      "human_action": "leave a lasting image",
+      "mascot_present": false,
+      "bolt_mode": "absent",
+      "shot_type": "wide",
+      "text_overlay": "",
+      "text_sub": "",
+      "text": {
+        "placement": "lower_third",
+        "alignment": "center",
+        "emphasis_words": [
+          "monument",
+          "chose to spend"
+        ],
+        "title_color": "#E8E4D8",
+        "accent_color": "#C0392B",
+        "subtitle_color": "#FFFFFF",
+        "card": "none"
+      },
+      "visual_beats": [
+        {
+          "anchor_phrase": "This trawler was never lost",
+          "purpose": "setup",
+          "visual": "trawler in golden light with Alex's hand on the hull",
+          "state_before": "trawler as abandoned wreck",
+          "state_after": "trawler framed as deliberate monument",
+          "required_objects": [
+            "rusting fishing trawler",
+            "cracked seabed"
+          ],
+          "forbidden_objects": [
+            "water",
+            "waves"
+          ],
+          "source": "master",
+          "asset_strategy": "master",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "push_in"
+        },
+        {
+          "anchor_phrase": "It sits here as a monument",
+          "purpose": "consequence",
+          "visual": "corroded brass ship's bell half-buried in the dust",
+          "state_before": "bell that rang over water",
+          "state_after": "silent bell buried in dry salt",
+          "required_objects": [
+            "corroded brass ship's bell",
+            "salt dust"
+          ],
+          "forbidden_objects": [
+            "water",
+            "ringing motion"
+          ],
+          "source": "detail_reframe",
+          "asset_strategy": "detail_reframe",
+          "detail_target": "half-buried ship's bell in foreground",
+          "pure_evidence": false,
+          "human_visible": false,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "detail",
+          "camera_direction": "locked"
+        },
+        {
+          "anchor_phrase": "a sea we chose to spend",
+          "purpose": "consequence",
+          "visual": "Alex small against the trawler looking to the bare horizon",
+          "state_before": "figure beside wreck",
+          "state_after": "figure dwarfed by the emptied sea",
+          "required_objects": [
+            "rusting fishing trawler",
+            "bare desert horizon"
+          ],
+          "forbidden_objects": [
+            "water"
+          ],
+          "source": "distinct",
+          "asset_strategy": "distinct",
+          "pure_evidence": false,
+          "human_visible": true,
+          "bolt_visible": false,
+          "bolt_action": "",
+          "new_information": true,
+          "shot_size": "wide",
+          "camera_direction": "pull_out"
+        }
+      ],
+      "motion_anchor_phrase": "It sits here as a monument",
+      "story_beat_n": 23,
+      "story_pct": 98,
+      "story_role": "resonant_end",
+      "_role": "resonant_end",
+      "_story_format": "standard_explainer",
+      "scene_id": "scene_023",
+      "causal_role": "verdict",
+      "chapter": 7,
+      "caused_by": "scene_022",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "camera pulls back from the trawler across the salt",
+      "opens_loop": "",
+      "closes_loop": "",
+      "human_intention": "leave a lasting image",
+      "human_belief": "the ship means something now",
+      "viewer_knows": "the trawler in the same desert as the opening",
+      "human_knows": "the full story behind it",
+      "expected_outcome": "",
+      "actual_outcome": "the object's meaning is transformed",
+      "belief_changed": "a curious wreck -> a memorial to a chosen loss",
+      "decision_caused": "Alex ends on the transformed image",
+      "continuity_anchor": "the rusting fishing trawler",
+      "causal_link": "so the opening ship now carries the full weight of the answer",
+      "claim_refs": [],
+      "evidence_id": "",
+      "id": 23
+    }
+  ],
+  "_narration_repairs": [
+    "chapter 1: spoken marker added",
+    "chapter 3: spoken marker added",
+    "chapter 4: spoken marker added",
+    "chapter 5: spoken marker added",
+    "chapter 6: spoken marker added",
+    "chapter 7: spoken marker added"
+  ],
+  "_script_cost_usd": 1.1712,
+  "_parallel_cases": [
+    {
+      "domain": "California water management",
+      "problem": "Owens River diverted by aqueduct to supply Los Angeles",
+      "solution": "Rivers rerouted away from the terminal lake",
+      "result": "Owens Lake dried into a toxic dust-bowl salt flat"
+    },
+    {
+      "domain": "Central African hydrology",
+      "problem": "Inflow rivers diverted for irrigation plus drought",
+      "solution": "Water drawn off for farming reduced feed to the lake",
+      "result": "Lake Chad shrank to a small fraction of its former size"
+    }
+  ],
+  "_causal_repairs": [
+    "beat 22: role 'verdict' -> 'generalization'",
+    "beat 2: role 'setup' -> 'escalation'",
+    "beat 3: role 'setup' -> 'escalation'",
+    "beat 4: role 'setup' -> 'escalation'",
+    "beat 17: role 'reversal' -> 'escalation'",
+    "beat 18: role 'escalation' -> 'reversal'"
+  ],
+  "_beats": 23,
+  "_peak_scene": 17,
+  "_payoffs": [
+    3,
+    9,
+    14,
+    22
+  ],
+  "_stages": [
+    "THE SHORE",
+    "THE RIVERS",
+    "THE COLLAPSE"
+  ],
+  "_story_contract": {
+    "version": 2,
+    "core_question": "How did the world's fourth-largest lake become a poisoned desert?",
+    "title_promise": "Why Did the Aral Sea Disappear?",
+    "thumbnail_promise": "A rusting ship stranded on dry desert where a sea used to be.",
+    "false_model": "The Aral Sea dried up because of drought and natural climate change.",
+    "replacement_model": "Engineers deliberately drained its two feeder rivers to grow cotton, and the loss cascaded into salt, dust, and collapse.",
+    "personal_stake": "Alex stands on a ship rusting in a desert that was once 30 metres underwater.",
+    "story_format_requested": "standard_explainer",
+    "story_format_effective": "standard_explainer",
+    "story_format_fallback_reason": "",
+    "mystery_suitable": true,
+    "anomaly": "A full-sized fishing trawler sits marooned on cracked sand, dozens of kilometres from any water.",
+    "human_subject": "Alex",
+    "human_role": "field investigator tracing the water",
+    "recurring_location": "the stranded fishing trawler on the dry seabed",
+    "subject_goal": "find out where an entire sea went",
+    "antagonistic_force": "irrigation demand that diverted the rivers feeding the sea",
+    "accepted_belief": "the Aral Sea dried up from natural drought",
+    "contradictory_evidence": "rainfall barely changed while the inflow rivers were cut to almost nothing",
+    "viewer_initial_belief": "a big lake must have evaporated because the climate got hotter",
+    "viewer_belief_after_reveal": "humans drained it by diverting its rivers, then feedback loops finished the job",
+    "opening_object": "a rusting fishing trawler",
+    "final_callback_object": "a rusting fishing trawler",
+    "character_budget": {
+      "first_act_scene_count": 7,
+      "first_act_cap": 2,
+      "overall_cap": 6,
+      "bolt_scenes": [
+        3,
+        7,
+        9,
+        12,
+        14,
+        17
+      ],
+      "overrides": [
+        {
+          "scene": 18,
+          "from": "measurement",
+          "to": "absent",
+          "reason": "character_presence_budget"
+        }
+      ]
+    },
+    "stages": [
+      "THE SHORE",
+      "THE RIVERS",
+      "THE COLLAPSE"
+    ],
+    "open_loops": [
+      {
+        "id": "where_water",
+        "question": "where did an entire sea go?",
+        "open_scene": 1,
+        "open_sec": 0.0
+      },
+      {
+        "id": "what_breaks",
+        "question": "what breaks first as the sea shrinks?",
+        "open_scene": 11,
+        "open_sec": 87.1
+      }
+    ],
+    "target_runtime_sec": 200,
+    "natural_runtime_sec": 204.9,
+    "beat_count": 23,
+    "scene_count": 23,
+    "beats": [
+      {
+        "n": 1,
+        "pct": 2,
+        "role": "cold_consequence",
+        "beat": "A full-size fishing trawler sits rusting on cracked sand where a sea 30 metres deep once rolled.",
+        "question_opened": "where did an entire sea go?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "a trawler stranded in desert",
+        "opens_loop": "where_water",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "understand why a ship is stranded in a desert",
+        "human_belief": "the water must have dried up somehow",
+        "viewer_knows": "a ship marooned on dry seabed",
+        "human_knows": "the sand around him was once seafloor",
+        "expected_outcome": "he expects a simple drought answer",
+        "actual_outcome": "the scale of the loss is staggering",
+        "belief_changed": "",
+        "decision_caused": "Alex decides to trace where the water went",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "so the vanished sea demands an explanation",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 2,
+        "pct": 6,
+        "role": "promise",
+        "beat": "The Aral Sea was once the world's fourth-largest lake, roughly the size of Ireland.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "map of a vast lake shrinking",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "grasp what was lost",
+        "human_belief": "this was a huge body of water",
+        "viewer_knows": "maps showing a vast blue lake",
+        "human_knows": "historical extent of the sea",
+        "expected_outcome": "such a giant can't just vanish",
+        "actual_outcome": "it did, within one lifetime",
+        "belief_changed": "",
+        "decision_caused": "Alex resolves to find the mechanism",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "therefore its disappearance is an extraordinary claim",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 3,
+        "pct": 9,
+        "role": "payoff",
+        "beat": "Step one: the obvious answer is drought \u2014 but rainfall here barely changed while the sea collapsed.",
+        "question_opened": "if not drought, what?",
+        "question_answered": "was it drought? no",
+        "new_complication": "the water must have been lost some other way",
+        "visible_consequence": "flat rainfall graph beside a collapsing shoreline",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "test the drought explanation",
+        "human_belief": "maybe the climate dried it out",
+        "viewer_knows": "rainfall records staying roughly flat",
+        "human_knows": "the region was always dry desert",
+        "expected_outcome": "drought explains the loss",
+        "actual_outcome": "rainfall didn't drop enough to explain it",
+        "belief_changed": "drought did it -> drought can't explain it",
+        "decision_caused": "Alex looks at the incoming rivers instead",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "but the climate barely changed",
+        "bolt_mode": "measurement"
+      },
+      {
+        "n": 4,
+        "pct": 13,
+        "role": "rules",
+        "beat": "The Aral had no river out \u2014 it survived only on two rivers flowing in: the Amu Darya and Syr Darya.",
+        "question_opened": "do the rivers still arrive?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "two blue rivers feeding a lake",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "map the water budget",
+        "human_belief": "the rivers keep it filled",
+        "viewer_knows": "two rivers feeding the lake on a map",
+        "human_knows": "a terminal lake balances inflow against evaporation",
+        "expected_outcome": "cut the inflow and the balance breaks",
+        "actual_outcome": "the rivers are the whole story",
+        "belief_changed": "",
+        "decision_caused": "Alex checks whether the rivers still reach the sea",
+        "continuity_anchor": "river map",
+        "causal_link": "therefore the sea depends entirely on those two rivers",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 5,
+        "pct": 17,
+        "role": "mechanism",
+        "beat": "The principle: a terminal lake holds level only when inflow matches evaporation \u2014 remove the inflow and it shrinks until it's gone.",
+        "question_opened": "who took the river water?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "a balance scale tipping as inflow is removed",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "state the governing rule",
+        "human_belief": "balance is fragile",
+        "viewer_knows": "a scale weighing inflow against evaporation",
+        "human_knows": "evaporation in this desert is enormous",
+        "expected_outcome": "cutting inflow guarantees shrinkage",
+        "actual_outcome": "the rule is confirmed",
+        "belief_changed": "",
+        "decision_caused": "Alex asks what took the river water",
+        "continuity_anchor": "river map",
+        "causal_link": "so if inflow drops, the sea must fall",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 6,
+        "pct": 21,
+        "role": "escalation",
+        "beat": "Step two: in the 1960s engineers dug enormous canals to divert both rivers into desert cotton fields.",
+        "question_opened": "how much water was taken?",
+        "question_answered": "who took the river water? irrigation",
+        "new_complication": "",
+        "visible_consequence": "canals slicing water into cotton fields",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "find where the water was sent",
+        "human_belief": "the water was redirected deliberately",
+        "viewer_knows": "canals branching off the rivers into fields",
+        "human_knows": "cotton needs vast irrigation",
+        "expected_outcome": "diversion will starve the sea",
+        "actual_outcome": "the rivers were carved away for farming",
+        "belief_changed": "nature drained it -> people diverted it",
+        "decision_caused": "Alex measures how much river water was taken",
+        "continuity_anchor": "river map with canals",
+        "causal_link": "therefore the inflow was engineered away",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 7,
+        "pct": 25,
+        "role": "escalation",
+        "beat": "The Karakum Canal alone drew off enough water to irrigate a desert the size of a small country.",
+        "question_opened": "",
+        "question_answered": "how much water was taken? enough to drain a country",
+        "new_complication": "",
+        "visible_consequence": "a giant canal draining across desert",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "quantify the diversion",
+        "human_belief": "the diversion was massive",
+        "viewer_knows": "a single canal snaking hundreds of kilometres",
+        "human_knows": "much water leaked or evaporated in transit",
+        "expected_outcome": "this scale must starve the sea fast",
+        "actual_outcome": "one canal alone was enormous",
+        "belief_changed": "",
+        "decision_caused": "Alex checks the sea's response",
+        "continuity_anchor": "canal on the map",
+        "causal_link": "so a single canal bled off a huge fraction of the inflow",
+        "bolt_mode": "measurement"
+      },
+      {
+        "n": 8,
+        "pct": 29,
+        "role": "false_relief",
+        "beat": "For a while it looked like a triumph: cotton exports boomed and the region grew rich.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "a hidden collapse was accelerating",
+        "visible_consequence": "prosperous cotton harvest",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "weigh the payoff of the plan",
+        "human_belief": "maybe the trade-off worked",
+        "viewer_knows": "fields of white cotton, loaded trucks",
+        "human_knows": "the sea was quietly falling",
+        "expected_outcome": "progress justified the cost",
+        "actual_outcome": "the boom hid a collapse building underneath",
+        "belief_changed": "",
+        "decision_caused": "Alex checks the shoreline over the years",
+        "continuity_anchor": "cotton fields",
+        "causal_link": "but the visible success masked the sea's decline",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 9,
+        "pct": 33,
+        "role": "payoff",
+        "beat": "Step three: with almost nothing flowing in, the sea began to drop nearly a metre every year.",
+        "question_opened": "",
+        "question_answered": "where did the water go? evaporated once inflow was cut",
+        "new_complication": "",
+        "visible_consequence": "shoreline retreating year by year",
+        "opens_loop": "",
+        "closes_loop": "where_water",
+        "human_present": true,
+        "human_intention": "see the sea's response to the cut",
+        "human_belief": "the sea is falling fast",
+        "viewer_knows": "satellite images of a receding shoreline",
+        "human_knows": "a metre a year across a huge basin is vast volume",
+        "expected_outcome": "decline would be slow",
+        "actual_outcome": "the sea fell startlingly fast",
+        "belief_changed": "",
+        "decision_caused": "Alex tracks how far the shore retreated",
+        "continuity_anchor": "receding shoreline",
+        "causal_link": "therefore starved of inflow, the level plunged",
+        "bolt_mode": "measurement"
+      },
+      {
+        "n": 10,
+        "pct": 37,
+        "role": "escalation",
+        "beat": "The trawler you're standing on was left behind when the water retreated dozens of kilometres.",
+        "question_opened": "what happened to the water that remained?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "harbour left kilometres from the water",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "connect the ship to the retreat",
+        "human_belief": "this ship was abandoned by fleeing water",
+        "viewer_knows": "the stranded trawler back in view",
+        "human_knows": "the port it left from is now inland",
+        "expected_outcome": "the retreat stranded the fleet",
+        "actual_outcome": "whole harbours were left high and dry",
+        "belief_changed": "",
+        "decision_caused": "Alex asks what the shrinking did to the water itself",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "so as the shore fled, ships were marooned",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 11,
+        "pct": 41,
+        "role": "prediction_gate",
+        "beat": "Which turns nastier first \u2014 the fish, the drinking water, or the air? Make your guess.",
+        "question_opened": "what breaks first as the sea shrinks?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "a poll of three outcomes on screen",
+        "opens_loop": "what_breaks",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "predict the next damage",
+        "human_belief": "probably the fish die first",
+        "viewer_knows": "a shrinking, thickening pool of water",
+        "human_knows": "less water means concentrating salt",
+        "expected_outcome": "one clear first casualty",
+        "actual_outcome": "the guess sets up a surprise",
+        "belief_changed": "",
+        "decision_caused": "Alex tests the water's saltiness",
+        "continuity_anchor": "shrinking pool",
+        "causal_link": "but the shrinking triggers a chain of harms",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 12,
+        "pct": 45,
+        "role": "escalation",
+        "beat": "As the water shrank, the salt left behind stayed put \u2014 so the remaining sea grew several times saltier than the ocean.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "salt crusting a thickening pool",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "measure the salinity",
+        "human_belief": "the water is turning to brine",
+        "viewer_knows": "a salinity meter climbing past ocean levels",
+        "human_knows": "salt doesn't evaporate with the water",
+        "expected_outcome": "saltier water stresses life",
+        "actual_outcome": "the sea became a brine",
+        "belief_changed": "",
+        "decision_caused": "Alex checks whether fish can survive it",
+        "continuity_anchor": "salinity meter",
+        "causal_link": "because water evaporated but salt could not",
+        "bolt_mode": "measurement"
+      },
+      {
+        "n": 13,
+        "pct": 49,
+        "role": "escalation",
+        "beat": "The salt killed nearly every fish species, and a fishery that employed tens of thousands collapsed.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "abandoned canneries",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "trace the human cost",
+        "human_belief": "the fishing towns are finished",
+        "viewer_knows": "empty canneries and idle boats",
+        "human_knows": "fish can't breed in brine",
+        "expected_outcome": "the industry ends",
+        "actual_outcome": "the entire fishery died",
+        "belief_changed": "",
+        "decision_caused": "Alex looks at what the exposed seabed became",
+        "continuity_anchor": "idle fishing boats",
+        "causal_link": "therefore the brine wiped out the fish",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 14,
+        "pct": 53,
+        "role": "payoff",
+        "beat": "Step four: the exposed seabed dried into tens of thousands of square kilometres of salty, pesticide-laced dust.",
+        "question_opened": "where does the dust go?",
+        "question_answered": "what breaks first? the fish, then the air",
+        "new_complication": "",
+        "visible_consequence": "toxic dust plain stretching away",
+        "opens_loop": "",
+        "closes_loop": "what_breaks",
+        "human_present": true,
+        "human_intention": "examine the new desert",
+        "human_belief": "the dry bed is just barren land",
+        "viewer_knows": "a white salt-crusted plain to the horizon",
+        "human_knows": "decades of farm runoff settled in that soil",
+        "expected_outcome": "empty ground, nothing more",
+        "actual_outcome": "the seabed is a reservoir of toxic dust",
+        "belief_changed": "it's just dry land -> it's poisoned dust",
+        "decision_caused": "Alex checks where the wind carries it",
+        "continuity_anchor": "salt-crusted seabed",
+        "causal_link": "so the retreating water exposed toxic sediment",
+        "bolt_mode": "measurement"
+      },
+      {
+        "n": 15,
+        "pct": 57,
+        "role": "escalation",
+        "beat": "Wind lifts this poisoned dust into storms that dump salt on farmland hundreds of kilometres away.",
+        "question_opened": "",
+        "question_answered": "where does the dust go? onto distant farmland",
+        "new_complication": "the disaster now poisons the fields that caused it",
+        "visible_consequence": "salt falling on green fields",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "track the dust's reach",
+        "human_belief": "the damage stays local",
+        "viewer_knows": "dust storms sweeping off the dry bed",
+        "human_knows": "salt fallout ruins the very cotton fields it fed",
+        "expected_outcome": "the damage would stay near the sea",
+        "actual_outcome": "the dust poisons the farms that caused it",
+        "belief_changed": "",
+        "decision_caused": "Alex asks whether this loop feeds itself",
+        "continuity_anchor": "dust storm",
+        "causal_link": "therefore the dry bed became a dust engine",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 16,
+        "pct": 61,
+        "role": "escalation",
+        "beat": "Salted fields needed even more river water to flush them \u2014 so farmers diverted still more, starving the sea further.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "a runaway feedback loop",
+        "visible_consequence": "a vicious cycle diagram closing",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "find the feedback loop",
+        "human_belief": "the system is now self-reinforcing",
+        "viewer_knows": "an arrow looping from dust back to more diversion",
+        "human_knows": "flushing salt demands extra irrigation",
+        "expected_outcome": "the loop accelerates the loss",
+        "actual_outcome": "the collapse feeds itself",
+        "belief_changed": "",
+        "decision_caused": "Alex asks if this was inevitable or a choice",
+        "continuity_anchor": "looping arrow diagram",
+        "causal_link": "because salted soil demanded more water still",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 17,
+        "pct": 68,
+        "role": "reversal",
+        "beat": "The stunning twist: the sea wasn't sacrificed by accident \u2014 planners knew it would shrink and decided cotton was worth it.",
+        "question_opened": "could any of it be reversed?",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "documents naming the sea as expendable",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "uncover intent behind the collapse",
+        "human_belief": "maybe it was an unforeseen mistake",
+        "viewer_knows": "archival plans describing the sea's decline as acceptable",
+        "human_knows": "the shrinkage was forecast, not surprising",
+        "expected_outcome": "a tragic blunder",
+        "actual_outcome": "a deliberate trade-off",
+        "belief_changed": "an accident -> a calculated sacrifice",
+        "decision_caused": "Alex reframes the whole disaster as a choice",
+        "continuity_anchor": "archival planning documents",
+        "causal_link": "therefore the vanishing was chosen, not stumbled into",
+        "bolt_mode": "reaction"
+      },
+      {
+        "n": 18,
+        "pct": 74,
+        "role": "final_escalation",
+        "beat": "By the 2000s the Aral had split into fragments and lost about 90 percent of its water.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "a sea shrinking to ponds on the map",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "measure the final scale",
+        "human_belief": "almost all of it is gone",
+        "viewer_knows": "satellite time-lapse shrinking to scattered ponds",
+        "human_knows": "the sea broke into separate lobes",
+        "expected_outcome": "heavy loss",
+        "actual_outcome": "near-total disappearance",
+        "belief_changed": "",
+        "decision_caused": "Alex asks whether anything can be saved",
+        "continuity_anchor": "satellite time-lapse",
+        "causal_link": "so decades of diversion left almost nothing",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 19,
+        "pct": 79,
+        "role": "false_relief",
+        "beat": "A relief: in the north, a dam built in 2005 trapped the Syr Darya and the small Aral began refilling.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "water rising behind a dam",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "look for recovery",
+        "human_belief": "maybe it can come back",
+        "viewer_knows": "the northern lobe rising behind a dam",
+        "human_knows": "only one river was recaptured",
+        "expected_outcome": "the sea might return",
+        "actual_outcome": "only a fraction recovered",
+        "belief_changed": "",
+        "decision_caused": "Alex checks the southern basin",
+        "continuity_anchor": "the Kokaral dam",
+        "causal_link": "but only one small basin was saved",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 20,
+        "pct": 85,
+        "role": "final_escalation",
+        "beat": "But the vast southern Aral, still starved by the Amu Darya's diversion, remains a dry salt desert.",
+        "question_opened": "",
+        "question_answered": "could it be reversed? only partly",
+        "new_complication": "",
+        "visible_consequence": "endless salt flat where a sea was",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "confront the unhealed basin",
+        "human_belief": "most of it is gone for good",
+        "viewer_knows": "the southern basin still white and empty",
+        "human_knows": "the Amu Darya still rarely reaches the sea",
+        "expected_outcome": "recovery everywhere",
+        "actual_outcome": "the largest part stays dead",
+        "belief_changed": "",
+        "decision_caused": "Alex weighs the full verdict",
+        "continuity_anchor": "southern salt desert",
+        "causal_link": "because its river was never restored",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 21,
+        "pct": 89,
+        "role": "escalation",
+        "beat": "The same story repeats wherever a lake's inflow is diverted \u2014 Owens Lake and Lake Chad both withered the same way.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "a montage of three drained lakes",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "generalise the pattern",
+        "human_belief": "this is a repeatable failure mode",
+        "viewer_knows": "three dying lakes side by side",
+        "human_knows": "each lost its inflow to human demand",
+        "expected_outcome": "the Aral is unique",
+        "actual_outcome": "it's one of many",
+        "belief_changed": "a one-off tragedy -> a repeatable pattern",
+        "decision_caused": "Alex states the rule aloud",
+        "continuity_anchor": "three shrinking lakes",
+        "causal_link": "so cutting a lake's inflow reliably drains it",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 22,
+        "pct": 94,
+        "role": "final_payoff",
+        "beat": "So the Aral Sea didn't dry up \u2014 it was drained, river by river, to grow cotton in a desert.",
+        "question_opened": "",
+        "question_answered": "where did an entire sea go? diverted into cotton fields",
+        "new_complication": "",
+        "visible_consequence": "the causal chain drawn end to end",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "answer the title",
+        "human_belief": "the cause is human diversion, not drought",
+        "viewer_knows": "the full chain from canals to salt desert",
+        "human_knows": "every link was a human choice",
+        "expected_outcome": "a clear verdict",
+        "actual_outcome": "the title is answered",
+        "belief_changed": "nature killed it -> people diverted its rivers",
+        "decision_caused": "Alex delivers the verdict",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "therefore the whole chain resolves the mystery",
+        "bolt_mode": "absent"
+      },
+      {
+        "n": 23,
+        "pct": 98,
+        "role": "resonant_end",
+        "beat": "This trawler isn't stranded by nature \u2014 it's a monument to a sea we chose to spend.",
+        "question_opened": "",
+        "question_answered": "",
+        "new_complication": "",
+        "visible_consequence": "camera pulls back from the trawler across the salt",
+        "opens_loop": "",
+        "closes_loop": "",
+        "human_present": true,
+        "human_intention": "leave a lasting image",
+        "human_belief": "the ship means something now",
+        "viewer_knows": "the trawler in the same desert as the opening",
+        "human_knows": "the full story behind it",
+        "expected_outcome": "",
+        "actual_outcome": "the object's meaning is transformed",
+        "belief_changed": "a curious wreck -> a memorial to a chosen loss",
+        "decision_caused": "Alex ends on the transformed image",
+        "continuity_anchor": "the rusting fishing trawler",
+        "causal_link": "so the opening ship now carries the full weight of the answer",
+        "bolt_mode": "absent"
+      }
+    ]
+  },
+  "_story_format": "standard_explainer",
+  "_story_format_requested": "standard_explainer",
+  "_story_format_fallback_reason": "",
+  "_character_plan": {
+    "first_act_scene_count": 7,
+    "first_act_cap": 2,
+    "overall_cap": 6,
+    "bolt_scenes": [
+      3,
+      7,
+      9,
+      12,
+      14,
+      17
+    ],
+    "overrides": [
+      {
+        "scene": 18,
+        "from": "measurement",
+        "to": "absent",
+        "reason": "character_presence_budget"
+      }
+    ]
+  },
+  "_research_dossier": {}
+}
