@@ -364,7 +364,7 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
 
 
 @pytest.mark.parametrize("legacy,authorized", [(True, True), (False, True), (True, False)])
-@pytest.mark.parametrize("failure_type", ["json", "sources", "claims"])
+@pytest.mark.parametrize("failure_type", ["json", "sources", "claims", "negation"])
 def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
         monkeypatch, legacy, authorized, failure_type):
     from longform_research import LEGACY_DOSSIER_JSON_ERROR
@@ -397,6 +397,12 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
         new_error = ("Claim ledger failed after script/fact-check before asset spend: "
                      "The scene references a claim absent from the dossier. [scene 7]")
         fragment = "Claim ledger failed after script/fact-check before asset spend:"
+    elif failure_type == "negation":
+        old_error = ("Research dossier failed before scripting [16 quotable excerpts available; "
+                     "support_contradicts_claimx2]: The claim and its support excerpt disagree "
+                     "about negation.; The claim and its support excerpt disagree about negation.")
+        new_error = "Research dossier failed before scripting [missing_claimsx1]: no claims"
+        fragment = "support_contradicts_claimx"
 
     class Store:
         def get_job(self, job_id):
@@ -435,6 +441,16 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
 def test_source_recovery_never_rearms_unrelated_evidence_failures(error):
     from longform_research import is_legacy_weak_source_failure
     assert not is_legacy_weak_source_failure(error)
+
+
+@pytest.mark.parametrize("error", [
+    "Research dossier failed before scripting [16 quotable excerpts available; support_contradicts_claimx2, missing_scopex1]: Bad evidence.",
+    "Research dossier failed before scripting [16 quotable excerpts available; support_contradicts_claimx2]: Unexpected failure.",
+    "Other failure support_contradicts_claimx2",
+])
+def test_negation_recovery_never_rearms_unrelated_evidence_failures(error):
+    from longform_research import is_legacy_negation_scope_failure
+    assert not is_legacy_negation_scope_failure(error)
 
 
 def test_research_failure_is_not_reported_as_completed_or_graded(monkeypatch):
