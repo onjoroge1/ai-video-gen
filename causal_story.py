@@ -25,6 +25,7 @@ illustrated lane consumes it rather than reimplementing it.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -34,7 +35,27 @@ SCHEMA_VERSION = "causal_story_v1"
 # The mechanism must land inside this fraction of runtime. The reference states its principle at
 # 36s of 220s (16.4%) and spends the remaining 84% earning it. This is the single largest
 # difference from the "reveal an answer every so often" shape it replaces.
-MECHANISM_DEADLINE_PCT = 0.20
+# Measured, not chosen, and re-measured as the corpus grew. Five reference videos place the
+# mechanism at 16.4%, 17.3%, 19.4%, 19.6% and 19.7% of runtime — every one inside this line. It was
+# originally fitted to two of them and four later references agreed, so it is a real property of
+# the format rather than an artifact of a small sample. (hippo_weed sits at 54.8%, but that is
+# almost_happened_plan, which carries its own 60% override: a plan that never ran cannot state why
+# it would have failed until late.)
+#
+# Overridable because a run may need to ship despite a late mechanism, NOT because the number is
+# soft. Raising it moves the output away from the references the corpus exists to match.
+#
+# RAISING IT ALSO DOES NOT WORK, which was measured rather than argued. The spine prompt tells the
+# planner the mechanism "must sit in the first {pct}% of the list", so the planner aims at the
+# boundary and drifts a few seconds past it wherever the boundary is:
+#
+#     deadline 20% (38s)  ->  mechanism landed at 43s
+#     deadline 26% (48s)  ->  mechanism landed at 55s
+#
+# The beat moved LATER when the line moved later. No value of this constant fixes LATE_MECHANISM;
+# the planner has to be given a TARGET near where the references actually sit (~18%) instead of a
+# ceiling to drift up against, because a ceiling gets treated as a target.
+MECHANISM_DEADLINE_PCT = float(os.environ.get("MECHANISM_DEADLINE_PCT", "0.20"))
 # Reference hooks are 15 and 8 words. The cap is the promise, not the topic.
 MAX_HOOK_WORDS = 18
 # "Except the problem is not solved." is 6 words. A long hinge is not a hinge.
@@ -156,7 +177,7 @@ def _check_engine(steps: list[dict], engine: dict | None, issues: list[dict]) ->
             steps[-1]["step_id"]))
 
 
-def _check_roles(steps: list[dict], issues: list[dict]) -> None:
+def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = None) -> None:
     counts: dict[str, int] = {}
     for step in steps:
         if step["role"] not in STEP_ROLES:
@@ -187,7 +208,16 @@ def _check_roles(steps: list[dict], issues: list[dict]) -> None:
             f"found {counts.get(ESCALATION, 0)} escalation steps; a causal chain needs at least "
             f"{MIN_ESCALATIONS} or it is a single cause-and-effect, not a spiral"))
 
-    if counts.get(HINGE) and not counts.get(FALSE_RESOLUTION):
+    # Only for engines that HAVE a false resolution. accidental_invention requires a hinge and has
+    # no false_resolution in its sequence at all -- its own comment says "the hinge here is the
+    # anomaly rather than a broken promise, so a false resolution is optional: many of these
+    # stories have no moment of apparent success to break". Firing unconditionally made that engine
+    # impossible to satisfy for ANY input, and repair_chain never inserts a false resolution, so
+    # nothing downstream could rescue it.
+    engine_has_false_resolution = FALSE_RESOLUTION in ((engine or {}).get("sequence") or ())
+    if engine is not None and not engine_has_false_resolution:
+        pass
+    elif counts.get(HINGE) and not counts.get(FALSE_RESOLUTION):
         issues.append(_issue(
             "UNEARNED_HINGE",
             "a hinge only lands after a false resolution; state that the fix worked before "
@@ -492,7 +522,7 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
                 "steps": steps}
 
     hook = payload.get("hook") if isinstance(payload.get("hook"), dict) else {}
-    _check_roles(steps, issues)
+    _check_roles(steps, issues, engine)
     _check_order(steps, issues)
     _check_engine(steps, engine, issues)
     _check_chain(steps, issues)

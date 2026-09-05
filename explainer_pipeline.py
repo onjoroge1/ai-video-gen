@@ -1747,6 +1747,47 @@ def _opening_expansion_direction(story_format: str, is_first: bool) -> str:
     )
 
 
+def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> str:
+    """Choose the narrative engine BEFORE the beat sheet is written.
+
+    The engine used to be chosen after the sheet existed, by _assign_causal_spine, and that call is
+    forbidden to reorder what it labels — "the order is fixed and the words are not yours to
+    change". So the sheet was written to one hardcoded milestone order and then judged against
+    whichever engine was picked afterwards. Three of the five engines cannot accept that order:
+    accumulating_indictment and power_reversal both run false_resolution BEFORE intervention and
+    mechanism BEFORE hinge, and accidental_invention has no false_resolution at all. ENGINE_ORDER
+    was therefore structurally guaranteed for the two engines the reference corpus backs best, and
+    it fired on run after run.
+
+    Deciding first costs one small call and lets the sheet be written in an order its own engine
+    accepts. Falls back to the default engine on any failure: this reorders work, it must never
+    block it.
+    """
+    import story_engines as _se
+
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=400,
+            messages=[{"role": "user", "content":
+                       f'A {duration_sec}-second explainer will answer: "{question}"\n\n'
+                       "Choose the ONE narrative engine whose shape this true story actually has. "
+                       "Do not pick by topic; pick by how the story turns.\n"
+                       + _se.catalogue()
+                       + '\n\nReturn ONLY JSON: {"engine":"<engine id>","why":"<one sentence>"}'}],
+        )
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(response.usage))
+        parsed, _ = _parse_script_json(response.content[0].text)
+        chosen = _s((parsed or {}).get("engine"))
+        if chosen in _se.ENGINES:
+            print(f"[engine] {chosen} chosen before the beat sheet")
+            return chosen
+    except Exception as exc:
+        print(f"[engine] selection unavailable ({type(exc).__name__}), "
+              f"falling back to {_se.DEFAULT_ENGINE}: {str(exc)[:100]}")
+    return _se.DEFAULT_ENGINE
+
+
 def _assign_causal_spine(beats: list, question: str, duration_sec: int,
                          mechanism_beat: int = 0,
                          pinned_engine: str = "") -> tuple[list, float]:
@@ -1994,12 +2035,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     causal_keys = ""
     causal_rules = ""
     causal_cases = ""
+    sheet_engine_id = ""
     if causal_lane:
         import causal_story as _cs
+        import story_engines as _se
+
+        # DECIDED HERE, before a single beat is written. On a replan the engine is already known,
+        # so no second selection call is made and the retry rewrites the sheet against the SAME
+        # contract that just failed instead of a fresh one.
+        sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
+                           else _select_story_engine(question, duration_sec))
+        sheet_engine = _se.get(sheet_engine_id)
+        # The order this engine actually runs, not one order for all five.
+        engine_order = _se.expected_order(sheet_engine_id)
+        engine_singletons = [role for role in sheet_engine.get("required") or ()
+                             if role not in _cs._REPEATABLE]
+        # The deadline the VALIDATOR will use. The prompt hardcoded 20 while causal_story reads a
+        # per-engine value, so almost_happened_plan and accidental_invention were being asked for a
+        # principle three times earlier than they are judged by.
+        engine_deadline = int(round(
+            _se.mechanism_deadline_pct(sheet_engine, _cs.MECHANISM_DEADLINE_PCT) * 100))
+        # AIM AT THE MIDDLE OF THE BAND, NOT ITS EDGE. The planner writes `pct` estimates, but the
+        # storyboard re-derives the real timing from narration word counts, so a beat planned AT the
+        # limit lands just past it: one render put the mechanism at 37s against a 36s line and died
+        # one second over. The five reference videos place it at 16.4%, 17.3%, 19.4%, 19.6% and
+        # 19.7% — a band whose centre is ~18%, not its ceiling. Asking for three quarters of the
+        # deadline targets that centre and leaves room for the drift.
+        #
+        # This is the opposite of raising the deadline, which was measured making things WORSE
+        # (43s -> 55s): the gate is unchanged at the corpus-backed value and only the AIM moves in.
+        engine_target = max(8, int(round(engine_deadline * 0.75)))
         causal_cases = (
             '"mechanism_beat":<int — the beat number that STATES THE GOVERNING PRINCIPLE in one '
-            'sentence: the rule that makes everything after it inevitable. Its pct MUST be under '
-            f'{int(_cs.MECHANISM_DEADLINE_PCT * 100)}. This is a structural slot like peak_scene, '
+            'sentence: the rule that makes everything after it inevitable. Aim for pct '
+            f'{engine_target} and NEVER exceed {engine_deadline}. This is a structural slot like '
+            'peak_scene, '
             'not a preference: plan the beat there. Four measured runs placed the explanation near '
             '35% and every one was rejected before render, because a labelling pass downstream can '
             'only mark the beat you wrote — it cannot move it earlier>,'
@@ -2015,23 +2085,40 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
             "the situation inverts. Name the shape, not the topic; do not summarize the video.\n"
             "\nDECLARED CAUSAL CHAIN — this video is a chain, not a list:\n"
-            f"A. Roles run in order: setup, intervention, false_resolution, hinge, mechanism, then at "
-            f"least {_cs.MIN_ESCALATIONS} escalation beats, then reversal, then optional "
-            "generalization, then tool or verdict LAST. setup/intervention/false_resolution/hinge/"
-            "mechanism/reversal appear EXACTLY ONCE.\n"
-            "A2. BEFORE YOU RETURN, COUNT THEM. Walk your beats and tally how many carry each of "
-            "setup, intervention, false_resolution, hinge, mechanism and reversal. Each tally must "
-            "be exactly 1. A second setup or a third false_resolution is the most common way this "
-            "structure fails, and the run is rejected before any spend when it happens. Only "
-            "escalation and generalization may repeat.\n"
+            f"A. This story runs THE {sheet_engine['name'].upper()}: "
+            + " -> ".join(engine_order)
+            + f". Roles run in that order, with at least {_cs.MIN_ESCALATIONS} escalation beats "
+            f"before the reversal and {sheet_engine['closing']} LAST. "
+            + "/".join(engine_singletons)
+            + " appear EXACTLY ONCE.\n"
+            + (f"A1. This engine has NO false_resolution — it does not have a moment of apparent "
+               "success to break. Do not write one.\n"
+               if _cs.FALSE_RESOLUTION not in engine_order else "")
+            + "A2. BEFORE YOU RETURN, COUNT THEM. Walk your beats and tally how many carry each of "
+            + ", ".join(engine_singletons)
+            + ". Each tally must be exactly 1. A second setup or a third false_resolution is the "
+            "most common way this structure fails, and the run is rejected before any spend when "
+            "it happens. Only escalation and generalization may repeat.\n"
             "A3. Nothing follows the reversal except generalization and the closing tool or "
             "verdict. If you have an escalation after the reversal, it belongs before it.\n"
             "B. Every beat except the setup sets caused_by to the number of an EARLIER beat it "
             "follows from. If a beat would still make sense in a different position it is a fact, "
             "not a beat, and must be cut.\n"
-            f"C. mechanism_beat names the beat that states the governing principle, and its pct "
-            f"must be under {int(_cs.MECHANISM_DEADLINE_PCT * 100)}. Write that beat early and give "
-            "it the rule in one sentence. Everything after it demonstrates it — do not restate the "
+            + (f"C. mechanism_beat names the beat that states the governing principle. Plan it "
+               f"at pct {engine_target}; past {engine_deadline} the run is rejected, and a beat "
+               "planned at the limit lands past it once the real narration is timed. EVERY "
+               "MILESTONE BEFORE IT GOES INSIDE THAT WINDOW TOO, IN ORDER: "
+               + " -> ".join(engine_order[:engine_order.index(_cs.MECHANISM) + 1])
+               + f" all land under pct {engine_target}, which means the opening runs at pace and "
+               "each of those beats is short. The reference video does exactly this: five "
+               "milestones inside the first 36 seconds of 220. Pulling the mechanism early while "
+               "leaving an earlier milestone behind it is rejected as an ordering failure, so "
+               "move the whole opening up rather than reordering it. "
+               if _cs.MECHANISM in engine_order else
+               f"C. mechanism_beat names the beat that states the governing principle, and its "
+               f"pct must be under {engine_deadline}. ")
+            + "Write that beat early and give "
+            + "it the rule in one sentence. Everything after it demonstrates it — do not restate the "
             "answer at intervals. A cold-open consequence and an early payoff do NOT satisfy this: "
             "they say WHAT happened, the mechanism says WHY it had to.\n"
             "D. The hinge beat is at most "
@@ -2198,8 +2285,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '8-14% fast PROMISE + name the stages + tease the biggest twist/fork to come, folded with ONE '
         'quick prediction_gate about the DEEPER danger (not the opener) · 14-28% rules + second payoff + '
         'a brief false_relief · 28-40% first escalation + a rehook ("but that assumes it is the only '
-        'thing that changed") · 40-55% mechanism (ONE relationship, shown not defined, ONE metaphor max) '
-        '+ third payoff + a reversal · 55-65% escalate toward the deepest stake · ~65-75% PEAK (the '
+        'thing that changed") · '
+        # On the causal lane the ENGINE owns where the mechanism lands, and rule C above states it
+        # once. This block used to name 40-55% as well: two unconditional instructions ~100 lines
+        # apart, neither referencing the other, the later one favoured by recency. Four measured
+        # runs put the principle near 35% -- the average of the two -- and raising rule C's deadline
+        # from 20% to 26% pushed it LATER still (43s -> 55s), because that weakened only the
+        # instruction pulling early. Twelve renders died on LATE_MECHANISM before this was found.
+        + ('40-55% third payoff + a reversal · ' if causal_lane else
+           '40-55% mechanism (ONE relationship, shown not defined, ONE metaphor max) '
+           '+ third payoff + a reversal · ')
+        + '55-65% escalate toward the deepest stake · ~65-75% PEAK (the '
         'branch reveal / most counter-intuitive answer) · 76-82% false_relief · 83-92% final_escalation '
         '· 92-97% final_payoff (answers the title, resolves the exact experiment) · 97-100% resonant_end.'
     )
@@ -2285,8 +2381,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             planned_mechanism = int(plan.get("mechanism_beat") or 0)
         except (TypeError, ValueError):
             planned_mechanism = 0
+        # Pinned to the engine the sheet was PLANNED for. Passing pinned_engine here would leave
+        # the first pass free to re-pick after the sheet was already written to sheet_engine_id's
+        # order, which is the mismatch this whole change removes.
         beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                 planned_mechanism, pinned_engine)
+                                                 planned_mechanism, sheet_engine_id)
         cost += spine_cost
         # RETRIEVAL HAPPENS HERE, not earlier, because the engine is not known until this call
         # returns: _assign_causal_spine chooses it. The corpus is keyed on engine, so a blueprint

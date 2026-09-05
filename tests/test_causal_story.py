@@ -756,3 +756,43 @@ def test_an_engine_that_has_generalization_still_gets_it():
              {"step_id": "s3", "role": "tool", "caused_by": "s2", "chapter": 2}]
     fixed, _ = cs.repair_chain(steps, se.get(se.BACKFIRING_SOLUTION))
     assert fixed[1]["role"] == cs.GENERALIZATION
+
+
+def test_accidental_invention_can_pass_without_a_false_resolution():
+    """It requires a hinge and has no false_resolution in its sequence — "the hinge here is the
+    anomaly rather than a broken promise, so a false resolution is optional: many of these stories
+    have no moment of apparent success to break". UNEARNED_HINGE fired unconditionally, so this
+    engine could not pass validation for ANY input, and repair_chain never inserts a false
+    resolution so nothing downstream could rescue it."""
+    engine = se.get(se.ACCIDENTAL_INVENTION)
+    roles = ["setup", "intervention", "hinge", "mechanism",
+             "escalation", "escalation", "reversal", "tool"]
+    story = {
+        "title": "T", "runtime_sec": 200.0, "format_tag": "explained like you are five",
+        "engine": se.ACCIDENTAL_INVENTION, "opening_object": "the petri dish",
+        "start_state": "a routine culture is left out over a holiday",
+        "hook": {"line": "The mould that ruined the experiment saved more lives than any drug."},
+        "steps": [
+            {"step_id": f"s{i}", "role": role, "start_sec": round(i * 200.0 / len(roles), 1),
+             "label": f"beat {i}",
+             "situation": ("The plate is spoiled." if role == "hinge"
+                           else f"Beat {i} carries the chain forward with a concrete consequence."),
+             "chapter": min(4, 1 + i // 2), **({} if i == 0 else {"caused_by": f"s{i - 1}"})}
+            for i, role in enumerate(roles)],
+        "parallel_cases": [],
+    }
+    report = cs.validate_causal_story(story, engine=engine)
+    codes = [e.get("code") for e in (report.get("errors") or [])]
+    assert "UNEARNED_HINGE" not in codes, "an engine with no false resolution cannot earn one"
+
+
+def test_an_engine_that_has_a_false_resolution_still_requires_one():
+    """The check is narrowed to engines without the slot, not removed."""
+    steps = [{"step_id": "s1", "role": "setup", "caused_by": "", "chapter": 1},
+             {"step_id": "s2", "role": "hinge", "caused_by": "s1", "chapter": 1},
+             {"step_id": "s3", "role": "mechanism", "caused_by": "s2", "chapter": 2},
+             {"step_id": "s4", "role": "reversal", "caused_by": "s3", "chapter": 2},
+             {"step_id": "s5", "role": "tool", "caused_by": "s4", "chapter": 3}]
+    issues = []
+    cs._check_roles(steps, issues, se.get(se.BACKFIRING_SOLUTION))
+    assert "UNEARNED_HINGE" in [i.get("code") for i in issues]
