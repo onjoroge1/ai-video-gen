@@ -52,6 +52,7 @@ from longform_shots import (
 from longform_research import (
     parse_research_dossier_text,
     filter_disallowed_source_claims,
+    quarantine_contradicted_claims,
     _canonical_url,
     claim_context_for_prompt,
     validate_claim_joins,
@@ -3276,6 +3277,9 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         f"candidate(s); checking {source_filter['retained_count']} remaining claim(s)")
     _bind_support_quotes(dossier)
     _verify_claims_against_sources(dossier, log=log)
+    # A directly contradicted candidate is unusable evidence, not a reason to discard the entire
+    # independently verified ledger. Preserve it in the audit trail and keep it out of prompts.
+    dossier = quarantine_contradicted_claims(dossier)
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
     # Save accepted and excluded evidence before scripting can fail. This private

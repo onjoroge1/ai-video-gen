@@ -7,7 +7,11 @@ from types import SimpleNamespace
 import pytest
 
 import explainer_pipeline as ep
-from longform_research import validate_claim_joins, validate_research_dossier
+from longform_research import (
+    quarantine_contradicted_claims,
+    validate_claim_joins,
+    validate_research_dossier,
+)
 from test_causal_lane_integration import _capture_beat_prompt, _capture_expansion_prompt
 from test_longform_research_phase2 import _dossier
 from durable_execution import AmbiguousProviderOutcome, BudgetExceeded, activate
@@ -87,6 +91,33 @@ def test_negated_source_quote_cannot_support_a_positive_claim():
 
     assert report["passed"] is False
     assert "support_contradicts_claim" in _codes(report)
+
+
+def test_incidental_negative_clause_does_not_invalidate_supported_fact():
+    dossier = _dossier()
+    quote = ("No archive proves every detail of the anecdote. However, the article describes "
+             "Delhi officials paying cobra bounties.")
+    dossier["claims"][0]["claim"] = "The article describes Delhi officials paying cobra bounties."
+    dossier["claims"][0]["support_quote"] = quote
+    dossier["citation_records"][0]["cited_text"] = quote
+
+    report = validate_research_dossier(dossier)
+
+    assert "support_contradicts_claim" not in _codes(report)
+
+
+def test_directly_contradicted_candidate_is_quarantined_before_writing():
+    dossier = _dossier()
+    dossier["claims"][0]["claim"] = "The archive documents rat breeding for bounties."
+    dossier["claims"][0]["support_quote"] = "The archive does not document rat breeding for bounties."
+
+    filtered = quarantine_contradicted_claims(dossier)
+
+    assert filtered["claims"] == []
+    assert filtered["excluded_claims"][-1]["reason"] == "support_contradicts_claim"
+    assert filtered["semantic_source_filter"] == {
+        "version": 1, "candidate_count": 1, "retained_count": 0, "excluded_count": 1,
+    }
 
 
 def test_operator_block_keeps_the_end_of_an_approved_direction():

@@ -141,6 +141,8 @@ _HEDGE_WORDS = re.compile(r"\b(may|might|could|possibly|plausibly|in this scenar
 _INSTANT_WORDS = re.compile(r"\b(instant(?:ly)?|immediate(?:ly)?|at once|in seconds)\b", re.I)
 _LONG_TIMESCALE_WORDS = re.compile(r"\b(years?|decades?|centuries|millennia|million|billion|geologic|evolutionary)\b", re.I)
 _NEGATION_WORDS = re.compile(r"\b(?:no|not|never|neither|nor|without|cannot|can't|didn't|doesn't|isn't|wasn't|weren't)\b", re.I)
+_NEGATION_CLAUSE_SPLIT = re.compile(
+    r"(?<=[.!?;])\s+|,\s+(?=(?:but|yet|while|although|however)\b)", re.I)
 _NUMERIC_OR_CAUSAL = re.compile(
     r"(?:\d|%|percent|kilomet|meter|mile|degree|because|causes?|therefore|leads? to|results? in)", re.I
 )
@@ -200,6 +202,59 @@ def _claim_matches_assertion(claim: dict, assertion: str) -> bool:
     shared = claim_words & assertion_words
     required = 1 if min(len(claim_words), len(assertion_words)) <= 3 else 2
     return len(shared) >= required and len(shared) / min(len(claim_words), len(assertion_words)) >= 0.25
+
+
+def _support_contradicts_claim(claim_text: str, support_quote: str) -> bool:
+    """Detect opposite polarity only when the negation governs the same proposition.
+
+    A quote often contains an incidental negative clause (for example, "no archive proves the
+    anecdote") beside a positive fact that supports the ledger claim. Merely comparing whether
+    either *whole string* contains "not" rejects such evidence. Require the negated clause and
+    the positive text to share most of the smaller proposition's content words.
+    """
+    claim_negative = bool(_NEGATION_WORDS.search(claim_text))
+    quote_negative = bool(_NEGATION_WORDS.search(support_quote))
+    if claim_negative == quote_negative:
+        return False
+    negative_text = claim_text if claim_negative else support_quote
+    positive_text = support_quote if claim_negative else claim_text
+    positive_words = _semantic_words(positive_text)
+    if not positive_words:
+        return False
+    for clause in _NEGATION_CLAUSE_SPLIT.split(negative_text):
+        if not _NEGATION_WORDS.search(clause):
+            continue
+        negative_words = _semantic_words(_NEGATION_WORDS.sub(" ", clause))
+        if not negative_words:
+            continue
+        shared = negative_words & positive_words
+        smaller = min(len(negative_words), len(positive_words))
+        if len(shared) >= 2 and len(shared) / smaller >= 0.6:
+            return True
+    return False
+
+
+def quarantine_contradicted_claims(dossier: dict) -> dict:
+    """Keep directly contradicted candidates in audit data but out of writing context."""
+    result = copy.deepcopy(dossier)
+    retained, excluded = [], list(result.get("excluded_claims") or [])
+    contradicted = 0
+    for claim in result.get("claims") or []:
+        if _support_contradicts_claim(
+                _text(claim.get("claim")), _text(claim.get("support_quote"))):
+            excluded.append({"claim": claim, "reason": "support_contradicts_claim"})
+            contradicted += 1
+        else:
+            retained.append(claim)
+    result["claims"] = retained
+    result["excluded_claims"] = excluded
+    result["semantic_source_filter"] = {
+        "version": 1,
+        "candidate_count": len(retained) + contradicted,
+        "retained_count": len(retained),
+        "excluded_count": contradicted,
+    }
+    return result
 
 
 def _issue(code: str, message: str, *, claim_id: str = "", scene: int | None = None) -> dict:
@@ -279,6 +334,17 @@ def is_legacy_weak_source_failure(error: str) -> bool:
     return match.group(2) == "; ".join([message] * min(int(match.group(1)), 3))
 
 
+def is_legacy_negation_scope_failure(error: str) -> bool:
+    """Recognize only PR81's whole-string negation error, never mixed evidence failures."""
+    match = re.fullmatch(
+        r"Research dossier failed before scripting \[\d+ quotable excerpts available; "
+        r"support_contradicts_claimx([1-9]\d*)\]: (.+)", error or "")
+    if not match:
+        return False
+    message = "The claim and its support excerpt disagree about negation."
+    return match.group(2) == "; ".join([message] * min(int(match.group(1)), 3))
+
+
 def validate_research_dossier(dossier: dict) -> dict:
     """Validate provider output without trusting its self-reported source quality."""
     errors: list[dict] = []
@@ -328,9 +394,7 @@ def validate_research_dossier(dossier: dict) -> dict:
                 "The claim support excerpt was not observed in a provider citation for its source URL.",
                 claim_id=claim_id))
         claim_text = _text(claim.get("claim"))
-        if (support_quote and claim_text
-                and bool(_NEGATION_WORDS.search(support_quote))
-                != bool(_NEGATION_WORDS.search(claim_text))):
+        if support_quote and claim_text and _support_contradicts_claim(claim_text, support_quote):
             errors.append(_issue(
                 "support_contradicts_claim",
                 "The claim and its support excerpt disagree about negation.",

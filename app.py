@@ -3134,7 +3134,11 @@ async def execute_agent_action(action_id: str, request: Request,
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
     token = _claim_token(request)
-    from longform_research import LEGACY_DOSSIER_JSON_ERROR, is_legacy_weak_source_failure
+    from longform_research import (
+        LEGACY_DOSSIER_JSON_ERROR,
+        is_legacy_negation_scope_failure,
+        is_legacy_weak_source_failure,
+    )
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
     except agent_actions.AgentActionError as exc:
@@ -3177,6 +3181,13 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="Claim ledger failed after script/fact-check before asset spend:",
                 extra_attempts=1)
+        elif (job and job.get("status") == "error"
+              and is_legacy_negation_scope_failure(str(job.get("error") or ""))):
+            # PR82 scopes negation to the proposition it governs. Re-evaluate the same paid
+            # dossier once; true claim/quote contradictions remain terminal under the new rule.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="support_contradicts_claimx", extra_attempts=1)
         elif job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
