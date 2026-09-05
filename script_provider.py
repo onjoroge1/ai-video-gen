@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import math
 from typing import Any
 
 
@@ -275,15 +277,62 @@ class _OpenAIMessages:
         budget = int(max_tokens) + reasoning_headroom()
         kwargs = {"model": target, "messages": payload, "max_completion_tokens": budget}
         effort = reasoning_effort()
-        try:
-            raw = self._client.chat.completions.create(reasoning_effort=effort, **kwargs)
-        except Exception as exc:
-            # A non-reasoning model rejects the parameter outright. Losing the call over a knob
-            # that only ever lowered cost would be a worse trade than paying default effort.
-            if "reasoning_effort" not in str(exc):
-                raise
-            raw = self._client.chat.completions.create(**kwargs)
-        out = translate_response(raw, model=target)
+        from durable_execution import current, canonical_hash, BudgetExceeded
+        runtime = current()
+
+        def generate(headers=None):
+            call = dict(kwargs)
+            if headers:
+                call["extra_headers"] = headers
+            try:
+                raw = self._client.chat.completions.create(reasoning_effort=effort, **call)
+            except Exception as exc:
+                if "reasoning_effort" not in str(exc):
+                    raise
+                raw = self._client.chat.completions.create(**call)
+            return raw, translate_response(raw, model=target)
+
+        if runtime:
+            if _ignored.get("tools"):
+                raise ValueError("Server research tools require the native Anthropic client")
+            rate_in = float(os.environ.get("OPENAI_SCRIPT_RATE_IN", "5.0")) / 1_000_000
+            rate_out = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")) / 1_000_000
+            if not all(math.isfinite(rate) and rate > 0
+                       for rate in (rate_in, rate_out)):
+                raise BudgetExceeded("OpenAI script accounting requires positive finite rates")
+            request = dict(kwargs, reasoning_effort=effort,
+                           accounting_rates=[rate_in, rate_out])
+            # Do not price base64 bytes as text; retain a conservative vision-token allowance.
+            def token_input(value):
+                if isinstance(value, dict):
+                    if value.get("type") == "image_url":
+                        return " " * 24000
+                    return {key: token_input(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [token_input(item) for item in value]
+                return value
+            reserve = len(json.dumps(token_input(request))) / 3 * rate_in + budget * rate_out
+
+            def invoke(key):
+                raw, response = generate({"Idempotency-Key": key})
+                value = {"text": response.content[0].text,
+                         "input_tokens": response.usage.input_tokens,
+                         "output_tokens": response.usage.output_tokens,
+                         "stop_reason": response.stop_reason,
+                         "model": getattr(raw, "model", None) or target,
+                         "id": getattr(raw, "id", None)}
+                cost = value["input_tokens"] * rate_in + value["output_tokens"] * rate_out
+                return value, cost
+
+            value, _, _ = runtime.paid_value(
+                stage_key=f"openai-script:{canonical_hash(request)[:32]}",
+                provider="openai-script", request=request, estimated_cost=reserve,
+                operation=invoke,
+                is_complete=lambda value: value["stop_reason"] == "end_turn")
+            out = _Response(value["text"], _Usage(value["input_tokens"], value["output_tokens"]),
+                            value["stop_reason"], OPENAI, value["model"])
+        else:
+            _, out = generate()
         if out.stop_reason == "max_tokens" and not out.content[0].text.strip():
             # Empty-because-truncated is the failure this adapter is most likely to hit, and the
             # least legible: every caller feeds .text to a JSON parser, so it surfaces as "the
@@ -309,9 +358,12 @@ def script_client(base: Any) -> Any:
     aborts a render that has already paid for everything before it.
     """
     try:
+        from durable_execution import current
+        durable = current() is not None
         return base.with_options(
-            timeout=float(os.environ.get("OPENAI_SCRIPT_TIMEOUT_SEC", "600")),
-            max_retries=int(os.environ.get("OPENAI_SCRIPT_MAX_RETRIES", "4")),
+            timeout=min(240.0, float(os.environ.get("OPENAI_SCRIPT_TIMEOUT_SEC", "600")))
+                    if durable else float(os.environ.get("OPENAI_SCRIPT_TIMEOUT_SEC", "600")),
+            max_retries=0 if durable else int(os.environ.get("OPENAI_SCRIPT_MAX_RETRIES", "4")),
         )
     except Exception:
         # with_options is the supported path; if a future SDK drops it, a slow client beats none.

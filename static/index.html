@@ -1551,7 +1551,7 @@
         </div>
         <div class="field" id="visual-style-field">
           <label>Visual creative <span style="opacity:.6;">(long-form)</span></label>
-          <select id="expl-visual-style" onchange="if(this.value==='illustrated_story') document.getElementById('expl-story-format').value='standard_explainer'">
+          <select id="expl-visual-style" onchange="setExplainerVisualStyle(this.value)">
             <option value="cinematic">Cinematic evidence — existing lane</option>
             <option value="illustrated_story">Illustrated Story — recurring cast + storyboard</option>
           </select>
@@ -3138,11 +3138,19 @@
           showError('expl-error-panel', 'expl-error-msg', item.data);
         }
       };
-      es.onerror = () => { es.close(); button.disabled = false; };
+      es.onerror = () => { /* Reconnect to this durable job, preserving its event cursor. */ };
       if (queued.dispatch_url) fetch(queued.dispatch_url, {method:'POST'}).catch(() => {});
     } catch (err) {
       button.disabled = false;
       showError('expl-error-panel', 'expl-error-msg', err.message);
+    }
+  }
+
+  function setExplainerVisualStyle(style) {
+    if (style === 'illustrated_story') {
+      document.getElementById('expl-story-format').value = 'standard_explainer';
+      document.getElementById('expl-duration').value = '90';
+      document.getElementById('expl-motion-mode').value = 'stills';
     }
   }
 
@@ -3222,7 +3230,9 @@
         es.close();
         btn.disabled = false;
         await showExplainerResult(job_id);
-      } else if (ev.type === 'error') {
+      } else if (ev.type === 'retry' || ev.type === 'continuation') {
+        addLog(explLog, 'log', ev.data);
+      } else if (ev.type === 'error' || ev.type === 'storage_error' || ev.type === 'pilot_failed') {
         addLog(explLog, 'error', ev.data);
         es.close();
         btn.disabled = false;
@@ -3239,7 +3249,7 @@
         await showExplainerFormatReview(job_id);
       }
     };
-    es.onerror = () => { es.close(); btn.disabled = false; };
+    es.onerror = () => { /* EventSource reconnects with Last-Event-ID; keep this job active. */ };
     // Durable production renders execute in a separate leased request. Do not await the long
     // response; progress arrives from the Postgres-backed event stream and a recovery worker can
     // reclaim the lease if this browser or function disappears.

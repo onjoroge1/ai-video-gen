@@ -24,7 +24,9 @@ import db
 
 DIRECTED_PILOT_OPERATION = "directed_pilot"
 DIRECTED_FULL_FILM_OPERATION = "directed_full_film"
-OPERATIONS = {DIRECTED_PILOT_OPERATION, DIRECTED_FULL_FILM_OPERATION}
+GENERIC_ILLUSTRATED_OPERATION = "generic_illustrated"
+OPERATIONS = {DIRECTED_PILOT_OPERATION, DIRECTED_FULL_FILM_OPERATION,
+              GENERIC_ILLUSTRATED_OPERATION}
 # Compatibility name used by older tests and callers.
 OPERATION = DIRECTED_PILOT_OPERATION
 class AgentActionError(RuntimeError):
@@ -41,6 +43,60 @@ class AgentActionConflict(AgentActionError):
 
 class AgentActionForbidden(AgentActionError):
     pass
+
+
+def illustrated_payload_hash(payload: dict) -> str:
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False).encode()).hexdigest()
+
+
+def build_illustrated_payload(*, topic: str, duration_sec: int,
+                              creative_direction: str, cost_ceiling_usd: float,
+                              providers: dict) -> dict:
+    """Freeze a bounded recipe, not a prewritten script; creation makes no provider call."""
+    if not topic.strip() or not 60 <= duration_sec <= 90:
+        raise AgentActionConflict("Illustrated topics require a 60–90 second target")
+    # Research, script retries and editorial checks dominate this planning allowance.
+    # It is deliberately distinct from the enforced ceiling; a gate/budget failure can
+    # produce a useful failed artifact without producing a finished video.
+    estimated = round(3.5 + duration_sec / 5 * 0.055 + duration_sec * 0.00045, 4)
+    return {
+        "schema": "illustrated_topic_v1",
+        "scope": "single-illustrated-video",
+        "request": {
+            "question": topic.strip(), "duration_sec": duration_sec,
+            "operator_direction": creative_direction.strip(),
+            "voice": "echo", "style": "engaging and scientific",
+            "image_guidance": "", "fact_check": True,
+            "video_format": "landscape", "speech_bubble": False,
+            "visual_style": "illustrated_story", "story_format": "standard_explainer",
+            "motion_mode": "stills", "i2v": False, "series": "",
+            "short_template": "auto", "n_items": 3,
+        },
+        "providers": providers,
+        "estimated_cost_usd": estimated,
+        "estimate_basis": "Planning allowance; story approval and video delivery are not guaranteed.",
+        "cost_ceiling_usd": cost_ceiling_usd,
+    }
+
+
+def validate_illustrated_payload(payload: dict, *, expected_sha256: str,
+                                 providers: dict, cost_ceiling_usd: float) -> dict:
+    if not hmac.compare_digest(illustrated_payload_hash(payload), expected_sha256):
+        raise AgentActionConflict("Illustrated authorization payload changed")
+    request = payload.get("request") or {}
+    try:
+        rebuilt = build_illustrated_payload(
+            topic=request["question"], duration_sec=request["duration_sec"],
+            creative_direction=request["operator_direction"],
+            cost_ceiling_usd=cost_ceiling_usd, providers=providers)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AgentActionConflict("Invalid illustrated authorization recipe") from exc
+    if payload != rebuilt:
+        raise AgentActionConflict(
+            "Illustrated recipe, provider configuration or cost scope changed; create a new proposal")
+    return request
 
 
 def token_digest(token: str) -> str:
@@ -80,6 +136,14 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
         out["start_sec"] = float(promotion.get("start_sec") or 45.0)
         out["end_sec"] = float(promotion.get("end_sec") or 300.0)
         out["pilot_reused"] = True
+    elif operation == GENERIC_ILLUSTRATED_OPERATION:
+        recipe = payload.get("request") or {}
+        out.update(scope=payload.get("scope"), duration_sec=recipe.get("duration_sec"),
+                   creative_direction=recipe.get("operator_direction") or "",
+                   video_format=recipe.get("video_format"), voice=recipe.get("voice"),
+                   visual_style=recipe.get("visual_style"), motion_mode=recipe.get("motion_mode"),
+                   providers=payload.get("providers") or {},
+                   estimate_basis=payload.get("estimate_basis") or "")
     if include_private:
         out["job_id"] = action.get("job_id") or ""
         out["job"] = action.get("job") or {}
@@ -335,12 +399,21 @@ class PostgresAgentActionRepository:
                 raise AgentActionForbidden("Invalid agent action claim token")
             if effective_status(action) == "expired":
                 raise AgentActionConflict("Agent action expired")
+            if (action.get("operation") == GENERIC_ILLUSTRATED_OPERATION
+                    and action["status"] in {"executing", "queued"} and action.get("job_id")):
+                conn.commit()
+                return action
             if action["status"] != "approved":
                 raise AgentActionConflict("Agent action has not been approved")
             cur = conn.cursor()
+            # The binding is persisted in the claim transaction, before queue creation.
+            # A process dying between INSERT job and mark_queued can safely replay the
+            # same job id; Postgres enqueue is ON CONFLICT DO NOTHING.
+            job_id = (hashlib.sha256(action_id.encode()).hexdigest()[:24]
+                      if action.get("operation") == GENERIC_ILLUSTRATED_OPERATION else None)
             cur.execute("""
-                UPDATE agent_actions SET status='executing',consumed_at=now()
-                WHERE action_id=%s RETURNING *""", (action_id,))
+                UPDATE agent_actions SET status='executing',consumed_at=now(),job_id=%s
+                WHERE action_id=%s RETURNING *""", (job_id, action_id))
             claimed = self._row(cur, cur.fetchone()) or {}
             conn.commit()
             return claimed

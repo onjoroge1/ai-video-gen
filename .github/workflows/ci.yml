@@ -21,3 +21,6 @@ jobs:
       # Run through Python so the checked-out repository root is on sys.path. The standalone
       # pytest entrypoint under newer pytest versions can otherwise fail to import every root module.
       - run: python -m pytest tests bolt_seq/tests/test_state.py
+      # Verify installed modules and data, without importing the source checkout.
+      - run: pip wheel --no-deps --wheel-dir /tmp/reelforge-wheel .
+      - run: python scripts/check_installed_wheel.py /tmp/reelforge-wheel/reelforge_ai_video-0.2.0-py3-none-any.whl

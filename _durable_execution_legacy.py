@@ -47,6 +47,18 @@ class LeaseLost(DurableExecutionError):
     pass
 
 
+class CooperativeYield(BaseException):
+    """Control transfer at a safe boundary, never a provider failure or creative fallback.
+
+    Deliberately outside Exception: the pipeline's optional-provider fallback handlers must not
+    swallow a worker continuation and start different paid work in the same expired window.
+    """
+
+    def __init__(self, boundary: str):
+        self.boundary = str(boundary)
+        super().__init__(f"Worker time window reached before {self.boundary}")
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -464,6 +476,42 @@ class PostgresStore:
             if cur.rowcount != 1:
                 raise LeaseLost(f"Cannot transition {job_id}; worker lease was lost")
 
+    def yield_job(self, job_id: str, *, worker_id: str, checkpoint: dict,
+                  max_continuations: int = 24) -> dict:
+        """Release one checkpointed worker window without consuming an error retry.
+
+        A bounded counter lives in the existing result JSON. The job/request, stage identities,
+        reservations, committed spend and original cost ceiling remain authoritative.
+        """
+        limit = max(1, min(int(max_continuations), 48))
+        if not checkpoint.get("sha256"):
+            raise StorageUnavailable("Worker continuation requires a durable checkpoint")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if row.get("lease_owner") != worker_id or row.get("status") != "processing":
+                raise LeaseLost(f"Cannot continue {job_id}; worker lease was lost")
+            count = int((row.get("result") or {}).get("continuation_count") or 0) + 1
+            exhausted = count > limit
+            status = "error" if exhausted else "queued"
+            error = "Maximum cooperative worker continuations exhausted" if exhausted else None
+            cur.execute("""
+                UPDATE generation_jobs SET status=%s,error=%s,checkpoint=%s::jsonb,
+                    result=result || %s::jsonb,attempts=GREATEST(0,attempts-1),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now(),
+                    finished_at=CASE WHEN %s='error' THEN now() ELSE finished_at END
+                WHERE id=%s AND lease_owner=%s RETURNING *
+            """, (status, error, json.dumps(checkpoint), json.dumps({
+                "continuation_count": count, "continuation_limit": limit,
+            }), status, job_id, worker_id))
+            changed = self._json_ready(self._row(cur, cur.fetchone()))
+            if not changed:
+                raise LeaseLost(f"Cannot continue {job_id}; worker lease was lost")
+        self.append_event(job_id, "error" if exhausted else "continuation",
+                          error or "Progress saved; continuing in a fresh worker window",
+                          {"continuation_count": count, "continuation_limit": limit})
+        return changed
+
     def requeue(self, job_id: str, *, allowed_statuses: tuple[str, ...]) -> dict:
         if not allowed_statuses:
             raise ValueError("allowed_statuses cannot be empty")
@@ -679,12 +727,28 @@ class DurableRuntime:
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _lease_error: Exception | None = field(default=None, init=False)
     _last_heartbeat: float = field(default=0.0, init=False)
+    time_budget_seconds: float | None = None
+    cache_local_renders: bool = False
+    _started_at: float = field(default_factory=time.monotonic, init=False)
+
+    def check_work_window(self, boundary: str) -> None:
+        """Yield before a stage starts, leaving all accepted provider responses to settle.
+
+        The worker reserves the remainder of its hosting window for in-flight calls and checkpoint
+        upload. This is cooperative, so a single unexpectedly slow call can still time out.
+        """
+        self.assert_lease()
+        if (self.time_budget_seconds is not None
+                and time.monotonic() - self._started_at >= self.time_budget_seconds):
+            raise CooperativeYield(boundary)
 
     def assert_lease(self) -> None:
         if self._lease_error is not None:
             raise LeaseLost(f"Durable worker heartbeat failed: {self._lease_error}")
 
     def event(self, event_type: str, data: str, details: dict | None = None) -> None:
+        if event_type == "stage":
+            self.check_work_window(data)
         self.store.append_event(self.job_id, event_type, data, details)
 
     def heartbeat(self) -> None:
@@ -702,7 +766,7 @@ class DurableRuntime:
         request but before completion was committed, one in-flight duplicate remains possible and
         is explicitly bounded by the job's max_inflight_call_usd.
         """
-        self.assert_lease()
+        self.check_work_window(stage_key)
         if time.monotonic() - self._last_heartbeat > 60:
             self.heartbeat()
         request_hash = canonical_hash(request)
@@ -745,7 +809,7 @@ class DurableRuntime:
                    estimated_cost: float,
                    operation: Callable[[str], tuple[dict, float]],
                    is_complete: Callable[[dict], bool] | None = None) -> tuple[dict, float, bool]:
-        self.assert_lease()
+        self.check_work_window(stage_key)
         if time.monotonic() - self._last_heartbeat > 60:
             self.heartbeat()
         request_hash = canonical_hash(request)
@@ -870,6 +934,13 @@ class DurableRuntime:
         if "video" not in uploads:
             raise StorageUnavailable("Final video could not be uploaded")
         video = uploads["video"]
+        # Replaying the script can skip in-process cost lists. Persist cumulative ledger
+        # spend, including earlier worker windows and incomplete provider responses.
+        row = self.store.get_job(self.job_id)
+        if row:
+            metadata = {**metadata, "actual_cost": float(row.get("spent_cost_usd") or 0),
+                        "cost_basis": "durable_provider_usage",
+                        "max_cost_usd": float(row.get("max_cost_usd") or 0)}
         record = {
             "id": self.job_id,
             "title": metadata.get("title") or self.job_id,
@@ -973,6 +1044,57 @@ class _CachedAnthropicResponse(_CachedAnthropicObject):
         self.usage = _CachedAnthropicObject(payload.get("usage") or {})
 
 
+def _anthropic_usage_cost(usage: dict) -> float:
+    """Opus 4.8 list-price accounting, including separately reported cache/search usage.
+
+    Rates: https://platform.claude.com/docs/en/about-claude/pricing (2026-09-05).
+    Missing cache-duration detail is charged at the higher one-hour rate, never omitted.
+    """
+    cache = usage.get("cache_creation") or {}
+    total_write = float(usage.get("cache_creation_input_tokens") or 0)
+    short_write = float(cache.get("ephemeral_5m_input_tokens") or 0)
+    long_write = float(cache.get("ephemeral_1h_input_tokens") or 0)
+    unknown_write = max(0.0, total_write - short_write - long_write)
+    return (
+        float(usage.get("input_tokens") or 0) * 5 / 1_000_000
+        + float(usage.get("output_tokens") or 0) * 25 / 1_000_000
+        + float(usage.get("cache_read_input_tokens") or 0) * 0.5 / 1_000_000
+        + short_write * 6.25 / 1_000_000
+        + (long_write + unknown_write) * 10 / 1_000_000
+        + float((usage.get("server_tool_use") or {}).get("web_search_requests") or 0) * 0.01
+    )
+
+
+def _anthropic_reserved_cost(request: dict) -> float:
+    """Conservative request estimate, never clipped to fit a configured spend boundary.
+
+    Server search can add unknown input tokens, so include an explicit 10k-token allowance per
+    permitted search. This is an estimate, not a provider-enforced invoice ceiling. Actual search
+    and cache usage is reconciled after every response before another stage can reserve funds.
+    """
+    max_tokens = int(request.get("max_tokens") or 4096)
+    def without_image_bytes(value):
+        if isinstance(value, dict):
+            if value.get("type") == "base64" and str(value.get("media_type", "")).startswith("image/"):
+                # Vision is billed by image tokens, not base64 characters (up to ~5.3k tokens).
+                return {"image_token_allowance": " " * 16000}
+            return {key: without_image_bytes(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [without_image_bytes(item) for item in value]
+        return value
+    text = json.dumps(without_image_bytes(request), default=str)
+    searches = 0
+    for tool in request.get("tools") or []:
+        if str(tool.get("type") or "").startswith("web_search"):
+            limit = tool.get("max_uses")
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                raise BudgetExceeded("Durable web search requires an explicit positive max_uses")
+            searches += limit
+    cache_multiplier = 2 if '"cache_control"' in text else 1
+    return max(0.01, (len(text) / 3 + 10000 * searches) * 5 * cache_multiplier / 1_000_000
+               + max_tokens * 25 / 1_000_000 + searches * 0.01)
+
+
 class _AnthropicMessagesProxy:
     def __init__(self, messages, runtime: DurableRuntime):
         self._messages = messages
@@ -982,11 +1104,7 @@ class _AnthropicMessagesProxy:
         request = _plain(kwargs)
         digest = canonical_hash(request)
         stage_key = f"anthropic:{digest[:32]}"
-        max_tokens = int(kwargs.get("max_tokens") or 4096)
-        input_chars = len(json.dumps(request, default=str))
-        estimated = min(
-            DEFAULT_MAX_INFLIGHT_USD,
-            max(0.01, input_chars / 4 * 5 / 1_000_000 + max_tokens * 25 / 1_000_000))
+        estimated = _anthropic_reserved_cost(request)
 
         def invoke(idempotency_key: str):
             call_kwargs = dict(kwargs)
@@ -995,10 +1113,7 @@ class _AnthropicMessagesProxy:
             response = self._messages.create(**call_kwargs, extra_headers=headers)
             payload = _plain(response)
             usage = payload.get("usage") or {}
-            actual = (
-                float(usage.get("input_tokens") or 0) * 5 / 1_000_000
-                + float(usage.get("output_tokens") or 0) * 25 / 1_000_000
-            )
+            actual = _anthropic_usage_cost(usage)
             return payload, actual
 
         payload, _, _ = self._runtime.paid_value(

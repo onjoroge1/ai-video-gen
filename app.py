@@ -78,11 +78,14 @@ def _require_render_storage() -> None:
 
 @app.get("/api/production-readiness")
 async def production_readiness():
+    from provider_readiness import illustrated_provider_readiness
+
     storage = artifact_store.readiness()
     # A render spends real money on script, image, motion, and narration calls long before
     # its first encode, so a host that cannot run ffmpeg must be visible here rather than
     # after the spend.
     media = media_binaries.preflight()
+    illustrated = illustrated_provider_readiness()
     checks = {
         "media_binaries": media["ready"],
         "private_access": private_access.auth_configured(),
@@ -97,11 +100,17 @@ async def production_readiness():
         "worker_auth": (not _durable_execution_required()) or bool(
             os.environ.get("CRON_SECRET", "").strip()
             or os.environ.get("RENDER_WORKER_SECRET", "").strip()),
+        "illustrated_providers": illustrated["configured"],
     }
-    return {"ready": all((checks["private_access"], checks["durable_artifacts"],
-                          checks["durable_execution"], checks["worker_auth"],
-                          checks["media_binaries"])),
-            "checks": checks, "media": media}
+    infrastructure_ready = all((checks["private_access"], checks["durable_artifacts"],
+                                checks["durable_execution"], checks["worker_auth"],
+                                checks["media_binaries"]))
+    return {"ready": infrastructure_ready and illustrated["configured"],
+            "infrastructure_ready": infrastructure_ready,
+            "readiness_scope": "configuration_only",
+            "generation_verified": False,
+            "checks": checks, "media": media,
+            "providers": {"illustrated": illustrated}}
 
 # ─── State store (in-memory; use Redis for production) ─────────────────────────
 
@@ -1125,6 +1134,8 @@ class ExplainerRequest(BaseModel):
                                       # subordinate to the format/structure/safety rules
     story_format: Literal["standard_explainer", "evidence_led_mystery"] = "standard_explainer"
     visual_style: Literal["cinematic", "illustrated_story"] = "cinematic"
+    # Internal, immutable topic recipe; only an approved generic_illustrated action sets this.
+    illustrated_authorization: dict = Field(default_factory=dict)
     # Internal directed-v1 fields. Public callers must use the validation/process endpoints,
     # which bind paid approval to an immutable spec hash before constructing this request.
     directed_spec: dict | None = None
@@ -1167,7 +1178,10 @@ class DirectedLongformProcessRequest(BaseModel):
 class AgentActionCreateRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
-    operation: Literal["directed_pilot", "directed_full_film"] = "directed_pilot"
+    operation: Literal["directed_pilot", "directed_full_film", "generic_illustrated"] = "directed_pilot"
+    topic: str = Field(default="", max_length=500)
+    duration_sec: int = Field(default=90, ge=60, le=90)
+    creative_direction: str = Field(default="", max_length=2000)
     spec: dict | None = None
     bundled_spec_id: Literal[
         "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m",
@@ -1832,9 +1846,11 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     result={"rendered_contract": job.get("rendered_contract") or {},
                             "title": job.get("title") or request.question},
                     worker_id=durable_runtime.worker_id)
+                job["status"] = status
                 durable_runtime.event(
                     "review_required" if awaiting_review else
-                    "format_acknowledgement_required" if awaiting_format else "error", str(exc))
+                    "format_acknowledgement_required" if awaiting_format else
+                    "retry" if status == "retry" else "error", str(exc))
             except Exception as storage_exc:
                 job["status"] = "storage_error"
                 job["storage_error"] = str(storage_exc)
@@ -2343,11 +2359,12 @@ async def explainer_production_run(production_id: str):
 
 async def _enqueue_explainer_request(request: ExplainerRequest,
                                      background_tasks: BackgroundTasks,
-                                     *, max_cost_usd: float | None = None) -> dict:
+                                     *, max_cost_usd: float | None = None,
+                                     job_id: str | None = None) -> dict:
     """Shared queue boundary after a public route has authorized its request shape."""
     _require_render_storage()
     _sweep_old_temp("expl_")   # reclaim disk from old runs before starting a new one
-    job_id = str(uuid.uuid4())[:8]
+    job_id = job_id or str(uuid.uuid4())[:8]
     if _durable_execution_required():
         try:
             store, _ = _durable_components()
@@ -2389,6 +2406,8 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
 
 
 def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
+    if abs(float(spec.target.pilot_end_sec) - 45.0) > 0.001:
+        raise ValueError("A directed pilot approval authorizes exactly the first 45 seconds")
     return ExplainerRequest(
         question=spec.title,
         duration_sec=int(round(spec.target.pilot_end_sec)),
@@ -2400,6 +2419,20 @@ def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
         directed_spec_sha256=report["spec_sha256"],
         directed_paid_authorized=True,
     )
+
+
+def _validate_illustrated_request_authorization(request: ExplainerRequest) -> None:
+    """Fail before paid calls if a queued recipe or current provider selection has drifted."""
+    from provider_readiness import illustrated_provider_manifest
+    authorization = request.illustrated_authorization
+    payload = authorization.get("payload") or {}
+    recipe = agent_actions.validate_illustrated_payload(
+        payload, expected_sha256=str(authorization.get("sha256") or ""),
+        providers=illustrated_provider_manifest(),
+        cost_ceiling_usd=float(authorization.get("cost_ceiling_usd") or 0))
+    normalized = ExplainerRequest(**recipe).model_dump(exclude={"illustrated_authorization"})
+    if request.model_dump(exclude={"illustrated_authorization"}) != normalized:
+        raise ValueError("Queued illustrated request differs from the approved recipe")
 
 
 def _directed_full_film_request(envelope: dict, authorization_hash: str,
@@ -2574,8 +2607,11 @@ _AGENT_PUBLIC_EVENT_TYPES = {
     "format_acknowledgement_required", "pilot_awaiting_editorial", "pilot_passed",
     "pilot_failed", "storage_error", "infrastructure_rearmed",
     "directed_audio_fit_rearmed", "pilot_artifacts_persisted",
+    "retry", "continuation",
 }
 _AGENT_PUBLIC_EVENT_MESSAGES = {
+    "retry": "Worker retry queued; existing progress and spending remain attached",
+    "continuation": "Worker continuation queued; completed work will be reused",
     "queued": "Render queued",
     "stage": "Render stage updated",
     "log": "Render progress updated",
@@ -2650,6 +2686,13 @@ def _public_agent_event(event: dict) -> dict | None:
 def _agent_action_plan(action: dict) -> dict:
     payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
     promotion = payload.get("promotion") if isinstance(payload.get("promotion"), dict) else {}
+    if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+        return {
+            "pilot_seconds": None, "window_start_sec": 0,
+            "window_end_sec": (payload.get("request") or {}).get("duration_sec"),
+            "narration_total": 0, "images_total": 0, "motion_total": 0,
+            "totals_known": False,
+        }
     if action.get("operation") == agent_actions.DIRECTED_FULL_FILM_OPERATION:
         payload = payload.get("spec") if isinstance(payload.get("spec"), dict) else {}
     target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
@@ -2695,6 +2738,11 @@ def _agent_action_progress(action: dict, events: list[dict], job_status: str) ->
         percent = 100
     elif not job_status or job_status == "queued":
         stage = "queued"
+        percent = 0
+    elif plan.get("totals_known") is False:
+        # Topic proposals have no approved storyboard yet; fabricated media totals
+        # would misrepresent research/story work as 92% completed.
+        stage = "generating_story_and_media"
         percent = 0
     elif counts["narration_completed"] < plan["narration_total"]:
         stage = "narration"
@@ -2760,11 +2808,32 @@ async def create_agent_action(request: AgentActionCreateRequest):
     """Create a non-spending proposal. The claim token is returned once and stored only hashed."""
     import directed_longform as dl
 
-    if bool(request.spec) == bool(request.bundled_spec_id):
-        raise HTTPException(
-            status_code=422, detail="Provide exactly one of spec or bundled_spec_id")
-    source_spec = request.spec or _bundled_directed_spec(request.bundled_spec_id)
     operation = request.operation
+    if operation == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+        from provider_readiness import illustrated_provider_manifest
+        if (not request.topic.strip() or request.spec is not None or request.bundled_spec_id
+                or request.parent_action_id or request.parent_job_id):
+            raise HTTPException(status_code=422, detail=(
+                "An illustrated topic proposal requires topic and cannot include a directed spec or parent"))
+        payload = agent_actions.build_illustrated_payload(
+            topic=request.topic, duration_sec=request.duration_sec,
+            creative_direction=request.creative_direction,
+            cost_ceiling_usd=float(request.cost_ceiling_usd),
+            providers=illustrated_provider_manifest())
+        authorization_hash = agent_actions.illustrated_payload_hash(payload)
+        estimate = payload["estimated_cost_usd"]
+        deployment_cap = float(os.environ.get("AGENT_ACTION_ILLUSTRATED_MAX_COST_USD", "5.00"))
+        # The approval card must not offer a budget the queue silently tightens later.
+        deployment_cap = min(deployment_cap, float(os.environ.get(
+            "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00"))))
+        title = payload["request"]["question"]
+    else:
+        if request.topic or request.creative_direction or "duration_sec" in request.model_fields_set:
+            raise HTTPException(status_code=422, detail="Topic fields require generic_illustrated scope")
+        if bool(request.spec) == bool(request.bundled_spec_id):
+            raise HTTPException(
+                status_code=422, detail="Provide exactly one of spec or bundled_spec_id")
+        source_spec = request.spec or _bundled_directed_spec(request.bundled_spec_id)
     if operation == agent_actions.DIRECTED_FULL_FILM_OPERATION:
         import directed_full_film as dff
         if not request.parent_action_id or not request.parent_job_id:
@@ -2791,7 +2860,7 @@ async def create_agent_action(request: AgentActionCreateRequest):
             (report.get("remaining_cost_estimate") or {}).get("estimated_total_usd") or 0)
         deployment_cap = float(os.environ.get("AGENT_ACTION_FULL_MAX_COST_USD", "10.00"))
         title = report["title"]
-    else:
+    elif operation == agent_actions.DIRECTED_PILOT_OPERATION:
         if request.parent_action_id or request.parent_job_id:
             raise HTTPException(status_code=422, detail="Pilot actions cannot name a parent film")
         if request.bundled_spec_id == "hippo_illustrated_story_v4_full_5m":
@@ -2802,6 +2871,9 @@ async def create_agent_action(request: AgentActionCreateRequest):
                 "code": "DIRECTED_SPEC_INVALID", "issues": report.get("issues") or [],
             })
         payload = report["normalized_spec"]
+        if abs(float(payload["target"]["pilot_end_sec"]) - 45.0) > 0.001:
+            raise HTTPException(status_code=409, detail=(
+                "A directed pilot approval authorizes exactly the first 45 seconds; use a separate continuation"))
         authorization_hash = report["spec_sha256"]
         estimate = float(
             (report.get("pilot_cost_estimate") or {}).get("estimated_total_usd") or 0)
@@ -2903,12 +2975,12 @@ async def get_agent_action_public_status(action_id: str, after: int = 0):
             row = await asyncio.to_thread(store.get_job, job_id)
             if row:
                 all_events = await asyncio.to_thread(store.events, job_id, 0, 1000)
+                new_events = await asyncio.to_thread(store.events, job_id, max(0, int(after)), 500)
                 visible_events = [item for item in (
-                    _public_agent_event(event) for event in all_events
-                    if int(event.get("seq") or 0) > max(0, int(after))
+                    _public_agent_event(event) for event in new_events
                 ) if item]
                 next_event_seq = max(
-                    [max(0, int(after)), *[int(event.get("seq") or 0) for event in all_events]])
+                    [max(0, int(after)), *[int(event.get("seq") or 0) for event in new_events]])
                 job_status = str(row.get("status") or "")
                 summary["job"] = {
                     "id": row.get("id"),
@@ -2981,10 +3053,34 @@ async def execute_agent_action(action_id: str, request: Request,
     if not _durable_execution_required():
         raise HTTPException(status_code=409, detail="Agent actions require durable execution")
     token = _claim_token(request)
+    action = None
     try:
+        action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+        if action and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+            if not agent_actions.verify_claim_token(action, token):
+                raise agent_actions.AgentActionForbidden("Invalid agent action claim token")
+            # Reconnect a consumed boundary even if provider keys changed after delivery.
+            if action.get("status") == "queued" and action.get("job_id"):
+                return {**agent_actions.public_action(action),
+                        "dispatch_path": f"/api/agent/actions/{action_id}/dispatch",
+                        "status_path": f"/api/agent/actions/{action_id}"}
+            from provider_readiness import illustrated_provider_readiness
+            readiness = illustrated_provider_readiness()
+            if not readiness["configured"]:
+                raise HTTPException(status_code=503, detail={
+                    "code": "ILLUSTRATED_PROVIDER_CONFIGURATION_MISSING",
+                    "missing_configuration": readiness["missing_configuration"],
+                })
         action = await asyncio.to_thread(
             agent_actions.repository().claim, action_id, claim_token=token)
-        if action.get("operation") == agent_actions.DIRECTED_FULL_FILM_OPERATION:
+        if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+            directed_request = ExplainerRequest(
+                **action["payload"]["request"],
+                illustrated_authorization={"payload": action["payload"],
+                    "sha256": action["spec_sha256"],
+                    "cost_ceiling_usd": float(action["cost_ceiling_usd"])})
+            _validate_illustrated_request_authorization(directed_request)
+        elif action.get("operation") == agent_actions.DIRECTED_FULL_FILM_OPERATION:
             import directed_full_film as dff
             report, promotion = dff.validate_envelope(
                 action["payload"], expected_sha256=action["spec_sha256"])
@@ -3000,14 +3096,21 @@ async def execute_agent_action(action_id: str, request: Request,
             spec, report = dl.authorize_processing(
                 action["payload"], expected_sha256=action["spec_sha256"], authorize_paid=True)
             directed_request = _directed_pilot_request(spec, report)
+        queue_options = {}
+        if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+            queue_options["job_id"] = action["job_id"]
         queued = await _enqueue_explainer_request(
             directed_request, background_tasks,
-            max_cost_usd=float(action["cost_ceiling_usd"]))
+            max_cost_usd=float(action["cost_ceiling_usd"]), **queue_options)
         action = await asyncio.to_thread(
             agent_actions.repository().mark_queued, action_id, queued["job_id"])
     except agent_actions.AgentActionError as exc:
         raise _agent_action_http_error(exc) from exc
     except Exception as exc:
+        if (action and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and isinstance(exc, HTTPException) and exc.status_code >= 500):
+            # Keep the already-bound job recoverable after queue/storage unavailability.
+            raise
         try:
             await asyncio.to_thread(agent_actions.repository().mark_failed, action_id, str(exc))
         except agent_actions.AgentActionError:
@@ -3089,6 +3192,9 @@ async def dispatch_agent_action(action_id: str, request: Request):
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    if request.illustrated_authorization:
+        raise HTTPException(status_code=403, detail=(
+            "Illustrated authorization is internal; create a generic_illustrated agent action"))
     import illustrated_story as illustrated_story_lane
     try:
         illustrated_story_lane.validate_request(
@@ -3127,17 +3233,51 @@ async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
         return {"claimed": False, "job": current}
     job_id = claimed["id"]
     output_dir = tempfile.mkdtemp(prefix=f"expl_{job_id}_")
-    runtime = durable_execution.DurableRuntime(
-        job_id=job_id, worker_id=worker_id, output_dir=output_dir, store=store, blob=blob)
+    # Leave 320 seconds of the 800-second host window for an accepted provider call, checkpoint
+    # upload and response. Continuations are queued jobs claimed by the existing minute cron or
+    # the idempotent dispatch route; no new action or spending approval is created.
     try:
-        if claimed.get("checkpoint"):
-            await asyncio.to_thread(runtime.restore_checkpoint, claimed["checkpoint"])
-        request = ExplainerRequest(**(claimed.get("request") or {}))
-        explainer_jobs[job_id] = _durable_job_view(claimed)
-        resume = os.path.isfile(os.path.join(output_dir, "_state.json"))
+        work_seconds = float(os.environ.get("DURABLE_WORKER_WINDOW_SECONDS", "480"))
+    except (ValueError, TypeError):
+        work_seconds = 480.0
+    runtime = durable_execution.DurableRuntime(
+        job_id=job_id, worker_id=worker_id, output_dir=output_dir, store=store, blob=blob,
+        time_budget_seconds=max(60.0, min(work_seconds, 480.0)))
+    try:
         with durable_execution.maintain_lease(runtime):
+            if claimed.get("checkpoint"):
+                await asyncio.to_thread(runtime.restore_checkpoint, claimed["checkpoint"])
+            request = ExplainerRequest(**(claimed.get("request") or {}))
+            runtime.cache_local_renders = request.visual_style == "illustrated_story"
+            if getattr(request, "illustrated_authorization", None):
+                _validate_illustrated_request_authorization(request)
+                approved_cap = float(request.illustrated_authorization["cost_ceiling_usd"])
+                if float(claimed.get("max_cost_usd") or 0) > approved_cap + 1e-9:
+                    raise ValueError("Durable job budget exceeds the illustrated approval ceiling")
+            explainer_jobs[job_id] = _durable_job_view(claimed)
+            resume = os.path.isfile(os.path.join(output_dir, "_state.json"))
             await run_explainer_task(
                 job_id, request, output_dir, resume=resume, durable_runtime=runtime)
+        return {"claimed": True, "job": await asyncio.to_thread(store.get_job, job_id)}
+    except durable_execution.CooperativeYield:
+        # All pipeline threads have unwound before the checkpoint and lease release. Completed
+        # paid outputs already exist in Blob; future invocations restore them with the same keys.
+        checkpoint = await asyncio.to_thread(runtime.checkpoint, "worker-continuation")
+        row = await asyncio.to_thread(
+            store.yield_job, job_id, worker_id=worker_id, checkpoint=checkpoint)
+        explainer_jobs[job_id] = _durable_job_view(row)
+        return {"claimed": True, "continued": row.get("status") == "queued", "job": row}
+    except Exception as exc:
+        # Restore/configuration failures occur before run_explainer_task's handler. Release their
+        # lease too, retaining the prior checkpoint and allowing only the normal bounded retries.
+        if isinstance(exc, durable_execution.LeaseLost):
+            raise
+        hard_failure = isinstance(exc, (ValueError, durable_execution.BudgetExceeded))
+        status = ("error" if hard_failure or int(claimed.get("attempts") or 1)
+                  >= int(claimed.get("max_attempts") or 1) else "retry")
+        await asyncio.to_thread(
+            store.set_status, job_id, status, error=str(exc), worker_id=worker_id)
+        await asyncio.to_thread(store.append_event, job_id, status, str(exc))
         return {"claimed": True, "job": await asyncio.to_thread(store.get_job, job_id)}
     finally:
         # Blob contains every paid stage and the latest checkpoint. Local /tmp is never authoritative.
@@ -3351,7 +3491,7 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
 
 
 @app.get("/api/explainer/status/{job_id}")
-async def explainer_status_stream(job_id: str, after: int = 0):
+async def explainer_status_stream(job_id: str, request: Request, after: int = 0):
     durable = _durable_execution_required()
     store = None
     if durable:
@@ -3368,13 +3508,17 @@ async def explainer_status_stream(job_id: str, after: int = 0):
 
     async def gen():
         if durable:
-            cursor = max(0, int(after))
+            try:
+                last_event_id = int(request.headers.get("last-event-id") or 0)
+            except ValueError:
+                last_event_id = 0
+            cursor = max(0, int(after), last_event_id)
             while True:
                 try:
                     events = await asyncio.to_thread(store.events, job_id, cursor, 500)
                     for event in events:
                         cursor = max(cursor, int(event["seq"]))
-                        yield f"data: {json.dumps({'type': event['event_type'], 'data': event['data']})}\n\n"
+                        yield f"id: {cursor}\ndata: {json.dumps({'type': event['event_type'], 'data': event['data'], 'seq': cursor})}\n\n"
                     row = await asyncio.to_thread(store.get_job, job_id)
                     if not row:
                         yield f"data: {json.dumps({'type': 'error', 'data': 'Durable job disappeared'})}\n\n"
