@@ -1,150 +1,228 @@
 #!/usr/bin/env python3
-"""Script-only long-form check: generate a script and grade it, with no image/TTS/render spend.
+"""Sample the production long-form script path, stopping before evidence assets, TTS and images.
 
-A full long-form run costs several dollars and many minutes, and most of that is spent proving
-things about the *script* that can be decided long before an image is bought. This harness stops
-after the script stage and reports the acceptance criteria directly, so a structural change can be
-evaluated in one call.
+This command makes PAID research/script/fact-check calls. Each sample is a fresh draft using
+production's existing bounded replan policy. Research may reuse the normal verified cache.
+A pass covers only the stages listed in the report, never request dispatch or a finished video.
 
-The research dossier is served from cache when available (RESEARCH_CACHE=1, the default), so
-repeat runs cost nothing in metered web search.
-
-    python scripts/longform_script_check.py "Why were doctors wrong about stomach ulcers?"
-    python scripts/longform_script_check.py --duration 90 --format evidence_led_mystery "..."
-
-Exit code is 0 only when every criterion passes.
+    python scripts/longform_script_check.py --visual-style illustrated_story --duration 220 \
+        --samples 5 --output script-check.json "Why did the plan backfire?"
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
 import sys
+import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-try:
+if __name__ == "__main__":
+    # Providers/model constants read their configuration during import.
     from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+    load_dotenv(ROOT / ".env")
 
 import explainer_pipeline as ep
+import illustrated_story as illustrated
 from longform_research import validate_claim_joins, validate_research_dossier
 from longform_retention import validate_longform_story
 from runtime_planner import plan_runtime
 
-GREEN, RED, DIM, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[0m"
+
+COVERAGE = ["research", "fresh graded script with production replans", "fact-check",
+            "narration bindings", "claim joins", "configured runtime policy",
+            "illustrated hook and storyboard when selected"]
+EXCLUDED = ["HTTP approval and dispatch", "durable worker recovery", "evidence asset plan",
+            "TTS and measured audio timing", "images", "render", "Blob publication"]
 
 
-def _mark(ok: bool) -> str:
-    return f"{GREEN}PASS{RESET}" if ok else f"{RED}FAIL{RESET}"
+def _positive(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return number
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("question")
-    parser.add_argument("--duration", type=int, default=90)
-    parser.add_argument("--format", default="evidence_led_mystery",
-                        help="standard_explainer | evidence_led_mystery")
-    parser.add_argument("--video-format", default="landscape")
-    parser.add_argument("--show-script", action="store_true", help="print the narration")
-    args = parser.parse_args()
+    parser.add_argument("--duration", type=_positive, default=90)
+    parser.add_argument("--format", choices=("standard_explainer", "evidence_led_mystery"),
+                        default=None)
+    parser.add_argument("--video-format", choices=("landscape", "social", "portrait"),
+                        default="landscape")
+    parser.add_argument("--visual-style", choices=("cinematic", "illustrated_story"),
+                        default="cinematic")
+    parser.add_argument("--samples", type=_positive, default=1,
+                        help="fresh independent drafts; each may incur paid production replans")
+    parser.add_argument("--output", type=Path, help="write a JSON report after every sample")
+    parser.add_argument("--show-script", action="store_true")
+    args = parser.parse_args(argv)
+    args.format = args.format or (
+        "standard_explainer" if args.visual_style == "illustrated_story"
+        else "evidence_led_mystery")
+    if not args.question.strip():
+        parser.error("question must not be empty")
+    # A social request follows generate_graded_short in production. This harness has always
+    # called the long-form generator, so accepting social would claim parity it does not have.
+    if args.video_format != "landscape":
+        parser.error("this script-only long-form harness currently supports landscape only")
+    try:
+        illustrated.validate_request(
+            visual_style=args.visual_style, video_format=args.video_format,
+            story_format=args.format, controlled_pilot=False)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
-    log = lambda message: print(f"{DIM}  {message}{RESET}")
-    costs: list = []
 
-    print(f"\n=== RESEARCH ===")
-    dossier = ep.generate_research_dossier(args.question, cost_sink=costs, log=log)
-    claims = dossier.get("claims") or []
+def run_sample(args, sample_id: int, log=print) -> dict:
+    started = time.monotonic()
+    costs: list[float] = []
+    script: dict = {}
+    dossier: dict = {}
+    is_illustrated = args.visual_style == "illustrated_story"
+    stable = ep._stable_standard_longform(args.video_format, args.format, False)
+    sourcing_advisory = stable and not is_illustrated
+    research_mode = ep._ordinary_research_mode(stable, is_illustrated)
+    report = {
+        "sample": sample_id, "passed": False, "stage": "research", "checks": {},
+        "fresh_script": True, "research_mode": research_mode,
+        "runtime_hard": ep._runtime_is_enforced(),
+        "configured_replans": ep._LONGFORM_CONTRACT_RETRIES,
+        "script_provider": ep.script_provider.active_provider(),
+        "script_model": (ep.script_provider.openai_script_model()
+                         if ep.script_provider.active_provider() == ep.script_provider.OPENAI
+                         else ep.ANTHROPIC_MODEL),
+        "research_model": ep.ANTHROPIC_MODEL,
+        "claim_ledger_hard": ep._claim_ledger_hard(),
+        "illustrated_storyboard_hard": ep._illustrated_storyboard_hard(),
+        "recorded_cost_usd": 0.0,
+        "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+        "cost_may_be_incomplete": True,
+    }
+    try:
+        if research_mode != "off":
+            try:
+                dossier = ep.generate_research_dossier(args.question, cost_sink=costs, log=log)
+            except Exception as exc:
+                if research_mode == "required":
+                    raise
+                report["research_warning"] = f"{type(exc).__name__}: {exc}"
+        report["checks"]["research"] = validate_research_dossier(dossier)
+        report["stage"] = "script"
+        direction = illustrated.story_direction(args.question) if is_illustrated else ""
+        # Call the generator directly. SCRIPT_CACHE must not turn independent samples into
+        # repeated measurements of one cached draft. Its own production replan policy remains.
+        script = ep.generate_graded_script(
+            args.question, args.duration, "engaging and scientific", "", args.video_format, "",
+            cost_sink=costs, log=log, operator_direction=direction,
+            story_format=args.format, research_dossier=dossier, causal_lane=is_illustrated)
+        report["stage"] = "factcheck"
+        if script.get("scenes"):
+            script, notes, cost = ep.factcheck_script(script, args.question, dossier)
+            script["_script_cost_usd"] = float(script.get("_script_cost_usd") or 0) + cost
+            report["factcheck_notes"] = notes
+        ep.rederive_narration_bindings(script, log)
+        script["_story_structure_review"] = ep._review_story_structure(
+            script, args.format, args.video_format, log)
+        report["checks"]["structure_review"] = script["_story_structure_review"]
+        report["stage"] = "claims_after_factcheck"
+        joins = validate_claim_joins(script, dossier)
+        report["checks"][report["stage"]] = joins
+        if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
+            raise ValueError("Claim ledger failed after fact-check: " + json.dumps(joins.get("errors")))
 
-    print(f"\n=== SCRIPT ===")
-    script = ep.generate_graded_script(
-        args.question, args.duration, "engaging and scientific", "",
-        args.video_format, "", cost_sink=costs, log=log,
-        story_format=args.format, research_dossier=dossier)
+        report["stage"] = "runtime"
+        if ep._runtime_is_enforced():
+            script = ep._enforce_requested_runtime(
+                script, args.duration, cost_sink=costs, log=log)
+        else:
+            script["_runtime_plan"] = plan_runtime(script.get("scenes") or [], args.duration)
+        report["checks"]["runtime"] = script["_runtime_plan"]
+        ep.rederive_narration_bindings(script, log)
+        report["stage"] = "claims_after_runtime"
+        joins = validate_claim_joins(script, dossier)
+        report["checks"][report["stage"]] = joins
+        if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
+            raise ValueError("Claim ledger failed after runtime: " + json.dumps(joins.get("errors")))
 
-    # The repairs that normally run inside the pipeline, so the checks below see what it would.
-    ep._repair_claim_phrases(script, log)
-    ep._repair_anchor_phrases(script, log)
+        if is_illustrated:
+            report["stage"] = "illustrated_storyboard"
+            script, _ = ep._ensure_hook_fits_budget(script, costs)
+            board = illustrated.build_storyboard(script, args.question)
+            report["checks"]["illustrated_storyboard"] = board["validation"]
+            report["causal_clock"] = {
+                "estimated_runtime_sec": board.get("estimated_runtime_sec"),
+                "chain": board.get("chain"), "chapter_count": board.get("chapter_count"),
+            }
+            if not board["validation"].get("passed") and ep._illustrated_storyboard_hard():
+                raise ValueError("Illustrated storyboard failed: " + "; ".join(board["validation"]["errors"]))
+        # Retention and prose structure are reported at this boundary, not invented extra gates.
+        report["checks"]["retention_review"] = validate_longform_story(script, args.question)
+        report["stage"] = "complete"
+        report["passed"] = True
+    except Exception as exc:
+        report["error"] = {"type": type(exc).__name__, "message": str(exc)}
+    finally:
+        # Generation and fact-check costs live on the script; research/grade/refit costs use
+        # cost_sink. The old harness printed only the latter, omitting most script spend.
+        report["recorded_cost_usd"] = round(
+            sum(float(c or 0) for c in costs) + float(script.get("_script_cost_usd") or 0), 6)
+        # Some production helpers swallow provider/parsing errors before recording their cost.
+        # Never present a zero/partial estimate, especially after an exception, as actual billing.
+        report["cost_may_be_incomplete"] = True
+        report["elapsed_sec"] = round(time.monotonic() - started, 3)
+        report["engine"] = script.get("_story_engine")
+        scenes = script.get("scenes") or []
+        report["scene_count"] = len(scenes)
+        report["word_count"] = sum(len(str(s.get("narration") or "").split()) for s in scenes)
+        report["script"] = script
+        if args.show_script:
+            for index, scene in enumerate(scenes, 1):
+                log(f"{index}. [{scene.get('causal_role') or scene.get('story_role') or '?'}] "
+                    f"{scene.get('narration') or ''}")
+    # Failures waived by diagnostic flags must not look like clean candidate passes.
+    quality_checks = ("research", "claims_after_factcheck", "claims_after_runtime",
+                      "illustrated_storyboard") if is_illustrated else (
+                          "claims_after_factcheck", "claims_after_runtime")
+    report["clean_script_checks"] = report["passed"] and all(
+        report["checks"].get(key, {}).get("passed", False) for key in quality_checks)
+    return report
 
-    # The refit too. This claimed to run what the pipeline runs while omitting the single
-    # largest rewriter of narration, so it graded a draft that is never what gets rendered --
-    # and it therefore could not see the pipeline's most persistent defect, that compressing
-    # to the word budget destroys the sentence cadence the generator was asked for. Anything
-    # measured before this point is a statement about draft one, not about the video.
-    ep._enforce_requested_runtime(script, args.duration, cost_sink=costs, log=log)
 
-    scenes = script.get("scenes") or []
-    if args.show_script:
-        print(f"\n=== NARRATION ===")
-        for index, scene in enumerate(scenes, 1):
-            role = scene.get("story_role", "?")
-            mystery = scene.get("_role", "")
-            tag = f"{role}/{mystery}" if mystery and mystery != role else role
-            print(f"  [{index}] {tag}\n      {(scene.get('narration') or '').strip()}")
-
-    print(f"\n=== ACCEPTANCE CRITERIA ===")
-    results = []
-
-    # 1. word count as the renderer would see it, after the refit
-    runtime = plan_runtime(scenes, args.duration)
-    # Same bounds the pipeline enforces: derived from this draft's punctuation, not
-    # from an assumed one-sentence-per-scene. Grading against the assumed window let
-    # the harness pass a script the pipeline would reject on seconds.
-    target = int(runtime.get("target_words") or 0)
-    low = int(runtime.get("min_words") or 0)
-    high = int(runtime.get("max_words") or 0)
-    words = int(runtime.get("word_count") or 0)
-    ok_words = low <= words <= high
-    results.append(ok_words)
-    print(f"  {_mark(ok_words)}  narration words: {words} (allowed {low}-{high}, "
-          f"{runtime.get('estimated_seconds', 0):.1f}s vs {args.duration}s target, "
-          f"{len(scenes)} scenes)")
-
-    # 2. evidence coverage
-    joins = validate_claim_joins(script, dossier)
-    unbound = [e for e in joins.get("errors", []) if e.get("code") == "unbound_factual_scene"]
-    ok_claims = bool(joins.get("passed"))
-    results.append(ok_claims)
-    print(f"  {_mark(ok_claims)}  evidence coverage: {len(claims)} verified claims, "
-          f"{len(joins.get('errors', []))} join error(s)"
-          + (f", {len(unbound)} unbound factual scene(s)" if unbound else ""))
-    for issue in joins.get("errors", [])[:4]:
-        print(f"          {DIM}{issue.get('code')}: scene {issue.get('scene')}{RESET}")
-
-    # 3. cadence, via the story-format gates
-    engine = ep._review_story_structure(script, args.format, args.video_format, lambda m: None)
-    cadence = [c for c in (engine.get("failure_codes") or []) if str(c).startswith("cadence")]
-    ok_cadence = not cadence
-    results.append(ok_cadence)
-    measured = engine.get("measurements") or {}
-    print(f"  {_mark(ok_cadence)}  cadence: long {measured.get('long_frac', 0):.0%} (need 25%), "
-          f"short {measured.get('short_frac', 0):.0%} (max 55%), "
-          f"median {measured.get('median_sentence_words', 0)} words"
-          + (f" — {', '.join(cadence)}" if cadence else ""))
-
-    # 4. the opening contract, plus the rest of the retention contract for context
-    story = validate_longform_story(script, args.question)
-    opening_codes = {"opening_not_consequence", "subject_unclear_by_5s"}
-    opening = [e for e in story.get("errors", []) if e.get("code") in opening_codes]
-    ok_opening = not opening
-    results.append(ok_opening)
-    print(f"  {_mark(ok_opening)}  opening contract: "
-          + ("clean" if ok_opening else ", ".join(e.get("code") for e in opening)))
-    print(f"  {DIM}      retention contract overall: {story.get('score', '?')}/100, "
-          f"{len(story.get('errors', []))} blocking{RESET}")
-    for issue in story.get("errors", [])[:6]:
-        print(f"          {DIM}{issue.get('code')}{RESET}")
-
-    other = [c for c in (engine.get("failure_codes") or []) if not str(c).startswith("cadence")]
-    if other:
-        print(f"  {DIM}      story-engine (review only): {', '.join(other)}{RESET}")
-
-    print(f"\n  cost: ${sum(float(c or 0) for c in costs):.3f} (script only — no image, TTS or render)")
-    passed = all(results)
-    print(f"  {_mark(passed)}  {sum(results)}/4 criteria\n")
-    return 0 if passed else 1
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    result = {
+        "schema_version": 1, "question": args.question, "duration_sec": args.duration,
+        "story_format": args.format, "visual_style": args.visual_style,
+        "video_format": args.video_format, "coverage": COVERAGE, "excluded": EXCLUDED,
+        "samples_requested": args.samples, "samples": [], "passed": False,
+    }
+    print("PAID script sampling; no media generation. Cost figures are recorded estimates.")
+    for index in range(1, args.samples + 1):
+        sample = run_sample(args, index)
+        result["samples"].append(sample)
+        result["passed"] = (len(result["samples"]) == args.samples and all(
+            item["passed"] and item["clean_script_checks"] for item in result["samples"]))
+        result["recorded_cost_usd"] = round(sum(
+            item["recorded_cost_usd"] for item in result["samples"]), 6)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            temporary = args.output.with_name(args.output.name + ".tmp")
+            temporary.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+            temporary.replace(args.output)
+        print(f"Sample {index}/{args.samples}: "
+              f"{'PASS' if sample['passed'] and sample['clean_script_checks'] else 'FAIL'} "
+              f"at {sample['stage']}; engine={sample['engine']}; "
+              f"recorded cost=${sample['recorded_cost_usd']:.4f}")
+        if sample.get("error"):
+            print(sample["error"]["message"])
+    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":

@@ -164,7 +164,9 @@ def test_research_generation_uses_bounded_server_search_and_validates(monkeypatc
                     server_tool_use=SimpleNamespace(web_search_requests=2)),
             )
 
-    monkeypatch.setattr(pipeline, "_claude", lambda: SimpleNamespace(messages=Messages()))
+    monkeypatch.setenv("SCRIPT_PROVIDER", "openai")
+    monkeypatch.setattr(pipeline, "_claude", lambda: pytest.fail("research used text-only adapter"))
+    monkeypatch.setattr(pipeline, "_anthropic_native", lambda: SimpleNamespace(messages=Messages()))
     result = pipeline.generate_research_dossier("Why did the gauge move?", cost_sink=[])
     assert result["validation"]["passed"] is True
     assert calls[0]["tools"][0]["type"] == "web_search_20260318"

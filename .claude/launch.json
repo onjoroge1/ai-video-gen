@@ -5,7 +5,7 @@
     {
       "name": "FastAPI Dev Server",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["RELOAD=0", "/opt/homebrew/bin/python3", "app.py"],
+      "runtimeArgs": ["RELOAD=0", "python3", "app.py"],
       "port": 8000,
       "autoPort": false
     }

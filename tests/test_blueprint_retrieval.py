@@ -131,13 +131,14 @@ def test_the_env_knob_selects_the_level(monkeypatch):
 
 # --- the wiring itself ---------------------------------------------------------------------------
 
-def test_retrieval_happens_after_the_engine_is_chosen():
-    """The corpus is keyed on engine and _assign_causal_spine is what picks it. Retrieving earlier
-    would fetch a blueprint for the wrong format."""
+def test_retrieval_guides_planning_and_refreshes_after_labeling():
+    """Use the preferred engine before planning and the final choice before expansion."""
     source = (ROOT / "explainer_pipeline.py").read_text(encoding="utf-8")
     spine_call = source.index("beats, spine_cost = _assign_causal_spine(")
     retrieval = source.index("blueprint_block = _retrieve_blueprint(")
-    assert spine_call < retrieval
+    beat_prompt = source.index("    beat_prompt = (")
+    refreshed = source.index("blueprint_block = _retrieve_blueprint(", retrieval + 1)
+    assert retrieval < beat_prompt < spine_call < refreshed
 
 
 def test_blueprint_block_is_bound_on_every_lane():
@@ -152,7 +153,7 @@ def test_blueprint_block_is_bound_on_every_lane():
 
 def test_the_blueprint_reaches_the_expansion_prompt():
     source = (ROOT / "explainer_pipeline.py").read_text(encoding="utf-8")
-    assert source.count("+ blueprint_block") == 1
+    assert source.count("+ blueprint_block") == 2
 
 
 def test_off_disables_retrieval_entirely(monkeypatch):

@@ -96,3 +96,92 @@ def test_the_real_corpus_loads_and_every_reference_declares_an_engine():
     for reference in references:
         assert reference.engine_id in se.ENGINES
         assert reference.story.get("engine"), f"{reference.name} has no declared engine"
+
+
+@pytest.fixture
+def runtime_guidance(monkeypatch):
+    monkeypatch.setattr(rc.cs, "MECHANISM_DEADLINE_PCT", 0.20)
+    return lambda duration: {row["engine_id"]: row for row in rc.runtime_fit_guidance(duration)}
+
+
+@pytest.mark.parametrize("duration,deadline,compression", [(170, 34, 2), (180, 36, 0), (220, 44, 0)])
+def test_cobra_observed_opening_needs_only_two_seconds_compression_at_170(
+    runtime_guidance, duration, deadline, compression,
+):
+    """36 / .20 is 180, not 190; a reference timing is not an engine feasibility floor."""
+    engine = runtime_guidance(duration)[se.BACKFIRING_SOLUTION]
+    sample = next(row for row in engine["references"] if row["reference_id"] == "cobra_effect")
+    assert engine["target_deadline_sec"] == deadline
+    assert engine["required_milestones_through_mechanism"] == 5
+    assert engine["support_count"] == 1
+    assert sample["observed_opening_sec"] == 36
+    assert sample["milestones_through_mechanism"] == 5
+    assert sample["compression_needed_sec"] == compression
+    assert sample["compression_needed_pct"] == pytest.approx(100 * compression / 36, abs=.001)
+    assert sample["unchanged_opening_min_runtime_sec"] == 180
+
+
+def test_reference_variation_and_optional_roles_remain_visible(runtime_guidance):
+    guidance = runtime_guidance(170)
+    indictment = guidance[se.ACCUMULATING_INDICTMENT]
+    assert indictment["support_count"] == 2
+    assert indictment["required_milestones_through_mechanism"] == 3
+    assert indictment["optional_milestones_before_mechanism"] == ["false_resolution"]
+    assert {sample["observed_opening_sec"] for sample in indictment["references"]} == {20, 33}
+    assert all(sample["milestones_through_mechanism"] == 4 for sample in indictment["references"])
+
+    power = guidance[se.POWER_REVERSAL]
+    assert power["support_count"] == 2
+    assert power["required_milestones_through_mechanism"] == 3
+    assert power["optional_milestones_before_mechanism"] == ["intervention"]
+    samples = {sample["reference_id"]: sample for sample in power["references"]}
+    assert samples["pompeii"]["observed_opening_sec"] == 22
+    assert samples["pompeii"]["milestones_through_mechanism"] == 3
+    assert samples["pompeii"]["compression_needed_sec"] == 0
+    assert samples["romanov_fall"]["observed_opening_sec"] == 44
+    assert samples["romanov_fall"]["milestones_through_mechanism"] == 4
+    assert samples["romanov_fall"]["compression_needed_sec"] == 10
+
+
+def test_unmeasured_and_missing_references_do_not_supply_fake_timing_evidence(runtime_guidance):
+    guidance = runtime_guidance(170)
+    written = guidance[se.ALMOST_HAPPENED_PLAN]
+    assert written["reference_count"] == 1
+    assert written["support_count"] == 0
+    sample = written["references"][0]
+    assert sample["reference_id"] == "hippo_weed"
+    assert sample["milestones_through_mechanism"] == 5  # An interleaved escalation is not a milestone.
+    assert sample["observed_opening_sec"] is None
+    assert sample["compression_needed_sec"] is None
+    assert sample["unchanged_opening_min_runtime_sec"] is None
+    assert written["target_deadline_sec"] == 102  # Keep the engine's existing 60% deadline.
+    assert guidance[se.ACCIDENTAL_INVENTION]["reference_count"] == 0
+    assert guidance[se.ACCIDENTAL_INVENTION]["support_count"] == 0
+
+
+@pytest.mark.parametrize("opening", [None, "invalid", float("nan"), float("inf"), -1, 201])
+def test_invalid_reference_timestamps_are_unknown_not_compression_evidence(tmp_path, opening):
+    _write(tmp_path, "invalid", engine=se.BACKFIRING_SOLUTION, measured={"runtime_sec": 200})
+    path = tmp_path / "invalid.json"
+    payload = json.loads(path.read_text())
+    payload["story"]["steps"].append({"role": "mechanism", "start_sec": opening})
+    path.write_text(json.dumps(payload))
+    engine = next(row for row in rc.runtime_fit_guidance(170, tmp_path)
+                  if row["engine_id"] == se.BACKFIRING_SOLUTION)
+    assert engine["support_count"] == 0
+    assert engine["references"][0]["observed_opening_sec"] is None
+
+
+@pytest.mark.parametrize("duration", [0, -1, None, "invalid", float("nan"), float("inf")])
+def test_invalid_target_runtime_is_rejected(duration):
+    with pytest.raises(ValueError, match="positive finite"):
+        rc.runtime_fit_guidance(duration)
+
+
+def test_prompt_keeps_runtime_evidence_advisory():
+    block = rc.runtime_fit_block(170)
+    assert "not a gate or an engine ban" in block
+    assert "not minimum runtimes" in block
+    assert "Zero support means timing fit is unknown" in block
+    assert "factual causal fit first" in block
+    assert "Do not extend the requested runtime or the validation deadline" in block
