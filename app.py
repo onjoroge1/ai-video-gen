@@ -3131,7 +3131,7 @@ async def execute_agent_action(action_id: str, request: Request,
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
     token = _claim_token(request)
-    from longform_research import LEGACY_DOSSIER_JSON_ERROR
+    from longform_research import LEGACY_DOSSIER_JSON_ERROR, is_legacy_weak_source_failure
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
     except agent_actions.AgentActionError as exc:
@@ -3153,6 +3153,15 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="Research provider returned malformed dossier JSON;",
                 extra_attempts=1)
+        elif (job and job.get("status") == "error"
+              and is_legacy_weak_source_failure(str(job.get("error") or ""))):
+            # Re-evaluate the existing paid research candidates after quarantine
+            # filtering. Payload, request hashes and spend remain unchanged; all
+            # retained claims and the resulting story must still pass their gates.
+            # A subsequent empty/invalid ledger error does not match this migration.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="weak_source_domainx", extra_attempts=1)
         elif job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))

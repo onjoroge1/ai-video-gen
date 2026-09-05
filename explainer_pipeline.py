@@ -50,6 +50,7 @@ from longform_shots import (
 )
 from longform_research import (
     parse_research_dossier_text,
+    filter_disallowed_source_claims,
     _canonical_url,
     claim_context_for_prompt,
     validate_claim_joins,
@@ -3010,7 +3011,8 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
     dossier["citation_records"] = [{"url": _s(claim.get("source_url")),
                                     "cited_text": _s(claim.get("support_quote"))}
                                    for claim in verified]
-    dossier["citation_urls"] = sorted({_s(claim.get("source_url")) for claim in verified})
+    # A fetched page establishes its quote, not that the provider discovered it.
+    # Keep the original search URL set so model-only URLs still fail provenance.
     dossier["claim_verification"] = {k: v for k, v in summary.items() if k != "pages"}
     log(f"Claim verification: {len(verified)}/{len(claims)} claims verified against source pages"
         + (f", {summary.get('repaired', 0)} quote(s) recovered" if summary.get("repaired") else ""))
@@ -3210,10 +3212,24 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     dossier["web_search_requests"] = search_requests
     dossier["search_cost_reservation_usd"] = round(
         search_requests * _WEB_SEARCH_COST_CEILING, 4)
+    dossier = filter_disallowed_source_claims(dossier)
+    source_filter = dossier.get("source_filter") or {
+        "excluded_count": 0, "retained_count": len(dossier.get("claims") or [])}
+    log(f"Research sources: excluded {source_filter['excluded_count']} disallowed "
+        f"candidate(s); checking {source_filter['retained_count']} remaining claim(s)")
     _bind_support_quotes(dossier)
     _verify_claims_against_sources(dossier, log=log)
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
+    # Save accepted and excluded evidence before scripting can fail. This private
+    # checkpoint file is audit data; only retained claims enter writing prompts.
+    from durable_execution import current as current_research_runtime
+    research_runtime = current_research_runtime()
+    if research_runtime:
+        os.makedirs(research_runtime.output_dir, exist_ok=True)
+        with open(os.path.join(research_runtime.output_dir, "research_dossier.json"),
+                  "w", encoding="utf-8") as handle:
+            json.dump(dossier, handle, indent=2, ensure_ascii=False)
     # An unverified-quote failure has two very different causes and the message could not tell them
     # apart, which cost several rounds of guessing: either the provider returned no readable
     # evidence at all (nothing CAN verify, a tool/config problem) or it returned evidence the
@@ -3229,6 +3245,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     if not validation["passed"]:
         codes = collections.Counter(_s(item.get("code")) for item in validation["errors"])
         searches = dossier.get("web_search_requests") or 0
+        if source_filter["excluded_count"] and not (dossier.get("claims") or []):
+            raise ValueError(
+                "Research dossier has no usable claims after excluding disallowed sources "
+                "and checking the remaining quotations. More authoritative evidence is "
+                "required; scripting has not started.")
         if searches <= 1 and not (dossier.get("claims") or []):
             raise ValueError(
                 "Research dossier failed before scripting: the provider completed only "
