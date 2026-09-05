@@ -368,7 +368,9 @@ def _resolve_i2v_rate() -> float:
             pass
     primary = I2V_PROVIDER.split(",")[0].strip()
     # fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
-    return {"sora": 0.10, "veo": 0.15, "fal": 0.056}.get(primary, 0.15)
+    # wan = SELF-HOSTED marginal GPU cost, measured 2026-09: a 5.2s H3 clip renders in
+    # 34-45s on a $0.99/hr RTX 5090 => ~$0.01/clip => ~0.002/s. Not an API list price.
+    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.002}.get(primary, 0.15)
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
@@ -4908,6 +4910,57 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             if not vurl:
                 return (False, False, f"fal no video: {str(res)[:120]}")
             open(out_mp4, "wb").write(_rq.get(vurl, timeout=120).content)
+        elif provider == "wan":
+            # Self-hosted wan-api (github onjoroge1/wan-api) on a RunPod GPU. One endpoint
+            # serves BOTH families; WAN_MODEL picks which:
+            #   minimax-h3       — fast + NATIVE AUDIO, but its licence EXCLUDES the EU,
+            #                      UK, South Korea and USA from use/hosting/display of
+            #                      outputs, and requires "MiniMax H3" shown in any
+            #                      commercial UI. Default is Wan (Apache 2.0) for that
+            #                      reason; only switch if your use is outside those.
+            #   wan-2.2-standard — ~127s/clip, 1080p via upscale+interpolation, silent
+            #   wan-2.2-draft / wan-2.2-hq — fast preview / max-realism tiers
+            # Marginal GPU cost is ~$0.01/clip, so retries are far cheaper than a fallback.
+            import time as _t, requests as _rq
+            base  = os.environ.get("WAN_API_URL", "http://127.0.0.1:8787").rstrip("/")
+            token = os.environ.get("WAN_API_TOKEN", "").strip()
+            model = os.environ.get("WAN_MODEL", "wan-2.2-standard").strip()   # Apache-2.0 default; H3 is territory-restricted
+            hdr = {"Content-Type": "application/json"}
+            if token:
+                hdr["Authorization"] = f"Bearer {token}"
+            if idempotency_key:
+                hdr["Idempotency-Key"] = idempotency_key
+            payload = {"prompt": motion, "model": model, "seconds": float(seconds),
+                       "image_b64": base64.b64encode(open(ref, "rb").read()).decode()}
+            try:
+                sub = _rq.post(f"{base}/v1/generations", headers=hdr, timeout=60, json=payload)
+            except Exception as e:
+                return (False, False, f"wan api unreachable: {type(e).__name__} (is api_server running?)")
+            if sub.status_code not in (200, 202):
+                return (False, False, f"wan submit {sub.status_code}: {sub.text[:160]}")
+            job = sub.json(); jid = job.get("id") or job.get("job_id")
+            if stage_note:
+                stage_note({"provider_request_id": jid, "model": model})
+            # Budget covers pod cold-start (a stopped pod must boot: minutes) + render.
+            waited, budget = 0, int(os.environ.get("WAN_TIMEOUT_S", "1800"))
+            while waited < budget:
+                _t.sleep(6); waited += 6
+                try:
+                    st = _rq.get(f"{base}/v1/generations/{jid}", headers=hdr, timeout=30).json()
+                except Exception:
+                    continue
+                state = st.get("status")
+                if state == "done":
+                    break
+                if state in ("error", "cancelled", "cancellation_error"):
+                    return (False, False, f"wan {state}: {st.get('error_code', '?')}")
+            else:
+                return (False, False, f"wan timeout after {budget}s")
+            res = _rq.get(f"{base}/v1/generations/{jid}/result", headers=hdr,
+                          timeout=300, allow_redirects=True)
+            if res.status_code != 200 or not res.content:
+                return (False, False, f"wan result {res.status_code}")
+            open(out_mp4, "wb").write(res.content)
         else:
             return (False, False, f"unknown provider '{provider}'")
         ok = os.path.exists(out_mp4) and _clip_is_real(out_mp4)
