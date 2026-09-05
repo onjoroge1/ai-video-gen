@@ -24,7 +24,7 @@ rounds            = 3
 video_format       = "social"
 short_template     = "quiz"
 voice              = "echo"
-quiz contract      = deployed Quiz V2.3 / rapid_reveal_v2_3
+quiz contract      = deployed Quiz V2.4 / rapid_reveal_v2_4
 mascot             = prohibited
 normal compute     = production durable ReelForge worker
 recovery compute   = same durable job on a trusted higher-resource worker, only if required
@@ -884,7 +884,7 @@ Cleanup is part of completion.
 - Job ID: `<job_id>`
 - Terminal status: `done` or `degraded`
 - Category: `<category>`
-- Quiz contract: `rapid_reveal_v2_3`
+- Quiz contract: `rapid_reveal_v2_4`
 - Rounds: `3`
 - Primary variant: `a`
 - Mascot present: `No`

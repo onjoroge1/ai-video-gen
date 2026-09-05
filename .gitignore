@@ -11,6 +11,17 @@ renders/
 *.mp4
 *.wav
 *.aiff
+
+# Bolt's reaction library is the exception to *.mp4 above: these are committed ASSETS, not renders.
+# Each is a bought i2v clip keyed to a ~0.5MB stacked-matte cutout, and the whole point of paying
+# once is that the result travels with the repo. Without this negation the blanket rule dropped
+# every one of them and `git status` stayed clean, which looks identical to having committed them.
+!assets/mascot/reactions/*.mp4
+
+# The working state behind them is NOT committed: magenta seeds and the untrimmed five-second
+# clips. Keeping them locally is what makes re-keying free (`--force` re-cuts the beat with no
+# spend); a fresh clone has to re-buy, at roughly $0.32 a reaction.
+assets/mascot/reactions/_raw/
 __pycache__/
 .DS_Store
 .pytest_cache/

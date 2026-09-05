@@ -3,7 +3,13 @@ deterministic 2.5D animatic renderer (single persistent Bolt cutout composited w
 DOWNWARD motion → cannot mutate the character or reverse direction), whisper-aligned VO + wind/SFX.
 No paid video providers. See BOLT_SEQUENCE_COMPILER.md."""
 import os, sys, json, base64, subprocess, re
-PROJ = "/Users/obadiah/Documents/video"
+# Derived from this file, not pinned to one checkout. As a hardcoded absolute path this inserted
+# the MAIN checkout at the FRONT of sys.path, so anything importing this module from a git worktree
+# silently resolved `bolt_video`, `explainer_pipeline` and the rest against the other branch's code
+# — importing a different program than the one under test and reporting no error at all.
+# The one-off scripts in this package still pin the path; they are run by hand from the checkout
+# they belong to. This one is a library and gets imported.
+PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJ not in sys.path: sys.path.insert(0, PROJ)
 import explainer_pipeline as ep
 from PIL import Image, ImageDraw, ImageFont

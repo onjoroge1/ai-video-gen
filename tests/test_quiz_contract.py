@@ -3,6 +3,7 @@ from bolt_video.formats.quiz import (
     clamp_quiz_items,
     clue_zoom,
     final_reveal_narration,
+    narration_fits,
     round_narration,
 )
 
@@ -44,10 +45,43 @@ def test_the_api_clamps_from_the_contract_not_a_literal():
 
 def test_round_narration_avoids_repetitive_what_is_it_setup():
     lines = [round_narration("animals", i, 3) for i in range(1, 4)]
-    assert lines == ["Three animals hiding.",
-                     "Round 2. Harder.",
-                     "Last one. Nobody gets it."]
+    assert lines == ["Three animals. Last one's brutal.",
+                     "Okay... lock in.",
+                     "Nah... final boss."]
     assert all("what is it" not in line.lower() for line in lines)
+
+
+def test_the_opener_promises_the_round_the_viewer_has_to_stay_for():
+    """The opener's job is a reason to reach round three, not a description of round one.
+
+    "Three animals hiding." is accurate and asks nothing: it states the count and stops, which is
+    what the whole line used to do. The threat is the half that buys the watch — the count sets a
+    finish line, and the last round is the thing worth arriving at — so it is the half a future
+    trim is most likely to cut for length and least able to afford losing.
+    """
+    opener = round_narration("wild animals", 1, 3)
+    assert opener.startswith("Three")
+    assert opener.rstrip(".").endswith("brutal"), opener
+
+
+def test_a_long_category_drops_the_threat_rather_than_the_answer():
+    """Every line plays over its own countdown, so an over-long opener talks across round one's
+    reveal. The opener is built longest-first and degrades, and this pins the degradation: a
+    category wide enough to push the threat past the window loses the threat, not the timing."""
+    from bolt_video.formats.quiz import narration_fits
+
+    for category in ("wild animals", "ocean animals", "dinosaurs", "invertebrates",
+                     "microscopic freshwater invertebrates"):
+        opener = round_narration(category, 1, 3)
+        assert narration_fits(opener, QUIZ_V2.guess_window_sec), (category, opener)
+    assert "brutal" not in round_narration("microscopic freshwater invertebrates", 1, 3)
+
+
+def test_the_opener_names_the_category_by_its_shortest_honest_noun():
+    """"wild animals" and "ocean animals" are each six characters longer than the noun carrying
+    the meaning, and the opener now needs that budget for the threat. Dropping the qualifier is
+    only safe because it stays true — ocean animals are animals."""
+    assert round_narration("ocean animals", 1, 3) == round_narration("animals", 1, 3)
 
 
 def test_the_opener_counts_the_animals_the_video_actually_shows():
@@ -74,6 +108,9 @@ def test_round_lines_fit_the_guess_window():
             # "wild animals" rather than "animals": the category is interpolated into the opener,
             # and the real one is six characters longer than the one this test used to check.
             line = round_narration("wild animals", index, total)
+            # Imported rather than restated: the guard and the copy it guards were two
+            # independent 15.0s, which is one edit away from a silently clipped line.
+            assert narration_fits(line, QUIZ_V2.guess_window_sec), (total, index, line)
             assert len(line) / 15.0 <= QUIZ_V2.guess_window_sec, (total, index, line)
 
 
@@ -83,9 +120,37 @@ def test_quiz_v2_progressively_reveals_harder_clues():
     assert clue_zoom("expert", 2) == 1.0
 
 
-def test_the_closing_line_asks_for_the_replay_the_loop_makes_free():
-    assert final_reveal_narration("ANTEATER") == "ANTEATER! Missed one? Go again."
+def test_the_closing_line_asks_for_the_score_not_the_replay():
+    """The replay CTA worked — average percentage viewed sits above 100% — which is the argument
+    against keeping it. The longest slot in the Short was buying more of a saturated metric while
+    comments, the one signal this format never asked for, stayed flat. The loop is not lost by
+    dropping the words: the closing beat still dissolves into the opening frame."""
+    assert final_reveal_narration("ANTEATER") == "ANTEATER! Be honest... what'd you get?"
     assert QUIZ_V2.subscribe_teaser_sec == 0
+
+
+def test_subscribe_is_never_spoken():
+    """A spoken "subscribe" is a chore; the card promises a round two instead. Keeping the ask on
+    the visual channel is the whole point of the split, so the voice track must not re-add it."""
+    from bolt_video.formats.quiz import CLOSING_BANNER, CLOSING_FOOTER
+
+    spoken = [round_narration("animals", i, 3) for i in range(1, 4)]
+    spoken.append(final_reveal_narration("TAPIR"))
+    assert all("subscribe" not in line.lower() for line in spoken), spoken
+    assert "FOLLOW" in CLOSING_FOOTER and "SCORE" in "".join(CLOSING_BANNER)
+
+
+def test_the_score_ladder_reaches_a_perfect_score_at_any_round_count():
+    """The emoji are the payload — bare numbers are a scoreboard for a game already over — and a
+    ladder that stopped short of a perfect score would drop the one rung worth typing."""
+    from bolt_video.formats.quiz import score_tiers
+
+    assert [label for label, _ in score_tiers(3)] == ["0/3", "1/3", "2/3", "3/3"]
+    for total in (2, 3, 5):
+        tiers = score_tiers(total)
+        assert len(tiers) == total + 1
+        assert tiers[-1][0] == f"{total}/{total}"
+        assert len({emoji for _, emoji in tiers}) >= 3, total
 
 
 def test_final_reveal_narration_fits_the_closing_card():
@@ -477,11 +542,62 @@ def test_phone_readability_gate_rejects_tiny_or_low_contrast_clues():
     import _quiz_pipeline_legacy as legacy
 
     issues = legacy.quiz_readability_issues(
-        {"subject_width_pct": 12, "clue_contrast_score": 41}, "hard", 2)
+        {"subject_width_pct": 12, "clue_contrast_score": 41,
+         "first_crop_contrast_score": 80}, "hard", 2)
     assert any("12%" in issue for issue in issues)
     assert any("41/100" in issue for issue in issues)
     assert legacy.quiz_readability_issues(
-        {"subject_width_pct": 28, "clue_contrast_score": 80}, "hard", 2) == []
+        {"subject_width_pct": 28, "clue_contrast_score": 80,
+         "first_crop_contrast_score": 80}, "hard", 2) == []
+
+
+def test_the_gate_measures_the_frame_the_viewer_actually_decides_on():
+    """Contrast was graded on the full clue, and frame zero is a crop of it — a clue can separate
+    cleanly in the wide shot and vanish inside the opening crop. That crop is the swipe decision,
+    and silhouette contrast there is the only variable this format has measured against retention:
+    the 10.5-point spread between the first two V2.3 quizzes tracked it."""
+    import _quiz_pipeline_legacy as legacy
+
+    issues = legacy.quiz_readability_issues(
+        {"subject_width_pct": 40, "clue_contrast_score": 90,
+         "first_crop_contrast_score": 30}, "hard", 1)
+    assert any("frame-zero" in issue and "30/100" in issue for issue in issues), issues
+    assert "first_crop_contrast_score" in legacy.grade_quiz_visuals.__doc__ or True
+    prompt = __import__("inspect").getsource(legacy.grade_quiz_visuals)
+    assert "first_crop_contrast_score" in prompt
+    assert "IMAGE 1 alone" in prompt, "the score has to be asked for on frame zero, not the clue"
+
+
+def test_an_unmeasured_contrast_score_counts_as_a_failure():
+    """Absence is the state this gate lived in for its whole life: frame-zero contrast was never
+    requested, nothing read it, and every render reported a clean pass. Treating a missing score
+    as acceptable rebuilds exactly that."""
+    import _quiz_pipeline_legacy as legacy
+
+    assert legacy._contrast_failed({"clue_contrast_score": 90})
+    assert legacy._contrast_failed({"first_crop_contrast_score": 90})
+    assert legacy._contrast_failed({"clue_contrast_score": 90,
+                                    "first_crop_contrast_score": 20})
+    assert not legacy._contrast_failed({"clue_contrast_score": 90,
+                                        "first_crop_contrast_score": 60})
+
+
+def test_a_failed_frame_zero_is_regenerated_rather_than_reported():
+    """The finding had no mechanism behind it: a contrast failure was filed as a warning against a
+    video that shipped anyway. A habitat fails this for one reason — the silhouette is standing
+    somewhere dark — so the retry names a brighter background instead of re-rolling the same
+    prompt, and re-derives the frames the render actually reads from the repaired pair."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "contrast_bad = _contrast_failed(grade)" in source
+    assert "high_key=relight" in source
+    assert "_prepare_clue_bases()" in source
+    assert "high_key" in inspect.signature(legacy._habitat_pair).parameters
+    habitat = inspect.getsource(legacy._habitat_pair)
+    assert "BRIGHT and OPEN" in habitat
+    assert "No dark" in habitat
 
 
 def test_v23_defaults_to_three_rounds_and_mascot_free_reveals():
@@ -565,7 +681,211 @@ def test_every_card_still_fits_its_box_in_the_display_face():
     the answer card. Both headline and the longest realistic answer are checked at the caps."""
     import _quiz_pipeline_legacy as legacy
 
-    for headline in ("GUESS THE SHADOW!", "GOT ALL 4? · SUBSCRIBE"):
-        assert legacy._font(76).getlength(headline) <= legacy.W - 240, headline
+    from bolt_video.formats.quiz import CLOSING_BANNER, FIRST_REVEAL_REACTION
+
+    for headline in ("GUESS THE SHADOW!", "".join(CLOSING_BANNER), FIRST_REVEAL_REACTION[0]):
+        # The emoji sits beside the headline, so its box comes out of the same budget.
+        assert legacy._font(76).getlength(headline) <= legacy.W - 240 - 104, headline
     for answer in ("AFRICAN WILD DOG!", "HIPPOPOTAMUS!"):
         assert legacy._font(88).getlength(answer) <= legacy.W - 70 - 130, answer
+
+
+# ── colour emoji ────────────────────────────────────────────────────────────────
+# The display face has no emoji glyph and PIL performs no font fallback, so an emoji sent through
+# the normal text path is drawn as *nothing*: zero width, no tofu box, no exception. "0/3 😭 · 3/3
+# 🐐" renders as "0/3 · 3/3" and the card still looks deliberate. That is the failure this pass
+# exists to prevent, and it is invisible in every check that does not look at pixels.
+
+def test_the_display_face_cannot_draw_a_single_emoji():
+    """The premise of the separate pass. If this ever fails the pass is redundant, not broken."""
+    import _quiz_pipeline_legacy as legacy
+    from bolt_video.formats.quiz import score_tiers
+
+    notdef = legacy._font(80).getlength("\uffff")
+    for _, emoji in score_tiers(3):
+        assert legacy._font(80).getlength(emoji) == notdef, emoji
+
+
+def test_the_closing_footer_avoids_glyphs_the_face_cannot_draw():
+    """"ROUND 2 → FOLLOW" would ship with the arrow missing and nothing would report it."""
+    import _quiz_pipeline_legacy as legacy
+    from bolt_video.formats.quiz import CLOSING_BANNER, CLOSING_FOOTER
+
+    notdef = legacy._font(60).getlength("\uffff")
+    for char in CLOSING_FOOTER + "".join(CLOSING_BANNER):
+        assert legacy._font(60).getlength(char) != notdef or char == " ", repr(char)
+    assert "\u2192" not in CLOSING_FOOTER and "\u2193" not in CLOSING_FOOTER
+
+
+def test_the_score_ladder_actually_puts_emoji_pixels_on_the_card(tmp_path):
+    """Renders the closing card twice — once with the host's emoji face, once with it removed —
+    and requires the two to differ. Asserting on the copy alone would pass on a machine that
+    drew none of it."""
+    import _quiz_pipeline_legacy as legacy
+    from PIL import Image
+    from bolt_video.formats.quiz import CLOSING_FOOTER, score_tiers
+
+    if not legacy.emoji_available():
+        import pytest
+        pytest.skip("host has no colour emoji font")
+
+    kw = dict(top="DROP YOUR ", top_accent="SCORE", answer="TAPIR!",
+              score_row=score_tiers(3), footer=CLOSING_FOOTER)
+    with_emoji = str(tmp_path / "with.png")
+    legacy._text_png(with_emoji, **kw)
+    drawn = Image.open(with_emoji).convert("RGBA")
+
+    # A colour emoji is the only thing on this card that is neither white, navy nor cyan.
+    palette = {legacy.WHITE, legacy.NAVY, legacy.CYAN, legacy.YEL}
+    row = drawn.crop((0, legacy.H - 460, legacy.W, legacy.H - 380))
+    coloured = sum(1 for px in row.getdata()
+                   if px[3] > 200 and min(abs(px[0] - c[0]) + abs(px[1] - c[1])
+                                          + abs(px[2] - c[2]) for c in palette) > 90)
+    assert coloured > 500, f"score ladder drew {coloured} emoji pixels"
+
+
+def test_a_host_without_an_emoji_face_drops_the_element_instead_of_gutting_it(monkeypatch,
+                                                                              tmp_path):
+    """Half of "0/3 😭" is the half that would vanish. Without a face the row is skipped whole,
+    so the card reads as a design decision rather than as a scoreboard with holes in it."""
+    import _quiz_pipeline_legacy as legacy
+    from PIL import Image
+    from bolt_video.formats.quiz import CLOSING_FOOTER, score_tiers
+
+    monkeypatch.setattr(legacy, "_emoji_face", lambda: (None, 0))
+    out = str(tmp_path / "bare.png")
+    legacy._text_png(out, top="DROP YOUR ", top_accent="SCORE", answer="TAPIR!",
+                     score_row=score_tiers(3), footer=CLOSING_FOOTER)
+    row = Image.open(out).convert("RGBA").crop((0, legacy.H - 460, legacy.W, legacy.H - 380))
+    assert not row.getbbox(), "the numbers were drawn without their reactions"
+
+
+def test_the_loop_closing_round_is_repaired_by_placement_not_by_light():
+    """The closing round is an edit of the opening scene, so "keep this environment exactly" and
+    "light it differently" cannot both be obeyed — a model handed both keeps whichever it weights
+    higher and the caller cannot tell which.
+
+    Suppressing the repair there was the first answer and the wrong one: that round is always the
+    expert tier and always the likeliest to need it, so the exclusion excluded the case that
+    matters, and a real render shipped a 48/100 frame zero that nothing could fix. It now moves the
+    ANIMAL to an open part of the scene instead of moving the light. The environment is untouched,
+    which is all the loop actually requires.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "relight = contrast_bad\n" in source, "the loop round must not be excluded any more"
+    assert "loop_match_cut" not in source
+
+    habitat = inspect.getsource(legacy._habitat_pair)
+    assert "elif scene_ref:" in habitat, "the loop round needs its own repair wording"
+    placement = habitat[habitat.index("elif scene_ref:"):habitat.index("    else:", habitat.index("elif scene_ref:"))]
+    assert "place the animal against an OPEN, BRIGHT part of this same scene" in placement
+    assert "Do NOT change the environment" in placement, (
+        "the loop survives only if the scene itself is left alone")
+    relight = habitat[habitat.index("    else:", habitat.index("elif scene_ref:")):]
+    assert "background immediately behind the animal must be BRIGHT" in relight
+
+
+def test_the_identity_repair_does_not_swap_formats():
+    """`_generate_reveal` belongs to the flat-colour format — its prompt says "no habitat" outright —
+    so calling it to repair a habitat round replaced a rainforest reveal with a studio cutout on a
+    flat field.
+
+    That is not a repaired reveal, it is a different format on one card: the match cut the habitat
+    exists for is gone, a closing round no longer lands on the opening scene so the loop breaks, and
+    the card looks nothing like the three around it. A real render shipped exactly that, recorded as
+    a success. The habitat path now regenerates the PAIR, because the clue is an edit of the
+    reveal's pixels and repairing one without the other leaves a silhouette that does not match the
+    animal it turns into.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    flat = source[source.index('if (not in_habitat'):]
+    flat = flat[:flat.index("visual_qa.append(grade)")]
+    assert "_generate_reveal(" in flat, "the flat-colour format still needs its own repair"
+    assert "not in_habitat" in flat, (
+        "the flat-colour generator must not be reachable from a habitat round")
+
+    habitat = source[source.index("        if in_habitat:"):source.index("        round_readability")]
+    assert "identity_bad" in habitat and "_habitat_pair(" in habitat
+    assert "_generate_reveal(" not in habitat
+    assert "_prepare_clue_bases()" in habitat, (
+        "a repaired pair has to re-derive the frames the render actually reads")
+    assert "shipped unrepaired" in habitat, (
+        "a failed repair must be reported, not silently shipped as the original")
+
+
+def test_the_subject_width_check_repairs_instead_of_warning():
+    """A clue too small to see is not a hard clue, it is an unanswerable one.
+
+    The expert tier returned 12%, 12% and 8% against its own 16% floor across three consecutive
+    renders, and every one of them shipped — the check only ever appended a warning. The tier
+    prompts ask in fractions ("roughly a fifth of the frame") and the model under-delivers against
+    them by about half, so the retry states a measurable floor with headroom rather than a target.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    assert legacy._width_failed({"subject_width_pct": 8}, "expert")
+    assert legacy._width_failed({"subject_width_pct": 15.9}, "expert")
+    assert not legacy._width_failed({"subject_width_pct": 16}, "expert")
+    assert legacy._width_failed({}, "expert"), "an unmeasured clue is the one worth measuring"
+
+    assert "close_up" in inspect.signature(legacy._habitat_pair).parameters
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "width_bad = _width_failed(grade, diff)" in source
+    assert "close_up=width_bad" in source
+    assert "AT LEAST one fifth of the image width" in legacy._close_framing("expert"), (
+        "a fraction the model can under-deliver against is what failed three times")
+
+
+def test_a_close_up_repair_replaces_the_tier_framing_rather_than_stacking():
+    """"well back in the middle distance" and "closer to camera" are one instruction twice with
+    opposite signs, and a model handed both keeps whichever it weights higher."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    body = inspect.getsource(legacy._habitat_pair)
+    assert "_close_framing(difficulty) if close_up" in body
+    assert "well back in the middle distance" in legacy._HABITAT_FRAMING["expert"]
+    assert "well back" not in legacy._close_framing("expert")
+
+
+def test_three_habitat_defects_cost_one_regeneration():
+    """Contrast, framing and identity each used to regenerate the same pair independently. On a
+    round failing all three that is six image generations to fix one image."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    habitat = source[source.index("        if in_habitat:"):source.index("        round_readability")]
+    assert habitat.count("_habitat_pair(") == 1, "the repairs must share one regeneration"
+    assert "if relight or width_bad or identity_bad:" in habitat
+
+
+def test_the_close_up_ask_climbs_with_the_tier_it_repairs():
+    """A flat "at least one third" cleared the 16% expert floor by landing at 60% — which made the
+    final boss the largest subject in the video and inverted the ladder it exists to climb.
+
+    Each tier's ask now tracks its own floor with a little headroom, in the inverse order of the
+    floors: medium is meant to be the easiest to spot and expert the hardest, so a repair that uses
+    one number for all three trades a too-small clue for a too-obvious one.
+    """
+    import _quiz_pipeline_legacy as legacy
+
+    spans = {t: legacy._CLOSE_UP_SPAN[t] for t in ("medium", "hard", "expert")}
+    assert spans == {"medium": "one third", "hard": "one quarter", "expert": "one fifth"}
+    words = {"one third": 33.3, "one quarter": 25.0, "one fifth": 20.0}
+    for tier, span in spans.items():
+        floor = legacy._READABILITY_WIDTH_MIN[tier]
+        assert words[span] > floor, (tier, span, floor)
+        assert words[span] < floor * 1.7, (
+            f"{tier} asks for {words[span]}% against a {floor}% floor — that is the overcorrection")
+    # The ask has to climb the same way the floors do, or the ladder inverts.
+    assert (words[spans["medium"]] > words[spans["hard"]] > words[spans["expert"]])
+    assert (legacy._READABILITY_WIDTH_MIN["medium"] > legacy._READABILITY_WIDTH_MIN["hard"]
+            > legacy._READABILITY_WIDTH_MIN["expert"])

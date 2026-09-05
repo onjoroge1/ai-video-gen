@@ -1718,5 +1718,33 @@
     "txt_path": "/Users/obadiah/Documents/video/finished_videos/bc944cbc.txt",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/bc944cbc.srt",
     "desc_path": "/Users/obadiah/Documents/video/finished_videos/bc944cbc.desc"
+  },
+  "quiz-v24-okapi": {
+    "title": "Rainforest Shadow Quiz - V2.4 (okapi final boss)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.0,
+    "actual_cost": 0.642,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 2 is labelled hard but the grader named \"TOUCAN\" from the first crop at 90% confidence \u2014 the item is easier than its tier claims"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-okapi.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-okapi.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-okapi.txt"
+  },
+  "quiz-v24-harpy": {
+    "title": "Rainforest Shadow Quiz - V2.4 (harpy eagle final boss)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.3,
+    "actual_cost": 0.637,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 3 frame-zero contrast scored 48/100; 55 required"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.txt"
   }
 }
