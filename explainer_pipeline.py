@@ -2055,21 +2055,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # principle three times earlier than they are judged by.
         engine_deadline = int(round(
             _se.mechanism_deadline_pct(sheet_engine, _cs.MECHANISM_DEADLINE_PCT) * 100))
-        # AIM AT THE MIDDLE OF THE BAND, NOT ITS EDGE. The planner writes `pct` estimates, but the
-        # storyboard re-derives the real timing from narration word counts, so a beat planned AT the
-        # limit lands just past it: one render put the mechanism at 37s against a 36s line and died
-        # one second over. The five reference videos place it at 16.4%, 17.3%, 19.4%, 19.6% and
-        # 19.7% — a band whose centre is ~18%, not its ceiling. Asking for three quarters of the
-        # deadline targets that centre and leaves room for the drift.
-        #
-        # This is the opposite of raising the deadline, which was measured making things WORSE
-        # (43s -> 55s): the gate is unchanged at the corpus-backed value and only the AIM moves in.
-        engine_target = max(8, int(round(engine_deadline * 0.75)))
+        # An earlier version aimed at 75% of the deadline on the theory that a beat planned AT the
+        # limit lands past it. Five sampled scripts said otherwise -- 0/5 passed with the inward aim
+        # and the closest miss was no better than without it -- so the aim is the deadline again.
+        # The real cause of LATE_MECHANISM was measured afterwards and is not an aiming problem: see
+        # the runtime/milestone mismatch in BUILD_NOTES.md.
         causal_cases = (
             '"mechanism_beat":<int — the beat number that STATES THE GOVERNING PRINCIPLE in one '
-            'sentence: the rule that makes everything after it inevitable. Aim for pct '
-            f'{engine_target} and NEVER exceed {engine_deadline}. This is a structural slot like '
-            'peak_scene, '
+            'sentence: the rule that makes everything after it inevitable. Its pct MUST be under '
+            f'{engine_deadline}. This is a structural slot like peak_scene, '
             'not a preference: plan the beat there. Four measured runs placed the explanation near '
             '35% and every one was rejected before render, because a labelling pass downstream can '
             'only mark the beat you wrote — it cannot move it earlier>,'
@@ -2104,12 +2098,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "B. Every beat except the setup sets caused_by to the number of an EARLIER beat it "
             "follows from. If a beat would still make sense in a different position it is a fact, "
             "not a beat, and must be cut.\n"
-            + (f"C. mechanism_beat names the beat that states the governing principle. Plan it "
-               f"at pct {engine_target}; past {engine_deadline} the run is rejected, and a beat "
-               "planned at the limit lands past it once the real narration is timed. EVERY "
-               "MILESTONE BEFORE IT GOES INSIDE THAT WINDOW TOO, IN ORDER: "
+            + (f"C. mechanism_beat names the beat that states the governing principle, and its "
+               f"pct must be under {engine_deadline}. EVERY MILESTONE BEFORE IT GOES INSIDE THAT "
+               f"WINDOW TOO, IN ORDER: "
                + " -> ".join(engine_order[:engine_order.index(_cs.MECHANISM) + 1])
-               + f" all land under pct {engine_target}, which means the opening runs at pace and "
+               + f" all land under pct {engine_deadline}, which means the opening runs at pace and "
                "each of those beats is short. The reference video does exactly this: five "
                "milestones inside the first 36 seconds of 220. Pulling the mechanism early while "
                "leaving an earlier milestone behind it is rejected as an ordering failure, so "

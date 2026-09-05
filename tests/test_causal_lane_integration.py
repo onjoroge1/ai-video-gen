@@ -79,35 +79,27 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
         assert survives in causal, f"the causal lane must not rewrite the architecture: {survives}"
 
 
-def test_the_prompt_states_one_limit_and_aims_inside_it(monkeypatch):
-    """The prompt may carry an AIM and a LIMIT, but only one limit, and the aim must be inside it.
+def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
+    """The guard against the bug that cost twelve renders.
 
-    This is the guard against the bug that cost twelve renders: FIXED ARCHITECTURE assigned the
-    mechanism to 40-55% while rule C demanded it inside the engine's deadline — two rival LIMITS,
-    ~100 lines apart, neither aware of the other. An aim below a single limit is a different thing
-    and is deliberate: the planner writes `pct` estimates, but the storyboard re-derives timing
-    from narration word counts, so a beat planned AT the limit lands past it. One render died with
-    the mechanism at 37s against a 36s line. The five reference videos sit at 16.4-19.7%, centre
-    ~18%, so the aim targets the band rather than its edge.
+    FIXED ARCHITECTURE assigned the mechanism to 40-55% while rule C, ~100 lines earlier, demanded
+    it inside the engine's deadline. Two unconditional limits in one prompt string, neither aware
+    of the other, the later favoured by recency. Four measured runs landed the principle near 35%,
+    the average of the two.
     """
     import story_engines as se
     import causal_story as cs
 
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    stated = set(re.findall(r"pct MUST be under (\d+)", causal)) | set(
+        re.findall(r"pct must be under (\d+)", causal))
+    assert stated, "the deadline is stated nowhere"
+    assert len(stated) == 1, f"the prompt states conflicting deadlines: {stated}"
 
-    limits = set(re.findall(r"NEVER exceed (\d+)", causal)) | set(
-        re.findall(r"past (\d+) the run is rejected", causal))
-    aims = set(re.findall(r"pct (\d+) and NEVER", causal)) | set(
-        re.findall(r"Plan it at pct (\d+)", causal))
-
-    assert len(limits) == 1, f"the prompt states conflicting limits: {limits}"
-    assert len(aims) == 1, f"the prompt states conflicting aims: {aims}"
-    assert int(aims.pop()) < int(next(iter(limits))), "the aim must sit inside the limit"
-
-    # And the limit is the one the VALIDATOR applies, not a hardcoded 20.
+    # And it is the deadline the VALIDATOR applies, not a hardcoded 20.
     engine = se.get(se.DEFAULT_ENGINE)
     expected = int(round(se.mechanism_deadline_pct(engine, cs.MECHANISM_DEADLINE_PCT) * 100))
-    assert limits == {str(expected)}
+    assert stated == {str(expected)}
 
     # No percentage RANGE may assign the mechanism a position — that was the rival instruction.
     assert "40-55% mechanism" not in causal
