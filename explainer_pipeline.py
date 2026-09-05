@@ -3404,7 +3404,10 @@ _CLAIM_REPAIR_SYSTEM = (
     "listed failed scenes. Preserve story role, order, tone, causal meaning and length. Use only "
     "the supplied claim IDs. Each claim reference's narration_phrase must be the complete exact "
     "sentence it supports. Preserve uncertainty, geographic scope, timescale and negation. Delete "
-    "an unsupported assertion rather than inventing evidence. Return only JSON."
+    "an unsupported assertion rather than inventing evidence. If a factual scene is anaphoric "
+    "(for example, 'It worked'), use the read-only neighbouring context to identify its subject, "
+    "then replace it with a self-contained proposition supported by a supplied claim. A factual "
+    "scene may not return an empty claim_refs list. Return only JSON."
 )
 
 
@@ -3432,7 +3435,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "operator_direction": operator_direction,
         "claims": claim_context_for_prompt(dossier),
         "failures": errors,
-        "scenes": [{"scene": index, **{
+        "scenes": [{"scene": index,
+            "previous_narration": _s(scenes[index - 2].get("narration")) if index > 1 else "",
+            "next_narration": _s(scenes[index].get("narration")) if index < len(scenes) else "",
+            **{
             key: scenes[index - 1].get(key)
             for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")
         }} for index in indexes],
@@ -3444,44 +3450,52 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                                         "narration_phrase": "complete exact assertion sentence"}]}],
         },
     }
+    response_cost = 0.0
     try:
         response = _claude().messages.create(
             model=ANTHROPIC_MODEL, max_tokens=4000, system=_CLAIM_REPAIR_SYSTEM,
             messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+        usage = response.usage
+        response_cost = _msg_cost(usage)
         data, parse_cost = _parse_script_json(response.content[0].text)
         repaired = data.get("scenes") if isinstance(data, dict) else None
         if not isinstance(repaired, list) or len(repaired) != len(indexes):
-            return script, 0.0
+            return script, round(response_cost + float(parse_cost or 0.0), 4)
         allowed_ids = {_s(claim.get("claim_id")) for claim in dossier.get("claims") or []
                        if isinstance(claim, dict)}
         candidate = json.loads(json.dumps(script))
         seen = set()
         for item in repaired:
             if not isinstance(item, dict):
-                return script, 0.0
+                return script, round(response_cost + float(parse_cost or 0.0), 4)
             index = int(item.get("scene") or 0)
             if index not in indexes or index in seen:
-                return script, 0.0
+                return script, round(response_cost + float(parse_cost or 0.0), 4)
             narration = _s(item.get("narration")).strip()
             refs = item.get("claim_refs")
             evidence_id = _s(item.get("evidence_id")).strip()
             if not narration or not isinstance(refs, list):
-                return script, 0.0
+                return script, round(response_cost + float(parse_cost or 0.0), 4)
+            failed_codes = {error.get("code") for error in errors
+                            if int(error.get("scene") or 0) == index}
+            if "unbound_factual_scene" in failed_codes and not refs:
+                return script, round(response_cost + float(parse_cost or 0.0), 4)
             if any(not isinstance(ref, dict) or _s(ref.get("claim_id")) not in allowed_ids
                    for ref in refs):
-                return script, 0.0
+                return script, round(response_cost + float(parse_cost or 0.0), 4)
             target = candidate["scenes"][index - 1]
             target["narration"] = narration
             target["evidence_id"] = evidence_id
             target["claim_refs"] = refs
             seen.add(index)
         if seen != set(indexes):
-            return script, 0.0
-        usage = response.usage
-        cost = (_msg_cost(usage) + float(parse_cost or 0.0))
+            return script, round(response_cost + float(parse_cost or 0.0), 4)
+        cost = (response_cost + float(parse_cost or 0.0))
         return candidate, round(cost, 4)
     except Exception:
-        return script, 0.0
+        # A response received from the provider is billable even when its JSON or semantic repair
+        # is unusable. Never turn a paid failed repair into zero recorded spend.
+        return script, round(response_cost, 4)
 
 
 def _enforce_requested_runtime(

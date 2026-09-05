@@ -364,7 +364,7 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
 
 
 @pytest.mark.parametrize("legacy,authorized", [(True, True), (False, True), (True, False)])
-@pytest.mark.parametrize("failure_type", ["json", "sources", "claims", "negation"])
+@pytest.mark.parametrize("failure_type", ["json", "sources", "claims", "negation", "anaphor"])
 def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
         monkeypatch, legacy, authorized, failure_type):
     from longform_research import LEGACY_DOSSIER_JSON_ERROR
@@ -403,6 +403,14 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
                      "about negation.; The claim and its support excerpt disagree about negation.")
         new_error = "Research dossier failed before scripting [missing_claimsx1]: no claims"
         fragment = "support_contradicts_claimx"
+    elif failure_type == "anaphor":
+        old_error = ("Claim ledger failed after script/fact-check before asset spend: A factual "
+                     "or causal narration scene has no claim reference. [scene 3, role=payoff: "
+                     "It worked.]")
+        new_error = ("Claim ledger failed after script/fact-check before asset spend: A factual "
+                     "or causal narration scene has no claim reference. [scene 4, role=payoff: "
+                     "It worked.]")
+        fragment = "role=payoff: It worked."
 
     class Store:
         def get_job(self, job_id):
@@ -451,6 +459,14 @@ def test_source_recovery_never_rearms_unrelated_evidence_failures(error):
 def test_negation_recovery_never_rearms_unrelated_evidence_failures(error):
     from longform_research import is_legacy_negation_scope_failure
     assert not is_legacy_negation_scope_failure(error)
+
+
+def test_anaphoric_recovery_matches_only_the_observed_cobra_failure():
+    from longform_research import is_legacy_anaphoric_claim_failure
+    exact = ("Claim ledger failed after script/fact-check before asset spend: A factual or causal "
+             "narration scene has no claim reference. [scene 3, role=payoff: It worked.]")
+    assert is_legacy_anaphoric_claim_failure(exact)
+    assert not is_legacy_anaphoric_claim_failure(exact.replace("scene 3", "scene 4"))
 
 
 def test_research_failure_is_not_reported_as_completed_or_graded(monkeypatch):

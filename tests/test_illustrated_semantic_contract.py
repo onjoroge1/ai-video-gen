@@ -240,6 +240,59 @@ def test_claim_repair_changes_only_failed_scene_and_reuses_existing_claim(monkey
     assert "Distinguish anecdote from history" in seen["prompt"]
 
 
+def test_anaphoric_claim_repair_receives_neighbour_context_and_must_bind_claim(monkeypatch):
+    script, dossier = _script("It worked.", phrase="", claim_text="The bounty initially reduced cobra reports.")
+    script["scenes"] = [
+        {"narration": "Officials offered a bounty for each cobra.", "story_role": "rules",
+         "evidence_id": "", "claim_refs": []},
+        script["scenes"][0],
+        {"narration": "Then breeders changed the incentive.", "story_role": "escalation",
+         "evidence_id": "", "claim_refs": []},
+    ]
+    report = {"passed": False, "errors": [{
+        "code": "unbound_factual_scene", "scene": 2,
+        "message": "A factual or causal narration scene has no claim reference.",
+    }]}
+    fixed = "The bounty initially reduced cobra reports."
+    seen = {}
+
+    class Messages:
+        def create(self, **kwargs):
+            seen.update(json.loads(kwargs["messages"][0]["content"])["scenes"][0])
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=json.dumps({"scenes": [{
+                    "scene": 2, "narration": fixed, "evidence_id": "e01",
+                    "claim_refs": [{"claim_id": "c01", "evidence_id": "e01",
+                                    "narration_phrase": fixed}],
+                }]}))], usage=SimpleNamespace(input_tokens=100, output_tokens=100))
+
+    monkeypatch.setattr(ep, "_claude", lambda: SimpleNamespace(messages=Messages()))
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+
+    assert cost > 0
+    assert seen["previous_narration"] == "Officials offered a bounty for each cobra."
+    assert seen["next_narration"] == "Then breeders changed the incentive."
+    assert repaired["scenes"][1]["narration"] == fixed
+    assert repaired["scenes"][1]["claim_refs"]
+
+
+def test_unusable_claim_repair_response_still_records_provider_cost(monkeypatch):
+    script, dossier = _script("It worked.", phrase="")
+    report = {"passed": False, "errors": [{
+        "code": "unbound_factual_scene", "scene": 1,
+        "message": "A factual or causal narration scene has no claim reference.",
+    }]}
+    monkeypatch.setattr(ep, "_claude", lambda: SimpleNamespace(messages=SimpleNamespace(
+        create=lambda **kwargs: SimpleNamespace(
+            content=[SimpleNamespace(text='{"scenes":[]}')],
+            usage=SimpleNamespace(input_tokens=100, output_tokens=100)))))
+
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+
+    assert repaired == script
+    assert cost > 0
+
+
 def test_durable_retry_does_not_repeat_an_ambiguous_provider_dispatch(tmp_path, monkeypatch):
     class Transient(Exception):
         pass
