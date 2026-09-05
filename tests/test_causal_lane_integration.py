@@ -6,6 +6,7 @@ the cinematic lane has always sent. These tests capture the prompt the pipeline 
 rather than asserting on the source, so a stray concatenation shows up here.
 """
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -55,20 +56,53 @@ def test_causal_lane_prompt_asks_for_the_chain(monkeypatch):
         assert role in prompt
 
 
-def test_the_two_prompts_differ_only_by_the_causal_additions(monkeypatch):
-    """Belt and braces: the causal prompt adds to the cinematic one, it does not rewrite it.
+def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
+    """The causal prompt extends the cinematic one, and subtracts exactly one clause.
 
-    Exactly one line legitimately differs — the JSON schema line, which gains three keys. Every
-    other line of the cinematic prompt must survive verbatim.
+    FIXED ARCHITECTURE used to assign the mechanism to 40-55% while rule C, ~100 lines earlier,
+    demanded it inside the engine's deadline. Both unconditional, neither referencing the other.
+    Four measured runs landed the principle near 35% -- the average of the two -- and twelve
+    renders died on LATE_MECHANISM before the contradiction was found. Raising rule C's deadline
+    made it WORSE (43s -> 55s), which is the signature of a second instruction pulling the other
+    way.
     """
     plain = _capture_beat_prompt(monkeypatch)
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    assert len(causal) > len(plain)
-    missing = [line for line in plain.splitlines() if line.strip() and line not in causal]
-    assert len(missing) == 1 and '"closes_loop"' in missing[0], missing
-    # And the changed line is that schema line with the causal keys appended, nothing removed.
-    assert missing[0].replace('}]}.', '') in causal.replace('"causal_role"', "|").split("|")[0] \
-        or missing[0][:60] in causal
+
+    assert "40-55% mechanism" in plain, "the cinematic lane keeps its own tuned architecture"
+    assert "40-55% mechanism" not in causal, "the rival window must not reach the causal lane"
+
+    # The phase itself survives; only the mechanism assignment is dropped.
+    assert "40-55% third payoff + a reversal" in causal
+    for survives in ("~65-75% PEAK", "97-100% resonant_end", "0-8% COLD CONSEQUENCE",
+                     "28-40% first escalation"):
+        assert survives in causal, f"the causal lane must not rewrite the architecture: {survives}"
+
+
+def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
+    """The guard against the bug that cost twelve renders.
+
+    FIXED ARCHITECTURE assigned the mechanism to 40-55% while rule C, ~100 lines earlier, demanded
+    it inside the engine's deadline. Two unconditional limits in one prompt string, neither aware
+    of the other, the later favoured by recency. Four measured runs landed the principle near 35%,
+    the average of the two.
+    """
+    import story_engines as se
+    import causal_story as cs
+
+    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    stated = set(re.findall(r"pct MUST be under (\d+)", causal)) | set(
+        re.findall(r"pct must be under (\d+)", causal))
+    assert stated, "the deadline is stated nowhere"
+    assert len(stated) == 1, f"the prompt states conflicting deadlines: {stated}"
+
+    # And it is the deadline the VALIDATOR applies, not a hardcoded 20.
+    engine = se.get(se.DEFAULT_ENGINE)
+    expected = int(round(se.mechanism_deadline_pct(engine, cs.MECHANISM_DEADLINE_PCT) * 100))
+    assert stated == {str(expected)}
+
+    # No percentage RANGE may assign the mechanism a position — that was the rival instruction.
+    assert "40-55% mechanism" not in causal
 
 
 def _sheet(n_beats):
@@ -813,3 +847,44 @@ class _FakeClaude:
         import types
         return types.SimpleNamespace(create=lambda **kw: types.SimpleNamespace(
             content=[types.SimpleNamespace(text=self._text)], usage=None))
+
+
+def test_the_sheet_is_written_in_the_chosen_engines_own_order(monkeypatch):
+    """The sheet used to state ONE hardcoded order for all five engines:
+    setup -> intervention -> false_resolution -> hinge -> mechanism. accumulating_indictment and
+    power_reversal both run false_resolution BEFORE intervention and mechanism BEFORE hinge, and
+    the labelling pass is forbidden to reorder what it labels. ENGINE_ORDER was therefore
+    structurally guaranteed for the two engines the reference corpus backs best."""
+    import story_engines as se
+
+    for engine_id in se.ENGINES:
+        prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine=engine_id)
+        order = se.expected_order(engine_id)
+        assert " -> ".join(order) in prompt, f"{engine_id}: sheet not written in its own order"
+        assert se.get(engine_id)["name"].upper() in prompt
+
+
+def test_an_engine_without_a_false_resolution_is_not_asked_for_one(monkeypatch):
+    """accidental_invention has no false_resolution in its sequence -- 'many of these stories have
+    no moment of apparent success to break' -- but the sheet demanded one EXACTLY ONCE."""
+    import story_engines as se
+
+    prompt = _capture_beat_prompt(monkeypatch, causal_lane=True,
+                                  pinned_engine=se.ACCIDENTAL_INVENTION)
+    assert "NO false_resolution" in prompt
+    singletons = prompt.split("appear EXACTLY ONCE")[0]
+    assert "false_resolution" not in singletons.split("A. This story runs")[1]
+
+
+def test_a_pinned_engine_reaches_the_sheet(monkeypatch):
+    """pinned_engine existed but only flowed to _assign_causal_spine and _retrieve_blueprint, so a
+    replan rewrote the sheet in the same wrong order against the same hardcoded deadline."""
+    import story_engines as se
+
+    indictment = _capture_beat_prompt(monkeypatch, causal_lane=True,
+                                      pinned_engine=se.ACCUMULATING_INDICTMENT)
+    backfiring = _capture_beat_prompt(monkeypatch, causal_lane=True,
+                                      pinned_engine=se.BACKFIRING_SOLUTION)
+    assert indictment != backfiring, "the pin never reached the beat sheet"
+    assert " -> ".join(se.expected_order(se.ACCUMULATING_INDICTMENT)) in indictment
+    assert " -> ".join(se.expected_order(se.BACKFIRING_SOLUTION)) in backfiring
