@@ -2735,7 +2735,8 @@ def _agent_action_progress(action: dict, events: list[dict], job_status: str) ->
     terminal = job_status in _AGENT_TERMINAL_JOB_STATUSES
     if terminal:
         stage = job_status
-        percent = 100
+        percent = (100 if job_status in {"done", "degraded"}
+                   else round(90 * done / max(1, total)))
     elif not job_status or job_status == "queued":
         stage = "queued"
         percent = 0
@@ -2768,7 +2769,7 @@ def _public_agent_result(result: dict) -> dict:
         "automated_grade_status", "editorial_status", "promotion_status",
     ) if result.get(key) is not None}
     rendered = result.get("rendered_contract")
-    if isinstance(rendered, dict):
+    if isinstance(rendered, dict) and rendered:
         from longform_rendered_gate import rendered_grade_summary
         safe["rendered_contract"] = {key: rendered.get(key) for key in (
             "score", "status", "automated_pass", "automated_grade_available", "hard_failures",
@@ -2982,6 +2983,9 @@ async def get_agent_action_public_status(action_id: str, after: int = 0):
                 next_event_seq = max(
                     [max(0, int(after)), *[int(event.get("seq") or 0) for event in new_events]])
                 job_status = str(row.get("status") or "")
+                # The immutable action stays queued in storage; its bound job owns
+                # the lifecycle after execution, including terminal research errors.
+                summary["status"] = job_status or summary["status"]
                 summary["job"] = {
                     "id": row.get("id"),
                     "status": job_status,
@@ -3127,6 +3131,7 @@ async def execute_agent_action(action_id: str, request: Request,
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
     token = _claim_token(request)
+    from longform_research import LEGACY_DOSSIER_JSON_ERROR
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
     except agent_actions.AgentActionError as exc:
@@ -3138,7 +3143,17 @@ async def dispatch_agent_action(action_id: str, request: Request):
     try:
         store, _ = _durable_components()
         job = await asyncio.to_thread(store.get_job, str(action["job_id"]))
-        if job and job.get("status") == "storage_error":
+        if (job and job.get("status") == "error"
+                and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):
+            # One migration of the legacy parser failure. The provider request is
+            # unchanged, so durable execution replays its paid response. The new
+            # parser emits different errors for genuinely malformed evidence,
+            # preventing repeated dispatches from rearming an unrecoverable ledger.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="Research provider returned malformed dossier JSON;",
+                extra_attempts=1)
+        elif job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
         elif (job and job.get("status") == "error"
