@@ -1746,5 +1746,31 @@
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.srt",
     "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.txt"
+  },
+  "quiz-v24-prehistoric": {
+    "title": "Prehistoric Shadow Quiz - V2.4",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 12.0,
+    "actual_cost": 0.532,
+    "question": "Can You Name These Prehistoric Beasts From the Shadow?",
+    "degraded_reasons": [
+      "round 3 is labelled expert but the grader named \"WOOLLY RHINOCEROS\" from the first crop at 55% confidence \u2014 the item is easier than its tier claims"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric.txt"
+  },
+  "quiz-v24-prehistoric-hard": {
+    "title": "Prehistoric Shadow Quiz - V2.4 (no-analogue set)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.9,
+    "actual_cost": 0.648,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.txt"
   }
 }
