@@ -374,6 +374,20 @@ def test_collapse_is_deterministic_across_equal_counts():
     assert [b["location_id"] for b in first] == [b["location_id"] for b in second]
 
 
+def test_location_repair_updates_the_scene_consumed_by_rendering():
+    script = _script()
+    locations = ["market", "office", "sewer", "farm", "laboratory"]
+    for index, scene in enumerate(script["scenes"]):
+        scene["environment_type"] = locations[index % len(locations)]
+
+    board = build_storyboard(script, "Why did the plan fail?")
+
+    assert len(set(board["visual_bible"]["locations"])) <= ils.LOCATION_BUDGET
+    assert [scene["environment_type"] for scene in script["scenes"]] == [
+        beat["location_id"] for beat in board["beats"]]
+    assert "laboratory" not in {scene["environment_type"] for scene in script["scenes"]}
+
+
 def test_repair_chain_runs_before_the_storyboard_validates():
     """_assign_causal_spine has always repaired its output; the storyboard re-derived steps from
     the scenes and validated them raw, so an order mistake repair had already fixed came back as a

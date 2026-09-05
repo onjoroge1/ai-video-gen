@@ -18,6 +18,7 @@ import re
 import time
 import json
 import hashlib
+import math
 import base64
 import subprocess
 import concurrent.futures
@@ -143,6 +144,21 @@ def _retry(fn, *, tries: int = 4, base_delay: float = 2.0, label: str = "API cal
     import sys
     last = None
     for attempt in range(1, tries + 1):
+        # A retry loop is still work. Re-check the cooperative deadline between attempts so one
+        # call started near the cutoff cannot consume the rest of the hosting window with five
+        # more provider timeouts and no opportunity to checkpoint.
+        try:
+            from durable_execution import current as _durable_current
+            runtime = _durable_current()
+            if runtime is not None:
+                runtime.check_work_window(f"{label} retry {attempt}")
+                if attempt > 1:
+                    from durable_execution import AmbiguousProviderOutcome
+                    raise AmbiguousProviderOutcome(
+                        f"{label} failed after provider dispatch; automatic replay is disabled "
+                        "until the attempt is reconciled") from last
+        except ImportError:
+            pass
         try:
             return fn()
         except _RETRYABLE as exc:
@@ -251,6 +267,9 @@ class TranscriptionUnavailable(RuntimeError):
     """The transcription CALL failed. Distinct from audio that transcribed to nothing."""
 
 
+_RATE_TRANSCRIPTION_MINUTE = 0.006
+
+
 def transcribe_words(audio_path: str, *, strict: bool = False) -> list:
     """Word-level timestamps for our own TTS, for karaoke captions.
 
@@ -266,21 +285,58 @@ def transcribe_words(audio_path: str, *, strict: bool = False) -> list:
     somewhere else.
     """
     try:
-        def _call():
+        def _call(idempotency_key: str | None = None):
             # Reopen on every retry. Reusing a consumed file handle submits an empty body after
             # a transient failure and turns a recoverable timing call into a false gate failure.
             with open(audio_path, "rb") as handle:
-                return _openai().audio.transcriptions.create(
+                kwargs = dict(
                     model=TRANSCRIPTION_MODEL, file=handle, response_format="verbose_json",
                     timestamp_granularities=["word"])
+                if idempotency_key:
+                    kwargs["extra_headers"] = {"Idempotency-Key": idempotency_key}
+                return _openai().audio.transcriptions.create(**kwargs)
 
-        r = _retry(_call, label="whisper transcription")
-        words = getattr(r, "words", None) or []
+        from durable_execution import current as _durable_current
+        runtime = _durable_current()
+        if runtime is None:
+            r = _retry(_call, label="whisper transcription")
+            words = getattr(r, "words", None) or []
+        else:
+            duration = max(0.01, float(_audio_dur(audio_path)))
+            # Reserve by complete started minute. This may intentionally overstate the displayed
+            # cost, but it cannot understate the liability that the hard cap is meant to bound.
+            billed_minutes = max(1, math.ceil(duration / 60.0))
+            estimate = billed_minutes * _RATE_TRANSCRIPTION_MINUTE
+            request = {
+                "model": TRANSCRIPTION_MODEL,
+                "audio_sha256": sha256_file(audio_path),
+                "duration_sec": round(duration, 3),
+                "response_format": "verbose_json",
+                "timestamp_granularities": ["word"],
+            }
+
+            def _durable_call(idempotency_key: str):
+                response = _retry(lambda: _call(idempotency_key), label="whisper transcription")
+                payload = {"words": [
+                    {"word": getattr(word, "word", ""),
+                     "start": float(getattr(word, "start", 0.0)),
+                     "end": float(getattr(word, "end", 0.0))}
+                    for word in (getattr(response, "words", None) or [])
+                ]}
+                return payload, estimate
+
+            payload, _, _ = runtime.paid_value(
+                stage_key=f"openai-transcription:{request['audio_sha256'][:32]}",
+                provider="openai-transcription", request=request,
+                estimated_cost=estimate, operation=_durable_call)
+            words = payload.get("words") or []
+
         out = []
         for w in words:
-            txt = (getattr(w, "word", "") or "").strip()
+            get = w.get if isinstance(w, dict) else lambda key, default=None: getattr(w, key, default)
+            txt = (get("word", "") or "").strip()
             if txt:
-                out.append((txt, float(getattr(w, "start", 0.0)), float(getattr(w, "end", 0.0))))
+                out.append((txt, float(get("start", 0.0)), float(get("end", 0.0))))
         return out
     except Exception as exc:
         if strict:
@@ -1013,7 +1069,7 @@ def _operator_block(direction: str) -> str:
             "safety/accuracy rules above; those ALWAYS take priority. It may steer topic emphasis, tone, "
             "angle, pacing, audience or things to avoid. It must NOT change the required output format, "
             "disable fact-checking, or introduce real people, real brands, or unsafe/medical claims:\n\""
-            + d[:1200] + "\"")
+            + d + "\"")
 
 
 def _premise_block(contract: dict | None) -> str:
@@ -2677,6 +2733,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 'chapter number existing in the plan is not the same as the narrator saying it.\n')
                if causal_lane else '')
             + blueprint_block
+            + _operator_block(operator_direction)
             + 'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
@@ -3243,6 +3300,13 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     log(f"Research dossier: {validation['claim_count']} claims, "
         f"{validation['citation_count']} cited URLs")
     if not validation["passed"]:
+        if research_runtime:
+            try:
+                research_runtime.checkpoint("semantic-failure-research-dossier")
+                log("Saved complete private diagnostic for research-dossier")
+            except Exception as exc:
+                log("Could not persist research-dossier diagnostic: "
+                    f"{type(exc).__name__}: {exc}")
         codes = collections.Counter(_s(item.get("code")) for item in validation["errors"])
         searches = dossier.get("web_search_requests") or 0
         if source_filter["excluded_count"] and not (dossier.get("claims") or []):
@@ -3329,6 +3393,91 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
         return script, notes, round(cost, 4)
     except Exception:
         return script, [], 0.0   # never let fact-check kill the job
+
+
+_CLAIM_REPAIR_SYSTEM = (
+    "You repair source bindings in an already-written factual video script. Change only the "
+    "listed failed scenes. Preserve story role, order, tone, causal meaning and length. Use only "
+    "the supplied claim IDs. Each claim reference's narration_phrase must be the complete exact "
+    "sentence it supports. Preserve uncertainty, geographic scope, timescale and negation. Delete "
+    "an unsupported assertion rather than inventing evidence. Return only JSON."
+)
+
+
+def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
+                               *, operator_direction: str = "") -> tuple[dict, float]:
+    """Run one bounded, evidence-locked repair for scene-level claim failures.
+
+    Research/dossier failures are never repairable here. The returned draft still has to pass the
+    deterministic ledger; this function cannot turn an invalid result into a pass by itself.
+    """
+    repairable = {
+        "claim_phrase_not_in_narration", "claim_assertion_mismatch", "unhedged_speculation",
+        "scope_inflation", "timescale_contradiction", "unbound_factual_scene",
+        "missing_evidence_join", "claim_evidence_mismatch",
+    }
+    errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    if not errors or any(item.get("code") not in repairable or not item.get("scene")
+                         for item in errors):
+        return script, 0.0
+    indexes = sorted({int(item["scene"]) for item in errors})
+    scenes = script.get("scenes") or []
+    if any(index < 1 or index > len(scenes) for index in indexes):
+        return script, 0.0
+    payload = {
+        "operator_direction": operator_direction,
+        "claims": claim_context_for_prompt(dossier),
+        "failures": errors,
+        "scenes": [{"scene": index, **{
+            key: scenes[index - 1].get(key)
+            for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")
+        }} for index in indexes],
+        "output_schema": {
+            "scenes": [{"scene": 1, "narration": "complete corrected narration",
+                        "evidence_id": "existing evidence id",
+                        "claim_refs": [{"claim_id": "existing claim id",
+                                        "evidence_id": "same evidence id",
+                                        "narration_phrase": "complete exact assertion sentence"}]}],
+        },
+    }
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=4000, system=_CLAIM_REPAIR_SYSTEM,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+        data, parse_cost = _parse_script_json(response.content[0].text)
+        repaired = data.get("scenes") if isinstance(data, dict) else None
+        if not isinstance(repaired, list) or len(repaired) != len(indexes):
+            return script, 0.0
+        allowed_ids = {_s(claim.get("claim_id")) for claim in dossier.get("claims") or []
+                       if isinstance(claim, dict)}
+        candidate = json.loads(json.dumps(script))
+        seen = set()
+        for item in repaired:
+            if not isinstance(item, dict):
+                return script, 0.0
+            index = int(item.get("scene") or 0)
+            if index not in indexes or index in seen:
+                return script, 0.0
+            narration = _s(item.get("narration")).strip()
+            refs = item.get("claim_refs")
+            evidence_id = _s(item.get("evidence_id")).strip()
+            if not narration or not isinstance(refs, list):
+                return script, 0.0
+            if any(not isinstance(ref, dict) or _s(ref.get("claim_id")) not in allowed_ids
+                   for ref in refs):
+                return script, 0.0
+            target = candidate["scenes"][index - 1]
+            target["narration"] = narration
+            target["evidence_id"] = evidence_id
+            target["claim_refs"] = refs
+            seen.add(index)
+        if seen != set(indexes):
+            return script, 0.0
+        usage = response.usage
+        cost = (_msg_cost(usage) + float(parse_cost or 0.0))
+        return candidate, round(cost, 4)
+    except Exception:
+        return script, 0.0
 
 
 def _enforce_requested_runtime(
@@ -7538,7 +7687,8 @@ def _planned_words_for(duration_sec: float, n_scenes: int) -> int:
     return max(20, int(speech_seconds * DEFAULT_WORDS_PER_SECOND))
 
 
-def _repair_claim_phrases(script: dict, log=lambda message: None) -> int:
+def _repair_claim_phrases(script: dict, log=lambda message: None,
+                          research_dossier: dict | None = None) -> int:
     """Re-bind each claim reference to wording that survives in the final narration.
 
     validate_claim_joins requires `narration_phrase` to be an exact substring of the scene's
@@ -7553,6 +7703,11 @@ def _repair_claim_phrases(script: dict, log=lambda message: None) -> int:
     — if the fact-check removed the assertion, the citation should go with it.
     """
     repaired = dropped = 0
+    claims = {
+        _s(claim.get("claim_id")): claim
+        for claim in (research_dossier or {}).get("claims") or []
+        if isinstance(claim, dict) and _s(claim.get("claim_id"))
+    }
     for scene in script.get("scenes") or []:
         narration = _s(scene.get("narration")).strip()
         refs = scene.get("claim_refs")
@@ -7565,23 +7720,25 @@ def _repair_claim_phrases(script: dict, log=lambda message: None) -> int:
             if not isinstance(ref, dict):
                 continue
             phrase = _s(ref.get("narration_phrase")).strip()
-            if phrase and phrase.casefold() in haystack:
-                kept.append(ref)
-                continue
-            wanted = _content_tokens(phrase) or _content_tokens(_s(ref.get("claim_id")))
+            claim_text = _s((claims.get(_s(ref.get("claim_id"))) or {}).get("claim"))
+            wanted = (_content_tokens(phrase) | _content_tokens(claim_text)
+                      or _content_tokens(_s(ref.get("claim_id"))))
             best, best_score = "", 0.0
             for sentence in sentences:
                 if not wanted:
+                    break
+                if phrase and phrase.casefold() in sentence.casefold():
+                    best, best_score = sentence, 1.0
                     break
                 score = len(wanted & _content_tokens(sentence)) / len(wanted)
                 if score > best_score:
                     best, best_score = sentence, score
             if best and best_score >= 0.34:
-                words = best.split()
-                ref["narration_phrase_model"] = phrase
-                ref["narration_phrase"] = " ".join(words[:min(6, len(words))])
+                if best != phrase:
+                    ref["narration_phrase_model"] = phrase
+                    ref["narration_phrase"] = best
+                    repaired += 1
                 kept.append(ref)
-                repaired += 1
             else:
                 dropped += 1
         scene["claim_refs"] = kept
@@ -7658,7 +7815,8 @@ def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
 
 
 
-def rederive_narration_bindings(script: dict, log=lambda message: None) -> None:
+def rederive_narration_bindings(script: dict, log=lambda message: None,
+                                research_dossier: dict | None = None) -> None:
     """Re-derive EVERY binding whose source of truth is the narration text.
 
     Call this after ANY pass that rewrites narration. Three passes do -- the fact-check, the
@@ -7676,8 +7834,48 @@ def rederive_narration_bindings(script: dict, log=lambda message: None) -> None:
     knowledge of what depends on narration lived at the call sites instead of in one place. A
     new binding type added later would repeat it a fourth time. Add it HERE, once.
     """
-    _repair_claim_phrases(script, log)
+    _repair_claim_phrases(script, log, research_dossier)
     _repair_anchor_phrases(script, log)
+
+
+def _persist_semantic_failure(*, output_dir: str, stage: str, script: dict | None,
+                              research_dossier: dict | None, report: dict | None,
+                              operator_direction: str, log=lambda message: None) -> str:
+    """Persist the complete pre-asset failure before raising its abbreviated error.
+
+    Public events remain sanitized. The private checkpoint retains the exact script, evidence,
+    approved direction and report so a replacement worker can reproduce or repair the failure
+    without another provider purchase.
+    """
+    payload = {
+        "schema_version": 1,
+        "stage": stage,
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "operator_direction": operator_direction,
+        "operator_direction_sha256": hashlib.sha256(
+            _s(operator_direction).encode("utf-8")).hexdigest(),
+        "script": script or {},
+        "research_dossier": research_dossier or {},
+        "report": report or {},
+    }
+    path = os.path.join(output_dir, f"semantic_failure_{stage}.json")
+    temporary = path + ".tmp"
+    try:
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+        os.replace(temporary, path)
+        from durable_execution import current as _durable_current
+        runtime = _durable_current()
+        if runtime is not None:
+            runtime.checkpoint(f"semantic-failure-{stage}")
+        log(f"Saved complete private diagnostic for {stage}")
+    except Exception as exc:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+        log(f"Could not persist {stage} diagnostic: {type(exc).__name__}: {exc}")
+    return path
 
 def _review_story_structure(script: dict, requested_format: str, video_format: str, log) -> dict:
     """Measure narration against its story format's structure gates and REPORT ONLY.
@@ -8049,7 +8247,7 @@ def run_explainer_pipeline(
         # Both bindings are made against pre-fact-check wording and are re-derived here, after the
         # last pass that can rewrite narration and before anything validates them against it.
         if video_format != "social":
-            rederive_narration_bindings(script, log)
+            rederive_narration_bindings(script, log, research_dossier)
         # NOT `_story_engine`. That key already holds the causal engine id chosen by
         # _assign_causal_spine, and this returns a report dict from the story_engine module —
         # a different, stdlib-only prose analyser one letter away in name. Overwriting it
@@ -8062,6 +8260,20 @@ def run_explainer_pipeline(
         if video_format != "social":
             claim_validation = validate_claim_joins(script, research_dossier)
             script["_claim_validation"] = claim_validation
+            if not claim_validation.get("passed"):
+                repaired_script, repair_cost = repair_claim_join_failures(
+                    script, research_dossier, claim_validation,
+                    operator_direction=operator_direction)
+                if repair_cost:
+                    script = repaired_script
+                    script["_script_cost_usd"] = round(
+                        float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+                    rederive_narration_bindings(script, log, research_dossier)
+                    claim_validation = validate_claim_joins(script, research_dossier)
+                    script["_claim_validation"] = claim_validation
+                    scenes = script.get("scenes", [])
+                    log("Claim ledger repair: "
+                        + ("PASS" if claim_validation.get("passed") else "still failing"))
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
@@ -8084,6 +8296,10 @@ def run_explainer_pipeline(
                             text = (f" [scene {index}, role={role or '?'}: "
                                     f"{_s(script['scenes'][index - 1].get('narration'))[:90]}]")
                         detail.append(f"{item['message']}{text}")
+                    _persist_semantic_failure(
+                        output_dir=output_dir, stage="claim-ledger", script=script,
+                        research_dossier=research_dossier, report=claim_validation,
+                        operator_direction=operator_direction, log=log)
                     raise ValueError(
                         "Claim ledger failed after script/fact-check before asset spend: "
                         + "; ".join(detail)
@@ -8149,7 +8365,7 @@ def run_explainer_pipeline(
         # it. The anchor repair runs after this refit and the claim repair did not, so the run
         # aborted on bindings that were correct for text the refit had already replaced. Same
         # ordering bug as the anchors, at the sibling call site.
-        rederive_narration_bindings(script, log)
+        rederive_narration_bindings(script, log, research_dossier)
         claim_validation = validate_claim_joins(script, research_dossier)
         script["_claim_validation"] = claim_validation
         if not claim_validation.get("passed") and not _claim_ledger_hard():
@@ -8161,6 +8377,10 @@ def run_explainer_pipeline(
             # unsourced scene, continued, and was killed here by its twin -- so the escape hatch
             # existed and did not work. Run 4e6b46a9 died exactly that way, and the message blamed
             # the runtime fit for a scene that was already unsourced before the fit ran.
+            _persist_semantic_failure(
+                output_dir=output_dir, stage="runtime-claim-ledger", script=script,
+                research_dossier=research_dossier, report=claim_validation,
+                operator_direction=operator_direction, log=log)
             raise ValueError(
                 "Runtime fit broke the sourced claim joins before TTS/image spend: "
                 + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
@@ -8195,6 +8415,11 @@ def run_explainer_pipeline(
             # Output from such a run is DIAGNOSTIC ONLY. An unvalidated storyboard means the
             # causal chain behind the video was never confirmed. Do not publish it.
             if _illustrated_storyboard_hard():
+                _persist_semantic_failure(
+                    output_dir=output_dir, stage="illustrated-storyboard", script=script,
+                    research_dossier=research_dossier,
+                    report=storyboard.get("validation") or {},
+                    operator_direction=operator_direction, log=log)
                 raise ValueError("Illustrated storyboard failed: "
                                  + "; ".join(storyboard_errors))
             log("Illustrated storyboard: FAILING but downgraded by ILLUSTRATED_STORYBOARD_HARD=0 "
@@ -8286,7 +8511,7 @@ def run_explainer_pipeline(
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
-        rederive_narration_bindings(script, log)
+        rederive_narration_bindings(script, log, research_dossier)
         evidence_plan = compile_evidence_plan(script)
         evidence_validation = evidence_plan.get("validation") or {}
         script["_evidence_plan"] = evidence_plan
@@ -8506,7 +8731,7 @@ def run_explainer_pipeline(
                 + ", ".join(blocking))
         # A measured-runtime rewrite may change visual anchor phrases. Recompile the evidence states
         # from the final narration and fail before the first image if any opening beat lost its proof.
-        rederive_narration_bindings(script, log)
+        rederive_narration_bindings(script, log, research_dossier)
         # Fit state counts to the audio we MEASURED, not to the word count we predicted. The
         # pre-TTS compile has only an estimate; this one has the real per-scene durations sitting
         # in audio_timing, and never used them -- so a scene whose narration came in shorter than

@@ -97,12 +97,12 @@ def test_a_claim_the_factcheck_removed_is_dropped_not_repointed():
     assert scene["evidence_id"] == "", "an unclaimed scene must not keep a dangling evidence join"
 
 
-def test_an_exact_phrase_is_left_untouched():
+def test_an_exact_phrase_is_expanded_to_its_complete_assertion():
     scene = _claim_scene("Antibiotics healed them")
     ep._repair_claim_phrases({"scenes": [scene]})
     ref = scene["claim_refs"][0]
-    assert ref["narration_phrase"] == "Antibiotics healed them"
-    assert "narration_phrase_model" not in ref
+    assert ref["narration_phrase"] == "Antibiotics healed them for good."
+    assert ref["narration_phrase_model"] == "Antibiotics healed them"
 
 
 def test_claim_repair_survives_malformed_input():
