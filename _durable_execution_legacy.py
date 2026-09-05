@@ -43,6 +43,10 @@ class BudgetExceeded(DurableExecutionError):
     pass
 
 
+class AmbiguousProviderOutcome(BaseException):
+    """A prior provider attempt may have been accepted and must be reconciled before replay."""
+
+
 class LeaseLost(DurableExecutionError):
     pass
 
@@ -95,7 +99,10 @@ def version_hash(root: str | os.PathLike[str]) -> str:
     root = str(root)
     digest = hashlib.sha256()
     for name in (
-        "explainer_pipeline.py", "longform_retention.py", "longform_evidence.py",
+        "app.py", "explainer_pipeline.py", "illustrated_story.py", "causal_story.py",
+        "story_engines.py", "reference_corpus.py", "longform_research.py", "claim_verify.py",
+        "script_provider.py", "_durable_execution_legacy.py",
+        "longform_retention.py", "longform_evidence.py",
         "longform_motion.py", "longform_pilots.py", "longform_production.py",
         "longform_rendered_gate.py", "durable_execution.py",
     ):
@@ -369,6 +376,10 @@ class PostgresStore:
                 if existing["request_hash"] != request_hash:
                     raise DurableExecutionError(
                         f"Stage identity collision for {stage_key}; request content changed")
+                if existing["status"] not in {"completed", "incomplete"}:
+                    raise AmbiguousProviderOutcome(
+                        f"Paid stage {stage_key} has an unresolved prior provider attempt "
+                        f"(status={existing['status']}); reconcile it before replay")
                 return self._json_ready(existing) or {}
             enforce_budget(job, reserve, stage_key)
             cur.execute("""
@@ -413,6 +424,7 @@ class PostgresStore:
     def _settle_stage(self, job_id: str, stage_key: str, *, actual_cost: float,
                       result: dict | None, artifact: dict | None, status: str) -> dict:
         actual = max(0.0, float(actual_cost))
+        overrun = ""
         with self._tx() as (_, cur):
             cur.execute("""
                 SELECT * FROM generation_stages WHERE job_id=%s AND stage_key=%s FOR UPDATE
@@ -430,6 +442,21 @@ class PostgresStore:
                 return self._json_ready(stage) or {}
             reserve = float(stage["reserved_cost_usd"])
             cur.execute("""
+                SELECT spent_cost_usd,reserved_cost_usd,max_cost_usd,max_inflight_call_usd
+                FROM generation_jobs WHERE id=%s FOR UPDATE
+            """, (job_id,))
+            job_costs = cur.fetchone()
+            if not job_costs:
+                raise StorageUnavailable(f"Durable job {job_id} does not exist")
+            spent, reserved, cap, inflight_cap = map(float, job_costs)
+            projected = spent + max(0.0, reserved - reserve) + actual
+            if projected > cap + 1e-9:
+                overrun = (f"Provider settlement for {stage_key} reached ${projected:.4f} "
+                           f"against the ${cap:.4f} approved ceiling")
+            elif actual > inflight_cap + 1e-9:
+                overrun = (f"Provider settlement for {stage_key} was ${actual:.4f}, above the "
+                           f"${inflight_cap:.4f} single-call liability ceiling")
+            cur.execute("""
                 UPDATE generation_stages SET status=%s,actual_cost_usd=%s,
                     result=%s::jsonb,artifact=%s::jsonb,error=NULL,completed_at=now(),updated_at=now()
                 WHERE job_id=%s AND stage_key=%s RETURNING *
@@ -438,10 +465,17 @@ class PostgresStore:
             cur.execute("""
                 UPDATE generation_jobs SET
                     reserved_cost_usd=GREATEST(0,reserved_cost_usd-%s),
-                    spent_cost_usd=spent_cost_usd+%s,updated_at=now()
+                    spent_cost_usd=spent_cost_usd+%s,
+                    error=CASE WHEN %s='' THEN error ELSE %s END,
+                    updated_at=now()
                 WHERE id=%s
-            """, (reserve, actual, job_id))
-            return self._json_ready(completed) or {}
+            """, (reserve, actual, overrun, overrun, job_id))
+            settled = self._json_ready(completed) or {}
+        if overrun:
+            # The provider has already charged the call. Record the liability first, then stop all
+            # subsequent work instead of hiding the overage or trying to "undo" it locally.
+            raise BudgetExceeded(overrun)
+        return settled
 
     def fail_stage(self, job_id: str, stage_key: str, error: str, *, retryable: bool = True) -> None:
         with self._tx() as (_, cur):
@@ -628,7 +662,13 @@ class PostgresStore:
             cur.execute("""
                 SELECT a.* FROM generation_artifacts a JOIN generation_jobs j ON j.id=a.job_id
                 WHERE a.provisional=true AND a.created_at < now()-(%s || ' hours')::interval
-                  AND j.status IN ('error','rejected') ORDER BY a.created_at LIMIT %s
+                  AND j.status IN ('error','rejected')
+                  -- Paid stage outputs are authoritative resume inputs, not temporary garbage.
+                  AND a.kind <> 'stage'
+                  -- Preserve the latest checkpoint referenced by the failed job. Older superseded
+                  -- checkpoints remain eligible for cleanup.
+                  AND NOT (a.kind='checkpoint' AND COALESCE(j.checkpoint->>'url','')=a.url)
+                ORDER BY a.created_at LIMIT %s
             """, (max(1, age_hours), max(1, min(limit, 1000))))
             return [self._json_ready(self._row(cur, row)) or {} for row in cur.fetchall()]
 

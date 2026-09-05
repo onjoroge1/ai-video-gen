@@ -317,6 +317,14 @@ def build_storyboard(script: dict, question: str) -> dict:
     # Bring the location count inside the budget BEFORE measuring it. The check stays: a collapse
     # that cannot reach the budget is a real failure and must still stop the run.
     location_moves = collapse_locations(beats)
+    # Rendering reads scene.environment_type, not storyboard beat.location_id. Keep one canonical
+    # location after repair so validation cannot certify a four-location board while generation
+    # still receives a fifth, discarded environment.
+    for scene, beat in zip(scenes, beats):
+        previous = _text(scene.get("environment_type"))
+        if previous and previous != beat["location_id"]:
+            scene["environment_type_model"] = previous
+        scene["environment_type"] = beat["location_id"]
     locations = sorted({beat["location_id"] for beat in beats})
     validation_errors = [f"{issue['code']}: {issue['message']}" for issue in causal["errors"]]
     if len(locations) > LOCATION_BUDGET:

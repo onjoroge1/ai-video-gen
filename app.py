@@ -1714,7 +1714,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         job["events"].append({"type": "done", "data": done_message})
         if durable_runtime:
             durable_runtime.event("done", done_message)
-    except Exception as exc:
+    except (Exception, durable_execution.AmbiguousProviderOutcome) as exc:
         import traceback
         from longform_rendered_gate import HumanReviewRequired
         from longform_retention import StoryFormatAcknowledgementRequired
@@ -1837,7 +1837,10 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 row = durable_runtime.store.get_job(job_id) or {}
                 attempts = int(row.get("attempts") or 1)
                 max_attempts = int(row.get("max_attempts") or 1)
-                hard_failure = isinstance(exc, (ValueError, durable_execution.BudgetExceeded))
+                hard_failure = isinstance(exc, (
+                    ValueError, durable_execution.BudgetExceeded,
+                    durable_execution.AmbiguousProviderOutcome,
+                ))
                 status = ("awaiting_review" if awaiting_review else
                           "format_acknowledgement_required" if awaiting_format else
                           ("error" if hard_failure or attempts >= max_attempts else "retry"))
@@ -3110,7 +3113,7 @@ async def execute_agent_action(action_id: str, request: Request,
             agent_actions.repository().mark_queued, action_id, queued["job_id"])
     except agent_actions.AgentActionError as exc:
         raise _agent_action_http_error(exc) from exc
-    except Exception as exc:
+    except (Exception, durable_execution.AmbiguousProviderOutcome) as exc:
         if (action and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and isinstance(exc, HTTPException) and exc.status_code >= 500):
             # Keep the already-bound job recoverable after queue/storage unavailability.
@@ -3162,6 +3165,18 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="weak_source_domainx", extra_attempts=1)
+        elif (job and job.get("status") == "error"
+              and str(job.get("error") or "").startswith(
+                  "Claim ledger failed after script/fact-check before asset spend:")
+              and "A speculative claim is narrated as certain." in str(job.get("error") or "")):
+            # PR81 replaces the six-word binding that caused false rejections and adds one
+            # evidence-locked repair for genuinely unhedged scenes. Rearm only this exact legacy
+            # failure class; the approved payload, spend ceiling, provider stages and claim ledger
+            # remain immutable.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="Claim ledger failed after script/fact-check before asset spend:",
+                extra_attempts=1)
         elif job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
@@ -3291,12 +3306,15 @@ async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
             store.yield_job, job_id, worker_id=worker_id, checkpoint=checkpoint)
         explainer_jobs[job_id] = _durable_job_view(row)
         return {"claimed": True, "continued": row.get("status") == "queued", "job": row}
-    except Exception as exc:
+    except (Exception, durable_execution.AmbiguousProviderOutcome) as exc:
         # Restore/configuration failures occur before run_explainer_task's handler. Release their
         # lease too, retaining the prior checkpoint and allowing only the normal bounded retries.
         if isinstance(exc, durable_execution.LeaseLost):
             raise
-        hard_failure = isinstance(exc, (ValueError, durable_execution.BudgetExceeded))
+        hard_failure = isinstance(exc, (
+            ValueError, durable_execution.BudgetExceeded,
+            durable_execution.AmbiguousProviderOutcome,
+        ))
         status = ("error" if hard_failure or int(claimed.get("attempts") or 1)
                   >= int(claimed.get("max_attempts") or 1) else "retry")
         await asyncio.to_thread(

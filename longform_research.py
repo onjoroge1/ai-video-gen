@@ -140,9 +140,17 @@ _GLOBAL_WORDS = re.compile(r"\b(global(?:ly)?|worldwide|everywhere|all countries
 _HEDGE_WORDS = re.compile(r"\b(may|might|could|possibly|plausibly|in this scenario|model suggests)\b", re.I)
 _INSTANT_WORDS = re.compile(r"\b(instant(?:ly)?|immediate(?:ly)?|at once|in seconds)\b", re.I)
 _LONG_TIMESCALE_WORDS = re.compile(r"\b(years?|decades?|centuries|millennia|million|billion|geologic|evolutionary)\b", re.I)
+_NEGATION_WORDS = re.compile(r"\b(?:no|not|never|neither|nor|without|cannot|can't|didn't|doesn't|isn't|wasn't|weren't)\b", re.I)
 _NUMERIC_OR_CAUSAL = re.compile(
     r"(?:\d|%|percent|kilomet|meter|mile|degree|because|causes?|therefore|leads? to|results? in)", re.I
 )
+_CONTENT_STOPWORDS = {
+    "about", "after", "again", "also", "because", "before", "being", "between",
+    "could", "does", "during", "from", "have", "into", "might", "more", "over",
+    "said", "some", "than", "that", "their", "there", "these", "they", "this",
+    "those", "through", "under", "very", "were", "what", "when", "where", "which",
+    "while", "with", "would",
+}
 _WEAK_SOURCE_HOSTS = {
     "youtube.com", "www.youtube.com", "tiktok.com", "www.tiktok.com", "reddit.com",
     "www.reddit.com", "medium.com", "wikipedia.org", "en.wikipedia.org", "quora.com",
@@ -152,6 +160,46 @@ _WEAK_SOURCE_HOSTS = {
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _semantic_words(value: str) -> set[str]:
+    """Small deterministic entailment guard, not a substitute for fact checking.
+
+    It prevents a valid claim ID from licensing wholly unrelated narration. Light suffix
+    normalisation makes ordinary inflections comparable without pretending to understand prose.
+    """
+    words = set()
+    for raw in re.findall(r"[a-z0-9]+", _text(value).casefold()):
+        if len(raw) < 3 or raw in _CONTENT_STOPWORDS:
+            continue
+        word = raw
+        for suffix in ("ingly", "edly", "ing", "ied", "ed", "es", "s"):
+            if len(word) - len(suffix) >= 4 and word.endswith(suffix):
+                word = word[:-len(suffix)] + ("y" if suffix == "ied" else "")
+                break
+        words.add(word)
+    return words
+
+
+def _assertion_for_phrase(narration: str, phrase: str) -> str:
+    """Return the complete sentence containing a bound phrase."""
+    needle = _text(phrase).casefold()
+    if not needle:
+        return ""
+    for sentence in _SENTENCE_SPLIT.split(_text(narration)):
+        if needle in sentence.casefold():
+            return sentence.strip()
+    return ""
+
+
+def _claim_matches_assertion(claim: dict, assertion: str) -> bool:
+    claim_words = _semantic_words(_text(claim.get("claim")))
+    assertion_words = _semantic_words(assertion)
+    if not claim_words or not assertion_words:
+        return False
+    shared = claim_words & assertion_words
+    required = 1 if min(len(claim_words), len(assertion_words)) <= 3 else 2
+    return len(shared) >= required and len(shared) / min(len(claim_words), len(assertion_words)) >= 0.25
 
 
 def _issue(code: str, message: str, *, claim_id: str = "", scene: int | None = None) -> dict:
@@ -279,6 +327,14 @@ def validate_research_dossier(dossier: dict) -> dict:
                 "unverified_support_quote",
                 "The claim support excerpt was not observed in a provider citation for its source URL.",
                 claim_id=claim_id))
+        claim_text = _text(claim.get("claim"))
+        if (support_quote and claim_text
+                and bool(_NEGATION_WORDS.search(support_quote))
+                != bool(_NEGATION_WORDS.search(claim_text))):
+            errors.append(_issue(
+                "support_contradicts_claim",
+                "The claim and its support excerpt disagree about negation.",
+                claim_id=claim_id))
         if _text(claim.get("source_type")) not in SOURCE_TYPES:
             errors.append(_issue("invalid_source_type", "Source type must be primary or authoritative_secondary.", claim_id=claim_id))
         if _text(claim.get("confidence")) not in CONFIDENCE_LEVELS:
@@ -336,7 +392,12 @@ def _claim_index(dossier: dict) -> dict[str, dict]:
 
 
 def validate_claim_joins(script: dict, dossier: dict) -> dict:
-    """Verify source → claim → exact narration phrase → visible evidence joins."""
+    """Verify source → claim → complete narrated assertion → visible evidence joins.
+
+    A claim ID is only a pointer. It cannot license arbitrary narration, and a short substring
+    cannot carry modality, scope, or timescale for a whole assertion. Resolve every binding to
+    its complete sentence, then apply both lexical-relatedness and factual constraints there.
+    """
     errors = list(validate_research_dossier(dossier)["errors"])
     claims = _claim_index(dossier)
     used: set[str] = set()
@@ -372,19 +433,25 @@ def validate_claim_joins(script: dict, dossier: dict) -> dict:
                     "claim_phrase_not_in_narration",
                     "The bound narration phrase is not an exact substring of the final narration.",
                     claim_id=claim_id, scene=index))
+            assertion = _assertion_for_phrase(narration, phrase)
             ref_evidence = _text(ref.get("evidence_id")) or evidence_id
             if not ref_evidence or ref_evidence != evidence_id:
                 errors.append(_issue(
                     "claim_evidence_mismatch", "Claim reference and scene evidence IDs do not match.",
                     claim_id=claim_id, scene=index))
             claim = claims[claim_id]
+            if assertion and not _claim_matches_assertion(claim, assertion):
+                errors.append(_issue(
+                    "claim_assertion_mismatch",
+                    "The bound narrated assertion is not materially related to the referenced claim.",
+                    claim_id=claim_id, scene=index))
             scope = _text(claim.get("geographic_scope")).casefold()
-            if scope in {"local", "regional", "site-specific", "single site"} and _GLOBAL_WORDS.search(phrase):
+            if scope in {"local", "regional", "site-specific", "single site"} and _GLOBAL_WORDS.search(assertion):
                 errors.append(_issue("scope_inflation", "Narration globalizes a local or regional claim.", claim_id=claim_id, scene=index))
-            if _text(claim.get("confidence")) == "speculative" and phrase and not _HEDGE_WORDS.search(phrase):
+            if _text(claim.get("confidence")) == "speculative" and assertion and not _HEDGE_WORDS.search(assertion):
                 errors.append(_issue("unhedged_speculation", "A speculative claim is narrated as certain.", claim_id=claim_id, scene=index))
             timescale = _text(claim.get("timescale"))
-            if _LONG_TIMESCALE_WORDS.search(timescale) and _INSTANT_WORDS.search(phrase):
+            if _LONG_TIMESCALE_WORDS.search(timescale) and _INSTANT_WORDS.search(assertion):
                 errors.append(_issue("timescale_contradiction", "Narration presents a long-timescale claim as immediate.", claim_id=claim_id, scene=index))
 
     return {

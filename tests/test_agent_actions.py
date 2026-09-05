@@ -364,7 +364,7 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
 
 
 @pytest.mark.parametrize("legacy,authorized", [(True, True), (False, True), (True, False)])
-@pytest.mark.parametrize("failure_type", ["json", "sources"])
+@pytest.mark.parametrize("failure_type", ["json", "sources", "claims"])
 def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
         monkeypatch, legacy, authorized, failure_type):
     from longform_research import LEGACY_DOSSIER_JSON_ERROR
@@ -391,6 +391,12 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
                      "weak_source_domainx7]: " + "; ".join([message] * 3))
         new_error = "Research dossier has no usable claims after excluding disallowed sources."
         fragment = "weak_source_domainx"
+    elif failure_type == "claims":
+        old_error = ("Claim ledger failed after script/fact-check before asset spend: "
+                     "A speculative claim is narrated as certain. [scene 7]")
+        new_error = ("Claim ledger failed after script/fact-check before asset spend: "
+                     "The scene references a claim absent from the dossier. [scene 7]")
+        fragment = "Claim ledger failed after script/fact-check before asset spend:"
 
     class Store:
         def get_job(self, job_id):
