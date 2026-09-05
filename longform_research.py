@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
@@ -178,6 +179,58 @@ def _canonical_url(url: str) -> str:
         return _text(url)
 
 
+def _weak_source_domain(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").casefold().rstrip(".")
+    except ValueError:
+        return False  # The HTTPS URL validator reports malformed URLs separately.
+    return any(host == blocked or host.endswith("." + blocked)
+               for blocked in _WEAK_SOURCE_HOSTS)
+
+
+def filter_disallowed_source_claims(dossier: dict) -> dict:
+    """Quarantine disallowed source candidates before they can license narration.
+
+    Source discovery returns candidates, and reading a real quote from a blog
+    does not make it authoritative. Exclude those candidates just as the page
+    verifier excludes quotes it cannot find. This is not a general error filter:
+    surviving claims must pass the unchanged evidence, scope and story gates.
+    Audit metadata is never included by claim_context_for_prompt.
+    """
+    if not isinstance(dossier, dict) or not isinstance(dossier.get("claims"), list):
+        raise ValueError("Research candidates require a structured claims list.")
+    report = validate_research_dossier(dossier)
+    if any(item["code"] in {"invalid_claim", "invalid_claim_id"}
+           for item in report["errors"]):
+        raise ValueError("Research candidates have invalid or duplicate claim IDs/entries; "
+                         "source filtering cannot repair an ambiguous ledger.")
+    result = copy.deepcopy(dossier)
+    retained, excluded = [], []
+    for claim in result.get("claims") or []:
+        if _weak_source_domain(_text(claim.get("source_url"))):
+            excluded.append({"claim": claim, "reason": "weak_source_domain"})
+        else:
+            retained.append(claim)
+    result["claims"] = retained
+    # Discard provider-authored audit fields; only this code decides exclusions.
+    result["excluded_claims"] = excluded
+    result["source_filter"] = {"version": 1, "candidate_count": len(retained) + len(excluded),
+                               "retained_count": len(retained), "excluded_count": len(excluded)}
+    return result
+
+
+def is_legacy_weak_source_failure(error: str) -> bool:
+    """Recognize only the old all-or-nothing weak-domain gate, never other failures."""
+    match = re.fullmatch(
+        r"Research dossier failed before scripting \[\d+ quotable excerpts available; "
+        r"weak_source_domainx([1-9]\d*)\]: (.+)", error or "")
+    if not match:
+        return False
+    message = ("Social, community, encyclopedia, and generic blogging URLs are not "
+               "authoritative evidence.")
+    return match.group(2) == "; ".join([message] * min(int(match.group(1)), 3))
+
+
 def validate_research_dossier(dossier: dict) -> dict:
     """Validate provider output without trusting its self-reported source quality."""
     errors: list[dict] = []
@@ -211,7 +264,7 @@ def validate_research_dossier(dossier: dict) -> dict:
             errors.append(_issue(
                 "unverified_source", "The source URL was not observed in the provider's web-search citations.",
                 claim_id=claim_id))
-        elif urlparse(source_url).netloc.casefold() in _WEAK_SOURCE_HOSTS:
+        elif _weak_source_domain(source_url):
             errors.append(_issue(
                 "weak_source_domain", "Social, community, encyclopedia, and generic blogging URLs are not authoritative evidence.",
                 claim_id=claim_id))

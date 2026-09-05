@@ -364,8 +364,9 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
 
 
 @pytest.mark.parametrize("legacy,authorized", [(True, True), (False, True), (True, False)])
+@pytest.mark.parametrize("failure_type", ["json", "sources"])
 def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
-        monkeypatch, legacy, authorized):
+        monkeypatch, legacy, authorized, failure_type):
     from longform_research import LEGACY_DOSSIER_JSON_ERROR
     _secure_environment(monkeypatch)
     repository = FakeActionRepository()
@@ -380,12 +381,21 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
     }
     monkeypatch.setattr(agent_actions, "repository", lambda: repository)
     calls = []
+    old_error = LEGACY_DOSSIER_JSON_ERROR
+    new_error = "Research provider returned malformed dossier JSON (incomplete object); no claims accepted."
+    fragment = "Research provider returned malformed dossier JSON;"
+    if failure_type == "sources":
+        message = ("Social, community, encyclopedia, and generic blogging URLs are not "
+                   "authoritative evidence.")
+        old_error = ("Research dossier failed before scripting [23 quotable excerpts available; "
+                     "weak_source_domainx7]: " + "; ".join([message] * 3))
+        new_error = "Research dossier has no usable claims after excluding disallowed sources."
+        fragment = "weak_source_domainx"
 
     class Store:
         def get_job(self, job_id):
             return {"id": job_id, "status": "error", "error": (
-                LEGACY_DOSSIER_JSON_ERROR if legacy else
-                "Research provider returned malformed dossier JSON (incomplete object); no claims accepted.")}
+                old_error if legacy else new_error)}
 
         def rearm_infrastructure_failure(self, job_id, **kwargs):
             calls.append((job_id, kwargs))
@@ -406,8 +416,19 @@ def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
 
     anyio.run(run)
     assert calls == ([("cobra001", {
-        "error_fragment": "Research provider returned malformed dossier JSON;", "extra_attempts": 1,
+        "error_fragment": fragment, "extra_attempts": 1,
     })] if authorized and legacy else [])
+
+
+@pytest.mark.parametrize("error", [
+    "Research dossier failed before scripting [23 quotable excerpts available; weak_source_domainx7, scope_inflationx1]: Bad evidence.",
+    "Research dossier failed before scripting [23 quotable excerpts available; weak_source_domainx7]: Unexpected failure.",
+    "Research dossier failed before scripting [0 quotable excerpts available; missing_claimsx1]: No claims.",
+    "Other failure weak_source_domainx7",
+])
+def test_source_recovery_never_rearms_unrelated_evidence_failures(error):
+    from longform_research import is_legacy_weak_source_failure
+    assert not is_legacy_weak_source_failure(error)
 
 
 def test_research_failure_is_not_reported_as_completed_or_graded(monkeypatch):
