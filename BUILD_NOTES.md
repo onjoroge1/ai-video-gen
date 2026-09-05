@@ -3,9 +3,14 @@
 Working document for collaboration. Written for a reviewer with no prior context on this branch.
 Everything below is measured unless explicitly labelled a hypothesis.
 
-**Status: the illustrated lane does not render end to end.** Fourteen full renders and seven
+**Last reported live status: the illustrated lane does not render end to end.** Fourteen full renders and seven
 script-only samples have produced no video. Every failure is a deterministic gate firing *before*
 image generation, so no image spend has been wasted — but no frames exist either.
+
+**September 5 code review:** the fixes and verification limits are recorded in
+[`docs/ILLUSTRATED_FLOW_REVIEW_2026-09-05.md`](docs/ILLUSTRATED_FLOW_REVIEW_2026-09-05.md).
+The earlier live counts below are the author's historical observations, not new measurements of
+the repaired code. No new paid sample or finished-video claim accompanies this review.
 
 ---
 
@@ -72,8 +77,12 @@ Confirmed by experiment — same code, same topic:
 220s × 1 run    LATE_MECHANISM absent
 ```
 
-The gate is not wrong and the planner is not ignoring it. A five-milestone engine does not fit a
-170-second request.
+This supports runtime sensitivity, not an engine-wide impossibility. The exact unchanged-opening
+boundary is **36 / 0.20 = 180 seconds**, including equality under the current validator. A 170-second
+request needs two seconds (5.56%) of opening compression. Five failures at one runtime and one
+observation at another do not establish a minimum feasible runtime or isolate model variability.
+The code review also found remaining contradictory prompts and equal expansion budgets, so the
+planner contract could not yet be ruled out as a cause.
 
 ### 2b. `ENGINE_ORDER` — open, and partly self-inflicted
 
@@ -126,15 +135,20 @@ line is corpus-backed and should not move.
 Ordered by evidence strength. Items 1–2 are the open blocker; the rest are independent defects a
 separate review confirmed.
 
-### 1. Restore the engine escape hatch — *pin → preference*
+### 1. Restore the engine escape hatch — *implemented; live sampling pending*
 The pre-chosen engine should guide the sheet but let the labeller re-choose when the beats
 genuinely do not fit. Replans keep the hard pin so a retry repairs the same contract.
 **Test:** 5-sample harness, `ENGINE_ORDER` rate should fall from 3/5.
 
-### 2. Make engine selection runtime-aware
-A 170s request should not select a five-milestone engine. Either pass the requested runtime into
-`_select_story_engine`, or make the deadline account for milestone count.
-**Test:** 5 samples at 170s should stop selecting `backfiring_solution`, or stop failing when they do.
+### 2. Make engine selection runtime-aware — *implemented; live sampling pending*
+The selector already received duration but had no explicit opening-fit evidence. It now receives
+reference timestamps, support counts, optional milestones and compression required at the requested
+duration. Factual story fit remains primary: 170s is not a blanket ban on `backfiring_solution`.
+Individual expansion budgets reserve opening words for the hook and format tag, and keep required
+short-story beats instead of slicing off the ending. No validator deadline changed.
+**Test:** fresh samples at the requested runtime must pass the production script checks without
+manual relabeling, threshold changes, or dropping failed samples. Do not measure success merely by
+how often a different engine is selected.
 
 ### 3. Verification discipline
 Use the **$1 script-only dry run**, sampled ≥5×, before any render. Fourteen renders were bought one
@@ -167,17 +181,18 @@ roll at a time at ~$8 each; a single passing observation was mistaken for a work
 python3 -m pytest tests/ -q     # 823 passed; 2 long-standing pre-existing failures
 ```
 
-Script-only sample (no images, ~$1/run) — the harness that should gate any render:
+Script-only sample (paid, no images) — use only after approval of the sampling budget:
 
 ```bash
-LONGFORM_CONTRACT_RETRIES=2 python3 - <<'EOF'
-import explainer_pipeline as ep
-Q = "<topic>"
-sc = ep._generate_script_chunked(Q, 220, "engaging and scientific", "",
-                                 ep.scene_count_for(220, "portrait"), causal_lane=True)
-print(sc.get("_story_engine"), ep._causal_contract_report(sc, Q))
-EOF
+python3 scripts/longform_script_check.py --visual-style illustrated_story \
+  --duration 170 --samples 5 --output script-check.json "<topic>"
 ```
+
+Unlike the former direct `_generate_script_chunked` snippet, this harness includes production
+research, graded generation/replans, fact-checking, binding checks, configured runtime handling
+and the final illustrated storyboard. It still excludes HTTP approval, durable media execution,
+TTS, images, MP4 and publication. Recorded usage costs are estimates, not guaranteed $1 samples or
+an enforced aggregate budget. Failures waived by diagnostic flags never earn a clean script-check pass.
 
 Knobs: `LONGFORM_CONTRACT_RETRIES` (replan budget, each retry is a full script),
 `BLUEPRINT_ADHERENCE` (`loose|balanced|strong|off`), `CLAIM_LEDGER_HARD=0` (diagnostic renders,

@@ -22,7 +22,6 @@ import threading
 import time
 import uuid
 from typing import Any, Callable, Iterator
-from types import SimpleNamespace
 
 
 SCHEMA_VERSION = 1
@@ -383,6 +382,24 @@ class PostgresStore:
 
     def complete_stage(self, job_id: str, stage_key: str, *, actual_cost: float,
                        result: dict | None = None, artifact: dict | None = None) -> dict:
+        return self._settle_stage(
+            job_id, stage_key, actual_cost=actual_cost, result=result, artifact=artifact,
+            status="completed")
+
+    def incomplete_stage(self, job_id: str, stage_key: str, *, actual_cost: float,
+                         result: dict) -> dict:
+        """Account for a received, billable response without declaring its output complete.
+
+        Keep the response for diagnosis and replay. An identical request must not silently
+        purchase it again; the caller can change its batch/token budget for a new paid stage.
+        Legacy completed responses can be reclassified without settling their cost twice.
+        """
+        return self._settle_stage(
+            job_id, stage_key, actual_cost=actual_cost, result=result, artifact={},
+            status="incomplete")
+
+    def _settle_stage(self, job_id: str, stage_key: str, *, actual_cost: float,
+                      result: dict | None, artifact: dict | None, status: str) -> dict:
         actual = max(0.0, float(actual_cost))
         with self._tx() as (_, cur):
             cur.execute("""
@@ -391,14 +408,20 @@ class PostgresStore:
             stage = self._row(cur, cur.fetchone())
             if not stage:
                 raise StorageUnavailable(f"Stage {stage_key} does not exist")
-            if stage["status"] == "completed":
+            if stage["status"] in {"completed", "incomplete"}:
+                if stage["status"] == "completed" and status == "incomplete":
+                    cur.execute("""
+                        UPDATE generation_stages SET status='incomplete',updated_at=now()
+                        WHERE job_id=%s AND stage_key=%s RETURNING *
+                    """, (job_id, stage_key))
+                    stage = self._row(cur, cur.fetchone()) or {}
                 return self._json_ready(stage) or {}
             reserve = float(stage["reserved_cost_usd"])
             cur.execute("""
-                UPDATE generation_stages SET status='completed',actual_cost_usd=%s,
+                UPDATE generation_stages SET status=%s,actual_cost_usd=%s,
                     result=%s::jsonb,artifact=%s::jsonb,error=NULL,completed_at=now(),updated_at=now()
                 WHERE job_id=%s AND stage_key=%s RETURNING *
-            """, (actual, json.dumps(result or {}), json.dumps(artifact or {}), job_id, stage_key))
+            """, (status, actual, json.dumps(result or {}), json.dumps(artifact or {}), job_id, stage_key))
             completed = self._row(cur, cur.fetchone()) or {}
             cur.execute("""
                 UPDATE generation_jobs SET
@@ -412,7 +435,7 @@ class PostgresStore:
         with self._tx() as (_, cur):
             cur.execute("""
                 UPDATE generation_stages SET status=%s,error=%s,attempt=attempt+1,updated_at=now()
-                WHERE job_id=%s AND stage_key=%s
+                WHERE job_id=%s AND stage_key=%s AND status NOT IN ('completed','incomplete')
             """, ("retry" if retryable else "failed", str(error)[:4000], job_id, stage_key))
 
     def update_checkpoint(self, job_id: str, checkpoint: dict) -> None:
@@ -720,21 +743,35 @@ class DurableRuntime:
 
     def paid_value(self, *, stage_key: str, provider: str, request: dict,
                    estimated_cost: float,
-                   operation: Callable[[str], tuple[dict, float]]) -> tuple[dict, float, bool]:
+                   operation: Callable[[str], tuple[dict, float]],
+                   is_complete: Callable[[dict], bool] | None = None) -> tuple[dict, float, bool]:
         self.assert_lease()
         if time.monotonic() - self._last_heartbeat > 60:
             self.heartbeat()
         request_hash = canonical_hash(request)
         stage = self.store.prepare_stage(
             self.job_id, stage_key, provider, request_hash, estimated_cost)
-        if stage.get("status") == "completed":
-            self.event("stage_reused", stage_key, {"provider": provider})
-            return stage.get("result") or {}, float(stage.get("actual_cost_usd") or 0), True
+        if stage.get("status") in {"completed", "incomplete"}:
+            result = stage.get("result") or {}
+            actual = float(stage.get("actual_cost_usd") or 0)
+            incomplete = stage.get("status") == "incomplete" or (
+                is_complete is not None and not is_complete(result))
+            if incomplete and stage.get("status") == "completed":
+                self.store.incomplete_stage(
+                    self.job_id, stage_key, actual_cost=actual, result=result)
+            self.event("stage_incomplete_reused" if incomplete else "stage_reused",
+                       stage_key, {"provider": provider})
+            return result, actual, True
         try:
             result, actual = operation(stage["idempotency_key"])
-            self.store.complete_stage(
-                self.job_id, stage_key, actual_cost=actual, result=result, artifact={})
-            self.event("stage_completed", stage_key,
+            incomplete = is_complete is not None and not is_complete(result)
+            if incomplete:
+                self.store.incomplete_stage(
+                    self.job_id, stage_key, actual_cost=actual, result=result)
+            else:
+                self.store.complete_stage(
+                    self.job_id, stage_key, actual_cost=actual, result=result, artifact={})
+            self.event("stage_incomplete" if incomplete else "stage_completed", stage_key,
                        {"provider": provider, "cost_usd": actual})
             return result, actual, False
         except Exception as exc:
@@ -906,14 +943,34 @@ def _plain(value: Any) -> Any:
     return str(value)
 
 
-class _CachedAnthropicResponse:
+class _CachedAnthropicObject:
+    """Expose persisted SDK fields, including nested usage and citation metadata."""
+
     def __init__(self, payload: dict):
         self._payload = payload
-        self.content = [SimpleNamespace(**block) for block in payload.get("content") or []]
-        self.usage = SimpleNamespace(**(payload.get("usage") or {}))
+
+    def __getattr__(self, name: str):
+        if name not in self._payload:
+            raise AttributeError(name)
+        return _cached_anthropic_value(self._payload[name])
 
     def model_dump(self) -> dict:
         return self._payload
+
+
+def _cached_anthropic_value(value):
+    if isinstance(value, dict):
+        return _CachedAnthropicObject(value)
+    if isinstance(value, list):
+        return [_cached_anthropic_value(item) for item in value]
+    return value
+
+
+class _CachedAnthropicResponse(_CachedAnthropicObject):
+    def __init__(self, payload: dict):
+        super().__init__(payload)
+        self.content = _cached_anthropic_value(payload.get("content") or [])
+        self.usage = _CachedAnthropicObject(payload.get("usage") or {})
 
 
 class _AnthropicMessagesProxy:
@@ -946,7 +1003,10 @@ class _AnthropicMessagesProxy:
 
         payload, _, _ = self._runtime.paid_value(
             stage_key=stage_key, provider="anthropic", request=request,
-            estimated_cost=estimated, operation=invoke)
+            estimated_cost=estimated, operation=invoke,
+            is_complete=lambda value: value.get("stop_reason") not in {
+                "max_tokens", "pause_turn",
+            })
         return _CachedAnthropicResponse(payload)
 
 

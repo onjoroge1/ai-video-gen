@@ -22,11 +22,13 @@ judged field; `creative_context()` is explicitly for prompting only.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
 import story_engines as se
+import causal_story as cs
 
 
 CORPUS_DIR = Path(__file__).resolve().parent / "fixtures" / "causal"
@@ -139,6 +141,90 @@ def coverage(corpus_dir: Path | None = None) -> dict[str, int]:
     for reference in load(corpus_dir):
         counts[reference.engine_id] = counts.get(reference.engine_id, 0) + 1
     return counts
+
+
+def _positive_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def runtime_fit_guidance(duration_sec: float, corpus_dir: Path | None = None) -> list[dict]:
+    """Compare labelled reference openings with the existing target deadline, for PROMPTS ONLY.
+
+    A labelled mechanism timestamp is an observation about one telling, not an empirical minimum
+    for its engine. Counts include the mechanism itself, and required/optional roles remain
+    distinct. Written references and missing/invalid timings supply no timing evidence. Compression
+    percentages use 0–100 and describe shortening that particular opening, never a pass guarantee.
+    """
+    duration = _positive_number(duration_sec)
+    if duration is None:
+        raise ValueError("runtime-fit guidance requires a positive finite duration_sec")
+    references = load(corpus_dir)
+    guidance = []
+    for engine_id, engine in se.ENGINES.items():
+        opening_roles = list(engine["sequence"])
+        opening_roles = opening_roles[:opening_roles.index(cs.MECHANISM) + 1]
+        deadline_pct = se.mechanism_deadline_pct(engine, cs.MECHANISM_DEADLINE_PCT)
+        deadline = duration * deadline_pct
+        samples = []
+        for reference in references:
+            if reference.engine_id != engine_id:
+                continue
+            steps = reference.story.get("steps") or []
+            index = next((i for i, step in enumerate(steps)
+                          if isinstance(step, dict) and step.get("role") == cs.MECHANISM), None)
+            runtime = _positive_number(reference.gating_metrics().get("runtime_sec"))
+            opening = _positive_number(steps[index].get("start_sec")) if index is not None else None
+            if runtime is None or opening is None or opening > runtime:
+                opening = None
+            compression = max(0.0, opening - deadline) if opening is not None else None
+            samples.append({
+                "reference_id": reference.name,
+                "runtime_sec": runtime,
+                "observed_opening_sec": opening,
+                "milestones_through_mechanism": sum(
+                    isinstance(step, dict) and step.get("role") in opening_roles
+                    and step.get("role") not in (cs.ESCALATION, cs.GENERALIZATION)
+                    for step in steps[:index + 1]) if index is not None else None,
+                "compression_needed_sec": compression,
+                "compression_needed_pct": round(100 * compression / opening, 3)
+                if opening is not None else None,
+                "unchanged_opening_min_runtime_sec": opening / deadline_pct
+                if opening is not None and deadline_pct > 0 else None,
+            })
+        guidance.append({
+            "engine_id": engine_id,
+            "target_deadline_sec": deadline,
+            "mechanism_deadline_pct": deadline_pct,
+            "required_milestones_through_mechanism": sum(
+                role in engine["required"] for role in opening_roles),
+            "optional_milestones_before_mechanism": [
+                role for role in opening_roles if role not in engine["required"]],
+            "reference_count": len(samples),
+            "support_count": sum(sample["observed_opening_sec"] is not None for sample in samples),
+            "references": samples,
+        })
+    return guidance
+
+
+def runtime_fit_block(duration_sec: float, corpus_dir: Path | None = None) -> str:
+    """Prompt guidance from reference timings, with uncertainty and authority made explicit."""
+    return (
+        "\n\nRUNTIME FIT — planning guidance, not a gate or an engine ban.\n"
+        "Choose for factual causal fit first, then consider whether its opening fits the target "
+        "deadline. Reference mechanism timestamps are labelled observations of particular tellings, "
+        "not minimum runtimes or proof that compression is impossible. Milestone counts include "
+        "the mechanism; optional milestones need not be added. Zero support means timing fit is "
+        "unknown. Compression percentages describe shortening the reference opening, not increasing "
+        "narration speed. If compression is needed, plan concise truthful beats in the required "
+        "order; prefer another engine only when the topic genuinely fits it. Do not extend the "
+        "requested runtime or the validation deadline.\n"
+        + json.dumps(runtime_fit_guidance(duration_sec, corpus_dir), ensure_ascii=False, indent=2)
+        + "\n"
+    )
 
 
 # How much of a reference reaches the generator.

@@ -1764,6 +1764,7 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
     block it.
     """
     import story_engines as _se
+    import reference_corpus as _rc
 
     try:
         response = _claude().messages.create(
@@ -1773,6 +1774,11 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
                        "Choose the ONE narrative engine whose shape this true story actually has. "
                        "Do not pick by topic; pick by how the story turns.\n"
                        + _se.catalogue()
+                       + "\n" + _rc.runtime_fit_block(duration_sec)
+                       + "\nPrefer a reference opening that fits this runtime WHEN the story also "
+                       "fits that engine. If the truthful engine needs compression, keep the "
+                       "engine and explain the required compression. Never change the facts or "
+                       "assume a reference duration is a minimum possible runtime."
                        + '\n\nReturn ONLY JSON: {"engine":"<engine id>","why":"<one sentence>"}'}],
         )
         if cost_sink is not None:
@@ -1790,7 +1796,7 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
 
 def _assign_causal_spine(beats: list, question: str, duration_sec: int,
                          mechanism_beat: int = 0,
-                         pinned_engine: str = "") -> tuple[list, float]:
+                         pinned_engine: str = "", preferred_engine: str = "") -> tuple[list, float]:
     """Label a planned beat sheet with the causal chain. One call, one job, no other vocabulary.
 
     Returns the beats with causal_role/caused_by/chapter set, plus the call cost. The result is
@@ -1800,7 +1806,16 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
     import causal_story as _cs
     import story_engines as _se
 
-    compact = [{"n": b.get("n"), "beat": _s(b.get("beat"))} for b in beats]
+    compact = [{"n": b.get("n"), "pct": b.get("pct"), "beat": _s(b.get("beat"))}
+               for b in beats]
+    choice_rule = (
+        f"This is a REPLAN. The engine is pinned to {pinned_engine}; return that engine. "
+        "If the beats do not fit, label them truthfully so validation reports the failure. "
+        "Do not switch engines or relabel a different event just to pass.\n"
+        if pinned_engine in _se.ENGINES else
+        f"The sheet was planned for {preferred_engine or 'an unspecified engine'}. Prefer it "
+        "when the events fit. If they genuinely fit a different engine, you may choose that "
+        "engine and explain why in engine_reason. Never switch merely for a later deadline.\n")
     prompt = (
         f'A {duration_sec}-second explainer answering: "{question}" has been planned as this '
         f'ordered list of {len(compact)} beats.\n'
@@ -1809,8 +1824,8 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         "reword them — the order is fixed and the words are not yours to change.\n"
         "\n\nFIRST choose ONE narrative engine. Do not blend two — a planner asked to satisfy two "
         "role systems at once returned duplicate roles and an escalation after its own reversal.\n"
-        + _se.catalogue() + "\n\n"
-        'Return ONLY JSON: {"engine":"<engine id>","spine":[{"n":<beat number>,"causal_role":"...",'
+        + _se.catalogue() + "\n\n" + choice_rule
+        + 'Return ONLY JSON: {"engine":"<engine id>","engine_reason":"<why the events fit>","spine":[{"n":<beat number>,"causal_role":"...",'
         '"caused_by":<the beat number this happens BECAUSE of; 0 for beat 1 only>,'
         '"chapter":<int>}],"parallel_cases":[{"domain":"","problem":"","solution":"","result":""}]}\n'
         "\nLabel the beats with the role order of the engine you chose, above.\n"
@@ -1821,21 +1836,26 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         "BEFORE YOU RETURN, WALK YOUR LABELS ONCE MORE: read your chosen engine's beat order and "
         "check that each role you used appears in that same order along the beat list. A required "
         "role sitting out of order is the most common way this fails and it is rejected before "
-        "any spend. If the beats genuinely do not fit the engine's order, choose a different "
-        "engine rather than mislabelling them into this one.\n"
-        f"- setup, intervention, false_resolution, hinge, mechanism and reversal appear EXACTLY "
-        "ONCE each. Count them before you answer. Only escalation and generalization repeat.\n"
+        "media spend. Required roles come from the selected engine, not a universal list.\n"
+        "- Required singleton roles appear EXACTLY ONCE. Optional roles may be absent. "
+        "Only escalation and generalization repeat.\n"
         "- Beat 1 is the setup. The last beat is the tool or the verdict.\n"
         "- Nothing follows the reversal except generalization and the close.\n"
-        "- THE HINGE. It is the beat that asserts the apparent success is NOT real, and it comes "
-        "straight after the false_resolution. It is a flat statement, never a question, and it "
+        "- THE HINGE follows its selected engine's order. Where there is a false_resolution, "
+        "it breaks that apparent success; for accidental_invention it states the anomaly. "
+        "It is a flat statement, never a question, and it "
         "names no new topic. Reference hinges read like \"Except the problem is not solved.\" and "
         "\"The system works perfectly until the rains stop.\" A beat that asks which of two "
         "causes mattered, or that says a variant of \"here is the strange part\", is NOT a hinge: "
         "the first poses a choice and the second announces a turn without making one. If no beat "
-        "asserts that the success failed, label no hinge at all rather than promoting the "
+        "supplies that engine-specific turn, label no hinge at all rather than promoting the "
         "nearest question.\n"
-        f"- The mechanism beat must sit in the first {_cs.MECHANISM_DEADLINE_PCT:.0%} of the list.\n"
+        "- The mechanism deadline is a fraction of SPOKEN RUNTIME, never the beat count. "
+        "Use the supplied pct as a planning estimate only; final narration is timed separately. "
+        + "Deadlines: " + "; ".join(
+            f"{key}={_se.mechanism_deadline_pct(value, _cs.MECHANISM_DEADLINE_PCT):.0%}"
+            for key, value in _se.ENGINES.items()) + ".\n"
+        +
         f"- Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} chapters, numbered from 1 "
         "with no gaps, each a contiguous run of beats.\n"
         f"- parallel_cases: at least {_cs.MIN_PARALLEL_CASES} real cases from OTHER domains that "
@@ -1874,14 +1894,15 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
     # fixing a DIFFERENT contract from the one that had just failed, which is why the retry loop
     # needed three passes to converge on a single error.
     engine_id = (pinned_engine if pinned_engine in _se.ENGINES
-                 else _se.resolve_id(parsed.get("engine")))
+                 else parsed.get("engine") if parsed.get("engine") in _se.ENGINES
+                 else _se.resolve_id(preferred_engine))
     engine = _se.get(engine_id)
     # Pin the slot the SHEET planned. The labelling call is free to disagree about everything
     # else, but not about where the principle lands: it sees beat text without runtime, so it
     # cannot judge the deadline, and four runs of letting it choose put the mechanism near 35%.
     # The sheet knows each beat's pct, so the sheet decides and this enforces.
     changes_note = ""
-    if mechanism_beat:
+    if mechanism_beat and (not preferred_engine or engine_id == preferred_engine):
         pinned = next((index for index, beat in enumerate(beats)
                        if beat.get("n") == mechanism_beat), None)
         if pinned is None:
@@ -1915,6 +1936,8 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         beats[0]["_parallel_cases"] = parsed["parallel_cases"]
     beats[0]["_causal_repairs"] = changes
     beats[0]["_story_engine"] = engine_id
+    beats[0]["_planned_story_engine"] = preferred_engine or pinned_engine
+    beats[0]["_engine_reason"] = _s(parsed.get("engine_reason"))
     return beats, cost
 
 
@@ -1974,6 +1997,38 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         # in the expansion prompt are the floor, and they are what shipped before this existed.
         print(f"[blueprint] unavailable, continuing without: {type(exc).__name__}: {str(exc)[:120]}")
         return ""
+
+
+def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
+    """Allocate spoken words to the opening and body, without altering validation thresholds.
+
+    The finalizer prepends the hook. Chapter markers must fit within each beat's allocation.
+    These are writing budgets, not proof that the returned narration meets the timed gate.
+    """
+    import causal_story as cs
+    import story_engines as se
+    prefix_words = len(hook.split()) + len(_CAUSAL_FORMAT_TAG.split())
+    available = max(0, total_words - prefix_words)
+    mechanism = next((i for i, b in enumerate(beats) if b.get("causal_role") == cs.MECHANISM), 0)
+    opening = max(0, int(total_words * se.mechanism_deadline_pct(
+        se.get(engine_id), cs.MECHANISM_DEADLINE_PCT)) - prefix_words)
+    budgets = {}
+    groups = [(beats[:mechanism], min(available, opening)),
+              (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
+    for group, words in groups:
+        pending = list(group)
+        # A hinge is deliberately shorter; redistribute its unused words within this window.
+        for beat in list(pending):
+            if beat.get("causal_role") == cs.HINGE:
+                value = min(cs.MAX_HINGE_WORDS, words // max(1, len(pending)))
+                budgets[beat["n"]] = value
+                words -= value
+                pending.remove(beat)
+        for i, beat in enumerate(pending):
+            value = words // (len(pending) - i)
+            budgets[beat["n"]] = value
+            words -= value
+    return budgets
 
 
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
@@ -2036,6 +2091,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     causal_rules = ""
     causal_cases = ""
     sheet_engine_id = ""
+    blueprint_block = ""
     if causal_lane:
         import causal_story as _cs
         import story_engines as _se
@@ -2043,9 +2099,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # DECIDED HERE, before a single beat is written. On a replan the engine is already known,
         # so no second selection call is made and the retry rewrites the sheet against the SAME
         # contract that just failed instead of a fresh one.
+        selection_costs = []
         sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
-                           else _select_story_engine(question, duration_sec))
+                           else _select_story_engine(question, duration_sec, selection_costs))
+        cost += sum(selection_costs)
         sheet_engine = _se.get(sheet_engine_id)
+        blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
+        # One role per beat requires space for every required role and repeated escalation.
+        # The generic 25-word floor could reduce a 90s story below this structural minimum.
+        minimum_beats = (len(set(sheet_engine["required"]) - {_cs.ESCALATION})
+                         + _cs.MIN_ESCALATIONS)
+        n_scenes = max(n_scenes, minimum_beats)
+        total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
         # The order this engine actually runs, not one order for all five.
         engine_order = _se.expected_order(sheet_engine_id)
         engine_singletons = [role for role in sheet_engine.get("required") or ()
@@ -2102,9 +2167,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                f"pct must be under {engine_deadline}. EVERY MILESTONE BEFORE IT GOES INSIDE THAT "
                f"WINDOW TOO, IN ORDER: "
                + " -> ".join(engine_order[:engine_order.index(_cs.MECHANISM) + 1])
-               + f" all land under pct {engine_deadline}, which means the opening runs at pace and "
-               "each of those beats is short. The reference video does exactly this: five "
-               "milestones inside the first 36 seconds of 220. Pulling the mechanism early while "
+               + f" land under pct {engine_deadline} when present; roles not listed as required "
+               "remain optional. This means the opening runs at pace and "
+               "each of those beats is short. Budget the opening in spoken seconds and words, "
+               "including the hook and spoken chapter markers. Pulling the mechanism early while "
                "leaving an earlier milestone behind it is rejected as an ordering failure, so "
                "move the whole opening up rather than reordering it. "
                if _cs.MECHANISM in engine_order else
@@ -2114,15 +2180,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + "it the rule in one sentence. Everything after it demonstrates it — do not restate the "
             "answer at intervals. A cold-open consequence and an early payoff do NOT satisfy this: "
             "they say WHAT happened, the mechanism says WHY it had to.\n"
-            "D. The hinge beat is at most "
-            f"{_cs.MAX_HINGE_WORDS} words and breaks the false_resolution.\n"
+            "D. The hinge beat, when present, is at most "
+            f"{_cs.MAX_HINGE_WORDS} words. It states the anomaly for accidental_invention; "
+            "otherwise it breaks the apparent success in the engine's order.\n"
             f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} spoken chapters, "
             "numbered from 1 with no gaps, and say the number out loud in the narration of the "
             "beat that opens each one.\n")
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
     beat_prompt = (
-        f'Plan a {max(1, duration_sec // 60)}-minute YouTube explainer answering: "{question}".\n'
+        (f'Plan a {duration_sec}-second YouTube explainer answering: "{question}".\n' if causal_lane
+         else f'Plan a {max(1, duration_sec // 60)}-minute YouTube explainer answering: "{question}".\n')
+        +
         f'Tone: {style}.'
         + (f' Theme/setting steer: "{image_guidance}".' if image_guidance else "") + "\n"
         + f'Design a SCENE-BY-SCENE BEAT SHEET of about {n_scenes} beats — one beat per scene, in order. '
@@ -2181,7 +2250,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         '"new_complication":"larger problem created by the answer or empty","visible_consequence":'
         '"the concrete change visible on screen","opens_loop":"short stable loop id or empty",'
         '"closes_loop":"short stable loop id or empty"' + causal_keys + '}]}.\n'
-        + causal_rules +
+        + causal_rules
+    )
+    if not causal_lane:
+        beat_prompt += (
         'IRON RULES — viewers clicked to find out WHAT HAPPENS, not to be taught what a thing IS. Build '
         'an ESCALATING STORY WITH DISTRIBUTED REWARDS, not an expanding explanation:\n'
         '1. Each fact/mechanic/idea appears in EXACTLY ONE beat. NEVER plan to re-explain something an '
@@ -2292,6 +2364,23 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'branch reveal / most counter-intuitive answer) · 76-82% false_relief · 83-92% final_escalation '
         '· 92-97% final_payoff (answers the title, resolves the exact experiment) · 97-100% resonant_end.'
     )
+    if causal_lane:
+        beat_prompt += (
+            "\nILLUSTRATED STORY DIRECTION: The declared engine owns the order and timing. "
+            "Open on a concrete consequence, name the title subject, and make the human's "
+            "objective clear. Advance one causal move per beat; do not repeat the explanation. "
+            "Give visible local payoffs and at most two curiosity loops; close every loop using "
+            "the exact id. A local payoff need not be the governing mechanism. "
+            "Use story_role as a secondary description of the same event, never as a second "
+            "ordering contract. Keep facts, uncertainty, timescales, and claim joins intact. "
+            "End in the declared closing role and return to the opening object with changed "
+            "meaning. Do not append an escalation after the reversal.\n"
+            + f"Requested runtime: {duration_sec}s; total narration target: {total_words} words. "
+            f"Mechanism deadline: {engine_deadline}% of spoken runtime "
+            f"({duration_sec * engine_deadline / 100:.1f}s at the requested length). "
+            "Beat pct is its estimated START time as a percentage of runtime, not its list index. "
+            "Make the opening beats shorter than the later demonstrations.\n"
+            + blueprint_block)
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         beat_prompt += (
@@ -2329,7 +2418,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "EXPLAINER plan instead and explain why in mystery_unsuitable_reason."
             + _story_role_block("evidence_led_mystery") + _STORY_LED_DNA
         )
-    else:
+    elif not causal_lane:
         beat_prompt += (
             "\nSELECTED STRUCTURE — STANDARD EXPLAINER. Deliver the first useful mechanism by 10-20 "
             "seconds, then distribute connected payoffs. Preserve the human-led evidence chain, but "
@@ -2352,7 +2441,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # on a scene count the script did not have, and the draft arrived over budget by exactly the
     # ratio of the overrun. Trimming from the end keeps the opening intact; the story validator and
     # the payoff checks then judge what actually survived.
-    if len(beats) > n_scenes:
+    if len(beats) > n_scenes and not causal_lane:
         beats = beats[:n_scenes]
     if not beats:
         beats = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
@@ -2361,7 +2450,6 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
 
     # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
     # one branch is a NameError on the others the moment the prompt concatenates it.
-    blueprint_block = ""
     if causal_lane:
         # SECOND PASS, ONE JOB. The first real run of this lane put the causal vocabulary inside
         # the beat-sheet prompt alongside the pacing vocabulary (cold_consequence, payoff, rehook,
@@ -2374,15 +2462,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             planned_mechanism = int(plan.get("mechanism_beat") or 0)
         except (TypeError, ValueError):
             planned_mechanism = 0
-        # Pinned to the engine the sheet was PLANNED for. Passing pinned_engine here would leave
-        # the first pass free to re-pick after the sheet was already written to sheet_engine_id's
-        # order, which is the mismatch this whole change removes.
+        # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
         beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                 planned_mechanism, sheet_engine_id)
+                                                 planned_mechanism, pinned_engine=pinned_engine,
+                                                 preferred_engine=sheet_engine_id)
         cost += spine_cost
-        # RETRIEVAL HAPPENS HERE, not earlier, because the engine is not known until this call
-        # returns: _assign_causal_spine chooses it. The corpus is keyed on engine, so a blueprint
-        # fetched before the choice would be a blueprint for the wrong format.
+        # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
@@ -2456,6 +2541,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # REQUESTED count — without this recompute the total narration collapses to a 2-3 min video. The
     # clamp keeps each scene ~5-8s so cadence stays healthy even when the beat count runs low.
     wpm = max(14, min(20, total_words // max(1, n_scenes)))
+    causal_budgets = (_causal_word_budgets(
+        beats, runtime_word_bounds(duration_sec, n_scenes)[0],
+        beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
     peak = int(plan.get("peak_scene") or plan.get("climax_scene") or 0) or round(n_scenes * 0.7)
     peak = min(max(1, peak), n_scenes)
     # Guard the "peak ~65-75%, NOT at the end" rule: the model sometimes labels the FINAL gut-punch as
@@ -2485,15 +2573,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "claim_refs": beat.get("claim_refs") or [],
             "evidence_id": _s(beat.get("evidence_id")),
             # Present only on the causal lane; the storyboard reads these off the finished scene.
-            **({"narration_words": _HINGE_WORDS} if causal_lane
-               and _s(beat.get("causal_role")).lower() == "hinge" else {}),
+            **({"narration_words": causal_budgets[beat["n"]]} if causal_lane else {}),
             **({"causal_role": _s(beat.get("causal_role")),
                 "caused_by": beat.get("caused_by") or "",
                 "chapter": beat.get("chapter") or 0} if causal_lane else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
-    if stages and effective_story_format == "standard_explainer":
+    if stages and effective_story_format == "standard_explainer" and not causal_lane:
         roadmap = (' The escalating STAGES (name them for the viewer and signal progress through them): '
                    + " -> ".join(stages) + ".")
     elif stages:
@@ -2535,7 +2622,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 f'\nThe previous scene ended: "{prev_tail}". Continue DIRECTLY as one video — no recap, '
                 'no "welcome back"/"in this chapter", do not re-introduce the topic.\n')
         assigned = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in batch)
-        opening_direction = _opening_expansion_direction(effective_story_format, is_first)
+        opening_direction = (
+            " Preserve the assigned causal roles and order. The mechanism is explained only in "
+            "its assigned beat; local consequences may appear earlier. Include spoken chapter "
+            "markers inside each narration_words budget. Do not add the hook or format tag: "
+            "they are prepended once after expansion and budgeted separately."
+            if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
+        ending_direction = (
+            f" This batch contains the ENDING. Follow the assigned engine's closing role and "
+            f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
+            "Do not invent another false resolution or escalation after the reversal."
+            if causal_lane and is_last else "")
         ch_prompt = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
             f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
@@ -2556,14 +2653,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'brackets is INTERNAL — do not speak it or any scaffolding word aloud ("first payoff", '
             '"here\'s the peak", "the reveal", "the hook", "prediction gate", "stage two"); the viewer '
             f'must FEEL the beat through its content, not hear it announced:\n{assigned}\n{seam}'
-            f'Each narration ≈ {wpm} words'
-            + (', EXCEPT any beat carrying a "narration_words" value, whose narration must be at '
-               'most that many words in total — that beat is a deliberate short landing and the '
-               'shared budget does not apply to it' if causal_lane else '')
+            + ('Use each assigned narration_words as its individual word budget, including '
+               'chapter markers. The later demonstrations have larger budgets than the opening'
+               if causal_lane else f'Each narration ≈ {wpm} words')
             + f'.{theme_line}\n'
             + ((f'THE HINGE IS ONE SHORT SENTENCE: the assigned beat whose causal_role is '
                 f'"hinge" must have narration of AT MOST {_HINGE_WORDS} words IN TOTAL — one '
-                'flat statement asserting that the apparent success is not real. Never a '
+                'flat statement marking the turn defined by its engine. Never a '
                 'question. Do not explain it, do not add a second sentence, do not soften it. It '
                 'is the turn of the whole video and it works by being abrupt.\n')
                if causal_lane else '')
@@ -2579,6 +2675,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + _NARRATION_CADENCE
             + _cadence_rule_block(effective_story_format)
             + opening_direction
+            + ending_direction
             + (' This batch contains the ENDING: after the peak, write ONE brief false-relief beat, then '
                'the FINAL ESCALATION, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT '
                'experiment posed at the start (do NOT drift to a different scenario), then close on ONE '
@@ -2586,18 +2683,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                f'object "{_s(plan.get("opening_object"))}" and change its meaning through the answer. '
                'Do NOT re-summarize or restate any '
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
-               if is_last else "")
+               if is_last and not causal_lane else "")
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
+        cost += _msg_cost(c.usage)
         if getattr(c, "stop_reason", "") == "max_tokens":
-            # Truncated JSON surfaces as an opaque "Unterminated string at char N" from the parser,
-            # which says nothing about the cause. Name it where it happens.
+            # Retry a smaller, differently keyed request. Completed prefixes are retained and
+            # the durable wrapper preserves the already charged incomplete response on resume.
+            if len(batch) > 1:
+                per_batch = max(1, len(batch) // 2)
+                print(f"[script] truncated expansion {lo}-{hi}; retrying {per_batch} beat(s)")
+                continue
             raise ValueError(
                 f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
-                "off mid-object. Lower per_batch or raise max_tokens for this call.")
+                "off even with one beat. No further automatic retry.")
         part, rc = _parse_script_json(c.content[0].text); cost += rc
-        cost += c.usage.input_tokens * _RATE_SCRIPT_IN + c.usage.output_tokens * _RATE_SCRIPT_OUT
+        if causal_lane and len(part.get("scenes") or []) != len(batch):
+            raise ValueError(f"Scene expansion returned {len(part.get('scenes') or [])} scenes "
+                             f"for {len(batch)} beats; refusing to shift the causal labels.")
         for batch_index, s in enumerate(part.get("scenes") or []):
             beat = batch[batch_index] if batch_index < len(batch) else {}
             s["human_present"] = _plan_bool(beat.get("human_present"), True)
@@ -2701,6 +2805,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "_narration_repairs": _narration_repairs,
         "_script_cost_usd": round(cost, 4),
         "_story_engine": (beats[0].get("_story_engine") if beats else "") or "",
+        "_planned_story_engine": sheet_engine_id,
+        "_engine_reason": (beats[0].get("_engine_reason") if beats else "") or "",
         "_parallel_cases": (beats[0].get("_parallel_cases") if beats else None) or [],
         "_causal_repairs": (beats[0].get("_causal_repairs") if beats else None) or [],
         "_beats": len(beats),
@@ -3016,7 +3122,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     cached = _cached_research_dossier(question, prompt, log)
     if cached:
         return cached
-    response = _claude().messages.create(
+    response = _anthropic_native().messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=10000,
         system=_RESEARCH_SYSTEM,
@@ -3072,7 +3178,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         f"{len({_s(r.get('url')) for r in quotable})} sources"
         + (" — nothing to verify against" if not quotable else ""))
     if cost_sink is not None:
-        cost_sink.append(_msg_cost(response.usage) + repair_cost)
+        cost_sink.append(response.usage.input_tokens * _RATE_SCRIPT_IN
+                         + response.usage.output_tokens * _RATE_SCRIPT_OUT + repair_cost)
         cost_sink.append(dossier["search_cost_reservation_usd"])
     log(f"Research dossier: {validation['claim_count']} claims, "
         f"{validation['citation_count']} cited URLs")
@@ -6869,6 +6976,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             accept = better_on_contract
         elif cand_causal_ok != best_causal_ok:
             accept = cand_causal_ok
+        elif not cand_causal_ok and len(cand_causal_errors) != len(best_causal_errors):
+            accept = len(cand_causal_errors) < len(best_causal_errors)
         else:
             accept = better_on_contract
         if accept:
@@ -6891,7 +7000,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             cand, _rc = _revise_for_axis(cand, best_g["weakest"], best_g.get("notes", ""),
                                          cost_sink=cost_sink)
             cg = grade_script(cand, cost_sink=cost_sink)
-            if cg and cg["overall"] > best_g["overall"]:
+            causal_revision_ok = (not causal_lane or _causal_contract_report(cand, question)[0])
+            if cg and cg["overall"] > best_g["overall"] and causal_revision_ok:
                 best, best_g = cand, cg            # keep-best: a revision can only help
             else:
                 break                              # no improvement → stop spending on this axis

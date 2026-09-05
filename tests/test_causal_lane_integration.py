@@ -57,7 +57,7 @@ def test_causal_lane_prompt_asks_for_the_chain(monkeypatch):
 
 
 def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
-    """The causal prompt extends the cinematic one, and subtracts exactly one clause.
+    """The causal prompt must not inherit a competing cinematic order or timing contract.
 
     FIXED ARCHITECTURE used to assign the mechanism to 40-55% while rule C, ~100 lines earlier,
     demanded it inside the engine's deadline. Both unconditional, neither referencing the other.
@@ -72,11 +72,12 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
     assert "40-55% mechanism" in plain, "the cinematic lane keeps its own tuned architecture"
     assert "40-55% mechanism" not in causal, "the rival window must not reach the causal lane"
 
-    # The phase itself survives; only the mechanism assignment is dropped.
-    assert "40-55% third payoff + a reversal" in causal
-    for survives in ("~65-75% PEAK", "97-100% resonant_end", "0-8% COLD CONSEQUENCE",
-                     "28-40% first escalation"):
-        assert survives in causal, f"the causal lane must not rewrite the architecture: {survives}"
+    # The remaining cinematic reversal -> escalation architecture conflicted too.
+    for conflict in ("40-55% third payoff + a reversal", "0-8% COLD CONSEQUENCE",
+                     "28-40% first escalation", "STANDARD EXPLAINER. Deliver the first useful"):
+        assert conflict not in causal
+    assert "ILLUSTRATED STORY DIRECTION" in causal
+    assert "End in the declared closing role" in causal
 
 
 def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
@@ -296,7 +297,7 @@ def test_the_hinge_carries_its_own_word_budget(monkeypatch):
     leaves nothing for the writer to reconcile.
     """
     expansion = _capture_expansion_prompt(monkeypatch, causal_lane=True)
-    assert 'EXCEPT any beat carrying a "narration_words" value' in expansion
+    assert 'Use each assigned narration_words as its individual word budget' in expansion
     assert f'"narration_words": {cs.MAX_HINGE_WORDS}' in expansion.replace("'", '"')
     assert "narration_words" not in _capture_expansion_prompt(monkeypatch)
 
@@ -888,3 +889,110 @@ def test_a_pinned_engine_reaches_the_sheet(monkeypatch):
     assert indictment != backfiring, "the pin never reached the beat sheet"
     assert " -> ".join(se.expected_order(se.ACCUMULATING_INDICTMENT)) in indictment
     assert " -> ".join(se.expected_order(se.BACKFIRING_SOLUTION)) in backfiring
+
+
+@pytest.mark.parametrize("pinned,expected", [("", "accumulating_indictment"),
+                                              ("backfiring_solution", "backfiring_solution")])
+def test_initial_preference_can_change_but_replan_pin_wins(monkeypatch, pinned, expected):
+    payload = _spine(10)
+    payload.update(engine="accumulating_indictment", engine_reason="The harm repeats as policy.")
+    prompts = []
+    def create(**call):
+        prompts.append(call["messages"][0]["content"])
+        return _reply(payload)
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {
+        "messages": type("M", (), {"create": staticmethod(create)})()})())
+    beats, _ = ep._assign_causal_spine(_sheet(10)["beats"], "Why?", 170,
+                                      pinned_engine=pinned, preferred_engine="backfiring_solution")
+    assert beats[0]["_story_engine"] == expected
+    assert beats[0]["_planned_story_engine"] == "backfiring_solution"
+    assert beats[0]["_engine_reason"] == payload["engine_reason"]
+    assert "fraction of SPOKEN RUNTIME, never the beat count" in prompts[0]
+    assert "straight after the false_resolution" not in prompts[0]
+    assert ("This is a REPLAN" in prompts[0]) == bool(pinned)
+
+
+def test_reference_is_retrieved_before_planning(monkeypatch):
+    monkeypatch.setattr(ep, "_retrieve_blueprint", lambda *a: "REFERENCE-BEFORE-BEATS")
+    prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine="backfiring_solution")
+    assert "REFERENCE-BEFORE-BEATS" in prompt
+
+
+def test_selector_uses_observed_runtime_without_banning_truthful_engine(monkeypatch):
+    prompts = []
+    def create(**call):
+        prompts.append(call["messages"][0]["content"])
+        return _reply({"engine": "backfiring_solution", "why": "Compress its opening by 2s."})
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {
+        "messages": type("M", (), {"create": staticmethod(create)})()})())
+    costs = []
+    assert ep._select_story_engine("A bounty backfires", 170, costs) == "backfiring_solution"
+    assert "34" in prompts[0] and "36" in prompts[0]
+    assert "Never change the facts" in prompts[0]
+    assert len(costs) == 1 and costs[0] > 0
+
+
+def test_causal_opening_budget_includes_hook_and_keeps_short_hinge():
+    beats = _sheet(10)["beats"]
+    hook = "A sensible bounty creates a bigger problem."
+    budgets = ep._causal_word_budgets(beats, 440, "backfiring_solution", hook)
+    prefix = len(hook.split()) + len(ep._CAUSAL_FORMAT_TAG.split())
+    assert sum(budgets.values()) + prefix == 440
+    assert sum(budgets[b["n"]] for b in beats[:4]) + prefix <= 440 * .2
+    assert budgets[4] <= cs.MAX_HINGE_WORDS
+    assert budgets[6] > budgets[1]
+
+
+def test_short_causal_sheet_keeps_ending_and_all_required_beats(monkeypatch):
+    class Messages:
+        def create(self, **call):
+            return _reply(_route(call["messages"][0]["content"], 10))
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": Messages()})())
+    monkeypatch.setattr(ep, "_dedupe_narration", lambda scenes, *a: (scenes, 0))
+    script = ep._generate_script_chunked("Why?", 60, "s", "", 12, causal_lane=True,
+                                         pinned_engine="backfiring_solution")
+    assert len(script["scenes"]) == 10
+    assert script["scenes"][-1]["causal_role"] == "tool"
+    assert "intervention" in [scene["causal_role"] for scene in script["scenes"]]
+
+
+def test_truncated_expansion_splits_batch_without_losing_or_repeating_beats(monkeypatch):
+    expansions = []
+    class Messages:
+        def create(self, **call):
+            prompt = call["messages"][0]["content"]
+            matched = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
+            if not matched:
+                return _reply(_route(prompt, 10))
+            lo, hi = map(int, matched.groups())
+            expansions.append((lo, hi))
+            if len(expansions) == 1:
+                response = _reply({})
+                response.stop_reason = "max_tokens"
+                return response
+            return _reply({"scenes": [{"narration": f"Unique beat number {i}.",
+                                       "environment_type": "city"} for i in range(lo, hi + 1)]})
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": Messages()})())
+    monkeypatch.setattr(ep, "_dedupe_narration", lambda scenes, *a: (scenes, 0))
+    monkeypatch.setattr(ep, "_msg_cost", lambda usage: .1)
+    script = ep._generate_script_chunked("Why?", 200, "s", "", 10, causal_lane=True,
+                                         pinned_engine="backfiring_solution")
+    assert expansions == [(1, 10), (1, 5), (6, 10)]
+    assert [s["story_beat_n"] for s in script["scenes"]] == list(range(1, 11))
+    assert script["_script_cost_usd"] >= .3
+
+
+@pytest.mark.parametrize("first_errors,retry_errors,expected", [(1, 3, "first"), (3, 1, "retry")])
+def test_fewer_causal_failures_win_before_pacing(monkeypatch, first_errors, retry_errors, expected):
+    drafts = iter([{"name": "first", "scenes": []}, {"name": "retry", "scenes": []}])
+    monkeypatch.setattr(ep, "generate_script", lambda *a, **k: next(drafts))
+    monkeypatch.setattr(ep, "_causal_contract_report", lambda script, *a: (
+        False, ["error"] * (first_errors if script["name"] == "first" else retry_errors)))
+    monkeypatch.setattr(ep, "validate_longform_story", lambda script, *a: {
+        "passed": False, "score": 40 if script["name"] == "first" else 90, "errors": []})
+    monkeypatch.setattr(ep, "validation_rank", lambda report: -report["score"])
+    monkeypatch.setattr(ep, "grade_script", lambda *a, **k: None)
+    monkeypatch.setattr(ep, "_ensure_hook_names_subject", lambda script, *a, **k: (script, 0))
+    monkeypatch.setattr(ep, "_LONGFORM_CONTRACT_RETRIES", 1)
+    result = ep.generate_graded_script("Why?", 170, "s", "", "landscape", "", causal_lane=True)
+    assert result["name"] == expected

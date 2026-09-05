@@ -41,15 +41,25 @@ class MemoryStore:
         return dict(stage)
 
     def complete_stage(self, job_id, key, *, actual_cost, result, artifact):
+        return self._settle_stage(key, actual_cost, result, artifact, "completed")
+
+    def incomplete_stage(self, job_id, key, *, actual_cost, result):
+        return self._settle_stage(key, actual_cost, result, {}, "incomplete")
+
+    def _settle_stage(self, key, actual_cost, result, artifact, status):
         stage = self.stages[key]
-        if stage["status"] != "completed":
+        if stage["status"] not in {"completed", "incomplete"}:
             self.job["reserved_cost_usd"] -= stage["reserved_cost_usd"]
             self.job["spent_cost_usd"] += actual_cost
-            stage.update(status="completed", actual_cost_usd=actual_cost,
+            stage.update(status=status, actual_cost_usd=actual_cost,
                          result=result, artifact=artifact)
+        elif status == "incomplete":
+            stage["status"] = "incomplete"
         return dict(stage)
 
     def fail_stage(self, job_id, key, error, *, retryable=True):
+        if self.stages[key]["status"] in {"completed", "incomplete"}:
+            return
         self.stages[key]["status"] = "retry" if retryable else "failed"
         self.stages[key]["error"] = error
 
