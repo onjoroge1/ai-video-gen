@@ -178,14 +178,17 @@ def _anthropic_native():
     # (wasting prior spend). 529 "overloaded" spikes are transient — the SDK retries >=500/529 with
     # exponential backoff + honours retry-after, so more retries ride out a spike instead of dying on
     # attempt 3. Overridable via CLAUDE_MAX_RETRIES.
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
-                                 max_retries=int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
     try:
         from durable_execution import current as _durable_current
         runtime = _durable_current()
-        return runtime.wrap_anthropic(client) if runtime else client
     except Exception:
-        return client
+        runtime = None
+    # A durable worker owns retries and must checkpoint before its invocation expires. SDK
+    # retries can multiply a single 180s/240s request beyond that worker's complete lifetime.
+    client = anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
+        max_retries=0 if runtime else int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
+    return runtime.wrap_anthropic(client) if runtime else client
 
 def _openai():
     # 90s per-call timeout so a hung connection fails fast (default is 600s, which
@@ -3122,7 +3125,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     cached = _cached_research_dossier(question, prompt, log)
     if cached:
         return cached
-    response = _anthropic_native().messages.create(
+    client = _anthropic_native()
+    request = dict(
         model=ANTHROPIC_MODEL,
         max_tokens=10000,
         system=_RESEARCH_SYSTEM,
@@ -3140,26 +3144,82 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         # to supply text this function has already decided it does not use. Dropping it restores
         # the design the comment above describes.
         tools=[{"type": "web_search_20260318", "name": "web_search",
-                "max_uses": _WEB_SEARCH_MAX_USES}],
-        messages=[{"role": "user", "content": prompt}],
-        # The client default is 180s, chosen so a hung script-gen call cannot stall a render. This
-        # one call is structurally longer than that budget: it runs up to five server-side web
-        # searches, reads their results, then writes a ~10k-token ledger — and it timed out at 180s
-        # in practice. Raised only here, so a genuinely hung call elsewhere still fails fast.
-        timeout=float(os.environ.get("RESEARCH_TIMEOUT_SEC", "600")),
+                "allowed_callers": ["direct"], "max_uses": _WEB_SEARCH_MAX_USES}],
+        # Leave time for a durable worker to settle this response and yield to its replacement.
+        # SDK retries are disabled in _anthropic_native when a durable runtime is active.
+        timeout=max(1.0, min(240.0, float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
     )
+    messages = [{"role": "user", "content": prompt}]
+    responses = []
+    search_requests = 0
+    max_continuations = 3
+    for continuation in range(max_continuations + 1):
+        response = client.messages.create(**request, messages=messages)
+        responses.append(response)
+        server_usage = getattr(response.usage, "server_tool_use", None)
+        turn_searches = int(getattr(server_usage, "web_search_requests", 0) or 0)
+        search_requests += turn_searches
+        # Meter every received response before parsing, including paid incomplete responses.
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(response.usage))
+            cost_sink.append(round(turn_searches * _WEB_SEARCH_COST_CEILING, 4))
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "pause_turn":
+            if continuation == max_continuations:
+                raise ValueError(
+                    "Research provider remained paused after 3 continuations; no complete "
+                    "dossier was returned. Paid partial responses are retained for diagnosis.")
+            # Server-search continuation requires every original block, including encrypted
+            # results and pending tool IDs. Plain dictionaries also give a resumed worker the
+            # identical durable request hash; rebuilding only text loses both tool state and
+            # citation provenance. Replace the messages list rather than mutating a paid request.
+            content = [block.model_dump() if hasattr(block, "model_dump") else dict(block)
+                       for block in response.content]
+            messages = [*messages, {"role": "assistant", "content": content}]
+            log(f"Research provider paused; continuing saved search turn "
+                f"{continuation + 1}/{max_continuations}")
+            continue
+        if stop_reason == "max_tokens":
+            raise ValueError(
+                "Research provider hit the token ceiling before completing the dossier; "
+                "partial source evidence cannot be repaired into verified claims. "
+                "No identical request will be automatically repurchased.")
+        if stop_reason not in {None, "", "end_turn"}:
+            raise ValueError(
+                f"Research provider did not finish its dossier (stop_reason={stop_reason}); "
+                "no source claims were accepted.")
+        break
     text_blocks = [_s(getattr(block, "text", "")) for block in response.content
                    if _s(getattr(block, "text", ""))]
-    dossier, repair_cost = _parse_script_json("\n".join(text_blocks))
+    raw = "\n".join(text_blocks).strip()
+    if raw.startswith("```") and raw.endswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    # A search response can precede its JSON with a brief search explanation. Extract its
+    # complete JSON object deterministically; never ask a text model to invent missing evidence.
+    if "{" in raw and not raw.startswith("{"):
+        raw = raw[raw.find("{"):]
+    try:
+        dossier = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "Research provider returned malformed dossier JSON; source evidence was not "
+            "passed to a paid JSON-repair model. No source claims were accepted.") from exc
     if not isinstance(dossier, dict):
         raise ValueError("Research provider returned no structured dossier.")
+    if not isinstance(dossier.get("claims"), list):
+        raise ValueError("Research provider returned a dossier without a structured claims list.")
     dossier["version"] = 1
-    dossier["citation_records"] = _provider_citation_records(response)
-    dossier["citation_urls"] = _provider_citation_urls(response)
+    citation_records = {}
+    for turn in responses:
+        for record in _provider_citation_records(turn):
+            citation_records[(record["url"], record["cited_text"])] = record
+    dossier["citation_records"] = [citation_records[key] for key in sorted(citation_records)]
+    dossier["citation_urls"] = sorted({url for turn in responses
+                                       for url in _provider_citation_urls(turn)})
     dossier["web_search_max_uses"] = _WEB_SEARCH_MAX_USES
+    dossier["research_response_count"] = len(responses)
+    dossier["research_pause_continuations"] = len(responses) - 1
     dossier["provider"] = "anthropic_server_web_search"
-    server_usage = getattr(response.usage, "server_tool_use", None)
-    search_requests = int(getattr(server_usage, "web_search_requests", 0) or 0)
     dossier["web_search_requests"] = search_requests
     dossier["search_cost_reservation_usd"] = round(
         search_requests * _WEB_SEARCH_COST_CEILING, 4)
@@ -3177,10 +3237,6 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     log(f"Provider evidence: {len(quotable)} quotable excerpts across "
         f"{len({_s(r.get('url')) for r in quotable})} sources"
         + (" — nothing to verify against" if not quotable else ""))
-    if cost_sink is not None:
-        cost_sink.append(response.usage.input_tokens * _RATE_SCRIPT_IN
-                         + response.usage.output_tokens * _RATE_SCRIPT_OUT + repair_cost)
-        cost_sink.append(dossier["search_cost_reservation_usd"])
     log(f"Research dossier: {validation['claim_count']} claims, "
         f"{validation['citation_count']} cited URLs")
     if not validation["passed"]:
@@ -4947,6 +5003,10 @@ def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
     return None
 
 
+from render_cache import durable_render
+
+
+@durable_render
 def _make_scene_segment(
     image_path: str,
     audio_path: str,
@@ -5052,6 +5112,7 @@ def _make_scene_segment(
     _run_ffmpeg(cmd, timeout=180.0)   # raises if it hangs
 
 
+@durable_render
 def _make_multishot_background(
     result: dict,
     shots: list[dict],
@@ -5099,6 +5160,7 @@ def _make_multishot_background(
 
 # ── Assembly ───────────────────────────────────────────────────────────────────
 
+@durable_render
 def _xfade_concat(videos: list[str], durations: list[float], out: str, tmp_dir: str) -> None:
     """xfade a (small) list of clips into `out`. durations = narration length per clip;
     each clip holds a FADE_DUR tail so the crossfade overlaps the hold, not the words."""
@@ -5149,6 +5211,7 @@ def _make_audio_cue_track(cues: list[dict], total_duration: float, out: str) -> 
     return out
 
 
+@durable_render
 def _assemble(
     scene_videos: list[str],
     scene_audios: list[str],

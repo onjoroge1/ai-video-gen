@@ -129,3 +129,31 @@ Agents should report at minimum:
 - Never require a second human approval for the same immutable pilot.
 
 If the user says they approved the pilot, first verify the production action/job state. Under the current flow the render should already have been queued and dispatched by that single approval.
+
+## Topic-based illustrated canary
+
+`generic_illustrated` is a separate immutable spending scope from a directed 45-second pilot.
+Create it without credentials or provider calls through `POST /api/agent/actions`:
+
+```json
+{
+  "operation": "generic_illustrated",
+  "topic": "Explain the cobra bounty story, clearly distinguishing the famous anecdote from documented history",
+  "duration_sec": 90,
+  "creative_direction": "One clear causal story, illustrated stills, one voice, visual callback. Treat uncertain historical claims explicitly as uncertain.",
+  "cost_ceiling_usd": 5.00
+}
+```
+
+This proposes one 60–90-second landscape illustrated video, including research, script attempts,
+TTS, still images, verification and rendering. The exact recipe and provider/model manifest are
+hash-bound to the ceiling. The approval card must show the complete scope. It does not authorize
+additional videos, automatic rerenders, continuation into a longer film, or publishing to YouTube.
+The same existing operator approval, execute, dispatch and status routes apply. Worker continuation
+reuses the same job and approval. Never approve on the operator's behalf.
+
+Check `/api/production-readiness` before requesting paid execution. Its checks establish configuration
+only; model access, quota, story quality and successful live delivery remain unverified until measured.
+A failed gate stays failed. The estimated allowance is not a guarantee of a finished video. Current
+provider reservations estimate input/search usage; provider-side billing is reconciled after responses.
+Do not describe that accounting as a provider-enforced invoice limit.

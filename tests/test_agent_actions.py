@@ -452,8 +452,9 @@ def test_public_status_returns_sanitized_progress_and_finished_player(monkeypatc
             }
 
         def events(self, job_id, after, limit):
-            assert (job_id, after, limit) == ("pilot001", 0, 1000)
-            return [
+            assert job_id == "pilot001"
+            assert (after, limit) in {(0, 1000), (1, 500)}
+            events = [
                 {"seq": 1, "event_type": "lease", "data": "Claimed by secret-worker",
                  "created_at": now.isoformat()},
                 {"seq": 2, "event_type": "stage_completed", "data": "tts:hash-one",
@@ -467,6 +468,7 @@ def test_public_status_returns_sanitized_progress_and_finished_player(monkeypatc
                  "data": "Saved /tmp/private/file at https://provider.example/x token=secret",
                  "created_at": now.isoformat()},
             ]
+            return [event for event in events if event["seq"] > after][:limit]
 
     monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
     monkeypatch.setattr(db, "finished_video_get", lambda job_id: {

@@ -63,7 +63,7 @@ def test_sdk_metadata_and_nested_usage_survive_worker_restart(tmp_path):
         assert response.model_dump() == raw
     assert len(provider.calls) == 1
     assert list(store.stages.values())[0]["status"] == "completed"
-    assert store.job["spent_cost_usd"] == pytest.approx(0.0105)
+    assert store.job["spent_cost_usd"] == pytest.approx(0.03074)
 
 
 @pytest.mark.parametrize("stop_reason", ["max_tokens", "pause_turn"])
@@ -83,7 +83,7 @@ def test_incomplete_output_is_billed_once_and_smaller_request_can_resume(tmp_pat
         assert response.usage.output_tokens == 4000
     assert len(provider.calls) == 1
     assert list(store.stages.values())[0]["status"] == "incomplete"
-    assert store.job["spent_cost_usd"] == pytest.approx(0.1005)
+    assert store.job["spent_cost_usd"] == pytest.approx(0.12074)
     assert store.job["reserved_cost_usd"] == pytest.approx(0)
 
     # The caller deliberately changes the batch; a new identity reserves against the same cap.
@@ -96,7 +96,7 @@ def test_incomplete_output_is_billed_once_and_smaller_request_can_resume(tmp_pat
     assert provider.calls[0]["extra_headers"]["Idempotency-Key"] != (
         provider.calls[1]["extra_headers"]["Idempotency-Key"])
     assert sorted(stage["status"] for stage in store.stages.values()) == ["completed", "incomplete"]
-    assert store.job["spent_cost_usd"] == pytest.approx(0.111)
+    assert store.job["spent_cost_usd"] == pytest.approx(0.15148)
     assert store.job["reserved_cost_usd"] == pytest.approx(0)
 
 
@@ -109,7 +109,7 @@ def test_revised_request_still_respects_cap_after_truncation(tmp_path):
     with pytest.raises(BudgetExceeded):
         client.messages.create(**request(max_tokens=2000))
     assert len(provider.calls) == 1
-    assert store.job["spent_cost_usd"] == pytest.approx(0.1005)
+    assert store.job["spent_cost_usd"] == pytest.approx(0.12074)
     assert store.job["reserved_cost_usd"] == pytest.approx(0)
 
 
@@ -153,7 +153,7 @@ def test_telemetry_failure_cannot_reopen_a_settled_incomplete_response(tmp_path)
     response = second.wrap_anthropic(provider).messages.create(**request())
     assert response.stop_reason == "max_tokens"
     assert len(provider.calls) == 1
-    assert store.job["spent_cost_usd"] == pytest.approx(0.0105)
+    assert store.job["spent_cost_usd"] == pytest.approx(0.03074)
     assert store.job["reserved_cost_usd"] == pytest.approx(0)
 
 

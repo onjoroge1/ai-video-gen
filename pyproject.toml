@@ -16,6 +16,19 @@ dependencies = {file = ["requirements.txt"]}
 # namespace packages when Vercel asks uv to build the local project.
 [tool.setuptools]
 py-modules = [
+    "_durable_execution_legacy",
+    "_quiz_pipeline_legacy",
+    "causal_story",
+    "claim_verify",
+    "hippo_recovery",
+    "illustrated_story",
+    "provider_readiness",
+    "reference_corpus",
+    "render_cache",
+    "script_provider",
+    "story_engine",
+    "story_engines",
+
     "agent_actions",
     "app",
     "artifact_store",
@@ -58,9 +71,16 @@ py-modules = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["bolt_video*", "bolt_seq*"]
+include = ["bolt_video*", "bolt_seq*", "fixtures.causal", "static", "spec"]
 exclude = ["bolt_seq.tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "bolt_seq/tests"]
 addopts = "-q"
+
+# Runtime references and entry pages must accompany installed modules. Generated samples
+# are diagnostic fixtures, not creative references.
+[tool.setuptools.package-data]
+"fixtures.causal" = ["cobra_effect.json", "bengal_famine.json", "dc_compensated_emancipation.json", "hippo_weed.json", "pompeii.json", "romanov_fall.json"]
+"static" = ["*.html", "*.json", "*.css", "*.js"]
+"spec" = ["*.json"]

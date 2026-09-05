@@ -1,14 +1,13 @@
 """Compatibility facade for durable execution with modern Vercel Blob auth.
 
-The durable execution engine from the e60bbd6 baseline is preserved byte-for-byte in
-``_durable_execution_legacy.py``. This facade re-exports that implementation and swaps only the
+The durable execution engine in ``_durable_execution_legacy.py`` owns leases, paid stages and
+bounded cooperative continuation. This facade re-exports it and supplies the
 Blob storage adapter so production can authenticate with either:
 
 * ``BLOB_READ_WRITE_TOKEN`` (legacy/static token), or
 * Vercel OIDC + ``BLOB_STORE_ID`` / ``BLOB_READ_WRITE_TOKEN_STORE_ID``.
 
-Keeping the execution engine unchanged minimizes regression risk while updating the storage
-boundary to match current Vercel Blob authentication.
+Provider responses and control-state checkpoints remain durable across worker windows.
 """
 from __future__ import annotations
 
