@@ -14,6 +14,11 @@ LEGACY_DOSSIER_JSON_ERROR = (
     "passed to a paid JSON-repair model. No source claims were accepted."
 )
 
+LEGACY_ANAPHORIC_CLAIM_ERROR = (
+    "Claim ledger failed after script/fact-check before asset spend: A factual or causal "
+    "narration scene has no claim reference. [scene 3, role=payoff: It worked.]"
+)
+
 
 def parse_research_dossier_text(text_blocks: list[str]) -> dict:
     """Extract one complete ledger without rewriting any provider evidence.
@@ -343,6 +348,11 @@ def is_legacy_negation_scope_failure(error: str) -> bool:
         return False
     message = "The claim and its support excerpt disagree about negation."
     return match.group(2) == "; ".join([message] * min(int(match.group(1)), 3))
+
+
+def is_legacy_anaphoric_claim_failure(error: str) -> bool:
+    """Recognize only the observed Cobra payoff failure after PR82."""
+    return (error or "") == LEGACY_ANAPHORIC_CLAIM_ERROR
 
 
 def validate_research_dossier(dossier: dict) -> dict:

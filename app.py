@@ -3136,6 +3136,7 @@ async def dispatch_agent_action(action_id: str, request: Request):
     token = _claim_token(request)
     from longform_research import (
         LEGACY_DOSSIER_JSON_ERROR,
+        is_legacy_anaphoric_claim_failure,
         is_legacy_negation_scope_failure,
         is_legacy_weak_source_failure,
     )
@@ -3188,6 +3189,13 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="support_contradicts_claimx", extra_attempts=1)
+        elif (job and job.get("status") == "error"
+              and is_legacy_anaphoric_claim_failure(str(job.get("error") or ""))):
+            # PR83 gives the evidence-locked repair the neighbouring context needed to replace
+            # an anaphoric factual payoff with a self-contained supported assertion.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="role=payoff: It worked.", extra_attempts=1)
         elif job and job.get("status") == "storage_error":
             await asyncio.to_thread(
                 store.requeue, str(action["job_id"]), allowed_statuses=("storage_error",))
