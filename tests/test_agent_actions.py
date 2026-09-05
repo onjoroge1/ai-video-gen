@@ -5,6 +5,7 @@ from pathlib import Path
 
 import anyio
 import httpx
+import pytest
 
 import agent_actions
 import app as studio
@@ -360,6 +361,88 @@ def test_agent_dispatch_rearms_exact_repaired_motion_manifest_failure(monkeypatc
 
     anyio.run(run)
     assert calls == [("pilot001", {"error_fragment": "'cache_path'", "extra_attempts": 3})]
+
+
+@pytest.mark.parametrize("legacy,authorized", [(True, True), (False, True), (True, False)])
+def test_research_parser_recovery_is_scoped_to_old_failure_and_action_token(
+        monkeypatch, legacy, authorized):
+    from longform_research import LEGACY_DOSSIER_JSON_ERROR
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    now = datetime.now(timezone.utc)
+    token = "one-action-token"
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "generic_illustrated", "status": "queued",
+        "title": "Cobra", "spec_sha256": "f" * 64, "cost_ceiling_usd": 5,
+        "created_at": now, "expires_at": now - timedelta(minutes=1), "approved_at": now,
+        "claim_token_sha256": agent_actions.token_digest(token), "job_id": "cobra001",
+        "payload": {},
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+    calls = []
+
+    class Store:
+        def get_job(self, job_id):
+            return {"id": job_id, "status": "error", "error": (
+                LEGACY_DOSSIER_JSON_ERROR if legacy else
+                "Research provider returned malformed dossier JSON (incomplete object); no claims accepted.")}
+
+        def rearm_infrastructure_failure(self, job_id, **kwargs):
+            calls.append((job_id, kwargs))
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+
+    async def worker(job_id):
+        return {"claimed": bool(calls), "job": {"id": job_id}}
+
+    monkeypatch.setattr(studio, "_run_durable_explainer_worker", worker)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app),
+                                     base_url="http://test") as client:
+            response = await client.post(f"/api/agent/actions/{ACTION_ID}/dispatch",
+                                        headers={"Authorization": f"Bearer {token if authorized else 'wrong'}"})
+            assert response.status_code == (200 if authorized else 403)
+
+    anyio.run(run)
+    assert calls == ([("cobra001", {
+        "error_fragment": "Research provider returned malformed dossier JSON;", "extra_attempts": 1,
+    })] if authorized and legacy else [])
+
+
+def test_research_failure_is_not_reported_as_completed_or_graded(monkeypatch):
+    _secure_environment(monkeypatch)
+    monkeypatch.setattr(studio, "_durable_execution_required", lambda: True)
+    repository = FakeActionRepository()
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "generic_illustrated", "status": "queued",
+        "payload": {}, "job_id": "cobra001", "cost_ceiling_usd": 5,
+    }
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+
+    class Store:
+        def get_job(self, job_id):
+            return {"id": job_id, "status": "error", "spent_cost_usd": .711,
+                    "result": {"rendered_contract": {}}}
+
+        def events(self, *args):
+            return []
+
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+    monkeypatch.setattr(db, "finished_video_get", lambda job_id: None)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app),
+                                     base_url="http://test") as client:
+            response = await client.get(f"/api/agent/actions/{ACTION_ID}/public-status")
+            assert response.status_code == 200
+            status = response.json()
+            assert status["status"] == "error"
+            assert status["progress"]["percent"] == 0
+            assert "grading" not in status["job"]["result"]
+            assert "finished_video" not in status
+
+    anyio.run(run)
 
 
 def test_agent_dispatch_rearms_exact_disk_exhaustion_without_new_job(monkeypatch):

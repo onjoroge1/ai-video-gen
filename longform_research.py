@@ -2,9 +2,119 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from urllib.parse import urlparse
+
+
+LEGACY_DOSSIER_JSON_ERROR = (
+    "Research provider returned malformed dossier JSON; source evidence was not "
+    "passed to a paid JSON-repair model. No source claims were accepted."
+)
+
+
+def parse_research_dossier_text(text_blocks: list[str]) -> dict:
+    """Extract one complete ledger without rewriting any provider evidence.
+
+    Search commentary and Markdown fences are not JSON. Walk complete top-level
+    objects/arrays, respecting quoted braces and escapes, instead of parsing from
+    the first opening brace through all remaining commentary. Never salvage a
+    nested ledger from a truncated outer object or choose among multiple ledgers.
+    Text blocks can split a JSON string at a citation boundary: preserve the bytes
+    rather than inserting a newline into that string. The only syntax repair is
+    removing trailing commas outside strings; incomplete values are never filled.
+    """
+    raw = "".join(text_blocks)
+    candidates = []
+    start = None
+    stack = []
+    quoted = escaped = False
+
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON key")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError("non-finite JSON number")
+
+    def without_trailing_commas(fragment):
+        # A punctuation-only repair. Never use a regex that could change a quote
+        # such as "the result was ,}" or create a missing claim/value.
+        output = []
+        in_string = escape = False
+        for position, character in enumerate(fragment):
+            if in_string:
+                if escape:
+                    escape = False
+                elif character == "\\":
+                    escape = True
+                elif character == '"':
+                    in_string = False
+            elif character == '"':
+                in_string = True
+            elif character == ",":
+                following = fragment[position + 1:].lstrip()
+                previous = fragment[:position].rstrip()
+                if (following.startswith(("}", "]")) and previous
+                        and previous[-1] not in "[{,:"):
+                    continue
+            output.append(character)
+        return "".join(output)
+
+    decoder = json.JSONDecoder(object_pairs_hook=unique_keys,
+                               parse_constant=invalid_constant)
+    for index, char in enumerate(raw):
+        if start is None:
+            if char in "{[":
+                start = index
+                stack = [char]
+                quoted = escaped = False
+            continue
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char in "{[":
+            stack.append(char)
+        elif char in "}]":
+            if stack[-1] != ("{" if char == "}" else "["):
+                raise ValueError("Research dossier JSON has mismatched delimiters; no claims accepted.")
+            stack.pop()
+            if not stack:
+                fragment = raw[start:index + 1]
+                start = None
+                try:
+                    value = decoder.decode(without_trailing_commas(fragment))
+                except ValueError as exc:
+                    if '"claims"' in fragment:
+                        raise ValueError(
+                            "Research provider returned malformed dossier JSON "
+                            "(invalid complete object); no claims accepted.") from exc
+                    continue  # e.g. a search explanation containing {query}
+                if isinstance(value, dict) and "claims" in value:
+                    candidates.append(value)
+    if start is not None and '"claims"' in raw[start:]:
+        raise ValueError("Research provider returned malformed dossier JSON "
+                         "(incomplete object); no claims accepted.")
+    if len(candidates) != 1:
+        reason = "multiple candidate dossiers" if candidates else "no complete dossier object"
+        raise ValueError(f"Research provider returned malformed dossier JSON ({reason}); "
+                         "no claims accepted.")
+    dossier = candidates[0]
+    if not isinstance(dossier["claims"], list):
+        raise ValueError("Research provider returned a dossier without a structured claims list.")
+    return dossier
 
 
 SOURCE_TYPES = {"primary", "authoritative_secondary"}

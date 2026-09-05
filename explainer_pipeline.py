@@ -49,6 +49,7 @@ from longform_shots import (
     shot_plan_metrics,
 )
 from longform_research import (
+    parse_research_dossier_text,
     _canonical_url,
     claim_context_for_prompt,
     validate_claim_joins,
@@ -3191,23 +3192,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         break
     text_blocks = [_s(getattr(block, "text", "")) for block in response.content
                    if _s(getattr(block, "text", ""))]
-    raw = "\n".join(text_blocks).strip()
-    if raw.startswith("```") and raw.endswith("```"):
-        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    # A search response can precede its JSON with a brief search explanation. Extract its
-    # complete JSON object deterministically; never ask a text model to invent missing evidence.
-    if "{" in raw and not raw.startswith("{"):
-        raw = raw[raw.find("{"):]
-    try:
-        dossier = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            "Research provider returned malformed dossier JSON; source evidence was not "
-            "passed to a paid JSON-repair model. No source claims were accepted.") from exc
-    if not isinstance(dossier, dict):
-        raise ValueError("Research provider returned no structured dossier.")
-    if not isinstance(dossier.get("claims"), list):
-        raise ValueError("Research provider returned a dossier without a structured claims list.")
+    dossier = parse_research_dossier_text(text_blocks)
     dossier["version"] = 1
     citation_records = {}
     for turn in responses:
