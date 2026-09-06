@@ -59,8 +59,13 @@ def derive_mechanism(intervention: dict) -> dict:
                 "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
                            "mechanism for the story to turn on"}
     return {"ok": True, "role": "mechanism",
-            "event": {"text": f"The reward was paid for {incentive['rewarded_measure']}, "
-                              f"not for {incentive['actual_goal']}.",
+            # Two positive propositions, not one negation. "Paid for tails, NOT for dead rats"
+            # asks the evidence boundary to certify something no source states -- the archives
+            # record what the bounty paid for, not what it declined to pay for -- and the derived
+            # mechanism failed Boundary A on exactly that. Each half now stands on its own claims
+            # and the GAP between them is structural, which needs no judge at all.
+            "event": {"text": f"The reward was paid for {incentive['rewarded_measure']}. "
+                              f"The goal was {incentive['actual_goal']}.",
                       "claim_refs": sorted(set(sfm.event_of(intervention)["claim_refs"])
                                            | set(incentive["goal_claim_refs"]))},
             "changes_state": {"from": _state(intervention, "to"),
@@ -125,9 +130,8 @@ def compile_roles(beats: list[dict], engine_id: str) -> dict:
                                      f"{', '.join(ef.EVENT_FUNCTIONS)}",
                                      beat_id=beat["beat_id"]))
             function = ""
-        role = mapping.role_for(function)
-        if role:
-            beat["role"] = role
+        # Always set, never left to inherit. The two role vocabularies share three words.
+        beat["role"] = mapping.role_for(function) or "context"
         beat["event_function"] = function
         by_function.setdefault(function, []).append(beat)
         out.append(beat)
@@ -210,9 +214,14 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
         if "mechanism" in derived and function_of(beat) == ef.CHANGES_INCENTIVE:
             out.append(_made(derived.pop("mechanism"), 0))
     if "reversal" in derived:
-        tail = next((index for index, beat in enumerate(out)
-                     if function_of(beat) in (ef.PARALLEL_CASE,)), len(out))
-        out.insert(tail, _made(derived.pop("reversal"), 0))
+        # The compounded exploit IS the inversion; it is re-roled, not copied. Inserting a second
+        # beat carrying the same event put one fact in two required roles, and the duplicate
+        # detector correctly reported the reversal as missing rather than repeated.
+        entry = derived.pop("reversal")
+        for beat in out:
+            if sfm._text(beat.get("beat_id")) == (entry["derived_from"] or [""])[-1]:
+                beat["role"], beat["changes_state"] = "reversal", entry["changes_state"]
+                beat["derived_from"] = entry["derived_from"]
     for index, beat in enumerate(out):
         beat["n"] = index + 1
         beat.setdefault("beat_id", f"beat_{index + 1:02d}")

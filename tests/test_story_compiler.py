@@ -41,15 +41,19 @@ def test_the_planner_never_picks_mechanism_escalation_or_reversal():
     assert out["passed"], sc.summary(out)
     assert out["roles"] == {"beat_01": "setup", "beat_02": "intervention",
                             "beat_03": "false_resolution", "beat_04": "escalation",
-                            "beat_05": "escalation"}
+                            # the compounded exploit IS the inversion, so it holds the reversal
+                            "beat_05": "reversal"}
     assert [d["role"] for d in out["derived"]] == ["mechanism", "reversal"]
 
 
 def test_the_mechanism_is_the_gap_between_what_paid_and_what_was_wanted():
     derived = sc.derive_mechanism(HANOI[1])
     assert derived["ok"]
-    assert derived["event"]["text"] == ("The reward was paid for rat tails handed in, "
-                                        "not for fewer living rats in the city.")
+    # Two positive propositions. The negation form ("paid for tails, NOT for dead rats") asks the
+    # evidence boundary to certify what no source states, and failed Boundary A when it did.
+    assert derived["event"]["text"] == ("The reward was paid for rat tails handed in. "
+                                        "The goal was fewer living rats in the city.")
+    assert " not for " not in derived["event"]["text"]
     assert "c05" in derived["event"]["claim_refs"], "the goal's own evidence travels with it"
 
 
@@ -111,7 +115,8 @@ def test_outcome_state_is_never_load_bearing():
     """Measured: the archives record the failure, not the inversion. It must not be required."""
     assert ef.OUTCOME_STATE in ef.CONTEXTUAL_FUNCTIONS
     assert ef.OUTCOME_STATE not in ef.map_for("backfiring_solution").required
-    assert not ef.map_for("backfiring_solution").role_for(ef.OUTCOME_STATE)
+    assert ef.map_for("backfiring_solution").role_for(ef.OUTCOME_STATE) == "context", \
+        "explicitly non-causal, so it cannot inherit a role from the pacing vocabulary"
 
 
 def test_other_engines_do_not_inherit_the_bounty_contract():
@@ -154,7 +159,12 @@ def test_the_derived_beats_are_spliced_into_causal_order():
     spliced = sc.splice_derived(out["beats"], out)
     roles = [b.get("role") for b in spliced]
     assert roles == ["setup", "intervention", "mechanism", "false_resolution",
-                     "escalation", "escalation", "reversal"]
-    assert [b["n"] for b in spliced] == list(range(1, 8)), "renumbered after the splice"
-    derived = [b for b in spliced if b.get("derived")]
+                     "escalation", "reversal"], "one event, one required role"
+    assert [b["n"] for b in spliced] == list(range(1, 7)), "renumbered after the splice"
+    derived = [b for b in spliced if b.get("derived") or b.get("derived_from")]
     assert all(b["event"]["claim_refs"] for b in derived), "a derived beat still cites evidence"
+    reversal = next(b for b in spliced if b["role"] == "reversal")
+    assert reversal["event"]["text"].startswith("People bred rats"), \
+        "the reversal keeps the sourced event; only its declared state transition is computed"
+    assert reversal["changes_state"] == {"from": "rats are an unwanted infestation in Hanoi",
+                                         "to": "rats in Hanoi are farmed as a paying crop"}

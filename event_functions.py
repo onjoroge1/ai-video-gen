@@ -106,11 +106,19 @@ BACKFIRING_SOLUTION = EngineFunctionMap(
     required=(ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
               COMPOUNDS_EXPLOIT),
     to_role={ESTABLISHES_PROBLEM: "setup",
+             # compounds_exploit is BOTH the last escalation and the state the story inverts into.
+             # It is re-roled to reversal rather than copied, so one event never occupies two
+             # required roles -- the duplicate detector is right to call that a missing role.
+             COMPOUNDS_EXPLOIT: "reversal",
              CHANGES_INCENTIVE: "intervention",
              APPARENT_SUCCESS: "false_resolution",
              EXPLOIT_BEHAVIOR: "escalation",
-             COMPOUNDS_EXPLOIT: "escalation",
-             PARALLEL_CASE: "generalization"},
+             PARALLEL_CASE: "generalization",
+             # Named explicitly so a contextual beat cannot keep a causal role. The pacing `role`
+             # enum and the causal one overlap on mechanism, escalation and reversal, so a beat
+             # left unassigned inherits a causal role from the pacing field -- measured: a
+             # `context` beat arrived labelled `mechanism` and occupied the slot.
+             OUTCOME_STATE: "context", CONTEXT: "context"},
     derived=("mechanism", "reversal"))
 
 MAPS = {BACKFIRING_SOLUTION.engine_id: BACKFIRING_SOLUTION}
