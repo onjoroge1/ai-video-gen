@@ -1,16 +1,16 @@
 {
   "schema": "fact_model_golden_v1",
   "source": "First script generated with the event schema, 2026-09-06. Saved unmodified.",
-  "note": "The hand-labelled CONTROL for claim typing. The kinds below were assigned by a human reading each claim, before any classifier existed. When research starts emitting claim_kind itself, run the same structural validation with the machine labels and compare against expected_structural_codes: reproducing this set is the accuracy test. A machine label that makes these errors disappear has not fixed the script, it has learned to pass the gate.",
+  "note": "The hand-labelled CONTROL for claim typing. The kinds below were assigned by a human reading each claim, before any classifier existed. When research starts emitting claim_kind itself, run the same structural validation with the machine labels and compare against expected_structural_codes: reproducing this set is the accuracy test. A machine label that makes these errors disappear has not fixed the script, it has learned to pass the gate. CORRECTION 2026-09-06: c17/c23/c24 were originally hand-labelled `parallel_case`. That was wrong twice over — c24 is plainly a general_principle, and `parallel_case` was never a claim KIND at all but a relational property already carried by claims_by_parallel_case. The first machine run scored 3/8 confidently wrong against those labels and was right about two of them. The taxonomy was the defect, and this fixture is what found it.",
   "question": "Why did paying people to kill cobras leave Delhi with more cobras?",
   "hand_labelled_claim_kinds": {
     "c11": "context",
     "c12": "mechanism",
     "c14": "general_principle",
     "c15": "general_principle",
-    "c17": "parallel_case",
-    "c23": "parallel_case",
-    "c24": "parallel_case",
+    "c17": "event",
+    "c23": "event",
+    "c24": "general_principle",
     "c25": "general_principle"
   },
   "claims_by_parallel_case": {

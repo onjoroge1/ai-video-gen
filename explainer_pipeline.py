@@ -3501,17 +3501,25 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
         '"source_url":"https://...","support_quote":"short exact excerpt from the cited search evidence",'
         '"source_type":"primary|authoritative_secondary",'
-        '"claim_kind":"event|mechanism|context|outcome|general_principle|parallel_case|unknown — '
+        '"claim_kind":"event|mechanism|context|outcome|general_principle|unknown — '
         "what KIND of thing this claim is. event: a specific thing that happened. mechanism: why it "
         "happened, the rule connecting cause to effect. context: background conditions. outcome: "
-        "the end state. general_principle: an abstract law that holds beyond this story. "
-        "parallel_case: a comparable episode in another place or domain. A claim explaining WHY "
+        "the end state. general_principle: an abstract law that holds beyond this story. Classify "
+        "what the claim IS, never whose story it belongs to — a claim about a comparable episode "
+        "elsewhere is still an event or an outcome, and which case it belongs to is recorded "
+        "separately. A claim explaining WHY "
         "something happened does not evidence THAT it happened, so the distinction between event "
         "and mechanism is the one that matters most. Use 'unknown' when the claim genuinely does "
         "not fit one kind — a wrong label is worse than no label, because downstream checks trust "
         'it and a mislabelled claim passes a gate it should have failed",'
-        '"claim_kind_confidence":<0.0-1.0, how sure you are of that label; below 0.6 prefer '
-        'unknown>",'
+        '"claim_kind_confidence":<0.0-1.0 for the chosen kind>,'
+        '"runner_up_kind":"<the SECOND best kind for this claim, or \'\' if nothing else fits>",'
+        '"runner_up_confidence":<0.0-1.0 for that runner-up>",'
+        ' — score the top two honestly against each other. Many claims genuinely sit between two '
+        "kinds: a comparable episode elsewhere is an event AND context for this story, and a "
+        "statement about how widely a law applies is a general_principle AND context. When the two "
+        "are close, say so with the scores rather than forcing a winner — a near-tie is read as "
+        'unknown downstream and the claim is judged on meaning instead, which is the right outcome",'
         '"calculation":"formula or empty","assumptions":[],"geographic_scope":"global|regional|local|site-specific",'
         '"timescale":"immediate|hours|years|millions of years|other explicit value",'
         '"confidence":"high|medium|speculative","allowed_exaggeration":false,"material":true}]}. '

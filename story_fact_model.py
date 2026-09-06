@@ -63,7 +63,19 @@ _ASSERTION_SIGNALS = re.compile(
 #
 # This is a cheap gate in front of the paid judge, not a replacement for it: it rejects bindings
 # that are obviously the wrong shape before anyone pays to have their meaning weighed.
-CLAIM_KINDS = ("event", "mechanism", "context", "outcome", "general_principle", "parallel_case")
+# INTRINSIC properties only: what kind of thing the claim is, independent of which story uses it.
+#
+# `parallel_case` was here and had to go. It is RELATIONAL -- it says whose story a claim belongs
+# to, not what the claim is -- and mixing the two axes forced the classifier to choose between
+# them. Measured on the golden control it labelled "COMPARABLE CASE (Hanoi rats): the community
+# farmed rats, cut off their tails and released them" as `event`, which is correct, and scored as
+# confidently wrong against a hand label of `parallel_case`, which was also correct. Two right
+# answers to two different questions.
+#
+# The relational axis already exists and is better evidenced: `claims_by_case` maps each comparison
+# to the claims that belong to it, and invariant 2 enforces it. Nothing was lost by deleting the
+# redundant enum value except a classifier failure mode.
+CLAIM_KINDS = ("event", "mechanism", "context", "outcome", "general_principle")
 # Research owns this label and nothing downstream may rewrite it. Once a kind governs a cheap gate,
 # a wrong label is a way to pass that gate: relabel "the bounty created a gap between metric and
 # goal" as `event` and an escalation may cite it without complaint, even though it still does not
@@ -86,6 +98,48 @@ STRUCTURE_FAIL = "STRUCTURE_FAIL"
 # Below this, treat a stated kind as unknown. A label the classifier is unsure of is exactly the
 # label that should not silently govern a gate.
 MIN_KIND_CONFIDENCE = 0.6
+# How far the chosen kind must beat its nearest alternative. Absolute confidence proved useless as
+# an abstention signal: measured over two runs the classifier returned ZERO unknowns, with every
+# confidence clustered between 0.65 and 0.85 and nothing below the 0.6 bar -- including on claims
+# that were genuinely ambiguous and that it got wrong. It is not calibrated on "how sure am I",
+# which is a hard question about itself.
+#
+# "Which of these two fits better, and by how much" is a comparative judgement about the material,
+# and a much easier one. A claim whose top two kinds are neck and neck is exactly the claim that
+# should abstain and let the paid judge decide.
+MIN_KIND_MARGIN = 0.15
+
+
+def resolved_claim_kind(claim: dict) -> tuple[str, str]:
+    """The kind this claim may govern a gate with, and why it does or does not.
+
+    Returns (kind, reason). `kind` is UNKNOWN_KIND whenever the classifier did not clearly decide,
+    so callers never have to re-derive the abstention rules.
+    """
+    claim = claim if isinstance(claim, dict) else {}
+    kind = _text(claim.get("claim_kind")).lower()
+    if not kind:
+        return UNKNOWN_KIND, "unlabelled"
+    if kind == UNKNOWN_KIND:
+        return UNKNOWN_KIND, "classifier_abstained"
+
+    def _number(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    confidence = _number(claim.get("claim_kind_confidence"))
+    if confidence is not None and confidence < MIN_KIND_CONFIDENCE:
+        return UNKNOWN_KIND, "low_confidence"
+
+    runner_up = _text(claim.get("runner_up_kind")).lower()
+    runner_confidence = _number(claim.get("runner_up_confidence"))
+    if (runner_up and runner_up not in ("", UNKNOWN_KIND) and confidence is not None
+            and runner_confidence is not None
+            and confidence - runner_confidence < MIN_KIND_MARGIN):
+        return UNKNOWN_KIND, f"narrow_margin_over_{runner_up}"
+    return kind, "decided"
 
 _ROLE_ACCEPTS = {
     "setup": ("event", "context", "outcome"),
@@ -95,7 +149,9 @@ _ROLE_ACCEPTS = {
     "escalation": ("event", "context", "outcome"),
     "reversal": ("event", "context", "outcome"),
     "mechanism": ("mechanism", "general_principle"),
-    "generalization": ("parallel_case", "general_principle"),
+    # A comparison beat states what happened elsewhere, or the law it illustrates. That it is a
+    # COMPARISON is carried by scope and claims_by_case, not by the claim's kind.
+    "generalization": ("event", "outcome", "general_principle"),
     # The close is a rhetorical device built from the story, not a new historical assertion.
     "tool": (),
     "verdict": (),
@@ -184,16 +240,13 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -
             continue
         for claim_id in event_of(beat)["claim_refs"]:
             claim = claims.get(claim_id) or {}
-            kind = _text(claim.get("claim_kind")).lower()
-            confidence = claim.get("claim_kind_confidence")
-            try:
-                unsure = confidence is not None and float(confidence) < MIN_KIND_CONFIDENCE
-            except (TypeError, ValueError):
-                unsure = False
-            if not kind or kind == UNKNOWN_KIND or unsure:
+            kind, reason = resolved_claim_kind(claim)
+            if kind == UNKNOWN_KIND:
                 out.append({"beat_id": beat_id, "claim_id": claim_id,
-                            "claim_kind": kind or UNKNOWN_KIND,
-                            "claim_kind_confidence": confidence,
+                            "claim_kind": _text(claim.get("claim_kind")).lower() or UNKNOWN_KIND,
+                            "claim_kind_confidence": claim.get("claim_kind_confidence"),
+                            "runner_up_kind": _text(claim.get("runner_up_kind")).lower(),
+                            "abstained_because": reason,
                             "kind_gate": "indeterminate",
                             "requires_semantic_validation": True})
     return out
@@ -271,16 +324,11 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         if claims is not None and role:
             for claim_id in event["claim_refs"]:
                 claim = claims.get(claim_id) or {}
-                kind = _text(claim.get("claim_kind")).lower()
-                confidence = claim.get("claim_kind_confidence")
-                try:
-                    unsure = confidence is not None and float(confidence) < MIN_KIND_CONFIDENCE
-                except (TypeError, ValueError):
-                    unsure = False
-                # No label, an explicit unknown, or a label its own classifier doubts: skip rather
-                # than enforce. The semantic boundary still has to agree, so skipping loses a cheap
-                # rejection, not the contract.
-                if not kind or kind == UNKNOWN_KIND or unsure:
+                # No label, an explicit unknown, a doubted one, or one that barely beat its nearest
+                # alternative: skip rather than enforce. The semantic boundary still has to agree,
+                # so skipping loses a cheap rejection, not the contract.
+                kind, _reason = resolved_claim_kind(claim)
+                if kind == UNKNOWN_KIND:
                     continue
                 if kind not in accepted:
                     issues.append(_issue(

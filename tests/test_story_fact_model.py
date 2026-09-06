@@ -265,3 +265,62 @@ def test_other_roles_are_not_subject_to_the_turn_rule():
     beat = _beat(role="mechanism", event={"text": "Any proxy is only a stand-in for the goal.",
                                           "claim_refs": ["c_mech"]})
     assert "HINGE_WITHOUT_TURN" not in _codes([beat], claims=_KINDS)
+
+
+# --- abstention is a comparative judgement, not an introspective one -------------------------------
+
+def test_a_clear_winner_decides():
+    kind, reason = sfm.resolved_claim_kind(
+        {"claim_kind": "mechanism", "claim_kind_confidence": 0.85,
+         "runner_up_kind": "general_principle", "runner_up_confidence": 0.4})
+    assert kind == "mechanism" and reason == "decided"
+
+
+def test_a_near_tie_abstains_and_says_what_it_tied_with():
+    """The fix for a classifier that never abstained.
+
+    Two measured runs returned ZERO unknowns with every confidence between 0.65 and 0.85 —
+    including on the claims it got wrong. Absolute confidence is introspection and it was not
+    calibrated. "Which of these two fits better, and by how much" is about the material, and it
+    caught both prior errors: c11 came back event 0.60 with context 0.50 as runner-up, which is
+    exactly the disagreement, self-identified.
+    """
+    kind, reason = sfm.resolved_claim_kind(
+        {"claim_kind": "event", "claim_kind_confidence": 0.6,
+         "runner_up_kind": "context", "runner_up_confidence": 0.5})
+    assert kind == sfm.UNKNOWN_KIND
+    assert reason == "narrow_margin_over_context"
+
+
+def test_low_absolute_confidence_still_abstains():
+    """Both signals are kept. The margin is the useful one; the floor is the backstop."""
+    kind, reason = sfm.resolved_claim_kind(
+        {"claim_kind": "event", "claim_kind_confidence": 0.3,
+         "runner_up_kind": "context", "runner_up_confidence": 0.05})
+    assert kind == sfm.UNKNOWN_KIND and reason == "low_confidence"
+
+
+def test_an_explicit_unknown_is_honoured():
+    kind, reason = sfm.resolved_claim_kind({"claim_kind": "unknown"})
+    assert kind == sfm.UNKNOWN_KIND and reason == "classifier_abstained"
+
+
+def test_a_missing_label_abstains():
+    assert sfm.resolved_claim_kind({})[0] == sfm.UNKNOWN_KIND
+    assert sfm.resolved_claim_kind({})[1] == "unlabelled"
+
+
+def test_no_runner_up_means_no_margin_test():
+    """A claim with only one plausible kind should not be punished for having no rival."""
+    kind, reason = sfm.resolved_claim_kind(
+        {"claim_kind": "mechanism", "claim_kind_confidence": 0.7, "runner_up_kind": ""})
+    assert kind == "mechanism" and reason == "decided"
+
+
+def test_an_abstention_reason_reaches_the_report():
+    beat = _beat(role="escalation", event={"text": "x", "claim_refs": ["c_tie"]})
+    rows = sfm.indeterminate_kind_bindings(
+        [beat], {"c_tie": {"claim_kind": "event", "claim_kind_confidence": 0.6,
+                           "runner_up_kind": "context", "runner_up_confidence": 0.5}})
+    assert rows and rows[0]["abstained_because"] == "narrow_margin_over_context"
+    assert rows[0]["runner_up_kind"] == "context"
