@@ -1,0 +1,91 @@
+{
+  "name": "hanoi_event_functions",
+  "topic": "Why did paying people to kill rats make Hanoi's rat problem harder to solve?",
+  "purpose": "The functional sequence, hand-labelled once. Wording is not the contract -- the planner rewords every run and that is fine. What must be stable is which causal FUNCTION each factual event performs, and therefore which story role it earns. Used by scripts/role_variance.py to measure assignment stability across sheets.",
+  "source": "The events below are the ones the cached Hanoi dossier evidences and Boundary A has passed at least once. Alternate phrasings are verbatim from observed sheets, not invented.",
+  "min_similarity": 0.22,
+  "events": [
+    {
+      "event_function": "establishes_problem",
+      "expected_role": "setup",
+      "event": "Invasive brown rats colonised Hanoi's newly built French sewer system.",
+      "state": {"from": "a new colonial sewer network", "to": "a city overrun by rats"},
+      "also_seen_as": [
+        "In the 1890s the French installed state-of-the-art sewers and a freshwater system in Hanoi.",
+        "In 1902 the new French sewers in Hanoi became an ideal habitat for invasive brown rats.",
+        "The newly built Hanoi sewer system inadvertently created an ideal rat habitat."
+      ]
+    },
+    {
+      "event_function": "changes_incentive",
+      "expected_role": "intervention",
+      "event": "In April 1902 the colonial authorities announced a bounty on every dead rat.",
+      "state": {"from": "rats have no bounty value", "to": "rat tails have monetary value"},
+      "also_seen_as": [
+        "The bounty was extended to anyone in the city who brought a rat tail to the authorities.",
+        "After sewer workers struck, the colonial authorities announced a public bounty on rats."
+      ]
+    },
+    {
+      "event_function": "apparent_success",
+      "expected_role": "false_resolution",
+      "event": "Within days the number of tails handed in climbed into the thousands.",
+      "state": {"from": "rat tails have monetary value", "to": "the programme looks like it is working"},
+      "also_seen_as": [
+        "The bounty initially appeared successful, with the number of tails handed in climbing.",
+        "In the first days the bounty tail counts climbed into the thousands."
+      ]
+    },
+    {
+      "event_function": "reveals_proxy_gap",
+      "expected_role": "mechanism",
+      "event": "The bounty paid for a rat tail turned in, not for a verified dead rat.",
+      "state": {"from": "the programme looks like it is working", "to": "the proof measures tails, not eliminated rats"},
+      "also_seen_as": [
+        "Because the bounty paid per tail, a living rat was worth more than a dead one.",
+        "Officials accepted a rat tail rather than the whole carcass as proof for the bounty."
+      ]
+    },
+    {
+      "event_function": "exploit_behavior",
+      "expected_role": "escalation",
+      "event": "Residents cut the tails off rats and released the living animals.",
+      "state": {"from": "the proof measures tails, not eliminated rats", "to": "keeping rats alive maximises payout"},
+      "also_seen_as": [
+        "Inspectors observed living rats in Hanoi missing their tails.",
+        "Officials found residents were cutting the tails off rats and releasing them.",
+        "Tailless living rats were seen in Hanoi because people cut off tails and released the animals."
+      ]
+    },
+    {
+      "event_function": "compounds_exploit",
+      "expected_role": "escalation",
+      "event": "On Hanoi's rural outskirts people bred rats to profit from the bounty.",
+      "state": {"from": "keeping rats alive maximises payout", "to": "rats are farmed as a crop"},
+      "also_seen_as": [
+        "Entrepreneurial Vietnamese set up operations breeding rats on the outskirts of Hanoi.",
+        "Residents kept rats alive after taking tails so they would breed more rats."
+      ]
+    },
+    {
+      "event_function": "inverted_end_state",
+      "expected_role": "reversal",
+      "event": "The bounty produced huge tail counts yet made no dent in the rat population.",
+      "state": {"from": "rats are farmed as a crop", "to": "living rats are economically valuable rather than unwanted"},
+      "also_seen_as": [
+        "After roughly three months officials discovered the community was farming rats, and the bounty was abandoned.",
+        "Rat farming and releasing rats to breed sustained or worsened the rat population."
+      ]
+    },
+    {
+      "event_function": "generalizes_pattern",
+      "expected_role": "generalization",
+      "event": "China's 1958 sparrow eradication worsened the famine and a Fort Benning pig bounty raised the pig population.",
+      "state": {"from": "one colonial city", "to": "a repeatable failure of proxy metrics"},
+      "also_seen_as": [
+        "COMPARABLE CASE (China, 1958): the Four Pests Campaign removed sparrows and locusts exploded.",
+        "COMPARABLE CASE (USA, 2007-2008): Fort Benning offered hunters a bounty per pig tail."
+      ]
+    }
+  ]
+}

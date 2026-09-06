@@ -2589,8 +2589,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         f'{n_scenes}; returning somewhat fewer is fine ONLY if the topic truly lacks that many DISTINCT '
         'beats — never pad with filler or repetition.\n'
         'Return ONLY JSON: {"title","hook","thumbnail_promise","throughline","false_model",'
-        '"replacement_model","personal_stake","anomaly","human_subject":"Alex",'
-        '"human_role","recurring_location","subject_goal","antagonistic_force","accepted_belief",'
+        '"replacement_model","personal_stake","anomaly",'
+        # The schema pinned "human_subject":"Alex" while the cast block below forbade writing Alex
+        # at all, so the model had to decide which of the two instructions was real. Found by
+        # prompt_contract.lint on its first run against this prompt.
+        + ('"human_subject":"","human_role":"",' if _illustrated_is_cast_free()
+           else '"human_subject":"Alex","human_role",') +
+        '"recurring_location","subject_goal","antagonistic_force","accepted_belief",'
         '"contradictory_evidence","viewer_initial_belief","viewer_belief_after_reveal",'
         '"opening_object","final_callback_object" (MUST exactly equal opening_object),'
         '"mystery_suitable":true|false,"mystery_unsuitable_reason":"",'
