@@ -39,6 +39,8 @@ def incentive_of(beat: dict) -> dict:
     block = block if isinstance(block, dict) else {}
     return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
             "actual_goal": _phrase(block.get("actual_goal")),
+            "measure_claim_refs": [sfm._text(r) for r in (block.get("measure_claim_refs") or [])
+                                   if sfm._text(r)],
             "goal_claim_refs": [sfm._text(r) for r in (block.get("goal_claim_refs") or [])
                                 if sfm._text(r)]}
 
@@ -69,6 +71,17 @@ def derive_mechanism(intervention: dict) -> dict:
                 "message": f"beat {beat_id} states the policy's goal as "
                            f"{incentive['actual_goal']!r} with no claim behind it. What a "
                            "government wanted is an attribution of intent, not a free field"}
+    if not incentive["measure_claim_refs"]:
+        # Measured: with the measure riding on the intervention's own citations, three sheets
+        # produced "The reward was paid for a severed rat tail" cited to claims about a bounty
+        # being announced on dead rats -- true, correctly derived, and not entailed by what it
+        # cited. The proof the clerk accepted is nearly always a different source from the
+        # announcement, and it is usually sitting on some other beat.
+        return {"ok": False, "code": "MEASURE_NOT_EVIDENCED",
+                "message": f"beat {beat_id} says the reward was paid for "
+                           f"{incentive['rewarded_measure']!r} with no claim behind it. The "
+                           "announcement and the proof actually accepted are different facts "
+                           "from different sources, and the gap between them is the story"}
     if sfm._stems(incentive["rewarded_measure"]) == sfm._stems(incentive["actual_goal"]):
         return {"ok": False, "code": "NO_PROXY_GAP",
                 "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
@@ -81,7 +94,9 @@ def derive_mechanism(intervention: dict) -> dict:
             # and the GAP between them is structural, which needs no judge at all.
             "event": {"text": f"The reward was paid for {incentive['rewarded_measure']}. "
                               f"The goal was {incentive['actual_goal']}.",
-                      "claim_refs": sorted(set(sfm.event_of(intervention)["claim_refs"])
+                      # Each half brings its own evidence. The intervention's citations describe
+                      # the announcement and do not reach either proposition on their own.
+                      "claim_refs": sorted(set(incentive["measure_claim_refs"])
                                            | set(incentive["goal_claim_refs"]))},
             "changes_state": {"from": _state(intervention, "to"),
                               "to": f"what pays and what was wanted have come apart"},

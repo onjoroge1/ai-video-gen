@@ -25,6 +25,7 @@ HANOI = [
     _beat("beat_02", ef.CHANGES_INCENTIVE, "Authorities offered a bounty for every rat tail.",
           "rats are an unwanted infestation in Hanoi", "a rat tail is worth money",
           incentive={"rewarded_measure": "rat tails handed in",
+                     "measure_claim_refs": ["c07"],
                      "actual_goal": "fewer living rats in the city",
                      "goal_claim_refs": ["c05"]}),
     _beat("beat_03", ef.APPARENT_SUCCESS, "Tail submissions climbed into the thousands.",
@@ -54,20 +55,29 @@ def test_the_mechanism_is_the_gap_between_what_paid_and_what_was_wanted():
     assert derived["event"]["text"] == ("The reward was paid for rat tails handed in. "
                                         "The goal was fewer living rats in the city.")
     assert " not for " not in derived["event"]["text"]
-    assert "c05" in derived["event"]["claim_refs"], "the goal's own evidence travels with it"
+    assert derived["event"]["claim_refs"] == ["c05", "c07"], \
+        "each half brings its own evidence; the intervention's citations reach neither"
 
 
 def test_an_unevidenced_goal_does_not_compile():
     """What a government wanted is an attribution of intent, not a free schema field."""
     beat = dict(HANOI[1], incentive={"rewarded_measure": "tails", "actual_goal": "fewer rats",
-                                     "goal_claim_refs": []})
+                                     "measure_claim_refs": ["c07"], "goal_claim_refs": []})
     assert sc.derive_mechanism(beat)["code"] == "GOAL_NOT_EVIDENCED"
+
+
+def test_an_unevidenced_rewarded_measure_does_not_compile():
+    """Measured: three sheets cited the announcement for what the clerk accepted. Different facts."""
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail",
+                                     "actual_goal": "fewer rats", "measure_claim_refs": [],
+                                     "goal_claim_refs": ["c05"]})
+    assert sc.derive_mechanism(beat)["code"] == "MEASURE_NOT_EVIDENCED"
 
 
 def test_rewarding_exactly_what_you_want_is_no_mechanism():
     beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats delivered",
                                      "actual_goal": "rats delivered dead",
-                                     "goal_claim_refs": ["c05"]})
+                                     "measure_claim_refs": ["c07"], "goal_claim_refs": ["c05"]})
     assert sc.derive_mechanism(beat)["code"] == "NO_PROXY_GAP"
 
 
@@ -174,7 +184,7 @@ def test_the_goal_is_normalised_into_the_derived_sentence():
     """Observed: 'The goal was Reduce Hanoi's rat population.' -- and the judge rejected it."""
     beat = dict(HANOI[1], incentive={"rewarded_measure": "A severed rat tail.",
                                      "actual_goal": "Reduce Hanoi's rat population.",
-                                     "goal_claim_refs": ["c05"]})
+                                     "measure_claim_refs": ["c07"], "goal_claim_refs": ["c05"]})
     text = sc.derive_mechanism(beat)["event"]["text"]
     assert text == ("The reward was paid for a severed rat tail. "
                     "The goal was reduce Hanoi's rat population.")
