@@ -1,0 +1,28 @@
+{
+  "name": "bibliography_as_story",
+  "provenance": "Produced by the dossier-wide substitution rule, 2026-09-05, on the Hanoi rat-bounty spine. Every substituted event below is TRUE and CORRECTLY CITED. Not one of them is a story. Kept because the failure mode is invisible to any support test: a claim entails itself, so free re-sourcing plus a re-run of Boundary A is a machine that certifies its own output.",
+  "why_it_must_fail": [
+    "setup was re-sourced to academic publication metadata — a historian writing a paper in 2003 is not how Hanoi's rat problem began",
+    "mechanism was re-sourced to a COMPARABLE CASE (China) claim — a parallel case cannot be the primary story's causal engine",
+    "intervention was re-sourced to a bibliographic description — describing an article is not an action anyone took"
+  ],
+  "must_not_appear": ["published", "peer-reviewed", "COMPARABLE CASE", "article", "journal"],
+  "beats": [
+    {"beat_id": "beat_01", "role": "setup", "scope": "primary_story",
+     "changes_state": {"from": "colonial Hanoi with a new sewer network",
+                       "to": "a city overrun by rats"},
+     "event": {"text": "Michael G. Vann published a peer-reviewed academic account of the episode in French Colonial History.",
+               "claim_refs": ["c01"]}},
+    {"beat_id": "beat_03", "role": "intervention", "scope": "primary_story",
+     "changes_state": {"from": "a city overrun by rats",
+                       "to": "a bounty paid per rat tail"},
+     "event": {"text": "The article surveys the rat bounty within a broader history of French colonial urbanism.",
+               "claim_refs": ["c02"]}},
+    {"beat_id": "beat_05", "role": "mechanism", "scope": "primary_story",
+     "changes_state": {"from": "a bounty paid per rat tail",
+                       "to": "an incentive to keep rats alive and breeding"},
+     "event": {"text": "COMPARABLE CASE (China, mechanism): Removing sparrows disrupted natural pest control and locust populations exploded.",
+               "claim_refs": ["c22"]}}
+  ],
+  "expected_codes": ["ROLE_CONTRACT_FAILED", "MISSING_REQUIRED_ROLE_SUPPORT"]
+}

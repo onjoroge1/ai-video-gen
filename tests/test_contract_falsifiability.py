@@ -93,6 +93,13 @@ MUTATIONS = {
         situation="Step four. " + s["steps"][0]["situation"]),
     "CHAPTER_NOT_ANNOUNCED": lambda s: s["steps"][0].update(
         situation="Step one. " + s["steps"][0]["situation"]),
+    # An escalation that leaves this story for the comparison it was saving for the generalization.
+    # The word has to be one the story does not already use about itself, or the check correctly
+    # reads it as the story's own vocabulary rather than an imported case.
+    "PARALLEL_CASE_OUT_OF_PLACE": lambda s: (
+        s.update(parallel_cases=[{"domain": "Hanoi", "problem": "rats", "solution": "tail bounty",
+                                  "result": "farmed rats"}]),
+        s["steps"][5].update(situation="The same trap sprang shut in Hanoi in 1902.")),
 }
 
 

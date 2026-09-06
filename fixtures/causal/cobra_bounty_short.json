@@ -1,0 +1,155 @@
+{
+  "format": "causal_story_v1",
+  "source": "Operator-written target transcript, 2026-09-05. Timed at 180 wpm; not a transcribed video.",
+  "note": "THE FIRST SHORT-FORM REFERENCE. Every other fixture is a 101-225s documentary, and the contract was fitted to them -- so it encoded their length as if it were their shape. This is the same engine as cobra_effect, the same story even, told in 64 seconds instead of 220. It was added failing on four rules and now passes because those four were scoped to runtime rather than relaxed outright: a 220-second telling is still held to the stricter contract, and cobra_effect proves it in the same suite.",
+  "measured": {
+    "runtime_sec": 64.0,
+    "words": 192,
+    "words_per_minute": 180.0,
+    "beats": 10,
+    "words_per_beat": 18.0,
+    "spoken_chapter_markers": 4,
+    "step_markers": 4.0,
+    "hook_words": 12.0,
+    "hook_sentences": 2,
+    "median_sentence": 5.5,
+    "short_landing_pct": 0.5,
+    "mechanism_start_sec": 19.7,
+    "mechanism_pct_of_runtime": 0.308,
+    "parallel_cases": 1
+  },
+  "observed": {
+    "hook_type": "Two sentences, not one, and the second reverses the first: 'The government paid people to kill cobras. So people started making cobras.' The turn IS the hook. It also names its subject immediately. That is legal but only by omission: the contract checks a withheld subject for consistency and never requires one, so a hook that withholds nothing is simply unexamined rather than approved. Declaring 'cobras' withheld here would fail SUBJECT_NOT_WITHHELD, which is the rule describing a curiosity gap this format does not use.",
+    "story_pattern": "Four spoken steps, not six. Step one carries setup, intervention, false resolution and hinge together; the remaining three carry one movement each. The principle is not stated up front -- the story earns it and names it in the last step, at 31% of runtime.",
+    "cadence": "Half of all sentences are five words or shorter, and fragments carry the beats a documentary would give clauses to: 'Bring snake. Get coin. Simple.' Eighteen words per beat, against the twenty-five the generator writes unprompted.",
+    "mascot_use": "Bolt is a running gag with escalating repeats rather than a single labelled action: a cash-register DING, a look over a fence, more cobras, another DING. The joke is the repetition.",
+    "principle_delivery": "Stated in plain language with no citation -- 'The government rewarded the number, not the outcome.' No economist is named and no paper is dated; the sentence carries the idea on its own.",
+    "close": "A question that returns to the PROBLEM rather than to the opening object: 'Where are the cobra farms?' The opening coin is never handed back.",
+    "generalization": "One parallel case, not two. Colonial Vietnam rat-tail bounties, given three clauses and no statistics.",
+    "narrator_tone": "Plain and unhurried, closer to a friend explaining than a documentary narrating. Declarative throughout, no rhetorical build; the irony is left for the listener to notice rather than pointed at. Asks one real question at the end and stops.",
+    "humour_and_interrupts": "dry understatement carried by juxtaposition rather than jokes: a two-word dismissal answers a rhetorical question, and a pest is renamed as stock-in-trade without comment. the comedy is the gap between how sensible the plan sounds and what people immediately did with it, never a gag laid on top.",
+    "reveal_placement": "The principle is withheld until the story has already shown it twice. Named in the final step at 31% from the end, after the cages are open, so it lands as a summary of something watched rather than a lesson announced in advance.",
+    "ending_callback": "Returns to the PROBLEM, not to the opening object: 'Ask: where are the cobra farms?' The coin from the opening is never handed back. The close converts the story into a question the listener can carry to their own situation."
+  },
+  "expect": {
+    "pass": true,
+    "closed_divergence": [
+      "MULTI_SENTENCE_HOOK: hooks may run to SHORT_FORM_MAX_HOOK_SENTENCES under SHORT_FORM_MAX_SEC",
+      "LATE_MECHANISM: the deadline floors at SHORT_FORM_MECHANISM_PCT under SHORT_FORM_MAX_SEC",
+      "THIN_GENERALIZATION: SHORT_FORM_MIN_PARALLEL_CASES applies under SHORT_FORM_MAX_SEC",
+      "NO_CALLBACK: a short close may return to the situation the story opened on, not only to the opening object"
+    ],
+    "note": "Recorded FAILING on 2026-09-05 with four named divergences, then the contract was scoped to short form and this flipped to passing. The divergences are kept above rather than deleted: they are the record of which rules described a 220-second run time rather than the format, and if one is tightened again this fixture is what fails."
+  },
+  "story": {
+    "title": "The Cobra Bounty That Bred More Cobras",
+    "runtime_sec": 64.0,
+    "format_tag": "",
+    "engine": "backfiring_solution",
+    "opening_object": "a coin",
+    "start_state": "paying for dead cobras sounds like a way to get fewer cobras",
+    "hook": {
+      "line": "The government paid people to kill cobras. So people started making cobras.",
+      "withheld_subject": ""
+    },
+    "steps": [
+      {
+        "step_id": "setup",
+        "role": "setup",
+        "start_sec": 4.0,
+        "label": "Delhi, colonial administration",
+        "situation": "Delhi had a problem. Venomous cobras were turning up in streets, homes, everywhere.",
+        "chapter": 1
+      },
+      {
+        "step_id": "intervention",
+        "role": "intervention",
+        "start_sec": 8.3,
+        "label": "the bounty desk",
+        "situation": "So the government offered cash for every dead cobra. Bring snake. Get coin. Simple.",
+        "caused_by": "setup",
+        "chapter": 1
+      },
+      {
+        "step_id": "false_resolution",
+        "role": "false_resolution",
+        "start_sec": 13.0,
+        "label": "the piles grow",
+        "situation": "And for a while it looked brilliant. The piles of dead cobras grew. Officials celebrated.",
+        "caused_by": "intervention",
+        "chapter": 1
+      },
+      {
+        "step_id": "hinge",
+        "role": "hinge",
+        "start_sec": 18.0,
+        "label": "the count does not fall",
+        "situation": "Except the cobras didn't disappear.",
+        "caused_by": "false_resolution",
+        "chapter": 1
+      },
+      {
+        "step_id": "mechanism",
+        "role": "mechanism",
+        "start_sec": 19.7,
+        "label": "breeding beats finding",
+        "situation": "Because people noticed something the government hadn't. You didn't have to find a cobra when you could breed one.",
+        "caused_by": "hinge",
+        "chapter": 2
+      },
+      {
+        "step_id": "escalation_farms",
+        "role": "escalation",
+        "start_sec": 26.0,
+        "label": "boxes become farms",
+        "situation": "Suddenly, cobras weren't pests. They were inventory. Boxes became pens. Pens became farms.",
+        "caused_by": "mechanism",
+        "chapter": 2
+      },
+      {
+        "step_id": "escalation_cancel",
+        "role": "escalation",
+        "start_sec": 30.3,
+        "label": "the bounty is cancelled",
+        "situation": "Eventually officials figured it out. They cancelled the bounty. Problem solved? Nope.",
+        "caused_by": "escalation_farms",
+        "chapter": 3
+      },
+      {
+        "step_id": "reversal",
+        "role": "reversal",
+        "start_sec": 34.3,
+        "label": "the cages open",
+        "situation": "Now thousands of farmed cobras were worthless. So the breeders did the cheapest thing possible. They opened the cages and released them. The program designed to reduce cobras had helped create more cobras than it started with.",
+        "caused_by": "escalation_cancel",
+        "chapter": 3
+      },
+      {
+        "step_id": "generalization",
+        "role": "generalization",
+        "start_sec": 46.7,
+        "label": "reward the number",
+        "situation": "The government rewarded the number, not the outcome. The same trick appeared with rat-tail bounties in colonial Vietnam: reward the tail, and people become very creative about producing tails.",
+        "caused_by": "reversal",
+        "chapter": 4
+      },
+      {
+        "step_id": "tool",
+        "role": "tool",
+        "start_sec": 56.3,
+        "label": "where are the cobra farms",
+        "situation": "So next time somebody shows you a perfect-looking metric, don't ask whether the number is going up. Ask: where are the cobra farms?",
+        "caused_by": "generalization",
+        "chapter": 4
+      }
+    ],
+    "parallel_cases": [
+      {
+        "domain": "colonial Vietnam",
+        "problem": "rats in Hanoi",
+        "solution": "a bounty paid per rat tail",
+        "result": "tails were farmed and rats released, so the population grew"
+      }
+    ]
+  }
+}

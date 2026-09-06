@@ -465,6 +465,91 @@ def _claim_index(dossier: dict) -> dict[str, dict]:
     }
 
 
+def _claims_by_parallel_case(dossier: dict) -> dict:
+    """Which claims belong to which comparison, read off the ledger's own convention.
+
+    The research prompt asks for comparable cases and the model prefixes them
+    "COMPARABLE CASE (Hanoi rats): ...". That is a convention rather than a field, so this is a
+    best-effort read: when no prefix is present the mapping is empty and the two parallel-case
+    invariants simply do not fire. Better an invariant that abstains than one keyed on a heuristic
+    that quietly mis-attributes evidence.
+    """
+    out: dict[str, list] = {}
+    for claim in (dossier or {}).get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        declared = _text(claim.get("parallel_case_id"))
+        if not declared:
+            match = re.match(r"\s*COMPARABLE CASE\s*\(([^)]+)\)", _text(claim.get("claim")), re.I)
+            declared = re.sub(r"[^a-z0-9]+", "_", match.group(1).lower()).strip("_") if match else ""
+        if declared:
+            out.setdefault(declared, []).append(_text(claim.get("claim_id")))
+    return out
+
+
+def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=None,
+                              cost_sink: list | None = None) -> dict:
+    """The cascade, in the shape `validate_claim_joins` callers already expect.
+
+    Structure free, then evidence entailment, then narration fidelity — each seeing only what
+    survived. Returns `passed` and `errors[].message` like its predecessor, so nothing downstream
+    has to change to stop trusting word overlap.
+    """
+    import story_fact_model as sfm
+
+    scenes = script.get("scenes") or []
+    beats = [dict(scene, beat_id=_text(scene.get("scene_id")) or f"scene_{index:03d}",
+                  role=_text(scene.get("causal_role")) or _text(scene.get("story_role")))
+             for index, scene in enumerate(scenes, 1)]
+    report = sfm.validate_cascade(
+        beats, _claim_index(dossier), _claims_by_parallel_case(dossier),
+        judge=judge, cache=cache, cost_sink=cost_sink)
+
+    errors = []
+    for issue in report["structural"]:
+        errors.append({"code": issue["code"], "scene": issue.get("beat_id"),
+                       "message": issue["message"]})
+    for row in report["evidence"]:
+        errors.append({"code": "EVENT_NOT_ENTAILED", "scene": row["beat_id"],
+                       "message": f"{row['beat_id']}: the cited claims do not support the event "
+                                  f"({row['verdict']}). " + (row.get("reason") or ""),
+                       "supported_core": row.get("supported_core"),
+                       "unsupported_details": row.get("unsupported_details")})
+    for row in report["fidelity"]:
+        errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
+                       "message": f"{row['beat_id']}: the narration asserts more than its event "
+                                  f"({row['verdict']}): "
+                                  + ", ".join(row.get("unsupported_details") or []),
+                       "supported_core": row.get("supported_core"),
+                       "unsupported_details": row.get("unsupported_details")})
+    # An outage is not a content failure, but it is not a pass either. It blocks and says why.
+    for row in report["unavailable"]:
+        errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": row["beat_id"],
+                       "message": f"{row['beat_id']}: {row['stage']} entailment could not be "
+                                  f"judged — {row.get('reason')}", "retryable": True})
+    return {
+        "version": 2,
+        "passed": report["passed"],
+        "structure_status": report["structure_status"],
+        "claim_count": len(_claim_index(dossier)),
+        "errors": errors,
+        "indeterminate_kinds": report["indeterminate_kinds"],
+        "skipped_for_structure": report["skipped_for_structure"],
+        "retryable": bool(report["unavailable"]),
+    }
+
+
+def script_has_events(script: dict) -> bool:
+    """Does this script carry the fact model, or is it an older one bound phrase-by-phrase?"""
+    for scene in (script or {}).get("scenes") or []:
+        event = scene.get("event")
+        if isinstance(event, dict) and _text(event.get("text")):
+            return True
+        if isinstance(event, str) and _text(event):
+            return True
+    return False
+
+
 def validate_claim_joins(script: dict, dossier: dict) -> dict:
     """Verify source → claim → complete narrated assertion → visible evidence joins.
 

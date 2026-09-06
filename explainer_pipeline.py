@@ -68,6 +68,7 @@ from longform_evidence import (
 )
 from longform_motion import (
     compile_motion_plan,
+    reselect_after_measurement,
     freeze_opening_manifest,
     motion_prompt,
     normalize_motion_mode,
@@ -411,6 +412,19 @@ _LITERAL_SCENE_DIRECTION = (
 # NOT actual billing. Sora-2 720p = $0.10/s. Veo 3.1 Fast = $0.15/s WITH audio — verified
 # 2026-06 against Google/3rd-party pricing pages (was wrongly $0.10 → ~50% undercount). Still
 # confirm against a real Google Cloud invoice line if billing matters; override via I2V_RATE_SEC.
+# Every provider this pipeline can be pointed at, and what a second of it costs.
+# fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
+# wan = SELF-HOSTED marginal GPU cost, measured 2026-09: a 5.2s H3 clip renders in
+# 34-45s on a $0.99/hr RTX 5090 => ~$0.01/clip => ~0.002/s. Not an API list price.
+#
+# This is also the roster the generation manifest must be able to name a model for. It was an
+# inline literal, and when `wan` was added here and to the generation branch but NOT to
+# _motion_model_id, every job configured for wan died at manifest creation -- 175 lines before
+# research, hard-failed with no retry, for a provider it was never going to call on a stills
+# render. Naming the roster once makes that divergence a test rather than an outage.
+I2V_RATE_BY_PROVIDER = {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.002}
+
+
 def _resolve_i2v_rate() -> float:
     """USD/sec for the cost guard + display. I2V_RATE_SEC overrides, but is GUARDED: an empty,
     non-numeric, or <=0 value (e.g. a bare `I2V_RATE_SEC=` left in .env) falls through to the
@@ -425,10 +439,7 @@ def _resolve_i2v_rate() -> float:
         except ValueError:
             pass
     primary = I2V_PROVIDER.split(",")[0].strip()
-    # fal=0.056/s = Kling v2.1 standard ($0.28/5s, verified on fal.ai 2026-07). Was 0.05 (~11% low).
-    # wan = SELF-HOSTED marginal GPU cost, measured 2026-09: a 5.2s H3 clip renders in
-    # 34-45s on a $0.99/hr RTX 5090 => ~$0.01/clip => ~0.002/s. Not an API list price.
-    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.002}.get(primary, 0.15)
+    return I2V_RATE_BY_PROVIDER.get(primary, 0.15)
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
@@ -500,6 +511,13 @@ MASCOT_DESC = (
 )
 MASCOT_REF = os.path.join(_HERE, "assets", "mascot", "bolt.png")
 HUMAN_NAME = "Alex"
+# Alex is a MODERN explainer host who stands inside the story, whatever period the story is set in.
+# That is a deliberate convention, not an oversight: the continuity pack locks one wardrobe for
+# every video so the same person is recognisable across a series, and the visual verifier rejects
+# any frame where he is dressed differently. Without saying so, the image model reasonably
+# period-dresses him -- a Delhi bounty-desk scene came back with a cream turban and a vest, and was
+# rejected for a mismatch the prompt never warned it about. The period belongs to the setting, the
+# props and everyone else in frame; Alex wears the same clothes in 1890 as in a kitchen today.
 HUMAN_DESC = (
     "Alex, the recurring human lead shown in the attached reference: an adult man with short "
     "brown hair, light stubble, navy overshirt, light gray T-shirt, dark jeans, and dark sneakers"
@@ -507,8 +525,24 @@ HUMAN_DESC = (
 HUMAN_REF = os.path.join(_HERE, "assets", "mascot", "human-model.png")
 HUMAN_REF_LINE = (
     "Use the attached human reference image to keep Alex exactly consistent: same face, hair, "
-    "navy overshirt, gray T-shirt, dark jeans, build, and apparent age."
+    "navy overshirt, gray T-shirt, dark jeans, build, and apparent age. "
+    "This holds in EVERY period. Alex is a present-day host who appears inside historical scenes "
+    "wearing his own modern clothes -- never a costume, headwear or uniform belonging to the era. "
+    "The period is carried by the location, the props and the other people in frame, not by him."
 )
+
+
+def _opening_object_wanted(state: dict, continuity_pack: dict | None) -> bool:
+    """Did this state's own prompt ask for the opening object to be in frame?
+
+    required_objects is what reaches the image model. If the object is not in there, the model was
+    never told to draw it and rejecting the frame for its absence tests the plan, not the picture.
+    """
+    label = _s(((continuity_pack or {}).get("opening_object") or {}).get("label")).casefold()
+    if not label:
+        return False
+    required = [_s(item).casefold() for item in (state.get("required_objects") or [])]
+    return any(label == item or label in item or item in label for item in required if item)
 
 
 def _scene_reference_paths(scene: dict, *, human_ok: bool, mascot_ok: bool) -> list[str] | None:
@@ -1611,10 +1645,12 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
             messages=[{"role": "user", "content":
                        f'This opening line is {len(hook.split())} words and must be at most '
                        f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
-                       "Rewrite it shorter. It must still PROMISE the shape of the story rather "
-                       "than summarise it, keep the same subject and the same intrigue, and read "
-                       "aloud as one clean sentence. Do not add a new claim. Do not make it "
-                       'generic. Return {"hook":"..."}'}],
+                       "Rewrite it shorter. It must still NAME THE ACTOR AND THE REVERSAL in "
+                       "plain words, keep the same subject, and read aloud as one clean sentence. "
+                       "Withhold only the payoff noun. Do not add a new claim, and do not make it "
+                       "cryptic: \"How the British Empire tried to solve a problem and "
+                       "accidentally made it much worse\" is the target register — plain, "
+                       'specific, and a promise rather than a riddle. Return {"hook":"..."}'}],
         )
         cost = _msg_cost(response.usage)
         if cost_sink is not None:
@@ -1631,6 +1667,118 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     if scenes and hook in _s(scenes[0].get("narration")):
         scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
     script["hook"] = rewritten
+    return script, cost
+
+
+def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: None,
+                              research_dossier: dict | None = None) -> tuple[dict, float]:
+    """Bring an over-long hinge inside the word budget by REWRITING it, never by truncating.
+
+    The hinge is the sentence that breaks the false resolution, and the contract caps it at
+    MAX_HINGE_WORDS because "Except the problem is not solved." is six words -- a long hinge is not
+    a hinge. But over-length is not a story defect the way a missing beat is, and SOFT_HINGE killed
+    an otherwise renderable draft at 13 words against a budget of 10, after research, script,
+    fact-check and grading were all paid for. This is the same shape as LONG_HOOK, which already
+    gets _ensure_hook_fits_budget on the line above the storyboard call.
+
+    Trimming is specifically NOT the fix. An earlier build cut words off the hinge mechanically and
+    deleted the turn while every check went green -- the note in _ensure_hook_fits_budget records
+    it. A hinge that no longer breaks anything passes a word count and fails the video.
+
+    Unlike the hook, the hinge IS scene narration, so its claim refs and anchor phrases are bound to
+    the exact wording. The rewrite therefore re-derives those bindings and, if the result is worse
+    than what it started with, puts the original sentence back. Best-effort in the manner of its
+    siblings: any failure returns the script unchanged, so it can only help.
+    """
+    import causal_story as _cs
+
+    scenes = script.get("scenes") or []
+    index = next((i for i, scene in enumerate(scenes)
+                  if _s(scene.get("causal_role")).lower() == _cs.HINGE), None)
+    if index is None:
+        return script, 0.0
+    original = _s(scenes[index].get("narration"))
+    if not original or len(original.split()) <= _cs.MAX_HINGE_WORDS:
+        return script, 0.0
+
+    # The claim this sentence carries, if any. Naming it in the prompt is the difference between a
+    # rewrite that keeps its evidence and one that has to be thrown away: the first attempt on a
+    # live run came back shorter, lost its source, was correctly reverted, and the render then died
+    # on the eleven-word hinge it had just declined to fix. Telling the writer what must survive
+    # costs nothing and is the only instruction it was missing.
+    claim_phrases = [
+        _s((ref or {}).get("narration_phrase"))
+        for ref in (scenes[index].get("claim_refs") or []) if isinstance(ref, dict)
+    ]
+    keep = "; ".join(phrase for phrase in claim_phrases if phrase)[:300]
+    keep_rule = (
+        f'\nTHIS SENTENCE CARRIES SOURCED EVIDENCE: "{keep}". The shorter version must still '
+        "state that same fact, in its own words if need be, because a hinge that loses its source "
+        "is rejected and the original is kept instead.\n" if keep else "")
+
+    cost = 0.0
+    rewritten = ""
+    try:
+        for attempt in range(2):
+            harder = ("\nYour previous attempt was DISCARDED for dropping the sourced fact above. "
+                      "Shorten differently and keep that fact.\n" if attempt else "")
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=300,
+                system="You tighten one sentence in a narrated explainer. Return ONLY JSON.",
+                messages=[{"role": "user", "content":
+                           f'This sentence is the HINGE of a causal story: the flat statement that '
+                           f'breaks an apparent success and turns the story. It is '
+                           f'{len(original.split())} words and must be at most '
+                           f'{_cs.MAX_HINGE_WORDS}:\n\n"{original}"\n\n'
+                           "Rewrite it shorter. It must still BREAK the apparent success -- keep "
+                           "the same turn, the same subject and the same facts. It is a flat "
+                           "statement, never a question, it names no new topic, and it adds no new "
+                           "claim. Reference hinges read like \"Except the problem is not "
+                           'solved." and "The system works perfectly until the rains stop."\n'
+                           + keep_rule + harder
+                           + 'Return {"hinge":"..."}'}],
+            )
+            cost += _msg_cost(response.usage)
+            if cost_sink is not None:
+                cost_sink.append(_msg_cost(response.usage))
+            parsed, repair_cost = _parse_script_json(response.content[0].text)
+            cost += repair_cost or 0.0
+            candidate = _s((parsed or {}).get("hinge"))
+            if candidate and len(candidate.split()) <= _cs.MAX_HINGE_WORDS:
+                rewritten = candidate
+                break
+    except Exception:
+        return script, cost
+    if not rewritten:
+        return script, cost                       # still over: leave the original alone
+
+    # Only compare bindings once there is a rewrite worth keeping. Measuring before the call ran
+    # claim validation on drafts that were about to be left alone, which is work bought for nothing
+    # on the common path and a second failure surface on a script that has no claims at all.
+    def _joins_pass() -> bool:
+        try:
+            return bool((validate_claim_joins(script, research_dossier) or {}).get("passed"))
+        except Exception:
+            return True     # unmeasurable is not the same as broken; do not revert on it
+
+    before_ok = _joins_pass()
+    scenes[index]["narration"] = rewritten
+    try:
+        rederive_narration_bindings(script, log, research_dossier)
+    except Exception:
+        pass
+    # Keep the shorter hinge only if it did not cost the scene its evidence. A sourced claim is a
+    # harder contract than a word budget, and the storyboard reports SOFT_HINGE as one error among
+    # many -- trading it for an unsourced claim is a worse draft that reads greener.
+    if before_ok and not _joins_pass():
+        scenes[index]["narration"] = original
+        try:
+            rederive_narration_bindings(script, log, research_dossier)
+        except Exception:
+            pass
+        log(f"  hinge left at {len(original.split())} words: the shorter version lost its source")
+        return script, cost
+    log(f"Hinge: rewritten from {len(original.split())} to {len(rewritten.split())} words")
     return script, cost
 
 
@@ -1811,6 +1959,57 @@ def _opening_expansion_direction(story_format: str, is_first: bool) -> str:
     )
 
 
+# The per-beat word floor the sheet planner writes to, lifted out of _generate_script_chunked so
+# the feasibility check below uses the SAME number. 25 is measured, not chosen: the planner writes
+# ~25-27 words per scene almost regardless of the budget it is handed (asked 19 it wrote 23, asked
+# 16 it wrote 27), so a plan whose beats cannot each hold 25 words is one the planner will overshoot
+# rather than obey.
+_WORD_FLOOR = 25
+
+
+def _engine_runtime_fit(engine_id: str, duration_sec: float) -> dict:
+    """Can this engine's required beats be spoken inside the requested runtime?
+
+    Every required role needs a beat of its own and every beat needs _WORD_FLOOR words, so an
+    engine has a hard minimum word count. The runtime contract has a hard maximum. When the minimum
+    exceeds the maximum the plan is over budget before a word is written, and nothing downstream
+    can recover it: the beats cannot be dropped because the engine requires them, and they cannot be
+    shortened because the planner will not write below the floor.
+
+    Measured on the current catalogue: below ~73s backfiring_solution cannot fit, and below ~45s no
+    engine can. Job act_de546a5c asked for 60s of backfiring_solution -- 225 required words against
+    a 176-word ceiling. It was unrenderable before the first paid call, and the pipeline bought
+    research, a script and a fact-check pass to discover that at the storyboard, spending 77% of its
+    ceiling to prove the story could not be told.
+    """
+    import story_engines as _se
+    beats = _se.minimum_beats(_se.get(engine_id))
+    ceiling = runtime_word_bounds(duration_sec, beats)[2]
+    demanded = beats * _WORD_FLOOR
+    return {"engine_id": _se.resolve_id(engine_id), "minimum_beats": beats,
+            "word_ceiling": ceiling, "words_demanded": demanded,
+            "fits": demanded <= ceiling}
+
+
+def _feasible_engines(duration_sec: float) -> list[str]:
+    """Engine ids whose required beats fit the requested runtime. Provider-free and free."""
+    import story_engines as _se
+    return [engine_id for engine_id in _se.ENGINES
+            if _engine_runtime_fit(engine_id, duration_sec)["fits"]]
+
+
+def _minimum_feasible_runtime(engine_id: str, duration_sec: float) -> int:
+    """Shortest whole second at or above duration_sec where this engine fits. 0 if it never does.
+
+    Reported in the failure message so the operator is told what to change, not merely that the
+    runtime was wrong.
+    """
+    for candidate in range(max(1, int(duration_sec)), max(1, int(duration_sec)) + 601):
+        if _engine_runtime_fit(engine_id, candidate)["fits"]:
+            return candidate
+    return 0
+
+
 def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> str:
     """Choose the narrative engine BEFORE the beat sheet is written.
 
@@ -1830,6 +2029,23 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
     import story_engines as _se
     import reference_corpus as _rc
 
+    # DECIDE FEASIBILITY BEFORE ASKING. Runtime fit used to reach the model as prose -- the block
+    # below still says so in its own first line, "planning guidance, not a gate or an engine ban" --
+    # and a preference expressed in prose loses to the model's read of which shape the topic has.
+    # An engine whose required beats cannot fit the runtime is not a preference to weigh; it is a
+    # plan that fails arithmetic, so it is removed from the menu rather than argued against.
+    feasible = _feasible_engines(duration_sec)
+    if not feasible:
+        shortest = min((_minimum_feasible_runtime(engine_id, duration_sec) or 10**6)
+                       for engine_id in _se.ENGINES)
+        raise ValueError(
+            f"No narrative engine fits a {duration_sec}s runtime: every engine needs more beats "
+            f"than {duration_sec}s of speech can hold at the {_WORD_FLOOR}-word floor. The "
+            f"shortest workable runtime is {shortest}s.")
+    if len(feasible) < len(_se.ENGINES):
+        print(f"[engine] {duration_sec}s fits {len(feasible)}/{len(_se.ENGINES)} engines: "
+              + ", ".join(feasible))
+
     try:
         response = _claude().messages.create(
             model=ANTHROPIC_MODEL, max_tokens=400,
@@ -1837,8 +2053,8 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
                        f'A {duration_sec}-second explainer will answer: "{question}"\n\n'
                        "Choose the ONE narrative engine whose shape this true story actually has. "
                        "Do not pick by topic; pick by how the story turns.\n"
-                       + _se.catalogue()
-                       + "\n" + _rc.runtime_fit_block(duration_sec)
+                       + _se.catalogue(feasible)
+                       + "\n" + _rc.runtime_fit_block(duration_sec, only=feasible)
                        + "\nPrefer a reference opening that fits this runtime WHEN the story also "
                        "fits that engine. If the truthful engine needs compression, keep the "
                        "engine and explain the required compression. Never change the facts or "
@@ -1849,13 +2065,20 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
             cost_sink.append(_msg_cost(response.usage))
         parsed, _ = _parse_script_json(response.content[0].text)
         chosen = _s((parsed or {}).get("engine"))
-        if chosen in _se.ENGINES:
+        if chosen in feasible:
             print(f"[engine] {chosen} chosen before the beat sheet")
             return chosen
+        if chosen in _se.ENGINES:
+            print(f"[engine] {chosen} does not fit {duration_sec}s; it was not offered")
     except Exception as exc:
         print(f"[engine] selection unavailable ({type(exc).__name__}), "
-              f"falling back to {_se.DEFAULT_ENGINE}: {str(exc)[:100]}")
-    return _se.DEFAULT_ENGINE
+              f"falling back to a feasible engine: {str(exc)[:100]}")
+    # The default engine is the cobra reference and is preferred where it fits, but it is the
+    # LONGEST of the five and the first to fall out of a short runtime. Falling back to it blindly
+    # reintroduces exactly the impossible pairing this function exists to prevent.
+    fallback = _se.DEFAULT_ENGINE if _se.DEFAULT_ENGINE in feasible else feasible[0]
+    print(f"[engine] falling back to {fallback}")
+    return fallback
 
 
 def _assign_causal_spine(beats: list, question: str, duration_sec: int,
@@ -1907,7 +2130,12 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         "- Nothing follows the reversal except generalization and the close.\n"
         "- THE HINGE follows its selected engine's order. Where there is a false_resolution, "
         "it breaks that apparent success; for accidental_invention it states the anomaly. "
-        "It is a flat statement, never a question, and it "
+        "It is REQUIRED and must always be present. It is a flat statement, never a question, and "
+        "it cites nothing: the reference hinges are \"Except the problem is not solved.\" and "
+        "\"Except the cobras didn't disappear.\" -- six and five words, no statistic, no source, "
+        "because a turn is a structural beat rather than evidence. Keep the sourced fact in the "
+        "beat the hinge BREAKS, or the one after it, and let the hinge be the plain sentence that "
+        "turns the story. It also "
         "names no new topic. Reference hinges read like \"Except the problem is not solved.\" and "
         "\"The system works perfectly until the rains stop.\" A beat that asks which of two "
         "causes mattered, or that says a variant of \"here is the strange part\", is NOT a hinge: "
@@ -1921,8 +2149,9 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
             for key, value in _se.ENGINES.items()) + ".\n"
         +
         f"- Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} chapters, numbered from 1 "
-        "with no gaps, each a contiguous run of beats.\n"
-        f"- parallel_cases: at least {_cs.MIN_PARALLEL_CASES} real cases from OTHER domains that "
+        "with no gaps, each a contiguous run of beats. "
+        + 'Use the FEWEST chapters the story needs, and prefer {lo} unless the material genuinely demands more. A spoken number is a hard stop in the narration -- the viewer hears the story pause and restart -- so a chapter earns its marker only when the story has actually turned. The 64-second reference tells this shape in {lo}: its first chapter carries setup, intervention, false resolution and hinge together, and only then says the next number. A generated draft of the same story used six, which is six full stops in ninety seconds.\\n'.format(lo=_cs.MIN_CHAPTERS)
+        + f"- parallel_cases: at least {_cs.MIN_PARALLEL_CASES} real cases from OTHER domains that "
         "show the same pattern, but ONLY if you label a generalization beat; otherwise [].")
 
     o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=4000,
@@ -2021,8 +2250,11 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         # threading a flag through that chain is exactly how causal_lane got dropped at one of its
         # two call sites — every scene came back with a blank role and the run was wasted. The
         # explicit argument stays for tests and for a caller that wants to override.
+        # Explicit argument, then the env override, then what this ENGINE's corpus support
+        # justifies. The last is not the global default: an engine with two or more references has
+        # met the condition DEFAULT_ADHERENCE's own note sets for widening, and a thin one has not.
         adherence = (adherence or os.getenv("BLUEPRINT_ADHERENCE", "").strip()
-                     or _rc.DEFAULT_ADHERENCE)
+                     or _rc.adherence_for_engine(engine_id))
         # A kill switch, so the lane can be rolled back to the hand-written rules without a deploy
         # — and so the blueprint's effect can be A/B'd rather than assumed.
         if adherence == "off":
@@ -2134,7 +2366,6 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # So the lever is scene COUNT, not words per scene — a 171-word budget is 7 scenes at the rate
     # the model actually writes, not 9 or 14. This is also why cadence kept failing: squeezed scenes
     # produce a 6-word median, while 25 words comfortably holds a long sentence and a short one.
-    _WORD_FLOOR = 25
     while n_scenes > 4 and n_scenes * _WORD_FLOOR > runtime_word_bounds(duration_sec, n_scenes)[2]:
         n_scenes -= 1
     total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
@@ -2169,11 +2400,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         cost += sum(selection_costs)
         sheet_engine = _se.get(sheet_engine_id)
         blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
-        # One role per beat requires space for every required role and repeated escalation.
-        # The generic 25-word floor could reduce a 90s story below this structural minimum.
-        minimum_beats = (len(set(sheet_engine["required"]) - {_cs.ESCALATION})
-                         + _cs.MIN_ESCALATIONS)
-        n_scenes = max(n_scenes, minimum_beats)
+        # One role per beat requires space for every required role and repeated escalation, so the
+        # generic word floor above can shed a story below its own structural minimum. Raising the
+        # count back is correct ONLY when the runtime can pay for those beats. This line used to do
+        # it unconditionally, which is how a 60s request became a 225-word plan against a 176-word
+        # ceiling: the loop above had ALREADY proved 9 beats did not fit, and this undid it without
+        # saying so. _select_story_engine now only returns engines that fit, so the raise is a no-op
+        # on the normal path -- but a REPLAN pins its engine and skips selection, and an engine
+        # pinned for one runtime can be re-planned at another. That is the case worth reporting.
+        fit = _engine_runtime_fit(sheet_engine_id, duration_sec)
+        if not fit["fits"]:
+            workable = _minimum_feasible_runtime(sheet_engine_id, duration_sec)
+            raise ValueError(
+                f"{sheet_engine_id} needs {fit['minimum_beats']} beats "
+                f"({fit['words_demanded']} words at the {_WORD_FLOOR}-word floor) but a "
+                f"{duration_sec}s runtime allows {fit['word_ceiling']}. "
+                + (f"Raise the runtime to {workable}s or pick an engine that fits."
+                   if workable else "No runtime makes this engine fit.")
+                + " This cannot be repaired after the script is bought.")
+        n_scenes = max(n_scenes, fit["minimum_beats"])
         total_words = runtime_word_bounds(duration_sec, n_scenes)[0]
         # The order this engine actually runs, not one order for all five.
         engine_order = _se.expected_order(sheet_engine_id)
@@ -2203,10 +2448,73 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         causal_keys = (
             ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",'
             '"caused_by":<the beat number n this beat happens BECAUSE of; 0 for the setup only>,'
-            '"chapter":<int, the spoken chapter this beat belongs to>')
-        causal_rules = (
+            '"chapter":<int, the spoken chapter this beat belongs to>,'
+            '"scope":"primary_story|parallel_case — primary_story for every beat about THIS '
+            "video's subject; parallel_case only for a comparison from another place or domain, "
+            'and only on a generalization beat",'
+            '"parallel_case_id":"<short id of the comparison this beat belongs to, e.g. '
+            'hanoi_rat_bounty; \'\' for primary_story beats>",'
+            '"event":{"text":"<ONE plain factual sentence stating what actually happened in this '
+            "beat, written as a historian would state it: no imagery, no rhetoric, no dramatisation. "
+            "'Residents began keeping rats alive and raising them to exploit the tail bounty.' "
+            "Leave '' when the beat asserts no history — a transition, a rhetorical question or a "
+            'restatement carries the story without carrying a fact>",'
+            '"claim_refs":["<claim_id supporting this event; several may be needed TOGETHER, and '
+            'the event may state something no single claim states alone>"]},'
+            '"changes_state":{"from":"<what was true before this beat>",'
+            '"to":"<what is true after it>"}')
+        # NO RECURRING CHARACTER IN THE NARRATION EITHER. Clearing the scene cast flags kept Alex
+        # out of the pictures and left him in the words: a script came back saying "So Alex offered
+        # cash per dead cobra" and "Alex saw the trick and pulled the plug" about a colonial
+        # administration in 1890s Delhi. The narration naming a modern recurring host as the
+        # historical actor is the same authenticity break as drawing him there, and the visual fix
+        # cannot reach it -- by the time the images are made, the sentence is already written.
+        cast_rules = ("" if not _illustrated_is_cast_free() else
+                      "\nCAST: this story has NO recurring characters and NO named host. Never "
+                      "write Alex, Bolt, or any invented stand-in into the narration. Name the real "
+                      "actors the history had -- 'colonial officials', 'the bounty clerks', "
+                      "'Delhi residents', 'the breeders' -- or use no name at all. Set "
+                      "human_present and mascot_present to false on every scene.\n")
+        causal_rules = (cast_rules + 
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
-            "the situation inverts. Name the shape, not the topic; do not summarize the video.\n"
+            "the situation inverts. Write it as a complete grammatical sentence whose SUBJECT is a "
+            "named actor, and let that one actor carry both halves: they do the sensible thing AND "
+            "they cause the disaster. Keeping a single subject across the turn is where the force "
+            "comes from — switching the second clause to an abstract subject drops the actor at the "
+            "moment of the reversal, and nobody is left responsible for it.\n"
+            "Name the real things: the country, the century, the actual object. Every reference "
+            "does — \"How the British Empire tried to solve a problem and accidentally made it "
+            "much worse\", \"Why the British starved the Indians\", \"America freed the slaves "
+            "and paid their owners instead\", \"America once considered fighting a weed with "
+            "hippopotamuses\". Opening on \"How\" or \"Why\" is idiomatic here and is usually "
+            "the cleanest route to one subject and two verbs.\n"
+            "\nTHE FACT MODEL — separate what HAPPENED from how you SAY it:\n"
+            "F1. event.text is the historian's sentence: the bare fact, no imagery, no rhetoric. "
+            "The beat's narration is written from it later and may be as vivid as you like, so put "
+            "nothing decorative in the event and nothing unsupported in the beat.\n"
+            "F2. event.claim_refs are the claims that support that sentence TOGETHER. An event may "
+            "state something no single claim states alone — 'paid per tail' plus 'living tailless "
+            "rats were seen' together support 'people cut the tails off and kept the animals "
+            "alive'. Cite every claim the event needs, not the closest one.\n"
+            "F3. A beat that asserts no history gets event.text = \"\" and no claim_refs. "
+            "Transitions, rhetorical questions and framing carry the story without carrying a "
+            "fact, and inventing a citation for them makes every beat look sourced while none of "
+            "them is checkable. This does NOT apply to the six load-bearing roles: "
+            + ", ".join(_sfm.REQUIRED_SPINE_ROLES) + ". Each of those MUST carry an event. "
+            "The mechanism especially: a rule about incentives is still a fact about what the "
+            "policy paid for -- write 'the bounty paid for a tail, not for a dead rat' as the "
+            "event and cite it. A mechanism with an empty event is the one beat the story "
+            "cannot do without and the one nothing can check.\n"
+            "F4. The event is the FACTUAL CEILING for everything downstream. Numbers, dates, "
+            "places, materials, scale, secrecy, named people and motives may appear in the "
+            "narration ONLY if they are in the event, and they may only be in the event if a claim "
+            "supports them. Write the event first and the beat cannot drift.\n"
+            "F5. scope marks provenance. A comparison from another country or domain is "
+            "parallel_case with a parallel_case_id, and it may ONLY sit on a generalization beat — "
+            "an escalation is THIS story getting worse, and leaving for another example before "
+            "this story resolves reads as the video changing subject. Everything else is "
+            "primary_story, and a primary_story beat may not cite a claim that belongs only to a "
+            "comparison.\n"
             "\nDECLARED CAUSAL CHAIN — this video is a chain, not a list:\n"
             f"A. This story runs THE {sheet_engine['name'].upper()}: "
             + " -> ".join(engine_order)
@@ -2249,7 +2557,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "otherwise it breaks the apparent success in the engine's order.\n"
             f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} spoken chapters, "
             "numbered from 1 with no gaps, and say the number out loud in the narration of the "
-            "beat that opens each one.\n")
+            "beat that opens each one.\n"
+            + "   " + 'Use the FEWEST chapters the story needs, and prefer {lo} unless the material genuinely demands more. A spoken number is a hard stop in the narration -- the viewer hears the story pause and restart -- so a chapter earns its marker only when the story has actually turned. The 64-second reference tells this shape in {lo}: its first chapter carries setup, intervention, false resolution and hinge together, and only then says the next number. A generated draft of the same story used six, which is six full stops in ninety seconds.\\n'.format(lo=_cs.MIN_CHAPTERS))
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
     beat_prompt = (
@@ -2534,6 +2843,32 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
+        # VALIDATE THE STORY BEFORE TELLING IT.
+        #
+        # The sheet now carries an event per beat and the claims meant to support it, which is
+        # everything the structural rules and the evidence boundary need. Narration does not exist
+        # yet, so the fidelity boundary has nothing to measure and skips itself.
+        #
+        # Asking here rather than after expansion is the difference between refusing a story and
+        # buying one first. A measured run researched Delhi, planned a spine whose breeding,
+        # cancellation and outcome beats the archives do not evidence, spent a 20k-token expansion
+        # writing genuinely good narration for all of it, and only then discovered the events were
+        # unsupportable. The prose was excellent and unusable. It is also where two beats declared
+        # themselves parallel_case and sat in escalation roles -- a subject change the sheet should
+        # never have been allowed to spend an expansion on.
+        _spine_cost: list = []
+        _sb = _spine_beats(beats)
+        _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
+                                    _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
+        cost += sum(_spine_cost)
+        print(_sfm.spine_summary(_sb, _spine))
+        if not _spine["passed"] and not _diagnostic_render():
+            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine))
+        # Expansion writes only what survived. A collapsed duplicate or a pruned comparison must not
+        # reach narration, or the layer below spends a call on a beat the fact model removed.
+        _keep = set(_spine["kept_beats"])
+        beats = [beat for index, beat in enumerate(beats)
+                 if f"beat_{index + 1:02d}" in _keep]
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -2640,7 +2975,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             **({"narration_words": causal_budgets[beat["n"]]} if causal_lane else {}),
             **({"causal_role": _s(beat.get("causal_role")),
                 "caused_by": beat.get("caused_by") or "",
-                "chapter": beat.get("chapter") or 0} if causal_lane else {}),
+                "chapter": beat.get("chapter") or 0,
+                # The factual ceiling travels WITH the beat. Without it on the sheet the expansion
+                # is told to write from an event it cannot see, which is how the runtime refit once
+                # came to compress against a budget it was never shown.
+                "event": beat.get("event") or {},
+                "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -2691,6 +3031,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "its assigned beat; local consequences may appear earlier. Include spoken chapter "
             "markers inside each narration_words budget. Do not add the hook or format tag: "
             "they are prepended once after expansion and budgeted separately."
+            " WRITE EACH NARRATION FROM ITS BEAT'S event.text, which is the FACTUAL CEILING for "
+            "that beat. Say it however you like — as a scene, a question, a short punch, in your "
+            "own words, with the story's own rhythm. You may not add a fact the event does not "
+            "contain: no number, date, place, material, quantity, scale, named person, stated "
+            "motive or characterisation such as 'secret' or 'overnight' unless the event already "
+            "has it. \"Residents raised rats for the bounty\" may become \"Then somebody "
+            "noticed: why kill the rat when the tail was the part that paid?\" — that is the same "
+            "fact, told well. It may NOT become \"hundreds of secret rat farms sprang up behind "
+            "mud-brick homes overnight\", which invents a number, a secrecy, a building material "
+            "and a timescale nobody researched. A beat whose event.text is empty asserts no "
+            "history: write it as pure connective or rhetoric and it needs no evidence at all."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role and "
@@ -2797,6 +3148,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
+                # Carried from the plan rather than re-derived. The event is what the narration was
+                # written against, so a later pass that re-reads the prose to guess its facts would
+                # be reconstructing exactly the thing this layer exists to state once.
+                s["event"] = beat.get("event") or {}
+                s["scope"] = _s(beat.get("scope")) or "primary_story"
+                if _s(beat.get("parallel_case_id")):
+                    s["parallel_case_id"] = _s(beat.get("parallel_case_id"))
+                if isinstance(beat.get("changes_state"), dict):
+                    s["changes_state"] = beat["changes_state"]
                 parent = beat.get("caused_by")
                 try:
                     parent = int(parent)
@@ -3172,6 +3532,25 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
         '"source_url":"https://...","support_quote":"short exact excerpt from the cited search evidence",'
         '"source_type":"primary|authoritative_secondary",'
+        '"claim_kind":"event|mechanism|context|outcome|general_principle|unknown — '
+        "what KIND of thing this claim is. event: a specific thing that happened. mechanism: why it "
+        "happened, the rule connecting cause to effect. context: background conditions. outcome: "
+        "the end state. general_principle: an abstract law that holds beyond this story. Classify "
+        "what the claim IS, never whose story it belongs to — a claim about a comparable episode "
+        "elsewhere is still an event or an outcome, and which case it belongs to is recorded "
+        "separately. A claim explaining WHY "
+        "something happened does not evidence THAT it happened, so the distinction between event "
+        "and mechanism is the one that matters most. Use 'unknown' when the claim genuinely does "
+        "not fit one kind — a wrong label is worse than no label, because downstream checks trust "
+        'it and a mislabelled claim passes a gate it should have failed",'
+        '"claim_kind_confidence":<0.0-1.0 for the chosen kind>,'
+        '"runner_up_kind":"<the SECOND best kind for this claim, or \'\' if nothing else fits>",'
+        '"runner_up_confidence":<0.0-1.0 for that runner-up>",'
+        ' — score the top two honestly against each other. Many claims genuinely sit between two '
+        "kinds: a comparable episode elsewhere is an event AND context for this story, and a "
+        "statement about how widely a law applies is a general_principle AND context. When the two "
+        "are close, say so with the scores rather than forcing a winner — a near-tie is read as "
+        'unknown downstream and the claim is judged on meaning instead, which is the right outcome",'
         '"calculation":"formula or empty","assumptions":[],"geographic_scope":"global|regional|local|site-specific",'
         '"timescale":"immediate|hours|years|millions of years|other explicit value",'
         '"confidence":"high|medium|speculative","allowed_exaggeration":false,"material":true}]}. '
@@ -3916,15 +4295,49 @@ def _evidence_reference_paths(state: dict, *, human_ok: bool, mascot_ok: bool,
     return refs or None
 
 
+# Redraws allowed per rejected evidence state before the run fails. Two, not one: the first redraw
+# fixes the fault the inspector named, and the second exists because fixing one fault can lose
+# another. Not more, because a state the model has missed three times with the reason in hand is a
+# planning problem, and buying a fourth image hides it.
+_EVIDENCE_REDRAWS = int(os.environ.get("EVIDENCE_REDRAWS", "2"))
+
+
+def _illustrated_is_cast_free() -> bool:
+    """Does the illustrated lane run without Bolt or the recurring human lead?
+
+    ILLUSTRATED_CAST=stock restores them. Default is cast-free because the references it copies
+    put anonymous, period-coded figures in the scene and keep the recurring avatar out of it.
+    """
+    return (os.environ.get("ILLUSTRATED_CAST", "none") or "none").strip().lower() != "stock"
+
+
 def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
                            style_suffix: str) -> str:
     required = "; ".join(_s(item) for item in state.get("required_objects") or [])
     forbidden = "; ".join(_s(item) for item in state.get("forbidden_objects") or []) or "none"
-    cast = "No characters. Show only physical evidence."
+    # SAY WHAT THE REFERENCE IS FOR. Generation and verification are handed the SAME reference
+    # images, but only the verifier was told what to do with them -- this prompt named Alex and
+    # never described him, so the model read "a Delhi administrative office with a bounty desk"
+    # and dressed him for it. Two runs came back in a turban and were rejected against a reference
+    # the generator was never asked to follow. An unexplained attachment is not an instruction.
+    # Three modes, not two. A state with no NAMED cast is not necessarily a state with no PEOPLE:
+    # the references put anonymous, period-coded figures in almost every frame -- "authority
+    # figures marked by uniform hats, the ordinary population marked by regional dress" -- and only
+    # a pure-evidence state is genuinely empty of them. Collapsing those two cases gave a cast-free
+    # lane empty desks where the narration described officials and breeders.
+    cast = (
+        "No named or recurring characters. Populate the scene with the ANONYMOUS figures the "
+        "moment needs -- officials, workers, crowds -- drawn in the same round-headed style and "
+        "dressed for the story's own place and century, never in modern clothing. Identity is "
+        "carried by dress, headwear and posture, not by faces. No character recurs by name."
+        if not state.get("pure_evidence") else
+        "No characters. Show only physical evidence.")
     if state.get("include_human") and state.get("include_bolt"):
-        cast = "Alex performs the declared investigation action while Bolt materially assists."
+        cast = ("Alex performs the declared investigation action while Bolt materially assists. "
+                + HUMAN_REF_LINE)
     elif state.get("include_human"):
-        cast = "Alex performs the declared investigation action; Bolt is absent."
+        cast = ("Alex performs the declared investigation action; Bolt is absent. "
+                + HUMAN_REF_LINE)
     elif state.get("include_bolt"):
         cast = "Bolt performs the declared useful action; Alex is outside the frame."
     location = _s((continuity_pack.get("first_act_location") or {}).get("label"))
@@ -3945,6 +4358,43 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
         + "The image must prove the state change without labels, arrows, text, or narration cards. "
         + style_suffix
     )
+
+
+# The reframe path writes its verdict here so the caller can use it without recomputing. A single
+# slot is safe: states are generated one at a time inside _gen_evidence_assets, and the value is
+# consumed on the line after it is set.
+_last_reframe_verification: list = [None]
+
+
+def _detail_reframe_earns_it(source_path: str, state_path: str, state: dict,
+                             continuity_pack: dict, cost_sink: list,
+                             identity_by_silhouette: bool) -> bool:
+    """Try the free centre crop, and say whether it actually proved this state.
+
+    A detail reframe is a cost-saving shortcut: it crops the middle 68% of an image already paid
+    for and "earns information only after vision verification". When the crop does not earn it, the
+    right move is to buy the image -- not to fail the render. A state requiring both a bent ruler
+    AND a bounty desk was cropped down to the ruler alone on blank parchment, was correctly
+    rejected, and took the whole first tranche with it: eleven accepted images, the narration and
+    the script, discarded because a free shortcut did not pay off.
+
+    Returning False hands the state to the ordinary generation path, which draws it properly and
+    redraws it against the inspector's reasons if that first attempt misses too.
+    """
+    _last_reframe_verification[0] = None
+    if not source_path or not os.path.isfile(source_path):
+        return False
+    try:
+        _make_detail_reframe(source_path, state_path)
+    except Exception:
+        return False
+    verification = verify_evidence_asset(
+        state_path, state, continuity_pack, cost_sink=cost_sink,
+        reference_paths=[source_path], identity_by_silhouette=identity_by_silhouette)
+    if (verification or {}).get("passed"):
+        _last_reframe_verification[0] = verification
+        return True
+    return False
 
 
 def _make_detail_reframe(source_path: str, output_path: str) -> str:
@@ -4013,7 +4463,15 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
             "identity_evidence": ("clothing_colour_silhouette_headwear_props"
                                   if identity_by_silhouette else "facial_and_clothing"),
             "expect_location": bool(state.get("location_id")),
-            "expect_opening_object": bool(state.get("opening_object_id")),
+            # Expect the opening object only where the PROMPT asked for it. opening_object_id is
+            # stamped on every state in scene one, but required_objects -- the field that reaches
+            # the image model -- names the object only on the state that establishes it. So the
+            # verifier was demanding a coin from a frame whose prompt never mentioned one, and
+            # rejected a correct image for missing a prop nobody had requested. Reading the same
+            # field the prompt is built from makes the two agree by construction rather than by
+            # both being maintained.
+            "expect_opening_object": bool(state.get("opening_object_id")) and _opening_object_wanted(
+                state, continuity_pack),
             "pure_evidence": bool(state.get("pure_evidence")),
             "continuity": continuity_pack,
         }
@@ -4933,6 +5391,9 @@ def _motion_model_id(provider: str, *, fal_model: str | None = None) -> str:
         "sora": _SORA_MODEL,
         "veo": _VEO_MODEL,
         "fal": fal_model or _FAL_MODEL,
+        # WAN_MODEL is the same env the wan branch reads when it builds its request payload, so the
+        # manifest records the model that is actually asked for rather than a second opinion.
+        "wan": os.environ.get("WAN_MODEL", "wan-2.2-standard").strip(),
     }
     model_id = models.get(provider)
     if not model_id:
@@ -6920,6 +7381,56 @@ def _stable_standard_longform(video_format: str, story_format: str,
     )
 
 
+import story_fact_model as _sfm
+
+
+def _spine_beats(beats: list) -> list:
+    """The planned sheet in the shape the fact model reads. No narration exists yet."""
+    out = []
+    for index, beat in enumerate(beats or [], 1):
+        beat = beat if isinstance(beat, dict) else {}
+        out.append({
+            "beat_id": f"beat_{index:02d}",
+            "role": _s(beat.get("causal_role")) or _s(beat.get("role")),
+            "scope": _s(beat.get("scope")) or "primary_story",
+            "parallel_case_id": _s(beat.get("parallel_case_id")),
+            "event": beat.get("event") or {},
+            "changes_state": beat.get("changes_state") or {},
+            "beat": _s(beat.get("beat")),
+        })
+    return out
+
+
+def _spine_claims(dossier: dict) -> dict:
+    from longform_research import _claim_index
+    return _claim_index(dossier or {})
+
+
+def _lr_claims_by_case(dossier: dict) -> dict:
+    from longform_research import _claims_by_parallel_case
+    return _claims_by_parallel_case(dossier or {})
+
+
+def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
+    """Sourcing validation, routed to whichever contract this script was written under.
+
+    A script carrying events gets the cascade: free structure, then claims->event entailment, then
+    event->narration fidelity. One that does not is an older draft whose bindings are phrase-level,
+    and it keeps the legacy path — there is no event for the new boundaries to measure against.
+
+    The entailment cache lives ON THE SCRIPT so it survives the four or five times this is called
+    in a run, and survives a durable checkpoint with it. Keys are content-addressed, so an edited
+    claim or a rewritten event misses and is re-judged rather than inheriting a verdict for text
+    nobody looked at.
+    """
+    from longform_research import script_has_events, validate_story_fact_model
+
+    if not script_has_events(script):
+        return validate_claim_joins(script, dossier)
+    cache = script.setdefault("_entailment_cache", {})
+    return validate_story_fact_model(script, dossier, cache=cache, cost_sink=cost_sink)
+
+
 def _ordinary_research_mode(stable_standard_longform: bool,
                             illustrated_story_on: bool = False) -> str:
     """Research policy for the default lane: keep it when available, never strand the render.
@@ -7993,9 +8504,13 @@ def run_explainer_pipeline(
               else normalize_motion_mode(motion_mode, legacy_i2v=i2v))
     )
     requested_motion_mode = resolved_motion_mode
-    if illustrated_story_on:
-        # V1 is deliberately a still/Ken Burns lane. Reuse the stable renderer before adding
-        # another provider, motion contract, or failure surface.
+    if illustrated_story_on and not I2V_PROVIDER:
+        # V1 shipped stills-only because there was no motion provider to reuse -- "reuse the
+        # stable renderer before adding another provider, motion contract, or failure surface".
+        # That reuse now exists: with a provider configured the lane runs the SAME long-form
+        # motion path as every other landscape render (compile_motion_plan -> the identity-cached
+        # generation loop -> the shot renderer), so it needs no contract of its own. Without a
+        # provider Ken Burns remains the complete, known-good fallback rather than an error.
         resolved_motion_mode = "stills"
     elif (stable_standard_longform and resolved_motion_mode != "stills"
             and not I2V_PROVIDER):
@@ -8051,8 +8566,7 @@ def run_explainer_pipeline(
         generation_manifest["motion_fallback"] = {
             "requested": requested_motion_mode,
             "effective": resolved_motion_mode,
-            "reason": ("illustrated_story_uses_stable_stills"
-                       if illustrated_story_on else "motion_provider_not_configured"),
+            "reason": "motion_provider_not_configured",
         }
     _write_generation_manifest(generation_manifest_path, generation_manifest)
     pilot_control_path = None
@@ -8100,13 +8614,14 @@ def run_explainer_pipeline(
             log("Creative lane: Illustrated Story v1 — intent-led storyboard, four-location budget")
         log(f"Motion treatment: {resolved_motion_mode}")
         if requested_motion_mode != resolved_motion_mode:
-            if illustrated_story_on:
-                log("Illustrated Story v1 uses the stable stills/Ken Burns path by design.")
-            else:
-                log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
+            log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
         if resolved_motion_mode != "stills" and not I2V_PROVIDER:
             raise ValueError(
                 "Standard/Full Motion requires I2V_PROVIDER. Configure a motion provider or choose Stills.")
+    # Declared at function scope: the block that decides it sits inside the long-form branch, and
+    # the reference gating that reads it does not. Social never enters that branch and must not
+    # trip over an undefined name on its way past.
+    cast_free = False
     aux_costs: list[float] = []   # Claude calls outside the script (grade, description) — were uncounted
 
     # ── RESUME: if a checkpoint exists, reuse the script + already-paid scene assets ──
@@ -8173,10 +8688,17 @@ def run_explainer_pipeline(
                 # the gate requires the artifact to persist and resume guarantees it will not.
                 #
                 # Sixth condition today checked in two places where only one read its flag.
-                if checkpoint_evidence.get("version") != 1 or (
+                # An ABSENT plan is not a stale one. The evidence plan is compiled after the
+                # storyboard, so a checkpoint written at the runtime-enforcement stage legitimately
+                # has none -- and compile_evidence_plan runs unconditionally further down, so the
+                # resumed run builds it fresh either way. Rejecting those checkpoints made the
+                # resume path refuse a file the pipeline itself had just written, which is the same
+                # bug the note above records, and it re-bought the research and script that the
+                # checkpoint existed to preserve.
+                if checkpoint_evidence and (checkpoint_evidence.get("version") != 1 or (
                         not checkpoint_evidence_validation.get("passed")
                         and not _diagnostic_render()
-                        and not sourcing_advisory):
+                        and not sourcing_advisory)):
                     raise ValueError("Checkpoint predates the evidence-asset contract")
             short_grade = _st.get("short_grade")
             resumed = True
@@ -8276,7 +8798,7 @@ def run_explainer_pipeline(
         script["_story_structure_review"] = _review_story_structure(
             script, story_format, video_format, log)
         if video_format != "social":
-            claim_validation = validate_claim_joins(script, research_dossier)
+            claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
             if not claim_validation.get("passed"):
                 repaired_script, repair_cost = repair_claim_join_failures(
@@ -8287,7 +8809,7 @@ def run_explainer_pipeline(
                     script["_script_cost_usd"] = round(
                         float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
                     rederive_narration_bindings(script, log, research_dossier)
-                    claim_validation = validate_claim_joins(script, research_dossier)
+                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
                     script["_claim_validation"] = claim_validation
                     scenes = script.get("scenes", [])
                     log("Claim ledger repair: "
@@ -8329,6 +8851,23 @@ def run_explainer_pipeline(
                 # generation instead cached a draft that failed the ledger six scenes later, and
                 # the next run would have iterated against it.
                 _store_graded_script(question, script_fingerprint, script)
+        # CAST-FREE ILLUSTRATED LANE. The corpus is explicit about who is on screen: "simple
+        # round-headed stick figures represent everyone -- the authority figures (marked by uniform
+        # hats), the ordinary population (marked by regional dress), and a lone narrator-avatar figure
+        # who appears SOLO to deliver lessons directly to camera". The people in a reference scene are
+        # anonymous and period-coded; the recurring avatar never stands inside the history.
+        #
+        # This lane inverted that. One named modern-dressed character played every role, so a line
+        # about a colonial official cancelling a bounty was illustrated by a man in a navy overshirt
+        # and jeans -- the frame contradicting the sentence, which is the authenticity failure the
+        # operator reported. Dropping both references makes the figures anonymous again and lets each
+        # scene dress its own people for its own century.
+        cast_free = illustrated_story_on and _illustrated_is_cast_free()
+        if cast_free:
+            for _scene in scenes:
+                _scene["human_present"] = False
+                _scene["mascot_present"] = False
+            log("Cast: none — anonymous period-appropriate figures, no recurring character")
         n_host = sum(1 for s in scenes if s.get("mascot_present"))
         n_human = sum(1 for s in scenes if s.get("human_present"))
         log(f"Cast: {HUMAN_NAME} leads {n_human}/{len(scenes)} scenes; "
@@ -8384,7 +8923,7 @@ def run_explainer_pipeline(
         # aborted on bindings that were correct for text the refit had already replaced. Same
         # ordering bug as the anchors, at the sibling call site.
         rederive_narration_bindings(script, log, research_dossier)
-        claim_validation = validate_claim_joins(script, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
         script["_claim_validation"] = claim_validation
         if not claim_validation.get("passed") and not _claim_ledger_hard():
             for item in claim_validation.get("errors", [])[:6]:
@@ -8412,16 +8951,30 @@ def run_explainer_pipeline(
         except OSError:
             pass
         _rp = script.get("_runtime_plan") or {}
+        # READ THE VERDICT, do not assert it. This line printed PASS unconditionally from the
+        # plan's numbers while plan_runtime's own `passed` field went unread anywhere in the
+        # pipeline, so a script 25% over its target announced itself as compliant and the
+        # storyboard downstream then measured the overshoot and derived its mechanism deadline
+        # from it. A green line over a failing metric is worse than no line.
         log(
-            "Runtime contract: PASS — %(estimated_seconds).1fs estimated for "
-            "%(target_seconds).0fs target (%(word_count)d words)" % _rp
+            ("Runtime contract: PASS — " if _rp.get("passed") else "Runtime contract: OVER — ")
+            + "%(estimated_seconds).1fs estimated for %(target_seconds).0fs target "
+              "(%(word_count)d words, allowed %(min_words)d-%(max_words)d)" % _rp
         )
+        if not _rp.get("passed") and not _runtime_is_enforced():
+            log("  Length is a request (RUNTIME_HARD=0), so this is not blocking — but the "
+                "storyboard measures the narration it was given, not the runtime you asked for.")
 
     if illustrated_story_on:
         log("stage:Building illustrated storyboard...")
         # Last chance before the gate that measures it. LONG_HOOK was the single remaining
         # failure on an otherwise renderable draft — 19 words against a budget of 18.
         script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
+        # SOFT_HINGE is the same class of failure as LONG_HOOK and reached the gate unrepaired:
+        # 13 words against a budget of 10 killed a draft whose research, script, fact-check and
+        # grading were already bought.
+        script, _hinge_cost = _ensure_hinge_fits_budget(
+            script, aux_costs, log, research_dossier)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
             storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []
@@ -8560,8 +9113,8 @@ def run_explainer_pipeline(
             "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
             "%(exact_reuse_count)d exact callback reuse" % counts)
 
-    mascot_ok = os.path.exists(MASCOT_REF)
-    human_ok = os.path.exists(HUMAN_REF)
+    mascot_ok = (not cast_free) and os.path.exists(MASCOT_REF)
+    human_ok = (not cast_free) and os.path.exists(HUMAN_REF)
     if not mascot_ok:
         log(f"⚠ mascot reference missing ({MASCOT_REF}) — host scenes will use text only")
     if not human_ok:
@@ -8718,7 +9271,7 @@ def run_explainer_pipeline(
             json.dump(audio_timing, handle, indent=2, ensure_ascii=False)
         scenes = script.get("scenes", [])
         n = len(scenes)
-        claim_validation = validate_claim_joins(script, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
         retention_validation = validate_longform_story(script, question)
         script["_claim_validation"] = claim_validation
         script["_retention_validation"] = retention_validation
@@ -8841,10 +9394,24 @@ def run_explainer_pipeline(
         preflight_by_state = {
             shot.get("state_id"): shot for shots in motion_preflight_shots for shot in shots
         }
+        aligned_state_ids = set()
         for candidate in motion_plan.get("candidates") or []:
             if candidate.get("selected"):
-                candidate["semantic_aligned"] = bool(
+                aligned = bool(
                     (preflight_by_state.get(candidate["state_id"]) or {}).get("semantic_aligned"))
+                candidate["semantic_aligned"] = aligned
+                if aligned:
+                    aligned_state_ids.add(candidate["state_id"])
+        # Buy fewer clips, do not abandon the render. A stale anchor means one state must not be
+        # animated; it does not mean the script, narration and images already paid for are wasted.
+        # This raised on a plan whose only defect was wanting one clip too many, AFTER TTS.
+        dropped = reselect_after_measurement(motion_plan, aligned_state_ids)
+        if dropped:
+            log(f"motion: {len(dropped)} state(s) lost their narration anchor in the measured "
+                f"script and will use Ken Burns — {', '.join(dropped)}")
+            selected_motion_ids = {candidate["state_id"]
+                                   for candidate in motion_plan.get("candidates") or []
+                                   if candidate.get("selected")}
         motion_plan["edit_preflight_metrics"] = shot_plan_metrics(motion_preflight_shots)
         motion_plan["validation"] = validate_motion_plan(motion_plan)
         if not motion_plan["validation"]["passed"]:
@@ -8898,14 +9465,10 @@ def run_explainer_pipeline(
             try:
                 if strategy == "exact_reuse":
                     verification = reuse_exact_asset(source_path, state_path)
-                elif strategy == "detail_reframe":
-                    if not source_path or not os.path.isfile(source_path):
-                        raise FileNotFoundError("detail source asset is unavailable")
-                    _make_detail_reframe(source_path, state_path)
-                    verification = verify_evidence_asset(
-                        state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
-                        reference_paths=[source_path],
-                        identity_by_silhouette=illustrated_story_on)
+                elif strategy == "detail_reframe" and _detail_reframe_earns_it(
+                        source_path, state_path, state, evidence_plan["continuity_pack"],
+                        aux_costs, illustrated_story_on):
+                    verification = _last_reframe_verification[0]
                 else:
                     continuity_source = source_path or (master_path if state_index else "")
                     refs = _evidence_reference_paths(
@@ -8928,6 +9491,39 @@ def run_explainer_pipeline(
                         state_path, state, evidence_plan["continuity_pack"], cost_sink=aux_costs,
                         reference_paths=refs,
                         identity_by_silhouette=illustrated_story_on)
+                    # REDRAW ON REJECTION, using the reason. The verifier already says exactly what
+                    # is wrong -- "cobras appear alive with raised heads, not a mound of dead
+                    # snakes" -- and that sentence was written, logged, and thrown away. A single
+                    # rejected frame then failed the whole first tranche and discarded the research,
+                    # script, narration and every accepted image beside it. Eleven of thirteen
+                    # assets passed on the run that motivated this; the two that did not were the
+                    # image model missing a state it had been asked for once.
+                    #
+                    # Bounded and cheap: at most _EVIDENCE_REDRAWS extra images per state, each
+                    # re-verified by the same fail-closed inspector, and a redraw that does not
+                    # convince it changes nothing. This regenerates rather than re-judges, so it
+                    # cannot talk the verifier into accepting the frame it already refused --
+                    # the same shape as the script gate, which regenerates a weak draft against the
+                    # grader's own "biggest fix" instead of asking it to grade again.
+                    for _redraw in range(_EVIDENCE_REDRAWS):
+                        if (verification or {}).get("passed"):
+                            break
+                        reasons = "; ".join(
+                            _s(item) for item in ((verification or {}).get("reasons") or [])
+                        )[:400]
+                        if not reasons:
+                            break
+                        log(f"  ↻ redrawing evidence {i+1}.{state_index+1} "
+                            f"({_redraw + 1}/{_EVIDENCE_REDRAWS}) — {reasons[:120]}")
+                        generate_image(
+                            prompt + " THE PREVIOUS ATTEMPT WAS REJECTED BY A VISUAL INSPECTOR FOR "
+                            f"THESE REASONS: {reasons}. Fix exactly those faults. Every other "
+                            "requirement above still applies unchanged.",
+                            state_path, reference_paths=refs, cost_sink=img_costs, size=img_size)
+                        verification = verify_evidence_asset(
+                            state_path, state, evidence_plan["continuity_pack"],
+                            cost_sink=aux_costs, reference_paths=refs,
+                            identity_by_silhouette=illustrated_story_on)
             except Exception as exc:
                 generation_error = f"{type(exc).__name__}: {str(exc)[:160]}"
                 verification = None

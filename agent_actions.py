@@ -45,6 +45,34 @@ class AgentActionForbidden(AgentActionError):
     pass
 
 
+# Standard motion buys ~35% of eligible evidence states; four clips is the observed shape of a
+# 60-90s illustrated board. The pipeline's own cap still binds at runtime -- this only prices it.
+ILLUSTRATED_MOTION_ALLOWANCE_CLIPS = 4
+MOTION_CLIP_SECONDS = 5
+
+
+def _motion_rate_usd_per_sec() -> float:
+    """The same USD/sec the pipeline budgets with, resolved from the same environment.
+
+    Mirrors explainer_pipeline._resolve_i2v_rate rather than importing it: this module is loaded
+    by the proposal route, which must not pull the whole render pipeline in to price a card. An
+    unset or unparseable override falls through to the provider default, and an unconfigured
+    provider prices motion at zero because none will be bought.
+    """
+    override = (os.environ.get("I2V_RATE_SEC") or "").strip()
+    if override:
+        try:
+            value = float(override)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    primary = (os.environ.get("I2V_PROVIDER") or "").strip().lower().split(",")[0].strip()
+    if not primary:
+        return 0.0
+    return {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.002}.get(primary, 0.15)
+
+
 def illustrated_payload_hash(payload: dict) -> str:
     return hashlib.sha256(json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
@@ -60,7 +88,20 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
     # Research, script retries and editorial checks dominate this planning allowance.
     # It is deliberately distinct from the enforced ceiling; a gate/budget failure can
     # produce a useful failed artifact without producing a finished video.
-    estimated = round(3.5 + duration_sec / 5 * 0.055 + duration_sec * 0.00045, 4)
+    base = 3.5 + duration_sec / 5 * 0.055 + duration_sec * 0.00045
+    # Motion is bought with LEFTOVER budget, so price it the way the pipeline buys it. The render
+    # derives its clip cap from whatever survives the base estimate
+    # (motion_cap = (ceiling - base) // clip_cost), so a folded-in flat allowance would price
+    # clips a tight ceiling will never purchase -- and would make a stills-budget illustrated
+    # video impossible to even propose. Mirroring the cap keeps the card truthful in both
+    # directions: at a stills ceiling it quotes stills, and at a motion ceiling it quotes the
+    # clips that ceiling actually pays for.
+    clip_cost = MOTION_CLIP_SECONDS * _motion_rate_usd_per_sec()
+    affordable_clips = (
+        min(ILLUSTRATED_MOTION_ALLOWANCE_CLIPS,
+            int(max(0.0, float(cost_ceiling_usd) - base) // clip_cost))
+        if clip_cost > 0 else 0)
+    estimated = round(base + affordable_clips * clip_cost, 4)
     return {
         "schema": "illustrated_topic_v1",
         "scope": "single-illustrated-video",
@@ -71,7 +112,7 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
             "image_guidance": "", "fact_check": True,
             "video_format": "landscape", "speech_bubble": False,
             "visual_style": "illustrated_story", "story_format": "standard_explainer",
-            "motion_mode": "stills", "i2v": False, "series": "",
+            "motion_mode": "standard", "i2v": True, "series": "",
             "short_template": "auto", "n_items": 3,
         },
         "providers": providers,

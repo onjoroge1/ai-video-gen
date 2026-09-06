@@ -105,6 +105,14 @@ def build_continuity_pack(script: dict) -> dict:
             "identity_id": "character:bolt:v1",
             "reference_asset_id": "reference:bolt:mascot:v1",
         },
+        # Whether this story puts NAMED recurring characters on screen at all. A cast-free lane
+        # draws the anonymous, period-coded figures the references actually use, and the rules
+        # below that require Bolt to do useful work describe a lane that has a Bolt. Recorded on
+        # the pack rather than read from the environment so the plan stays self-describing: an
+        # artifact on disk says which contract it was built under.
+        "cast": ("none" if not any(
+            scene.get("mascot_present") or scene.get("human_present")
+            for scene in (script.get("scenes") or [])) else "recurring"),
         "first_act_location": {
             "location_id": _stable_id("location", location_label, "recurring-first-act"),
             "label": location_label,
@@ -243,6 +251,22 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     }
 
 
+def state_capacity(scene: dict, seconds: float | None = None) -> int:
+    """How many evidence states this scene's runtime can physically hold.
+
+    The same arithmetic _states_that_fit trims by, exposed so the validator can tell a scene that
+    UNDER-PRODUCED states from one that could never carry two. A state must hold for at least
+    MIN_EVIDENCE_STATE_SECONDS, so a beat under twice that -- roughly nine spoken words -- has room
+    for exactly one however it is written.
+    """
+    if seconds is None:
+        words = len(_text(scene.get("narration")).split())
+        seconds = words / WORDS_PER_SECOND if words else 0.0
+    if seconds <= 0:
+        return 4
+    return max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+
+
 def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> list:
     """Trim a scene's beats to the number its RUNTIME can hold.
 
@@ -293,6 +317,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     scene_plans = []
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
+        capacity = state_capacity(scene, measured.get(scene_index))
         beats = _visual_beats(scene)
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
@@ -304,6 +329,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "story_role": _text(scene.get("story_role")),
             "evidence_id": _text(scene.get("evidence_id")),
             "opening": opening,
+            "state_capacity": capacity,
             "states": states,
         })
 
@@ -374,11 +400,27 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # Upper bound raised from 4 to 6. The hold ceiling is physics -- a state held longer
         # than MAX_VISUAL_STATE_SECONDS is rejected downstream -- and a 45-word opening scene
         # needs 5 states to satisfy it. Capping at 4 made such a scene unsatisfiable: two rules,
-        # each defensible, that cannot both hold. The floor of 2 stays, because an opening beat
-        # with one state is a still frame.
-        if opening and not 2 <= len(states) <= 6:
+        # each defensible, that cannot both hold.
+        #
+        # The floor is now conditioned on the same physics, for the same reason. A state must hold
+        # MIN_EVIDENCE_STATE_SECONDS, so a beat shorter than twice that -- about nine spoken words
+        # -- has room for exactly one state however it is written, and demanding two of it is a
+        # rule that cannot be satisfied rather than a defect it can report. The causal lane writes
+        # exactly such beats ON PURPOSE: it caps the hinge at ten words because "a long hinge is
+        # not a hinge", and its intervention and false_resolution beats are deliberately curt.
+        # Held to the old floor, a five-word "Cash for every dead cobra." was unrenderable by
+        # construction, and the two contracts could not both hold on the same script.
+        #
+        # A one-state opening beat is still a still frame, and for a beat with the runtime to do
+        # better that is still an error. This exempts only the beats physics already decided for.
+        capacity = int(scene_plan.get("state_capacity") or 0)
+        floor = 2 if capacity >= 2 else 1
+        if opening and not floor <= len(states) <= 6:
             errors.append(_issue(
-                "opening_state_count", "Every opening beat requires two to six evidence states.",
+                "opening_state_count",
+                f"Every opening beat requires {floor} to six evidence states."
+                + ("" if floor == 2 else
+                   " This beat is too short to hold two, so one is the whole budget."),
                 scene=scene_index + 1))
         accepted_distinct = set()
         verified_detail = False
@@ -436,7 +478,18 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                 purpose = _text(state.get("purpose")).casefold()
                 action = _text(state.get("bolt_action"))
                 action_is_specific = bool(action) and action.casefold() not in USEFUL_BOLT_PURPOSES
-                if purpose not in USEFUL_BOLT_PURPOSES or not action_is_specific:
+                # TWO VOCABULARIES, one set. USEFUL_BOLT_PURPOSES is the bolt_mode category list --
+                # _derive_bolt_action names it as exactly that -- and it was also being required to
+                # contain the STATE's purpose, which comes from the visual beat and reads setup /
+                # action / evidence / consequence / callback. The two overlap only on "action", so
+                # Bolt was legal in an action state and nowhere else, and a state carrying
+                # "Bolt recoils, shocked, from the wave of released cobras" failed a check whose
+                # message says the action must be concrete. It was; its purpose was "consequence".
+                #
+                # Where Bolt must not appear is already stated once, as PURE_EVIDENCE_PURPOSES, and
+                # enforced by bolt_not_forbidden_in_evidence above. That is the purpose rule; this
+                # one is about the action being real. Both are checked, neither restates the other.
+                if purpose in PURE_EVIDENCE_PURPOSES or not action_is_specific:
                     errors.append(_issue(
                         "bolt_without_useful_action",
                         "Every compiled Bolt state must declare a concrete useful action, not merely "
@@ -476,22 +529,31 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                     verified_detail = True
             if opening and state_index > 0:
                 opening_cuts.append(state)
-        if opening and len(accepted_distinct) < 2 and not verified_detail:
+        # The twin of the state-count floor above, and it needs the same physics guard. Two
+        # DISTINCT assets cannot come out of a beat with room for one state -- the rule was
+        # demanding a second asset for a state that does not exist. Where the runtime can hold two
+        # states, needing two distinct assets is still a real contract and still reported.
+        if (opening and capacity >= 2 and len(accepted_distinct) < 2
+                and not verified_detail):
             errors.append(_issue(
                 "insufficient_distinct_evidence_assets",
                 "Opening beats need two distinct source/state assets unless a detail reframe is verified.",
                 scene=scene_index + 1))
 
-    opening_object = pack.get("opening_object") if isinstance(pack, dict) else {}
-    callback = pack.get("callback") if isinstance(pack, dict) else {}
+    # `or {}` on each, not just the isinstance guard on `pack`. A pack that exists but carries a
+    # null opening_object made this raise AttributeError instead of reporting the missing identity,
+    # and the caller that catches it treats an exception as "checkpoint unreadable" -- so an
+    # incomplete plan was indistinguishable from a corrupt one.
+    opening_object = (pack.get("opening_object") if isinstance(pack, dict) else {}) or {}
+    callback = (pack.get("callback") if isinstance(pack, dict) else {}) or {}
     if not _text(opening_object.get("object_id")) or not _text(opening_object.get("label")):
         errors.append(_issue("missing_opening_object_identity", "Opening object identity is incomplete."))
     if _text(callback.get("reuse_source_asset_id")) != _text(opening_object.get("opening_source_asset_id")):
         errors.append(_issue("callback_asset_mismatch", "Ending does not reuse the exact opening source asset."))
     if _text(callback.get("label")).casefold() != _text(opening_object.get("label")).casefold():
         errors.append(_issue("callback_object_mismatch", "Ending callback object differs from the opening object."))
-    human = pack.get("human") if isinstance(pack, dict) else {}
-    location = pack.get("first_act_location") if isinstance(pack, dict) else {}
+    human = (pack.get("human") if isinstance(pack, dict) else {}) or {}
+    location = (pack.get("first_act_location") if isinstance(pack, dict) else {}) or {}
     if not _text(human.get("identity_id")) or not _text(human.get("clothing_id")):
         errors.append(_issue("incomplete_human_continuity", "Human identity or clothing lock is missing."))
     if not _text(location.get("location_id")) or not _text(location.get("label")):
@@ -499,7 +561,10 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
 
     bolt_count = len(useful_bolt_states)
     bolt_ratio = bolt_count / max(1, len(compiled_states))
-    if compiled_states and bolt_count == 0:
+    # Only where the lane HAS a mascot. A cast-free story has no Bolt to give useful work to, and
+    # demanding one turned "draw the period's own anonymous figures" into an unsatisfiable plan.
+    cast_mode = _text((pack or {}).get("cast")) or "recurring"
+    if compiled_states and bolt_count == 0 and cast_mode != "none":
         errors.append(_issue(
             "missing_useful_bolt_state",
             "Long-form requires at least one compiled visual state where Bolt performs useful story work."))

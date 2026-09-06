@@ -1,0 +1,312 @@
+{
+  "schema": "fact_model_golden_v1",
+  "source": "First script generated with the event schema, 2026-09-06. Saved unmodified.",
+  "note": "The hand-labelled CONTROL for claim typing. The kinds below were assigned by a human reading each claim, before any classifier existed. When research starts emitting claim_kind itself, run the same structural validation with the machine labels and compare against expected_structural_codes: reproducing this set is the accuracy test. A machine label that makes these errors disappear has not fixed the script, it has learned to pass the gate. CORRECTION 2026-09-06: c17/c23/c24 were originally hand-labelled `parallel_case`. That was wrong twice over — c24 is plainly a general_principle, and `parallel_case` was never a claim KIND at all but a relational property already carried by claims_by_parallel_case. The first machine run scored 3/8 confidently wrong against those labels and was right about two of them. The taxonomy was the defect, and this fixture is what found it.",
+  "question": "Why did paying people to kill cobras leave Delhi with more cobras?",
+  "hand_labelled_claim_kinds": {
+    "c11": "context",
+    "c12": "mechanism",
+    "c14": "general_principle",
+    "c15": "general_principle",
+    "c17": "event",
+    "c23": "event",
+    "c24": "general_principle",
+    "c25": "general_principle"
+  },
+  "claims_by_parallel_case": {
+    "hanoi_rat_bounty": [
+      "c17",
+      "c23"
+    ],
+    "fossil_fragment_bounty": [
+      "c24"
+    ]
+  },
+  "expected_structural_codes": {
+    "scene_1": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_2": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_3": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_6": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_7": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_8": [
+      "CLAIM_KIND_MISMATCH"
+    ],
+    "scene_9": [
+      "MULTI_PARALLEL_CASE_EVENT"
+    ],
+    "scene_10": [
+      "CLAIM_KIND_MISMATCH",
+      "CLOSING_BEAT_ASSERTS_HISTORY"
+    ]
+  },
+  "expected_clean_scenes": [
+    "scene_4 — hinge citing c12; the hinge accepts mechanism and is anchored in what happened",
+    "scene_5 — mechanism beat citing c25 and c12; both correct for that role"
+  ],
+  "claims": [
+    {
+      "claim_id": "c10",
+      "claim": "The historical evidence for the Delhi cobra bounty story is weak, and the specific tale of breeding-then-release almost certainly did not happen as told, making it likely apocryphal.",
+      "source_url": "https://friendsofsnakes.org.in/cobra-effect/",
+      "support_quote": "There is just one problem: the historical evidence suggests it almost certainly never happened",
+      "geographic_scope": "local",
+      "timescale": "other explicit value",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c11",
+      "claim": "Snake bounties in British India were real and predate the Delhi anecdote: the Bombay Presidency was offering rewards for more than fifteen years before an 1872 Madras resolution, per Fayrer's 1878 paper.",
+      "source_url": "https://friendsofsnakes.org.in/cobra-effect/",
+      "support_quote": "Fayrer's 1878 paper records that the Bombay Presidency had already been offering rewards for more than fifteen years before the Madras resolution of 1872",
+      "geographic_scope": "regional",
+      "timescale": "years",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c12",
+      "claim": "The bounty rewarded dead cobras (the metric) rather than actually reducing the wild cobra population (the goal), and that gap between metric and goal is where the cobra effect operates.",
+      "source_url": "https://scienceinsights.org/what-is-the-cobra-effect-when-incentives-backfire/",
+      "support_quote": "It rewarded dead cobras (the metric) rather than actually reducing the wild cobra population (the goal)",
+      "geographic_scope": "global",
+      "timescale": "other explicit value",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c14",
+      "claim": "Goodhart's Law originates with economist Charles Goodhart's 1975 observation that any observed statistical regularity tends to collapse once pressure is placed on it for control purposes.",
+      "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7901608/",
+      "support_quote": "Any observed statistical regularity will tend to collapse once pressure is placed upon it for control purposes.",
+      "geographic_scope": "global",
+      "timescale": "other explicit value",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c15",
+      "claim": "The implications of Goodhart's and Campbell's laws are now appreciated well beyond their original economics and social-science contexts, wherever quantitative indicators inform decisions.",
+      "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7901608/",
+      "support_quote": "The implications of Goodhart's and Campbell's laws are now appreciated beyond their original contexts in economics and the social sciences",
+      "geographic_scope": "global",
+      "timescale": "other explicit value",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c16",
+      "claim": "COMPARABLE CASE (Hanoi rats): In 1902 French colonial Hanoi, authorities announced a bounty on rats amid the third plague pandemic to control the rat population.",
+      "source_url": "https://madeinchinajournal.com/2020/08/20/the-great-hanoi-rat-hunt/",
+      "support_quote": "in April 1902 the colonial authorities announced a bounty on every dead rat",
+      "geographic_scope": "local",
+      "timescale": "other explicit value",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c17",
+      "claim": "COMPARABLE CASE (Hanoi rats): Because only a severed rat tail was required as proof of a kill, the community farmed rats, cut off their tails to collect the bounty, and released the rats to breed more.",
+      "source_url": "https://madeinchinajournal.com/2020/08/20/the-great-hanoi-rat-hunt/",
+      "support_quote": "the local community was farming rats, cutting off their tails to collect the bounty, and then letting them go free to breed more rats",
+      "geographic_scope": "local",
+      "timescale": "months",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c21",
+      "claim": "COMPARABLE CASE (carbon credits/HFC-23): An independent evaluation concluded that total HCFC-22 output appeared driven mainly by CDM rules and that the mechanism provided perverse incentives to generate more HFC-23.",
+      "source_url": "https://ideas.repec.org/a/taf/tcpoxx/v11y2011i2p851-864.html",
+      "support_quote": "the CDM provides perverse incentives to generate more HFC-23",
+      "geographic_scope": "global",
+      "timescale": "years",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c22",
+      "claim": "COMPARABLE CASE (carbon credits/HFC-23): The scheme was recognized early as risky — rules were adopted in 2005 to avoid perverse incentives leading to increased HFC production.",
+      "source_url": "https://insideclimatenews.org/news/07092010/world-bank-caught-controversy-over-suspect-carbon-credits/",
+      "support_quote": "The potential for perverse incentives leading to increased production of HFC was recognized early on, and rules were adopted [in 2005] to avoid it happening",
+      "geographic_scope": "global",
+      "timescale": "years",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "c23",
+      "claim": "COMPARABLE CASE (fossil-hunting China): 19th-century palaeontologists paid Chinese peasants per fragment of dinosaur bone, so peasants smashed bones into many pieces to maximize payments, greatly reducing scientific value.",
+      "source_url": "https://www.aei.org/carpe-diem/unintended-consequencesperverse-incentives/",
+      "support_quote": "the peasants dug up the bones and then smashed them into many pieces, greatly reducing their scientific value, to maximize their payments",
+      "geographic_scope": "regional",
+      "timescale": "years",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c24",
+      "claim": "The Law of Unintended Consequences holds that public policy often provides perverse incentives that worsen a problem rather than diminishing it, because those affected devise a third option producing the opposite of the intended effect.",
+      "source_url": "https://www.caset.org/post/incentives-perverse-incentives-unintended-consequences",
+      "support_quote": "public policy often provides perverse incentives that worsen a problem rather than diminishing it",
+      "geographic_scope": "global",
+      "timescale": "other explicit value",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c25",
+      "claim": "Because any proxy is by definition an imperfect stand-in for the real goal, there is always a gap between proxy and goal that pressure to hit the target can exploit — the general reason Goodhart-type failures are reliable.",
+      "source_url": "https://whennotesfly.com/concepts/principles-laws/goodharts-law-when-measures-become-targets",
+      "support_quote": "any proxy is, by definition, an imperfect stand-in",
+      "geographic_scope": "global",
+      "timescale": "other explicit value",
+      "confidence": "medium"
+    },
+    {
+      "claim_id": "c26",
+      "claim": "COMPARABLE CASE (Hanoi rats): Beyond tail-cutting, officials also uncovered farmers breeding rats on the city's rural fringe specifically to profit from the bounty.",
+      "source_url": "https://saigoneer.com/hanoi-heritage/23265-author-michael-vann-on-hanoi-s-infamous-colonial-rat-hunt",
+      "support_quote": "farmers started breeding rats to profit from the bureaucrat's bounty",
+      "geographic_scope": "local",
+      "timescale": "months",
+      "confidence": "high"
+    }
+  ],
+  "scenes": [
+    {
+      "beat_id": "scene_1",
+      "role": "setup",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "British Indian authorities offered a cash reward for dead cobras to reduce their numbers.",
+        "claim_refs": [
+          "c12",
+          "c11"
+        ]
+      },
+      "narration": "British officials paid Delhi residents to kill cobras, and the story goes that those same residents bred cobras to collect the bounty, though historians say the tale is likely apocryphal. Explained like you are five. Step one. A coin drops for a dead cobra."
+    },
+    {
+      "beat_id": "scene_2",
+      "role": "intervention",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "The scheme paid a fixed reward for each dead cobra brought to officials.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "Bring a snake, take coin."
+    },
+    {
+      "beat_id": "scene_3",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Officials tracked the scheme's success by the number of dead cobras delivered.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "Dead cobras pour in. Coins empty out."
+    },
+    {
+      "beat_id": "scene_4",
+      "role": "hinge",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "The reward depended on the dead body, not on any reduction of the wild population.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "The coin bought the body, not the burrow."
+    },
+    {
+      "beat_id": "scene_5",
+      "role": "mechanism",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Because payment tracked a proxy rather than the goal, the reward incentivized producing cobras.",
+        "claim_refs": [
+          "c25",
+          "c12"
+        ]
+      },
+      "narration": "Step two. Here is the rule. Any proxy is only a stand-in for the goal. Put pressure on the stand-in, and people will make more of the stand-in. So the coin paid for cobras."
+    },
+    {
+      "beat_id": "scene_6",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "To profit from the bounty, residents kept cobras alive and bred more to deliver as kills.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "Somebody did the math. Why hunt a cobra when you can raise one? So residents kept them alive, bred them, and let the pens fill. A pest became livestock."
+    },
+    {
+      "beat_id": "scene_7",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "When the bounty was withdrawn, the now-valueless captive cobras were released.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "Step three. Officials found the pens and cancelled the reward. The coin box shut. But the cobras were worthless now, so the breeders threw open the pens and poured them into the streets."
+    },
+    {
+      "beat_id": "scene_8",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "The scheme ended with more cobras present than before it started.",
+        "claim_refs": [
+          "c12"
+        ]
+      },
+      "narration": "As the story tells it, there ended up being more cobras slithering through Delhi than the day the first coin ever dropped. The fix didn't shrink the problem. It grew it."
+    },
+    {
+      "beat_id": "scene_9",
+      "role": "generalization",
+      "scope": "parallel_case",
+      "parallel_case_id": "hanoi_rat_bounty",
+      "event": {
+        "text": "Hanoi's 1902 rat-tail bounty led residents to farm rats, and per-fragment fossil pay led peasants to smash bones.",
+        "claim_refs": [
+          "c17",
+          "c23",
+          "c24"
+        ]
+      },
+      "narration": "Step four. The same trap sprang elsewhere, and these cases are well documented. In Hanoi, a bounty paid per rat tail, so hunters snipped the tails and freed the rats to breed. In China, per-fragment fossil pay, so peasants smashed whole bones into pieces."
+    },
+    {
+      "beat_id": "scene_10",
+      "role": "tool",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Goodhart's 1975 law holds that a measure under control pressure tends to collapse, applying wherever indicators guide decisions.",
+        "claim_refs": [
+          "c14",
+          "c15"
+        ]
+      },
+      "narration": "So pick up the coin again. Before you pay for any number, ask one thing: does this reward the real goal, or just its stand-in? Wherever a measure guides a decision, ask where the cobra farms are."
+    }
+  ]
+}

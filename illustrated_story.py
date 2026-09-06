@@ -144,9 +144,17 @@ def announce_chapters(scenes: list) -> list[str]:
             continue
         seen.add(chapter)
         narration = _text(scene.get("narration"))
-        if cs._MARKER.match(narration):
-            continue
         marker = f"Step {_SPOKEN_CHAPTER[chapter]}."
+        # PRESENT ANYWHERE, not just at position zero. cs._MARKER is anchored to the start of the
+        # string, but the shape this docstring describes -- "open on a hook and then say Step one"
+        # -- puts the marker AFTER the hook on the one scene that carries it. The guard therefore
+        # could not see the marker finalize_narration had already placed correctly, and prepended a
+        # second one in FRONT of the hook. The video opened on the numeral with the promise
+        # sentence buried behind it and spoken twice, which is the exact failure both this function
+        # and finalize_narration exist to prevent -- each of them writing the same marker without
+        # knowing the other had.
+        if cs._MARKER.match(narration) or marker.casefold() in narration.casefold():
+            continue
         scene["narration"] = f"{marker} {narration}".strip()
         added.append(marker)
     return added
