@@ -1001,3 +1001,92 @@ def test_fewer_causal_failures_win_before_pacing(monkeypatch, first_errors, retr
     monkeypatch.setattr(ep, "_LONGFORM_CONTRACT_RETRIES", 1)
     result = ep.generate_graded_script("Why?", 170, "s", "", "landscape", "", causal_lane=True)
     assert result["name"] == expected
+
+
+def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monkeypatch):
+    """The guard for the hook, mirroring the one that guards the mechanism deadline.
+
+    story_direction and causal_rules both reach the beat sheet — the first through
+    _operator_block, the second inline — and for a while they disagreed. story_direction said
+    'describe the shape, not the topic: say "a problem" where you mean the specific thing' while
+    causal_rules, in the same prompt, demanded concrete nouns and a named actor. Three of four
+    measured drafts hedged the subject ("a menace", "a deadly animal"), which is what a model does
+    when one instruction cancels another.
+
+    Same failure the mechanism deadline had, and it cost twelve renders that time.
+    """
+    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+
+    # No instruction may ask for an abstraction in place of the subject.
+    for evasive in ("shape, not the topic", "where you mean the specific thing",
+                    "let the concrete subject arrive"):
+        assert evasive not in causal, f"the prompt still asks the hook to hedge: {evasive!r}"
+
+    # And the positive rule is stated once, not accreted into three overlapping paragraphs.
+    assert causal.count("named actor") == 1, "the subject rule is stated more than once"
+
+    # A retired instruction must not survive as a quotation. Naming the behaviour you are
+    # forbidding still puts that phrasing in the context.
+    assert "name the shape" not in causal
+
+
+def test_the_hook_rule_does_not_quote_a_failed_hook(monkeypatch):
+    """Bad examples prime. The corpus exemplars carry the rule; our own failures do not."""
+    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    for failure in ("a menace", "erase a menace", "more of it"):
+        assert failure not in causal, f"the prompt quotes a hook it is trying to prevent: {failure!r}"
+    assert "How the British Empire tried to solve a problem" in causal
+
+
+# --- the fact model reaches the calls that plan and write it -------------------------------------
+
+def test_the_beat_sheet_asks_for_events_and_provenance(monkeypatch):
+    """The factual layer has to be PLANNED, not inferred from prose afterwards.
+
+    Narration used to be the story, the evidence record, the binding key and the image instruction
+    at once, and every pass that improved one damaged another.
+    """
+    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    for token in ('"event"', '"claim_refs"', '"scope"', '"parallel_case_id"', '"changes_state"'):
+        assert token in causal, f"the beat sheet never asks for {token}"
+    assert "primary_story" in causal and "parallel_case" in causal
+    assert "FACTUAL CEILING" in causal
+
+
+def test_the_beat_sheet_permits_an_unsourced_connective(monkeypatch):
+    """Demanding a citation for every beat is what made all of them look sourced and none checkable."""
+    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    assert "asserts no history" in causal
+    assert "rhetorical questions and framing" in causal
+
+
+def test_the_cinematic_lane_gains_no_fact_model(monkeypatch):
+    """Strictly additive, like every other causal field."""
+    plain = _capture_beat_prompt(monkeypatch)
+    for token in ('"event"', '"scope"', '"changes_state"', "FACTUAL CEILING"):
+        assert token not in plain, f"{token} leaked into the cinematic lane prompt"
+
+
+def test_the_expansion_writes_narration_from_the_event(monkeypatch):
+    """The ceiling has to reach the call that writes the words, and be shown the event itself."""
+    expansions = []
+
+    class _Messages:
+        def create(self, **call):
+            prompt = call["messages"][0]["content"]
+            if "NOW WRITE scenes" in prompt:
+                expansions.append(prompt)
+                raise _Abort
+            return _reply(_route(prompt, 10))
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    with pytest.raises(_Abort):
+        ep._generate_script_chunked("Why?", 200, "s", "", 10, causal_lane=True)
+
+    prompt = expansions[0]
+    assert "FACTUAL CEILING" in prompt
+    assert "event.text" in prompt
+    # The rule is useless if the writer cannot see the event it must not exceed.
+    assert '"event"' in prompt, "the expansion sheet does not carry the event"
+    for invented in ("mud-brick", "overnight"):
+        assert invented in prompt, "the prompt should show what exceeding the ceiling looks like"

@@ -143,6 +143,29 @@ def coverage(corpus_dir: Path | None = None) -> dict[str, int]:
     return counts
 
 
+# References an engine needs before "balanced" stops meaning "imitate this single video".
+MIN_REFERENCES_FOR_BALANCED = 2
+
+
+def adherence_for_engine(engine_id: str, corpus_dir: Path | None = None) -> str:
+    """The strongest adherence this engine's corpus support actually justifies.
+
+    DEFAULT_ADHERENCE is loose, and the note above it says why: "the corpus holds one reference per
+    engine, so 'balanced' currently means 'imitate this single video' ... Widen the default when the
+    corpus supports it, not before."
+
+    That condition is per-ENGINE, and it stopped being true for some of them. Rather than flipping
+    the global default, this honours the condition as written: an engine with two or more references
+    gets balanced, an engine with one or none stays loose. The thin engines keep the protection the
+    note was written for, and the well-covered ones stop withholding story_pattern -- the field that
+    describes the beat sequence a reference actually walks, and the single most useful thing the
+    corpus knows. At loose it is never sent, so for a long time no generated script was ever shown
+    how one of these stories is told.
+    """
+    supported = len(by_engine(engine_id, corpus_dir)) >= MIN_REFERENCES_FOR_BALANCED
+    return "balanced" if supported else DEFAULT_ADHERENCE
+
+
 def _positive_number(value: Any) -> float | None:
     try:
         number = float(value)

@@ -136,3 +136,59 @@ def test_the_callback_match_tolerates_an_english_plural():
     story["steps"][0]["situation"] = "Delhi is overrun with cobras in the streets."
     story["steps"][-1]["situation"] = "Ask: where are the cobra farms?"
     assert "NO_CALLBACK" not in _codes(story)
+
+
+# --- parallel cases belong in the generalization, and nowhere else -------------------------------
+
+def _story_with_case(case_beat_role, case_text):
+    """A valid chain where one beat mentions the parallel case's domain."""
+    story = _story(runtime_sec=SHORT)
+    story["parallel_cases"] = [
+        {"domain": "public health (Hanoi, 1902)", "problem": "rats", "solution": "tail bounty",
+         "result": "farmed rats"}]
+    for step in story["steps"]:
+        if step["role"] == case_beat_role:
+            step["situation"] = case_text
+            break
+    return story
+
+
+def test_a_parallel_case_in_an_escalation_beat_is_caught():
+    """The defect a measured draft shipped: Delhi's story left for Vietnam before it resolved.
+
+    Every structural check passed — a beat labelled escalation was present and in order — because
+    nothing asked whether the escalation escalates THIS story.
+    """
+    story = _story_with_case(
+        "escalation", "The same trap sprang shut in Hanoi in 1902, where officials paid per tail.")
+    assert "PARALLEL_CASE_OUT_OF_PLACE" in _codes(story)
+
+
+def test_the_same_case_in_the_generalization_is_fine():
+    story = _story_with_case(
+        "generalization", "The same trap sprang shut in Hanoi in 1902, where officials paid per tail.")
+    assert "PARALLEL_CASE_OUT_OF_PLACE" not in _codes(story)
+
+
+def test_a_word_the_story_already_uses_is_not_a_comparison():
+    """"Colonial public health" shares "colonial" with a story about colonial officials.
+
+    Matching that flagged the setup beat of a draft with nothing wrong with it. A word the story
+    uses about itself is not evidence that a comparison has been imported.
+    """
+    story = _story(runtime_sec=SHORT)
+    story["parallel_cases"] = [
+        {"domain": "colonial public health (Hanoi)", "problem": "rats", "solution": "bounty",
+         "result": "farmed rats"}]
+    story["steps"][0]["situation"] = "Colonial officials in Delhi faced cobras in the streets."
+    story["steps"][5]["situation"] = "Colonial clerks kept paying as the pens filled."
+    assert "PARALLEL_CASE_OUT_OF_PLACE" not in _codes(story)
+
+
+def test_the_check_is_silent_without_a_generalization():
+    """No generalization means no parallel cases were promised, so there is nothing to misplace."""
+    story = _story_with_case("escalation", "Hanoi tried the same thing in 1902.")
+    for step in story["steps"]:
+        if step["role"] == "generalization":
+            step["role"] = "escalation"
+    assert "PARALLEL_CASE_OUT_OF_PLACE" not in _codes(story)

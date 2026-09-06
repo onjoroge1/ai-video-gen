@@ -553,6 +553,44 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
                 f"case {index + 1} is missing {', '.join(missing)}; the cases must be "
                 "structurally identical so the repetition itself carries the argument"))
 
+    # A parallel case belongs in the generalization, and NOWHERE ELSE. A measured draft put the
+    # Hanoi rat bounty in an escalation beat, so the video left Delhi for Vietnam before Delhi's
+    # own story had resolved -- and every structural check passed, because a beat labelled
+    # escalation was present and in order. The engine's escalation is the SAME situation getting
+    # worse; a second country is a comparison, and a comparison offered before the first story
+    # lands reads as the story changing subject.
+    #
+    # Matched on the case's own domain nouns rather than a keyword list, so it costs nothing and
+    # travels to any topic. Short domain words are dropped: "software" or "public health" identify
+    # a case, "the" and "in" identify nothing.
+    # Match only on words that DISTINGUISH the case from this story. A domain label like "colonial
+    # public health (Hanoi)" shares "colonial" with a story about colonial officials in Delhi, and
+    # matching that flagged the setup beat of a draft with nothing wrong with it. A word the story
+    # already uses about itself is not evidence that a comparison has been imported.
+    own_words = set()
+    for step in steps:
+        if step["role"] in (SETUP, INTERVENTION, FALSE_RESOLUTION):
+            own_words |= {word for word in re.findall(r"[a-z]+", step["situation"].lower())
+                          if len(word) > 4}
+
+    for step in steps:
+        if step["role"] == GENERALIZATION:
+            continue
+        situation = step["situation"].casefold()
+        for index, case in enumerate(cases):
+            domain_words = [word for word in re.findall(r"[a-z]+", _text(case.get("domain")).lower())
+                            if len(word) > 4 and word not in _STOPWORDS and word not in own_words]
+            hit = next((word for word in domain_words
+                        if re.search(rf"\b{re.escape(word)}", situation)), "")
+            if hit:
+                issues.append(_issue(
+                    "PARALLEL_CASE_OUT_OF_PLACE",
+                    f"the {step['role']} beat names {hit!r}, which belongs to parallel case "
+                    f"{index + 1} ({_text(case.get('domain'))}); a comparison offered before the "
+                    "story resolves reads as the story changing subject. Move it to the "
+                    "generalization",
+                    step["step_id"]))
+
 
 def _check_close(payload: dict, steps: list[dict], issues: list[dict],
                  short_form: bool = False) -> None:
@@ -657,8 +695,9 @@ def story_direction(question: str, operator_direction: str = "") -> str:
 CAUSAL STORY STRUCTURE — REQUIRED FOR THIS VIDEO:
 Tell one causal chain about: {question}
 Open with ONE sentence, at most {MAX_HOOK_WORDS} words, that promises how the situation inverts.
-Describe the shape, not the topic: say "a problem" where you mean the specific thing, and let the
-concrete subject arrive a few seconds later. Do not greet the viewer or announce the video.
+Name the actor and the reversal in plain, concrete words, and let one named actor be the subject of
+both halves: they do the sensible thing AND they cause the disaster. Do not greet the viewer or
+announce the video.
 
 Then walk the chain in {MIN_CHAPTERS}-{MAX_CHAPTERS} spoken chapters. Say the chapter numbers out
 loud in the narration ("Step one", "Step two"). A chapter may contain several causal steps; give

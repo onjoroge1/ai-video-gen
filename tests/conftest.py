@@ -25,6 +25,10 @@ def pytest_configure(config):
         "markers",
         "live_motion: test drives the raw image-to-video provider call and mocks its transport "
         "itself; exempts it from the no-billed-provider guard")
+    config.addinivalue_line(
+        "markers",
+        "entailment_live: test calls the real language provider to judge entailment; opt in with "
+        "-m entailment_live, since it costs money and is not deterministic")
 
 
 @pytest.fixture(autouse=True)
@@ -39,3 +43,18 @@ def _no_billed_motion_provider(request, monkeypatch):
             "@pytest.mark.live_motion if it means to drive the provider branch.")
 
     monkeypatch.setattr(explainer_pipeline, "_animate_one", _refuse)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip the live entailment cases unless they are asked for by marker.
+
+    They are the tests that say whether the judge actually works, so they must exist and be easy to
+    run -- but they call a paid provider and a model's judgement is not reproducible, so they
+    cannot gate an ordinary suite run.
+    """
+    if "entailment_live" in (config.getoption("-m") or ""):
+        return
+    skip = pytest.mark.skip(reason="live provider; run with -m entailment_live")
+    for item in items:
+        if "entailment_live" in item.keywords:
+            item.add_marker(skip)

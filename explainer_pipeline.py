@@ -2250,8 +2250,11 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         # threading a flag through that chain is exactly how causal_lane got dropped at one of its
         # two call sites — every scene came back with a blank role and the run was wasted. The
         # explicit argument stays for tests and for a caller that wants to override.
+        # Explicit argument, then the env override, then what this ENGINE's corpus support
+        # justifies. The last is not the global default: an engine with two or more references has
+        # met the condition DEFAULT_ADHERENCE's own note sets for widening, and a thin one has not.
         adherence = (adherence or os.getenv("BLUEPRINT_ADHERENCE", "").strip()
-                     or _rc.DEFAULT_ADHERENCE)
+                     or _rc.adherence_for_engine(engine_id))
         # A kill switch, so the lane can be rolled back to the hand-written rules without a deploy
         # — and so the blueprint's effect can be A/B'd rather than assumed.
         if adherence == "off":
@@ -2445,7 +2448,21 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         causal_keys = (
             ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",'
             '"caused_by":<the beat number n this beat happens BECAUSE of; 0 for the setup only>,'
-            '"chapter":<int, the spoken chapter this beat belongs to>')
+            '"chapter":<int, the spoken chapter this beat belongs to>,'
+            '"scope":"primary_story|parallel_case — primary_story for every beat about THIS '
+            "video's subject; parallel_case only for a comparison from another place or domain, "
+            'and only on a generalization beat",'
+            '"parallel_case_id":"<short id of the comparison this beat belongs to, e.g. '
+            'hanoi_rat_bounty; \'\' for primary_story beats>",'
+            '"event":{"text":"<ONE plain factual sentence stating what actually happened in this '
+            "beat, written as a historian would state it: no imagery, no rhetoric, no dramatisation. "
+            "'Residents began keeping rats alive and raising them to exploit the tail bounty.' "
+            "Leave '' when the beat asserts no history — a transition, a rhetorical question or a "
+            'restatement carries the story without carrying a fact>",'
+            '"claim_refs":["<claim_id supporting this event; several may be needed TOGETHER, and '
+            'the event may state something no single claim states alone>"]},'
+            '"changes_state":{"from":"<what was true before this beat>",'
+            '"to":"<what is true after it>"}')
         # NO RECURRING CHARACTER IN THE NARRATION EITHER. Clearing the scene cast flags kept Alex
         # out of the pictures and left him in the words: a script came back saying "So Alex offered
         # cash per dead cobra" and "Alex saw the trick and pulled the plug" about a colonial
@@ -2460,29 +2477,39 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                       "human_present and mascot_present to false on every scene.\n")
         causal_rules = (cast_rules + 
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
-            "the situation inverts.\n"
-            "WRITE IT AS A COMPLETE GRAMMATICAL SENTENCE WITH ONE NAMED ACTOR AS ITS SUBJECT, and "
-            "let that same actor carry both halves: they do the sensible thing AND they cause the "
-            "disaster. That single subject is where the force comes from. Every reference does it "
-            "— \"the British Empire tried to solve a problem and accidentally made it much "
-            "worse\", \"America freed the slaves and paid their owners instead\", \"the British "
-            "starved the Indians\". A second clause that switches to an abstract subject drops the "
-            "actor at the exact moment of the reversal and reads as evasion: \"Colonial officials "
-            "paid Delhi residents to kill a menace, and THE REWARD quietly bred more of it\" is "
-            "the failure to avoid — two subjects, and nobody is responsible for the turn.\n"
-            "Use concrete nouns. An abstraction the viewer must decode (\"a menace\", \"more of "
-            "it\") is not a promise, it is a puzzle, and they do not stay to solve it. Opening on "
-            "\"How\" or \"Why\" is idiomatic for this format and usually the cleanest route to "
-            "one subject and two verbs.\n"
-            "Every reference in the corpus does this: \"How the British Empire tried to solve a "
-            "problem and accidentally made it much worse\" (the concrete subject, cobras, is the "
-            "only thing held back); \"Why the British starved the Indians\"; \"America once "
-            "considered fighting a weed with hippopotamuses\"; \"America freed the slaves and "
-            "paid their owners instead\". Not one of them hides who did what.\n"
-            "This instruction previously read \"name the shape, not the topic\", and it produced "
-            "riddles: \"An official pays to erase a menace, and the reward quietly manufactures "
-            "more of it\" names no country, no century and no cobra. A hook the viewer must "
-            "decode is not a promise, it is a puzzle, and they do not stay to solve it.\n"
+            "the situation inverts. Write it as a complete grammatical sentence whose SUBJECT is a "
+            "named actor, and let that one actor carry both halves: they do the sensible thing AND "
+            "they cause the disaster. Keeping a single subject across the turn is where the force "
+            "comes from — switching the second clause to an abstract subject drops the actor at the "
+            "moment of the reversal, and nobody is left responsible for it.\n"
+            "Name the real things: the country, the century, the actual object. Every reference "
+            "does — \"How the British Empire tried to solve a problem and accidentally made it "
+            "much worse\", \"Why the British starved the Indians\", \"America freed the slaves "
+            "and paid their owners instead\", \"America once considered fighting a weed with "
+            "hippopotamuses\". Opening on \"How\" or \"Why\" is idiomatic here and is usually "
+            "the cleanest route to one subject and two verbs.\n"
+            "\nTHE FACT MODEL — separate what HAPPENED from how you SAY it:\n"
+            "F1. event.text is the historian's sentence: the bare fact, no imagery, no rhetoric. "
+            "The beat's narration is written from it later and may be as vivid as you like, so put "
+            "nothing decorative in the event and nothing unsupported in the beat.\n"
+            "F2. event.claim_refs are the claims that support that sentence TOGETHER. An event may "
+            "state something no single claim states alone — 'paid per tail' plus 'living tailless "
+            "rats were seen' together support 'people cut the tails off and kept the animals "
+            "alive'. Cite every claim the event needs, not the closest one.\n"
+            "F3. A beat that asserts no history gets event.text = \"\" and no claim_refs. "
+            "Transitions, rhetorical questions and framing carry the story without carrying a "
+            "fact, and inventing a citation for them makes every beat look sourced while none of "
+            "them is checkable.\n"
+            "F4. The event is the FACTUAL CEILING for everything downstream. Numbers, dates, "
+            "places, materials, scale, secrecy, named people and motives may appear in the "
+            "narration ONLY if they are in the event, and they may only be in the event if a claim "
+            "supports them. Write the event first and the beat cannot drift.\n"
+            "F5. scope marks provenance. A comparison from another country or domain is "
+            "parallel_case with a parallel_case_id, and it may ONLY sit on a generalization beat — "
+            "an escalation is THIS story getting worse, and leaving for another example before "
+            "this story resolves reads as the video changing subject. Everything else is "
+            "primary_story, and a primary_story beat may not cite a claim that belongs only to a "
+            "comparison.\n"
             "\nDECLARED CAUSAL CHAIN — this video is a chain, not a list:\n"
             f"A. This story runs THE {sheet_engine['name'].upper()}: "
             + " -> ".join(engine_order)
@@ -2917,7 +2944,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             **({"narration_words": causal_budgets[beat["n"]]} if causal_lane else {}),
             **({"causal_role": _s(beat.get("causal_role")),
                 "caused_by": beat.get("caused_by") or "",
-                "chapter": beat.get("chapter") or 0} if causal_lane else {}),
+                "chapter": beat.get("chapter") or 0,
+                # The factual ceiling travels WITH the beat. Without it on the sheet the expansion
+                # is told to write from an event it cannot see, which is how the runtime refit once
+                # came to compress against a budget it was never shown.
+                "event": beat.get("event") or {},
+                "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -2968,6 +3000,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "its assigned beat; local consequences may appear earlier. Include spoken chapter "
             "markers inside each narration_words budget. Do not add the hook or format tag: "
             "they are prepended once after expansion and budgeted separately."
+            " WRITE EACH NARRATION FROM ITS BEAT'S event.text, which is the FACTUAL CEILING for "
+            "that beat. Say it however you like — as a scene, a question, a short punch, in your "
+            "own words, with the story's own rhythm. You may not add a fact the event does not "
+            "contain: no number, date, place, material, quantity, scale, named person, stated "
+            "motive or characterisation such as 'secret' or 'overnight' unless the event already "
+            "has it. \"Residents raised rats for the bounty\" may become \"Then somebody "
+            "noticed: why kill the rat when the tail was the part that paid?\" — that is the same "
+            "fact, told well. It may NOT become \"hundreds of secret rat farms sprang up behind "
+            "mud-brick homes overnight\", which invents a number, a secrecy, a building material "
+            "and a timescale nobody researched. A beat whose event.text is empty asserts no "
+            "history: write it as pure connective or rhetoric and it needs no evidence at all."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role and "
@@ -3074,6 +3117,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
+                # Carried from the plan rather than re-derived. The event is what the narration was
+                # written against, so a later pass that re-reads the prose to guess its facts would
+                # be reconstructing exactly the thing this layer exists to state once.
+                s["event"] = beat.get("event") or {}
+                s["scope"] = _s(beat.get("scope")) or "primary_story"
+                if _s(beat.get("parallel_case_id")):
+                    s["parallel_case_id"] = _s(beat.get("parallel_case_id"))
+                if isinstance(beat.get("changes_state"), dict):
+                    s["changes_state"] = beat["changes_state"]
                 parent = beat.get("caused_by")
                 try:
                     parent = int(parent)
@@ -3449,6 +3501,17 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
         '"source_url":"https://...","support_quote":"short exact excerpt from the cited search evidence",'
         '"source_type":"primary|authoritative_secondary",'
+        '"claim_kind":"event|mechanism|context|outcome|general_principle|parallel_case|unknown — '
+        "what KIND of thing this claim is. event: a specific thing that happened. mechanism: why it "
+        "happened, the rule connecting cause to effect. context: background conditions. outcome: "
+        "the end state. general_principle: an abstract law that holds beyond this story. "
+        "parallel_case: a comparable episode in another place or domain. A claim explaining WHY "
+        "something happened does not evidence THAT it happened, so the distinction between event "
+        "and mechanism is the one that matters most. Use 'unknown' when the claim genuinely does "
+        "not fit one kind — a wrong label is worse than no label, because downstream checks trust "
+        'it and a mislabelled claim passes a gate it should have failed",'
+        '"claim_kind_confidence":<0.0-1.0, how sure you are of that label; below 0.6 prefer '
+        'unknown>",'
         '"calculation":"formula or empty","assumptions":[],"geographic_scope":"global|regional|local|site-specific",'
         '"timescale":"immediate|hours|years|millions of years|other explicit value",'
         '"confidence":"high|medium|speculative","allowed_exaggeration":false,"material":true}]}. '

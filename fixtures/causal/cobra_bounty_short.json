@@ -25,7 +25,11 @@
     "mascot_use": "Bolt is a running gag with escalating repeats rather than a single labelled action: a cash-register DING, a look over a fence, more cobras, another DING. The joke is the repetition.",
     "principle_delivery": "Stated in plain language with no citation -- 'The government rewarded the number, not the outcome.' No economist is named and no paper is dated; the sentence carries the idea on its own.",
     "close": "A question that returns to the PROBLEM rather than to the opening object: 'Where are the cobra farms?' The opening coin is never handed back.",
-    "generalization": "One parallel case, not two. Colonial Vietnam rat-tail bounties, given three clauses and no statistics."
+    "generalization": "One parallel case, not two. Colonial Vietnam rat-tail bounties, given three clauses and no statistics.",
+    "narrator_tone": "Plain and unhurried, closer to a friend explaining than a documentary narrating. Declarative throughout, no rhetorical build; the irony is left for the listener to notice rather than pointed at. Asks one real question at the end and stops.",
+    "humour_and_interrupts": "dry understatement carried by juxtaposition rather than jokes: a two-word dismissal answers a rhetorical question, and a pest is renamed as stock-in-trade without comment. the comedy is the gap between how sensible the plan sounds and what people immediately did with it, never a gag laid on top.",
+    "reveal_placement": "The principle is withheld until the story has already shown it twice. Named in the final step at 31% from the end, after the cages are open, so it lands as a summary of something watched rather than a lesson announced in advance.",
+    "ending_callback": "Returns to the PROBLEM, not to the opening object: 'Ask: where are the cobra farms?' The coin from the opening is never handed back. The close converts the story into a question the listener can carry to their own situation."
   },
   "expect": {
     "pass": true,
