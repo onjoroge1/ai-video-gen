@@ -1,0 +1,160 @@
+"""Story roles compiled from factual functions, so the planner never picks one.
+
+Five Hanoi sheets, cached research, real evidence judge: the same factual event landed in
+`escalation`, `hinge` and `mechanism` on different runs. Every placement was defensible, which is
+the problem -- the planner was answering an editorial question dressed as a factual one.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+import event_functions as ef
+import story_compiler as sc
+
+
+def _beat(bid, function, text, frm="", to="", **extra):
+    return {"beat_id": bid, "event_function": function,
+            "event": {"text": text, "claim_refs": [f"c{bid[-2:]}"]},
+            "changes_state": {"from": frm, "to": to}, **extra}
+
+
+HANOI = [
+    _beat("beat_01", ef.ESTABLISHES_PROBLEM, "Rats colonised Hanoi's new sewers.",
+          "a new sewer network", "rats are an unwanted infestation in Hanoi"),
+    _beat("beat_02", ef.CHANGES_INCENTIVE, "Authorities offered a bounty for every rat tail.",
+          "rats are an unwanted infestation in Hanoi", "a rat tail is worth money",
+          incentive={"rewarded_measure": "rat tails handed in",
+                     "actual_goal": "fewer living rats in the city",
+                     "goal_claim_refs": ["c05"]}),
+    _beat("beat_03", ef.APPARENT_SUCCESS, "Tail submissions climbed into the thousands.",
+          "a rat tail is worth money", "the programme looks like it is working"),
+    _beat("beat_04", ef.EXPLOIT_BEHAVIOR, "Residents cut tails from living rats and released them.",
+          "the programme looks like it is working", "a rat is worth more alive than dead"),
+    _beat("beat_05", ef.COMPOUNDS_EXPLOIT, "People bred rats on the outskirts to earn the bounty.",
+          "a rat is worth more alive than dead", "rats in Hanoi are farmed as a paying crop"),
+]
+
+
+def test_the_planner_never_picks_mechanism_escalation_or_reversal():
+    out = sc.compile_roles(HANOI, "backfiring_solution")
+    assert out["passed"], sc.summary(out)
+    assert out["roles"] == {"beat_01": "setup", "beat_02": "intervention",
+                            "beat_03": "false_resolution", "beat_04": "escalation",
+                            "beat_05": "escalation"}
+    assert [d["role"] for d in out["derived"]] == ["mechanism", "reversal"]
+
+
+def test_the_mechanism_is_the_gap_between_what_paid_and_what_was_wanted():
+    derived = sc.derive_mechanism(HANOI[1])
+    assert derived["ok"]
+    assert derived["event"]["text"] == ("The reward was paid for rat tails handed in, "
+                                        "not for fewer living rats in the city.")
+    assert "c05" in derived["event"]["claim_refs"], "the goal's own evidence travels with it"
+
+
+def test_an_unevidenced_goal_does_not_compile():
+    """What a government wanted is an attribution of intent, not a free schema field."""
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "tails", "actual_goal": "fewer rats",
+                                     "goal_claim_refs": []})
+    assert sc.derive_mechanism(beat)["code"] == "GOAL_NOT_EVIDENCED"
+
+
+def test_rewarding_exactly_what_you_want_is_no_mechanism():
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats delivered",
+                                     "actual_goal": "rats delivered dead",
+                                     "goal_claim_refs": ["c05"]})
+    assert sc.derive_mechanism(beat)["code"] == "NO_PROXY_GAP"
+
+
+def test_a_programme_that_merely_failed_is_not_a_reversal():
+    """Every one of seven observed endings across five sheets was this sentence."""
+    for ending in ("The bounty produced huge tail counts but made no dent in the rat population.",
+                   "Despite the tails handed in, the rat population did not fall.",
+                   "The scheme was abandoned after three months."):
+        compounds = dict(HANOI[4], changes_state={"from": "x", "to": ending})
+        result = sc.derive_reversal(HANOI[0], compounds)
+        assert not result["ok"], f"accepted mere failure as a reversal: {ending}"
+        assert result["code"] == "NO_INVERSION"
+
+
+def test_a_reversal_must_be_about_the_setups_subject():
+    compounds = dict(HANOI[4], changes_state={"from": "x", "to": "colonial budgets tightened"})
+    assert sc.derive_reversal(HANOI[0], compounds)["code"] == "NO_INVERSION"
+
+
+def test_the_reversal_is_computed_from_the_compounded_exploit_not_an_ending_event():
+    result = sc.derive_reversal(HANOI[0], HANOI[4])
+    assert result["ok"]
+    assert result["event"]["text"].startswith("People bred rats")
+    assert result["changes_state"]["to"] == "rats in Hanoi are farmed as a paying crop"
+
+
+def test_hiring_crews_cannot_occupy_the_intervention_slot():
+    """Both are government interventions in English; only one changes an incentive."""
+    beats = list(HANOI)
+    beats.insert(1, _beat("beat_1a", ef.CHANGES_INCENTIVE,
+                          "Officials hired Vietnamese sewer crews to kill rats.",
+                          "rats are an unwanted infestation", "crews are hunting rats"))
+    codes = [i["code"] for i in sc.compile_roles(beats, "backfiring_solution")["issues"]]
+    assert "MULTIPLE_INCENTIVE_CHANGES" in codes
+
+
+def test_a_missing_function_names_what_it_was_for():
+    beats = [b for b in HANOI if sc.function_of(b) != ef.COMPOUNDS_EXPLOIT]
+    issues = sc.compile_roles(beats, "backfiring_solution")["issues"]
+    assert any(i["code"] == "MISSING_EVENT_FUNCTION" and "compounds_exploit" in i["message"]
+               for i in issues)
+
+
+def test_outcome_state_is_never_load_bearing():
+    """Measured: the archives record the failure, not the inversion. It must not be required."""
+    assert ef.OUTCOME_STATE in ef.CONTEXTUAL_FUNCTIONS
+    assert ef.OUTCOME_STATE not in ef.map_for("backfiring_solution").required
+    assert not ef.map_for("backfiring_solution").role_for(ef.OUTCOME_STATE)
+
+
+def test_other_engines_do_not_inherit_the_bounty_contract():
+    """An accidental invention has no incentive to change."""
+    for engine in ("accidental_invention", "power_reversal", "almost_happened_plan",
+                   "accumulating_indictment"):
+        assert ef.map_for(engine) is None
+        assert sc.compile_roles(HANOI, engine)["compiled"] is False
+
+
+def test_hinge_is_not_a_factual_function():
+    """It absorbed exploit_behavior twice and the ending once. It is a way of speaking."""
+    assert "hinge" not in ef.EVENT_FUNCTIONS
+    assert "hinge" not in ef.map_for("backfiring_solution").to_role.values()
+
+
+def test_the_measured_endings_are_the_fixture_this_was_built_from():
+    """Regression guard on the evidence, not just the rule."""
+    sheets = json.loads((Path(__file__).parent.parent / "measurements" /
+                         "hanoi_five_sheets.json").read_text())
+    endings = [b for s in sheets["samples"]
+               for b in ((s.get("spine") or {}).get("beats") or [])
+               if (b.get("role") or "") == "reversal"]
+    assert endings, "the five-sheet measurement must stay in the repo"
+    failures = sum(1 for b in endings
+                   if ef._MERE_FAILURE.search((b.get("event") or {}).get("text") or ""))
+    assert failures, "every observed reversal reported failure rather than inversion"
+
+
+def test_a_sheet_with_no_declared_functions_falls_back_rather_than_compiling_from_nothing():
+    """Legacy sheets predate this contract. Compiling them would assign roles from nothing."""
+    legacy = [{"beat_id": "beat_01", "role": "escalation", "beat": "something happened"}]
+    out = sc.compile_roles(legacy, "backfiring_solution")
+    assert out["compiled"] is False and "no beat declares an event_function" in out["reason"]
+    assert out["beats"] == legacy, "the sheet is handed back untouched"
+
+
+def test_the_derived_beats_are_spliced_into_causal_order():
+    out = sc.compile_roles(HANOI, "backfiring_solution")
+    spliced = sc.splice_derived(out["beats"], out)
+    roles = [b.get("role") for b in spliced]
+    assert roles == ["setup", "intervention", "mechanism", "false_resolution",
+                     "escalation", "escalation", "reversal"]
+    assert [b["n"] for b in spliced] == list(range(1, 8)), "renumbered after the splice"
+    derived = [b for b in spliced if b.get("derived")]
+    assert all(b["event"]["claim_refs"] for b in derived), "a derived beat still cites evidence"

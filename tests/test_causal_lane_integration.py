@@ -44,16 +44,27 @@ def test_cinematic_lane_prompt_is_unchanged_by_the_causal_wiring(monkeypatch):
 
 
 def test_causal_lane_prompt_asks_for_the_chain(monkeypatch):
+    """On an engine with a function map the chain is still declared, but roles are not asked for.
+
+    Measured across five sheets: the same factual event landed in escalation, hinge and mechanism
+    on different runs. `causal_role` was asking an editorial question dressed as a factual one, so
+    for backfiring_solution the planner now states what each fact IS and story_compiler assigns
+    the roles. The chain itself -- caused_by, chapter -- is unchanged.
+    """
+    import event_functions as ef
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
     assert "DECLARED CAUSAL CHAIN" in prompt
-    assert '"causal_role"' in prompt and '"caused_by"' in prompt and '"chapter"' in prompt
+    assert '"caused_by"' in prompt and '"chapter"' in prompt
+    assert '"event_function"' in prompt and '"causal_role"' not in prompt
+    for function in ef.map_for("backfiring_solution").required:
+        assert function in prompt
+    # The mechanism is derived from these two halves, so both must be asked for by name.
+    assert "rewarded_measure" in prompt and "goal_claim_refs" in prompt
     # The prompt must state the same numbers the validator enforces, or the lane asks for one
     # thing and rejects another.
     assert f"{cs.MECHANISM_DEADLINE_PCT:.0%}" in prompt
     assert f"{cs.MAX_HINGE_WORDS} words" in prompt
     assert f"{cs.MIN_CHAPTERS}-{cs.MAX_CHAPTERS} spoken chapters" in prompt
-    for role in cs.STEP_ROLES:
-        assert role in prompt
 
 
 def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):

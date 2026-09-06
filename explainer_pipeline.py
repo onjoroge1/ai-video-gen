@@ -2461,8 +2461,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             f'at least {_cs.MIN_PARALLEL_CASES} when any beat is a generalization, each with the '
             'same four parts in the same order so the repetition itself carries the argument; '
             '[] when there is no generalization beat,')
+        # For an engine with a function map, the planner is NOT asked for a causal role. Measured
+        # across five sheets: the same factual event landed in escalation, hinge and mechanism on
+        # different runs, and every placement was defensible, so the field was asking an editorial
+        # question dressed as a factual one. It states what each fact IS; story_compiler assigns
+        # the roles and derives the two that are not events at all.
+        _fmap = _ef.map_for(sheet_engine_id)
+        function_keys = ("" if _fmap is None else
+            ',"event_function":"one of: '
+            + " | ".join(f"{name} ({_ef.WHAT_EACH_FUNCTION_IS[name]})"
+                         for name in _ef.EVENT_FUNCTIONS) + '",'
+            '"incentive":{"rewarded_measure":"<ONLY on the changes_incentive beat: exactly what '
+            'the rule paid out for, in the policy\'s own terms>","actual_goal":"<what the policy '
+            'was trying to achieve>","goal_claim_refs":["<claim_id evidencing that goal. REQUIRED: '
+            'what a government wanted is an attribution of intent, and an unsourced goal makes the '
+            'whole mechanism unverifiable>"]}')
         causal_keys = (
-            ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",'
+            function_keys +
+            ('' if _fmap is not None else
+             ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",') +
             '"caused_by":<the beat number n this beat happens BECAUSE of; 0 for the setup only>,'
             '"chapter":<int, the spoken chapter this beat belongs to>,'
             '"scope":"primary_story|parallel_case — primary_story for every beat about THIS '
@@ -2858,11 +2875,29 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             planned_mechanism = int(plan.get("mechanism_beat") or 0)
         except (TypeError, ValueError):
             planned_mechanism = 0
-        # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
-        beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                 planned_mechanism, pinned_engine=pinned_engine,
-                                                 preferred_engine=sheet_engine_id)
-        cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
+        # COMPILE THE ROLES, DO NOT BUY THEM. On an engine with a function map the beats already
+        # say what each fact IS, so the roles are derived here and the labelling call is not made
+        # at all -- one fewer paid provider call, and a deterministic answer instead of one that
+        # moved across five measured sheets.
+        _roles = _compiler.compile_roles(beats, sheet_engine_id)
+        if _roles["compiled"]:
+            beats = _roles["beats"]
+            for _beat in beats:
+                _beat["_story_engine"] = sheet_engine_id
+            print(_compiler.summary(_roles))
+            if not _roles["passed"] and not _diagnostic_render():
+                raise _sfm.StorySpineUnsupported(_compiler.summary(_roles), beats=beats)
+            # The derived mechanism and reversal are beats the story needs and no archive records
+            # as events. They enter the sheet here so everything downstream sees one beat list.
+            beats = _compiler.splice_derived(beats, _roles)
+        else:
+            if _roles.get("reason"):
+                print(f"[roles] {_roles['reason']}")
+            # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
+            beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
+                                                     planned_mechanism, pinned_engine=pinned_engine,
+                                                     preferred_engine=sheet_engine_id)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
         # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
@@ -7414,6 +7449,8 @@ def _stable_standard_longform(video_format: str, story_format: str,
 
 
 import cost_ledger as _ledger
+import event_functions as _ef
+import story_compiler as _compiler
 import story_fact_model as _sfm
 
 
