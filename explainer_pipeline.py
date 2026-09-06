@@ -1144,7 +1144,8 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
                     story_format: str = "standard_explainer",
                     research_dossier: dict | None = None,
                     causal_lane: bool = False,
-                    pinned_engine: str = "") -> dict:
+                    pinned_engine: str = "",
+                    cost_sink: list | None = None) -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -1166,7 +1167,7 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
                                       series, improve_note, operator_direction, story_format,
                                       research_dossier, causal_lane,
-                                      pinned_engine=pinned_engine)
+                                      pinned_engine=pinned_engine, cost_sink=cost_sink)
         # A sourced long-form draft must not be rewritten by a claim-unaware hook patch. The
         # fail-closed story validator rejects a missing subject and the replan keeps bindings intact.
         if not research_dossier:
@@ -2327,13 +2328,28 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     return budgets
 
 
+def _charge(sink, stage: str, amount: float, detail: str = "") -> float:
+    """Record spend the moment a provider answers, and return it unchanged.
+
+    Deliberately a no-op unless the sink is a CostLedger. The sinks in this pipeline are plain
+    lists, and several callers compute their total as `sum(cost_sink) + script["_script_cost_usd"]`
+    -- a function that appended to its sink AND returned its own total would be counted twice.
+    Opting in per sink keeps the existing arithmetic exact while giving an attempt that never
+    returns a script somewhere to leave its spend.
+    """
+    if isinstance(sink, _ledger.CostLedger):
+        sink.charge(stage, amount, detail)
+    return amount
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
                              improve_note="", operator_direction="",
                              story_format="standard_explainer",
                              research_dossier: dict | None = None,
                              causal_lane: bool = False,
                              adherence: str = "",
-                             pinned_engine: str = "") -> dict:
+                             pinned_engine: str = "",
+                             cost_sink: list | None = None) -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -2397,7 +2413,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         selection_costs = []
         sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
                            else _select_story_engine(question, duration_sec, selection_costs))
-        cost += sum(selection_costs)
+        cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(selection_costs))
         sheet_engine = _se.get(sheet_engine_id)
         blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
         # One role per beat requires space for every required role and repeated escalation, so the
@@ -2804,8 +2820,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
                                   messages=[{"role": "user", "content": beat_prompt + _series_block(series)
                                              + _operator_block(operator_direction)}])
-    plan, rc = _parse_script_json(o.content[0].text); cost += rc
-    cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+    plan, rc = _parse_script_json(o.content[0].text)
+    cost += _charge(cost_sink, _ledger.BEAT_SHEET,
+                    rc + o.usage.input_tokens * _RATE_SCRIPT_IN
+                    + o.usage.output_tokens * _RATE_SCRIPT_OUT, f"{n_scenes} beats")
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
@@ -2839,7 +2857,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
                                                  planned_mechanism, pinned_engine=pinned_engine,
                                                  preferred_engine=sheet_engine_id)
-        cost += spine_cost
+        cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
         # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
@@ -2860,10 +2878,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _sb = _spine_beats(beats)
         _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
                                     _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
-        cost += sum(_spine_cost)
+        cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
+                        f"{len(_sb)} beats judged")
         print(_sfm.spine_summary(_sb, _spine))
+        plan["_spine"] = {"compiled": _spine, "beats": _sb}
         if not _spine["passed"] and not _diagnostic_render():
-            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine))
+            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
+                                             spine=_spine, beats=_sb)
         # Expansion writes only what survived. A collapsed duplicate or a pruned comparison must not
         # reach narration, or the layer below spends a call on a beat the fact model removed.
         _keep = set(_spine["kept_beats"])
@@ -3103,7 +3124,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
-        cost += _msg_cost(c.usage)
+        cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
         if getattr(c, "stop_reason", "") == "max_tokens":
             # Retry a smaller, differently keyed request. Completed prefixes are retained and
             # the durable wrapper preserves the already charged incomplete response on resume.
@@ -3114,7 +3135,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise ValueError(
                 f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
                 "off even with one beat. No further automatic retry.")
-        part, rc = _parse_script_json(c.content[0].text); cost += rc
+        part, rc = _parse_script_json(c.content[0].text)
+        cost += _charge(cost_sink, _ledger.EXPANSION, rc, "json repair")
         if causal_lane and len(part.get("scenes") or []) != len(batch):
             raise ValueError(f"Scene expansion returned {len(part.get('scenes') or [])} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
@@ -3229,6 +3251,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
         "_script_cost_usd": round(cost, 4),
+        "_spine": plan.get("_spine") or {},
         "_story_engine": (beats[0].get("_story_engine") if beats else "") or "",
         "_planned_story_engine": sheet_engine_id,
         "_engine_reason": (beats[0].get("_engine_reason") if beats else "") or "",
@@ -3602,7 +3625,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         turn_searches = int(getattr(server_usage, "web_search_requests", 0) or 0)
         search_requests += turn_searches
         # Meter every received response before parsing, including paid incomplete responses.
-        if cost_sink is not None:
+        if isinstance(cost_sink, _ledger.CostLedger):
+            cost_sink.charge(_ledger.RESEARCH, _msg_cost(response.usage), "dossier turn")
+            cost_sink.charge(_ledger.RESEARCH, round(turn_searches * _WEB_SEARCH_COST_CEILING, 4),
+                             f"{turn_searches} web searches")
+        elif cost_sink is not None:
             cost_sink.append(_msg_cost(response.usage))
             cost_sink.append(round(turn_searches * _WEB_SEARCH_COST_CEILING, 4))
         stop_reason = getattr(response, "stop_reason", None)
@@ -7381,6 +7408,7 @@ def _stable_standard_longform(video_format: str, story_format: str,
     )
 
 
+import cost_ledger as _ledger
 import story_fact_model as _sfm
 
 
@@ -7720,7 +7748,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                            causal_lane=causal_lane,
                            video_format=video_format, series=series, operator_direction=operator_direction,
-                           story_format=story_format, research_dossier=research_dossier)
+                           story_format=story_format, research_dossier=research_dossier,
+                           cost_sink=cost_sink)
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
     # Two contracts want different things from the same script, and only one of them was steering
@@ -7759,6 +7788,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             # contract before failing with a blank role on all 22 scenes. A replanned script is
             # still a script for the same lane.
             causal_lane=causal_lane,
+            cost_sink=cost_sink,
             # Same engine as the draft being repaired. Without this the replan re-picks and ends
             # up fixing a different contract from the one that failed.
             pinned_engine=_s(best.get("_story_engine")),

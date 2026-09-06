@@ -796,7 +796,18 @@ def spine_coverage(beats: list[dict], failed_ids: set) -> dict:
 
 
 class StorySpineUnsupported(ValueError):
-    """The research does not evidence the sequence of events this story needs."""
+    """The research does not evidence the sequence of events this story needs.
+
+    Carries the sheet and the compile result. A refusal that discards what it refused cannot be
+    measured across runs, and role assignment is exactly the thing that needs measuring across
+    runs -- the events the planner proposes may be identical while the functions it assigns them
+    move, and only the sheet shows that.
+    """
+
+    def __init__(self, message: str, *, spine: dict | None = None, beats: list | None = None):
+        super().__init__(message)
+        self.spine = spine or {}
+        self.beats = beats or []
 
 
 def spine_report(beats: list[dict], report: dict) -> str:
