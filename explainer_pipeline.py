@@ -2471,11 +2471,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             ',"event_function":"one of: '
             + " | ".join(f"{name} ({_ef.WHAT_EACH_FUNCTION_IS[name]})"
                          for name in _ef.EVENT_FUNCTIONS) + '",'
-            '"incentive":{"rewarded_measure":"<ONLY on the changes_incentive beat: exactly what '
-            'the rule paid out for, in the policy\'s own terms>","actual_goal":"<what the policy '
-            'was trying to achieve>","goal_claim_refs":["<claim_id evidencing that goal. REQUIRED: '
-            'what a government wanted is an attribution of intent, and an unsourced goal makes the '
-            'whole mechanism unverifiable>"]}')
+            '"incentive":{"rewarded_measure":"<ONLY on the changes_incentive beat. A SHORT NOUN '
+            'PHRASE naming the thing a person had to physically hand over to be paid -- what the '
+            'clerk accepted as proof, not what the policy was announced as. These differ, and the '
+            'difference IS the story: Hanoi announced a bounty on dead rats and paid for severed '
+            'tails, so the answer is \'a severed rat tail\', never \'a dead rat\'. No rate, no '
+            'date, no place -- just the object>","actual_goal":"<A SHORT NOUN PHRASE naming the '
+            'outcome the policy wanted, e.g. \'fewer rats in the city\'. Lower case, no leading '
+            'verb, no full stop -- it is dropped into a sentence>","goal_claim_refs":["<claim_id '
+            'evidencing that goal. REQUIRED: what a government wanted is an attribution of intent, '
+            'and an unsourced goal makes the whole mechanism unverifiable>"]}')
         causal_keys = (
             function_keys +
             ('' if _fmap is not None else
@@ -7467,6 +7472,11 @@ def _spine_beats(beats: list) -> list:
             "event": beat.get("event") or {},
             "changes_state": beat.get("changes_state") or {},
             "beat": _s(beat.get("beat")),
+            # Carried so a refusal can be measured. Without these, four of five sampled sheets
+            # reported no event functions at all -- not because the planner omitted them but
+            # because this projection dropped them on the way into the exception.
+            "event_function": _s(beat.get("event_function")),
+            "derived_from": beat.get("derived_from") or [],
         })
     return out
 

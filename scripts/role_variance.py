@@ -47,6 +47,66 @@ def _match(event_text: str, fixture: dict) -> str:
     return best if best_score >= fixture.get("min_similarity", 0.22) else ""
 
 
+def function_stability(fixture: dict, reports: list[Path]) -> dict:
+    """After the redesign the question changes, because the compiler cannot fail.
+
+    Roles are now derived, so "complete spine" would read 5/5 by construction and prove only that
+    the planner filled in a form. What can still genuinely fail is what the planner declares each
+    fact to BE, whether that event survives the evidence boundary, and whether the computed
+    reversal inverts a setup property rather than restating the programme's failure.
+    """
+    seen: dict[str, int] = {}
+    disagreed: dict[str, dict[str, int]] = {}
+    sheets = spines = judged = inverted = 0
+    for path in reports:
+        for sample in json.loads(path.read_text()).get("samples") or []:
+            beats = ((sample.get("spine") or {}).get("beats")) or []
+            if not beats:
+                continue
+            sheets += 1
+            compiled = (sample.get("spine") or {}).get("compiled") or {}
+            coverage = compiled.get("coverage") or {}
+            spines += bool(coverage.get("covered"))
+            judged += bool(coverage.get("covered")) and not compiled.get("still_failing")
+            functions = set()
+            for beat in beats:
+                declared = (beat.get("event_function") or "").strip().lower()
+                text = sfm.event_of(beat)["text"]
+                if not declared or not text:
+                    continue
+                functions.add(declared)
+                expected = _match(text, fixture)
+                if expected and expected != declared:
+                    disagreed.setdefault(expected, {})
+                    disagreed[expected][declared] = disagreed[expected].get(declared, 0) + 1
+                if (beat.get("role") or "") == "reversal" and beat.get("derived_from"):
+                    inverted += 1
+            for function in functions:
+                seen[function] = seen.get(function, 0) + 1
+    return {"sheets": sheets, "present": seen, "disagreed": disagreed,
+            "covered_spines": spines, "fully_judged": judged, "computed_reversals": inverted}
+
+
+def render_stability(fixture: dict, result: dict) -> str:
+    import event_functions as ef
+    lines = [f"EVENT FUNCTION STABILITY ACROSS {result['sheets']} SHEETS", ""]
+    total = result["sheets"] or 1
+    for function in ef.map_for("backfiring_solution").required:
+        count = result["present"].get(function, 0)
+        mark = "+" if count == total else ("~" if count >= total * 0.8 else "!")
+        drift = result["disagreed"].get(function) or {}
+        note = ("  (the fixture's event was called "
+                + ", ".join(f"{k} x{v}" for k, v in drift.items()) + ")") if drift else ""
+        lines.append(f"  {mark} {function:<22s} present in {count}/{total} sheets{note}")
+    lines += ["",
+              f"  spines with every required role covered   {result['covered_spines']}/{total}",
+              f"  ... and every event past Boundary A        {result['fully_judged']}/{total}",
+              f"  reversals computed from a state inversion  {result['computed_reversals']}/{total}"]
+    lines += ["", "Coverage alone is not the target: the compiler assigns roles deterministically, "
+                  "so it cannot fail. The second and third lines are the ones that can."]
+    return "\n".join(lines)
+
+
 def collect(fixture: dict, reports: list[Path]) -> dict:
     table: dict[str, dict[str, int]] = {}
     unmatched: list[str] = []
@@ -106,7 +166,12 @@ def main(argv=None):
         print(__doc__)
         return 2
     fixture = json.loads(Path(argv[0]).read_text())
-    result = collect(fixture, [Path(p) for p in argv[1:]])
+    stability = argv[1] == "--functions"
+    paths = [Path(p) for p in argv[(2 if stability else 1):]]
+    if stability:
+        print(render_stability(fixture, function_stability(fixture, paths)))
+        return 0
+    result = collect(fixture, paths)
     if not result["runs"]:
         print("No sheets found. The reports carry a sheet only for samples that reached the "
               "spine gate.")

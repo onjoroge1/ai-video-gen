@@ -168,3 +168,25 @@ def test_the_derived_beats_are_spliced_into_causal_order():
         "the reversal keeps the sourced event; only its declared state transition is computed"
     assert reversal["changes_state"] == {"from": "rats are an unwanted infestation in Hanoi",
                                          "to": "rats in Hanoi are farmed as a paying crop"}
+
+
+def test_the_goal_is_normalised_into_the_derived_sentence():
+    """Observed: 'The goal was Reduce Hanoi's rat population.' -- and the judge rejected it."""
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "A severed rat tail.",
+                                     "actual_goal": "Reduce Hanoi's rat population.",
+                                     "goal_claim_refs": ["c05"]})
+    text = sc.derive_mechanism(beat)["event"]["text"]
+    assert text == ("The reward was paid for a severed rat tail. "
+                    "The goal was reduce Hanoi's rat population.")
+    assert ".." not in text and " Reduce" not in text
+    assert sc._phrase("US bounty payments") == "US bounty payments", "acronyms keep their case"
+
+
+def test_the_prompt_asks_for_what_the_clerk_accepted_not_what_was_announced():
+    """4 of 5 sheets filled rewarded_measure with 'every dead rat' -- the announcement, not the
+    proof -- which erases the proxy gap the whole story turns on."""
+    source = open(__import__("explainer_pipeline").__file__, encoding="utf-8").read()
+    block = source[source.index('"rewarded_measure"'):]
+    block = block[:block.index('"goal_claim_refs"')]
+    assert "accepted as proof" in block and "not what the policy was announced as" in block
+    assert "severed rat tail" in block and "never" in block

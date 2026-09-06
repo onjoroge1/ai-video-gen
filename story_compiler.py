@@ -19,11 +19,26 @@ def function_of(beat: dict) -> str:
     return (sfm._text((beat or {}).get("event_function"))).strip().lower()
 
 
+def _phrase(value) -> str:
+    """A noun phrase fit to drop into a sentence.
+
+    Measured: a planner returned "Reduce Hanoi's rat population" and the derived mechanism read
+    "The goal was Reduce Hanoi's rat population." An evidence judge reading ungrammatical text has
+    been handed a second reason to reject a claim that may be perfectly true.
+    """
+    text = sfm._text(value).strip().rstrip(".").strip()
+    head = text.split(" ")[0]
+    # Acronyms keep their case ("US bounty payments"); a lone capital "A" is not an acronym.
+    if text[:1].isupper() and not (len(head) > 1 and head.isupper()):
+        text = text[:1].lower() + text[1:]
+    return text
+
+
 def incentive_of(beat: dict) -> dict:
     block = (beat or {}).get("incentive")
     block = block if isinstance(block, dict) else {}
-    return {"rewarded_measure": sfm._text(block.get("rewarded_measure")).strip(),
-            "actual_goal": sfm._text(block.get("actual_goal")).strip(),
+    return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
+            "actual_goal": _phrase(block.get("actual_goal")),
             "goal_claim_refs": [sfm._text(r) for r in (block.get("goal_claim_refs") or [])
                                 if sfm._text(r)]}
 
