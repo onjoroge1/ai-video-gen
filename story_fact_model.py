@@ -490,6 +490,311 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
     }
 
 
+# The causal job each required role performs. Two beats doing the same job with the same state
+# transition are one beat written twice, however differently they are worded -- and once a duplicate
+# exists in the FACT model every layer below has to compensate for it, which is why this is caught
+# here rather than left to narration dedupe.
+CENTRAL_FUNCTIONS = {
+    "setup": "establishes the state",
+    "intervention": "changes the incentives",
+    "false_resolution": "creates apparent success",
+    "hinge": "reveals the flaw",
+    # These three are routinely conflated, and conflating them is how a story ends up stating its
+    # flaw twice and calling the second one a reversal:
+    #   mechanism  WHY the incentive is broken      the bounty measures tails, not rats removed
+    #   escalation HOW people exploit it            tails are cut from living rats, which are freed
+    #   reversal   WHAT the system has now BECOME   rats are worth more alive than dead
+    # A reversal restating the mechanism is not a reversal; it is the flaw said again.
+    "mechanism": "names the rule — WHY the incentive is broken",
+    "escalation": "HOW people exploit it, compounding",
+    "reversal": "WHAT the system has become — the end state inverted",
+    "tool": "hands back a reusable lens",
+    "verdict": "states what the pattern proves",
+}
+# Roles whose duplicates may be collapsed into one beat. Everything else is a distinct causal job,
+# and two beats performing the same transition under different required roles means one of those
+# roles is missing rather than repeated.
+COLLAPSIBLE_ROLES = ("escalation", "generalization")
+# Roles a story can be told without. Context and comparison are enrichment: if the evidence does not
+# carry them, they are pruned rather than sourced harder or invented.
+OPTIONAL_ROLES = ("generalization",)
+# What a complete causal story must actually evidence. Raw supported/total is poor telemetry -- five
+# supported context beats with an unsupported reversal is a bad story, and five supported beats
+# carrying the whole mechanism is a good one.
+REQUIRED_SPINE_ROLES = ("setup", "intervention", "false_resolution", "mechanism",
+                        "escalation", "reversal")
+
+
+def _state_signature(beat: dict) -> str:
+    """A beat's causal job, as the transition it performs rather than the words it uses."""
+    transition = beat.get("changes_state")
+    transition = transition if isinstance(transition, dict) else {}
+    return f"{_text(transition.get('from')).casefold()}=>{_text(transition.get('to')).casefold()}"
+
+
+# Words that carry no causal content, so two events sharing only these are not the same beat.
+_FUNCTION_WORDS = frozenset((
+    "that", "this", "these", "those", "with", "from", "into", "were", "have", "been", "they",
+    "their", "them", "when", "then", "than", "also", "more", "most", "some", "such", "each",
+    "which", "while", "after", "before", "about", "would", "could", "there", "where", "what",
+    # Three-letter words matter once `_stems` drops the four-letter floor so that "rat" counts in a
+    # story about rats. Without these, "and" alone was enough overlap to certify a China parallel
+    # case as a Hanoi mechanism.
+    "and", "the", "for", "was", "are", "but", "not", "its", "had", "has", "who", "one", "out",
+    "any", "all", "can", "did", "own", "per", "via", "yet", "how", "why", "now", "way",
+))
+
+
+def _stems(text: str) -> set:
+    """Content words reduced far enough that a plural cannot hide a match.
+
+    Kept separate from `_content_words`, which the duplicate detector depends on: measured on the
+    Hanoi spine, the role contract rejected a perfectly good mechanism because its event said
+    "tail" and its declared state said "tails", and "rat" fell under the four-letter floor in a
+    story about rats. Crude suffix stripping is enough -- this decides whether two phrases are
+    about the same thing, not what either one means.
+    """
+    out = set()
+    for word in re.findall(r"[a-z]+", _text(text).lower()):
+        if len(word) < 3 or word in _FUNCTION_WORDS:
+            continue
+        for suffix in ("ies", "ing", "ed", "es", "s"):
+            if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                word = word[:-len(suffix)] + ("y" if suffix == "ies" else "")
+                break
+        out.add(word)
+    return out
+
+
+def _content_words(text: str) -> set:
+    return {word for word in re.findall(r"[a-z]+", _text(text).lower())
+            if len(word) > 3 and word not in _FUNCTION_WORDS}
+
+
+def duplicate_event_functions(beats: list[dict]) -> list[dict]:
+    """Beats performing the same causal job twice.
+
+    Compared on the state transition first and the event's content second, because two events can
+    be worded quite differently and still move the story from and to the same place:
+
+        beat 5  from: tail count appears successful    to: the rat population is not reduced
+        beat 8  from: the bounty appears successful    to: the underlying problem persists
+
+    Those are one beat. Wording similarity alone would miss it; the transition is the tell.
+    """
+    issues, seen = [], []
+    for index, beat in enumerate(beats or []):
+        beat = beat if isinstance(beat, dict) else {}
+        role = _text(beat.get("role") or beat.get("causal_role")).lower()
+        event = event_of(beat)["text"]
+        if not event or role not in CENTRAL_FUNCTIONS:
+            continue
+        beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
+        signature, words = _state_signature(beat), _content_words(event)
+        for prior_id, prior_role, prior_sig, prior_words in seen:
+            same_transition = signature != "=>" and signature == prior_sig
+            overlap = (len(words & prior_words) / max(1, min(len(words), len(prior_words)))
+                       if words and prior_words else 0.0)
+            if not (same_transition or overlap >= 0.6):
+                continue
+            # ACROSS REQUIRED ROLES, a duplicate is not redundancy — it is a missing beat.
+            # Collapsing them deletes a causal function the story needs: a measured plan wrote the
+            # same sentence for its mechanism and its reversal, and collapsing them silently
+            # removed the reversal, so the compiler reported the story as unsupported when the
+            # real defect was that the planner never wrote a reversal at all.
+            if (prior_role != role and prior_role in REQUIRED_SPINE_ROLES
+                    and role in REQUIRED_SPINE_ROLES):
+                issues.append(_issue(
+                    "DUPLICATE_ACROSS_REQUIRED_ROLES",
+                    f"{prior_role} and {role} describe the same state change, so the {role} is not "
+                    f"doing its job. {prior_role}: {CENTRAL_FUNCTIONS.get(prior_role, '')}. "
+                    f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}. Required repair: write a {role} "
+                    "that is distinct from the " + prior_role,
+                    beat_id=beat_id, duplicate_of=prior_id, collapsible=False))
+                break
+            if role in COLLAPSIBLE_ROLES and prior_role == role:
+                issues.append(_issue(
+                    "DUPLICATE_EVENT_FUNCTION",
+                    f"beat {beat_id} performs the same causal job as {prior_id} "
+                    f"({CENTRAL_FUNCTIONS.get(prior_role, prior_role)}); collapse them into one "
+                    "beat rather than sourcing the same state change twice",
+                    beat_id=beat_id, duplicate_of=prior_id, collapsible=True))
+                break
+        else:
+            seen.append((beat_id, role, signature, words))
+    return issues
+
+
+def prune_unsupported_optional(beats: list[dict], failed_ids: set) -> tuple[list, list]:
+    """Drop beats the evidence does not carry AND the story does not need.
+
+    Returns (kept, pruned). Not every researched fact deserves a beat: a spine should contain only
+    events that change the state of the story, so an unsupported comparison or a thin piece of
+    context is removed rather than rewritten or sourced harder. A required role is never pruned --
+    if the reversal is unsupported the story genuinely cannot be told.
+    """
+    kept, pruned = [], []
+    for index, beat in enumerate(beats or []):
+        beat = beat if isinstance(beat, dict) else {}
+        beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
+        role = _text(beat.get("role") or beat.get("causal_role")).lower()
+        optional = role in OPTIONAL_ROLES or scope_of(beat) == PARALLEL_CASE
+        if beat_id in failed_ids and optional:
+            pruned.append({"beat_id": beat_id, "role": role,
+                           "event": event_of(beat)["text"],
+                           "reason": "unsupported and not required by the causal chain"})
+        else:
+            kept.append(beat)
+    return kept, pruned
+
+
+def narrow_required_roles(beats: list[dict], verdicts: dict) -> tuple[list, list, list]:
+    """Repair a required beat from its OWN evidence, and only when there is a core to keep.
+
+    The free dossier search this replaces was unsound twice over. It picked the first verified claim
+    of a compatible kind, which produced "Michael G. Vann published a peer-reviewed account" as a
+    story's SETUP and a China comparable-case claim as its MECHANISM -- both perfectly sourced and
+    both useless. And it then validated the substitution by asking whether the claim supported the
+    event, which the claim it was copied from trivially does. A step that can only confirm itself.
+
+    So: narrow, never search. `partially_entailed` means Boundary A found a factual nucleus worth
+    keeping and named the unsupported specificity around it, so the beat can drop the specificity
+    and keep the subject it always had:
+
+        event           1890s sewer construction created Hanoi's rat problem
+        supported_core  Hanoi had a serious rat problem
+        narrowed to     Hanoi had a serious rat problem
+
+    Any other verdict gets no repair. `unsupported` means there is no demonstrated nucleus to
+    preserve, and inventing one from neighbouring evidence is how a compiler becomes a hallucination
+    layer wearing a citation.
+
+    Returns (beats, narrowed, blocked).
+    """
+    narrowed, blocked, out = [], [], []
+    for index, beat in enumerate(beats or []):
+        beat = dict(beat) if isinstance(beat, dict) else {}
+        beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
+        role = _text(beat.get("role") or beat.get("causal_role")).lower()
+        verdict = verdicts.get(beat_id) or {}
+        if role not in REQUIRED_SPINE_ROLES or not verdict or verdict.get("passed"):
+            out.append(beat)
+            continue
+
+        kind = _text(verdict.get("verdict"))
+        core = _text(verdict.get("supported_core"))
+        if kind == "partially_entailed" and core:
+            candidate = dict(beat, event={"text": core,
+                                          "claim_refs": event_of(beat)["claim_refs"]})
+            holds, why = role_contract_holds(candidate)
+            if holds:
+                narrowed.append({"beat_id": beat_id, "role": role,
+                                 "was": event_of(beat)["text"], "now": core,
+                                 "dropped": verdict.get("unsupported_details") or []})
+                out.append(candidate)
+                continue
+            # Sourced but no longer doing its job. "French authorities governed Hanoi in 1902" is
+            # impeccable evidence and a useless setup for a story about rats.
+            blocked.append(_issue("ROLE_CONTRACT_FAILED",
+                                  f"beat {beat_id}: narrowing to the supported core left a {role} "
+                                  f"that no longer performs its function — {why}. "
+                                  f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}",
+                                  beat_id=beat_id, role=role))
+            out.append(beat)
+            continue
+
+        code = {"contradicted": "REQUIRED_ROLE_CONTRADICTED"}.get(
+            kind, "MISSING_REQUIRED_ROLE_SUPPORT")
+        blocked.append(_issue(
+            code,
+            f"beat {beat_id} is the {role} and its evidence returned {kind or 'no verdict'}; "
+            "there is no supported core to narrow to. The story needs this causal function, so "
+            "research or replan it rather than softening it until it passes",
+            beat_id=beat_id, role=role))
+        out.append(beat)
+    return out, narrowed, blocked
+
+
+def role_contract_holds(beat: dict) -> tuple[bool, str]:
+    """Does this beat's event still perform the role it claims, after being narrowed?
+
+    Support and narrative function are separate contracts: evidence can prove a statement true
+    without making it useful to the story. This asks the second question, keyed on the state
+    transition the beat declared rather than on the kind of its citations.
+    """
+    beat = beat or {}
+    role = _text(beat.get("role") or beat.get("causal_role")).lower()
+    event = event_of(beat)["text"]
+    if not event:
+        return False, "the beat has no event"
+    transition = beat.get("changes_state")
+    transition = transition if isinstance(transition, dict) else {}
+    before, after = _text(transition.get("from")), _text(transition.get("to"))
+
+    if role in ("reversal", "hinge") and before and after and before.casefold() == after.casefold():
+        return False, "its declared before and after states are identical"
+    # Narrow anti-pattern, not a theory of narrative: an event that describes the SOURCE rather
+    # than the world. "The article surveys the rat bounty" is true, cited, and about a document.
+    # It overlaps its own state transition on the words "rat" and "bounty", so no overlap test
+    # catches it -- which is exactly why the dossier-wide search produced three of them.
+    if _META_EVIDENCE.search(event):
+        return False, "its event describes the source material rather than anything that happened"
+    # A comparison illustrates the rule after the story has earned it; it can never BE a step of
+    # the story. This holds even when the beat calls itself primary_story -- which is precisely
+    # what a mis-sourced beat does.
+    if role in REQUIRED_SPINE_ROLES and (_text(beat.get("scope")) == PARALLEL_CASE
+                                         or _PARALLEL_MARKER.search(event)):
+        return False, "its event is a comparable case, which cannot be a step of the primary story"
+    if not after:
+        return True, ""
+    # The narrowed event must still reach the state the beat exists to produce. Stripping the
+    # unsupported specificity is fine; stripping the thing that made the transition happen is not.
+    overlap = _stems(event) & _stems(after)
+    if not overlap:
+        return False, (f"the narrowed event shares nothing with the state it must produce "
+                       f"({after[:60]!r})")
+    return True, ""
+
+
+_PARALLEL_MARKER = re.compile(r"\bCOMPARABLE\s+CASE\b", re.I)
+
+_META_EVIDENCE = re.compile(
+    r"\b(?:th(?:is|e)\s+(?:article|paper|stud(?:y|ies)|paper|paper)|"
+    r"(?:article|paper|study|book|chapter|account|analysis|survey|dataset)\s+"
+    r"(?:survey|describ|argu|note|record|document|examin|discuss|report|find)\w*|"
+    r"(?:published|peer-reviewed|peer reviewed)\s|"
+    r"\bin\s+(?:the\s+)?journal\b|"
+    r"(?:historian|researcher|scholar|economist)s?\s+(?:have\s+)?"
+    r"(?:publish|writ|argu|document|record|not)\w*)", re.I)
+
+
+def spine_coverage(beats: list[dict], failed_ids: set) -> dict:
+    """Which required causal functions the evidence actually supports.
+
+    The gate that matters. A story whose setup, intervention, false resolution, mechanism,
+    escalation and reversal are all evidenced can be told, even if the planner also proposed two
+    expendable beats that did not survive.
+    """
+    supported, missing, why = {}, [], {}
+    for role in REQUIRED_SPINE_ROLES:
+        holders = [beat for beat in beats or []
+                   if _text((beat or {}).get("role") or (beat or {}).get("causal_role")).lower() == role
+                   and event_of(beat or {})["text"]]
+        ok = [b for b in holders
+              if (_text(b.get("beat_id")) or "") not in failed_ids]
+        supported[role] = len(ok)
+        if not ok:
+            missing.append(role)
+            # "Missing" hides two different problems with two different fixes: the planner never
+            # wrote this beat (replan), or it wrote one the evidence does not carry (research).
+            why[role] = ("no beat on the sheet performs this role"
+                         if not holders else
+                         "; ".join(f"{_text(b.get('beat_id'))} failed: "
+                                   f"{event_of(b)['text'][:70]}" for b in holders))
+    return {"required": list(REQUIRED_SPINE_ROLES), "supported_by_role": supported,
+            "missing": missing, "missing_because": why, "covered": not missing}
+
+
 class StorySpineUnsupported(ValueError):
     """The research does not evidence the sequence of events this story needs."""
 
@@ -526,4 +831,161 @@ def spine_report(beats: list[dict], report: dict) -> str:
         text = event_of(beat)["text"] or _text(beat.get("beat")) or bid
         lines.append(f"  - {text}")
         lines.append(f"      {bid} [{', '.join(reasons)}]")
+    return "\n".join(lines)
+
+
+def compile_spine(beats: list[dict], claims: dict | None = None,
+                  claims_by_case: dict | None = None, *,
+                  judge=None, cache: dict | None = None,
+                  cost_sink: list | None = None) -> dict:
+    """Produce the smallest complete supported causal spine, or say which function is missing.
+
+    The target is not "make every proposed beat pass". A planner asked for nine beats will propose
+    nine whether or not the evidence carries nine, and rejecting the whole topic because two of
+    them overreached throws away a story the archives genuinely support. So:
+
+        1. collapse beats performing the same causal job          free
+        2. structure + evidence on what remains                   paid, cached
+        3. prune unsupported beats the chain does not require      free
+        4. re-evaluate on REQUIRED-ROLE COVERAGE, not on a ratio
+
+    Pruning removes; it never rewrites. An unsupported fact is dropped from the spine, not softened
+    until it passes.
+    """
+    # A sheet carrying no events at all is not a supported spine and not an unsupported one -- the
+    # fact model was handed nothing to weigh. Saying "passed" here would be the lying-PASS bug this
+    # codebase has already paid for once, so the distinction is reported rather than flattened. But
+    # a dossier means the planner was asked for events and returned none, and THAT is a failure:
+    # the alternative is a gate that silently switches itself off the day the field stops arriving.
+    if not any(event_of(beat or {})["text"] for beat in beats or []):
+        missing_events = [_issue("SHEET_CARRIES_NO_EVENTS",
+                                 "research was gathered and the beat sheet bound no events to it, "
+                                 "so nothing about this story has been checked against evidence")
+                          ] if claims else []
+        return {"schema_version": SCHEMA_VERSION, "passed": not missing_events, "assessed": False,
+                "coverage": {"required": list(REQUIRED_SPINE_ROLES), "supported_by_role": {},
+                             "missing": [], "covered": False},
+                "collapsed_duplicates": [], "duplicate_across_roles": [],
+                "unrepairable": missing_events, "narrowed": [], "pruned": [],
+                "kept_beats": [_text((b or {}).get("beat_id")) or f"beat_{i + 1:02d}"
+                               for i, b in enumerate(beats or [])],
+                "still_failing": [], "cascade": validate_cascade(beats, claims, claims_by_case,
+                                                                 judge=judge, cache=cache,
+                                                                 cost_sink=cost_sink)}
+
+    duplicates = duplicate_event_functions(beats)
+    dropped_ids = {issue["beat_id"] for issue in duplicates if issue.get("collapsible")}
+    deduped = [beat for index, beat in enumerate(beats or [])
+               if (_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}") not in dropped_ids]
+
+    report = validate_cascade(deduped, claims, claims_by_case,
+                              judge=judge, cache=cache, cost_sink=cost_sink)
+    failed = {issue.get("beat_id") for issue in report["structural"] if issue.get("beat_id")}
+    failed |= {row["beat_id"] for row in report["evidence"]}
+    failed |= {row["beat_id"] for row in report["fidelity"]}
+
+    kept, pruned = prune_unsupported_optional(deduped, failed)
+    # A required role cannot be pruned, so it is narrowed to whatever Boundary A actually supported
+    # -- never re-sourced from elsewhere in the dossier.
+    kept, narrowed, unrepairable = narrow_required_roles(
+        kept, {row["beat_id"]: row for row in report["evidence"]})
+    # No second entailment call: `supported_core` is Boundary A's own finding about these same
+    # claims, so re-asking "do they support it" is a question whose answer we already bought. The
+    # check worth running is the other contract -- whether the narrowed beat still does its job --
+    # and `narrow_required_roles` has already run it, keeping only beats that passed.
+    failed -= {row["beat_id"] for row in narrowed}
+    still_failing = sorted({bid for bid in failed
+                            if bid in {_text(b.get("beat_id")) for b in kept}})
+    coverage = spine_coverage(kept, failed)
+    blocking = [i for i in duplicates if not i.get("collapsible")] + unrepairable
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "assessed": True,
+        # A spine is usable when every required causal function is evidenced and nothing that
+        # survived pruning is still failing.
+        "passed": (coverage["covered"] and not still_failing and not blocking
+                   and not report["unavailable"]),
+        "coverage": coverage,
+        "collapsed_duplicates": [i for i in duplicates if i.get("collapsible")],
+        "duplicate_across_roles": [i for i in duplicates if not i.get("collapsible")],
+        "unrepairable": unrepairable,
+        "narrowed": narrowed,
+        "pruned": pruned,
+        "kept_beats": [_text(b.get("beat_id")) for b in kept],
+        "still_failing": still_failing,
+        "cascade": report,
+    }
+
+
+def spine_summary(beats: list[dict], compiled: dict) -> str:
+    """The compile result, written to be acted on."""
+    by_id = {}
+    for index, beat in enumerate(beats or []):
+        by_id[_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}"] = beat or {}
+    coverage = compiled["coverage"]
+    if not compiled.get("assessed", True):
+        head = "SPINE NOT ASSESSED — the beat sheet bound no events"
+        if compiled.get("unrepairable"):
+            return f"STORY_SPINE_UNSUPPORTED\n\n  ! [SHEET_CARRIES_NO_EVENTS] " \
+                   f"{compiled['unrepairable'][0]['message']}"
+        return f"{head} (no research to check them against either)"
+    lines = ["SUPPORTED_SPINE_COVERAGE" if coverage["covered"] else "STORY_SPINE_UNSUPPORTED", ""]
+    lines.append("Required causal functions:")
+    for role in coverage["required"]:
+        mark = "+" if coverage["supported_by_role"].get(role) else "-"
+        lines.append(f"  {mark} {role:18s} {CENTRAL_FUNCTIONS.get(role, '')}")
+    if coverage["missing"]:
+        lines += ["", "MISSING — the story cannot be told without these:"]
+        for role in coverage["missing"]:
+            lines.append(f"  - {role}: {coverage.get('missing_because', {}).get(role, '')}")
+    if compiled.get("duplicate_across_roles"):
+        lines += ["", "DUPLICATE_ACROSS_REQUIRED_ROLES — a role is missing, not repeated:"]
+        for issue in compiled["duplicate_across_roles"]:
+            lines.append(f"  ! {issue['message']}")
+    if compiled.get("unrepairable"):
+        lines += ["", "REQUIRED ROLES THAT CANNOT BE REPAIRED:"]
+        for issue in compiled["unrepairable"]:
+            lines.append(f"  ! [{issue['code']}] {issue['message']}")
+    if compiled.get("narrowed"):
+        lines += ["", "Required roles narrowed to their supported core:"]
+        for row in compiled["narrowed"]:
+            lines.append(f"  > {row['beat_id']} [{row['role']}]")
+            lines.append(f"      was: {row['was'][:90]}")
+            lines.append(f"      now: {row['now'][:90]}")
+            for detail in row["dropped"][:3]:
+                lines.append(f"      dropped: {detail[:80]}")
+    if compiled["collapsed_duplicates"]:
+        lines += ["", "Collapsed as duplicate causal functions:"]
+        for issue in compiled["collapsed_duplicates"]:
+            lines.append(f"  ~ {issue['beat_id']} == {issue.get('duplicate_of')}: "
+                         f"{event_of(by_id.get(issue['beat_id'], {}))['text'][:90]}")
+    if compiled["pruned"]:
+        lines += ["", "Pruned — unsupported and not required:"]
+        for row in compiled["pruned"]:
+            lines.append(f"  x {row['beat_id']} [{row['role']}]: {row['event'][:90]}")
+    if compiled["still_failing"]:
+        # Every failure states its cause. A beat listed here with no reason sends an operator
+        # hunting through three layers to find out whether the evidence or the schema rejected it.
+        cascade = compiled.get("cascade") or {}
+        reason = {row["beat_id"]: f"[{row.get('verdict', 'evidence')}] "
+                                  f"{_text(row.get('reason') or row.get('message'))[:90]}"
+                  for row in (cascade.get("evidence") or []) + (cascade.get("fidelity") or [])
+                  if row.get("beat_id")}
+        for issue in cascade.get("structural") or []:
+            if issue.get("beat_id"):
+                reason.setdefault(issue["beat_id"], f"[{issue['code']}] {issue['message'][:90]}")
+        lines += ["", "Still failing after pruning:"]
+        for bid in compiled["still_failing"]:
+            lines.append(f"  ! {bid}: {event_of(by_id.get(bid, {}))['text'][:80]}")
+            lines.append(f"      {reason.get(bid, '[no verdict recorded]')}")
+    kept = set(compiled["kept_beats"])
+    lines += ["", "Sheet as proposed:"]
+    for index, beat in enumerate(beats or []):
+        beat = beat or {}
+        bid = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
+        role = _text(beat.get("role") or beat.get("causal_role")).lower() or "-"
+        mark = "-" if bid not in kept else ("!" if bid in compiled["still_failing"] else "+")
+        lines.append(f"  {mark} {bid} [{role:16s}] {event_of(beat)['text'][:74]}")
+    lines += ["", f"Spine: {len(kept)} beats from {len(beats or [])} proposed."]
     return "\n".join(lines)

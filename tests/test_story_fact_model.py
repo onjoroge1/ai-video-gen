@@ -4,6 +4,9 @@ Structure is checked first on purpose. A misplaced comparison or an unbound asse
 by reading fields, and paying a model to notice it is both slower and less certain. The semantic
 boundaries in claim_entailment only see beats that already have coherent provenance.
 """
+import json
+from pathlib import Path
+
 import story_fact_model as sfm
 
 
@@ -324,3 +327,108 @@ def test_an_abstention_reason_reaches_the_report():
                            "runner_up_kind": "context", "runner_up_confidence": 0.5}})
     assert rows and rows[0]["abstained_because"] == "narrow_margin_over_context"
     assert rows[0]["runner_up_kind"] == "context"
+
+
+# --- required-role repair: narrow from own evidence, never search the dossier ----------------
+
+def _required(beat_id="beat_05", role="mechanism", text="", to="an incentive to keep rats alive"):
+    return {"beat_id": beat_id, "role": role, "scope": "primary_story",
+            "changes_state": {"from": "a bounty paid per rat tail", "to": to},
+            "event": {"text": text, "claim_refs": ["c01"]}}
+
+
+def test_partially_entailed_required_beat_narrows_to_its_supported_core():
+    beat = _required(text="The 1902 bounty paid 1 cent per tail and collectors farmed rats.")
+    verdicts = {"beat_05": {"verdict": "partially_entailed", "passed": False,
+                            "supported_core": "The bounty paid per rat tail, so collectors farmed rats.",
+                            "unsupported_details": ["the 1 cent rate"]}}
+    kept, narrowed, blocked = sfm.narrow_required_roles([beat], verdicts)
+    assert not blocked
+    assert len(narrowed) == 1 and narrowed[0]["beat_id"] == "beat_05"
+    assert sfm.event_of(kept[0])["text"].startswith("The bounty paid per rat tail")
+    assert kept[0]["event"]["claim_refs"] == ["c01"], "narrowing keeps the beat's own citations"
+
+
+def test_unsupported_required_beat_is_never_re_sourced():
+    """The whole point. `unsupported` means no demonstrated nucleus, so there is nothing to keep."""
+    beat = _required(text="Colonial officials cancelled the bounty in 1903.")
+    verdicts = {"beat_05": {"verdict": "unsupported", "passed": False,
+                            "supported_core": "", "unsupported_details": ["the cancellation"]}}
+    kept, narrowed, blocked = sfm.narrow_required_roles([beat], verdicts)
+    assert not narrowed
+    assert [i["code"] for i in blocked] == ["MISSING_REQUIRED_ROLE_SUPPORT"]
+    assert sfm.event_of(kept[0])["text"] == "Colonial officials cancelled the bounty in 1903.", \
+        "the beat is reported, not silently rewritten"
+
+
+def test_a_contradicted_required_beat_is_reported_as_contradiction_not_absence():
+    beat = _required(text="The bounty ended the rat population.")
+    verdicts = {"beat_05": {"verdict": "contradicted", "passed": False, "supported_core": ""}}
+    _, narrowed, blocked = sfm.narrow_required_roles([beat], verdicts)
+    assert not narrowed and [i["code"] for i in blocked] == ["REQUIRED_ROLE_CONTRADICTED"]
+
+
+def test_narrowing_that_destroys_the_role_is_blocked_not_accepted():
+    """Support and narrative function are separate contracts."""
+    beat = _required(text="French authorities in Hanoi paid a bounty per rat tail in 1902.")
+    verdicts = {"beat_05": {"verdict": "partially_entailed", "passed": False,
+                            "supported_core": "French authorities governed Hanoi in 1902.",
+                            "unsupported_details": ["the bounty"]}}
+    _, narrowed, blocked = sfm.narrow_required_roles([beat], verdicts)
+    assert not narrowed, "sourced, and no longer a mechanism"
+    assert [i["code"] for i in blocked] == ["ROLE_CONTRACT_FAILED"]
+
+
+def test_optional_roles_are_pruned_not_narrowed():
+    beat = _required(beat_id="beat_09", role="generalization", text="Everywhere, metrics corrupt.")
+    verdicts = {"beat_09": {"verdict": "partially_entailed", "passed": False,
+                            "supported_core": "Metrics corrupt."}}
+    _, narrowed, blocked = sfm.narrow_required_roles([beat], verdicts)
+    assert not narrowed and not blocked, "pruning already handles what the chain does not require"
+
+
+def test_the_bibliography_run_can_never_pass_again():
+    """The dossier-wide search's own output, kept as a fixture. Every event here is true."""
+    fixture = json.loads((Path(__file__).parent.parent / "fixtures" / "fact_model" /
+                          "bibliography_as_story.json").read_text())
+    for beat in fixture["beats"]:
+        holds, why = sfm.role_contract_holds(beat)
+        assert not holds, (f"{beat['beat_id']} [{beat['role']}] was accepted: "
+                           f"{sfm.event_of(beat)['text']}")
+        assert why
+
+
+def test_a_real_narrowed_event_still_passes_the_role_contract():
+    """The guard has to let the good case through, or it is just a rejection machine."""
+    beat = _required(text="Hanoi's 1890s sewers bred rats faster than the city could kill them.",
+                     to="a city overrun by rats")
+    assert sfm.role_contract_holds(beat)[0]
+
+
+def test_a_dossier_with_no_bound_events_is_a_failure_not_a_pass():
+    """The gate must not switch itself off the day the planner stops emitting the field."""
+    beats = [{"beat_id": "beat_01", "role": "setup", "beat": "something happens"}]
+    out = sfm.compile_spine(beats, {"c01": {"claim": "x", "verified": True}}, {})
+    assert out["assessed"] is False and out["passed"] is False
+    assert [i["code"] for i in out["unrepairable"]] == ["SHEET_CARRIES_NO_EVENTS"]
+    assert "SHEET_CARRIES_NO_EVENTS" in sfm.spine_summary(beats, out)
+
+
+def test_no_events_and_no_research_is_reported_as_unassessed_not_as_a_pass():
+    beats = [{"beat_id": "beat_01", "role": "setup", "beat": "something happens"}]
+    out = sfm.compile_spine(beats, {}, {})
+    assert out["passed"] and out["assessed"] is False
+    assert "NOT ASSESSED" in sfm.spine_summary(beats, out), "never printed as a clean pass"
+
+
+def test_stemming_does_not_let_a_short_function_word_carry_a_match():
+    """`and` was once enough overlap to certify a China parallel case as a Hanoi mechanism."""
+    assert sfm._stems("and the for was per via") == set()
+    assert "tail" in sfm._stems("tails") and "rat" in sfm._stems("rats")
+
+
+def test_a_plural_does_not_hide_a_real_role_match():
+    """Measured: this exact mechanism was rejected because it said 'tail' and its state 'tails'."""
+    beat = {"role": "mechanism", "changes_state": {"from": "a bounty", "to": "Reward aimed at more tails"},
+            "event": {"text": "Because the bounty paid per tail, a living rat was worth more alive."}}
+    assert sfm.role_contract_holds(beat)[0]

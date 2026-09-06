@@ -1090,3 +1090,18 @@ def test_the_expansion_writes_narration_from_the_event(monkeypatch):
     assert '"event"' in prompt, "the expansion sheet does not carry the event"
     for invented in ("mud-brick", "overnight"):
         assert invented in prompt, "the prompt should show what exceeding the ceiling looks like"
+
+
+def test_the_event_rules_do_not_excuse_the_roles_the_spine_requires():
+    """F3 invites an empty event; coverage demands one for six roles. They must not disagree.
+
+    Measured on Hanoi: the planner read F3, decided a mechanism "asserts no history" because it
+    states a rule, returned event.text = "" -- and the spine failed for a missing mechanism while
+    every sourced beat passed. Same class as the two mechanism deadlines that cost twelve renders.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    rule = source[source.index('"F3. A beat that asserts no history'):]
+    rule = rule[:rule.index('"F4.')]
+    assert "REQUIRED_SPINE_ROLES" in rule, \
+        "F3 must exempt the required roles, naming them from the list that defines them"
+    assert "MUST carry an event" in rule

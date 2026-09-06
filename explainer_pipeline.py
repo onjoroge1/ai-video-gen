@@ -2499,7 +2499,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "F3. A beat that asserts no history gets event.text = \"\" and no claim_refs. "
             "Transitions, rhetorical questions and framing carry the story without carrying a "
             "fact, and inventing a citation for them makes every beat look sourced while none of "
-            "them is checkable.\n"
+            "them is checkable. This does NOT apply to the six load-bearing roles: "
+            + ", ".join(_sfm.REQUIRED_SPINE_ROLES) + ". Each of those MUST carry an event. "
+            "The mechanism especially: a rule about incentives is still a fact about what the "
+            "policy paid for -- write 'the bounty paid for a tail, not for a dead rat' as the "
+            "event and cite it. A mechanism with an empty event is the one beat the story "
+            "cannot do without and the one nothing can check.\n"
             "F4. The event is the FACTUAL CEILING for everything downstream. Numbers, dates, "
             "places, materials, scale, secrecy, named people and motives may appear in the "
             "narration ONLY if they are in the event, and they may only be in the event if a claim "
@@ -2852,12 +2857,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # themselves parallel_case and sat in escalation roles -- a subject change the sheet should
         # never have been allowed to spend an expansion on.
         _spine_cost: list = []
-        _spine = _sfm.validate_cascade(
-            _spine_beats(beats), _spine_claims(research_dossier),
-            _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
+        _sb = _spine_beats(beats)
+        _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
+                                    _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
         cost += sum(_spine_cost)
+        print(_sfm.spine_summary(_sb, _spine))
         if not _spine["passed"] and not _diagnostic_render():
-            raise _sfm.StorySpineUnsupported(_sfm.spine_report(_spine_beats(beats), _spine))
+            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine))
+        # Expansion writes only what survived. A collapsed duplicate or a pruned comparison must not
+        # reach narration, or the layer below spends a call on a beat the fact model removed.
+        _keep = set(_spine["kept_beats"])
+        beats = [beat for index, beat in enumerate(beats)
+                 if f"beat_{index + 1:02d}" in _keep]
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
