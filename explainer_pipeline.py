@@ -2838,6 +2838,26 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
+        # VALIDATE THE STORY BEFORE TELLING IT.
+        #
+        # The sheet now carries an event per beat and the claims meant to support it, which is
+        # everything the structural rules and the evidence boundary need. Narration does not exist
+        # yet, so the fidelity boundary has nothing to measure and skips itself.
+        #
+        # Asking here rather than after expansion is the difference between refusing a story and
+        # buying one first. A measured run researched Delhi, planned a spine whose breeding,
+        # cancellation and outcome beats the archives do not evidence, spent a 20k-token expansion
+        # writing genuinely good narration for all of it, and only then discovered the events were
+        # unsupportable. The prose was excellent and unusable. It is also where two beats declared
+        # themselves parallel_case and sat in escalation roles -- a subject change the sheet should
+        # never have been allowed to spend an expansion on.
+        _spine_cost: list = []
+        _spine = _sfm.validate_cascade(
+            _spine_beats(beats), _spine_claims(research_dossier),
+            _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
+        cost += sum(_spine_cost)
+        if not _spine["passed"] and not _diagnostic_render():
+            raise _sfm.StorySpineUnsupported(_sfm.spine_report(_spine_beats(beats), _spine))
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -7350,6 +7370,56 @@ def _stable_standard_longform(video_format: str, story_format: str,
     )
 
 
+import story_fact_model as _sfm
+
+
+def _spine_beats(beats: list) -> list:
+    """The planned sheet in the shape the fact model reads. No narration exists yet."""
+    out = []
+    for index, beat in enumerate(beats or [], 1):
+        beat = beat if isinstance(beat, dict) else {}
+        out.append({
+            "beat_id": f"beat_{index:02d}",
+            "role": _s(beat.get("causal_role")) or _s(beat.get("role")),
+            "scope": _s(beat.get("scope")) or "primary_story",
+            "parallel_case_id": _s(beat.get("parallel_case_id")),
+            "event": beat.get("event") or {},
+            "changes_state": beat.get("changes_state") or {},
+            "beat": _s(beat.get("beat")),
+        })
+    return out
+
+
+def _spine_claims(dossier: dict) -> dict:
+    from longform_research import _claim_index
+    return _claim_index(dossier or {})
+
+
+def _lr_claims_by_case(dossier: dict) -> dict:
+    from longform_research import _claims_by_parallel_case
+    return _claims_by_parallel_case(dossier or {})
+
+
+def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
+    """Sourcing validation, routed to whichever contract this script was written under.
+
+    A script carrying events gets the cascade: free structure, then claims->event entailment, then
+    event->narration fidelity. One that does not is an older draft whose bindings are phrase-level,
+    and it keeps the legacy path — there is no event for the new boundaries to measure against.
+
+    The entailment cache lives ON THE SCRIPT so it survives the four or five times this is called
+    in a run, and survives a durable checkpoint with it. Keys are content-addressed, so an edited
+    claim or a rewritten event misses and is re-judged rather than inheriting a verdict for text
+    nobody looked at.
+    """
+    from longform_research import script_has_events, validate_story_fact_model
+
+    if not script_has_events(script):
+        return validate_claim_joins(script, dossier)
+    cache = script.setdefault("_entailment_cache", {})
+    return validate_story_fact_model(script, dossier, cache=cache, cost_sink=cost_sink)
+
+
 def _ordinary_research_mode(stable_standard_longform: bool,
                             illustrated_story_on: bool = False) -> str:
     """Research policy for the default lane: keep it when available, never strand the render.
@@ -8717,7 +8787,7 @@ def run_explainer_pipeline(
         script["_story_structure_review"] = _review_story_structure(
             script, story_format, video_format, log)
         if video_format != "social":
-            claim_validation = validate_claim_joins(script, research_dossier)
+            claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
             if not claim_validation.get("passed"):
                 repaired_script, repair_cost = repair_claim_join_failures(
@@ -8728,7 +8798,7 @@ def run_explainer_pipeline(
                     script["_script_cost_usd"] = round(
                         float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
                     rederive_narration_bindings(script, log, research_dossier)
-                    claim_validation = validate_claim_joins(script, research_dossier)
+                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
                     script["_claim_validation"] = claim_validation
                     scenes = script.get("scenes", [])
                     log("Claim ledger repair: "
@@ -8842,7 +8912,7 @@ def run_explainer_pipeline(
         # aborted on bindings that were correct for text the refit had already replaced. Same
         # ordering bug as the anchors, at the sibling call site.
         rederive_narration_bindings(script, log, research_dossier)
-        claim_validation = validate_claim_joins(script, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
         script["_claim_validation"] = claim_validation
         if not claim_validation.get("passed") and not _claim_ledger_hard():
             for item in claim_validation.get("errors", [])[:6]:
@@ -9190,7 +9260,7 @@ def run_explainer_pipeline(
             json.dump(audio_timing, handle, indent=2, ensure_ascii=False)
         scenes = script.get("scenes", [])
         n = len(scenes)
-        claim_validation = validate_claim_joins(script, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
         retention_validation = validate_longform_story(script, question)
         script["_claim_validation"] = claim_validation
         script["_retention_validation"] = retention_validation

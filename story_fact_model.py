@@ -488,3 +488,42 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         # Not a finding about the writing. Retry these; do not send a repair pass at them.
         "unavailable": unavailable,
     }
+
+
+class StorySpineUnsupported(ValueError):
+    """The research does not evidence the sequence of events this story needs."""
+
+
+def spine_report(beats: list[dict], report: dict) -> str:
+    """Say which central events the evidence supports and which it does not.
+
+    Written to be actionable rather than merely refusing: an operator reading this should be able to
+    tell instantly whether the topic is unsupportable or the beats are simply bound wrong.
+    """
+    by_id = {}
+    for index, beat in enumerate(beats or []):
+        beat = beat if isinstance(beat, dict) else {}
+        by_id[_text(beat.get("beat_id")) or f"beat_{index + 1:02d}"] = beat
+
+    failed = {}
+    for issue in report.get("structural") or []:
+        failed.setdefault(issue.get("beat_id"), []).append(issue["code"])
+    for row in report.get("evidence") or []:
+        failed.setdefault(row.get("beat_id"), []).append(row.get("verdict", "unsupported"))
+
+    factual = [bid for bid, beat in by_id.items() if event_of(beat)["text"]]
+    supported = [bid for bid in factual if bid not in failed]
+
+    lines = ["STORY_SPINE_UNSUPPORTED", "",
+             f"Central events supported: {len(supported)}/{len(factual)}", ""]
+    if supported:
+        lines.append("Supported:")
+        lines += [f"  + {event_of(by_id[bid])['text']}" for bid in supported]
+        lines.append("")
+    lines.append("Unsupported:")
+    for bid, reasons in failed.items():
+        beat = by_id.get(bid) or {}
+        text = event_of(beat)["text"] or _text(beat.get("beat")) or bid
+        lines.append(f"  - {text}")
+        lines.append(f"      {bid} [{', '.join(reasons)}]")
+    return "\n".join(lines)
