@@ -19,8 +19,9 @@ def test_quiz_v2_caps_rounds_and_stays_replayable():
     assert clamp_quiz_items(6) == 3
     assert clamp_quiz_items(4) == 3, "the default flow is capped at three rounds"
     assert clamp_quiz_items(0) == 3, "a missing count must use the V2.3 three-round default"
-    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 11.0
-    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 12.0
+    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 9.8
+    # Clamped to three rounds, so: 2.4 + 1.8 + 1.8 countdowns, two 1.2s reveals, a 2.4s close.
+    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 10.8
 
 
 def test_the_api_clamps_from_the_contract_not_a_literal():
@@ -73,7 +74,7 @@ def test_a_long_category_drops_the_threat_rather_than_the_answer():
     for category in ("wild animals", "ocean animals", "dinosaurs", "invertebrates",
                      "microscopic freshwater invertebrates"):
         opener = round_narration(category, 1, 3)
-        assert narration_fits(opener, QUIZ_V2.guess_window_sec), (category, opener)
+        assert narration_fits(opener, QUIZ_V2.guess_window(1)), (category, opener)
     assert "brutal" not in round_narration("microscopic freshwater invertebrates", 1, 3)
 
 
@@ -400,7 +401,12 @@ def test_the_countdown_ticks_track_the_guess_window():
 
     source = inspect.getsource(legacy.run_quiz_pipeline)
     assert "adelay=800" not in source and "atrim=0:2.4" not in source
-    assert "CDN * 1000" in source and "guess_window_sec}" in source
+    # Derived per ROUND now, not from one constant: rounds two and three run a shorter window, so
+    # a single shared tick file would mark time those rounds no longer have — the last tick
+    # landing after the answer is already on screen. Silent, and it ships.
+    assert "_stage * 1000" in source and "atrim=0:{_w}" in source
+    assert "cdsfx_for[round(f, 3)]" in source, "ticks must be resolved by the round's own window"
+    assert "cdsfx = " not in source, "one shared tick file is the bug this replaced"
 
 
 def test_quiz_render_path_is_mascot_free():
@@ -671,9 +677,9 @@ def test_tier_labels_name_the_viewers_position_not_the_generators():
     from bolt_video.formats.quiz import tier_label
 
     assert [tier_label(i, 4) for i in range(1, 5)] == [
-        "WARM-UP", "TOO EASY?", "NO HINTS", "FINAL BOSS"]
-    assert [tier_label(i, 3) for i in range(1, 4)] == ["WARM-UP", "NO HINTS", "FINAL BOSS"]
-    assert [tier_label(i, 2) for i in range(1, 3)] == ["WARM-UP", "FINAL BOSS"]
+        "CAN YOU GET IT?", "95% FAIL", "95% FAIL", "IMPOSSIBLE"]
+    assert [tier_label(i, 3) for i in range(1, 4)] == ["CAN YOU GET IT?", "95% FAIL", "IMPOSSIBLE"]
+    assert [tier_label(i, 2) for i in range(1, 3)] == ["CAN YOU GET IT?", "IMPOSSIBLE"]
 
 
 def test_every_card_still_fits_its_box_in_the_display_face():
@@ -835,12 +841,15 @@ def test_the_subject_width_check_repairs_instead_of_warning():
     assert not legacy._width_failed({"subject_width_pct": 16}, "expert")
     assert legacy._width_failed({}, "expert"), "an unmeasured clue is the one worth measuring"
 
-    assert "close_up" in inspect.signature(legacy._habitat_pair).parameters
+    assert "framing_fix" in inspect.signature(legacy._habitat_pair).parameters
     source = inspect.getsource(legacy.run_quiz_pipeline)
-    assert "width_bad = _width_failed(grade, diff)" in source
-    assert "close_up=width_bad" in source
-    assert "AT LEAST one fifth of the image width" in legacy._close_framing("expert"), (
-        "a fraction the model can under-deliver against is what failed three times")
+    assert "width_fault = _width_fault(grade, diff)" in source
+    assert "framing_fix=width_fault" in source
+    # A measurable bound, not a descriptive target — a fraction the model can under-deliver
+    # against is what failed three times. It is now bounded at both ends, because a floor alone
+    # overshot on all five of its occurrences.
+    ask = legacy._close_framing("expert")
+    assert "BETWEEN one fifth AND one third of the image width" in ask
 
 
 def test_a_close_up_repair_replaces_the_tier_framing_rather_than_stacking():
@@ -850,7 +859,7 @@ def test_a_close_up_repair_replaces_the_tier_framing_rather_than_stacking():
     import _quiz_pipeline_legacy as legacy
 
     body = inspect.getsource(legacy._habitat_pair)
-    assert "_close_framing(difficulty) if close_up" in body
+    assert 'framing_fix == "closer"' in body and 'framing_fix == "further"' in body
     assert "well back in the middle distance" in legacy._HABITAT_FRAMING["expert"]
     assert "well back" not in legacy._close_framing("expert")
 
@@ -864,7 +873,7 @@ def test_three_habitat_defects_cost_one_regeneration():
     source = inspect.getsource(legacy.run_quiz_pipeline)
     habitat = source[source.index("        if in_habitat:"):source.index("        round_readability")]
     assert habitat.count("_habitat_pair(") == 1, "the repairs must share one regeneration"
-    assert "if relight or width_bad or identity_bad:" in habitat
+    assert "if relight or width_fault or identity_bad:" in habitat
 
 
 def test_the_close_up_ask_climbs_with_the_tier_it_repairs():
@@ -889,3 +898,279 @@ def test_the_close_up_ask_climbs_with_the_tier_it_repairs():
     assert (words[spans["medium"]] > words[spans["hard"]] > words[spans["expert"]])
     assert (legacy._READABILITY_WIDTH_MIN["medium"] > legacy._READABILITY_WIDTH_MIN["hard"]
             > legacy._READABILITY_WIDTH_MIN["expert"])
+
+
+def test_every_round_line_fits_the_window_that_round_actually_runs():
+    """The taper shortened rounds two and three to 1.8s. Their lines were written against 2.4s and
+    are not rebuilt by the degrade ladder the opener uses, so nothing else would catch one growing
+    past its window — it would simply talk over the reveal that follows it.
+    """
+    for total in (2, 3, QUIZ_V2.max_items):
+        for index in range(1, total + 1):
+            line = round_narration("wild animals", index, total)
+            window = QUIZ_V2.guess_window(index)
+            assert narration_fits(line, window), (index, window, line)
+
+
+def test_the_countdown_tapers_after_the_round_that_teaches_it():
+    """Round one keeps the full window because it is teaching the format; by round two the viewer
+    is waiting through a rule they already know. The game speeding up as it gets harder is the
+    point — a taper that ran the other way would be a slower final boss."""
+    assert QUIZ_V2.guess_window(1) == QUIZ_V2.guess_window_sec
+    assert QUIZ_V2.guess_window(2) == QUIZ_V2.later_guess_window_sec
+    assert QUIZ_V2.guess_window(3) == QUIZ_V2.later_guess_window_sec
+    assert QUIZ_V2.later_guess_window_sec < QUIZ_V2.guess_window_sec
+
+    # Each stage is a third of its own window, so a shortened round shortens every one of its
+    # three beats rather than dropping the last.
+    assert QUIZ_V2.guess_window(2) / 3 < QUIZ_V2.guess_window(1) / 3
+
+
+def test_the_taper_buys_back_time_from_the_waiting_not_the_reward():
+    """The reward is the reveal; the countdown is the wait. A trim that came out of the reveals
+    would shorten the only part of the Short the curves show people staying for."""
+    three = QUIZ_V2.estimated_duration(3)
+    countdowns = sum(QUIZ_V2.guess_window(i) for i in range(1, 4))
+    assert countdowns == 2.4 + 1.8 + 1.8
+    # Waiting is still the majority of the Short, but by less than it was: 7.2s of 11.0 was 65%.
+    assert countdowns / three < 0.63
+    assert QUIZ_V2.reveal_min_sec == 0.8, "the reveals were not touched"
+
+
+# ── the width band ──────────────────────────────────────────────────────────────
+# The gate had a floor and no ceiling for its whole life. Across 24 measured clues, three came
+# back at 8-12% and were unreadable, eleven landed in 20-47% and read as an animal standing in a
+# place, and ten came back at 48-80% — an outline on a backdrop. One filled 80% of frame width and
+# passed every check in silence.
+
+def test_a_clue_can_be_too_large_as_well_as_too_small():
+    """Half the frame is where a habitat stops being a hiding place and becomes a backdrop, and a
+    round still labelled FINAL BOSS then hands over its own answer."""
+    import _quiz_pipeline_legacy as legacy
+
+    for tier, ceiling in legacy._READABILITY_WIDTH_MAX.items():
+        assert ceiling > legacy._READABILITY_WIDTH_MIN[tier], tier
+        issues = legacy.quiz_readability_issues(
+            {"subject_width_pct": ceiling + 10, "clue_contrast_score": 90,
+             "first_crop_contrast_score": 90}, tier, 3)
+        assert any("backdrop" in issue for issue in issues), (tier, issues)
+
+
+def test_the_warm_up_has_no_ceiling():
+    """Frame zero is the swipe decision and a large legible silhouette helps it. The contradiction
+    only bites when the label promises difficulty the picture does not deliver."""
+    import _quiz_pipeline_legacy as legacy
+
+    assert "medium" not in legacy._READABILITY_WIDTH_MAX
+    assert legacy._width_fault({"subject_width_pct": 80}, "medium") == ""
+    assert legacy._width_fault({"subject_width_pct": 80}, "expert") == "further"
+
+
+def test_the_fault_names_a_direction_because_the_repairs_are_opposite():
+    """A boolean would send a clue that is already too large to be regenerated larger still."""
+    import _quiz_pipeline_legacy as legacy
+
+    assert legacy._width_fault({"subject_width_pct": 8}, "expert") == "closer"
+    assert legacy._width_fault({"subject_width_pct": 23}, "expert") == ""
+    # 48% sits inside the band now: expert's ceiling moved 40 -> 50 after six measured repairs
+    # landed 42-58% no matter how the ask was phrased.
+    assert legacy._width_fault({"subject_width_pct": 48}, "expert") == ""
+    assert legacy._width_fault({"subject_width_pct": 62}, "expert") == "further"
+    assert legacy._width_fault({}, "expert") == "closer", "unmeasured counts as too small"
+
+
+def test_both_framing_asks_are_measurable_and_land_inside_the_band():
+    """A descriptive target is what the model under-delivers against; a bound is what it obeys.
+    Each ask sits inside its tier's band so a retry can miss slightly and still land."""
+    import _quiz_pipeline_legacy as legacy
+
+    words = {"one fifth": 20.0, "one quarter": 25.0, "one third": 33.3, "two fifths": 40.0}
+    for tier in ("hard", "expert"):
+        near = legacy._close_framing(tier)
+        far = legacy._far_framing(tier)
+        assert "BETWEEN" in near and "MUST NOT exceed" in near, (
+            "an ask open at the top is what overshot five times out of five")
+        assert "NO MORE" in far
+        lo = words[legacy._CLOSE_UP_SPAN[tier]]
+        hi = words[legacy._PULL_BACK_SPAN[tier]]
+        assert legacy._READABILITY_WIDTH_MIN[tier] < lo <= hi <= legacy._READABILITY_WIDTH_MAX[tier], tier
+        # The pull-back must not read as "get closer" — that is the bug it exists to avoid.
+        assert "CLOSER" not in far
+
+
+def test_the_repair_tag_records_which_way_it_moved():
+    """A repaired render is an experiment result. "_close" and "_wide" are not the same outcome and
+    an analytics field that called both "repaired" would lose the comparison."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert '("_close", width_fault == "closer")' in source
+    assert '("_wide", width_fault == "further")' in source
+
+
+def test_the_round_labels_are_stakes_rather_than_descriptions():
+    """"WARM-UP" tells a viewer at second one that this round does not matter, which is the
+    opposite of what frame zero is for. The 54%-retention reference quiz — the best comparison
+    available, shipping with a typo'd end card and a countdown that counts upward — labels its
+    rounds as dares instead. It beat every clean render we have made, which is the argument that
+    polish is not the constraint here.
+    """
+    from bolt_video.formats.quiz import tier_label
+
+    labels = [tier_label(i, 3) for i in range(1, 4)]
+    assert "WARM-UP" not in labels, "the opener must not announce that it is skippable"
+    assert labels[0].endswith("?"), "round one should ask the viewer something"
+    assert any(ch.isdigit() for ch in labels[1]) or "MOST" in labels[1]
+    assert labels[-1] == "IMPOSSIBLE"
+
+
+def test_every_round_label_still_fits_its_badge():
+    """The badge auto-shrinks to a 34px floor, so an over-long label does not overflow — it goes
+    quietly small on a phone. Longer stakes wording is exactly the change that would trip that."""
+    import _quiz_pipeline_legacy as legacy
+    from bolt_video.formats.quiz import tier_label
+
+    for index in range(1, 4):
+        badge = f"ANIMAL {index}/3 · {tier_label(index, 3)}"
+        assert legacy._font(36).getlength(badge) <= legacy.W - 300, badge
+
+
+def test_the_whole_set_shares_one_habitat():
+    """Letting the middle item wander is what broke the loop outright: the generator put a warthog
+    on savanna and an okapi in rainforest, and the closing dissolve became a cut between two
+    unrelated places. The loop is what the format depends on for replays."""
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = legacy._QUIZ_SYSTEM
+    # Same WORLD, not the same shot. Requiring identical habitat text for all three produced the
+    # same scene three times over, which reads as monotony; the reference set that retains best is
+    # all-ocean but visibly varies — open water, reef, seagrass. Rounds 1 and 3 still have to match
+    # exactly, because that is what the closing loop is.
+    assert "ONE WORLD, THREE SCENES" in prompt
+    assert "items 1 and 3 must carry the IDENTICAL" in prompt
+    assert "item 2 MUST be a visibly DIFFERENT scene" in prompt
+    assert "Never relocate a species" in prompt
+
+
+def test_habitats_are_steered_toward_polychrome_environments():
+    """A kelp forest is monochrome however brightly it is lit, and a set built in one is repetitive
+    even when every gate passes. Vibrancy is not only brightness — it is having more than one
+    colour in the frame."""
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = legacy._QUIZ_SYSTEM
+    assert "colourful IN THEMSELVES" in prompt
+    assert "coral reefs" in prompt and "monochrome" in prompt
+
+
+def test_round_one_is_specified_as_the_swipe_decision():
+    """Retention tracks how iconic the set is: the three strongest published sets rank by it, and
+    the weakest of them is the only one containing an obscure animal. Difficulty still has to come
+    from the silhouette — a seahorse is famous and still almost unreadable in outline."""
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = legacy._QUIZ_SYSTEM
+    assert "ITEM 1 IS THE SWIPE DECISION" in prompt
+    assert "Never open on an obscure animal" in prompt
+    assert "CONFUSABILITY, NOT OBSCURITY" in prompt, "obscurity must not sneak back as difficulty"
+
+
+def test_the_ladder_gate_asks_what_a_viewer_can_name():
+    """The gate scored the vision model's own certainty, which measures the wrong thing entirely:
+    it recognises species most viewers cannot name. An ocean sunfish is obvious to a grader and
+    "some weird round fish" to nearly everyone else.
+
+    That miscalibration had a direction — it pushed item selection toward obscure animals, which is
+    why an earlier seeding reached for Arsinoitherium. Measured retention runs the other way: the
+    three strongest published sets rank by how ICONIC they are, and the best of them opens on a
+    great white shark and closes on a seahorse. Under the old bars that video fails every round.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = inspect.getsource(legacy.grade_quiz_visuals)
+    assert "general YouTube audience" in prompt
+    assert "NOT your own certainty" in prompt
+    assert "only the species" in prompt.lower(), "knowing the animal TYPE must not count"
+    # The bars have to clear the winning set rather than reject it.
+    assert "above 95" in prompt and "above 85" in prompt and "above 70" in prompt
+    assert "above 80" not in prompt, "the old medium bar would flag a great white shark"
+
+
+def test_the_clue_keeps_its_colour():
+    """The clue was dimmed to 62% brightness and 72% saturation — most of the way to grey — on the
+    stated grounds that dimming buys a black silhouette its separation. For a BLACK subject that is
+    backwards: darkening the background moves it toward the silhouette's own value and closes the
+    gap the contrast gate measures. The clue must still read darker than its reveal, or the wake-up
+    on the answer stops landing."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "0.62, 0.72" not in source, "the grey clue is what this replaced"
+    assert "0.80, 1.02" in source, "clue: brighter, and no longer desaturated"
+    assert "1.12, 1.28" in source, "reveal: still clearly brighter than the clue"
+
+
+def test_habitats_are_specified_bright_rather_than_atmospheric():
+    """"Misty rainforest at dawn" is atmospheric and grey, and the guess window — the longest,
+    flattest stretch of the Short — is exactly where the retention curves leak."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    assert "BRIGHT, COLOURFUL, VIBRANT" in legacy._QUIZ_SYSTEM
+    assert "NEVER grey, overcast, gloomy" in legacy._QUIZ_SYSTEM
+    assert "VIBRANT" in inspect.getsource(legacy._habitat_pair)
+
+
+def test_the_close_up_ask_is_bounded_at_both_ends():
+    """It stated only a minimum and overshot on all five occurrences — 48%, 50%, 48%, 42%, 58%
+    against ceilings of 40-50. The pull-back ask states a maximum and landed inside its band first
+    try. The difference is not wording or tier: one range is closed and the other was open at the
+    top, and the model runs to the top of an open range every time.
+    """
+    import _quiz_pipeline_legacy as legacy
+
+    words = {"one fifth": 20.0, "one quarter": 25.0, "one third": 33.3,
+             "two fifths": 40.0, "one half": 50.0}
+    for tier in ("hard", "expert"):
+        lo = words[legacy._CLOSE_UP_SPAN[tier]]
+        hi = words[legacy._CLOSE_UP_CEILING_SPAN[tier]]
+        floor = legacy._READABILITY_WIDTH_MIN[tier]
+        ceiling = legacy._READABILITY_WIDTH_MAX[tier]
+        assert lo < hi, tier
+        # The whole ask has to sit inside the gate's band, with room either side so a retry can
+        # miss in either direction and still land.
+        assert floor < lo and hi <= ceiling, (tier, floor, lo, hi, ceiling)
+        ask = legacy._close_framing(tier)
+        assert "BETWEEN" in ask and "MUST NOT exceed" in ask
+        assert "keep the habitat visible" in ask, (
+            "the failure being repaired is the habitat becoming a backdrop")
+
+
+def test_the_ceiling_is_a_composition_rule_not_a_difficulty_one():
+    """Past roughly half the frame the habitat stops being a hiding place whatever tier the round
+    is, so hard and expert share a ceiling. Only the FLOOR is tier-scaled, because a harder round
+    may legitimately hide a smaller subject.
+
+    Medium stays uncapped: round one is the swipe decision, where a large legible silhouette is an
+    asset rather than a contradiction.
+    """
+    import _quiz_pipeline_legacy as legacy
+
+    assert legacy._READABILITY_WIDTH_MAX["hard"] == legacy._READABILITY_WIDTH_MAX["expert"]
+    assert "medium" not in legacy._READABILITY_WIDTH_MAX
+    floors = legacy._READABILITY_WIDTH_MIN
+    assert floors["medium"] > floors["hard"] > floors["expert"], "the floor still climbs by tier"
+
+
+def test_the_close_up_ask_stays_inside_the_widened_band():
+    """The ask is kept conservative on purpose. The model overshoots it regardless, so asking for
+    less is what keeps the overshoot landing near the ceiling instead of past it."""
+    import _quiz_pipeline_legacy as legacy
+
+    words = {"one fifth": 20.0, "one quarter": 25.0, "one third": 33.3,
+             "two fifths": 40.0, "one half": 50.0}
+    for tier in ("hard", "expert"):
+        assert words[legacy._CLOSE_UP_CEILING_SPAN[tier]] < legacy._READABILITY_WIDTH_MAX[tier]

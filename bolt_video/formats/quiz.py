@@ -15,6 +15,19 @@ class QuizCreativeContract:
     max_items: int = 3
     first_clue_at_sec: float = 0.0
     guess_window_sec: float = 2.4
+    # Rounds after the first are shorter. Measured retention curves across four published quizzes
+    # decline in a straight line — no plateau anywhere — which says viewers leave at a constant
+    # rate rather than committing once past the swipe decision. On an 11-second Short, 3 x 2.4s of
+    # countdown is 7.2s of waiting against roughly 0.8s of reward, and the countdown is the only
+    # stretch long enough for a constant leak to be leaving from.
+    #
+    # Round one keeps the full window because it is teaching the format. By round two the viewer
+    # knows what a countdown means and is waiting through a rule they already learned, so the game
+    # speeds up as it gets harder instead of holding one pace throughout.
+    #
+    # 2.4s was never tested against anything: the contract called it "the proven three-round pace"
+    # and nothing here ever compared it with a shorter one. This is that comparison.
+    later_guess_window_sec: float = 1.8
     reveal_min_sec: float = 0.8
     reveal_max_sec: float = 1.2
     final_reveal_min_sec: float = 1.6
@@ -34,7 +47,12 @@ class QuizCreativeContract:
         reveal = min(self.reveal_max_sec, max(self.reveal_min_sec, reveal_sec))
         final_reveal = min(self.final_reveal_max_sec,
                            max(self.final_reveal_min_sec, final_reveal_sec))
-        return round(n * self.guess_window_sec + max(0, n - 1) * reveal + final_reveal, 2)
+        countdowns = sum(self.guess_window(index) for index in range(1, n + 1))
+        return round(countdowns + max(0, n - 1) * reveal + final_reveal, 2)
+
+    def guess_window(self, index: int) -> float:
+        """The countdown length for round ``index`` (1-based)."""
+        return self.guess_window_sec if index <= 1 else self.later_guess_window_sec
 
 
 QUIZ_V2 = QuizCreativeContract()
@@ -96,7 +114,7 @@ def round_narration(category: str, index: int, total: int) -> str:
         for line in (f"{count} {noun}. Last one's brutal.",
                      f"{count} {noun}. Last one's evil.",
                      f"{count} {noun} hiding."):
-            if narration_fits(line, QUIZ_V2.guess_window_sec):
+            if narration_fits(line, QUIZ_V2.guess_window(1)):
                 return line
         return f"{count} {noun}."
     if index == total:
@@ -120,20 +138,27 @@ def clue_zoom(difficulty: str, stage: int) -> float:
 def tier_label(index: int, total: int) -> str:
     """The on-screen name for a round's difficulty.
 
-    MEDIUM/HARD/EXPERT are the generator's vocabulary, not the viewer's. They describe the item to
-    us and say nothing to the person watching — three neutral nouns in a row, where the ladder is
-    supposed to feel like a story getting harder. These name the viewer's position in that story
-    instead, so the escalation is something they read rather than something we assert.
+    MEDIUM/HARD/EXPERT are the generator's vocabulary, not the viewer's, so these name the
+    viewer's position in the story instead. But naming a position is still only a label, and a
+    label is not a reason to stay.
+
+    These are stakes. The 54%-retention reference quiz — the best-performing comparison available,
+    and a video shipping with a typo'd end card and a countdown that counts upward — labels its
+    rounds "CAN YOU GET IT?", "95% FAIL!" and "IMPOSSIBLE!". Ours said "WARM-UP", which tells a
+    viewer at second one that this round does not matter. That is the opposite of what frame zero
+    is for.
+
+    "95% FAIL" is a dare rather than a measurement: nothing counts how many viewers miss a round,
+    and the number is genre convention rather than a claim about data. Swap it for "MOST PEOPLE
+    MISS THIS" if an invented statistic on screen is not wanted.
 
     The colour still comes from the difficulty, so the green/amber/red climb survives.
     """
     if index <= 1:
-        return "WARM-UP"
+        return "CAN YOU GET IT?"
     if index >= total:
-        return "FINAL BOSS"
-    if index == 2 and total >= 4:
-        return "TOO EASY?"
-    return "NO HINTS"
+        return "IMPOSSIBLE"
+    return "95% FAIL"
 
 
 def final_reveal_narration(answer: str) -> str:

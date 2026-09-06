@@ -95,17 +95,32 @@ _QUIZ_SYSTEM = (
     "background, NO habitat/scene/water. \"reaction\" is a 2-4 word reveal punch flavored by difficulty ('Too easy!' / 'Tricky one!' / "
     "'Almost nobody gets this!').\n"
     "HABITAT: also give each item a \"habitat\" — the real environment that species lives in, written as a "
-    "cinematic wide shot with depth and natural light (e.g. 'a misty rainforest clearing at dawn, shafts of "
-    "sunlight through the canopy, wet leaves in the foreground'). Describe ONLY the environment: no animal, "
+    "BRIGHT, COLOURFUL, VIBRANT cinematic wide shot: saturated colour, warm sunlight, a place that looks "
+    "inviting and alive (e.g. 'a turquoise coral lagoon in full sun, shafts of light through clear water, "
+    "vivid corals in the foreground'). Prefer environments that are colourful IN THEMSELVES — coral reefs, "
+    "sunlit tropical shallows, flowering meadows, autumn forest, red desert canyon — over ones that are "
+    "essentially one colour. A kelp forest, a pine wood or a grey shoreline is monochrome however brightly "
+    "it is lit, and monochrome is what makes a set look repetitive. Golden hour, turquoise water, sunlit "
+    "green, wildflowers, clear sky. NEVER grey, overcast, gloomy, muddy or washed-out — a dull environment "
+    "is a reason to swipe, and the guess window is the stretch viewers leave during. "
+    "Describe ONLY the environment: no animal, "
     "no text, no people. It must be somewhere the animal genuinely belongs and must leave an obvious place "
     "for a large animal to sit in the middle distance. Also give \"pose\" — a few words for how the animal "
     "sits in that scene (e.g. 'swimming low through shallow water, seen side-on').\n"
-    "HABITAT LOOP — the FINAL item must live in the SAME habitat as item 1, and you must give the two of "
-    "them the IDENTICAL \"habitat\" text, word for word. A Short loops instantly, so the video closes on "
-    "the place it opened and the join reads as the game resetting rather than as a cut to somewhere else. "
-    "Choose the final animal to genuinely live there: pick the shared environment FIRST, then the hardest "
-    "animal that truly belongs in it. Never relocate a species to make the loop work. Item 2 is free to "
-    "use a different habitat, and its contrast is what makes the return to the opening scene land.\n"
+    "ONE WORLD, THREE SCENES — all three animals must live in the same broad environment (all underwater, "
+    "all savanna, all rainforest) so the quiz reads as one place rather than three unrelated locations. "
+    "Within that world: items 1 and 3 must carry the IDENTICAL \"habitat\" text word for word, because a "
+    "Short loops instantly and the video has to close on the scene it opened; item 2 MUST be a visibly "
+    "DIFFERENT scene in that same world — a different depth, a different corner of the reef, a different "
+    "time of day. Three identical scenes is monotonous to watch, and the contrast in the middle is what "
+    "makes the return to the opening scene land. Pick the world FIRST, then three animals that genuinely "
+    "belong in it. Never relocate a species to make the set work — choose a different animal instead.\n"
+    "ITEM 1 IS THE SWIPE DECISION — it must be an animal a viewer recognises INSTANTLY and already finds "
+    "interesting: a famous, high-interest species such as a great white shark, lion, elephant, wolf, "
+    "crocodile or eagle. Never open on an obscure animal. Measured retention rises with how iconic the "
+    "set is, and the strongest published sets contain no obscure animal at all. This does not soften the "
+    "ladder: difficulty comes from a SILHOUETTE that is hard to read, not from a species nobody has heard "
+    "of. A seahorse is famous and still almost unreadable in outline — that is the target.\n"
     "The title must either OMIT a numeric item count or match the exact requested item count; never "
     "promise a count that differs from the rendered rounds. Return ONLY JSON: {\"title\":\"clickable title, "
     "e.g. 'Can You Name Them From the Shadow?'\","
@@ -547,6 +562,13 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
                 "the color answer reveal. The intended answer and difficulty are supplied. Judge at PHONE "
                 "SIZE. The first crop should create uncertainty; the full clue must still be fair; the reveal "
                 "must unmistakably be the answer with correct anatomy and roughly the same pose/composition. "
+                "first_crop_confidence is NOT your own certainty. It is the percentage of a "
+                "general YouTube audience — not biologists, not you — who could NAME this exact "
+                "species out loud from IMAGE 1 alone. You recognise species most viewers cannot "
+                "name, so scoring your own confidence measures the wrong thing: an ocean sunfish "
+                "is obvious to you and 'some weird round fish' to almost everybody else. Score the "
+                "audience. Knowing WHAT KIND of animal it is does not count; only the species "
+                "name does. "
                 "Return ONLY JSON: {\"first_crop_confidence\":0-100,\"first_guess\":\"...\","
                 "\"too_easy\":bool,\"full_clue_fair\":bool,\"reveal_matches_answer\":bool,"
                 "\"anatomy_ok\":bool,\"pose_continuity\":bool,"
@@ -558,7 +580,12 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
                 "disappears. first_crop_contrast_score is that same judgement made on IMAGE 1 alone — "
                 "the frame the viewer decides on before anything else is seen — scored independently, "
                 "because a clue can separate cleanly in the wide shot and vanish inside the crop. "
-                "For medium, too_easy means confidence above 80; hard above 65; expert above 50."
+                "For medium, too_easy means above 95; hard above 85; expert above 70. These bars "
+                "are deliberately loose. Measured retention RISES with how iconic a set is: the "
+                "best-performing quiz on record opens on a great white shark and closes on a "
+                "seahorse, both instantly nameable, and it beat every harder set. A recognisable "
+                "animal is not a defect. Flag too_easy only when a round is so trivially nameable "
+                "that no game is left in it at all."
             ),
             messages=[{"role": "user", "content": [
                 _vision_image(first_crop), _vision_image(full_clue), _vision_image(reveal),
@@ -574,6 +601,29 @@ def grade_quiz_visuals(first_crop, full_clue, reveal, answer, difficulty, cost_s
 
 
 _READABILITY_WIDTH_MIN = {"medium": 28.0, "hard": 20.0, "expert": 16.0}
+# And a ceiling, which this gate spent its whole life without.
+#
+# Measured across 24 clues: three came back at 8-12% and were unreadable, eleven landed in 20-47%
+# and read as an animal standing in a place, and ten came back at 48-80% — an outline on a
+# backdrop. One was 80% of frame width and passed every check in silence. Five of those ten were
+# produced by the width repair overshooting and five came out of the generator that way, so a
+# re-roll is not a fix for it.
+#
+# The premise being protected is the format's own: the viewer should be SEARCHING A SCENE, not
+# reading an outline on a plain background. Past roughly half the frame the habitat stops being a
+# hiding place and becomes a backdrop, and a round still labelled FINAL BOSS hands over its answer.
+#
+# medium has no ceiling on purpose. Frame zero is the swipe decision and a large legible
+# silhouette helps there; the contradiction only bites when the label promises difficulty.
+# hard and expert share a ceiling because the ceiling is a COMPOSITION rule, not a difficulty one:
+# past roughly half the frame the habitat stops being a hiding place whatever tier the round is.
+# Only the floor is tier-scaled, since a harder round may legitimately hide a smaller subject.
+#
+# Expert was 40 — an estimate made by eye from "48%+ looks like a backdrop". Six measured repairs
+# then landed at 42, 48, 48, 50, 50 and 58% regardless of what the prompt asked for, across four
+# different phrasings spanning 20% to 33%. The model has a close-up mode and the numbers in the
+# ask are decoration. Between an estimate and a measurement, the estimate moves.
+_READABILITY_WIDTH_MAX = {"hard": 50.0, "expert": 50.0}
 _READABILITY_CONTRAST_MIN = 55.0
 
 
@@ -588,6 +638,11 @@ def quiz_readability_issues(grade: dict, difficulty: str, round_number: int) -> 
         issues.append(
             f"round {round_number} clue subject spans {width:.0f}% of frame width; "
             f"{_READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN['hard']):.0f}% required")
+    elif width > _READABILITY_WIDTH_MAX.get(difficulty, 10**9):
+        issues.append(
+            f"round {round_number} clue subject spans {width:.0f}% of frame width; "
+            f"{_READABILITY_WIDTH_MAX[difficulty]:.0f}% is the most a {difficulty} round may fill "
+            f"before the habitat reads as a backdrop rather than a hiding place")
     if not isinstance(contrast, (int, float)):
         issues.append(f"round {round_number} clue contrast was not measured")
     elif contrast < _READABILITY_CONTRAST_MIN:
@@ -604,15 +659,26 @@ def quiz_readability_issues(grade: dict, difficulty: str, round_number: int) -> 
     return issues
 
 
-def _width_failed(grade: dict, difficulty: str) -> bool:
-    """Whether the clue's subject came back smaller than its tier allows, or unmeasured.
+def _width_fault(grade: dict, difficulty: str) -> str:
+    """Which way the clue's subject missed its tier's band: "closer", "further", or "".
 
-    Missing counts as failed, for the same reason it does on contrast: an unmeasured clue is
-    exactly the one nobody has checked.
+    A direction rather than a boolean, because the two faults want opposite repairs and a gate
+    that only says "wrong size" would send a clue that is already too large to be regenerated
+    larger still. Missing counts as too small, for the same reason it does on contrast: an
+    unmeasured clue is exactly the one nobody has looked at.
     """
     width = grade.get("subject_width_pct")
     floor = _READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN["hard"])
-    return not isinstance(width, (int, float)) or width < floor
+    if not isinstance(width, (int, float)) or width < floor:
+        return "closer"
+    if width > _READABILITY_WIDTH_MAX.get(difficulty, 10**9):
+        return "further"
+    return ""
+
+
+def _width_failed(grade: dict, difficulty: str) -> bool:
+    """Kept for callers that only need to know whether the band was missed at all."""
+    return bool(_width_fault(grade, difficulty))
 
 
 def _contrast_failed(grade: dict) -> bool:
@@ -1121,14 +1187,43 @@ def _normalize_silhouette(src, out, bg_rgb, max_fill=.72):
 # So the ask tracks each tier's own floor with a little headroom rather than one number for all
 # three. The order is deliberately the inverse of the floors: medium is meant to be the easiest to
 # spot, expert the hardest, and a repair that ignores that trades one defect for another.
+# Both bounds, not just a floor.
+#
+# The close-up ask stated only a minimum ("AT LEAST one fifth") and overshot on every one of five
+# occurrences — 48%, 50%, 48%, 42%, 58% — against ceilings of 40 to 50. The pull-back ask states a
+# MAXIMUM and landed inside its band on its first attempt. The difference is not the wording or the
+# tier, it is that one range is closed and the other is open at the top, and the model runs to the
+# top of an open range every time.
+#
+# So the close-up now names an upper bound as well. The pair is written to sit inside the tier's
+# band with room either side, so a retry can miss in either direction and still land.
 _CLOSE_UP_SPAN = {"medium": "one third", "hard": "one quarter", "expert": "one fifth"}
+_CLOSE_UP_CEILING_SPAN = {"medium": "one half", "hard": "two fifths", "expert": "one third"}
+# The pull-back ask. Stated as a maximum for the same reason the close-up ask is stated as a
+# minimum: a descriptive target ("well back in the middle distance") is what the model
+# under-delivers against, and a measurable bound is what it actually obeys. Each sits inside its
+# tier's ceiling so the retry has room to miss slightly and still land in the band.
+_PULL_BACK_SPAN = {"hard": "two fifths", "expert": "one third"}
 
 
 def _close_framing(difficulty: str) -> str:
-    span = _CLOSE_UP_SPAN.get((difficulty or "hard").strip().lower(), _CLOSE_UP_SPAN["hard"])
+    tier = (difficulty or "hard").strip().lower()
+    span = _CLOSE_UP_SPAN.get(tier, _CLOSE_UP_SPAN["hard"])
+    cap = _CLOSE_UP_CEILING_SPAN.get(tier, _CLOSE_UP_CEILING_SPAN["hard"])
     return ("positioned distinctly CLOSER to camera than a wide establishing shot — the animal's "
-            f"body must span AT LEAST {span} of the image width — fully inside the frame, "
-            "unobstructed by foliage, and sharply readable")
+            f"body must span BETWEEN {span} AND {cap} of the image width, and MUST NOT exceed "
+            f"{cap} — fully inside the frame, unobstructed by foliage, and sharply readable. It "
+            "must still be an animal standing inside an environment, not a shape filling the "
+            "frame: keep the habitat visible around it")
+
+
+def _far_framing(difficulty: str) -> str:
+    """The opposite repair: the animal is filling the frame instead of hiding in it."""
+    span = _PULL_BACK_SPAN.get((difficulty or "hard").strip().lower(), _PULL_BACK_SPAN["hard"])
+    return ("set BACK into the scene and smaller in frame — the animal's body must span NO MORE "
+            f"than {span} of the image width — so the environment around it is the subject of the "
+            "shot and the animal is something hiding inside it, partly screened by grass, foliage "
+            "or terrain while its outline stays unbroken and readable")
 
 _HABITAT_FRAMING = {
     "medium": "occupying roughly a third of the frame, clearly visible and unobstructed",
@@ -1141,7 +1236,7 @@ _HABITAT_FRAMING = {
 
 
 def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, scene_ref="",
-                  difficulty="medium", high_key=False, close_up=False):
+                  difficulty="medium", high_key=False, framing_fix=""):
     """Generate an in-habitat clue/reveal pair that share one camera.
 
     Order matters. The flat-colour format generates the silhouette first and grows a reveal out
@@ -1195,9 +1290,12 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, 
     # close_up overrides the tier's framing rather than appending to it: "well back in the middle
     # distance" and "closer to camera" are the same instruction twice with opposite signs, and a
     # model handed both keeps the one it weights higher.
-    framing = (_close_framing(difficulty) if close_up
-               else _HABITAT_FRAMING.get((difficulty or "medium").strip().lower(),
-                                         _HABITAT_FRAMING["medium"]))
+    framing = _HABITAT_FRAMING.get((difficulty or "medium").strip().lower(),
+                                   _HABITAT_FRAMING["medium"])
+    if framing_fix == "closer":
+        framing = _close_framing(difficulty)
+    elif framing_fix == "further":
+        framing = _far_framing(difficulty)
     if scene_ref and os.path.exists(scene_ref):
         # The opening scene is a photograph we already have, and re-describing it would only
         # approximate it. Editing it guarantees the viewer lands back in the same place.
@@ -1212,9 +1310,10 @@ def _habitat_pair(answer, habitat, pose, clue_dst, reveal_dst, size, cost_sink, 
     else:
         ep.generate_image(
             f"Cinematic wildlife photograph. A {answer} {stance} in {scene}, {framing}. Correct "
-            "species anatomy. Shot on a long lens with natural depth of field, photoreal, rich "
-            "natural colour, volumetric light. No text, letters, numbers, watermark, people, "
-            "or borders." + key_light,
+            "species anatomy. Shot on a long lens with natural depth of field, photoreal, VIBRANT "
+            "saturated colour, bright warm sunlight, luminous highlights, a clear and inviting "
+            "scene. Never grey, overcast, muddy or desaturated. No text, letters, numbers, "
+            "watermark, people, or borders." + key_light,
             reveal_dst, size=size, cost_sink=cost_sink)
     try:
         ep.generate_image(
@@ -1332,7 +1431,15 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                       else f"{ep._s(it.get('answer'))}!")
         ep.generate_tts(r_texts[i], f"{A}/n_r{i}.mp3", voice=voice)
 
-    CDN = QUIZ_V2.guess_window_sec / 3
+    # Per round now, not once. The countdown tapers after round one, so every derived timing —
+    # stage length, tick offsets, caption cap — has to be asked for by round rather than computed
+    # from one constant. A single CDN is exactly what would leave the ticks marking time that no
+    # longer exists in the rounds that got shorter.
+    def window(index):
+        return QUIZ_V2.guess_window(index)
+
+    def stage_len(index):
+        return window(index) / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
     timing_warnings = []; loop_warnings = []; opening_frame = None
     ladder_warnings = []
@@ -1419,11 +1526,19 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             _fit(rev, f"{A}/rev{i}_b.png", "fit" if in_habitat else "pad",
                  bg=loop_rgb if closes_loop else _edge_background(rev))
             if in_habitat:
-                # The scene sleeps while you guess and wakes on the answer. Dimming the clue also
-                # buys the black silhouette the separation it needs to stay readable against a
-                # detailed background, which a flat field gave it for free.
-                _dim(f"{A}/clue{i}_b.png", f"{A}/clue{i}_b.png", 0.62, 0.72)
-                _dim(f"{A}/rev{i}_b.png", f"{A}/rev{i}_b.png", 1.06, 1.10)
+                # The scene sleeps while you guess and wakes on the answer — but it was sleeping at
+                # 62% brightness and 72% saturation, which is most of the way to grey. The stated
+                # reason was that dimming buys the black silhouette its separation, and for a BLACK
+                # subject that is backwards: darkening the background moves it toward the
+                # silhouette's own value and closes the very gap the contrast gate measures.
+                # What dimming actually bought was suppressed background detail, and desaturation
+                # was never needed for that at all.
+                #
+                # The clue still reads as clearly darker than its reveal, so the wake-up survives,
+                # but it keeps its colour. A dull environment is a reason to swipe, and the guess
+                # window is exactly the stretch the retention curves leak through.
+                _dim(f"{A}/clue{i}_b.png", f"{A}/clue{i}_b.png", 0.80, 1.02)
+                _dim(f"{A}/rev{i}_b.png", f"{A}/rev{i}_b.png", 1.12, 1.28)
             for stage in range(3):
                 _progressive_crop(f"{A}/clue{i}_b.png", countdown_bases[stage], zoom_ladder[stage])
 
@@ -1431,8 +1546,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
         # removing ~1.5-2 seconds of setup from every round.
         audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
-        caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
-        audio.append(("CD", t, "cd"))
+        caps.append((t, min(window(i), _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
+        # A "cd" entry carries its WINDOW rather than a path: the tick files are built after this
+        # loop, and a round's ticks are only correct for the window that round actually ran. The
+        # bare "CD" sentinel this replaces resolved to one shared file, which was right only while
+        # every round was the same length.
+        audio.append((window(i), t, "cd"))
         countdown_overlays = []; countdown_outputs = []
         for stage, k in enumerate((3, 2, 1)):
             _text_png(f"{A}/cd{i}_{k}_t.png", top=clue_banner, top_accent=clue_banner_accent,
@@ -1462,7 +1581,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # them shipped as a warning.
         if in_habitat:
             contrast_bad = _contrast_failed(grade)
-            width_bad = _width_failed(grade, diff)
+            width_fault = _width_fault(grade, diff)
             identity_bad = (grade.get("reveal_matches_answer") is False
                             or grade.get("anatomy_ok") is False)
             # A loop-closing round is generated as an edit of the opening scene, which is what makes
@@ -1474,11 +1593,13 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             # always the expert tier and always the round most likely to need it, so excluding it
             # excluded the case that matters.
             relight = contrast_bad
-            if relight or width_bad or identity_bad:
+            if relight or width_fault or identity_bad:
                 reasons = ([f"frame-zero contrast below {_READABILITY_CONTRAST_MIN:.0f}"] if relight
                            else [])
-                if width_bad:
+                if width_fault == "closer":
                     reasons.append("subject too small for its tier")
+                elif width_fault == "further":
+                    reasons.append("subject fills the frame — habitat reads as a backdrop")
                 if identity_bad:
                     reasons.append("reveal identity or anatomy")
                 log(f"Round {i} regenerating the habitat pair — {', '.join(reasons)}")
@@ -1490,8 +1611,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                 # on the closing round, the loop. It was recorded as a success.
                 repair_mode, repair_ok = _habitat_pair(
                     answer, habitat_text, it.get("pose"), clue, rev, "1024x1536", costs,
-                    scene_ref=scene_ref, difficulty=diff, high_key=relight, close_up=width_bad)
-                tags = "".join(t for t, on in (("_high_key", relight), ("_close", width_bad)) if on)
+                    scene_ref=scene_ref, difficulty=diff, high_key=relight,
+                    framing_fix=width_fault)
+                tags = "".join(t for t, on in (("_high_key", relight),
+                                               ("_close", width_fault == "closer"),
+                                               ("_wide", width_fault == "further")) if on)
                 if repair_ok:
                     if i == 1:
                         # Round one's scene is what the closing card pads to, so a repaired opener
@@ -1507,7 +1631,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                 grade["pair_repaired"] = True
                 grade["pair_repair_reasons"] = reasons
                 grade["pair_repair_succeeded"] = repair_ok and not (
-                    _contrast_failed(grade) or _width_failed(grade, diff))
+                    _contrast_failed(grade) or _width_fault(grade, diff))
                 log(f"Round {i} habitat repair "
                     + ("cleared every gate" if grade["pair_repair_succeeded"]
                        else "did not clear every gate"))
@@ -1573,23 +1697,23 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # Progressive crops and generative silhouette motion are deliberately separate experiments:
         # combining them would let Kling morph the clue while the crop changes, making the quiz unfair.
         used_fal = i == 1 and FAL_OPENER and not QUIZ_V2.progressive_clues and _fal_countdown_opener(
-            f"{A}/clue{i}_b.png", countdown_overlays, countdown_outputs, CDN, fal_opener)
+            f"{A}/clue{i}_b.png", countdown_overlays, countdown_outputs, stage_len(i), fal_opener)
         if used_fal:
             costs.append(5 * FAL_OPENER_RATE_SEC)
-            render_specs.extend((out, CDN, True) for out in countdown_outputs)
+            render_specs.extend((out, stage_len(i), True) for out in countdown_outputs)
             clips.extend(countdown_outputs)
         else:
             # Render from the uncropped clue and let zoompan ease between ladder stops, so the
             # widening is continuous. The timer/header ride on top as a fixed overlay and never
             # inherit the zoom.
             for stage, overlay in enumerate(countdown_overlays):
-                render_specs.append((f"{A}/clue{i}_b.png", CDN, False, {
+                render_specs.append((f"{A}/clue{i}_b.png", stage_len(i), False, {
                     "overlay": overlay,
                     "z_from": zoom_ladder[stage - 1] if stage else None,
                     "z_to": zoom_ladder[stage],
                 }))
                 clips.append(overlay)
-        t += CDN * 3
+        t += window(i)
         # One-word reveal, then the next clue. The final reveal carries the comment prompt so the video
         # does not grow a post-game tail that viewers abandon.
         is_final = i == len(items)
@@ -1622,7 +1746,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # comes OUT of the beat rather than extending it, so the pacing is unchanged.
         reveal_spec_start = len(render_specs)
         trans_clip = f"{A}/tr{i}.mp4"
-        budget = (CDN if is_final else dr) - _REVEAL_HOLD_MIN_SEC
+        budget = (stage_len(i) if is_final else dr) - _REVEAL_HOLD_MIN_SEC
         trans_d = round(min(_REVEAL_TRANSITION_SEC, budget), 3)
         has_transition = trans_d > 0.05 and _reveal_clip(
             f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d)
@@ -1645,8 +1769,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                       top=CLOSING_BANNER[0], top_accent=CLOSING_BANNER[1],
                       score_row=score_tiers(len(items)), footer=CLOSING_FOOTER,
                       answer=answer.upper() + "!")
-            answer_beat = CDN - trans_d
-            cta_beat = max(0.3, dr - CDN)
+            answer_beat = stage_len(i) - trans_d
+            cta_beat = max(0.3, dr - stage_len(i))
             answer_end_zoom = 1.0 + min(_DRIFT_CLOSING_MAX, _DRIFT_CLOSING_PER_SEC * answer_beat)
             render_specs.append((f"{A}/rev{i}_b.png", answer_beat, False,
                                  {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0,
@@ -1713,24 +1837,32 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     vsil = f"{A}/video_silent.mp4"
     _render_sequence(render_specs, vsil, TOTAL)
     # sfx
-    # Three ticks, one per countdown stage, rising pitch, NO ding. Derived from CDN rather than
-    # written out: these were hardcoded at 0/800/1600ms over a 2.4s trim, which was correct only
-    # while the guess window was 2.4s. Shortening the window would have left the ticks marking
-    # time that no longer existed — the last one landing after the answer had already appeared —
-    # and nothing would have failed, it would just have sounded wrong.
-    _t1, _t2 = int(CDN * 1000), int(CDN * 2000)
-    cdsfx = f"{A}/cdsfx.wav"
-    subprocess.run([FF, "-y", "-filter_complex",
-        f"sine=1000:d=0.06,adelay=0|0[a];sine=1000:d=0.06,adelay={_t1}|{_t1}[b];"
-        f"sine=1300:d=0.09,adelay={_t2}|{_t2}[c];"
-        f"[a][b][c]amix=inputs=3:normalize=0,volume=2,atrim=0:{QUIZ_V2.guess_window_sec}[o]",
-        "-map", "[o]", cdsfx], capture_output=True)
+    # Three ticks, one per countdown stage, rising pitch, NO ding. Derived from the window rather
+    # than written out: these were once hardcoded at 0/800/1600ms over a 2.4s trim, correct only
+    # while every window was 2.4s. Now that rounds two and three are shorter, a single tick file
+    # would mark time those rounds no longer have — the last tick landing after the answer had
+    # already appeared. Nothing would fail; it would just sound wrong, which is the failure mode
+    # that ships.
+    #
+    # Built once per DISTINCT window rather than once per round: three rounds currently use two
+    # lengths, and regenerating identical audio per round is work with no output.
+    cdsfx_for = {}
+    for _w in sorted({window(index) for index in range(1, len(items) + 1)}):
+        _stage = _w / 3
+        _t1, _t2 = int(_stage * 1000), int(_stage * 2000)
+        path = f"{A}/cdsfx_{int(_w * 1000)}.wav"
+        subprocess.run([FF, "-y", "-filter_complex",
+            f"sine=1000:d=0.06,adelay=0|0[a];sine=1000:d=0.06,adelay={_t1}|{_t1}[b];"
+            f"sine=1300:d=0.09,adelay={_t2}|{_t2}[c];"
+            f"[a][b][c]amix=inputs=3:normalize=0,volume=2,atrim=0:{_w}[o]",
+            "-map", "[o]", path], capture_output=True)
+        cdsfx_for[round(_w, 3)] = path
     ding = f"{A}/ding.wav"
     subprocess.run([FF, "-y", "-filter_complex", "sine=1600:d=0.25,volume=1.5[o]", "-map", "[o]", ding], capture_output=True)
     # single audio timeline
     ins = []; parts = []; idx = 0
     for f, off, kind in audio:
-        src = cdsfx if kind == "cd" else (ding if kind == "ding" else f)
+        src = cdsfx_for[round(f, 3)] if kind == "cd" else (ding if kind == "ding" else f)
         ins += ["-i", src]; ms = int(off * 1000); vol = 1.0 if kind == "narr" else 0.7
         parts.append(f"[{idx}:a]adelay={ms}|{ms},volume={vol}[s{idx}]"); idx += 1
     music_path = get_music_path("upbeat", progress_cb=log)

@@ -1772,5 +1772,69 @@
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.srt",
     "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-prehistoric-hard.txt"
+  },
+  "quiz-v24-tapered": {
+    "title": "Prehistoric Shadow Quiz - V2.4 (tapered countdown)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.6,
+    "actual_cost": 0.648,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 3 is labelled expert but the grader named \"THERIZINOSAURUS\" from the first crop at 70% confidence \u2014 the item is easier than its tier claims"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-tapered.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-tapered.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-tapered.txt"
+  },
+  "quiz-v24-ocean": {
+    "title": "Ocean Shadow Quiz - V2.4 (stakes labels, one habitat)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.6,
+    "actual_cost": 0.402,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 2 is labelled hard but the grader named \"MANTA RAY\" from the first crop at 72% confidence \u2014 the item is easier than its tier claims",
+      "round 3 is labelled expert but the grader named \"OCEAN SUNFISH\" from the first crop at 72% confidence \u2014 the item is easier than its tier claims"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean.srt",
+    "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean.txt"
+  },
+  "quiz-v24-ocean-vibrant": {
+    "title": "Ocean Shadow Quiz - V2.4 (vibrant, viewer-calibrated ladder)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.5,
+    "actual_cost": 0.645,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 3 clue subject spans 58% of frame width; 40% is the most a expert round may fill before the habitat reads as a backdrop rather than a hiding place"
+    ],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-vibrant.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-vibrant.srt"
+  },
+  "quiz-v24-ocean-clean": {
+    "title": "Ocean Shadow Quiz - V2.4 (clean: all gates passed)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.0,
+    "actual_cost": 0.524,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-clean.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-clean.srt"
+  },
+  "quiz-v24-ocean-varied": {
+    "title": "Ocean Shadow Quiz - V2.4 (one world, three scenes)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.5,
+    "actual_cost": 0.538,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-varied.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-varied.srt"
   }
 }
