@@ -151,7 +151,8 @@ def _positive_number(value: Any) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
-def runtime_fit_guidance(duration_sec: float, corpus_dir: Path | None = None) -> list[dict]:
+def runtime_fit_guidance(duration_sec: float, corpus_dir: Path | None = None,
+                         only: list[str] | tuple[str, ...] | None = None) -> list[dict]:
     """Compare labelled reference openings with the existing target deadline, for PROMPTS ONLY.
 
     A labelled mechanism timestamp is an observation about one telling, not an empirical minimum
@@ -164,7 +165,13 @@ def runtime_fit_guidance(duration_sec: float, corpus_dir: Path | None = None) ->
         raise ValueError("runtime-fit guidance requires a positive finite duration_sec")
     references = load(corpus_dir)
     guidance = []
+    # `only` keeps this block in step with the menu the selector actually offers. Describing the
+    # timing of an engine that was withheld for not fitting the runtime invites the model to argue
+    # for it, and the whole point of withholding it is that the argument cannot be won.
+    allowed = set(only) if only else None
     for engine_id, engine in se.ENGINES.items():
+        if allowed is not None and engine_id not in allowed:
+            continue
         opening_roles = list(engine["sequence"])
         opening_roles = opening_roles[:opening_roles.index(cs.MECHANISM) + 1]
         deadline_pct = se.mechanism_deadline_pct(engine, cs.MECHANISM_DEADLINE_PCT)
@@ -210,7 +217,8 @@ def runtime_fit_guidance(duration_sec: float, corpus_dir: Path | None = None) ->
     return guidance
 
 
-def runtime_fit_block(duration_sec: float, corpus_dir: Path | None = None) -> str:
+def runtime_fit_block(duration_sec: float, corpus_dir: Path | None = None,
+                      only: list[str] | tuple[str, ...] | None = None) -> str:
     """Prompt guidance from reference timings, with uncertainty and authority made explicit."""
     return (
         "\n\nRUNTIME FIT — planning guidance, not a gate or an engine ban.\n"
@@ -222,7 +230,8 @@ def runtime_fit_block(duration_sec: float, corpus_dir: Path | None = None) -> st
         "narration speed. If compression is needed, plan concise truthful beats in the required "
         "order; prefer another engine only when the topic genuinely fits it. Do not extend the "
         "requested runtime or the validation deadline.\n"
-        + json.dumps(runtime_fit_guidance(duration_sec, corpus_dir), ensure_ascii=False, indent=2)
+        + json.dumps(runtime_fit_guidance(duration_sec, corpus_dir, only),
+                     ensure_ascii=False, indent=2)
         + "\n"
     )
 

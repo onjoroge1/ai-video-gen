@@ -180,6 +180,63 @@ def compile_motion_plan(script: dict, evidence_plan: dict, *, mode: str,
     return plan
 
 
+def reselect_after_measurement(plan: dict, aligned_state_ids: set[str]) -> list[str]:
+    """Re-run selection once measured narration has re-scored the anchors. Returns what was dropped.
+
+    A selected state whose anchor phrase no longer appears in the final narration must not be
+    animated -- the clip would illustrate a sentence the video does not say. That is a reason to buy
+    FEWER clips, not to abandon a render whose script, narration and images are already paid for.
+    Generation already treats a per-clip loss this way: a provider failure marks that one candidate
+    `fallback` and the scene keeps Ken Burns. A lost anchor is the same class of loss arriving
+    earlier, and it used to be fatal -- one stale anchor in five failed the 90% alignment check and
+    raised, after TTS, on a plan whose only defect was that it wanted one clip too many.
+
+    Demotion goes through eligibility rather than the selected flag because the mode's own rules are
+    validated afterwards: standard motion must hold the highest story roles and full motion must
+    cover every eligible state within its cap. Simply unselecting a high-priority candidate would
+    leave a set that no longer matches what its mode would have chosen, trading an alignment failure
+    for a role-priority one.
+    """
+    candidates = plan.get("candidates") if isinstance(plan.get("candidates"), list) else []
+    dropped = []
+    for candidate in candidates:
+        if not candidate.get("selected"):
+            continue
+        if _text(candidate.get("state_id")) in aligned_state_ids:
+            continue
+        candidate["eligible"] = False
+        candidate["semantic_aligned"] = False
+        candidate["ineligible_reason"] = "anchor phrase is absent from the measured narration"
+        dropped.append(_text(candidate.get("state_id")))
+    if not dropped:
+        return []
+
+    for candidate in candidates:
+        candidate["selected"] = False
+        if candidate.get("generation_status") == "pending":
+            candidate["generation_status"] = "not_requested"
+    eligible = [candidate for candidate in candidates if candidate.get("eligible")]
+    limit = max(0, int(plan.get("max_requests") or 0))
+    resolved = normalize_motion_mode(plan.get("mode"))
+    if resolved == "standard" and limit and eligible:
+        selected = _standard_selection(eligible, limit)
+    elif resolved == "full_motion" and limit:
+        selected = _full_selection(eligible, limit)
+    else:
+        selected = []
+    selected_ids = {item["motion_id"] for item in selected}
+    for candidate in candidates:
+        if candidate["motion_id"] in selected_ids:
+            candidate["selected"] = True
+            candidate["generation_status"] = "pending"
+    plan["eligible_count"] = len(eligible)
+    plan["selected_count"] = len(selected)
+    plan["capped_out_count"] = (max(0, len(eligible) - len(selected))
+                                if resolved == "full_motion" else 0)
+    plan["dropped_for_anchor_loss"] = dropped
+    return dropped
+
+
 def validate_motion_plan(plan: dict, *, require_generation: bool = False) -> dict:
     errors = []
     mode = _text(plan.get("mode"))

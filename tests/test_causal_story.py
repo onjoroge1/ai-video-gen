@@ -16,7 +16,15 @@ import story_engines as se
 # Own directory: story_engine.selftest() globs every json under fixtures/story and
 # grades it with its own gates, which do not apply to this contract.
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "causal"
+# The two videos the bands were MEASURED FROM. Calibration tests below assert these sit inside
+# every band, which is only meaningful for the material the bands were fitted to.
 REFERENCES = ("cobra_effect.json", "bengal_famine.json")
+# Everything the corpus holds, including material the contract does not yet describe.
+# cobra_bounty_short declares expect.pass FALSE: the same engine and the same story as
+# cobra_effect at 64 seconds instead of 220, which four rules fitted to 220-second videos reject.
+# It belongs in the validation test, which reads expect.pass, and NOT in the band-calibration test
+# below -- a held-out divergence case scoring full marks would mean the divergence had gone.
+ALL_FIXTURES = REFERENCES + ("cobra_bounty_short.json",)
 
 
 def _story(name):
@@ -27,7 +35,7 @@ def _valid_story():
     return json.loads(json.dumps(_story("cobra_effect.json")))
 
 
-@pytest.mark.parametrize("name", REFERENCES)
+@pytest.mark.parametrize("name", ALL_FIXTURES)
 def test_both_reference_videos_validate(name):
     payload = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
     report = cs.validate_causal_story(payload["story"])

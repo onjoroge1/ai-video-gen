@@ -113,7 +113,11 @@ def test_cobra_observed_opening_needs_only_two_seconds_compression_at_170(
     sample = next(row for row in engine["references"] if row["reference_id"] == "cobra_effect")
     assert engine["target_deadline_sec"] == deadline
     assert engine["required_milestones_through_mechanism"] == 5
-    assert engine["support_count"] == 1
+    # Two now: cobra_effect at 36s and the short-form cobra_bounty_short at 19.7s. The count is
+    # incidental to this test -- it selects its sample by name above -- but it must track the
+    # corpus, and a second backfiring_solution reference is exactly the evidence this guidance
+    # was thin on.
+    assert engine["support_count"] == 2
     assert sample["observed_opening_sec"] == 36
     assert sample["milestones_through_mechanism"] == 5
     assert sample["compression_needed_sec"] == compression

@@ -67,6 +67,40 @@ MIN_ESCALATIONS = 2
 MIN_CHAPTERS = 4
 MAX_CHAPTERS = 8
 MIN_PARALLEL_CASES = 2
+# Below this runtime the contract relaxes four rules. Every fixture the contract was FITTED to runs
+# 101-225s and the rules encode that length as if it were the format: a 220-second telling has room
+# to state its principle in the first fifth, hand its opening object back at the end, and stack two
+# parallel cases. A 64-second telling of the SAME STORY, by the same engine, does none of those --
+# see fixtures/causal/cobra_bounty_short.json, which is recorded with expect.pass false precisely to
+# mark where the contract stopped describing the format and started describing the run time.
+#
+# 120s, not 90 or 64: the shortest fitted reference is 101s and the short reference is 64s, so the
+# boundary sits between them with room on both sides rather than on top of either.
+SHORT_FORM_MAX_SEC = float(os.environ.get("SHORT_FORM_MAX_SEC", "120"))
+# The reference short states its principle at 30.8%. Reference documentaries land at 16-20%, and
+# that gap is structural: a story with four steps instead of six reaches its rule later as a
+# fraction, because the setup it must lay first does not shrink proportionally.
+SHORT_FORM_MECHANISM_PCT = float(os.environ.get("SHORT_FORM_MECHANISM_PCT", "0.35"))
+# Two sentences, not one, and the second reverses the first: "The government paid people to kill
+# cobras. So people started making cobras." The turn IS the hook at this length. Still bounded --
+# three sentences is a summary, not a promise.
+SHORT_FORM_MAX_HOOK_SENTENCES = 2
+# One well-chosen echo carries the pattern in a minute. Demanding two spends runtime the format
+# does not have on proving something the viewer already accepted.
+SHORT_FORM_MIN_PARALLEL_CASES = 1
+
+
+def is_short_form(runtime_sec: float) -> bool:
+    """Is this runtime short enough that the compressed contract applies?
+
+    A positive runtime under the boundary. Zero or missing means unknown, and unknown keeps the
+    stricter rules: a contract should not relax because a caller forgot to say how long the video is.
+    """
+    try:
+        runtime = float(runtime_sec or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return 0.0 < runtime <= SHORT_FORM_MAX_SEC
 
 SETUP = "setup"
 INTERVENTION = "intervention"
@@ -327,14 +361,14 @@ def _check_chapters(steps: list[dict], issues: list[dict]) -> None:
     # fail a perfectly good contract. When any marker is present the count must be right, which is
     # the case that matters: a run announced one, one, two, three, five, six, four, five and the
     # count-only check waved it through.
-    announced = any(_MARKER.match(_text(step.get("situation"))) for step in steps)
+    announced = any(_opener_marker(step.get("situation")) for step in steps)
     opener = {}
     for index, step in enumerate(steps):
         opener.setdefault(step["chapter"], index)
     for chapter, index in sorted(opener.items()) if announced else ():
         if not chapter:
             continue
-        spoken = _MARKER.match(_text(steps[index].get("situation")))
+        spoken = _opener_marker(steps[index].get("situation"))
         if not spoken:
             issues.append(_issue("CHAPTER_NOT_ANNOUNCED",
                                  f"chapter {chapter} never says its number out loud",
@@ -351,6 +385,26 @@ def _check_chapters(steps: list[dict], issues: list[dict]) -> None:
             "CHAPTER_COUNT",
             f"{len(distinct)} spoken chapters against a reference band of "
             f"{MIN_CHAPTERS}-{MAX_CHAPTERS}"))
+
+
+def _opener_marker(text: str):
+    """The chapter marker, which on the first scene may follow the spoken hook.
+
+    _MARKER is anchored to position zero, but the shape finalize_narration deliberately writes puts
+    the promise sentence and the format tag AHEAD of the number on the scene that opens the video:
+    "both reference videos open on a promise sentence and say the number second". Matching only at
+    position zero therefore rejected the contract's own output and demanded the numeral be the
+    first thing the viewer hears -- the exact failure finalize_narration exists to prevent, arriving
+    from the validator instead of the writer.
+
+    Bounded to the first three sentences because that is precisely what may legally precede it: the
+    hook and the format tag. A marker any deeper is not announcing a chapter, it is buried in one.
+    """
+    for part in re.split(r"(?<=[.!?])\s+", _text(text))[:3]:
+        found = _MARKER.match(part)
+        if found:
+            return found
+    return None
 
 
 def _check_timing(steps: list[dict], runtime_sec: float, issues: list[dict],
@@ -372,6 +426,12 @@ def _check_timing(steps: list[dict], runtime_sec: float, issues: list[dict],
     if engine:
         import story_engines
         pct = story_engines.mechanism_deadline_pct(engine, MECHANISM_DEADLINE_PCT)
+    # A short telling reaches its rule later as a FRACTION, because the setup it must lay first does
+    # not shrink with the runtime. The reference short states its principle at 30.8% and is right to
+    # -- measured, not conceded. Engines that already declare a later deadline (the reveal-structured
+    # ones, at 60%) keep theirs; this raises a floor, it never lowers a ceiling.
+    if is_short_form(runtime_sec):
+        pct = max(pct, SHORT_FORM_MECHANISM_PCT)
     deadline = runtime_sec * pct
     if mechanism["start_sec"] > deadline:
         issues.append(_issue(
@@ -382,7 +442,8 @@ def _check_timing(steps: list[dict], runtime_sec: float, issues: list[dict],
             mechanism["step_id"]))
 
 
-def _check_hook(hook: dict, steps: list[dict], issues: list[dict]) -> None:
+def _check_hook(hook: dict, steps: list[dict], issues: list[dict],
+                short_form: bool = False) -> None:
     line = _text(hook.get("line"))
     if not line:
         issues.append(_issue("NO_HOOK", "a causal story opens with one hook sentence"))
@@ -392,8 +453,15 @@ def _check_hook(hook: dict, steps: list[dict], issues: list[dict]) -> None:
             "LONG_HOOK",
             f"the hook is {_words(line)} words against a {MAX_HOOK_WORDS}-word budget; it "
             "promises the shape of the story, it does not summarize it"))
-    if len([part for part in re.split(r"[.!?]+", line) if part.strip()]) > 1:
-        issues.append(_issue("MULTI_SENTENCE_HOOK", "the hook is one sentence"))
+    # One sentence at documentary length, two when the format is short. The reference short opens
+    # "The government paid people to kill cobras. So people started making cobras." -- the second
+    # sentence IS the reversal, and collapsing it into one loses the beat the hook exists to land.
+    max_sentences = SHORT_FORM_MAX_HOOK_SENTENCES if short_form else 1
+    sentences = len([part for part in re.split(r"[.!?]+", line) if part.strip()])
+    if sentences > max_sentences:
+        issues.append(_issue(
+            "MULTI_SENTENCE_HOOK",
+            f"the hook is {sentences} sentences against a {max_sentences}-sentence budget"))
 
     withheld = _text(hook.get("withheld_subject"))
     if not withheld:
@@ -464,15 +532,17 @@ def _check_hinge(steps: list[dict], issues: list[dict]) -> None:
                 step["step_id"]))
 
 
-def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict]) -> None:
+def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
+                          short_form: bool = False) -> None:
     cases = [case for case in (payload.get("parallel_cases") or []) if isinstance(case, dict)]
     has_generalization = any(step["role"] == GENERALIZATION for step in steps)
     if not has_generalization:
         return
-    if len(cases) < MIN_PARALLEL_CASES:
+    required_cases = SHORT_FORM_MIN_PARALLEL_CASES if short_form else MIN_PARALLEL_CASES
+    if len(cases) < required_cases:
         issues.append(_issue(
             "THIN_GENERALIZATION",
-            f"a generalization step needs at least {MIN_PARALLEL_CASES} parallel cases to show "
+            f"a generalization step needs at least {required_cases} parallel cases to show "
             f"a pattern rather than a coincidence; found {len(cases)}"))
     for index, case in enumerate(cases):
         missing = [key for key in ("domain", "problem", "solution", "result")
@@ -484,7 +554,8 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict]) 
                 "structurally identical so the repetition itself carries the argument"))
 
 
-def _check_close(payload: dict, steps: list[dict], issues: list[dict]) -> None:
+def _check_close(payload: dict, steps: list[dict], issues: list[dict],
+                 short_form: bool = False) -> None:
     opening_object = _text(payload.get("opening_object"))
     if not opening_object:
         issues.append(_issue("NO_OPENING_OBJECT",
@@ -498,11 +569,37 @@ def _check_close(payload: dict, steps: list[dict], issues: list[dict]) -> None:
     content = [word for word in re.findall(r"[a-z]+", opening_object.lower())
                if word not in _STOPWORDS]
     haystack = close["situation"].lower()
-    if content and not any(re.search(rf"\b{re.escape(word)}", haystack) for word in content):
+
+    def _mentions(words: list[str]) -> bool:
+        """Does the close name any of these, allowing an English plural to differ?
+
+        "cobras" in the setup against "cobra farms" in the close is the same subject, and an exact
+        word-boundary match called it a missing callback. Trimming a trailing s off both sides is
+        the whole of the morphology this needs -- these are nouns from one sentence of narration,
+        not a stemming problem.
+        """
+        for word in words:
+            stem = word[:-1] if len(word) > 4 and word.endswith("s") else word
+            if re.search(rf"\b{re.escape(stem)}", haystack):
+                return True
+        return False
+    # At short length the close may return to the PROBLEM instead of the opening object. The
+    # reference short ends "Ask: where are the cobra farms?" -- it never hands the coin back, and it
+    # is the stronger close for it, because a minute has no room to re-establish an object before
+    # reusing it. Returning to the setup's own subject is the same move made on what the story
+    # actually spent its time on. A close that returns to NEITHER still fails.
+    targets = [content]
+    if short_form and steps:
+        setup = next((step for step in steps if step["role"] == SETUP), steps[0])
+        targets.append([word for word in re.findall(r"[a-z]+", setup["situation"].lower())
+                        if word not in _STOPWORDS and len(word) > 3])
+    hit = any(words and _mentions(words) for words in targets)
+    if content and not hit:
         issues.append(_issue(
             "NO_CALLBACK",
-            f"the closing step never returns to {opening_object!r}; both reference closes come "
-            "back to the thing the story opened on",
+            f"the closing step never returns to {opening_object!r}"
+            + (" nor to the situation the story opened on" if short_form else
+               "; both reference closes come back to the thing the story opened on"),
             close["step_id"]))
 
 
@@ -528,11 +625,12 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     _check_chain(steps, issues)
     _check_chapters(steps, issues)
     _check_timing(steps, float(payload.get("runtime_sec") or 0.0), issues, engine)
-    _check_hook(hook, steps, issues)
+    short_form = is_short_form(float(payload.get("runtime_sec") or 0.0))
+    _check_hook(hook, steps, issues, short_form)
     _check_hinge(steps, issues)
     _check_reversal(payload, steps, issues)
-    _check_parallel_cases(payload, steps, issues)
-    _check_close(payload, steps, issues)
+    _check_parallel_cases(payload, steps, issues, short_form)
+    _check_close(payload, steps, issues, short_form)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -932,12 +1030,33 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "")
         return (value[0].upper() + value[1:] + ".") if value else ""
 
     def _strip_lead(narration: str) -> str:
-        """Remove a previously-applied hook, tag and marker so the rebuild is idempotent."""
+        """Remove a previously-applied hook, tag and marker so the rebuild is idempotent.
+
+        ORDER-INDEPENDENT, and it has to be. The first version stripped hook, then tag, then
+        marker, each only at position zero -- so it handled the lead it writes and nothing else.
+        When the planner opened a scene with its own "Step one." the hook no longer sat at
+        position zero, the strip did nothing, and the rebuild prepended hook + tag in front of a
+        body that still contained them. The video then opened on the numeral this whole function
+        exists to prevent, with the promise sentence buried and said twice:
+
+            "Step one. An official pays to erase a menace... Explained like you are five.
+             Step one. A coin lands. The cobras stay."
+
+        Looping until nothing more can be removed accepts the lead pieces in any order and any
+        number, which is what a planner that writes its own markers actually produces.
+        """
         body = narration
-        for part in (_sentence(hook), _sentence(format_tag)):
-            if part and body.casefold().startswith(part.casefold()):
-                body = body[len(part):].strip()
-        return _MARKER.sub("", body).strip()
+        parts = [part for part in (_sentence(hook), _sentence(format_tag)) if part]
+        removing = True
+        while removing:
+            removing = False
+            without_marker = _MARKER.sub("", body).strip()
+            if without_marker != body:
+                body, removing = without_marker, True
+            for part in parts:
+                if body.casefold().startswith(part.casefold()):
+                    body, removing = body[len(part):].strip(), True
+        return body
 
     # 1. The spoken spine. Each chapter's first scene announces that chapter's number; a marker
     #    anywhere else is a duplicate. Normalising rather than adding-when-absent is the fix for

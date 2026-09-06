@@ -949,7 +949,12 @@ def test_short_causal_sheet_keeps_ending_and_all_required_beats(monkeypatch):
             return _reply(_route(call["messages"][0]["content"], 10))
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": Messages()})())
     monkeypatch.setattr(ep, "_dedupe_narration", lambda scenes, *a: (scenes, 0))
-    script = ep._generate_script_chunked("Why?", 60, "s", "", 12, causal_lane=True,
+    # 75s, not 60s. backfiring_solution requires nine beats, which need 225 words at the 25-word
+    # floor against the 176 a 60s runtime allows -- the pairing this fixture used to assert is the
+    # one that killed job act_de546a5c at the storyboard three paid stages later. 75s is the
+    # shortest runtime the engine actually fits, so the sheet under test is still the SHORT sheet
+    # this test is about, only now it is one the pipeline is allowed to plan.
+    script = ep._generate_script_chunked("Why?", 75, "s", "", 12, causal_lane=True,
                                          pinned_engine="backfiring_solution")
     assert len(script["scenes"]) == 10
     assert script["scenes"][-1]["causal_role"] == "tool"

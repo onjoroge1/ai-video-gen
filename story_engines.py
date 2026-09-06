@@ -137,10 +137,19 @@ def resolve_id(engine_id: str) -> str:
     return key if key in ENGINES else DEFAULT_ENGINE
 
 
-def catalogue() -> str:
-    """The engines as prompt text, so the selector and the validator cannot disagree."""
+def catalogue(only: list[str] | tuple[str, ...] | None = None) -> str:
+    """The engines as prompt text, so the selector and the validator cannot disagree.
+
+    `only` narrows the list to specific engine ids. The selector uses it to hide engines whose
+    required beats cannot fit the requested runtime: offering an engine that is arithmetically
+    impossible invites the model to pick it, and a preference expressed in prose has already been
+    measured losing to the model's read of which story shape fits the topic.
+    """
+    allowed = [engine_id for engine_id in ENGINES if engine_id in set(only)] if only else None
     blocks = []
     for engine_id, engine in ENGINES.items():
+        if allowed is not None and engine_id not in allowed:
+            continue
         blocks.append(
             f"{engine_id}: {engine['name']} — {engine['premise']}\n"
             f"    beats in order: {' -> '.join(engine['sequence'])}\n"
@@ -156,6 +165,22 @@ def expected_order(engine_id: str) -> list[str]:
 
 def closing_role(engine_id: str) -> str:
     return get(engine_id)["closing"]
+
+
+def minimum_beats(engine: dict | None) -> int:
+    """The fewest beats this engine can tell its story in.
+
+    Every required role needs a beat of its own. Escalation is the exception: it is the one
+    required role the contract expects to repeat, so it costs MIN_ESCALATIONS beats rather than
+    one. Generalization repeats too but is never required, so it costs nothing here.
+
+    This is the number the scene planner has always computed inline. It lives here because the
+    runtime check below needs the same figure, and a feasibility gate that disagreed with the
+    planner about how many beats an engine needs would pass plans the planner then breaks.
+    """
+    if not engine:
+        return 0
+    return len(set(engine.get("required") or ()) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
 
 
 def mechanism_deadline_pct(engine: dict | None, default: float) -> float:
