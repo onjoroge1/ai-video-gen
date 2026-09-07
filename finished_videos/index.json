@@ -1861,5 +1861,16 @@
     "degraded_reasons": [],
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-reaction-first.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-reaction-first.srt"
+  },
+  "quiz-v24-charge": {
+    "title": "Ocean Shadow Quiz - V2.4 (unrestrained opening motion)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.1,
+    "actual_cost": 1.211,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-charge.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-charge.srt"
   }
 }

@@ -843,7 +843,7 @@ def test_the_subject_width_check_repairs_instead_of_warning():
 
     assert "framing_fix" in inspect.signature(legacy._habitat_pair).parameters
     source = inspect.getsource(legacy.run_quiz_pipeline)
-    assert "width_fault = _width_fault(grade, diff)" in source
+    assert "width_fault = _width_fault(grade, diff," in source
     assert "framing_fix=width_fault" in source
     # A measurable bound, not a descriptive target — a fraction the model can under-deliver
     # against is what failed three times. It is now bounded at both ends, because a floor alone
@@ -1272,7 +1272,7 @@ def test_one_generation_covers_every_beat_it_pays_for():
     body = inspect.getsource(legacy._fal_reveal_motion)
     assert "segments" in inspect.signature(legacy._fal_reveal_motion).parameters
     assert "start += duration" in body, "segments must run consecutively through one clip"
-    assert body.count("_animate_one") == 1, "one generation covers every segment"
+    assert body.count("ep._animate_one(") == 1, "one generation covers every segment"
 
     source = inspect.getsource(legacy.run_quiz_pipeline)
     # The final round passes two segments and pays once.
@@ -1280,7 +1280,10 @@ def test_one_generation_covers_every_beat_it_pays_for():
     assert "cta_motion, cta_beat, cta_fade" in source
     # Three charge sites in total: the fal opener, plus the two reveal paths (final and ordinary).
     # What matters is that the FINAL round charges once despite rendering two segments.
-    assert source.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 3
+    # Two plain charge sites (the fal opener and the final reveal) plus the ordinary-round site,
+    # which now picks the pro rate on round one.
+    assert source.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 2
+    assert "costs.append(5 * (_RATE_I2V_HERO_SEC if i == 1 else FAL_OPENER_RATE_SEC))" in source
     final_block = source[source.index("answer_motion = "):source.index("clips.extend((")]
     assert final_block.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 1, (
         "one charge per round that animates, not per segment")
@@ -1339,9 +1342,84 @@ def test_the_opening_reveal_uses_a_reaction_prompt_not_the_calm_one():
     reaction = legacy._REVEAL_REACTION_PROMPT
     calm = legacy._REVEAL_MOTION_PROMPT
     assert reaction != calm
-    assert "NOTICES the camera" in reaction and "surges" in reaction
-    assert "attack" not in reaction.lower(), "wrong for most of the set, and invites a new scene"
+    assert "AGGRESSIVE CHARGE" in reaction and "drives straight at it" in reaction
+    # Species-agnostic: no teeth, no jaws, nothing that only fits a predator. A turtle and a manta
+    # have to be able to execute the same instruction.
+    for predator_only in ("teeth", "jaws", "bite", "prey"):
+        assert predator_only not in reaction.lower(), predator_only
     # Identity has to survive a violent motion prompt, so the guardrails are the same as the calm one.
     for guard in ("EXACT same animal", "never becomes a different creature"):
         assert guard in reaction, guard
     assert "reaction=(i == 1)" in __import__("inspect").getsource(legacy.run_quiz_pipeline)
+
+
+def test_a_reveal_that_must_move_gets_room_to_move():
+    """The first animated opening reveal asked a great white shark to charge the camera and it
+    barely shifted — net displacement 22.7 against 33.4 for a clip merely asked to drift. The
+    subject filled 95% of frame width. There was nowhere to surge to, because approaching the lens
+    would have pushed it out of frame, so the model stayed put.
+
+    Leaving medium uncapped was right for a still and exactly wrong for a beat that has to travel.
+    """
+    import _quiz_pipeline_legacy as legacy
+
+    # Still: medium has no ceiling and 95% is fine.
+    assert legacy._width_fault({"subject_width_pct": 95}, "medium") == ""
+    # Animated: the same clue has to be pulled back so it has somewhere to come from.
+    assert legacy._width_fault({"subject_width_pct": 95}, "medium", animated=True) == "further"
+    assert legacy._width_fault({"subject_width_pct": 42}, "medium", animated=True) == ""
+    # The animated ceiling never loosens a tier that is already tighter.
+    for tier, ceiling in legacy._READABILITY_WIDTH_MAX.items():
+        assert legacy._width_fault({"subject_width_pct": ceiling + 5}, tier,
+                                   animated=True) == "further", tier
+
+    source = __import__("inspect").getsource(legacy.run_quiz_pipeline)
+    assert "animated=reveal_motion_wanted(i, len(items))" in source, (
+        "the gate has to know the round will move before it can make room for it")
+
+
+def test_the_charge_names_an_arc_rather_than_an_adjective():
+    """"Surges toward the camera" produced almost no movement. A model given an adjective has
+    nothing to execute; a start and an end state is a thing it can actually animate."""
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = legacy._REVEAL_REACTION_PROMPT
+    assert "BEGINS in the middle distance" in prompt and "ENDS filling the whole frame" in prompt
+    assert "the viewer should flinch" in prompt
+    # Identity guardrails survive the more violent instruction — this is where drift would show.
+    for guard in ("EXACT same animal", "never becomes a different creature"):
+        assert guard in prompt, guard
+
+
+def test_the_reaction_beat_buys_the_tier_that_follows_instructions():
+    """Measured on the mascot reaction library this session: the standard tier ignored an explicit
+    background instruction on 3 of 5 clips, the pro tier held 3 of 3. A charge at the camera is an
+    instruction-following problem before it is anything else, and it is one clip per video."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    body = inspect.getsource(legacy._fal_reveal_motion)
+    assert "ep._FAL_MODEL_HERO if reaction else None" in body
+    assert legacy._RATE_I2V_HERO_SEC > legacy.FAL_OPENER_RATE_SEC
+    # Charged at the rate actually paid, not the standard one.
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "_RATE_I2V_HERO_SEC if i == 1 else FAL_OPENER_RATE_SEC" in source
+
+
+def test_the_charge_is_not_sent_with_a_stay_still_preamble():
+    """_animate_one prefixes every prompt with "Subtle, restrained motion: locked-off camera...
+    keep the composition stable" — the right default for scene animation, and the exact opposite of
+    a charge at the lens.
+
+    Three attempts to fix the missing charge failed identically before this was found: more frame
+    room, an explicit motion arc, and the pro tier. None of them touched the sentence actually being
+    obeyed. The default stays True so the eight other call sites are unchanged.
+    """
+    import inspect
+    import explainer_pipeline as ep
+    import _quiz_pipeline_legacy as legacy
+
+    assert inspect.signature(ep._animate_one).parameters["restrain"].default is True
+    body = inspect.getsource(ep._animate_one)
+    assert "if not restrain or" in body, "the opt-out must skip the preamble"
+    assert "restrain=not reaction" in inspect.getsource(legacy._fal_reveal_motion)

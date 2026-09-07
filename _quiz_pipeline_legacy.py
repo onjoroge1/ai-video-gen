@@ -71,6 +71,8 @@ FAL_REVEAL_FIRST = _FAL_REVEAL_MODE == "first"
 # actually there, so a still render keeps its pacing exactly.
 _ANIMATED_FIRST_REVEAL_SEC = 1.8
 FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
+# Kling v3 pro, ~2x standard. Only the reaction beat pays it, and only one beat per video.
+_RATE_I2V_HERO_SEC = float(os.environ.get("I2V_HERO_RATE_SEC", "0.112"))
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
            "sky":(120,180,230),"mint":(150,210,180),"amber":(240,170,60),"rose":(225,130,160)}
@@ -647,6 +649,18 @@ _READABILITY_WIDTH_MIN = {"medium": 28.0, "hard": 20.0, "expert": 16.0}
 # different phrasings spanning 20% to 33%. The model has a close-up mode and the numbers in the
 # ask are decoration. Between an estimate and a measurement, the estimate moves.
 _READABILITY_WIDTH_MAX = {"hard": 50.0, "expert": 50.0}
+# A reveal that is going to MOVE needs somewhere to move from, and that overrides the tier ceiling
+# — including medium's absence of one.
+#
+# The first animated opening reveal asked a great white shark to surge at the camera and it barely
+# shifted: net displacement 22.7 against 33.4 for a clip merely asked to drift. The subject filled
+# 95% of frame width. There was nowhere to surge to, because approaching the lens would have
+# pushed it out of frame, so the model did the only thing available and stayed put.
+#
+# Leaving medium uncapped was right for a still — frame zero should be big and legible — and
+# exactly wrong for a beat that has to travel. This ceiling applies only when the round will
+# actually be animated.
+_ANIMATED_WIDTH_MAX = 55.0
 _READABILITY_CONTRAST_MIN = 55.0
 
 
@@ -682,7 +696,7 @@ def quiz_readability_issues(grade: dict, difficulty: str, round_number: int) -> 
     return issues
 
 
-def _width_fault(grade: dict, difficulty: str) -> str:
+def _width_fault(grade: dict, difficulty: str, animated: bool = False) -> str:
     """Which way the clue's subject missed its tier's band: "closer", "further", or "".
 
     A direction rather than a boolean, because the two faults want opposite repairs and a gate
@@ -694,7 +708,10 @@ def _width_fault(grade: dict, difficulty: str) -> str:
     floor = _READABILITY_WIDTH_MIN.get(difficulty, _READABILITY_WIDTH_MIN["hard"])
     if not isinstance(width, (int, float)) or width < floor:
         return "closer"
-    if width > _READABILITY_WIDTH_MAX.get(difficulty, 10**9):
+    ceiling = _READABILITY_WIDTH_MAX.get(difficulty, 10**9)
+    if animated:
+        ceiling = min(ceiling, _ANIMATED_WIDTH_MAX)
+    if width > ceiling:
         return "further"
     return ""
 
@@ -970,10 +987,13 @@ _REVEAL_MOTION_PROMPT = (
 # animal reacting to being seen. "Attack" would be wrong for most of them and would push the model
 # toward inventing a scene rather than moving the one it was given.
 _REVEAL_REACTION_PROMPT = (
-    "The {answer} suddenly NOTICES the camera and surges straight toward it, filling more of the "
-    "frame as it comes — a fast, startling approach, as though it has just seen the viewer. Keep "
-    "the EXACT same animal, species, markings, scene and lighting throughout; the animal moves "
-    "toward the lens but never becomes a different creature, never cuts, and nothing is added or "
+    "AGGRESSIVE CHARGE AT THE CAMERA. The {answer} snaps its head toward the lens, then drives "
+    "straight at it fast and hard. Describe the arc explicitly: it BEGINS in the middle distance "
+    "and ENDS filling the whole frame, close enough to touch, its head or face dominating the "
+    "final moments. Powerful body movement throughout — tail thrashing, limbs or fins driving, "
+    "water or air disturbed behind it. This is a startle: the viewer should flinch. "
+    "Keep the EXACT same animal, species, markings, scene and lighting throughout; it comes at "
+    "the lens but never becomes a different creature, never cuts, and nothing is added to or "
     "removed from the scene."
 )
 
@@ -1008,15 +1028,26 @@ def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None, reaction=Fal
     """
     raw = segments[0][1] + ".fal.raw.mp4"
     template = _REVEAL_REACTION_PROMPT if reaction else _REVEAL_MOTION_PROMPT
+    # The reaction beat buys the pro tier. This session already measured the difference on the same
+    # class of failure: building the mascot reaction library, the standard tier ignored an explicit
+    # background instruction on 3 of 5 clips and the pro tier held 3 of 3. A charge at the camera
+    # is an instruction-following problem before it is anything else, and it is one clip per video.
+    model = ep._FAL_MODEL_HERO if reaction else None
+    rate = _RATE_I2V_HERO_SEC if reaction else FAL_OPENER_RATE_SEC
     try:
+        # restrain=False on the reaction beat. _animate_one otherwise prefixes every prompt with
+        # "Subtle, restrained motion: locked-off camera... keep the composition stable", which is
+        # the correct default for scene animation and the exact opposite of a charge at the lens.
         ok, quota, err = ep._animate_one(
-            "fal", reveal_img, template.format(answer=answer), raw, W, H, 5)
+            "fal", reveal_img, template.format(answer=answer), raw, W, H, 5, fal_model=model,
+            restrain=not reaction)
     except Exception as exc:                                          # noqa: BLE001
         ok, quota, err = False, False, f"{type(exc).__name__}: {exc}"
     used = bool(ok and os.path.exists(raw) and _dur(raw) > 0)
     if i2v_sink is not None:
         i2v_sink.append({"beat": os.path.basename(segments[0][1]), "used": used,
                          "segments": len(segments), "reaction": bool(reaction),
+                         "tier": "pro" if reaction else "standard", "rate_per_sec": rate,
                          "quota_hit": bool(quota), "error": "" if used else (err or "")})
     if not used:
         return False
@@ -1697,7 +1728,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # them shipped as a warning.
         if in_habitat:
             contrast_bad = _contrast_failed(grade)
-            width_fault = _width_fault(grade, diff)
+            width_fault = _width_fault(grade, diff,
+                                       animated=reveal_motion_wanted(i, len(items)))
             identity_bad = (grade.get("reveal_matches_answer") is False
                             or grade.get("anatomy_ok") is False)
             # A loop-closing round is generated as an edit of the opening scene, which is what makes
@@ -1747,7 +1779,9 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                 grade["pair_repaired"] = True
                 grade["pair_repair_reasons"] = reasons
                 grade["pair_repair_succeeded"] = repair_ok and not (
-                    _contrast_failed(grade) or _width_fault(grade, diff))
+                    _contrast_failed(grade)
+                    or _width_fault(grade, diff,
+                                    animated=reveal_motion_wanted(i, len(items))))
                 log(f"Round {i} habitat repair "
                     + ("cleared every gate" if grade["pair_repair_succeeded"]
                        else "did not clear every gate"))
@@ -1933,7 +1967,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                         f"{A}/rev{i}_b.png",
                         [(f"{A}/r{i}_t.png", motion_out, hold, None)],
                         answer, fal_reveal, reaction=(i == 1))):
-                costs.append(5 * FAL_OPENER_RATE_SEC)
+                costs.append(5 * (_RATE_I2V_HERO_SEC if i == 1 else FAL_OPENER_RATE_SEC))
                 render_specs.append((motion_out, hold, True))
                 clips.append(motion_out)
             else:
