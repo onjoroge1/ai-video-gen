@@ -264,15 +264,11 @@ def test_parallel_cases_reach_the_validator_from_the_script():
                    build_storyboard(script, "q")["validation"]["errors"])
 
 
-def test_the_style_asks_for_round_white_heads_not_detailed_faces():
-    """The consistency lever, and the one spec change made before the first pilot.
-
-    Fifty to ninety images of the same people cannot hold a detailed face across independent
-    generations. Both references carry identity in clothing and silhouette instead, so the style
-    must ask for that explicitly rather than hope for it.
-    """
+def test_the_style_has_its_own_identity_and_simple_continuity_anchors():
     suffix = visual_style_suffix()
-    assert "round white heads" in suffix
+    assert "natural skin tones" in suffix
+    assert "cut-paper" in suffix
+    assert "mineral teal, terracotta and ivory" in suffix
     assert "never by facial detail" in suffix
     assert "detailed rendered faces" in negative_prompt()
 

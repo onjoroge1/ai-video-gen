@@ -12,6 +12,7 @@ Steps:
 """
 
 import collections
+import copy
 import tempfile
 import os
 import re
@@ -775,7 +776,7 @@ def scene_count_for(duration_sec: int, video_format: str = "landscape") -> int:
     return max(8, min(240, round(duration_sec / secs_per_scene)))
 
 
-def _parse_script_json(raw: str):
+def _parse_script_json(raw: str, *, cost_sink=None):
     """Strip fences and parse; return (obj, repair_cost). One repair retry on failure."""
     raw = raw.strip()
     if "```" in raw:
@@ -788,10 +789,12 @@ def _parse_script_json(raw: str):
             system="Return ONLY the corrected, strictly-valid JSON. No prose, no code fences.",
             messages=[{"role": "user", "content": f"Fix this into valid JSON:\n\n{raw}"}],
         )
+        cost = fix.usage.input_tokens * _RATE_SCRIPT_IN + fix.usage.output_tokens * _RATE_SCRIPT_OUT
+        if cost_sink is not None:
+            cost_sink.append(cost)
         ft = fix.content[0].text.strip()
         if "```" in ft:
             ft = ft[ft.find("{"): ft.rfind("}") + 1]
-        cost = fix.usage.input_tokens * _RATE_SCRIPT_IN + fix.usage.output_tokens * _RATE_SCRIPT_OUT
         return json.loads(ft), cost
 
 
@@ -1984,7 +1987,7 @@ def _engine_runtime_fit(engine_id: str, duration_sec: float) -> dict:
     ceiling to prove the story could not be told.
     """
     import story_engines as _se
-    beats = _se.minimum_beats(_se.get(engine_id))
+    beats = _se.minimum_beats(_se.get(engine_id, compiled=bool(_ef.map_for(engine_id))))
     ceiling = runtime_word_bounds(duration_sec, beats)[2]
     demanded = beats * _WORD_FLOOR
     return {"engine_id": _se.resolve_id(engine_id), "minimum_beats": beats,
@@ -2343,7 +2346,7 @@ def _charge(sink, stage: str, amount: float, detail: str = "") -> float:
 
 
 def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
-                                question: str) -> tuple[list, float]:
+                                question: str, cost_sink=None) -> tuple[list, float]:
     """Re-ask ONLY for the citations a relevance check flagged, and only once.
 
     Not a replan. A full re-plan would re-roll every beat to fix one field, and the sheet around
@@ -2360,22 +2363,23 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
     cost = 0.0
     if not isinstance(claims, dict) or not claims:
         return beats, cost
-    for suspect in suspicions or []:
+    for suspect in (suspicions or [])[:1]:
         beat = by_id.get(suspect.get("beat_id"))
         if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
             continue
         ledger = "\n".join(
             f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
         incentive = beat["incentive"]
+        suspicion_reason = suspect.get("why") or (
+            "Those citations do not appear to support what they are cited for.")
         prompt = (
             f'A beat sheet for "{question}" states the rule at the centre of the story as two '
             "propositions, each of which must be supported by the claims cited for it:\n\n"
             f'  the reward was paid for: {_s(incentive.get("rewarded_measure"))}\n'
             f'    cited: {", ".join(incentive.get("measure_claim_refs") or []) or "(none)"}\n'
-            f'  the goal was: {_s(incentive.get("actual_goal"))}\n'
+            f'  the goal was: {_s(incentive.get("stated_policy_goal") or incentive.get("actual_goal"))}\n'
             f'    cited: {", ".join(incentive.get("goal_claim_refs") or []) or "(none)"}\n\n'
-            f'{suspect.get("why") or "Those citations do not appear to support what they are "
-                                     "cited for."}\n\n'
+            f'{suspicion_reason}\n\n'
             f"THE FULL CLAIM LEDGER:\n{ledger}\n\n"
             "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids stating what a person had "
             "to hand over to be paid>\"],\"goal_claim_refs\":[\"<claim ids stating what the "
@@ -2387,12 +2391,18 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
             response = _claude().messages.create(
                 model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_SYSTEM,
                 messages=[{"role": "user", "content": prompt}])
-            cost += _msg_cost(response.usage)
-            reply, parse_cost = _parse_script_json(response.content[0].text)
-            cost += parse_cost
+            price = _msg_cost(response.usage)
+            cost += price
+            if cost_sink is not None:
+                cost_sink.append(price)
+            raw = response.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw[raw.find("{"):raw.rfind("}") + 1]
+            reply = json.loads(raw)
             updates = {}
             for field in ("measure_claim_refs", "goal_claim_refs"):
-                refs = [_s(ref) for ref in (reply.get(field) or []) if _s(ref)]
+                value = reply.get(field)
+                refs = value if isinstance(value, list) and all(isinstance(r, str) for r in value) else []
                 if refs and set(refs) <= set(claims):
                     updates[field] = refs
             if updates:
@@ -2863,6 +2873,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "Beat pct is its estimated START time as a percentage of runtime, not its list index. "
             "Make the opening beats shorter than the later demonstrations.\n"
             + blueprint_block)
+    if causal_lane and _ef.map_for(sheet_engine_id):
+        beat_prompt = _compiler.factual_plan_prompt(
+            question, duration_sec, n_scenes, sheet_engine_id, cast_rules)
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         beat_prompt += (
@@ -2875,7 +2888,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     requested_story_format = (story_format if story_format in
                               {"standard_explainer", "evidence_led_mystery"}
                               else "standard_explainer")
-    if requested_story_format == "evidence_led_mystery":
+    if requested_story_format == "evidence_led_mystery" and not causal_lane:
         beat_prompt += (
             "\nSELECTED STRUCTURE — EVIDENCE-LED MYSTERY. First decide whether this topic genuinely "
             "supports a concrete anomaly, reasonable false belief, at least three distinguishable "
@@ -2913,10 +2926,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
                                   messages=[{"role": "user", "content": beat_prompt + _series_block(series)
                                              + _operator_block(operator_direction)}])
-    plan, rc = _parse_script_json(o.content[0].text)
     cost += _charge(cost_sink, _ledger.BEAT_SHEET,
-                    rc + o.usage.input_tokens * _RATE_SCRIPT_IN
+                    o.usage.input_tokens * _RATE_SCRIPT_IN
                     + o.usage.output_tokens * _RATE_SCRIPT_OUT, f"{n_scenes} beats")
+    plan, rc = _parse_script_json(o.content[0].text,
+                                 cost_sink=_ledger.StageCostSink(cost_sink, _ledger.BEAT_SHEET))
+    cost += rc
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
@@ -2935,119 +2950,52 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
-        # SECOND PASS, ONE JOB. The first real run of this lane put the causal vocabulary inside
-        # the beat-sheet prompt alongside the pacing vocabulary (cold_consequence, payoff, rehook,
-        # ...), the IRON RULES, the claim walk and the stages roadmap. The plan came back with two
-        # setups, three false_resolutions and escalations after the reversal — the two vocabularies
-        # blended. This call sees ONLY the beat list and labels the chain, which is the whole
-        # instruction. Deterministic repair then fixes what it still gets wrong, so a second bad
-        # label costs nothing rather than failing the run.
-        try:
-            planned_mechanism = int(plan.get("mechanism_beat") or 0)
-        except (TypeError, ValueError):
-            planned_mechanism = 0
-        # COMPILE THE ROLES, DO NOT BUY THEM. On an engine with a function map the beats already
-        # say what each fact IS, so the roles are derived here and the labelling call is not made
-        # at all -- one fewer paid provider call, and a deterministic answer instead of one that
-        # moved across five measured sheets.
+        import story_planning as _planning
         _claims_for_roles = _spine_claims(research_dossier)
+        _cache = {}
         _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
-        # A suspected citation mismatch is worth a correction, not an early exit. Measured: five
-        # of five sheets derived a true mechanism from claims that did not mention what it
-        # asserted, while the claim that did sat unused in the same dossier. Refusing those five
-        # earlier would have saved money and left the blocker exactly where it was. One bounded
-        # re-ask, and whatever comes back is judged by the evidence boundary like anything else --
-        # the heuristic that noticed the problem never gets to certify the answer.
-        if _roles.get("suspicions") and _claims_for_roles:
-            beats, _repair_cost = _repair_incentive_citations(
-                beats, _roles["suspicions"], _claims_for_roles, question)
-            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _repair_cost, "citation repair")
-            _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
-        if _roles["compiled"]:
-            beats = _roles["beats"]
-            for _beat in beats:
-                _beat["_story_engine"] = sheet_engine_id
-            print(_compiler.summary(_roles))
-            if not _roles["passed"] and not _diagnostic_render():
-                raise _sfm.StorySpineUnsupported(_compiler.summary(_roles), beats=beats)
-            # The derived mechanism and reversal are beats the story needs and no archive records
-            # as events. They enter the sheet here so everything downstream sees one beat list.
-            beats = _compiler.splice_derived(beats, _roles)
+        if _roles.get("compiled"):
+            prepared = _planning.prepare(
+                beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
+                question=question, repair=_repair_incentive_citations,
+                cost_sink=cost_sink, cache=_cache)
+            cost += prepared["cost_usd"]
+            _spine = prepared["compiled"]
+            _sb = prepared["beats"]
         else:
-            if _roles.get("reason"):
-                print(f"[roles] {_roles['reason']}")
-            # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
-            beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                     planned_mechanism, pinned_engine=pinned_engine,
-                                                     preferred_engine=sheet_engine_id)
+            # Engines without factual-function compilation keep their existing labelling pass.
+            beats, spine_cost = _assign_causal_spine(
+                beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
+                pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
             cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
-        # Refresh if labeling selected a different engine, so expansion follows the final choice.
-        blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
-                                              duration_sec)
-        # VALIDATE THE STORY BEFORE TELLING IT.
-        #
-        # The sheet now carries an event per beat and the claims meant to support it, which is
-        # everything the structural rules and the evidence boundary need. Narration does not exist
-        # yet, so the fidelity boundary has nothing to measure and skips itself.
-        #
-        # Asking here rather than after expansion is the difference between refusing a story and
-        # buying one first. A measured run researched Delhi, planned a spine whose breeding,
-        # cancellation and outcome beats the archives do not evidence, spent a 20k-token expansion
-        # writing genuinely good narration for all of it, and only then discovered the events were
-        # unsupportable. The prose was excellent and unusable. It is also where two beats declared
-        # themselves parallel_case and sat in escalation roles -- a subject change the sheet should
-        # never have been allowed to spend an expansion on.
-        _spine_cost: list = []
-        _sb = _spine_beats(beats)
-        _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
-                                    _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
-        cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
-                        f"{len(_sb)} beats judged")
-        # SECOND CHANCE FOR THE DERIVED MECHANISM, AND ONLY FROM THE JUDGE'S OWN WORDS.
-        #
-        # The stem heuristic meant to catch a mis-citation cannot see this case, exactly as
-        # predicted: the mechanism cited a claim COUNTING tails handed in, which carries the
-        # distinguishing word "tail" and says nothing about a tail being accepted as proof. Five
-        # sheets cited it and the pre-filter passed all five. Relevance overlap is not entailment
-        # and was never going to be.
-        #
-        # So the trigger is Boundary A's verdict instead. It is the only thing qualified to say a
-        # citation does not support what it is cited for, it already reports which parts went
-        # unsupported, and that text is a correction the planner can act on. Once, then re-judged
-        # -- a repair that is not re-judged is a rewrite that agrees with itself.
-        _mech_ids = {_s(b.get("beat_id")) for b in _sb if _s(b.get("role")) == "mechanism"}
-        _mech_failed = next((row for row in _spine["cascade"]["evidence"]
-                             if row.get("beat_id") in _mech_ids), None)
-        if _mech_failed and not _spine["passed"] and _claims_for_roles:
-            _source = next((_s((b.get("derived_from") or [""])[0]) for b in _sb
-                            if _s(b.get("beat_id")) == _mech_failed["beat_id"]), "")
-            beats, _fix_cost = _repair_incentive_citations(
-                beats, [{"beat_id": _source,
-                         "why": "The evidence boundary judged this "
-                                f"{_mech_failed.get('verdict') or 'unsupported'}. "
-                                + "; ".join(_mech_failed.get("unsupported_details") or [])}],
-                _claims_for_roles, question)
-            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _fix_cost, "mechanism re-citation")
-            if _fix_cost:
-                _retry = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
-                if _retry.get("compiled") and _retry.get("passed"):
-                    beats = _compiler.splice_derived(_retry["beats"], _retry)
-                    _sb = _spine_beats(beats)
-                    _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
-                                                _lr_claims_by_case(research_dossier),
-                                                cost_sink=_spine_cost)
-                    cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
-                                    "mechanism re-judged")
+            sheet_engine_id = beats[0].get("_story_engine") or sheet_engine_id
+            _spine_cost = _ledger.StageCostSink(cost_sink, _ledger.BOUNDARY_A)
+            _spine = _sfm.compile_spine(
+                _spine_beats(beats), _claims_for_roles, _lr_claims_by_case(research_dossier),
+                cache=_cache, cost_sink=_spine_cost, engine_id=sheet_engine_id)
+            cost += sum(_spine_cost)
+            _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
         plan["_spine"] = {"compiled": _spine, "beats": _sb}
+        plan["_entailment_cache"] = _cache
         if not _spine["passed"] and not _diagnostic_render():
             raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
                                              spine=_spine, beats=_sb)
-        # Expansion writes only what survived. A collapsed duplicate or a pruned comparison must not
-        # reach narration, or the layer below spends a call on a beat the fact model removed.
-        _keep = set(_spine["kept_beats"])
-        beats = [beat for index, beat in enumerate(beats)
-                 if f"beat_{index + 1:02d}" in _keep]
+        # These are the narrowed, pruned and re-cited objects that were actually accepted.
+        beats = (_compiler.presentation_beats(_sb, sheet_engine_id)
+                 if _roles.get("compiled") and _spine["passed"] else _sb)
+        for i, beat in enumerate(beats):
+            beat["n"] = i + 1
+            if _illustrated_is_cast_free():
+                beat["human_present"] = False
+                beat["mascot_present"] = False
+                beat["bolt_mode"] = "absent"
+        n_scenes = len(beats)
+        if beats:
+            beats[0]["_story_engine"] = sheet_engine_id
+            if _roles.get("compiled"):
+                beats[0]["_parallel_cases"] = plan.get("parallel_cases") or []
+        blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -3139,6 +3087,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     def _expansion_beat(beat: dict) -> dict:
         return {
             "n": beat.get("n"), "role": _s(beat.get("role")) or "beat",
+            **({"beat_id": beat.get("beat_id")} if causal_lane else {}),
             "beat": _s(beat.get("beat")),
             "human_present": _plan_bool(beat.get("human_present"), True),
             "human_intention": _s(beat.get("human_intention")),
@@ -3159,6 +3108,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # is told to write from an event it cannot see, which is how the runtime refit once
                 # came to compress against a budget it was never shown.
                 "event": beat.get("event") or {},
+                "context_refs": beat.get("context_refs") or [],
+                "presentation_device": beat.get("presentation_device") or "",
                 "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
         }
 
@@ -3229,8 +3180,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             if causal_lane and is_last else "")
         ch_prompt = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
-            f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
-            f'{MASCOT_NAME} — {MASCOT_DESC}.'
+            + (cast_rules if causal_lane and _illustrated_is_cast_free() else
+               f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
+               f'{MASCOT_NAME} — {MASCOT_DESC}.')
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
             + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned beat below into exactly ONE scene, '
@@ -3293,8 +3245,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise ValueError(
                 f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
                 "off even with one beat. No further automatic retry.")
-        part, rc = _parse_script_json(c.content[0].text)
-        cost += _charge(cost_sink, _ledger.EXPANSION, rc, "json repair")
+        part, rc = _parse_script_json(c.content[0].text,
+                                     cost_sink=_ledger.StageCostSink(cost_sink, _ledger.EXPANSION))
+        cost += rc
         if causal_lane and len(part.get("scenes") or []) != len(batch):
             raise ValueError(f"Scene expansion returned {len(part.get('scenes') or [])} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
@@ -3326,6 +3279,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # numbers because that is what it can see on the sheet. Translate once, here, so a
                 # renumbering later cannot silently break every caused_by edge at the same time.
                 s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
+                s["beat_id"] = beat.get("beat_id") or f"beat_{s['story_beat_n']:02d}"
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
                 # Carried from the plan rather than re-derived. The event is what the narration was
@@ -3337,11 +3291,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     s["parallel_case_id"] = _s(beat.get("parallel_case_id"))
                 if isinstance(beat.get("changes_state"), dict):
                     s["changes_state"] = beat["changes_state"]
+                for key in ("derivation", "derived", "derived_from", "event_function",
+                            "_story_compiler_version", "presentation_device", "context_refs"):
+                    if key in beat:
+                        s[key] = copy.deepcopy(beat[key])
                 parent = beat.get("caused_by")
-                try:
-                    parent = int(parent)
-                except (TypeError, ValueError):
-                    parent = 0
+                parent_ids = {b.get("beat_id"): b["n"] for b in beats if b.get("beat_id")}
+                if parent in parent_ids:
+                    parent = parent_ids[parent]
+                else:
+                    try:
+                        parent = int(parent)
+                    except (TypeError, ValueError):
+                        parent = 0
                 s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
@@ -3354,6 +3316,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             expanded_refs = s.get("claim_refs") if isinstance(s.get("claim_refs"), list) else []
             kept_refs = [ref for ref in expanded_refs
                          if isinstance(ref, dict) and _s(ref.get("claim_id")) in allowed_ids]
+            if beat.get("_story_compiler_version"):
+                # The compiler already bound the factual ceiling. Expansion only supplies prose;
+                # Boundary B must check it against that ceiling even if the model omits joins.
+                kept_refs = [{"claim_id": ref, "narration_phrase": _s(s.get("narration"))}
+                             for ref in sorted(allowed_ids)]
             # A claimed scene must carry an evidence_id, and every reference in it must carry the
             # SAME one. Both come from the beat, so they already agree — but the planner routinely
             # omits the id entirely, and an empty string fails the join just as hard as a mismatched
@@ -3401,6 +3368,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _narration_repairs = _cs.finalize_narration(
             all_scenes, hook=_s(plan.get("hook")), format_tag=_CAUSAL_FORMAT_TAG)
 
+    if causal_lane and _roles.get("compiled"):
+        _compiler.refresh_story_positions(all_scenes)
+        setup = next(b for b in beats if b.get("role") == "setup")
+        plan["accepted_belief"] = _sfm.event_of(setup)["text"]
     story_contract = build_story_contract(question, plan, beats, all_scenes, duration_sec)
     return {
         "title": _s(plan.get("title")) or question,
@@ -3408,8 +3379,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "style_mode": style_mode,
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
-        "_script_cost_usd": round(cost, 4),
+        "_script_cost_usd": round(cost, 6),
         "_spine": plan.get("_spine") or {},
+        "_entailment_cache": plan.get("_entailment_cache") or {},
+        "_compiled_story": causal_lane and any(
+            b.get("_story_compiler_version") == _compiler.COMPILER_VERSION for b in beats),
         "_story_engine": (beats[0].get("_story_engine") if beats else "") or "",
         "_planned_story_engine": sheet_engine_id,
         "_engine_reason": (beats[0].get("_engine_reason") if beats else "") or "",
@@ -4614,9 +4588,8 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                           identity_by_silhouette: bool = False) -> dict:
     """Vision-verify object state and continuity. Invalid/unavailable judgment fails closed.
 
-    `identity_by_silhouette` changes WHAT counts as the same person, and exists because the
-    illustrated lane draws figures with blank faces on purpose — that is how the reference videos
-    hold one character across seventy shots without a face ever having to match.
+    `identity_by_silhouette` changes what counts as the same person: the illustrated lane
+    uses simplified facial detail and stable clothing, silhouette, headwear and prop anchors.
 
     Judged against a photoreal reference, those images were rejected for the very thing that makes
     them work: "target face is a blank featureless white oval, cannot match Alex's identity". A
@@ -4663,10 +4636,10 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         instruction = "TARGET EVIDENCE IMAGE ABOVE. Verify it against:\n"
         if identity_by_silhouette:
             instruction += (
-                "IDENTITY RULE FOR THIS IMAGE: the figures are drawn with blank or near-blank "
-                "faces by design. Do NOT judge human_identity_matches on facial features, hair, "
+                "IDENTITY RULE FOR THIS IMAGE: the figures have simplified facial detail "
+                "by design. Do NOT judge human_identity_matches on precise facial features, hair, "
                 "stubble or skin. Judge it on clothing colour, silhouette, headwear and carried "
-                "props against the reference. A blank face is correct and must not be a reason "
+                "props against the reference. Simplified facial detail must not be a reason "
                 "to fail. Set human_identity_matches false only when those anchors genuinely "
                 "differ.\n")
         content = [image_block(image_path), {
@@ -5086,6 +5059,7 @@ _NAMED_COLORS = {
     "mint": (150, 255, 210), "violet": (180, 150, 255), "purple": (190, 130, 255),
     "gold": (255, 205, 70), "orange": (255, 150, 60), "warm_yellow": (255, 225, 120),
     "warm_gold": (255, 210, 110), "pale_blue": (180, 215, 255), "navy": (12, 18, 40),
+    "terracotta": (230, 151, 117), "mineral_teal": (117, 198, 190),
 }
 
 # Per style-mode defaults used when Claude omits a color.
@@ -5094,6 +5068,7 @@ _MODE_PALETTE = {
     "scientific":  {"title": "white", "accent": "cyan",   "subtitle": "pale_blue"},
     "cinematic":   {"title": "cream", "accent": "gold",   "subtitle": "warm_gold"},
     "fun":         {"title": "white", "accent": "violet", "subtitle": "warm_yellow"},
+    "illustrated_ink": {"title": "cream", "accent": "terracotta", "subtitle": "mineral_teal"},
 }
 
 
@@ -6136,19 +6111,16 @@ def _assemble(
 
     # 3. Optional BG music mix
     if bg_music_path and os.path.exists(bg_music_path):
+        from illustrated_score import music_mix_filter
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
         drops = [float(c.get("time_sec") or 0) for c in (audio_cues or [])
                  if c.get("type") == "music_drop"]
-        music_volume = "0.10"
-        for t in reversed(drops):
-            music_volume = f"if(between(t\\,{max(0, t - 0.2):.2f}\\,{t + 0.8:.2f})\\,0.018\\,{music_volume})"
         _run_ffmpeg([
             _ffmpeg_bin(), "-y",
             "-i", concat_audio,
             "-stream_loop", "-1", "-i", bg_music_path,
             "-filter_complex",
-            f"[0:a]volume=1.0[vo];[1:a]volume='{music_volume}':eval=frame[bg];"
-            "[vo][bg]amix=inputs=2:duration=first[mix]",
+            music_mix_filter(sum(durations), drops),
             "-map", "[mix]", "-c:a", "libmp3lame",
             mixed,
         ], timeout=180.0)
@@ -7573,25 +7545,12 @@ import story_fact_model as _sfm
 
 
 def _spine_beats(beats: list) -> list:
-    """The planned sheet in the shape the fact model reads. No narration exists yet."""
-    out = []
-    for index, beat in enumerate(beats or [], 1):
-        beat = beat if isinstance(beat, dict) else {}
-        out.append({
-            "beat_id": f"beat_{index:02d}",
-            "role": _s(beat.get("causal_role")) or _s(beat.get("role")),
-            "scope": _s(beat.get("scope")) or "primary_story",
-            "parallel_case_id": _s(beat.get("parallel_case_id")),
-            "event": beat.get("event") or {},
-            "changes_state": beat.get("changes_state") or {},
-            "beat": _s(beat.get("beat")),
-            # Carried so a refusal can be measured. Without these, four of five sampled sheets
-            # reported no event functions at all -- not because the planner omitted them but
-            # because this projection dropped them on the way into the exception.
-            "event_function": _s(beat.get("event_function")),
-            "derived_from": beat.get("derived_from") or [],
-            "incentive": beat.get("incentive") or {},
-        })
+    """Keep stable identities and every field required by the accepted-sheet handoff."""
+    out = _compiler.canonical_beats(beats)
+    for beat in out:
+        beat["role"] = _s(beat.get("causal_role")) or _s(beat.get("role"))
+        beat["scope"] = _s(beat.get("scope")) or "primary_story"
+        beat["narration"] = ""  # expansion has not run yet
     return out
 
 
@@ -8561,6 +8520,8 @@ def rederive_narration_bindings(script: dict, log=lambda message: None,
     """
     _repair_claim_phrases(script, log, research_dossier)
     _repair_anchor_phrases(script, log)
+    if script.get("_compiled_story"):
+        _compiler.refresh_story_positions(script.get("scenes") or [])
 
 
 def _persist_semantic_failure(*, output_dir: str, stage: str, script: dict | None,
@@ -8758,6 +8719,7 @@ def run_explainer_pipeline(
         generation_manifest["pipeline_profile"] = "stable_standard_longform"
     if illustrated_story_on:
         generation_manifest["creative_lane"] = "illustrated_story_v1"
+        generation_manifest["creative_profile"] = illustrated_story_lane.CREATIVE_PROFILE
     if requested_motion_mode != resolved_motion_mode:
         generation_manifest["motion_fallback"] = {
             "requested": requested_motion_mode,
@@ -9330,6 +9292,31 @@ def run_explainer_pipeline(
         if stable_standard_longform and any(
                 state.get("include_bolt") for state in evidence_states) and not mascot_ok:
             log("Bolt reference unavailable; continuing without hard continuity enforcement.")
+
+    # A complete accepted story receives its own local score and channel palette. Explicit
+    # caller music is respected; an empty string requests narration only. No provider spend.
+    if illustrated_story_on:
+        style_mode = illustrated_story_lane.CAPTION_STYLE
+        for scene in scenes:
+            director = scene.get("text_director")
+            if isinstance(director, dict):
+                director.update(accent_color="terracotta", subtitle_color="mineral_teal")
+        if bg_music_path is None:
+            try:
+                from illustrated_score import render_score
+                bg_music_path, score_metadata = render_score(
+                    os.path.join(output_dir, "music"), question,
+                    _s(script.get("_story_engine")), min(3600, max(60, duration_sec * 1.4 + 15)))
+                generation_manifest["music"] = score_metadata
+                log("Music: original %s chamber theme, %s BPM; voice ducking enabled"
+                    % (score_metadata["spec"]["mood"], score_metadata["spec"]["tempo_bpm"]))
+            except Exception as exc:
+                generation_manifest["music"] = {"status": "unavailable", "reason": type(exc).__name__}
+                log("Music unavailable; continuing with narration: " + type(exc).__name__)
+        else:
+            generation_manifest["music"] = {
+                "status": "caller_supplied" if bg_music_path and os.path.isfile(bg_music_path) else "disabled"}
+        _write_generation_manifest(generation_manifest_path, generation_manifest)
 
     # Locked cartoon RENDER style + constraints. The render look is constant (cohesion);
     # the per-scene environment + dominant style_mode supply variety. We rely on the
@@ -10883,6 +10870,7 @@ def run_explainer_pipeline(
         "claim_report_path": claim_report_path,
         "audio_timing_report_path": audio_timing_report_path,
         "generation_manifest_path": generation_manifest_path,
+        "music": generation_manifest.get("music") or {"status": "disabled"},
         "evidence_plan_path": evidence_plan_path,
         "evidence_validation_path": evidence_validation_path,
         "continuity_pack_path": continuity_pack_path,

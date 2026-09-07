@@ -498,14 +498,22 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     import story_fact_model as sfm
 
     scenes = script.get("scenes") or []
-    beats = [dict(scene, beat_id=_text(scene.get("scene_id")) or f"scene_{index:03d}",
+    beats = [dict(scene, beat_id=_text(scene.get("beat_id")) or _text(scene.get("scene_id")) or f"scene_{index:03d}",
                   role=_text(scene.get("causal_role")) or _text(scene.get("story_role")))
              for index, scene in enumerate(scenes, 1)]
     report = sfm.validate_cascade(
         beats, _claim_index(dossier), _claims_by_parallel_case(dossier),
         judge=judge, cache=cache, cost_sink=cost_sink)
 
+    relationships = sfm._validate_relationships(beats, report, judge=judge,
+                                                cache=cache, cost_sink=cost_sink)
+
     errors = []
+    for row in relationships:
+        if not row["passed"]:
+            errors.append({"code": "RELATIONSHIP_NOT_ENTAILED", "scene": row["beat_id"],
+                           "message": row.get("reason", "unsupported derived relationship"),
+                           "retryable": row.get("verdict") in ("unavailable", "invalid_response")})
     for issue in report["structural"]:
         errors.append({"code": issue["code"], "scene": issue.get("beat_id"),
                        "message": issue["message"]})
@@ -529,13 +537,13 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                   f"judged — {row.get('reason')}", "retryable": True})
     return {
         "version": 2,
-        "passed": report["passed"],
+        "passed": report["passed"] and all(r["passed"] for r in relationships),
         "structure_status": report["structure_status"],
         "claim_count": len(_claim_index(dossier)),
         "errors": errors,
         "indeterminate_kinds": report["indeterminate_kinds"],
         "skipped_for_structure": report["skipped_for_structure"],
-        "retryable": bool(report["unavailable"]),
+        "retryable": bool(report["unavailable"]) or any(e.get("retryable") for e in errors),
     }
 
 

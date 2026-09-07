@@ -92,9 +92,12 @@ def test_a_programme_that_merely_failed_is_not_a_reversal():
         assert result["code"] == "NO_INVERSION"
 
 
-def test_a_reversal_must_be_about_the_setups_subject():
+def test_a_reversal_candidate_requires_a_separate_relationship_judgment():
     compounds = dict(HANOI[4], changes_state={"from": "x", "to": "colonial budgets tightened"})
-    assert sc.derive_reversal(HANOI[0], compounds)["code"] == "NO_INVERSION"
+    candidate = sc.derive_reversal(HANOI[0], compounds)
+    assert candidate["ok"]  # lexical differences cannot decide a semantic relationship
+    assert candidate["derivation"]["kind"] == "behavior_inversion"
+    assert "passed" not in candidate
 
 
 def test_the_reversal_is_computed_from_the_compounded_exploit_not_an_ending_event():
@@ -168,7 +171,7 @@ def test_the_derived_beats_are_spliced_into_causal_order():
     out = sc.compile_roles(HANOI, "backfiring_solution")
     spliced = sc.splice_derived(out["beats"], out)
     roles = [b.get("role") for b in spliced]
-    assert roles == ["setup", "intervention", "mechanism", "false_resolution",
+    assert roles == ["setup", "intervention", "false_resolution", "mechanism",
                      "escalation", "reversal"], "one event, one required role"
     assert [b["n"] for b in spliced] == list(range(1, 7)), "renumbered after the splice"
     derived = [b for b in spliced if b.get("derived") or b.get("derived_from")]

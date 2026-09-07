@@ -272,6 +272,26 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     if contract and int(contract.get("beat_count") or 0) != len(scenes):
         errors.append(_issue("beat_expansion_mismatch", "One or more planned beats did not expand into a scene."))
 
+    if script.get("_compiled_story"):
+        # This lane's documented actors and engine-owned causal sequence replace the cinematic
+        # Alex/Bolt investigation grammar. Validate that actual sequence, not two rival stories.
+        from copy import deepcopy
+        import illustrated_story
+        import story_compiler
+        import event_functions
+        compiled = (script.get("_spine") or {}).get("compiled") or {}
+        if (not compiled.get("passed") or not event_functions.map_for(script.get("_story_engine"))
+                or any(s.get("_story_compiler_version") != story_compiler.COMPILER_VERSION
+                       for s in scenes)):
+            errors.append(_issue("unvalidated_compiled_story", "The compiled factual contract is missing or stale."))
+        board = illustrated_story.build_storyboard(deepcopy(script), question)
+        for message in board["validation"]["errors"]:
+            errors.append(_issue("engine_story_contract", message))
+        checks["contract"] = "compiled_factual"
+        checks["engine"] = script.get("_story_engine")
+        return {"version": 2, "passed": not errors, "score": 100 if not errors else 0,
+                "errors": errors, "warnings": warnings, "checks": checks}
+
     # Version 2 is the human-led Phase-1 contract. Legacy fixtures remain readable,
     # while every newly generated long-form plan is held to these fail-closed rules.
     if int(contract.get("version") or 1) >= 2:

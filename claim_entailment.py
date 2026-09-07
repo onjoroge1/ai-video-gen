@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v1"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v2"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -156,7 +156,15 @@ def _default_judge(payload: dict) -> dict:
     """The real call. Imported lazily so the module is testable without a provider configured."""
     import explainer_pipeline as ep
 
-    if payload.get("kind") == "fidelity":
+    if payload.get("kind") == "relationship":
+        system = _EVIDENCE_SYSTEM
+        body = ("SUPPORTED FACTS:\n" + json.dumps(payload["claims"], ensure_ascii=False)
+                + "\nPROPOSED RELATIONSHIP:\n" + payload["event"]
+                + "\nDecide from these facts alone. Shared vocabulary, different wording, or a "
+                  "planner's role label proves nothing. Both sides must concern the same target "
+                  "and policy. Do not infer motives, aggregate population changes, or an economic "
+                  "valuation absent from the facts.\n" + _RETURN_SHAPE)
+    elif payload.get("kind") == "fidelity":
         system = _FIDELITY_SYSTEM
         body = (f"EVENT (the factual ceiling):\n{payload['event']}\n\n"
                 f"NARRATION:\n{payload['narration']}\n\n"
@@ -174,14 +182,21 @@ def _default_judge(payload: dict) -> dict:
         messages=[{"role": "user", "content": body}])
     if payload.get("cost_sink") is not None:
         payload["cost_sink"].append(ep._msg_cost(response.usage))
-    parsed, _ = ep._parse_script_json(response.content[0].text)
-    return parsed or {}
+    # A malformed 600-token verdict is an unavailable judgment. Never launch an unaccounted
+    # 16k-token script-JSON repair from this small, bounded provider call.
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw[raw.find("{"):raw.rfind("}") + 1]
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
 
 
 def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
             cache: dict | None, fallback_reason: str) -> dict:
-    if cache is not None and key in cache:
-        return cache[key]
+    if cache is not None and key in cache and not is_retryable(cache[key]):
+        return dict(cache[key])
     try:
         reply = (judge or _default_judge)(payload)
     except Exception as exc:                       # noqa: BLE001 - any provider failure fails closed
@@ -192,9 +207,20 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
         # later resume reads as a decided result.
         return result
     result = _normalise(reply, fallback_reason)
-    if cache is not None:
-        cache[key] = result
+    if cache is not None and not is_retryable(result):
+        cache[key] = dict(result)
     return result
+
+
+def relationship_entailment(facts: list[dict], statement: str, *, judge=None,
+                           cache=None, cost_sink=None) -> dict:
+    """Validate a proposed relationship over already-supported facts using Boundary A."""
+    if not facts:
+        return _normalise({"verdict": "unsupported", "reason": "no supported inputs"}, "")
+    payload = {"kind": "relationship", "claims": facts, "event": statement,
+               "cost_sink": cost_sink}
+    return _judged(payload, cache_key(facts, statement, kind="relationship"),
+                   judge, cache, "")
 
 
 def evidence_entailment(claims: list[dict], event_text: str, *,

@@ -123,13 +123,16 @@ ENGINES: dict[str, dict[str, Any]] = {
 DEFAULT_ENGINE = BACKFIRING_SOLUTION
 
 
-def get(engine_id: str) -> dict:
+def get(engine_id: str, *, compiled: bool = False) -> dict:
     """Look up an engine, falling back to the default rather than raising.
 
     A planner naming an engine that does not exist is a labelling mistake, not a reason to lose a
     script that may otherwise be sound; validation against the default will report what is wrong.
     """
-    return ENGINES.get(str(engine_id or "").strip().lower()) or ENGINES[DEFAULT_ENGINE]
+    engine = ENGINES.get(str(engine_id or "").strip().lower()) or ENGINES[DEFAULT_ENGINE]
+    if compiled and str(engine_id).strip().lower() == BACKFIRING_SOLUTION:
+        return dict(engine, compiled_compounding=True)
+    return engine
 
 
 def resolve_id(engine_id: str) -> str:
@@ -180,7 +183,8 @@ def minimum_beats(engine: dict | None) -> int:
     """
     if not engine:
         return 0
-    return len(set(engine.get("required") or ()) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
+    return (len(set(engine.get("required") or ()) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
+            - int(bool(engine.get("compiled_compounding"))))
 
 
 def mechanism_deadline_pct(engine: dict | None, default: float) -> float:

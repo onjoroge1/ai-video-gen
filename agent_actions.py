@@ -102,8 +102,11 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
             int(max(0.0, float(cost_ceiling_usd) - base) // clip_cost))
         if clip_cost > 0 else 0)
     estimated = round(base + affordable_clips * clip_cost, 4)
+    from illustrated_story import CREATIVE_PROFILE
+    from illustrated_score import SCORE_VERSION
     return {
-        "schema": "illustrated_topic_v1",
+        "schema": "illustrated_topic_v2",
+        "creative_profile": {"visual": CREATIVE_PROFILE, "music": SCORE_VERSION},
         "scope": "single-illustrated-video",
         "request": {
             "question": topic.strip(), "duration_sec": duration_sec,
@@ -183,6 +186,7 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
                    creative_direction=recipe.get("operator_direction") or "",
                    video_format=recipe.get("video_format"), voice=recipe.get("voice"),
                    visual_style=recipe.get("visual_style"), motion_mode=recipe.get("motion_mode"),
+                   creative_profile=payload.get("creative_profile") or {},
                    providers=payload.get("providers") or {},
                    estimate_basis=payload.get("estimate_basis") or "")
     if include_private:

@@ -91,6 +91,9 @@ small set of recurring props. The base schema asks you to VARY environment_type;
 overrides that instruction — recurring locations are what make an illustrated story readable, and
 a storyboard over budget is rejected before any asset spend.
 Write visuals as simple actions and state changes suitable for a hand-drawn editorial storybook.
+Build this video's own hook, phrasing and shot compositions from its sourced events. References
+guide clarity and pacing; use our ink-and-cut-paper visual identity and original musical theme.
+Avoid reproducing a reference's signature wording, character designs or sequence of images.
 Do not request cinematic photography, abstract symbolism, decorative montage, or text inside
 generated images. Maps, arrows, labels, counters, and captions are added by the renderer.
 Keep Bolt selective: he may assist, measure, warn, or react, but he is not automatically present.
@@ -259,6 +262,7 @@ def build_storyboard(script: dict, question: str) -> dict:
         steps.append({
             "step_id": _text(scene.get("scene_id")) or f"scene_{index + 1:03d}",
             "role": role,
+            "event_function": scene.get("event_function") or "",
             "chapter": scene.get("chapter") or 0,
             "start_sec": round(spoken, 1),
             "situation": narration,
@@ -296,7 +300,8 @@ def build_storyboard(script: dict, question: str) -> dict:
     # silently validates the story against the WRONG engine. Falling through to None applies
     # the generic contract, which is the honest answer when the engine is unreadable.
     declared = script.get("_story_engine")
-    engine = se.get(declared) if isinstance(declared, str) and declared.strip() else None
+    engine = (se.get(declared, compiled=bool(script.get("_compiled_story")))
+              if isinstance(declared, str) and declared.strip() else None)
     # REPAIR BEFORE VALIDATING, exactly as the spine pass does. _assign_causal_spine has always
     # run repair_chain on its output — "the mechanically decidable mistakes are fixed for free
     # rather than re-bought" — but the storyboard re-derived its steps from the scenes and
@@ -307,7 +312,7 @@ def build_storyboard(script: dict, question: str) -> dict:
     # validator. A repair that satisfies the check without changing the story is the kind of green
     # metric over wrong output this build has been bitten by repeatedly.
     causal_repairs: list = []
-    if engine:
+    if engine and not script.get("_compiled_story"):
         steps, causal_repairs = cs.repair_chain(steps, engine)
         for scene, step in zip(scenes, steps):
             scene["causal_role"] = step["role"]
@@ -375,33 +380,24 @@ def build_storyboard(script: dict, question: str) -> dict:
     return storyboard
 
 
+CREATIVE_PROFILE = "ink_cut_paper_v1"
+CAPTION_STYLE = "illustrated_ink"
+
+
 def visual_style_suffix(framing: str = "") -> str:
-    """Stable visual treatment shared by every evidence-state prompt.
-
-    The round white head is the load-bearing detail, not decoration. A lane like this generates
-    fifty to ninety images of the same people, and matching a detailed face across that many
-    independent generations is the single hardest consistency problem there is. Both reference
-    videos sidestep it entirely: heads are plain ovals with minimal features, and identity is
-    carried by clothing colour, silhouette and prop instead. Asking for detailed faces would make
-    inconsistency the loudest defect in the finished video.
-
-    SINGLE SCENE, stated first and positively. A measured render came back as grids of numbered
-    comic panels — "3. A WILD IDEA", "5. PUTTING THE PLAN IN MOTION" — with captions lettered into
-    the artwork. Nothing forbade it: the negative prompt banned "comic-book superhero style", which
-    is an aesthetic, not a layout, and "one unmistakable story action per frame" sat buried
-    mid-paragraph where it read as a style note. Generators weight an opening positive instruction
-    far more heavily than a clause in the middle or an entry on a negative list.
-    """
+    """Our ink/cut-paper treatment; continuity comes from simple stable character anchors."""
     return (
         " Compose ONE single continuous scene that fills the whole frame: a single moment, seen "
         "once, from one camera. Never a grid, never panels, never a storyboard sheet, never "
         "borders, gutters, insets, numbered boxes or caption strips. "
-        " Visual treatment: hand-drawn editorial history illustration on warm parchment. "
-        "Minimalist human figures with round white heads, small simple black facial features, "
-        "thin expressive limbs, and simple period-appropriate clothing. Identity is carried by "
+        " Visual treatment: hand-drawn editorial history illustration with layered cut-paper "
+        "shapes on clean ivory stock. Simplified human figures with natural skin tones, varied "
+        "angular face silhouettes, small simple facial features, expressive hands and "
+        "period-appropriate clothing. Identity is carried by "
         "clothing colour, silhouette, headwear and props — never by facial detail. Visible ink "
-        "contour lines, soft watercolour and gouache shading, muted ochre, rust, umber, sage and "
-        "desaturated teal. Readable silhouettes, layered foreground, middle ground and "
+        "contour lines, restrained crosshatching, flat gouache colour blocks and a little paper "
+        "grain. Palette: deep ink navy, mineral teal, terracotta and ivory, with a small mustard "
+        "accent for the changing story object. Readable silhouettes, layered foreground, middle ground and "
         "background, one unmistakable story action per frame, and clear negative space in the "
         "lower third for captions. Reuse the same clothing colours, props and location design "
         "whenever they recur. Composition must read instantly at phone size."
@@ -428,5 +424,6 @@ def negative_prompt() -> str:
         "photorealism, cinematic photography, 3D render, plastic skin, anime, comic-book "
         "superhero style, detailed rendered faces, excessive detail, distorted hands, extra "
         "limbs, watermarks, modern clothing, inconsistent characters, crowded "
-        "focal point, multiple unrelated actions, generic stock illustration"
+        "focal point, multiple unrelated actions, generic stock illustration, blank white balloon "
+        "heads, sepia parchment vignette, purple-on-white caption cards"
     )

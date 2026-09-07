@@ -11,9 +11,82 @@ reversal is a comparison between the world before and the world the exploit prod
 """
 from __future__ import annotations
 
+from copy import deepcopy
+import json
 import event_functions as ef
 import story_fact_model as sfm
 
+COMPILER_VERSION = "story_compiler_v2"
+
+
+def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
+    """The factual planner never receives the narration layer's competing role slots."""
+    mapping = ef.map_for(engine_id)
+    functions = tuple(mapping.to_role)
+    import causal_story
+    schema = {
+        "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
+                               "and the concrete title subject",
+        "throughline": "", "opening_object": "", "final_callback_object": "",
+        "recurring_location": "the primary case's documented setting, reused in the opening",
+        "style_mode": "educational", "stages": [], "parallel_cases": [],
+        "beats": [{"n": 1, "beat_id": "event_01", "beat": "the factual event text",
+                   "event_function": "one of: " + " | ".join(functions),
+                   "caused_by": "earlier beat_id, or empty for the initial problem",
+                   "scope": "primary_story", "parallel_case_id": "",
+                   "event": {"text": "one historical assertion", "claim_refs": ["claim_id"]},
+                   "changes_state": {"from": "evidence-backed starting state",
+                                     "to": "evidence-backed resulting state"},
+                   "incentive": {"rewarded_measure": "proof accepted for payment",
+                                 "measure_claim_refs": ["claim_id"],
+                                 "stated_policy_goal": "the documented intended outcome",
+                                 "goal_claim_refs": ["claim_id"]}}]}
+    return (
+        f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
+        f'Engine: {engine_id}. Return about {max(len(mapping.required), count - 3)} distinct factual '
+        'events, including each required function exactly once; add only distinct supported '
+        'consequences or optional context. Do not pad the list.\n'
+        'Required functions: ' + ', '.join(mapping.required) + '.\n'
+        + '\n'.join(f'{name}: {ef.WHAT_EACH_FUNCTION_IS[name]}'
+                    for name in functions)
+        + '\nThe compiler assigns story roles, derives the mechanism and reversal, and adds '
+        'presentation transitions and the closing question. Every event you supply needs a '
+        'nonempty factual text and its own supporting claim_refs. State changes must follow '
+        'from those same facts; an intended reduction followed by unchanged numbers is failure, '
+        'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
+        'On changes_incentive only, supply incentive. rewarded_measure names what was accepted '
+        'as proof, not what the policy was announced as. Bind it to the claim about accepted '
+        'proof. stated_policy_goal needs separate evidence of the policy purpose; never infer '
+        'intent. Both citation lists are required.\n'
+        'Keep every primary event about this policy and subject. A parallel_case event contains '
+        'one comparison only, with its own id and citations; do not merge countries. If you add '
+        f'comparisons, supply at least {causal_story.MIN_PARALLEL_CASES} distinct cases and fill '
+        'parallel_cases with domain, problem, solution, and result for each. Otherwise leave it [].\n'
+        'Preserve uncertainty and timescales. Use stable beat IDs for causal links. The opening '
+        'and final callback refer to the same concrete object.\n'
+        + cast_rules + '\nReturn ONLY JSON matching this shape:\n' + json.dumps(schema))
+
+
+def canonical_beats(beats: list[dict]) -> list[dict]:
+    """Stable identities and parent references, independent of subsequent display order."""
+    out = deepcopy(beats)
+    for i, beat in enumerate(out):
+        beat["beat_id"] = sfm._text(beat.get("beat_id")) or f"beat_{i + 1:02d}"
+    by_number = {int(b.get("n") or i + 1): b["beat_id"] for i, b in enumerate(out)}
+    for beat in out:
+        parent = beat.get("caused_by")
+        if isinstance(parent, int) or (isinstance(parent, str) and parent.isdigit()):
+            beat["caused_by"] = by_number.get(int(parent), "")
+    return out
+
+
+def refresh_story_positions(scenes):
+    """Presentation positions follow the finished words, never absent planner percentages."""
+    lengths = [len(str(s.get("narration") or "").split()) for s in scenes]
+    total, elapsed = sum(lengths) or 1, 0
+    for scene, length in zip(scenes, lengths):
+        scene["story_pct"] = round(100 * elapsed / total, 2)
+        elapsed += length
 
 def function_of(beat: dict) -> str:
     return (sfm._text((beat or {}).get("event_function"))).strip().lower()
@@ -38,7 +111,7 @@ def incentive_of(beat: dict) -> dict:
     block = (beat or {}).get("incentive")
     block = block if isinstance(block, dict) else {}
     return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
-            "actual_goal": _phrase(block.get("actual_goal")),
+            "actual_goal": _phrase(block.get("stated_policy_goal") or block.get("actual_goal")),
             "measure_claim_refs": [sfm._text(r) for r in (block.get("measure_claim_refs") or [])
                                    if sfm._text(r)],
             "goal_claim_refs": [sfm._text(r) for r in (block.get("goal_claim_refs") or [])
@@ -163,7 +236,15 @@ def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
         return {"ok": False, "code": "NO_PROXY_GAP",
                 "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
                            "mechanism for the story to turn on"}
+    assertions = {
+        "measure": {"text": f"The reward was paid for {incentive['rewarded_measure']}.",
+                    "claim_refs": incentive["measure_claim_refs"]},
+        "goal": {"text": f"The goal was {incentive['actual_goal']}.",
+                 "claim_refs": incentive["goal_claim_refs"]},
+    }
     return {"ok": True, "role": "mechanism", "suspect": suspect,
+            "derivation": {"version": COMPILER_VERSION, "kind": "proxy_gap",
+                           "source_ids": [beat_id], "assertions": assertions},
             # Two positive propositions, not one negation. "Paid for tails, NOT for dead rats"
             # asks the evidence boundary to certify something no source states -- the archives
             # record what the bounty paid for, not what it declined to pay for -- and the derived
@@ -194,16 +275,22 @@ def derive_reversal(setup: dict, compounds: dict) -> dict:
     # which share nothing and rejected a correct reversal.
     before = _state(setup, "to") or _state(setup, "from")
     after = _state(compounds, "to")
-    ok, why = ef.inverts_setup_property(before, after, sfm._stems)
-    if not ok:
+    # This constructs a candidate. Only a relationship judgment over supported events can
+    # establish an inversion; token overlap cannot prove it (or disprove a paraphrase).
+    if not before or not after or before.casefold() == after.casefold():
         return {"ok": False, "code": "NO_INVERSION",
-                "message": f"the end state {after[:70]!r} does not invert a property of the setup: "
-                           f"{why}"}
+                "message": "the reversal needs distinct, nonempty proposed states"}
+    if ef._MERE_FAILURE.search(after):
+        return {"ok": False, "code": "NO_INVERSION",
+                "message": "the proposed state only reports that the programme failed"}
+    sources = [sfm._text(setup.get("beat_id")), sfm._text(compounds.get("beat_id"))]
     return {"ok": True, "role": "reversal",
+            "derivation": {"version": COMPILER_VERSION, "kind": "behavior_inversion",
+                           "source_ids": sources},
             "event": {"text": sfm.event_of(compounds)["text"],
                       "claim_refs": sfm.event_of(compounds)["claim_refs"]},
             "changes_state": {"from": before, "to": after},
-            "derived_from": [sfm._text(setup.get("beat_id")), sfm._text(compounds.get("beat_id"))]}
+            "derived_from": sources}
 
 
 def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None) -> dict:
@@ -212,6 +299,13 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
     if mapping is None:
         return {"compiled": False, "reason": f"{engine_id or 'engine'} still assigns roles itself",
                 "beats": list(beats or []), "issues": []}
+
+    # Recompilation always starts from factual nodes. Remove prior synthetic output; retain the
+    # compound event that was re-roled as the reversal, but discard its old computed annotation.
+    beats = canonical_beats([b for b in beats or [] if not b.get("derived")])
+    for beat in beats:
+        beat.pop("derivation", None)
+        beat.pop("derived_from", None)
 
     declared = [b for b in beats or []
                 if isinstance(b, dict) and function_of(b)]
@@ -239,6 +333,9 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
             function = ""
         # Always set, never left to inherit. The two role vocabularies share three words.
         beat["role"] = mapping.role_for(function) or "context"
+        beat["causal_role"] = beat["role"]
+        beat["_story_engine"] = engine_id
+        beat["_story_compiler_version"] = COMPILER_VERSION
         beat["event_function"] = function
         by_function.setdefault(function, []).append(beat)
         out.append(beat)
@@ -262,6 +359,8 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
     if len(interventions) == 1:
         mechanism = derive_mechanism(interventions[0], claims)
         if mechanism["ok"]:
+            mechanism["derivation"]["witness_ids"] = [
+                b["beat_id"] for b in by_function.get(ef.EXPLOIT_BEHAVIOR, [])]
             derived.append(mechanism)
             if mechanism.get("suspect"):
                 suspicions.append(mechanism["suspect"])
@@ -271,6 +370,8 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
     compounds = by_function.get(ef.COMPOUNDS_EXPLOIT) or []
     if setups and compounds:
         reversal = derive_reversal(setups[0], compounds[-1])
+        if reversal["ok"] and len(interventions) == 1:
+            reversal["derivation"]["goal_source_id"] = interventions[0]["beat_id"]
         (derived.append(reversal) if reversal["ok"]
          else issues.append(sfm._issue(reversal["code"], reversal["message"])))
 
@@ -314,18 +415,23 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
 
     def _made(entry, number):
         source = entry["derived_from"][0] if entry["derived_from"] else ""
-        return {"beat_id": f"{entry['role']}_derived", "n": number, "role": entry["role"],
+        return {"beat_id": f"{source}:mechanism", "n": number, "role": entry["role"],
+                "causal_role": entry["role"], "derivation": deepcopy(entry["derivation"]),
+                "_story_compiler_version": COMPILER_VERSION,
+                "_story_engine": result.get("engine", ""),
                 "event_function": "", "derived": True, "derived_from": entry["derived_from"],
                 "beat": entry["event"]["text"], "event": entry["event"],
                 "changes_state": entry["changes_state"], "scope": sfm.PRIMARY_STORY,
                 "claim_refs": [{"claim_id": ref} for ref in entry["event"]["claim_refs"]],
-                "caused_by": source, "chapter": 0}
+                "caused_by": source, "chapter": 1}
 
     out: list[dict] = []
     for beat in beats:
-        out.append(beat)
-        if "mechanism" in derived and function_of(beat) == ef.CHANGES_INCENTIVE:
-            out.append(_made(derived.pop("mechanism"), 0))
+        out.append(deepcopy(beat))
+        if "mechanism" in derived and function_of(beat) == ef.APPARENT_SUCCESS:
+            node = _made(derived.pop("mechanism"), 0)
+            node["chapter"] = beat.get("chapter") or 1
+            out.append(node)
     if "reversal" in derived:
         # The compounded exploit IS the inversion; it is re-roled, not copied. Inserting a second
         # beat carrying the same event put one fact in two required roles, and the duplicate
@@ -334,8 +440,70 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
         for beat in out:
             if sfm._text(beat.get("beat_id")) == (entry["derived_from"] or [""])[-1]:
                 beat["role"], beat["changes_state"] = "reversal", entry["changes_state"]
+                beat["causal_role"] = "reversal"
+                beat["derivation"] = deepcopy(entry["derivation"])
                 beat["derived_from"] = entry["derived_from"]
     for index, beat in enumerate(out):
         beat["n"] = index + 1
         beat.setdefault("beat_id", f"beat_{index + 1:02d}")
     return out
+
+
+def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
+    """Add narration devices after factual acceptance, without relabeling factual nodes."""
+    if ef.map_for(engine_id):
+        import story_engines
+        order = story_engines.expected_order(engine_id)
+        # Context supports planning but is not an additional step in the narrative contract.
+        # Sort before prose exists; identities and factual events remain unchanged.
+        out = deepcopy([b for b in beats if b.get("role") in order])
+        out.sort(key=lambda b: order.index(b["role"]))
+        mechanism = next(b for b in out if b["role"] == "mechanism")
+        reversal = next(b for b in out if b["role"] == "reversal")
+        for role, anchor, text in (
+            ("hinge", mechanism, "Break the apparent success in one short sentence, using only "
+                                 "the supported mechanism and exploit. No new historical detail."),
+            ("tool", reversal, "Close with one useful question the viewer can reuse; no new facts."),
+        ):
+            if any(b.get("causal_role") == role for b in out):
+                continue
+            refs = [mechanism["beat_id"]] + (mechanism["derivation"].get("witness_ids") or [])
+            if role == "tool":
+                refs.append(reversal["beat_id"])
+            device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
+                      "causal_role": role, "presentation_device": role, "context_refs": refs,
+                      "event": {"text": "", "claim_refs": []}, "beat": text,
+                      "caused_by": anchor.get("caused_by") if role == "hinge" else anchor["beat_id"],
+                      "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
+                      "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
+            out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
+        for i, beat in enumerate(out):
+            beat["n"] = i + 1
+            beat["chapter"] = min(4, i * 4 // len(out) + 1)
+            derivation = beat.get("derivation") or {}
+            if derivation:
+                refs = derivation.get("source_ids", []) + derivation.get("witness_ids", [])
+                if derivation.get("kind") == "behavior_inversion":
+                    refs = refs + [mechanism["beat_id"]]
+                beat["context_refs"] = list(dict.fromkeys(r for r in refs if r != beat["beat_id"]))
+            refs = sfm.event_of(beat)["claim_refs"]
+            if beat.get("context_refs"):
+                refs = sorted(set(refs) | {ref for parent in out
+                               if parent["beat_id"] in beat["context_refs"]
+                               for ref in sfm.event_of(parent)["claim_refs"]})
+            beat["claim_refs"] = [{"claim_id": ref} for ref in refs]
+            beat["evidence_id"] = f"e{i + 1:02d}" if refs else ""
+        # These are engine-owned narrative dependencies. Semantic support for the policy,
+        # exploit and inversion was checked on the factual sheet before this adapter is called.
+        previous = {}
+        parent_roles = {"intervention": "setup", "false_resolution": "intervention",
+                        "hinge": "false_resolution", "mechanism": "intervention",
+                        "escalation": "mechanism", "reversal": "escalation",
+                        "generalization": "reversal", "tool": "reversal"}
+        for beat in out:
+            role = beat["causal_role"]
+            beat["caused_by"] = (previous.get(role) if role in ("escalation", "generalization")
+                                  else None) or previous.get(parent_roles.get(role), "")
+            previous[role] = beat["beat_id"]
+        return out
+    return deepcopy(beats)
