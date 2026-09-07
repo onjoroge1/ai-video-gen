@@ -52,7 +52,8 @@ def test_the_mechanism_is_the_gap_between_what_paid_and_what_was_wanted():
     assert derived["ok"]
     # Two positive propositions. The negation form ("paid for tails, NOT for dead rats") asks the
     # evidence boundary to certify what no source states, and failed Boundary A when it did.
-    assert derived["event"]["text"] == ("The reward was paid for rat tails handed in. "
+    # "handed in" is trimmed: no claim says who received the tail, and what pays is the object.
+    assert derived["event"]["text"] == ("The reward was paid for rat tails. "
                                         "The goal was fewer living rats in the city.")
     assert " not for " not in derived["event"]["text"]
     assert derived["event"]["claim_refs"] == ["c05", "c07"], \
@@ -75,8 +76,8 @@ def test_an_unevidenced_rewarded_measure_does_not_compile():
 
 
 def test_rewarding_exactly_what_you_want_is_no_mechanism():
-    beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats delivered",
-                                     "actual_goal": "rats delivered dead",
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats",
+                                     "actual_goal": "rats, dead",
                                      "measure_claim_refs": ["c07"], "goal_claim_refs": ["c05"]})
     assert sc.derive_mechanism(beat)["code"] == "NO_PROXY_GAP"
 
@@ -295,3 +296,30 @@ def test_the_ranking_skips_claims_about_the_scholarship_and_other_cases():
     assert "c02" not in ranked, "a claim about the study is not evidence of the episode"
     assert "c17" not in ranked, "a comparable case can never source the primary story"
     assert ranked and ranked[0] == "c05", "the claim recording the plague fear ranks first"
+
+
+def test_the_rewarded_measure_drops_the_hand_over_clause():
+    """Three consecutive samples decorated the measure and failed the boundary on the decoration.
+
+    The schema asks for the bare object -- "No rate, no date, no place -- just the object" -- and
+    got "a severed rat tail handed to the authorities", "...presented to the bounty clerk", "one
+    cent per rat tail handed in". No claim names who received it, so the derived mechanism failed
+    on the clause rather than on anything the story needed. What pays is the object.
+    """
+    for decorated in ("a severed rat tail handed to the authorities",
+                      "a severed rat tail presented to the bounty clerk",
+                      "A rat tail brought to the clerk."):
+        assert sc.normalise_measure(decorated).endswith("rat tail")
+    assert sc.normalise_measure("a severed rat tail") == "a severed rat tail", "already bare"
+    assert sc.normalise_measure("") == "", "nothing to trim"
+    # It must never trim a measure down to nothing.
+    assert sc.normalise_measure("handed to the clerk") == "handed to the clerk"
+
+
+def test_the_measure_reaches_the_derived_sentence_already_trimmed():
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail handed to the clerk",
+                                     "measure_claim_refs": ["c09"],
+                                     "actual_goal": "fewer rats in the city",
+                                     "goal_claim_refs": ["c05"]})
+    text = sc.derive_mechanism(beat, HANOI_CLAIMS)["event"]["text"]
+    assert text.startswith("The reward was paid for a severed rat tail.")

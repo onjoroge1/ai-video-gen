@@ -12,6 +12,7 @@ reversal is a comparison between the world before and the world the exploit prod
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 import json
 import event_functions as ef
 import story_fact_model as sfm
@@ -107,10 +108,27 @@ def _phrase(value) -> str:
     return text
 
 
+# The schema asks for the bare object -- "No rate, no date, no place -- just the object" -- and
+# three consecutive samples returned "a severed rat tail handed to the authorities", "...presented
+# to the bounty clerk", "one cent per rat tail handed in". Each addition is a detail no claim
+# carries, so the derived mechanism failed the evidence boundary on the decoration rather than on
+# anything the story needed. Asking again has not worked; the clause is simply not part of the
+# measure, and dropping it is loss-free because what pays is the object, not who received it.
+_MEASURE_TAIL = re.compile(
+    r"\s+(?:handed|presented|brought|delivered|turned|submitted|given|surrendered)\b.*$", re.I)
+
+
+def normalise_measure(value) -> str:
+    """The object a person had to produce, without the hand-over clause wrapped around it."""
+    text = _phrase(value)
+    trimmed = _MEASURE_TAIL.sub("", text).strip().rstrip(",;")
+    return trimmed or text
+
+
 def incentive_of(beat: dict) -> dict:
     block = (beat or {}).get("incentive")
     block = block if isinstance(block, dict) else {}
-    return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
+    return {"rewarded_measure": normalise_measure(block.get("rewarded_measure")),
             "actual_goal": _phrase(block.get("stated_policy_goal") or block.get("actual_goal")),
             "measure_claim_refs": [sfm._text(r) for r in (block.get("measure_claim_refs") or [])
                                    if sfm._text(r)],
