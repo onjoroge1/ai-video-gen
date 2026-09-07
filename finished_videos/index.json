@@ -1746,5 +1746,25 @@
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.srt",
     "txt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-harpy.txt"
+  },
+  "hanoi-rat-bounty-e2e": {
+    "title": "Why Paying to Kill Rats Made Hanoi's Rats Multiply",
+    "status": "done",
+    "format": "landscape",
+    "duration_sec": 79.9,
+    "actual_cost": 2.01,
+    "question": "Why did paying people to kill rats make Hanoi's rat problem harder to solve?",
+    "visual_style": "illustrated_story",
+    "story_engine": "backfiring_solution",
+    "degraded_reasons": [
+      "DIAGNOSTIC_RENDER=1 - pushed past the pre-spend quality gates",
+      "CLAIM_LEDGER_HARD=0 - the fidelity boundary failed and was downgraded to a log",
+      "narration exceeds its event on 2 scenes: the hook (since fixed by giving the hook its own factual ceiling) and 'Rows of pens', which the evidence does not support",
+      "script graded 67/100 against a 70 floor; retention readiness 69/100",
+      "spoken chapter markers present ('Step one'...'Step four'), since removed at the writers"
+    ],
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/video-flow-validation-68249a/finished_videos/hanoi-rat-bounty-e2e.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/.claude/worktrees/video-flow-validation-68249a/finished_videos/hanoi-rat-bounty-e2e.srt",
+    "txt_path": "/Users/obadiah/Documents/video/.claude/worktrees/video-flow-validation-68249a/finished_videos/hanoi-rat-bounty-e2e.txt"
   }
 }

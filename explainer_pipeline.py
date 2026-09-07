@@ -2363,12 +2363,28 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
     cost = 0.0
     if not isinstance(claims, dict) or not claims:
         return beats, cost
+
     for suspect in (suspicions or [])[:1]:
         beat = by_id.get(suspect.get("beat_id"))
         if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
             continue
+        # SHORTLIST, NOT THE WHOLE LEDGER. Handed all nineteen claims and told in the prompt that
+        # a counting claim is the wrong kind, a model picked the counting claim three times
+        # running. Ranking by the stems that make the rewarded measure specific puts the claim
+        # describing what was ACCEPTED at the top, so the choice is made among a handful of
+        # plausible claims instead of the whole dossier.
+        #
+        # It narrows the field; it does not make the choice. The currently cited claims are always
+        # included so the model can keep them, everything offered is real, and whatever comes back
+        # goes to the evidence boundary exactly as before.
+        measure = _s((beat.get("incentive") or {}).get("rewarded_measure"))
+        shortlist = list(dict.fromkeys(
+            [_s(ref) for ref in ((beat.get("incentive") or {}).get("measure_claim_refs") or [])]
+            + [_s(ref) for ref in ((beat.get("incentive") or {}).get("goal_claim_refs") or [])]
+            + _compiler.rank_claims_for(claims, measure)[:6]))
+        offered = [ref for ref in shortlist if ref in claims] or list(claims)
         ledger = "\n".join(
-            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
+            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in offered)
         incentive = beat["incentive"]
         suspicion_reason = suspect.get("why") or (
             "Those citations do not appear to support what they are cited for.")

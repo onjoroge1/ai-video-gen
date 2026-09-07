@@ -206,13 +206,22 @@ def test_the_prompt_asks_for_what_the_clerk_accepted_not_what_was_announced():
     assert "severed rat tail" in block and "never" in block
 
 
+# Sized like a real dossier on purpose. The relevance ranking discounts stems that appear in more
+# than half the ledger, which needs a ledger big enough for "half" to mean something: across four
+# claims it means two, and "tail" -- the one word separating the claim about what was ACCEPTED
+# from the one counting how many ARRIVED -- reads as ubiquitous and gets discarded.
 HANOI_CLAIMS = {
+    "c03": {"claim": "In the 1890s the French installed modern sewers throughout Hanoi."},
+    "c04": {"claim": "Invasive brown rats colonised the new sewer network."},
+    "c05": {"claim": "French medical experts feared the plague reaching Hanoi and wanted the rat "
+                     "population reduced."},
+    "c06": {"claim": "Researchers had linked plague transmission to fleas carried by rodents."},
+    "c07": {"claim": "The administration first hired Vietnamese crews to hunt in the sewers."},
     "c08": {"claim": "In April 1902 the colonial authorities announced a bounty on every dead rat."},
     "c09": {"claim": "The bounty was extended to anyone in the city who brought a rat tail to the "
                      "authorities after civil servants declined to handle thousands of corpses."},
     "c10": {"claim": "The number of tails handed in climbed into the thousands within days."},
-    "c05": {"claim": "French medical experts feared the plague reaching Hanoi and wanted the rat "
-                     "population reduced."},
+    "c14": {"claim": "Entrepreneurs on the outskirts bred rats to profit from the bounty."},
 }
 
 
@@ -262,4 +271,7 @@ def test_the_citation_check_is_a_pre_filter_not_a_verdict():
     # tails proves a tail was ACCEPTED as proof is a question only the judge answers.
     assert sc._citations_mention(HANOI_CLAIMS, ["c10"], "a severed rat tail")
     # "rat" is in every claim in a dossier about rats, so it distinguishes nothing.
-    assert sc._distinctive("a severed rat tail", HANOI_CLAIMS) == {"sever", "tail"}
+    assert sc._distinctive("a severed rat tail", HANOI_CLAIMS) == {"sever", "tail"}, \
+        "\"rat\" is in most of the ledger and distinguishes nothing"
+    # And the ranking that follows from it puts the claim about what was ACCEPTED first.
+    assert sc.propose_measure_claims(HANOI_CLAIMS, "a severed rat tail")[0] == "c09"

@@ -1226,3 +1226,69 @@ def test_a_beat_id_addressed_failure_resolves_to_its_scene():
     assert report["errors"][0]["scene"] == 2
     ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}
     assert ep.repair_claim_join_failures(script, {"claims": []}, ghost) == (script, 0.0)
+
+
+def test_the_repair_chooses_from_a_ranked_shortlist_not_the_whole_ledger(monkeypatch):
+    """Handed the full ledger, a model picked the tail-COUNT claim three times running.
+
+    Ranking by the stems that make the rewarded measure specific puts the claim describing what
+    was ACCEPTED at the top, so the choice is made among a handful of plausible claims. It narrows
+    the field; it does not make the choice, and whatever comes back still faces the judge.
+    """
+    claims = {
+        "c03": {"claim": "The French installed modern sewers throughout Hanoi."},
+        "c04": {"claim": "Invasive brown rats colonised the new sewer network."},
+        "c05": {"claim": "Officials wanted the rat population reduced to hold off plague."},
+        "c06": {"claim": "Researchers had linked plague to fleas carried by rodents."},
+        "c08": {"claim": "In April 1902 the authorities announced a bounty on every dead rat."},
+        "c09": {"claim": "The bounty was extended to anyone in the city who brought a rat tail "
+                         "to the authorities after civil servants declined to handle corpses."},
+        "c10": {"claim": "The number of tails handed in climbed into the thousands within days."},
+        "c14": {"claim": "Entrepreneurs on the outskirts bred rats to profit from the bounty."},
+    }
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "a severed rat tail",
+                            "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer rats", "goal_claim_refs": ["c05"]}}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 400, "output_tokens": 30})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, cost = ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "a severed rat tail", "cited": ["c08"]}],
+        claims, "Why?")
+
+    assert "c09" in seen["prompt"], "the claim that fits must be on the shortlist"
+    assert "c08" in seen["prompt"] and "c05" in seen["prompt"], \
+        "what the planner already cited is always offered, so it can be kept"
+    assert "c03" not in seen["prompt"], "the whole dossier is not dumped in"
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c09"]
+    assert cost > 0
+
+
+def test_an_unrankable_measure_still_offers_the_model_the_whole_ledger(monkeypatch):
+    """Ranking that separates nothing must widen the field, never hand over an empty one."""
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "", "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer rats", "goal_claim_refs": []}}]
+    called = []
+
+    class _Messages:
+        def create(self, **call):
+            called.append(call)
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 100, "output_tokens": 20})(),
+                "content": [type("C", (), {"text": '{"goal_claim_refs":["c08"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "", "cited": ["c08"]}], claims, "Why?")
+    assert called, "an empty measure gives the ranking nothing to work with; the model still runs"
+    assert "c08" in called[0]["messages"][0]["content"]

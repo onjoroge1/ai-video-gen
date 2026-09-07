@@ -162,22 +162,62 @@ def _distinctive(phrase: str, claims: dict) -> set:
     the same fix: a token that appears everywhere distinguishes nothing.
     """
     stems = sfm._stems(phrase)
-    if not stems or not claims:
+    # "Appears in more than half" needs a ledger big enough for half to mean anything. Across
+    # three claims it means two, which discarded "tail" from "a severed rat tail" -- the one word
+    # that separates the claim about what was accepted from the one counting how many arrived.
+    if not stems or len(claims or {}) < _UBIQUITY_FLOOR:
         return stems
     everywhere = {stem for stem in stems
                   if sum(1 for ref in claims if stem in sfm._stems(_claim_text(claims, ref)))
                   > len(claims) / 2}
-    return stems - everywhere
+    # Never everything. A phrase built entirely from the dossier's common vocabulary still has to
+    # rank against something, and an empty set silently turns the check into "no opinion".
+    return (stems - everywhere) or stems
+
+
+_UBIQUITY_FLOOR = 6
+
+
+def rank_claims_for(claims: dict, phrase: str) -> list:
+    """Claims ordered by how much of what makes this phrase SPECIFIC they contain.
+
+    Distinctive stems, not raw overlap: in a dossier about rats, "rat" appears nearly everywhere
+    and ranking on it puts the announcement level with the claim that actually describes what was
+    accepted. Scoring "a severed rat tail" on {sever, tail} separates them.
+
+    Ordering only. Whether the top claim SUPPORTS the sentence is Boundary A's question and this
+    cannot answer it -- "caudal appendage" would support "tail" and score zero here.
+    """
+    wanted = _distinctive(phrase, claims)
+    if not wanted:
+        return []
+    scored = []
+    for ref in claims or {}:
+        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
+        if overlap:
+            scored.append((overlap, ref))
+    return [ref for _, ref in sorted(scored, key=lambda row: (-row[0], row[1]))]
+
+
+def propose_measure_claims(claims: dict, phrase: str, limit: int = 2) -> list:
+    """The citations a mechanism's `rewarded_measure` should probably carry.
+
+    A PROPOSAL, made because asking a model to choose has now failed three times against a prompt
+    that names the exact trap it keeps falling into. Measured on Hanoi: it cited the announcement
+    ("a bounty on every dead rat") and then the tail COUNTS, while the claim saying a tail was
+    accepted -- "the bounty was extended to anyone in the city who brought a rat tail" -- sat
+    unused in the same ledger every time.
+
+    Nothing here certifies anything. The proposal is written into the beat and the evidence
+    boundary judges it exactly as it would judge a citation a model picked; a wrong proposal fails
+    there and the run fails with it.
+    """
+    return rank_claims_for(claims, phrase)[:max(1, limit)]
 
 
 def _claims_that_mention(claims: dict, phrase: str, limit: int = 3) -> list:
-    wanted = sfm._stems(phrase)
-    scored = []
-    for ref, claim in (claims or {}).items():
-        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
-        if overlap:
-            scored.append((overlap, ref, sfm._text(claim.get("claim"))[:90]))
-    return [f"{ref}: {text}" for _, ref, text in sorted(scored, reverse=True)[:limit]]
+    return [f"{ref}: {sfm._text((claims.get(ref) or {}).get('claim'))[:90]}"
+            for ref in rank_claims_for(claims, phrase)[:limit]]
 
 
 def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
