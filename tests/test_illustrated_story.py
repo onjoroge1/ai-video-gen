@@ -401,6 +401,7 @@ def test_the_repair_is_written_back_to_the_scene():
     assert 'scene["causal_role"] = step["role"]' in source
 
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_a_chapter_that_does_not_announce_itself_gets_the_marker():
     scenes = [{"narration": "It begins here."}, {"narration": "And continues."},
               {"narration": "A new chapter opens."}]
@@ -427,6 +428,7 @@ def test_an_already_announced_chapter_is_left_alone():
     assert scenes[0]["narration"] == "Step one. It begins."
 
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_the_marker_reaches_the_scene_the_narrator_actually_reads():
     """Announcing into a copy the validator sees would clear the gate without changing the video.
     Because the announcer now runs before the step list is built, the marker reaches the script's

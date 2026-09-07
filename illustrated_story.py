@@ -137,6 +137,10 @@ def announce_chapters(scenes: list) -> list[str]:
     narration survives as a substring of the new one.
     """
     added = []
+    if not cs.speaks_chapter_markers():
+        # Off by default. See causal_story.speaks_chapter_markers for why the device that the
+        # corpus references use is not the device this lane wants.
+        return added
     seen = set()
     for scene in scenes:
         try:

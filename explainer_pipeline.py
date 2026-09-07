@@ -2669,10 +2669,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "D. The hinge beat, when present, is at most "
             f"{_cs.MAX_HINGE_WORDS} words. It states the anomaly for accidental_invention; "
             "otherwise it breaks the apparent success in the engine's order.\n"
-            f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} spoken chapters, "
-            "numbered from 1 with no gaps, and say the number out loud in the narration of the "
-            "beat that opens each one.\n"
-            + "   " + 'Use the FEWEST chapters the story needs, and prefer {lo} unless the material genuinely demands more. A spoken number is a hard stop in the narration -- the viewer hears the story pause and restart -- so a chapter earns its marker only when the story has actually turned. The 64-second reference tells this shape in {lo}: its first chapter carries setup, intervention, false resolution and hinge together, and only then says the next number. A generated draft of the same story used six, which is six full stops in ninety seconds.\\n'.format(lo=_cs.MIN_CHAPTERS))
+            + (f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} chapters, "
+               "numbered from 1 with no gaps. "
+               + ("Say the number out loud in the narration of the beat that opens each one. "
+                  "A spoken number is a hard stop -- the viewer hears the story pause and "
+                  "restart -- so a chapter earns its marker only when the story has turned."
+                  if _cs.speaks_chapter_markers() else
+                  # Asking for a marker and then stripping it teaches a model to write
+                  # structure it will never be credited for. The chapter is still real: it
+                  # sets word budgets and groups the storyboard. It is simply not announced.
+                  "These chapters are STRUCTURAL ONLY -- they set word budgets and group the "
+                  "storyboard. DO NOT announce them in the narration. Never write \"Step "
+                  "one\", \"Part two\", \"First,\" \"Next up\" or any other spoken "
+                  "signpost. The story carries the viewer by what happens next, not by "
+                  "counting.")
+               + f" Use the FEWEST chapters the story needs, and prefer {_cs.MIN_CHAPTERS} "
+                 "unless the material genuinely demands more. The 64-second reference tells "
+                 "this shape in {_cs.MIN_CHAPTERS}: its first chapter carries setup, "
+                 "intervention, false resolution and hinge together.\n"))
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
     beat_prompt = (
