@@ -1144,7 +1144,8 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
                     story_format: str = "standard_explainer",
                     research_dossier: dict | None = None,
                     causal_lane: bool = False,
-                    pinned_engine: str = "") -> dict:
+                    pinned_engine: str = "",
+                    cost_sink: list | None = None) -> dict:
     n_scenes = scene_count_for(duration_sec, video_format)
     # ROUTING (2026-07-07): ALL long-form (landscape) goes through the BEAT-SHEET (plan→expand→dedup),
     # regardless of scene count — verified materially higher quality than the single-call path even at
@@ -1166,7 +1167,7 @@ def generate_script(question: str, duration_sec: int = 90, style: str = "engagin
         sc = _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes,
                                       series, improve_note, operator_direction, story_format,
                                       research_dossier, causal_lane,
-                                      pinned_engine=pinned_engine)
+                                      pinned_engine=pinned_engine, cost_sink=cost_sink)
         # A sourced long-form draft must not be rewritten by a claim-unaware hook patch. The
         # fail-closed story validator rejects a missing subject and the replan keeps bindings intact.
         if not research_dossier:
@@ -2327,13 +2328,91 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     return budgets
 
 
+def _charge(sink, stage: str, amount: float, detail: str = "") -> float:
+    """Record spend the moment a provider answers, and return it unchanged.
+
+    Deliberately a no-op unless the sink is a CostLedger. The sinks in this pipeline are plain
+    lists, and several callers compute their total as `sum(cost_sink) + script["_script_cost_usd"]`
+    -- a function that appended to its sink AND returned its own total would be counted twice.
+    Opting in per sink keeps the existing arithmetic exact while giving an attempt that never
+    returns a script somewhere to leave its spend.
+    """
+    if isinstance(sink, _ledger.CostLedger):
+        sink.charge(stage, amount, detail)
+    return amount
+
+
+def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
+                                question: str) -> tuple[list, float]:
+    """Re-ask ONLY for the citations a relevance check flagged, and only once.
+
+    Not a replan. A full re-plan would re-roll every beat to fix one field, and the sheet around
+    the flagged beat has already been paid for and has already passed. This sends the beat, its
+    current incentive block, the concern and the candidate claims, and takes back a corrected
+    citation list -- nothing else about the beat may move.
+
+    Best-effort by construction: the flagged mechanism compiles either way, so a failed or
+    unparseable repair leaves the original citations to face the evidence boundary on their own
+    merits. That matters because the check that raised the concern cannot rule on entailment --
+    a claim saying "caudal appendage" would support "tail" while sharing no vocabulary with it.
+    """
+    by_id = {_s(beat.get("beat_id")): beat for beat in beats or []}
+    cost = 0.0
+    if not isinstance(claims, dict) or not claims:
+        return beats, cost
+    for suspect in suspicions or []:
+        beat = by_id.get(suspect.get("beat_id"))
+        if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
+            continue
+        ledger = "\n".join(
+            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
+        incentive = beat["incentive"]
+        prompt = (
+            f'A beat sheet for "{question}" states the rule at the centre of the story as two '
+            "propositions, each of which must be supported by the claims cited for it:\n\n"
+            f'  the reward was paid for: {_s(incentive.get("rewarded_measure"))}\n'
+            f'    cited: {", ".join(incentive.get("measure_claim_refs") or []) or "(none)"}\n'
+            f'  the goal was: {_s(incentive.get("actual_goal"))}\n'
+            f'    cited: {", ".join(incentive.get("goal_claim_refs") or []) or "(none)"}\n\n'
+            f'{suspect.get("why") or "Those citations do not appear to support what they are "
+                                     "cited for."}\n\n'
+            f"THE FULL CLAIM LEDGER:\n{ledger}\n\n"
+            "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids stating what a person had "
+            "to hand over to be paid>\"],\"goal_claim_refs\":[\"<claim ids stating what the "
+            "policy was trying to achieve>\"]}. Repeat the current ids where they are already "
+            "right. For the measure, cite only claims saying what was ACCEPTED AS PROOF: a claim "
+            "ANNOUNCING the reward, or one COUNTING how many were handed in, is a different fact "
+            "and supports neither proposition. Change nothing else.")
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_SYSTEM,
+                messages=[{"role": "user", "content": prompt}])
+            cost += _msg_cost(response.usage)
+            reply, parse_cost = _parse_script_json(response.content[0].text)
+            cost += parse_cost
+            updates = {}
+            for field in ("measure_claim_refs", "goal_claim_refs"):
+                refs = [_s(ref) for ref in (reply.get(field) or []) if _s(ref)]
+                if refs and set(refs) <= set(claims):
+                    updates[field] = refs
+            if updates:
+                beat["incentive"] = dict(beat["incentive"], **updates)
+                print(f"[roles] {suspect['beat_id']} citations repaired: "
+                      + "; ".join(f"{k} -> {', '.join(v)}" for k, v in updates.items()))
+        except Exception as exc:                      # noqa: BLE001 - repair is best-effort
+            print(f"[roles] citation repair unavailable ({type(exc).__name__}); "
+                  "the original citations go to the evidence boundary unchanged")
+    return beats, cost
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
                              improve_note="", operator_direction="",
                              story_format="standard_explainer",
                              research_dossier: dict | None = None,
                              causal_lane: bool = False,
                              adherence: str = "",
-                             pinned_engine: str = "") -> dict:
+                             pinned_engine: str = "",
+                             cost_sink: list | None = None) -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -2397,7 +2476,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         selection_costs = []
         sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
                            else _select_story_engine(question, duration_sec, selection_costs))
-        cost += sum(selection_costs)
+        cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(selection_costs))
         sheet_engine = _se.get(sheet_engine_id)
         blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
         # One role per beat requires space for every required role and repeated escalation, so the
@@ -2445,8 +2524,33 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             f'at least {_cs.MIN_PARALLEL_CASES} when any beat is a generalization, each with the '
             'same four parts in the same order so the repetition itself carries the argument; '
             '[] when there is no generalization beat,')
+        # For an engine with a function map, the planner is NOT asked for a causal role. Measured
+        # across five sheets: the same factual event landed in escalation, hinge and mechanism on
+        # different runs, and every placement was defensible, so the field was asking an editorial
+        # question dressed as a factual one. It states what each fact IS; story_compiler assigns
+        # the roles and derives the two that are not events at all.
+        _fmap = _ef.map_for(sheet_engine_id)
+        function_keys = ("" if _fmap is None else
+            ',"event_function":"one of: '
+            + " | ".join(f"{name} ({_ef.WHAT_EACH_FUNCTION_IS[name]})"
+                         for name in _ef.EVENT_FUNCTIONS) + '",'
+            '"incentive":{"rewarded_measure":"<ONLY on the changes_incentive beat. A SHORT NOUN '
+            'PHRASE naming the thing a person had to physically hand over to be paid -- what the '
+            'clerk accepted as proof, not what the policy was announced as. These differ, and the '
+            'difference IS the story: Hanoi announced a bounty on dead rats and paid for severed '
+            'tails, so the answer is \'a severed rat tail\', never \'a dead rat\'. No rate, no '
+            'date, no place -- just the object>","measure_claim_refs":["<claim_id evidencing what '
+            'was accepted as proof. REQUIRED, and usually NOT the claim behind the announcement: '
+            'one source says a bounty was declared, a different one says a tail was enough. Cite '
+            'the second>"],"actual_goal":"<A SHORT NOUN PHRASE naming the '
+            'outcome the policy wanted, e.g. \'fewer rats in the city\'. Lower case, no leading '
+            'verb, no full stop -- it is dropped into a sentence>","goal_claim_refs":["<claim_id '
+            'evidencing that goal. REQUIRED: what a government wanted is an attribution of intent, '
+            'and an unsourced goal makes the whole mechanism unverifiable>"]}')
         causal_keys = (
-            ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",'
+            function_keys +
+            ('' if _fmap is not None else
+             ',"causal_role":"one of: ' + " | ".join(_cs.STEP_ROLES) + '",') +
             '"caused_by":<the beat number n this beat happens BECAUSE of; 0 for the setup only>,'
             '"chapter":<int, the spoken chapter this beat belongs to>,'
             '"scope":"primary_story|parallel_case — primary_story for every beat about THIS '
@@ -2573,8 +2677,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         f'{n_scenes}; returning somewhat fewer is fine ONLY if the topic truly lacks that many DISTINCT '
         'beats — never pad with filler or repetition.\n'
         'Return ONLY JSON: {"title","hook","thumbnail_promise","throughline","false_model",'
-        '"replacement_model","personal_stake","anomaly","human_subject":"Alex",'
-        '"human_role","recurring_location","subject_goal","antagonistic_force","accepted_belief",'
+        '"replacement_model","personal_stake","anomaly",'
+        # The schema pinned "human_subject":"Alex" while the cast block below forbade writing Alex
+        # at all, so the model had to decide which of the two instructions was real. Found by
+        # prompt_contract.lint on its first run against this prompt.
+        + ('"human_subject":"","human_role":"",' if _illustrated_is_cast_free()
+           else '"human_subject":"Alex","human_role",') +
+        '"recurring_location","subject_goal","antagonistic_force","accepted_belief",'
         '"contradictory_evidence","viewer_initial_belief","viewer_belief_after_reveal",'
         '"opening_object","final_callback_object" (MUST exactly equal opening_object),'
         '"mystery_suitable":true|false,"mystery_unsuitable_reason":"",'
@@ -2804,8 +2913,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
                                   messages=[{"role": "user", "content": beat_prompt + _series_block(series)
                                              + _operator_block(operator_direction)}])
-    plan, rc = _parse_script_json(o.content[0].text); cost += rc
-    cost += o.usage.input_tokens * _RATE_SCRIPT_IN + o.usage.output_tokens * _RATE_SCRIPT_OUT
+    plan, rc = _parse_script_json(o.content[0].text)
+    cost += _charge(cost_sink, _ledger.BEAT_SHEET,
+                    rc + o.usage.input_tokens * _RATE_SCRIPT_IN
+                    + o.usage.output_tokens * _RATE_SCRIPT_OUT, f"{n_scenes} beats")
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
@@ -2835,11 +2946,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             planned_mechanism = int(plan.get("mechanism_beat") or 0)
         except (TypeError, ValueError):
             planned_mechanism = 0
-        # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
-        beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                 planned_mechanism, pinned_engine=pinned_engine,
-                                                 preferred_engine=sheet_engine_id)
-        cost += spine_cost
+        # COMPILE THE ROLES, DO NOT BUY THEM. On an engine with a function map the beats already
+        # say what each fact IS, so the roles are derived here and the labelling call is not made
+        # at all -- one fewer paid provider call, and a deterministic answer instead of one that
+        # moved across five measured sheets.
+        _claims_for_roles = _spine_claims(research_dossier)
+        _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+        # A suspected citation mismatch is worth a correction, not an early exit. Measured: five
+        # of five sheets derived a true mechanism from claims that did not mention what it
+        # asserted, while the claim that did sat unused in the same dossier. Refusing those five
+        # earlier would have saved money and left the blocker exactly where it was. One bounded
+        # re-ask, and whatever comes back is judged by the evidence boundary like anything else --
+        # the heuristic that noticed the problem never gets to certify the answer.
+        if _roles.get("suspicions") and _claims_for_roles:
+            beats, _repair_cost = _repair_incentive_citations(
+                beats, _roles["suspicions"], _claims_for_roles, question)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _repair_cost, "citation repair")
+            _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+        if _roles["compiled"]:
+            beats = _roles["beats"]
+            for _beat in beats:
+                _beat["_story_engine"] = sheet_engine_id
+            print(_compiler.summary(_roles))
+            if not _roles["passed"] and not _diagnostic_render():
+                raise _sfm.StorySpineUnsupported(_compiler.summary(_roles), beats=beats)
+            # The derived mechanism and reversal are beats the story needs and no archive records
+            # as events. They enter the sheet here so everything downstream sees one beat list.
+            beats = _compiler.splice_derived(beats, _roles)
+        else:
+            if _roles.get("reason"):
+                print(f"[roles] {_roles['reason']}")
+            # Initial labeling may choose a better-fitting engine. A replan repairs the same one.
+            beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
+                                                     planned_mechanism, pinned_engine=pinned_engine,
+                                                     preferred_engine=sheet_engine_id)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
         # Refresh if labeling selected a different engine, so expansion follows the final choice.
         blueprint_block = _retrieve_blueprint(beats[0].get("_story_engine"), adherence,
                                               duration_sec)
@@ -2860,10 +3001,48 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _sb = _spine_beats(beats)
         _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
                                     _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
-        cost += sum(_spine_cost)
+        cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
+                        f"{len(_sb)} beats judged")
+        # SECOND CHANCE FOR THE DERIVED MECHANISM, AND ONLY FROM THE JUDGE'S OWN WORDS.
+        #
+        # The stem heuristic meant to catch a mis-citation cannot see this case, exactly as
+        # predicted: the mechanism cited a claim COUNTING tails handed in, which carries the
+        # distinguishing word "tail" and says nothing about a tail being accepted as proof. Five
+        # sheets cited it and the pre-filter passed all five. Relevance overlap is not entailment
+        # and was never going to be.
+        #
+        # So the trigger is Boundary A's verdict instead. It is the only thing qualified to say a
+        # citation does not support what it is cited for, it already reports which parts went
+        # unsupported, and that text is a correction the planner can act on. Once, then re-judged
+        # -- a repair that is not re-judged is a rewrite that agrees with itself.
+        _mech_ids = {_s(b.get("beat_id")) for b in _sb if _s(b.get("role")) == "mechanism"}
+        _mech_failed = next((row for row in _spine["cascade"]["evidence"]
+                             if row.get("beat_id") in _mech_ids), None)
+        if _mech_failed and not _spine["passed"] and _claims_for_roles:
+            _source = next((_s((b.get("derived_from") or [""])[0]) for b in _sb
+                            if _s(b.get("beat_id")) == _mech_failed["beat_id"]), "")
+            beats, _fix_cost = _repair_incentive_citations(
+                beats, [{"beat_id": _source,
+                         "why": "The evidence boundary judged this "
+                                f"{_mech_failed.get('verdict') or 'unsupported'}. "
+                                + "; ".join(_mech_failed.get("unsupported_details") or [])}],
+                _claims_for_roles, question)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _fix_cost, "mechanism re-citation")
+            if _fix_cost:
+                _retry = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+                if _retry.get("compiled") and _retry.get("passed"):
+                    beats = _compiler.splice_derived(_retry["beats"], _retry)
+                    _sb = _spine_beats(beats)
+                    _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
+                                                _lr_claims_by_case(research_dossier),
+                                                cost_sink=_spine_cost)
+                    cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
+                                    "mechanism re-judged")
         print(_sfm.spine_summary(_sb, _spine))
+        plan["_spine"] = {"compiled": _spine, "beats": _sb}
         if not _spine["passed"] and not _diagnostic_render():
-            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine))
+            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
+                                             spine=_spine, beats=_sb)
         # Expansion writes only what survived. A collapsed duplicate or a pruned comparison must not
         # reach narration, or the layer below spends a call on a beat the fact model removed.
         _keep = set(_spine["kept_beats"])
@@ -3103,7 +3282,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
-        cost += _msg_cost(c.usage)
+        cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
         if getattr(c, "stop_reason", "") == "max_tokens":
             # Retry a smaller, differently keyed request. Completed prefixes are retained and
             # the durable wrapper preserves the already charged incomplete response on resume.
@@ -3114,7 +3293,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise ValueError(
                 f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
                 "off even with one beat. No further automatic retry.")
-        part, rc = _parse_script_json(c.content[0].text); cost += rc
+        part, rc = _parse_script_json(c.content[0].text)
+        cost += _charge(cost_sink, _ledger.EXPANSION, rc, "json repair")
         if causal_lane and len(part.get("scenes") or []) != len(batch):
             raise ValueError(f"Scene expansion returned {len(part.get('scenes') or [])} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
@@ -3229,6 +3409,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
         "_script_cost_usd": round(cost, 4),
+        "_spine": plan.get("_spine") or {},
         "_story_engine": (beats[0].get("_story_engine") if beats else "") or "",
         "_planned_story_engine": sheet_engine_id,
         "_engine_reason": (beats[0].get("_engine_reason") if beats else "") or "",
@@ -3602,7 +3783,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         turn_searches = int(getattr(server_usage, "web_search_requests", 0) or 0)
         search_requests += turn_searches
         # Meter every received response before parsing, including paid incomplete responses.
-        if cost_sink is not None:
+        if isinstance(cost_sink, _ledger.CostLedger):
+            cost_sink.charge(_ledger.RESEARCH, _msg_cost(response.usage), "dossier turn")
+            cost_sink.charge(_ledger.RESEARCH, round(turn_searches * _WEB_SEARCH_COST_CEILING, 4),
+                             f"{turn_searches} web searches")
+        elif cost_sink is not None:
             cost_sink.append(_msg_cost(response.usage))
             cost_sink.append(round(turn_searches * _WEB_SEARCH_COST_CEILING, 4))
         stop_reason = getattr(response, "stop_reason", None)
@@ -7381,6 +7566,9 @@ def _stable_standard_longform(video_format: str, story_format: str,
     )
 
 
+import cost_ledger as _ledger
+import event_functions as _ef
+import story_compiler as _compiler
 import story_fact_model as _sfm
 
 
@@ -7397,6 +7585,12 @@ def _spine_beats(beats: list) -> list:
             "event": beat.get("event") or {},
             "changes_state": beat.get("changes_state") or {},
             "beat": _s(beat.get("beat")),
+            # Carried so a refusal can be measured. Without these, four of five sampled sheets
+            # reported no event functions at all -- not because the planner omitted them but
+            # because this projection dropped them on the way into the exception.
+            "event_function": _s(beat.get("event_function")),
+            "derived_from": beat.get("derived_from") or [],
+            "incentive": beat.get("incentive") or {},
         })
     return out
 
@@ -7720,7 +7914,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     best = generate_script(question, duration_sec, style, image_guidance=image_guidance,
                            causal_lane=causal_lane,
                            video_format=video_format, series=series, operator_direction=operator_direction,
-                           story_format=story_format, research_dossier=research_dossier)
+                           story_format=story_format, research_dossier=research_dossier,
+                           cost_sink=cost_sink)
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
     # Two contracts want different things from the same script, and only one of them was steering
@@ -7759,6 +7954,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             # contract before failing with a blank role on all 22 scenes. A replanned script is
             # still a script for the same lane.
             causal_lane=causal_lane,
+            cost_sink=cost_sink,
             # Same engine as the draft being repaired. Without this the replan re-picks and ends
             # up fixing a different contract from the one that failed.
             pinned_engine=_s(best.get("_story_engine")),

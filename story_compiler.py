@@ -1,0 +1,341 @@
+"""Story roles derived from factual functions, so the planner never picks one.
+
+The measured failure this replaces: across five Hanoi sheets the same factual event landed in
+`escalation`, `hinge` and `mechanism` on different runs, and each placement was defensible. The
+planner was being asked an editorial question dressed as a factual one.
+
+Here it answers only the factual question -- what is this fact -- and the roles fall out. Two of
+them are not assignments at all but computations over the facts, because neither is a thing that
+happened: the mechanism is the gap between what a policy paid for and what it wanted, and the
+reversal is a comparison between the world before and the world the exploit produced.
+"""
+from __future__ import annotations
+
+import event_functions as ef
+import story_fact_model as sfm
+
+
+def function_of(beat: dict) -> str:
+    return (sfm._text((beat or {}).get("event_function"))).strip().lower()
+
+
+def _phrase(value) -> str:
+    """A noun phrase fit to drop into a sentence.
+
+    Measured: a planner returned "Reduce Hanoi's rat population" and the derived mechanism read
+    "The goal was Reduce Hanoi's rat population." An evidence judge reading ungrammatical text has
+    been handed a second reason to reject a claim that may be perfectly true.
+    """
+    text = sfm._text(value).strip().rstrip(".").strip()
+    head = text.split(" ")[0]
+    # Acronyms keep their case ("US bounty payments"); a lone capital "A" is not an acronym.
+    if text[:1].isupper() and not (len(head) > 1 and head.isupper()):
+        text = text[:1].lower() + text[1:]
+    return text
+
+
+def incentive_of(beat: dict) -> dict:
+    block = (beat or {}).get("incentive")
+    block = block if isinstance(block, dict) else {}
+    return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
+            "actual_goal": _phrase(block.get("actual_goal")),
+            "measure_claim_refs": [sfm._text(r) for r in (block.get("measure_claim_refs") or [])
+                                   if sfm._text(r)],
+            "goal_claim_refs": [sfm._text(r) for r in (block.get("goal_claim_refs") or [])
+                                if sfm._text(r)]}
+
+
+def _state(beat: dict, side: str) -> str:
+    block = (beat or {}).get("changes_state")
+    block = block if isinstance(block, dict) else {}
+    return sfm._text(block.get(side)).strip()
+
+
+def _claim_text(claims: dict, ref: str) -> str:
+    claim = (claims or {}).get(ref) or {}
+    return " ".join(sfm._text(claim.get(field)) for field in ("claim", "support_quote"))
+
+
+def _citations_mention(claims: dict, refs: list, phrase: str) -> bool:
+    """Do the cited claims talk about this at all?
+
+    A relevance heuristic and nothing more. It cannot establish support and it cannot establish
+    its absence, in either direction:
+
+        a claim saying "caudal appendage" shares no stem with "tail" and may support it exactly
+        a claim saying "tails were counted but not accepted for payment" shares the distinguishing
+        word and contradicts the assertion outright
+
+    So its output is a SUSPICION that drives a repair, never a verdict. Only Boundary A rules on
+    entailment. It is worth asking first because the answer was no in five of five sampled sheets
+    while the claim that fit sat unused in the same dossier -- a cheap prompt for a second look,
+    not a gate.
+    """
+    wanted = _distinctive(phrase, claims)
+    if not wanted or not claims:
+        return True
+    cited = set()
+    for ref in refs or []:
+        cited |= sfm._stems(_claim_text(claims, ref))
+    return bool(wanted & cited)
+
+
+def _distinctive(phrase: str, claims: dict) -> set:
+    """The stems in this phrase that are not the whole dossier's subject.
+
+    "a severed rat tail" shares "rat" with nearly every claim in a dossier about rats, and one
+    ubiquitous token was enough to pass the announcement off as evidence for what the clerk
+    accepted. The same shape as "and" certifying a China parallel case as a Hanoi mechanism, and
+    the same fix: a token that appears everywhere distinguishes nothing.
+    """
+    stems = sfm._stems(phrase)
+    if not stems or not claims:
+        return stems
+    everywhere = {stem for stem in stems
+                  if sum(1 for ref in claims if stem in sfm._stems(_claim_text(claims, ref)))
+                  > len(claims) / 2}
+    return stems - everywhere
+
+
+def _claims_that_mention(claims: dict, phrase: str, limit: int = 3) -> list:
+    wanted = sfm._stems(phrase)
+    scored = []
+    for ref, claim in (claims or {}).items():
+        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
+        if overlap:
+            scored.append((overlap, ref, sfm._text(claim.get("claim"))[:90]))
+    return [f"{ref}: {text}" for _, ref, text in sorted(scored, reverse=True)[:limit]]
+
+
+def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
+    """The mechanism is `rewarded_measure != actual_goal`, and both halves must be sourced.
+
+    `rewarded_measure` is a fact about the policy and 4 of 5 measured sheets already stated it
+    correctly. `actual_goal` is an attribution of intent to whoever wrote the policy -- the exact
+    category the fidelity boundary flags in narration -- so putting it in a schema field does not
+    make it true. It carries its own claim_refs or the mechanism does not compile.
+    """
+    incentive = incentive_of(intervention)
+    beat_id = sfm._text((intervention or {}).get("beat_id"))
+    suspect = None
+    if not incentive["rewarded_measure"] or not incentive["actual_goal"]:
+        return {"ok": False, "code": "INTERVENTION_STATES_NO_INCENTIVE",
+                "message": f"beat {beat_id} changes the incentive but does not say what the rule "
+                           "rewarded and what it was for, so the mechanism cannot be derived "
+                           "rather than invented"}
+    if not incentive["goal_claim_refs"]:
+        return {"ok": False, "code": "GOAL_NOT_EVIDENCED",
+                "message": f"beat {beat_id} states the policy's goal as "
+                           f"{incentive['actual_goal']!r} with no claim behind it. What a "
+                           "government wanted is an attribution of intent, not a free field"}
+    if not incentive["measure_claim_refs"]:
+        # Measured: with the measure riding on the intervention's own citations, three sheets
+        # produced "The reward was paid for a severed rat tail" cited to claims about a bounty
+        # being announced on dead rats -- true, correctly derived, and not entailed by what it
+        # cited. The proof the clerk accepted is nearly always a different source from the
+        # announcement, and it is usually sitting on some other beat.
+        return {"ok": False, "code": "MEASURE_NOT_EVIDENCED",
+                "message": f"beat {beat_id} says the reward was paid for "
+                           f"{incentive['rewarded_measure']!r} with no claim behind it. The "
+                           "announcement and the proof actually accepted are different facts "
+                           "from different sources, and the gap between them is the story"}
+    # NOT a failure. A false positive here would kill a story whose citation is fine, so the
+    # suspicion travels with the compiled mechanism and Boundary A still rules on it.
+    if not _citations_mention(claims, incentive["measure_claim_refs"],
+                              incentive["rewarded_measure"]):
+        # Measured on five sheets: the mechanism cited the announcement ("a bounty on every dead
+        # rat") and the tail COUNTS, while the claim saying a tail was accepted as proof sat
+        # unused in the same dossier. The evidence boundary refused it five times out of five and
+        # was right to. This says so before the judge is paid, and names the claim that fits.
+        nearest = _claims_that_mention(claims, incentive["rewarded_measure"])
+        suspect = {
+            "code": "MEASURE_CITATION_SUSPECT", "beat_id": beat_id,
+            "field": "measure_claim_refs", "cited": list(incentive["measure_claim_refs"]),
+            "phrase": incentive["rewarded_measure"], "candidates": nearest,
+            "message": f"beat {beat_id} says the reward was paid for "
+                       f"{incentive['rewarded_measure']!r} and cites "
+                       f"{', '.join(incentive['measure_claim_refs'])}, which do not appear to "
+                       "mention it. What a policy was announced as and what was accepted as "
+                       "proof are usually different claims. This is a relevance check, not a "
+                       "ruling on support -- only the evidence boundary decides that"
+                       + (f". Candidates worth checking: {'; '.join(nearest)}" if nearest else "")}
+    if sfm._stems(incentive["rewarded_measure"]) == sfm._stems(incentive["actual_goal"]):
+        return {"ok": False, "code": "NO_PROXY_GAP",
+                "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
+                           "mechanism for the story to turn on"}
+    return {"ok": True, "role": "mechanism", "suspect": suspect,
+            # Two positive propositions, not one negation. "Paid for tails, NOT for dead rats"
+            # asks the evidence boundary to certify something no source states -- the archives
+            # record what the bounty paid for, not what it declined to pay for -- and the derived
+            # mechanism failed Boundary A on exactly that. Each half now stands on its own claims
+            # and the GAP between them is structural, which needs no judge at all.
+            "event": {"text": f"The reward was paid for {incentive['rewarded_measure']}. "
+                              f"The goal was {incentive['actual_goal']}.",
+                      # Each half brings its own evidence. The intervention's citations describe
+                      # the announcement and do not reach either proposition on their own.
+                      "claim_refs": sorted(set(incentive["measure_claim_refs"])
+                                           | set(incentive["goal_claim_refs"]))},
+            "changes_state": {"from": _state(intervention, "to"),
+                              "to": f"what pays and what was wanted have come apart"},
+            "derived_from": [beat_id]}
+
+
+def derive_reversal(setup: dict, compounds: dict) -> dict:
+    """The reversal compares the setup's world with the world the exploit industrialised into.
+
+    Not sourced from an ending event, on measured grounds: five sheets produced seven phrasings of
+    the ending and every one said the bounty produced tails without reducing rats. That is the
+    programme failing, which the story already implies. What inverted is the subject's standing --
+    an unwanted animal became a cultivated one -- and farming is the documented form of that.
+    """
+    # The setup's `to`, not its `from`: `establishes_problem` ends with the problem in place, and
+    # the problem state is what the reversal has to invert. Keyed on `from` it compared the world
+    # before anyone noticed rats ("a new sewer network") against the world after they were farmed,
+    # which share nothing and rejected a correct reversal.
+    before = _state(setup, "to") or _state(setup, "from")
+    after = _state(compounds, "to")
+    ok, why = ef.inverts_setup_property(before, after, sfm._stems)
+    if not ok:
+        return {"ok": False, "code": "NO_INVERSION",
+                "message": f"the end state {after[:70]!r} does not invert a property of the setup: "
+                           f"{why}"}
+    return {"ok": True, "role": "reversal",
+            "event": {"text": sfm.event_of(compounds)["text"],
+                      "claim_refs": sfm.event_of(compounds)["claim_refs"]},
+            "changes_state": {"from": before, "to": after},
+            "derived_from": [sfm._text(setup.get("beat_id")), sfm._text(compounds.get("beat_id"))]}
+
+
+def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None) -> dict:
+    """Assign every story role from the beats' factual functions. Nothing here asks a model."""
+    mapping = ef.map_for(engine_id)
+    if mapping is None:
+        return {"compiled": False, "reason": f"{engine_id or 'engine'} still assigns roles itself",
+                "beats": list(beats or []), "issues": []}
+
+    declared = [b for b in beats or []
+                if isinstance(b, dict) and function_of(b)]
+    if not declared:
+        # A sheet from before this contract, or one whose planner returned no functions at all.
+        # Compiling it would assign every role from nothing; the older labelling pass and the
+        # spine gate behind it still apply. Reported rather than silently taken.
+        return {"compiled": False,
+                "reason": f"{mapping.engine_id} maps functions to roles, but no beat declares an "
+                          "event_function -- falling back to the labelling pass",
+                "beats": list(beats or []), "issues": []}
+
+    issues, by_function = [], {}
+    out = []
+    for index, beat in enumerate(beats or []):
+        beat = dict(beat) if isinstance(beat, dict) else {}
+        beat.setdefault("beat_id", f"beat_{index + 1:02d}")
+        function = function_of(beat)
+        if function and function not in ef.EVENT_FUNCTIONS:
+            issues.append(sfm._issue("UNKNOWN_EVENT_FUNCTION",
+                                     f"beat {beat['beat_id']} declares event_function "
+                                     f"{function!r}, which is not one of "
+                                     f"{', '.join(ef.EVENT_FUNCTIONS)}",
+                                     beat_id=beat["beat_id"]))
+            function = ""
+        # Always set, never left to inherit. The two role vocabularies share three words.
+        beat["role"] = mapping.role_for(function) or "context"
+        beat["event_function"] = function
+        by_function.setdefault(function, []).append(beat)
+        out.append(beat)
+
+    for function in mapping.missing(by_function):
+        issues.append(sfm._issue(
+            "MISSING_EVENT_FUNCTION",
+            f"no beat is the {function}: {ef.WHAT_EACH_FUNCTION_IS[function]}"))
+
+    # One incentive change, or the story has two interventions and no single thing to exploit.
+    interventions = by_function.get(ef.CHANGES_INCENTIVE) or []
+    if len(interventions) > 1:
+        issues.append(sfm._issue(
+            "MULTIPLE_INCENTIVE_CHANGES",
+            "more than one beat claims to change the incentive: "
+            + ", ".join(b["beat_id"] for b in interventions)
+            + ". Only the rule the story goes on to exploit belongs here; an earlier attempt to "
+              "solve the problem directly is context"))
+
+    derived, suspicions = [], []
+    if len(interventions) == 1:
+        mechanism = derive_mechanism(interventions[0], claims)
+        if mechanism["ok"]:
+            derived.append(mechanism)
+            if mechanism.get("suspect"):
+                suspicions.append(mechanism["suspect"])
+        else:
+            issues.append(sfm._issue(mechanism["code"], mechanism["message"]))
+    setups = by_function.get(ef.ESTABLISHES_PROBLEM) or []
+    compounds = by_function.get(ef.COMPOUNDS_EXPLOIT) or []
+    if setups and compounds:
+        reversal = derive_reversal(setups[0], compounds[-1])
+        (derived.append(reversal) if reversal["ok"]
+         else issues.append(sfm._issue(reversal["code"], reversal["message"])))
+
+    return {"compiled": True, "engine": mapping.engine_id, "beats": out,
+            "derived": derived, "issues": issues, "suspicions": suspicions,
+            "roles": {b["beat_id"]: b.get("role", "") for b in out},
+            "passed": not issues}
+
+
+def summary(result: dict) -> str:
+    if not result.get("compiled"):
+        return f"Roles not compiled: {result.get('reason', '')}"
+    lines = [f"STORY ROLES COMPILED FROM EVENT FUNCTIONS ({result['engine']})", ""]
+    for beat in result["beats"]:
+        function = beat.get("event_function") or "-"
+        lines.append(f"  {function:<20s} -> {(beat.get('role') or '-'):<16s} "
+                     f"{sfm.event_of(beat)['text'][:60]}")
+    for entry in result["derived"]:
+        lines += ["", f"  DERIVED {entry['role']}: {entry['event']['text'][:80]}",
+                  f"      from {', '.join(entry['derived_from'])}  "
+                  f"cites {', '.join(entry['event']['claim_refs']) or '-'}"]
+    for suspect in result.get("suspicions") or []:
+        lines += ["", f"  ? [{suspect['code']}] {suspect['message']}"]
+    if result["issues"]:
+        lines += ["", "Cannot compile:"]
+        lines += [f"  ! [{i['code']}] {i['message']}" for i in result["issues"]]
+    return "\n".join(lines)
+
+
+def splice_derived(beats: list[dict], result: dict) -> list[dict]:
+    """Place the derived mechanism and reversal into the beat list, in causal order.
+
+    The mechanism follows the intervention it is computed from -- it explains the rule that was
+    just introduced, and the engine's deadline wants it early. The reversal goes last among the
+    primary-story beats, before any generalization or closing tool, because it is the end state
+    those comment on.
+    """
+    derived = {entry["role"]: entry for entry in result.get("derived") or [] if entry.get("ok")}
+    if not derived:
+        return list(beats)
+
+    def _made(entry, number):
+        source = entry["derived_from"][0] if entry["derived_from"] else ""
+        return {"beat_id": f"{entry['role']}_derived", "n": number, "role": entry["role"],
+                "event_function": "", "derived": True, "derived_from": entry["derived_from"],
+                "beat": entry["event"]["text"], "event": entry["event"],
+                "changes_state": entry["changes_state"], "scope": sfm.PRIMARY_STORY,
+                "claim_refs": [{"claim_id": ref} for ref in entry["event"]["claim_refs"]],
+                "caused_by": source, "chapter": 0}
+
+    out: list[dict] = []
+    for beat in beats:
+        out.append(beat)
+        if "mechanism" in derived and function_of(beat) == ef.CHANGES_INCENTIVE:
+            out.append(_made(derived.pop("mechanism"), 0))
+    if "reversal" in derived:
+        # The compounded exploit IS the inversion; it is re-roled, not copied. Inserting a second
+        # beat carrying the same event put one fact in two required roles, and the duplicate
+        # detector correctly reported the reversal as missing rather than repeated.
+        entry = derived.pop("reversal")
+        for beat in out:
+            if sfm._text(beat.get("beat_id")) == (entry["derived_from"] or [""])[-1]:
+                beat["role"], beat["changes_state"] = "reversal", entry["changes_state"]
+                beat["derived_from"] = entry["derived_from"]
+    for index, beat in enumerate(out):
+        beat["n"] = index + 1
+        beat.setdefault("beat_id", f"beat_{index + 1:02d}")
+    return out

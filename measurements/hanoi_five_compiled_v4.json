@@ -1,0 +1,2343 @@
+{
+ "schema_version": 1,
+ "question": "Why did paying people to kill rats make Hanoi's rat problem harder to solve?",
+ "duration_sec": 90,
+ "story_format": "standard_explainer",
+ "visual_style": "illustrated_story",
+ "video_format": "landscape",
+ "coverage": [
+  "research",
+  "fresh graded script with production replans",
+  "fact-check",
+  "narration bindings",
+  "claim joins",
+  "configured runtime policy",
+  "illustrated hook and storyboard when selected"
+ ],
+ "excluded": [
+  "HTTP approval and dispatch",
+  "durable worker recovery",
+  "evidence asset plan",
+  "TTS and measured audio timing",
+  "images",
+  "render",
+  "Blob publication"
+ ],
+ "samples_requested": 5,
+ "samples": [
+  {
+   "sample": 1,
+   "passed": false,
+   "stage": "script",
+   "checks": {
+    "research": {
+     "version": 1,
+     "passed": true,
+     "claim_count": 19,
+     "citation_count": 42,
+     "errors": []
+    }
+   },
+   "fresh_script": true,
+   "research_mode": "required",
+   "runtime_hard": false,
+   "configured_replans": 1,
+   "script_provider": "anthropic",
+   "script_model": "claude-opus-4-8",
+   "research_model": "claude-opus-4-8",
+   "claim_ledger_hard": true,
+   "illustrated_storyboard_hard": true,
+   "recorded_cost_usd": 0.28511,
+   "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+   "cost_may_be_incomplete": true,
+   "spend": {
+    "total_usd": 0.28511,
+    "by_stage": {
+     "engine_select": 0.01618,
+     "beat_sheet": 0.22488,
+     "boundary_a_evidence": 0.04405
+    },
+    "charges": 3,
+    "basis": "pipeline usage estimates recorded per provider result; not a provider billing ledger"
+   },
+   "error": {
+    "type": "StorySpineUnsupported",
+    "message": "STORY_SPINE_UNSUPPORTED\n\nRequired causal functions:\n  + setup              establishes the state\n  + intervention       changes the incentives\n  + false_resolution   creates apparent success\n  - mechanism          names the rule \u2014 WHY the incentive is broken\n  + escalation         HOW people exploit it, compounding\n  + reversal           WHAT the system has become \u2014 the end state inverted\n\nMISSING \u2014 the story cannot be told without these:\n  - mechanism: beat_05 failed: The reward was paid for a severed rat tail. The goal was fewer rats in\n\nPruned \u2014 unsupported and not required:\n  x beat_11 [generalization]: A $40-per-tail feral pig bounty at Fort Benning saw swine density rise 23-130% instead of \n\nStill failing after pruning:\n  ! beat_03: After sewer workers struck, the colonial authorities announced a bounty on every\n      [partially_entailed] The claims say authorities couldn't keep workers on the task but never mention a strike, w\n  ! beat_05: The reward was paid for a severed rat tail. The goal was fewer rats in the city.\n      [CLAIM_KIND_MISMATCH] beat beat_05 is a mechanism beat citing c08, which is a event claim; a mechanism beat may \n\nSheet as proposed:\n  + beat_01 [setup           ] In the 1890s the French built modern sewers in Hanoi, which invasive brown\n  + beat_02 [context         ] Knowing rat fleas spread plague, the French hired Vietnamese crews to hunt\n  ! beat_03 [context         ] After sewer workers struck, the colonial authorities announced a bounty on\n  + beat_04 [intervention    ] The bounty was extended to anyone bringing in a rat tail, so payment rewar\n  ! beat_05 [mechanism       ] The reward was paid for a severed rat tail. The goal was fewer rats in the\n  + beat_06 [false_resolution] Within days the number of tails handed in climbed into the thousands.\n  + beat_07 [escalation      ] Residents cut the tails off rats to claim the bounty and released the anim\n  + beat_08 [reversal        ] Because a live rat could yield more tails, residents released rats rather \n  + beat_09 [reversal        ] On Hanoi's rural outskirts, entrepreneurs set up operations breeding rats \n  + beat_10 [context         ] The bounty produced enormous tail counts but made no dent in the rat popul\n  - beat_11 [generalization  ] A $40-per-tail feral pig bounty at Fort Benning saw swine density rise 23-\n  + beat_12 [context         ] \n\nSpine: 11 beats from 12 proposed."
+   },
+   "spine": {
+    "compiled": {
+     "schema_version": "story_fact_model_v1",
+     "assessed": true,
+     "passed": false,
+     "coverage": {
+      "required": [
+       "setup",
+       "intervention",
+       "false_resolution",
+       "mechanism",
+       "escalation",
+       "reversal"
+      ],
+      "supported_by_role": {
+       "setup": 1,
+       "intervention": 1,
+       "false_resolution": 1,
+       "mechanism": 0,
+       "escalation": 1,
+       "reversal": 2
+      },
+      "missing": [
+       "mechanism"
+      ],
+      "missing_because": {
+       "mechanism": "beat_05 failed: The reward was paid for a severed rat tail. The goal was fewer rats in"
+      },
+      "covered": false
+     },
+     "collapsed_duplicates": [],
+     "duplicate_across_roles": [],
+     "unrepairable": [],
+     "narrowed": [],
+     "pruned": [
+      {
+       "beat_id": "beat_11",
+       "role": "generalization",
+       "event": "A $40-per-tail feral pig bounty at Fort Benning saw swine density rise 23-130% instead of falling.",
+       "reason": "unsupported and not required by the causal chain"
+      }
+     ],
+     "kept_beats": [
+      "beat_01",
+      "beat_02",
+      "beat_03",
+      "beat_04",
+      "beat_05",
+      "beat_06",
+      "beat_07",
+      "beat_08",
+      "beat_09",
+      "beat_10",
+      "beat_12"
+     ],
+     "still_failing": [
+      "beat_03",
+      "beat_05"
+     ],
+     "cascade": {
+      "schema_version": "story_fact_model_v1",
+      "passed": false,
+      "structure_status": "STRUCTURE_FAIL",
+      "indeterminate_kinds": [
+       {
+        "beat_id": "beat_01",
+        "claim_id": "c04",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "context",
+        "abstained_because": "narrow_margin_over_context",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_07",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_08",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       }
+      ],
+      "beats_with_indeterminate_kinds": [
+       "beat_01",
+       "beat_07",
+       "beat_08"
+      ],
+      "structural": [
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_05 is a mechanism beat citing c08, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_05",
+        "claim_id": "c08"
+       },
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_05 is a mechanism beat citing c10, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_05",
+        "claim_id": "c10"
+       },
+       {
+        "code": "MULTI_PARALLEL_CASE_EVENT",
+        "message": "beat beat_11 is declared 'fort_benning_pigs' but also sources usa_2007_2008, usa_outcome; one comparison per beat, so split it",
+        "beat_id": "beat_11"
+       }
+      ],
+      "evidence": [
+       {
+        "beat_id": "beat_03",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "In April 1902 the colonial authorities announced a bounty on every dead rat, after being unable to keep sewer workers on the rat-killing task.",
+        "unsupported_details": [
+         "that sewer workers went on strike"
+        ],
+        "reason": "The claims say authorities couldn't keep workers on the task but never mention a strike, which is a specific unsupported detail."
+       }
+      ],
+      "fidelity": [],
+      "skipped_for_structure": [
+       "beat_05",
+       "beat_11"
+      ],
+      "unavailable": []
+     }
+    },
+    "beats": [
+     {
+      "beat_id": "beat_01",
+      "role": "setup",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In the 1890s the French built modern sewers in Hanoi, which invasive brown rats colonised.",
+       "claim_refs": [
+        "c03",
+        "c04"
+       ]
+      },
+      "changes_state": {
+       "from": "Hanoi has new sewers",
+       "to": "The sewers are full of rats"
+      },
+      "beat": "In the 1890s France built state-of-the-art sewers under Hanoi, and invasive brown rats moved straight in.",
+      "event_function": "establishes_problem",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_02",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Knowing rat fleas spread plague, the French hired Vietnamese crews to hunt rats in the sewers.",
+       "claim_refs": [
+        "c06",
+        "c07"
+       ]
+      },
+      "changes_state": {
+       "from": "Rats fill the sewers",
+       "to": "Crews are killing rats by hand"
+      },
+      "beat": "With plague spreading via rat fleas, France sent Vietnamese crews down to kill the rats.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_03",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After sewer workers struck, the colonial authorities announced a bounty on every dead rat in April 1902.",
+       "claim_refs": [
+        "c07",
+        "c08"
+       ]
+      },
+      "changes_state": {
+       "from": "Crews hunt rats",
+       "to": "Everyone can earn a bounty for rats"
+      },
+      "beat": "The sewer workers went on strike, so in April 1902 officials offered a bounty on every dead rat.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_04",
+      "role": "intervention",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty was extended to anyone bringing in a rat tail, so payment rewarded a tail rather than a dead rat.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "You must kill a rat to be paid",
+       "to": "You only need a tail to be paid"
+      },
+      "beat": "To avoid handling corpses, clerks accepted just a severed tail as proof \u2014 and paid for the tail, not the dead rat.",
+      "event_function": "changes_incentive",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_05",
+      "role": "mechanism",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+       "claim_refs": [
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "You only need a tail to be paid",
+       "to": "what pays and what was wanted have come apart"
+      },
+      "beat": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+      "event_function": "",
+      "derived_from": [
+       "beat_04"
+      ]
+     },
+     {
+      "beat_id": "beat_06",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Within days the number of tails handed in climbed into the thousands.",
+       "claim_refs": [
+        "c11"
+       ]
+      },
+      "changes_state": {
+       "from": "A tail earns pay",
+       "to": "Thousands of tails pour in daily"
+      },
+      "beat": "It seemed to work: within days the tails handed in climbed into the thousands.",
+      "event_function": "apparent_success",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_07",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Residents cut the tails off rats to claim the bounty and released the animals alive.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "Tails mean dead rats",
+       "to": "Tails come from rats set free to breed"
+      },
+      "beat": "Yet inspectors kept spotting live rats scurrying the streets \u2014 many with no tails at all.",
+      "event_function": "exploit_behavior",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_08",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Because a live rat could yield more tails, residents released rats rather than killing them.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "Rats are hunted",
+       "to": "Rats are harvested for tails and spared"
+      },
+      "beat": "A tail earns a coin; a living rat makes more tails, so releasing it beat killing it.",
+      "event_function": "compounds_exploit",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_09",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "On Hanoi's rural outskirts, entrepreneurs set up operations breeding rats to profit from the bounty.",
+       "claim_refs": [
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "The sewers are full of rats",
+       "to": "Rats are deliberately farmed for bounties"
+      },
+      "beat": "On the rural outskirts, entrepreneurs built farms breeding the very rats the city was fighting.",
+      "event_function": "compounds_exploit",
+      "derived_from": [
+       "beat_01",
+       "beat_08"
+      ]
+     },
+     {
+      "beat_id": "beat_10",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty produced enormous tail counts but made no dent in the rat population.",
+       "claim_refs": [
+        "c15"
+       ]
+      },
+      "changes_state": {
+       "from": "Rats are farmed for bounties",
+       "to": "The city spent heavily and the rats remained"
+      },
+      "beat": "The city paid out huge tail counts and never dented the rat population.",
+      "event_function": "outcome_state",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_11",
+      "role": "generalization",
+      "scope": "parallel_case",
+      "parallel_case_id": "fort_benning_pigs",
+      "event": {
+       "text": "A $40-per-tail feral pig bounty at Fort Benning saw swine density rise 23-130% instead of falling.",
+       "claim_refs": [
+        "c24",
+        "c25"
+       ]
+      },
+      "changes_state": {
+       "from": "One city's bounty backfired",
+       "to": "The same bounty trap recurs across places"
+      },
+      "beat": "The same trap sprang elsewhere \u2014 Fort Benning's $40 pig-tail bounty saw swine density rise 23 to 130%.",
+      "event_function": "parallel_case",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_12",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "",
+       "claim_refs": []
+      },
+      "changes_state": {
+       "from": "You trust the count",
+       "to": "You question what the count measures"
+      },
+      "beat": "So hold up that severed tail and ask: is this proof the rats are gone, or proof someone got paid?",
+      "event_function": "context",
+      "derived_from": []
+     }
+    ]
+   },
+   "elapsed_sec": 97.973,
+   "engine": null,
+   "scene_count": 0,
+   "word_count": 0,
+   "clean_script_checks": false
+  },
+  {
+   "sample": 2,
+   "passed": false,
+   "stage": "script",
+   "checks": {
+    "research": {
+     "version": 1,
+     "passed": true,
+     "claim_count": 19,
+     "citation_count": 42,
+     "errors": []
+    }
+   },
+   "fresh_script": true,
+   "research_mode": "required",
+   "runtime_hard": false,
+   "configured_replans": 1,
+   "script_provider": "anthropic",
+   "script_model": "claude-opus-4-8",
+   "research_model": "claude-opus-4-8",
+   "claim_ledger_hard": true,
+   "illustrated_storyboard_hard": true,
+   "recorded_cost_usd": 0.27357,
+   "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+   "cost_may_be_incomplete": true,
+   "spend": {
+    "total_usd": 0.27357,
+    "by_stage": {
+     "engine_select": 0.015955,
+     "beat_sheet": 0.220005,
+     "boundary_a_evidence": 0.03761
+    },
+    "charges": 3,
+    "basis": "pipeline usage estimates recorded per provider result; not a provider billing ledger"
+   },
+   "error": {
+    "type": "StorySpineUnsupported",
+    "message": "STORY_SPINE_UNSUPPORTED\n\nRequired causal functions:\n  + setup              establishes the state\n  + intervention       changes the incentives\n  + false_resolution   creates apparent success\n  - mechanism          names the rule \u2014 WHY the incentive is broken\n  + escalation         HOW people exploit it, compounding\n  + reversal           WHAT the system has become \u2014 the end state inverted\n\nMISSING \u2014 the story cannot be told without these:\n  - mechanism: beat_03 failed: The reward was paid for a severed rat tail. The goal was fewer rats in\n\nRequired roles narrowed to their supported core:\n  > beat_05 [false_resolution]\n      was: Within days the number of tails handed in climbed from hundreds into the thousands.\n      now: Within days the number of tails handed in climbed into the thousands.\n      dropped: that the number started from hundreds\n\nPruned \u2014 unsupported and not required:\n  x beat_10 [generalization]: Fort Benning offered a $40 bounty per feral pig tail; 1,138 pigs were taken yet swine dens\n\nStill failing after pruning:\n  ! beat_03: The reward was paid for a severed rat tail. The goal was fewer rats in the city.\n      [CLAIM_KIND_MISMATCH] beat beat_03 is a mechanism beat citing c08, which is a event claim; a mechanism beat may \n\nSheet as proposed:\n  + beat_01 [setup           ] Invasive brown rats colonised the sewer system the French built in Hanoi i\n  + beat_02 [intervention    ] In April 1902 the colonial authorities announced a bounty on every dead ra\n  ! beat_03 [mechanism       ] The reward was paid for a severed rat tail. The goal was fewer rats in the\n  + beat_04 [escalation      ] Because officials declined to handle corpses, the bounty was paid on a rat\n  + beat_05 [false_resolution] Within days the number of tails handed in climbed from hundreds into the t\n  + beat_06 [context         ] The bounty rewarded a rat tail rather than a dead rat, so tail counts rose\n  + beat_07 [reversal        ] After about three months officials found people were cutting off rats' tai\n  + beat_08 [reversal        ] On Hanoi's rural outskirts people set up operations breeding rats to profi\n  + beat_09 [context         ] The bounty produced large tail counts but did not reduce the actual rat po\n  - beat_10 [generalization  ] Fort Benning offered a $40 bounty per feral pig tail; 1,138 pigs were take\n  + beat_11 [context         ] \n\nSpine: 10 beats from 11 proposed."
+   },
+   "spine": {
+    "compiled": {
+     "schema_version": "story_fact_model_v1",
+     "assessed": true,
+     "passed": false,
+     "coverage": {
+      "required": [
+       "setup",
+       "intervention",
+       "false_resolution",
+       "mechanism",
+       "escalation",
+       "reversal"
+      ],
+      "supported_by_role": {
+       "setup": 1,
+       "intervention": 1,
+       "false_resolution": 1,
+       "mechanism": 0,
+       "escalation": 1,
+       "reversal": 2
+      },
+      "missing": [
+       "mechanism"
+      ],
+      "missing_because": {
+       "mechanism": "beat_03 failed: The reward was paid for a severed rat tail. The goal was fewer rats in"
+      },
+      "covered": false
+     },
+     "collapsed_duplicates": [],
+     "duplicate_across_roles": [],
+     "unrepairable": [],
+     "narrowed": [
+      {
+       "beat_id": "beat_05",
+       "role": "false_resolution",
+       "was": "Within days the number of tails handed in climbed from hundreds into the thousands.",
+       "now": "Within days the number of tails handed in climbed into the thousands.",
+       "dropped": [
+        "that the number started from hundreds"
+       ]
+      }
+     ],
+     "pruned": [
+      {
+       "beat_id": "beat_10",
+       "role": "generalization",
+       "event": "Fort Benning offered a $40 bounty per feral pig tail; 1,138 pigs were taken yet swine density rose 23-130%.",
+       "reason": "unsupported and not required by the causal chain"
+      }
+     ],
+     "kept_beats": [
+      "beat_01",
+      "beat_02",
+      "beat_03",
+      "beat_04",
+      "beat_05",
+      "beat_06",
+      "beat_07",
+      "beat_08",
+      "beat_09",
+      "beat_11"
+     ],
+     "still_failing": [
+      "beat_03"
+     ],
+     "cascade": {
+      "schema_version": "story_fact_model_v1",
+      "passed": false,
+      "structure_status": "STRUCTURE_FAIL",
+      "indeterminate_kinds": [
+       {
+        "beat_id": "beat_01",
+        "claim_id": "c04",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "context",
+        "abstained_because": "narrow_margin_over_context",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_07",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       }
+      ],
+      "beats_with_indeterminate_kinds": [
+       "beat_01",
+       "beat_07"
+      ],
+      "structural": [
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_03 is a mechanism beat citing c08, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_03",
+        "claim_id": "c08"
+       },
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_03 is a mechanism beat citing c10, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_03",
+        "claim_id": "c10"
+       },
+       {
+        "code": "MULTI_PARALLEL_CASE_EVENT",
+        "message": "beat beat_10 is declared 'fort_benning_pigs' but also sources usa_2007_2008, usa_outcome; one comparison per beat, so split it",
+        "beat_id": "beat_10"
+       }
+      ],
+      "evidence": [
+       {
+        "beat_id": "beat_05",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "Within days the number of tails handed in climbed into the thousands.",
+        "unsupported_details": [
+         "that the number started from hundreds"
+        ],
+        "reason": "The claim supports the rise into thousands within days but does not mention a starting point of hundreds."
+       }
+      ],
+      "fidelity": [],
+      "skipped_for_structure": [
+       "beat_03",
+       "beat_10"
+      ],
+      "unavailable": []
+     }
+    },
+    "beats": [
+     {
+      "beat_id": "beat_01",
+      "role": "setup",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Invasive brown rats colonised the sewer system the French built in Hanoi in the 1890s.",
+       "claim_refs": [
+        "c03",
+        "c04"
+       ]
+      },
+      "changes_state": {
+       "from": "A modern sewer system built for hygiene",
+       "to": "A sewer system full of plague-carrying rats"
+      },
+      "beat": "Around 1902, plague-fearing Hanoi is overrun by brown rats thriving in the French colonial sewers.",
+      "event_function": "establishes_problem",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_02",
+      "role": "intervention",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In April 1902 the colonial authorities announced a bounty on every dead rat, later extended to anyone bringing a rat tail.",
+       "claim_refs": [
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Rats are the city's problem to endure",
+       "to": "Each rat is worth money"
+      },
+      "beat": "Step one: in April 1902 the authorities announce a bounty on every dead rat.",
+      "event_function": "changes_incentive",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_03",
+      "role": "mechanism",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+       "claim_refs": [
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Each rat is worth money",
+       "to": "what pays and what was wanted have come apart"
+      },
+      "beat": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+      "event_function": "",
+      "derived_from": [
+       "beat_02"
+      ]
+     },
+     {
+      "beat_id": "beat_04",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Because officials declined to handle corpses, the bounty was paid on a rat tail brought to authorities.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Proof of a kill is a whole dead rat",
+       "to": "Proof of a kill is just a severed tail"
+      },
+      "beat": "Because clerks refuse to handle corpses, they accept a single cut tail as proof instead.",
+      "event_function": "exploit_behavior",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_05",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Within days the number of tails handed in climbed from hundreds into the thousands.",
+       "claim_refs": [
+        "c11"
+       ]
+      },
+      "changes_state": {
+       "from": "A few hundred tails a day",
+       "to": "Thousands of tails a day"
+      },
+      "beat": "Step two: within days, tail counts climbed into the thousands and it looked like a triumph.",
+      "event_function": "apparent_success",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_06",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty rewarded a rat tail rather than a dead rat, so tail counts rose while the rat population did not fall.",
+       "claim_refs": [
+        "c15",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Tails are treated as proof of dead rats",
+       "to": "Tails are just detachable tokens worth cash"
+      },
+      "beat": "But the rat population never fell. Here is why: the bounty paid for a tail, not a dead rat.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_07",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After about three months officials found people were cutting off rats' tails and releasing them alive to breed more rats.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "Rats are killed for their tails",
+       "to": "Rats are kept alive to grow new tails"
+      },
+      "beat": "So people cut the tails off and released the tailless rats alive to breed more.",
+      "event_function": "compounds_exploit",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_08",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "On Hanoi's rural outskirts people set up operations breeding rats to profit from the bounty.",
+       "claim_refs": [
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "A sewer system full of plague-carrying rats",
+       "to": "Rats are farmed for money"
+      },
+      "beat": "On the city's outskirts, Vietnamese entrepreneurs began breeding rats to farm the bounty.",
+      "event_function": "compounds_exploit",
+      "derived_from": [
+       "beat_01",
+       "beat_07"
+      ]
+     },
+     {
+      "beat_id": "beat_09",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty produced large tail counts but did not reduce the actual rat population.",
+       "claim_refs": [
+        "c15"
+       ]
+      },
+      "changes_state": {
+       "from": "A bounty meant to shrink the rat population",
+       "to": "A bounty that funded the rat population's growth"
+      },
+      "beat": "Step three: the bounty produced huge tail counts and made no dent in the rat population.",
+      "event_function": "outcome_state",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_10",
+      "role": "generalization",
+      "scope": "parallel_case",
+      "parallel_case_id": "fort_benning_pigs",
+      "event": {
+       "text": "Fort Benning offered a $40 bounty per feral pig tail; 1,138 pigs were taken yet swine density rose 23-130%.",
+       "claim_refs": [
+        "c24",
+        "c25"
+       ]
+      },
+      "changes_state": {
+       "from": "A bounty meant to cut the pig population",
+       "to": "A bounty under which the pig population grew"
+      },
+      "beat": "The same trap sprang elsewhere: Fort Benning's $40 pig-tail bounty saw swine density rise up to 130%.",
+      "event_function": "parallel_case",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_11",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "",
+       "claim_refs": []
+      },
+      "changes_state": {
+       "from": "A tail as a paid-for token",
+       "to": "A tail as a question about every incentive"
+      },
+      "beat": "So before you reward a severed tail, ask: am I paying for the outcome, or just for the proof?",
+      "event_function": "context",
+      "derived_from": []
+     }
+    ]
+   },
+   "elapsed_sec": 92.555,
+   "engine": null,
+   "scene_count": 0,
+   "word_count": 0,
+   "clean_script_checks": false
+  },
+  {
+   "sample": 3,
+   "passed": false,
+   "stage": "script",
+   "checks": {
+    "research": {
+     "version": 1,
+     "passed": true,
+     "claim_count": 19,
+     "citation_count": 42,
+     "errors": []
+    }
+   },
+   "fresh_script": true,
+   "research_mode": "required",
+   "runtime_hard": false,
+   "configured_replans": 1,
+   "script_provider": "anthropic",
+   "script_model": "claude-opus-4-8",
+   "research_model": "claude-opus-4-8",
+   "claim_ledger_hard": true,
+   "illustrated_storyboard_hard": true,
+   "recorded_cost_usd": 0.292495,
+   "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+   "cost_may_be_incomplete": true,
+   "spend": {
+    "total_usd": 0.292495,
+    "by_stage": {
+     "engine_select": 0.01643,
+     "beat_sheet": 0.23128,
+     "boundary_a_evidence": 0.044785
+    },
+    "charges": 3,
+    "basis": "pipeline usage estimates recorded per provider result; not a provider billing ledger"
+   },
+   "error": {
+    "type": "StorySpineUnsupported",
+    "message": "STORY_SPINE_UNSUPPORTED\n\nRequired causal functions:\n  + setup              establishes the state\n  + intervention       changes the incentives\n  + false_resolution   creates apparent success\n  - mechanism          names the rule \u2014 WHY the incentive is broken\n  + escalation         HOW people exploit it, compounding\n  + reversal           WHAT the system has become \u2014 the end state inverted\n\nMISSING \u2014 the story cannot be told without these:\n  - mechanism: beat_04 failed: The reward was paid for a severed rat tail. The goal was fewer rats in\n\nRequired roles narrowed to their supported core:\n  > beat_01 [setup]\n      was: The new Hanoi sewers built in the 1890s created an ideal habitat for invasive brown rats, \n      now: The new Hanoi sewers created an ideal habitat for invasive brown rats, coinciding with pla\n      dropped: the sewers were built in the 1890s\n      dropped: the plague fears occurred in 1902\n  > beat_05 [false_resolution]\n      was: In the first days a few hundred rats were reported killed, but the tail counts quickly jum\n      now: The tail counts quickly jumped into the thousands within the first days.\n      dropped: A few hundred rats were reported killed in the first days\n\nPruned \u2014 unsupported and not required:\n  x beat_11 [generalization]: A Fort Benning $40 pig-tail bounty saw swine density rise 23-130%, and China's 1958 sparro\n\nStill failing after pruning:\n  ! beat_02: After Vietnamese sewer workers refused the task and struck, in April 1902 the co\n      [partially_entailed] The claims say authorities could not keep workers on the task, but do not state that worke\n  ! beat_04: The reward was paid for a severed rat tail. The goal was fewer rats in the city.\n      [CLAIM_KIND_MISMATCH] beat beat_04 is a mechanism beat citing c08, which is a event claim; a mechanism beat may \n\nSheet as proposed:\n  + beat_01 [setup           ] The new Hanoi sewers built in the 1890s created an ideal habitat for invas\n  ! beat_02 [context         ] After Vietnamese sewer workers refused the task and struck, in April 1902 \n  + beat_03 [intervention    ] To avoid handling thousands of corpses, the bounty was extended to anyone \n  ! beat_04 [mechanism       ] The reward was paid for a severed rat tail. The goal was fewer rats in the\n  + beat_05 [false_resolution] In the first days a few hundred rats were reported killed, but the tail co\n  + beat_06 [context         ] Despite the huge tail counts, the bounty made no dent in the actual rat po\n  + beat_07 [escalation      ] After about three months officials found the community was cutting off rat\n  + beat_08 [reversal        ] Releasing the tailless rats let them breed, turning each surviving rat int\n  + beat_09 [reversal        ] On Hanoi's rural outskirts, entrepreneurial Vietnamese set up operations b\n  + beat_10 [context         ] The bounty produced enormous tail counts but no reduction in rats, because\n  - beat_11 [generalization  ] A Fort Benning $40 pig-tail bounty saw swine density rise 23-130%, and Chi\n  + beat_12 [context         ] \n\nSpine: 11 beats from 12 proposed."
+   },
+   "spine": {
+    "compiled": {
+     "schema_version": "story_fact_model_v1",
+     "assessed": true,
+     "passed": false,
+     "coverage": {
+      "required": [
+       "setup",
+       "intervention",
+       "false_resolution",
+       "mechanism",
+       "escalation",
+       "reversal"
+      ],
+      "supported_by_role": {
+       "setup": 1,
+       "intervention": 1,
+       "false_resolution": 1,
+       "mechanism": 0,
+       "escalation": 1,
+       "reversal": 2
+      },
+      "missing": [
+       "mechanism"
+      ],
+      "missing_because": {
+       "mechanism": "beat_04 failed: The reward was paid for a severed rat tail. The goal was fewer rats in"
+      },
+      "covered": false
+     },
+     "collapsed_duplicates": [],
+     "duplicate_across_roles": [],
+     "unrepairable": [],
+     "narrowed": [
+      {
+       "beat_id": "beat_01",
+       "role": "setup",
+       "was": "The new Hanoi sewers built in the 1890s created an ideal habitat for invasive brown rats, coinciding with plague fears in 1902.",
+       "now": "The new Hanoi sewers created an ideal habitat for invasive brown rats, coinciding with plague fears.",
+       "dropped": [
+        "the sewers were built in the 1890s",
+        "the plague fears occurred in 1902"
+       ]
+      },
+      {
+       "beat_id": "beat_05",
+       "role": "false_resolution",
+       "was": "In the first days a few hundred rats were reported killed, but the tail counts quickly jumped into the thousands.",
+       "now": "The tail counts quickly jumped into the thousands within the first days.",
+       "dropped": [
+        "A few hundred rats were reported killed in the first days"
+       ]
+      }
+     ],
+     "pruned": [
+      {
+       "beat_id": "beat_11",
+       "role": "generalization",
+       "event": "A Fort Benning $40 pig-tail bounty saw swine density rise 23-130%, and China's 1958 sparrow eradication caused about 19.6% of the Great Famine's crop-yield loss.",
+       "reason": "unsupported and not required by the causal chain"
+      }
+     ],
+     "kept_beats": [
+      "beat_01",
+      "beat_02",
+      "beat_03",
+      "beat_04",
+      "beat_05",
+      "beat_06",
+      "beat_07",
+      "beat_08",
+      "beat_09",
+      "beat_10",
+      "beat_12"
+     ],
+     "still_failing": [
+      "beat_02",
+      "beat_04"
+     ],
+     "cascade": {
+      "schema_version": "story_fact_model_v1",
+      "passed": false,
+      "structure_status": "STRUCTURE_FAIL",
+      "indeterminate_kinds": [
+       {
+        "beat_id": "beat_01",
+        "claim_id": "c04",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "context",
+        "abstained_because": "narrow_margin_over_context",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_07",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_08",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_10",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_11",
+        "claim_id": "c21",
+        "claim_kind": "event",
+        "claim_kind_confidence": 0.65,
+        "runner_up_kind": "context",
+        "abstained_because": "narrow_margin_over_context",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       }
+      ],
+      "beats_with_indeterminate_kinds": [
+       "beat_01",
+       "beat_07",
+       "beat_08",
+       "beat_10",
+       "beat_11"
+      ],
+      "structural": [
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_04 is a mechanism beat citing c08, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_04",
+        "claim_id": "c08"
+       },
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_04 is a mechanism beat citing c10, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_04",
+        "claim_id": "c10"
+       },
+       {
+        "code": "MULTI_PARALLEL_CASE_EVENT",
+        "message": "beat beat_11 is declared 'fort_benning_pigs' but also sources china_1958, china_quantified_outcome, usa_2007_2008, usa_outcome; one comparison per beat, so split it",
+        "beat_id": "beat_11"
+       }
+      ],
+      "evidence": [
+       {
+        "beat_id": "beat_01",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "The new Hanoi sewers created an ideal habitat for invasive brown rats, coinciding with plague fears.",
+        "unsupported_details": [
+         "the sewers were built in the 1890s",
+         "the plague fears occurred in 1902"
+        ],
+        "reason": "The claims support the sewer/rat habitat link and plague fears, but do not mention the specific dates of the 1890s or 1902."
+       },
+       {
+        "beat_id": "beat_02",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "In April 1902 the colonial authorities announced a bounty on every dead rat after being unable to keep workers on the task.",
+        "unsupported_details": [
+         "that Vietnamese sewer workers refused the task and struck"
+        ],
+        "reason": "The claims say authorities could not keep workers on the task, but do not state that workers refused and struck."
+       },
+       {
+        "beat_id": "beat_05",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "The tail counts quickly jumped into the thousands within the first days.",
+        "unsupported_details": [
+         "A few hundred rats were reported killed in the first days"
+        ],
+        "reason": "The claim supports the rise into the thousands but does not mention an initial figure of a few hundred rats."
+       }
+      ],
+      "fidelity": [],
+      "skipped_for_structure": [
+       "beat_04",
+       "beat_11"
+      ],
+      "unavailable": []
+     }
+    },
+    "beats": [
+     {
+      "beat_id": "beat_01",
+      "role": "setup",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The new Hanoi sewers built in the 1890s created an ideal habitat for invasive brown rats, coinciding with plague fears in 1902.",
+       "claim_refs": [
+        "c04",
+        "c05"
+       ]
+      },
+      "changes_state": {
+       "from": "A modern sewer built for health",
+       "to": "A sewer full of plague-carrying rats"
+      },
+      "beat": "In 1902 Hanoi, brown rats swarmed the brand-new French sewers, and plague loomed.",
+      "event_function": "establishes_problem",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_02",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After Vietnamese sewer workers refused the task and struck, in April 1902 the colonial authorities announced a bounty on every dead rat.",
+       "claim_refs": [
+        "c07",
+        "c08"
+       ]
+      },
+      "changes_state": {
+       "from": "Officials paying crews directly",
+       "to": "Officials paying the public per rat"
+      },
+      "beat": "Step one: after sewer crews struck, officials announced a bounty on every dead rat in April 1902.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_03",
+      "role": "intervention",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "To avoid handling thousands of corpses, the bounty was extended to anyone who brought a rat tail to the authorities.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Proof was a dead rat",
+       "to": "Proof was a severed tail"
+      },
+      "beat": "To avoid handling corpses, clerks accepted just a severed tail as proof.",
+      "event_function": "changes_incentive",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_04",
+      "role": "mechanism",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+       "claim_refs": [
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "Proof was a severed tail",
+       "to": "what pays and what was wanted have come apart"
+      },
+      "beat": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+      "event_function": "",
+      "derived_from": [
+       "beat_03"
+      ]
+     },
+     {
+      "beat_id": "beat_05",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In the first days a few hundred rats were reported killed, but the tail counts quickly jumped into the thousands.",
+       "claim_refs": [
+        "c11"
+       ]
+      },
+      "changes_state": {
+       "from": "Few tails collected",
+       "to": "Thousands of tails collected"
+      },
+      "beat": "Step two: within days, tail counts jumped from a few hundred into the thousands.",
+      "event_function": "apparent_success",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_06",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Despite the huge tail counts, the bounty made no dent in the actual rat population.",
+       "claim_refs": [
+        "c15"
+       ]
+      },
+      "changes_state": {
+       "from": "Numbers imply victory",
+       "to": "Streets prove no change"
+      },
+      "beat": "But the rats in the streets did not thin at all.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_07",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After about three months officials found the community was cutting off rats' tails to collect the bounty and releasing the rats alive to breed more.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "Assumed each tail was a kill",
+       "to": "Each tail could leave a breeding rat alive"
+      },
+      "beat": "Step three: inspectors spotted live rats running the sewers with no tails.",
+      "event_function": "exploit_behavior",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_08",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Releasing the tailless rats let them breed, turning each surviving rat into a renewable source of tails and bounty payments.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "A dead rat pays once",
+       "to": "A living rat pays again and again"
+      },
+      "beat": "A rat that keeps its body keeps making more rats \u2014 and more tails.",
+      "event_function": "compounds_exploit",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_09",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "On Hanoi's rural outskirts, entrepreneurial Vietnamese set up operations breeding the very rats they were supposed to be hunting.",
+       "claim_refs": [
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "A sewer full of plague-carrying rats",
+       "to": "Rats bred deliberately for tails"
+      },
+      "beat": "On Hanoi's outskirts, people began farming rats on purpose to harvest tails.",
+      "event_function": "compounds_exploit",
+      "derived_from": [
+       "beat_01",
+       "beat_08"
+      ]
+     },
+     {
+      "beat_id": "beat_10",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty produced enormous tail counts but no reduction in rats, because people were farming and releasing rats rather than eliminating them.",
+       "claim_refs": [
+        "c15",
+        "c12",
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "A city trying to kill its rats",
+       "to": "A city paying to breed its rats"
+      },
+      "beat": "The bounty meant to shrink the rats ended up funding their multiplication.",
+      "event_function": "outcome_state",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_11",
+      "role": "generalization",
+      "scope": "parallel_case",
+      "parallel_case_id": "fort_benning_pigs",
+      "event": {
+       "text": "A Fort Benning $40 pig-tail bounty saw swine density rise 23-130%, and China's 1958 sparrow eradication caused about 19.6% of the Great Famine's crop-yield loss.",
+       "claim_refs": [
+        "c24",
+        "c25",
+        "c21",
+        "c23"
+       ]
+      },
+      "changes_state": {
+       "from": "An isolated colonial blunder",
+       "to": "A repeating failure of proxy rewards"
+      },
+      "beat": "Step four: the same trap caught Fort Benning's pig hunters and Mao's sparrow armies.",
+      "event_function": "parallel_case",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_12",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "",
+       "claim_refs": []
+      },
+      "changes_state": {
+       "from": "A story about rats",
+       "to": "A test for any reward you meet"
+      },
+      "beat": "So next time a reward is offered, ask: what exactly is the tail here?",
+      "event_function": "context",
+      "derived_from": []
+     }
+    ]
+   },
+   "elapsed_sec": 103.741,
+   "engine": null,
+   "scene_count": 0,
+   "word_count": 0,
+   "clean_script_checks": false
+  },
+  {
+   "sample": 4,
+   "passed": false,
+   "stage": "script",
+   "checks": {
+    "research": {
+     "version": 1,
+     "passed": true,
+     "claim_count": 19,
+     "citation_count": 42,
+     "errors": []
+    }
+   },
+   "fresh_script": true,
+   "research_mode": "required",
+   "runtime_hard": false,
+   "configured_replans": 1,
+   "script_provider": "anthropic",
+   "script_model": "claude-opus-4-8",
+   "research_model": "claude-opus-4-8",
+   "claim_ledger_hard": true,
+   "illustrated_storyboard_hard": true,
+   "recorded_cost_usd": 0.22806,
+   "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+   "cost_may_be_incomplete": true,
+   "spend": {
+    "total_usd": 0.22806,
+    "by_stage": {
+     "engine_select": 0.01573,
+     "beat_sheet": 0.21233
+    },
+    "charges": 2,
+    "basis": "pipeline usage estimates recorded per provider result; not a provider billing ledger"
+   },
+   "error": {
+    "type": "StorySpineUnsupported",
+    "message": "STORY ROLES COMPILED FROM EVENT FUNCTIONS (backfiring_solution)\n\n  establishes_problem  -> setup            In 1902 Hanoi, invasive brown rats colonised the newly built\n  changes_incentive    -> intervention     After sewer workers refused, in April 1902 the colonial auth\n  exploit_behavior     -> escalation       Civil servants declined to handle rat corpses, so the bounty\n  apparent_success     -> false_resolution In the first days a few hundred rats were reported, then cou\n  context              -> context          The bounty rewarded the handing-in of a tail rather than the\n  exploit_behavior     -> escalation       People cut off rats' tails to collect the bounty and release\n  compounds_exploit    -> reversal         On Hanoi's rural outskirts, people set up operations breedin\n  outcome_state        -> context          After three months officials found the community farming rat\n  parallel_case        -> generalization   A Fort Benning pig-tail bounty raised pig density 23-130%, a\n  context              -> context          \n\n  DERIVED reversal: On Hanoi's rural outskirts, people set up operations breeding rats to profit fro\n      from beat_01, beat_07  cites c14\n\nCannot compile:\n  ! [INTERVENTION_STATES_NO_INCENTIVE] beat beat_02 changes the incentive but does not say what the rule rewarded and what it was for, so the mechanism cannot be derived rather than invented"
+   },
+   "spine": {
+    "compiled": {},
+    "beats": [
+     {
+      "n": 1,
+      "pct": 0,
+      "beat": "In 1902 Hanoi, plague-carrying brown rats swarmed the brand-new French sewers built to civilise the city.",
+      "role": "setup",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "the sewers meant to prevent disease bred rats",
+      "human_knows": "",
+      "expected_outcome": "",
+      "actual_outcome": "rats colonise the colonial infrastructure",
+      "belief_changed": "",
+      "decision_caused": "authorities must act",
+      "continuity_anchor": "Hanoi's colonial sewers",
+      "causal_link": "because the new sewers were an ideal rat habitat",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c04",
+        "narration_phrase": "the new sewers became an ideal ecosystem for invasive brown rats",
+        "evidence_id": "e04"
+       }
+      ],
+      "evidence_id": "e04",
+      "question_opened": "how do you clear rats from miles of sewer?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "rats pouring through sewer pipes",
+      "opens_loop": "clear_rats",
+      "closes_loop": "",
+      "event_function": "establishes_problem",
+      "caused_by": 0,
+      "chapter": 1,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In 1902 Hanoi, invasive brown rats colonised the newly built French sewer system amid plague fears.",
+       "claim_refs": [
+        "c04",
+        "c05"
+       ]
+      },
+      "changes_state": {
+       "from": "new sewers built for hygiene",
+       "to": "sewers full of plague-vector rats"
+      },
+      "beat_id": "beat_01",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 2,
+      "pct": 10,
+      "beat": "Step one: after sewer crews refused the job, in April 1902 officials announced a bounty on every dead rat.",
+      "role": "intervention",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "clear the rats cheaply",
+      "human_belief": "paying per rat will drive the population down",
+      "viewer_knows": "a cash reward now exists per rat",
+      "human_knows": "crews won't do it, so pay the public",
+      "expected_outcome": "the public kills rats for money",
+      "actual_outcome": "a bounty is announced",
+      "belief_changed": "",
+      "decision_caused": "open the bounty to everyone",
+      "continuity_anchor": "Hanoi's colonial sewers",
+      "causal_link": "therefore, unable to keep workers on the task, they offered money",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c08",
+        "narration_phrase": "in April 1902 the authorities announced a bounty on every dead rat",
+        "evidence_id": "e08"
+       }
+      ],
+      "evidence_id": "e08",
+      "question_opened": "how do you prove you killed a rat?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a poster offering coins per rat",
+      "opens_loop": "proof",
+      "closes_loop": "",
+      "event_function": "changes_incentive",
+      "caused_by": 1,
+      "chapter": 1,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After sewer workers refused, in April 1902 the colonial authorities announced a bounty on every dead rat.",
+       "claim_refs": [
+        "c07",
+        "c08"
+       ]
+      },
+      "changes_state": {
+       "from": "no reward for killing rats",
+       "to": "cash paid per dead rat"
+      },
+      "beat_id": "beat_02",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 3,
+      "pct": 18,
+      "beat": "To avoid handling corpses, clerks accepted just a severed tail as proof \u2014 one cent per tail.",
+      "role": "escalation",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "process claims without touching rot",
+      "human_belief": "a tail proves a dead rat",
+      "viewer_knows": "payment now requires only a tail, not a body",
+      "human_knows": "a tail is easier to accept than a carcass",
+      "expected_outcome": "tails equal dead rats",
+      "actual_outcome": "the accepted proof becomes the tail alone",
+      "belief_changed": "",
+      "decision_caused": "pay anyone bringing a tail",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "so, refusing to handle thousands of corpses, they took tails instead",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c10",
+        "narration_phrase": "the bounty was extended to anyone who brought a rat tail to the authorities",
+        "evidence_id": "e10"
+       }
+      ],
+      "evidence_id": "e10",
+      "question_opened": "",
+      "question_answered": "how do you prove you killed a rat?",
+      "new_complication": "the proof and the goal have quietly separated",
+      "visible_consequence": "a clerk accepting a single tail for a coin",
+      "opens_loop": "",
+      "closes_loop": "proof",
+      "event_function": "exploit_behavior",
+      "caused_by": 2,
+      "chapter": 1,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Civil servants declined to handle rat corpses, so the bounty was paid to anyone bringing a rat tail.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "proof was a whole dead rat",
+       "to": "proof was only a severed tail"
+      },
+      "beat_id": "beat_03",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 4,
+      "pct": 26,
+      "beat": "Within days tail counts leapt from a few hundred into the thousands.",
+      "role": "false_resolution",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "the plan is working brilliantly",
+      "viewer_knows": "the numbers look like triumph",
+      "human_knows": "thousands of tails arriving",
+      "expected_outcome": "the rat problem is collapsing",
+      "actual_outcome": "tail totals explode",
+      "belief_changed": "",
+      "decision_caused": "keep paying",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "therefore the files reported success as tails poured in",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c11",
+        "narration_phrase": "the numbers of tails quickly jumped into the thousands",
+        "evidence_id": "e11"
+       }
+      ],
+      "evidence_id": "e11",
+      "question_opened": "if tails are soaring, why aren't the rats vanishing?",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a soaring counter of tails",
+      "opens_loop": "anomaly",
+      "closes_loop": "",
+      "event_function": "apparent_success",
+      "caused_by": 3,
+      "chapter": 1,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In the first days a few hundred rats were reported, then counts jumped into the thousands.",
+       "claim_refs": [
+        "c11"
+       ]
+      },
+      "changes_state": {
+       "from": "a trickle of tails",
+       "to": "thousands of tails per day"
+      },
+      "beat_id": "beat_04",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 5,
+      "pct": 34,
+      "beat": "Here is the trap: the bounty paid for a tail, not for a dead rat.",
+      "role": "context",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "you can earn the coin without killing anything",
+      "human_knows": "",
+      "expected_outcome": "",
+      "actual_outcome": "the incentive rewards the token, not the outcome",
+      "belief_changed": "paying per pest reduces pests -> paying per proxy corrupts the goal",
+      "decision_caused": "",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "because the reward was pinned to the tail, the goal and the payment split apart",
+      "bolt_mode": "warning",
+      "claim_refs": [
+       {
+        "claim_id": "c10",
+        "narration_phrase": "the reward was earned by a tail, not by a dead rat",
+        "evidence_id": "e10"
+       }
+      ],
+      "evidence_id": "e10",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "a tail can be taken without killing the rat",
+      "visible_consequence": "a tail glowing beside an untouched rat",
+      "opens_loop": "",
+      "closes_loop": "",
+      "event_function": "context",
+      "caused_by": 3,
+      "chapter": 2,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty rewarded the handing-in of a tail rather than the death of a rat.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "proof assumed to equal a kill",
+       "to": "proof detached from the kill"
+      },
+      "beat_id": "beat_05",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 6,
+      "pct": 44,
+      "beat": "Step two: inspectors began finding rats scurrying through Hanoi alive \u2014 but with no tails.",
+      "role": "escalation",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "people cut tails and freed the rats to breed again",
+      "human_knows": "live tailless rats roam the streets",
+      "expected_outcome": "",
+      "actual_outcome": "tailless rats reproduce freely",
+      "belief_changed": "",
+      "decision_caused": "investigate the source",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "so hunters kept the rat alive to keep it breeding new tails to sell",
+      "bolt_mode": "reaction",
+      "claim_refs": [
+       {
+        "claim_id": "c12",
+        "narration_phrase": "they cut off the tails and let the rats go free to breed more rats",
+        "evidence_id": "e12"
+       }
+      ],
+      "evidence_id": "e12",
+      "question_opened": "",
+      "question_answered": "if tails are soaring, why aren't the rats vanishing?",
+      "new_complication": "",
+      "visible_consequence": "a live rat missing its tail",
+      "opens_loop": "",
+      "closes_loop": "anomaly",
+      "event_function": "exploit_behavior",
+      "caused_by": 5,
+      "chapter": 2,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "People cut off rats' tails to collect the bounty and released the animals alive to breed.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "tails presumed to mean fewer rats",
+       "to": "live tailless rats breeding more rats"
+      },
+      "beat_id": "beat_06",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 7,
+      "pct": 56,
+      "beat": "Step three: on Hanoi's rural edge, entrepreneurs began breeding the very rats they were hired to hunt.",
+      "role": "reversal",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "the pest has become a cash crop",
+      "human_knows": "rat farms operate on the outskirts",
+      "expected_outcome": "",
+      "actual_outcome": "deliberate rat farming for the bounty",
+      "belief_changed": "",
+      "decision_caused": "",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "therefore, since tails paid, breeding rats became a profitable trade",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c14",
+        "narration_phrase": "farmers started breeding rats to profit from the bounty",
+        "evidence_id": "e14"
+       }
+      ],
+      "evidence_id": "e14",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "the bounty now manufactures rats at scale",
+      "visible_consequence": "cages of rats on a farm",
+      "opens_loop": "",
+      "closes_loop": "",
+      "event_function": "compounds_exploit",
+      "caused_by": 6,
+      "chapter": 2,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "On Hanoi's rural outskirts, people set up operations breeding rats to profit from the bounty.",
+       "claim_refs": [
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "opportunistic tail-cutting",
+       "to": "industrial rat breeding for coins"
+      },
+      "beat_id": "beat_07",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 8,
+      "pct": 66,
+      "beat": "After three months officials realised the whole city was farming rats \u2014 and the population hadn't dropped at all.",
+      "role": "context",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "the fix made the goal harder than before",
+      "human_knows": "huge tail counts, undented rat numbers",
+      "expected_outcome": "",
+      "actual_outcome": "the bounty is scrapped as a failure",
+      "belief_changed": "",
+      "decision_caused": "end the bounty",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "so the more they paid, the more rats existed to be farmed",
+      "bolt_mode": "absent",
+      "claim_refs": [
+       {
+        "claim_id": "c12",
+        "narration_phrase": "after three months they discovered the community was farming rats",
+        "evidence_id": "e12"
+       },
+       {
+        "claim_id": "c15",
+        "narration_phrase": "the tails made no dent in the actual rat population",
+        "evidence_id": "e15"
+       }
+      ],
+      "evidence_id": "e15",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "the bounty poster torn down",
+      "opens_loop": "",
+      "closes_loop": "clear_rats",
+      "event_function": "outcome_state",
+      "caused_by": 7,
+      "chapter": 2,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After three months officials found the community farming rats, and the bounty had not reduced the rat population.",
+       "claim_refs": [
+        "c12",
+        "c15"
+       ]
+      },
+      "changes_state": {
+       "from": "a plan believed to be winning",
+       "to": "a scrapped plan with as many rats as before"
+      },
+      "beat_id": "beat_08",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 9,
+      "pct": 76,
+      "beat": "Step four: the same trap fires whenever the reward is a proxy, not the goal.",
+      "role": "generalization",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "two other bounties failed the identical way",
+      "human_knows": "",
+      "expected_outcome": "",
+      "actual_outcome": "pattern confirmed across places",
+      "belief_changed": "",
+      "decision_caused": "",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "because reward and outcome had split, the failure repeats everywhere",
+      "bolt_mode": "demonstration",
+      "claim_refs": [
+       {
+        "claim_id": "c25",
+        "narration_phrase": "a $40 pig-tail bounty at Fort Benning saw the population rise 23 to 130 percent",
+        "evidence_id": "e25"
+       },
+       {
+        "claim_id": "c23",
+        "narration_phrase": "China's sparrow campaign accounts for nearly 20 percent of the famine's crop loss",
+        "evidence_id": "e23"
+       }
+      ],
+      "evidence_id": "e25",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "pig tails and sparrows drawn beside the rat tail",
+      "opens_loop": "",
+      "closes_loop": "",
+      "event_function": "parallel_case",
+      "caused_by": 8,
+      "chapter": 3,
+      "scope": "parallel_case",
+      "parallel_case_id": "proxy_bounty",
+      "event": {
+       "text": "A Fort Benning pig-tail bounty raised pig density 23-130%, and China's sparrow eradication worsened the Great Famine.",
+       "claim_refs": [
+        "c25",
+        "c22",
+        "c23"
+       ]
+      },
+      "changes_state": {
+       "from": "Hanoi seems a one-off blunder",
+       "to": "a recurring failure of proxy rewards"
+      },
+      "beat_id": "beat_09",
+      "_story_engine": "backfiring_solution"
+     },
+     {
+      "n": 10,
+      "pct": 88,
+      "beat": "So next time a reward pours in, ask: are you paying for the result, or just for the tail?",
+      "role": "context",
+      "mystery_role": "",
+      "human_present": false,
+      "human_intention": "",
+      "human_belief": "",
+      "viewer_knows": "the tail is the test for any incentive",
+      "human_knows": "",
+      "expected_outcome": "",
+      "actual_outcome": "the viewer is handed a diagnostic question",
+      "belief_changed": "",
+      "decision_caused": "",
+      "continuity_anchor": "a severed rat tail",
+      "causal_link": "therefore judge any bounty by whether its proof can be faked",
+      "bolt_mode": "absent",
+      "claim_refs": [],
+      "evidence_id": "",
+      "question_opened": "",
+      "question_answered": "",
+      "new_complication": "",
+      "visible_consequence": "a single severed tail held up as a question",
+      "opens_loop": "",
+      "closes_loop": "",
+      "event_function": "context",
+      "caused_by": 9,
+      "chapter": 4,
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "",
+       "claim_refs": []
+      },
+      "changes_state": {
+       "from": "a bounty judged by its counts",
+       "to": "a bounty judged by what it truly pays for"
+      },
+      "beat_id": "beat_10",
+      "_story_engine": "backfiring_solution"
+     }
+    ]
+   },
+   "elapsed_sec": 74.146,
+   "engine": null,
+   "scene_count": 0,
+   "word_count": 0,
+   "clean_script_checks": false
+  },
+  {
+   "sample": 5,
+   "passed": false,
+   "stage": "script",
+   "checks": {
+    "research": {
+     "version": 1,
+     "passed": true,
+     "claim_count": 19,
+     "citation_count": 42,
+     "errors": []
+    }
+   },
+   "fresh_script": true,
+   "research_mode": "required",
+   "runtime_hard": false,
+   "configured_replans": 1,
+   "script_provider": "anthropic",
+   "script_model": "claude-opus-4-8",
+   "research_model": "claude-opus-4-8",
+   "claim_ledger_hard": true,
+   "illustrated_storyboard_hard": true,
+   "recorded_cost_usd": 0.2689,
+   "cost_basis": "pipeline usage estimates; not a provider billing ledger",
+   "cost_may_be_incomplete": true,
+   "spend": {
+    "total_usd": 0.2689,
+    "by_stage": {
+     "engine_select": 0.01628,
+     "beat_sheet": 0.212405,
+     "boundary_a_evidence": 0.040215
+    },
+    "charges": 3,
+    "basis": "pipeline usage estimates recorded per provider result; not a provider billing ledger"
+   },
+   "error": {
+    "type": "StorySpineUnsupported",
+    "message": "STORY_SPINE_UNSUPPORTED\n\nRequired causal functions:\n  + setup              establishes the state\n  + intervention       changes the incentives\n  + false_resolution   creates apparent success\n  - mechanism          names the rule \u2014 WHY the incentive is broken\n  + escalation         HOW people exploit it, compounding\n  + reversal           WHAT the system has become \u2014 the end state inverted\n\nMISSING \u2014 the story cannot be told without these:\n  - mechanism: beat_03 failed: The reward was paid for a severed rat tail. The goal was fewer rats in\n\nRequired roles narrowed to their supported core:\n  > beat_01 [setup]\n      was: In 1902 invasive brown rats colonised Hanoi's newly built French sewer system, raising fea\n      now: Invasive brown rats colonised Hanoi's newly built French sewer system, raising fears of pl\n      dropped: the year 1902\n  > beat_02 [intervention]\n      was: After hired sewer crews struck, in April 1902 colonial authorities offered a bounty on eve\n      now: In April 1902 colonial authorities offered a bounty on every dead rat after failing to kee\n      dropped: that the sewer crews 'struck' (went on strike); claims only say authorities were\n\nPruned \u2014 unsupported and not required:\n  x beat_10 [generalization]: China's 1958 sparrow eradication worsened the famine, and a Fort Benning pig-tail bounty s\n\nStill failing after pruning:\n  ! beat_03: The reward was paid for a severed rat tail. The goal was fewer rats in the city.\n      [CLAIM_KIND_MISMATCH] beat beat_03 is a mechanism beat citing c08, which is a event claim; a mechanism beat may \n  ! beat_06: The bounty rewarded the surrender of a tail, not the death of a rat, so a rat co\n      [partially_entailed] The claim confirms tails were the required item but says nothing about rats being kept ali\n  ! beat_09: The bounty generated enormous tail counts yet failed to reduce Hanoi's rat popul\n      [partially_entailed] The claim supports the core about tail counts and unreduced rat population, but does not m\n\nSheet as proposed:\n  + beat_01 [setup           ] In 1902 invasive brown rats colonised Hanoi's newly built French sewer sys\n  + beat_02 [intervention    ] After hired sewer crews struck, in April 1902 colonial authorities offered\n  ! beat_03 [mechanism       ] The reward was paid for a severed rat tail. The goal was fewer rats in the\n  + beat_04 [false_resolution] Because civil servants would not handle thousands of corpses, the bounty w\n  + beat_05 [false_resolution] Within days the number of tails handed in jumped into the thousands, appea\n  ! beat_06 [context         ] The bounty rewarded the surrender of a tail, not the death of a rat, so a \n  + beat_07 [escalation      ] Within about three months officials found people cutting the tails off rat\n  + beat_08 [reversal        ] On Hanoi's rural outskirts, entrepreneurs set up operations breeding rats \n  ! beat_09 [context         ] The bounty generated enormous tail counts yet failed to reduce Hanoi's rat\n  - beat_10 [generalization  ] China's 1958 sparrow eradication worsened the famine, and a Fort Benning p\n  + beat_11 [context         ] \n\nSpine: 10 beats from 11 proposed."
+   },
+   "spine": {
+    "compiled": {
+     "schema_version": "story_fact_model_v1",
+     "assessed": true,
+     "passed": false,
+     "coverage": {
+      "required": [
+       "setup",
+       "intervention",
+       "false_resolution",
+       "mechanism",
+       "escalation",
+       "reversal"
+      ],
+      "supported_by_role": {
+       "setup": 1,
+       "intervention": 1,
+       "false_resolution": 2,
+       "mechanism": 0,
+       "escalation": 1,
+       "reversal": 1
+      },
+      "missing": [
+       "mechanism"
+      ],
+      "missing_because": {
+       "mechanism": "beat_03 failed: The reward was paid for a severed rat tail. The goal was fewer rats in"
+      },
+      "covered": false
+     },
+     "collapsed_duplicates": [],
+     "duplicate_across_roles": [],
+     "unrepairable": [],
+     "narrowed": [
+      {
+       "beat_id": "beat_01",
+       "role": "setup",
+       "was": "In 1902 invasive brown rats colonised Hanoi's newly built French sewer system, raising fears of plague.",
+       "now": "Invasive brown rats colonised Hanoi's newly built French sewer system, raising fears of plague.",
+       "dropped": [
+        "the year 1902"
+       ]
+      },
+      {
+       "beat_id": "beat_02",
+       "role": "intervention",
+       "was": "After hired sewer crews struck, in April 1902 colonial authorities offered a bounty on every dead rat, later paying anyone who brought in a rat tail.",
+       "now": "In April 1902 colonial authorities offered a bounty on every dead rat after failing to keep hired sewer crews on the task, and later paid anyone who brought in a rat tail.",
+       "dropped": [
+        "that the sewer crews 'struck' (went on strike); claims only say authorities were unable to keep workers on the task"
+       ]
+      }
+     ],
+     "pruned": [
+      {
+       "beat_id": "beat_10",
+       "role": "generalization",
+       "event": "China's 1958 sparrow eradication worsened the famine, and a Fort Benning pig-tail bounty saw feral swine density rise, both mirroring Hanoi's failure.",
+       "reason": "unsupported and not required by the causal chain"
+      }
+     ],
+     "kept_beats": [
+      "beat_01",
+      "beat_02",
+      "beat_03",
+      "beat_04",
+      "beat_05",
+      "beat_06",
+      "beat_07",
+      "beat_08",
+      "beat_09",
+      "beat_11"
+     ],
+     "still_failing": [
+      "beat_03",
+      "beat_06",
+      "beat_09"
+     ],
+     "cascade": {
+      "schema_version": "story_fact_model_v1",
+      "passed": false,
+      "structure_status": "STRUCTURE_FAIL",
+      "indeterminate_kinds": [
+       {
+        "beat_id": "beat_01",
+        "claim_id": "c04",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "context",
+        "abstained_because": "narrow_margin_over_context",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       },
+       {
+        "beat_id": "beat_07",
+        "claim_id": "c12",
+        "claim_kind": "mechanism",
+        "claim_kind_confidence": 0.6,
+        "runner_up_kind": "event",
+        "abstained_because": "narrow_margin_over_event",
+        "kind_gate": "indeterminate",
+        "requires_semantic_validation": true
+       }
+      ],
+      "beats_with_indeterminate_kinds": [
+       "beat_01",
+       "beat_07"
+      ],
+      "structural": [
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_03 is a mechanism beat citing c08, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_03",
+        "claim_id": "c08"
+       },
+       {
+        "code": "CLAIM_KIND_MISMATCH",
+        "message": "beat beat_03 is a mechanism beat citing c10, which is a event claim; a mechanism beat may cite mechanism, general_principle",
+        "beat_id": "beat_03",
+        "claim_id": "c10"
+       },
+       {
+        "code": "MULTI_PARALLEL_CASE_EVENT",
+        "message": "beat beat_10 is declared 'sparrow_and_pig_bounties' but also sources china_quantified_outcome, usa_outcome; one comparison per beat, so split it",
+        "beat_id": "beat_10"
+       }
+      ],
+      "evidence": [
+       {
+        "beat_id": "beat_01",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "Invasive brown rats colonised Hanoi's newly built French sewer system, raising fears of plague.",
+        "unsupported_details": [
+         "the year 1902"
+        ],
+        "reason": "The claims support the rats, sewer, and plague fears, but do not mention the specific year 1902."
+       },
+       {
+        "beat_id": "beat_02",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "In April 1902 colonial authorities offered a bounty on every dead rat after failing to keep hired sewer crews on the task, and later paid anyone who brought in a rat tail.",
+        "unsupported_details": [
+         "that the sewer crews 'struck' (went on strike); claims only say authorities were unable to keep workers on the task"
+        ],
+        "reason": "The bounty timeline and rat-tail extension are supported, but the claim of a strike is not stated in the sources."
+       },
+       {
+        "beat_id": "beat_06",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "The bounty required bringing a rat tail to authorities.",
+        "unsupported_details": [
+         "that the reward was for the tail rather than the death of the rat",
+         "that a rat could be kept alive after its tail was taken"
+        ],
+        "reason": "The claim confirms tails were the required item but says nothing about rats being kept alive or the reward not requiring death."
+       },
+       {
+        "beat_id": "beat_09",
+        "verdict": "partially_entailed",
+        "passed": false,
+        "supported_core": "The bounty generated enormous tail counts yet failed to reduce the rat population, leaving the underlying problem unsolved.",
+        "unsupported_details": [
+         "that the location was specifically Hanoi"
+        ],
+        "reason": "The claim supports the core about tail counts and unreduced rat population, but does not mention Hanoi specifically."
+       }
+      ],
+      "fidelity": [],
+      "skipped_for_structure": [
+       "beat_03",
+       "beat_10"
+      ],
+      "unavailable": []
+     }
+    },
+    "beats": [
+     {
+      "beat_id": "beat_01",
+      "role": "setup",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "In 1902 invasive brown rats colonised Hanoi's newly built French sewer system, raising fears of plague.",
+       "claim_refs": [
+        "c04",
+        "c05"
+       ]
+      },
+      "changes_state": {
+       "from": "new sewers built for hygiene",
+       "to": "sewers overrun with plague-bearing rats"
+      },
+      "beat": "In 1902 Hanoi's proud new French sewers had become a warm highway for invasive brown rats carrying plague fleas.",
+      "event_function": "establishes_problem",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_02",
+      "role": "intervention",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "After hired sewer crews struck, in April 1902 colonial authorities offered a bounty on every dead rat, later paying anyone who brought in a rat tail.",
+       "claim_refs": [
+        "c07",
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "crews refuse to hunt rats",
+       "to": "a public bounty pays for tails"
+      },
+      "beat": "Step one: after sewer crews went on strike, in April 1902 the authorities announced a bounty on every dead rat.",
+      "event_function": "changes_incentive",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_03",
+      "role": "mechanism",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+       "claim_refs": [
+        "c08",
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "a public bounty pays for tails",
+       "to": "what pays and what was wanted have come apart"
+      },
+      "beat": "The reward was paid for a severed rat tail. The goal was fewer rats in the city.",
+      "event_function": "",
+      "derived_from": [
+       "beat_02"
+      ]
+     },
+     {
+      "beat_id": "beat_04",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Because civil servants would not handle thousands of corpses, the bounty was extended to anyone who brought in a rat tail as proof.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "proof is a dead rat",
+       "to": "proof is a severed tail"
+      },
+      "beat": "To spare clerks from thousands of corpses, they accepted just a severed tail as proof.",
+      "event_function": "apparent_success",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_05",
+      "role": "false_resolution",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Within days the number of tails handed in jumped into the thousands, appearing to show great success.",
+       "claim_refs": [
+        "c11"
+       ]
+      },
+      "changes_state": {
+       "from": "a new bounty",
+       "to": "thousands of tails, apparent triumph"
+      },
+      "beat": "Within days the tail count climbed into the thousands. It looked like a triumph.",
+      "event_function": "apparent_success",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_06",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty rewarded the surrender of a tail, not the death of a rat, so a rat could be kept alive after its tail was taken.",
+       "claim_refs": [
+        "c10"
+       ]
+      },
+      "changes_state": {
+       "from": "reward assumed to mean dead rats",
+       "to": "reward pays for tails, rats survive"
+      },
+      "beat": "Step two, the rule beneath it all: the coin bought a tail, not a dead rat.",
+      "event_function": "context",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_07",
+      "role": "escalation",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "Within about three months officials found people cutting the tails off rats, collecting the bounty, and releasing the rats alive to breed more.",
+       "claim_refs": [
+        "c12"
+       ]
+      },
+      "changes_state": {
+       "from": "rats killed for the coin",
+       "to": "rats farmed and released for the coin"
+      },
+      "beat": "So people cut off tails and let the rats go free to breed more tails.",
+      "event_function": "exploit_behavior",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_08",
+      "role": "reversal",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "On Hanoi's rural outskirts, entrepreneurs set up operations breeding rats specifically to profit from the bounty.",
+       "claim_refs": [
+        "c14"
+       ]
+      },
+      "changes_state": {
+       "from": "sewers overrun with plague-bearing rats",
+       "to": "deliberate rat farms as a business"
+      },
+      "beat": "On the city's outskirts, enterprising Vietnamese built farms breeding the very rats they were paid to hunt.",
+      "event_function": "compounds_exploit",
+      "derived_from": [
+       "beat_01",
+       "beat_07"
+      ]
+     },
+     {
+      "beat_id": "beat_09",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "The bounty generated enormous tail counts yet failed to reduce Hanoi's rat population, leaving the underlying problem unsolved.",
+       "claim_refs": [
+        "c15"
+       ]
+      },
+      "changes_state": {
+       "from": "a scheme that looked like victory",
+       "to": "a scheme that grew the rats it fought"
+      },
+      "beat": "Step three: the bounty produced huge tail counts and made no dent in the rats.",
+      "event_function": "outcome_state",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_10",
+      "role": "generalization",
+      "scope": "parallel_case",
+      "parallel_case_id": "sparrow_and_pig_bounties",
+      "event": {
+       "text": "China's 1958 sparrow eradication worsened the famine, and a Fort Benning pig-tail bounty saw feral swine density rise, both mirroring Hanoi's failure.",
+       "claim_refs": [
+        "c23",
+        "c25"
+       ]
+      },
+      "changes_state": {
+       "from": "Hanoi looks unique",
+       "to": "a repeating pattern of proxy incentives"
+      },
+      "beat": "This trap repeats: reward a proxy and people manufacture the proxy, not the goal.",
+      "event_function": "parallel_case",
+      "derived_from": []
+     },
+     {
+      "beat_id": "beat_11",
+      "role": "context",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+       "text": "",
+       "claim_refs": []
+      },
+      "changes_state": {
+       "from": "a story watched",
+       "to": "a test the viewer can apply"
+      },
+      "beat": "So when a reward chases rats, ask one thing: where are the rat farms?",
+      "event_function": "context",
+      "derived_from": []
+     }
+    ]
+   },
+   "elapsed_sec": 90.634,
+   "engine": null,
+   "scene_count": 0,
+   "word_count": 0,
+   "clean_script_checks": false
+  }
+ ],
+ "passed": false,
+ "recorded_cost_usd": 1.348135
+}

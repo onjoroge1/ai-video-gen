@@ -26,6 +26,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
 
+import cost_ledger
 import explainer_pipeline as ep
 import illustrated_story as illustrated
 from longform_research import validate_claim_joins, validate_research_dossier
@@ -82,7 +83,12 @@ def parse_args(argv=None):
 
 def run_sample(args, sample_id: int, log=print) -> dict:
     started = time.monotonic()
-    costs: list[float] = []
+    # A ledger, not a list. It is charged as each provider answers, so an attempt that raises --
+    # which is most of them while the story contract is being tightened -- still reports what it
+    # spent. Flushed to disk after every charge, next to the report.
+    ledger_path = (str(Path(args.output).with_suffix("")) + f".spend.{sample_id}.json"
+                   if args.output else None)
+    costs = cost_ledger.CostLedger(ledger_path)
     script: dict = {}
     dossier: dict = {}
     is_illustrated = args.visual_style == "illustrated_story"
@@ -104,6 +110,7 @@ def run_sample(args, sample_id: int, log=print) -> dict:
         "recorded_cost_usd": 0.0,
         "cost_basis": "pipeline usage estimates; not a provider billing ledger",
         "cost_may_be_incomplete": True,
+        "spend": {},
     }
     try:
         if research_mode != "off":
@@ -168,16 +175,29 @@ def run_sample(args, sample_id: int, log=print) -> dict:
         report["passed"] = True
     except Exception as exc:
         report["error"] = {"type": type(exc).__name__, "message": str(exc)}
+        # The sheet a refusal was about, kept so role assignment can be compared across samples.
+        if getattr(exc, "beats", None):
+            report["spine"] = {"compiled": getattr(exc, "spine", {}), "beats": exc.beats}
     finally:
-        # Generation and fact-check costs live on the script; research/grade/refit costs use
-        # cost_sink. The old harness printed only the latter, omitting most script spend.
-        report["recorded_cost_usd"] = round(
-            sum(float(c or 0) for c in costs) + float(script.get("_script_cost_usd") or 0), 6)
+        # The ledger is now the source of truth: it holds the generator's own spend, charged as
+        # each call returned, so `_script_cost_usd` is a cross-check rather than an addend. The
+        # old formula added the two because the generator published its total only on success --
+        # which is exactly why four failed Hanoi attempts each reported $0.0000.
+        report["spend"] = costs.report()
+        report["recorded_cost_usd"] = costs.total()
+        published = round(float(script.get("_script_cost_usd") or 0), 6)
+        charged = costs.script_stage_total()
+        # Disagreement means a call site spends without charging. Reported, never silently summed.
+        if published and abs(published - charged) > 0.005:
+            report["spend"]["unattributed_script_usd"] = round(published - charged, 6)
+            report["recorded_cost_usd"] = round(
+                report["recorded_cost_usd"] + max(0.0, published - charged), 6)
         # Some production helpers swallow provider/parsing errors before recording their cost.
         # Never present a zero/partial estimate, especially after an exception, as actual billing.
         report["cost_may_be_incomplete"] = True
         report["elapsed_sec"] = round(time.monotonic() - started, 3)
         report["engine"] = script.get("_story_engine")
+        report["spine"] = report.get("spine") or script.get("_spine") or {}
         scenes = script.get("scenes") or []
         report["scene_count"] = len(scenes)
         report["word_count"] = sum(len(str(s.get("narration") or "").split()) for s in scenes)
@@ -220,6 +240,9 @@ def main(argv=None) -> int:
               f"{'PASS' if sample['passed'] and sample['clean_script_checks'] else 'FAIL'} "
               f"at {sample['stage']}; engine={sample['engine']}; "
               f"recorded cost=${sample['recorded_cost_usd']:.4f}")
+        for stage, usd in sorted((sample.get("spend") or {}).get("by_stage", {}).items(),
+                                 key=lambda kv: -kv[1]):
+            print(f"    {stage:<22s} ${usd:.4f}")
         if sample.get("error"):
             print(sample["error"]["message"])
     return 0 if result["passed"] else 1

@@ -44,16 +44,27 @@ def test_cinematic_lane_prompt_is_unchanged_by_the_causal_wiring(monkeypatch):
 
 
 def test_causal_lane_prompt_asks_for_the_chain(monkeypatch):
+    """On an engine with a function map the chain is still declared, but roles are not asked for.
+
+    Measured across five sheets: the same factual event landed in escalation, hinge and mechanism
+    on different runs. `causal_role` was asking an editorial question dressed as a factual one, so
+    for backfiring_solution the planner now states what each fact IS and story_compiler assigns
+    the roles. The chain itself -- caused_by, chapter -- is unchanged.
+    """
+    import event_functions as ef
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
     assert "DECLARED CAUSAL CHAIN" in prompt
-    assert '"causal_role"' in prompt and '"caused_by"' in prompt and '"chapter"' in prompt
+    assert '"caused_by"' in prompt and '"chapter"' in prompt
+    assert '"event_function"' in prompt and '"causal_role"' not in prompt
+    for function in ef.map_for("backfiring_solution").required:
+        assert function in prompt
+    # The mechanism is derived from these two halves, so both must be asked for by name.
+    assert "rewarded_measure" in prompt and "goal_claim_refs" in prompt
     # The prompt must state the same numbers the validator enforces, or the lane asks for one
     # thing and rejects another.
     assert f"{cs.MECHANISM_DEADLINE_PCT:.0%}" in prompt
     assert f"{cs.MAX_HINGE_WORDS} words" in prompt
     assert f"{cs.MIN_CHAPTERS}-{cs.MAX_CHAPTERS} spoken chapters" in prompt
-    for role in cs.STEP_ROLES:
-        assert role in prompt
 
 
 def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
@@ -1105,3 +1116,90 @@ def test_the_event_rules_do_not_excuse_the_roles_the_spine_requires():
     assert "REQUIRED_SPINE_ROLES" in rule, \
         "F3 must exempt the required roles, naming them from the list that defines them"
     assert "MUST carry an event" in rule
+
+
+def test_a_suspect_citation_is_repaired_and_re_judged_not_merely_refused_earlier(monkeypatch):
+    """Rejecting five attempts earlier is cheaper and leaves the blocker exactly where it was."""
+    claims = {"c08": {"claim": "Authorities announced a bounty on every dead rat."},
+              "c09": {"claim": "The bounty was extended to anyone who brought a rat tail."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a severed rat tail",
+                                                  "measure_claim_refs": ["c08"],
+                                                  "actual_goal": "fewer rats",
+                                                  "goal_claim_refs": ["c05"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a severed rat tail", "cited": ["c08"],
+                   "candidates": ["c09: ..."], "code": "MEASURE_CITATION_SUSPECT",
+                   "message": "..."}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 900, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, cost = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c09"]
+    assert cost > 0, "the repair is charged like any other provider call"
+    assert "ACCEPTED AS PROOF" in seen["prompt"] and "c09" in seen["prompt"]
+
+
+def test_an_unusable_repair_leaves_the_original_citations_for_the_judge(monkeypatch):
+    """The heuristic that raised the concern must never get to decide the outcome."""
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a tail",
+                                                  "measure_claim_refs": ["c08"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a tail", "cited": ["c08"], "candidates": []}]
+
+    class _Messages:
+        def create(self, **call):
+            raise RuntimeError("provider down")
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c08"], "unchanged, not dropped"
+
+
+def test_a_repair_cannot_invent_a_claim_id(monkeypatch):
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a tail",
+                                                  "measure_claim_refs": ["c08"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a tail", "cited": ["c08"], "candidates": []}]
+
+    class _Messages:
+        def create(self, **call):
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 10, "output_tokens": 5})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c99"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c08"], "a ref outside the ledger is refused"
+
+
+def test_the_mechanism_repair_is_triggered_by_the_judge_not_by_stem_overlap():
+    """The heuristic cannot see this case, and five sheets proved it.
+
+    The mechanism cited a claim COUNTING tails handed in. That carries the distinguishing word
+    "tail" and says nothing about a tail being accepted as proof, so the relevance pre-filter
+    passed all five while Boundary A refused all five. Only the judge can rule on support, so the
+    judge's verdict is what asks for the correction.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("SECOND CHANCE FOR THE DERIVED MECHANISM"):]
+    block = block[:block.index("print(_sfm.spine_summary")]
+    assert '_spine["cascade"]["evidence"]' in block, "triggered by the evidence verdict"
+    assert "unsupported_details" in block, "the judge's own reasoning is handed back"
+    assert "_repair_incentive_citations" in block
+    # Re-judged after repair. A repair that is not re-judged is a rewrite that agrees with itself.
+    assert block.count("_sfm.compile_spine") == 1 and "_spine_beats(beats)" in block
+
+
+def test_the_repair_asks_for_both_halves_of_the_mechanism():
+    """The goal citation was never checked at all, and it was wrong in every sampled sheet."""
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("def _repair_incentive_citations"):]
+    block = block[:block.index("def _generate_script_chunked")]
+    assert "measure_claim_refs" in block and "goal_claim_refs" in block
+    assert "COUNTING how many were handed in" in block, "name the claim that keeps being cited"

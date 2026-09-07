@@ -1,0 +1,15 @@
+ROLE ASSIGNMENT ACROSS 5 SHEETS
+
+  + establishes_problem     want setup            setup 5
+  ~ changes_incentive       want intervention     intervention 4  false_resolution 1  escalation 1
+  + apparent_success        want false_resolution false_resolution 4
+  ~ reveals_proxy_gap       want mechanism        mechanism 4  escalation 1
+  ! exploit_behavior        want escalation       escalation 4  hinge 2  mechanism 1
+  + compounds_exploit       want escalation       escalation 5
+  ~ inverted_end_state      want reversal         reversal 5  escalation 1  hinge 1
+  + generalizes_pattern     want generalization   generalization 5
+
+4 functions assigned consistently, 4 unstable.
+
+Events not in the fixture (1) — either new material or the fixture needs another phrasing:
+    [intervention] Fearing plague spread by rat fleas, officials hired Vietnamese sewer crews who refused t
