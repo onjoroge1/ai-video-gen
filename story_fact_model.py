@@ -1179,8 +1179,11 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
         # Every failure states its cause. A beat listed here with no reason sends an operator
         # hunting through three layers to find out whether the evidence or the schema rejected it.
         cascade = compiled.get("cascade") or {}
+        # NOT truncated. This line is the whole reason the summary exists, and clipping it at 90
+        # characters cut off the half that says what was missing -- "...but do not" was where three
+        # consecutive investigations had to stop and re-run the render to learn any more.
         reason = {row["beat_id"]: f"[{row.get('verdict', 'evidence')}] "
-                                  f"{_text(row.get('reason') or row.get('message'))[:90]}"
+                                  f"{_text(row.get('reason') or row.get('message'))}"
                   for row in (cascade.get("evidence") or []) + (cascade.get("fidelity") or [])
                   if row.get("beat_id")}
         for issue in cascade.get("structural") or []:
