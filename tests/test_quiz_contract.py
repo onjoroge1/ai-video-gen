@@ -388,6 +388,28 @@ def test_a_clip_replacing_a_drifting_still_carries_its_own_move():
     assert "_DRIFT_PER_SEC" in source and "zoom" in source
 
 
+def test_first_reveal_impact_is_a_single_fast_punch_that_resolves():
+    import _quiz_pipeline_legacy as legacy
+
+    assert QUIZ_V2.first_reveal_impact is True
+    before = legacy._first_reveal_impact(
+        legacy._FIRST_REVEAL_IMPACT_START_SEC - 0.01)
+    peak = legacy._first_reveal_impact(legacy._FIRST_REVEAL_IMPACT_PEAK_SEC)
+    after = legacy._first_reveal_impact(legacy._FIRST_REVEAL_IMPACT_END_SEC + 0.01)
+    assert before == (1.0, 0.0)
+    assert peak[0] > 1.1 and peak[1] > 0
+    assert after == (1.0, 0.0), "the impact must resolve before the next clue"
+
+
+def test_only_round_one_requests_the_aggressive_reveal():
+    import inspect
+
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "impact=(i == 1 and QUIZ_V2.first_reveal_impact)" in source
+
+
 # ── difficulty ladder ───────────────────────────────────────────────────────────
 # Across six renders, 15 of 17 hard/expert rounds were named by the vision grader from the first
 # 0.6s crop, and every one shipped as a clean pass. The prompt asked for animals "a broad audience

@@ -318,7 +318,26 @@ def _draw_burst(canvas, progress, tint, count=26):
     canvas.alpha_composite(layer)
 
 
-def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None):
+def _first_reveal_impact(elapsed):
+    """Return (zoom, horizontal kick) for a quick punch-and-recoil answer reaction."""
+    if elapsed < _FIRST_REVEAL_IMPACT_START_SEC:
+        return 1.0, 0.0
+    if elapsed < _FIRST_REVEAL_IMPACT_PEAK_SEC:
+        p = (elapsed - _FIRST_REVEAL_IMPACT_START_SEC) / (
+            _FIRST_REVEAL_IMPACT_PEAK_SEC - _FIRST_REVEAL_IMPACT_START_SEC)
+        # Fast attack: the answer should surprise immediately rather than ease into motion.
+        return 1.0 + _FIRST_REVEAL_IMPACT_ZOOM * p, _FIRST_REVEAL_IMPACT_KICK_PX * p
+    if elapsed < _FIRST_REVEAL_IMPACT_END_SEC:
+        p = (elapsed - _FIRST_REVEAL_IMPACT_PEAK_SEC) / (
+            _FIRST_REVEAL_IMPACT_END_SEC - _FIRST_REVEAL_IMPACT_PEAK_SEC)
+        # Recoil past centre once, then resolve. One kick reads as intent; repeated shake reads
+        # like a camera defect and makes the answer harder to inspect.
+        return (1.0 + _FIRST_REVEAL_IMPACT_ZOOM * (1.0 - p),
+                _FIRST_REVEAL_IMPACT_KICK_PX * (1.0 - 2.0 * p))
+    return 1.0, 0.0
+
+
+def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, impact=False):
     """Wake the scene into its answer instead of cutting to it.
 
     The clue is the same photograph as the reveal with the animal blacked out and the whole frame
@@ -354,21 +373,30 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None):
             # fixed-length events, so a longer clip must extend the HOLD after them rather than
             # slowing all three down.
             elapsed = n / FPS
+            reveal_fraction = 0.32 if impact else 0.72
+            burst_fraction = 0.35 if impact else 0.85
+            type_fraction = 0.40 if impact else 0.62
             base = Image.blend(
-                clue, reveal, _smoothstep(min(1.0, elapsed / (dissolve * 0.72)))).convert("RGBA")
+                clue, reveal,
+                _smoothstep(min(1.0, elapsed / (dissolve * reveal_fraction)))).convert("RGBA")
             # _render_sequence applies zoompan to STILLS only — an is_video spec is scaled,
             # cropped and passed through untouched. The still hold this clip replaces was drifting
             # at _DRIFT_PER_SEC, so without baking an equivalent push-in the "livelier" variant
             # measures flatter than the control it was meant to beat. It did, first time out:
             # 5.68 mean frame delta against the control's 6.83.
-            zoom = 1.0 + min(_DRIFT_MAX, _DRIFT_PER_SEC * duration) * (elapsed / max(duration, 1e-6))
+            drift_zoom = 1.0 + min(_DRIFT_MAX, _DRIFT_PER_SEC * duration) * (
+                elapsed / max(duration, 1e-6))
+            impact_zoom, impact_kick = _first_reveal_impact(elapsed) if impact else (1.0, 0.0)
+            zoom = drift_zoom * impact_zoom
             if zoom > 1.0005:
                 cw, ch = int(base.width / zoom), int(base.height / zoom)
-                left, top = (base.width - cw) // 2, (base.height - ch) // 2
+                max_left = base.width - cw
+                left = max(0, min(max_left, int(max_left / 2 + impact_kick)))
+                top = (base.height - ch) // 2
                 base = base.crop((left, top, left + cw, top + ch)).resize(
                     (base.width, base.height), Image.Resampling.LANCZOS)
-            _draw_burst(base, min(1.0, elapsed / (dissolve * 0.85)), tint)
-            shown = max(1, int(round(len(label) * min(1.0, elapsed / (dissolve * 0.62)))))
+            _draw_burst(base, min(1.0, elapsed / (dissolve * burst_fraction)), tint)
+            shown = max(1, int(round(len(label) * min(1.0, elapsed / (dissolve * type_fraction)))))
             if shown not in cards:
                 card = f"{seq}/card{shown:03d}.png"
                 _text_png(card, answer=label[:shown], answer_size=full_size)
@@ -555,6 +583,13 @@ _REVEAL_TRANSITION_SEC = 0.42
 # What must survive as a still hold after it: the answer needs a beat to sit still and be read,
 # and a reveal that is entirely transition never resolves.
 _REVEAL_HOLD_MIN_SEC = 0.2
+# Image-space impact for round one's answer. This keeps the generated animal's exact identity and
+# anatomy while replacing the graceful settle with one quick punch and recoil.
+_FIRST_REVEAL_IMPACT_START_SEC = 0.12
+_FIRST_REVEAL_IMPACT_PEAK_SEC = 0.22
+_FIRST_REVEAL_IMPACT_END_SEC = 0.38
+_FIRST_REVEAL_IMPACT_ZOOM = 0.115
+_FIRST_REVEAL_IMPACT_KICK_PX = 22
 
 
 def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max=None):
@@ -1344,7 +1379,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         budget = (CDN if is_final else dr) - _REVEAL_HOLD_MIN_SEC
         trans_d = round(min(_REVEAL_TRANSITION_SEC, budget), 3)
         has_transition = trans_d > 0.05 and _reveal_clip(
-            f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d)
+            f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d,
+            impact=(i == 1 and QUIZ_V2.first_reveal_impact))
         if has_transition:
             render_specs.append((trans_clip, trans_d, True))
             clips.append(trans_clip)
@@ -1503,6 +1539,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
             "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
             "progressive_clues": QUIZ_V2.progressive_clues,
+            "first_reveal_impact": QUIZ_V2.first_reveal_impact,
             "subscribe_cta": "integrated_final_reveal", "visual_qa": visual_qa,
             "habitat_loop_closed": HABITAT and not loop_warnings,
             "difficulty_ladder_honoured": not ladder_warnings,
