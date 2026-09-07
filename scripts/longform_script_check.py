@@ -145,6 +145,20 @@ def run_sample(args, sample_id: int, log=print) -> dict:
         # script whose spine had just passed, for narration production never asks it to judge. A
         # harness that measures a stage the pipeline does not run is measuring nothing.
         joins = ep._validate_claims(script, dossier, costs)
+        # Production repairs before it refuses (run_explainer_pipeline does this immediately after
+        # the same call), and a harness that only reports the failure measures a pipeline nobody
+        # runs. Every failure at this boundary arrives with the supported core and the exact
+        # details that overshot it, which is a repairable state, not a verdict.
+        if not joins.get("passed"):
+            repaired, repair_cost = ep.repair_claim_join_failures(
+                script, dossier, joins, operator_direction=direction)
+            if repair_cost:
+                costs.append(repair_cost)
+                script = repaired
+                ep.rederive_narration_bindings(script, log)
+                joins = ep._validate_claims(script, dossier, costs)
+                log("Claim ledger repair: "
+                    + ("PASS" if joins.get("passed") else "still failing"))
         report["checks"][report["stage"]] = joins
         if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
             raise ValueError("Claim ledger failed after fact-check: " + json.dumps(joins.get("errors")))

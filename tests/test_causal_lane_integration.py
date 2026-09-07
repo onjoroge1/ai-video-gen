@@ -1381,3 +1381,41 @@ def test_the_hook_trim_is_wired_ahead_of_the_replan():
     assert "_ensure_hook_fits_budget" in block
     assert "_causal_contract_report" in block, "re-checked after trimming, not assumed fixed"
     assert "break" in block, "a draft that now passes must not be replanned anyway"
+
+
+def test_repairing_an_overreaching_hook_updates_the_hook_field_too(monkeypatch):
+    """The hook lives twice: in script["hook"] and prepended to the scene it opens.
+
+    Repairing only the narration leaves the over-reaching sentence in the field the description,
+    the thumbnail and the next finalize_narration all read -- and finalize_narration would put it
+    straight back into the narration it was just cut from.
+    """
+    script = {"hook": "Officials paid a cent per rat tail and bred more rats.",
+              "scenes": [{"scene_id": "event_01", "beat_id": "event_01", "evidence_id": "e01",
+                          "narration": "Officials paid a cent per rat tail and bred more rats. "
+                                       "The sewers filled.",
+                          "event": {"text": "Officials paid a bounty per rat tail."},
+                          "claim_refs": [{"claim_id": "c08", "evidence_id": "e01",
+                                          "narration_phrase": "The sewers filled."}]}]}
+    dossier = {"claims": [{"claim_id": "c08", "claim": "A bounty was paid per rat tail."}]}
+    report = {"errors": [{"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                          "message": "promises more than the events deliver",
+                          "unsupported_details": ["a cent per rat tail (specific amount)"]}]}
+
+    class _Messages:
+        def create(self, **call):
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 300, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "evidence_id": "e01",
+                     "narration": "Officials paid a bounty per rat tail and bred more rats. "
+                                  "The sewers filled.",
+                     "claim_refs": [{"claim_id": "c08", "evidence_id": "e01",
+                                     "narration_phrase": "The sewers filled."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0
+    assert "a cent" not in repaired["scenes"][0]["narration"]
+    assert repaired["hook"] == "Officials paid a bounty per rat tail and bred more rats.", \
+        "the hook field follows the repaired sentence, not the old one"

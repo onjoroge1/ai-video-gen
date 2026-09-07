@@ -4017,6 +4017,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # stopped at and the exact details it added -- and until now nothing consumed either. A
         # render was refused for "Rows of pens" against an event that says people bred rats.
         "NARRATION_EXCEEDS_EVENT",
+        # The hook overshoots the same way and is repaired the same way. It is addressed to the
+        # scene it opens, because that is where the narrator reads it and where the trim has to
+        # land; `script["hook"]` is re-derived from the repaired sentence below.
+        "HOOK_EXCEEDS_STORY",
     }
     errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
     scenes_now = script.get("scenes") or []
@@ -4029,7 +4033,9 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                 by_beat.setdefault(_s(scene.get(key)), position)
     for item in errors:
         marker = item.get("scene")
-        if isinstance(marker, str) and not marker.isdigit():
+        if marker == "hook":
+            item["scene"] = 1 if scenes_now else 0
+        elif isinstance(marker, str) and not marker.isdigit():
             item["scene"] = by_beat.get(marker, 0)
     if not errors or any(item.get("code") not in repairable or not item.get("scene")
                          for item in errors):
@@ -4101,6 +4107,15 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             seen.add(index)
         if seen != set(indexes):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
+        # The hook lives twice: in `script["hook"]` and prepended to the scene it opens. Repairing
+        # only the narration leaves the old, over-reaching sentence in the field that the
+        # description, the thumbnail and the next finalize_narration all read from -- and
+        # finalize_narration would put it straight back into the narration it was just cut from.
+        if any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY" for error in errors):
+            opener = _s(candidate["scenes"][0].get("narration")).strip()
+            first = re.split(r"(?<=[.!?])\s+", opener, maxsplit=1)[0].strip()
+            if first:
+                candidate["hook"] = first
         cost = (response_cost + float(parse_cost or 0.0))
         return candidate, round(cost, 4)
     except Exception:
