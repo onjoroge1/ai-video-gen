@@ -23,6 +23,9 @@ class QuizCreativeContract:
     standalone_intro_sec: float = 0.0
     standalone_outro_sec: float = 0.0
     subscribe_teaser_sec: float = 0.0
+    # Round one's answer gets a short, high-energy snap instead of the gentle reveal drift used
+    # elsewhere. It replaces motion inside the existing reveal beat and never adds runtime.
+    first_reveal_impact: bool = True
 
     def estimated_duration(self, item_count: int, reveal_sec: float = 1.0,
                            final_reveal_sec: float = 1.8) -> float:
