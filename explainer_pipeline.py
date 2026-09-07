@@ -2370,6 +2370,8 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
         ledger = "\n".join(
             f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
         incentive = beat["incentive"]
+        suspicion_reason = suspect.get("why") or (
+            "Those citations do not appear to support what they are cited for.")
         prompt = (
             f'A beat sheet for "{question}" states the rule at the centre of the story as two '
             "propositions, each of which must be supported by the claims cited for it:\n\n"
@@ -2377,8 +2379,7 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
             f'    cited: {", ".join(incentive.get("measure_claim_refs") or []) or "(none)"}\n'
             f'  the goal was: {_s(incentive.get("stated_policy_goal") or incentive.get("actual_goal"))}\n'
             f'    cited: {", ".join(incentive.get("goal_claim_refs") or []) or "(none)"}\n\n'
-            f'{suspect.get("why") or "Those citations do not appear to support what they are "
-                                     "cited for."}\n\n'
+            f'{suspicion_reason}\n\n'
             f"THE FULL CLAIM LEDGER:\n{ledger}\n\n"
             "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids stating what a person had "
             "to hand over to be paid>\"],\"goal_claim_refs\":[\"<claim ids stating what the "
@@ -4587,9 +4588,8 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                           identity_by_silhouette: bool = False) -> dict:
     """Vision-verify object state and continuity. Invalid/unavailable judgment fails closed.
 
-    `identity_by_silhouette` changes WHAT counts as the same person, and exists because the
-    illustrated lane draws figures with blank faces on purpose — that is how the reference videos
-    hold one character across seventy shots without a face ever having to match.
+    `identity_by_silhouette` changes what counts as the same person: the illustrated lane
+    uses simplified facial detail and stable clothing, silhouette, headwear and prop anchors.
 
     Judged against a photoreal reference, those images were rejected for the very thing that makes
     them work: "target face is a blank featureless white oval, cannot match Alex's identity". A
@@ -4636,10 +4636,10 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         instruction = "TARGET EVIDENCE IMAGE ABOVE. Verify it against:\n"
         if identity_by_silhouette:
             instruction += (
-                "IDENTITY RULE FOR THIS IMAGE: the figures are drawn with blank or near-blank "
-                "faces by design. Do NOT judge human_identity_matches on facial features, hair, "
+                "IDENTITY RULE FOR THIS IMAGE: the figures have simplified facial detail "
+                "by design. Do NOT judge human_identity_matches on precise facial features, hair, "
                 "stubble or skin. Judge it on clothing colour, silhouette, headwear and carried "
-                "props against the reference. A blank face is correct and must not be a reason "
+                "props against the reference. Simplified facial detail must not be a reason "
                 "to fail. Set human_identity_matches false only when those anchors genuinely "
                 "differ.\n")
         content = [image_block(image_path), {
@@ -5059,6 +5059,7 @@ _NAMED_COLORS = {
     "mint": (150, 255, 210), "violet": (180, 150, 255), "purple": (190, 130, 255),
     "gold": (255, 205, 70), "orange": (255, 150, 60), "warm_yellow": (255, 225, 120),
     "warm_gold": (255, 210, 110), "pale_blue": (180, 215, 255), "navy": (12, 18, 40),
+    "terracotta": (230, 151, 117), "mineral_teal": (117, 198, 190),
 }
 
 # Per style-mode defaults used when Claude omits a color.
@@ -5067,6 +5068,7 @@ _MODE_PALETTE = {
     "scientific":  {"title": "white", "accent": "cyan",   "subtitle": "pale_blue"},
     "cinematic":   {"title": "cream", "accent": "gold",   "subtitle": "warm_gold"},
     "fun":         {"title": "white", "accent": "violet", "subtitle": "warm_yellow"},
+    "illustrated_ink": {"title": "cream", "accent": "terracotta", "subtitle": "mineral_teal"},
 }
 
 
@@ -6109,19 +6111,16 @@ def _assemble(
 
     # 3. Optional BG music mix
     if bg_music_path and os.path.exists(bg_music_path):
+        from illustrated_score import music_mix_filter
         mixed = os.path.join(tmp_dir, "_mixed.mp3")
         drops = [float(c.get("time_sec") or 0) for c in (audio_cues or [])
                  if c.get("type") == "music_drop"]
-        music_volume = "0.10"
-        for t in reversed(drops):
-            music_volume = f"if(between(t\\,{max(0, t - 0.2):.2f}\\,{t + 0.8:.2f})\\,0.018\\,{music_volume})"
         _run_ffmpeg([
             _ffmpeg_bin(), "-y",
             "-i", concat_audio,
             "-stream_loop", "-1", "-i", bg_music_path,
             "-filter_complex",
-            f"[0:a]volume=1.0[vo];[1:a]volume='{music_volume}':eval=frame[bg];"
-            "[vo][bg]amix=inputs=2:duration=first[mix]",
+            music_mix_filter(sum(durations), drops),
             "-map", "[mix]", "-c:a", "libmp3lame",
             mixed,
         ], timeout=180.0)
@@ -8720,6 +8719,7 @@ def run_explainer_pipeline(
         generation_manifest["pipeline_profile"] = "stable_standard_longform"
     if illustrated_story_on:
         generation_manifest["creative_lane"] = "illustrated_story_v1"
+        generation_manifest["creative_profile"] = illustrated_story_lane.CREATIVE_PROFILE
     if requested_motion_mode != resolved_motion_mode:
         generation_manifest["motion_fallback"] = {
             "requested": requested_motion_mode,
@@ -9292,6 +9292,31 @@ def run_explainer_pipeline(
         if stable_standard_longform and any(
                 state.get("include_bolt") for state in evidence_states) and not mascot_ok:
             log("Bolt reference unavailable; continuing without hard continuity enforcement.")
+
+    # A complete accepted story receives its own local score and channel palette. Explicit
+    # caller music is respected; an empty string requests narration only. No provider spend.
+    if illustrated_story_on:
+        style_mode = illustrated_story_lane.CAPTION_STYLE
+        for scene in scenes:
+            director = scene.get("text_director")
+            if isinstance(director, dict):
+                director.update(accent_color="terracotta", subtitle_color="mineral_teal")
+        if bg_music_path is None:
+            try:
+                from illustrated_score import render_score
+                bg_music_path, score_metadata = render_score(
+                    os.path.join(output_dir, "music"), question,
+                    _s(script.get("_story_engine")), min(3600, max(60, duration_sec * 1.4 + 15)))
+                generation_manifest["music"] = score_metadata
+                log("Music: original %s chamber theme, %s BPM; voice ducking enabled"
+                    % (score_metadata["spec"]["mood"], score_metadata["spec"]["tempo_bpm"]))
+            except Exception as exc:
+                generation_manifest["music"] = {"status": "unavailable", "reason": type(exc).__name__}
+                log("Music unavailable; continuing with narration: " + type(exc).__name__)
+        else:
+            generation_manifest["music"] = {
+                "status": "caller_supplied" if bg_music_path and os.path.isfile(bg_music_path) else "disabled"}
+        _write_generation_manifest(generation_manifest_path, generation_manifest)
 
     # Locked cartoon RENDER style + constraints. The render look is constant (cohesion);
     # the per-scene environment + dominant style_mode supply variety. We rely on the
@@ -10845,6 +10870,7 @@ def run_explainer_pipeline(
         "claim_report_path": claim_report_path,
         "audio_timing_report_path": audio_timing_report_path,
         "generation_manifest_path": generation_manifest_path,
+        "music": generation_manifest.get("music") or {"status": "disabled"},
         "evidence_plan_path": evidence_plan_path,
         "evidence_validation_path": evidence_validation_path,
         "continuity_pack_path": continuity_pack_path,

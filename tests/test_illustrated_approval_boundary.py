@@ -24,6 +24,19 @@ def test_recipe_rejects_provider_or_scope_drift():
             providers={'script': {'provider': 'openai', 'model': 'other'}}, cost_ceiling_usd=5)
 
 
+def test_approved_recipe_also_binds_the_visual_and_music_versions(monkeypatch):
+    import illustrated_score
+    providers = {'script': {'provider': 'anthropic', 'model': 'fixture'}}
+    payload = agent_actions.build_illustrated_payload(topic='Workshop', duration_sec=90,
+        creative_direction='Clear illustrated story', cost_ceiling_usd=5, providers=providers)
+    sha = agent_actions.illustrated_payload_hash(payload)
+    assert payload['creative_profile']['music'] == illustrated_score.SCORE_VERSION
+    monkeypatch.setattr(illustrated_score, 'SCORE_VERSION', 'changed_after_approval')
+    with pytest.raises(agent_actions.AgentActionConflict, match='recipe'):
+        agent_actions.validate_illustrated_payload(payload, expected_sha256=sha,
+            providers=providers, cost_ceiling_usd=5)
+
+
 def test_topic_entry_requires_approval_and_missing_keys_preserve_it(monkeypatch):
     _secure_environment(monkeypatch)
     monkeypatch.setenv('DURABLE_EXECUTION', '1')

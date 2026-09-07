@@ -368,4 +368,9 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
             assert json.loads(board_path.read_text())['validation']['passed']
             claim_path = Path(record['artifacts']['claims']['url'])
             assert json.loads(claim_path.read_text())['passed']
+            manifest = json.loads(Path(record['artifacts']['generation-manifest']['url']).read_text())
+            assert manifest['creative_profile'] == illustrated_story.CREATIVE_PROFILE
+            assert manifest['music']['status'] == 'ready'
+            assert manifest['music']['spec']['source'] == 'locally_composed'
+            assert manifest['music']['spec']['provider_cost_usd'] == 0
     anyio.run(run)

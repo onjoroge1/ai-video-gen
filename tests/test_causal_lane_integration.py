@@ -693,9 +693,9 @@ def test_the_illustrated_lane_judges_identity_by_silhouette_not_faces():
     source = inspect.getsource(ep.verify_evidence_asset)
     assert "identity_by_silhouette" in source
 
-    # The instruction must reach the model, and must say a blank face is not a failure.
+    # Simple facial detail remains compatible with the channel's own character design.
     assert "IDENTITY RULE FOR THIS IMAGE" in source
-    assert "blank face is correct" in source
+    assert "Simplified facial detail must not be a reason" in source
     assert "clothing colour, silhouette, headwear" in source
 
     # And it must be OFF by default, so the cinematic lane keeps its photoreal standard.

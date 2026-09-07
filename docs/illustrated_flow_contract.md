@@ -79,3 +79,44 @@ It must also report actual provider spend, output runtime, shot count, technical
 automatic/editorial grades or their unavailable status, and the final artifact. The previous
 five-sheet Hanoi result remains a failed baseline; offline fixtures do not replace it with a
 claimed 4/5 or 5/5 live success rate.
+
+## Music and visual identity
+
+New illustrated videos use `ink_cut_paper_v1`: ink contours, restrained crosshatching,
+flat gouache and cut-paper shapes, natural skin tones and a navy/teal/terracotta/ivory palette.
+Clothing, silhouette and prop anchors retain continuity. Caption accents follow this palette.
+The reference videos inform readability and pacing; their script wording, image sequence,
+round white character heads, parchment vignette and purple caption cards are not the template.
+This is a prompt/rendering change, not a measured claim about live image-model output.
+
+The normal illustrated request now supplies music automatically. `illustrated_score.py` composes
+and synthesizes a chamber-style bed locally, with piano, plucked and sustained string timbres.
+It uses no reference recording, downloaded samples or paid music provider. This is synthesized
+accompaniment, not a recorded orchestra or a promise of exclusive musical ownership.
+
+| Story engine | Musical direction |
+|---|---|
+| Backfiring solution | Wry minor-key plucks and piano |
+| Accumulating indictment | Slower, reflective strings and sparse piano |
+| Almost-happened plan | Curious major-key chamber pulse |
+| Accidental invention | Brighter discovery theme |
+| Power reversal | Measured minor-key tension |
+
+Topic, engine and score version select a repeatable theme; workers reuse checksum-verified WAVs.
+Different topics vary the theme, key and voicing. Repeat attempts for the same topic retain the
+same identity. FFmpeg normalizes voice/music separately, ducks the music under speech, applies
+the existing story-turn drops and fades the ending. The filter behavior is documented in
+[FFmpeg's sidechain compressor reference](https://ffmpeg.org/ffmpeg-filters.html#sidechaincompress).
+An explicit caller track overrides the default; `bg_music_path=""` disables it. A music-generation
+failure is recorded as unavailable and delivery continues with narration.
+
+The generation manifest records the actual score identity, settings, audio hash and status.
+The topic proposal's `illustrated_topic_v2` recipe includes the visual/music versions in its
+existing immutable hash. Older proposals must be recreated for this changed creative recipe;
+their approved payload is never silently changed. The approval card describes the included score.
+
+`tests/test_illustrated_score.py` checks the actual audio: duration, audible signal, clipping,
+fades, cache integrity, topic variation and measured voice/music separation after FFmpeg mixing.
+The compiled video-delivery fixture also requires a ready local score in the delivered manifest.
+A live human review is still needed for musical taste, voice balance on natural narration and
+visual distinctiveness on generated artwork.

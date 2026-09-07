@@ -15,10 +15,10 @@ import pathlib, sys, json
 root = pathlib.Path(sys.argv[1]).resolve()
 sys.path.extend(json.loads(sys.argv[2]))
 sys.path.insert(0, str(root))
-import app, durable_execution, illustrated_story, provider_readiness, reference_corpus
+import app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus
 import claim_entailment, cost_ledger, event_functions, prompt_contract
 import story_compiler, story_fact_model, story_planning
-for module in (app, durable_execution, illustrated_story, provider_readiness, reference_corpus,
+for module in (app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus,
                claim_entailment, cost_ledger, event_functions, prompt_contract,
                story_compiler, story_fact_model, story_planning):
     assert pathlib.Path(module.__file__).resolve().is_relative_to(root), module.__file__

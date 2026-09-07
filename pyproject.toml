@@ -29,6 +29,7 @@ py-modules = [
     "claim_verify",
     "hippo_recovery",
     "illustrated_story",
+    "illustrated_score",
     "provider_readiness",
     "reference_corpus",
     "render_cache",
