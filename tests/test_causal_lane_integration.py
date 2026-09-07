@@ -1437,3 +1437,46 @@ def test_the_claim_repair_runs_again_while_it_is_still_converging():
         "a pass that does not reduce the failures must be the last one"
     assert ep._CLAIM_REPAIR_PASSES >= 2 and ep._CLAIM_REPAIR_PASSES <= 4, \
         "a ceiling, and a small one — each pass is a paid provider call"
+
+
+def test_state_once_runs_on_a_fact_model_script_and_is_given_the_ceiling():
+    """The old rule was "a dossier means never rewrite", which is true of a PHRASE-bound script.
+
+    Under the fact model the binding is beat-level, each scene carries the event it may not exceed,
+    and rederive_narration_bindings plus the claim repair loop re-check every line afterwards.
+    Repetition scored 58 on the delivered render -- the weakest axis on both scorers -- and stating
+    a thing once is what this pass is for.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    gate = source[source.index("The old rule was \"a dossier means never rewrite\""):]
+    gate = gate[:gate.index("for i, s in enumerate(all_scenes):")]
+    assert '.get("event", {}).get("text")' in gate, \
+        "the pass is skipped only for a script with no events, not for any script with a dossier"
+
+    prompt = source[source.index("You are a ruthless script editor"):]
+    prompt = prompt[:prompt.index("Return ONLY JSON")]
+    assert "may assert nothing beyond" in prompt, "the ceiling reaches the editor"
+    assert "never more" in prompt and "NEW invented one" in prompt, \
+        "cutting repetition must not become licence to invent a fresh unsourced image"
+
+
+def test_the_dedupe_tags_each_line_with_the_event_it_may_not_exceed(monkeypatch):
+    beats = [{"beat": "b1", "event": {"text": "Officials paid a bounty per rat tail."}},
+             {"beat": "b2", "event": {"text": "People bred rats to earn it."}},
+             {"beat": "b3", "event": {}}, {"beat": "b4", "event": {"text": "Tails poured in."}}]
+    scenes = [{"narration": f"Line {i}."} for i in range(1, 5)]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 100, "output_tokens": 20})(),
+                "content": [type("C", (), {"text": json.dumps(
+                    {"narration": [f"Line {i}." for i in range(1, 5)]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep._dedupe_narration(scenes, beats, "throughline")
+    assert "may assert nothing beyond: Officials paid a bounty per rat tail." in seen["prompt"]
+    # A beat with no event carries no tag rather than an empty one.
+    assert "[may assert nothing beyond: ]" not in seen["prompt"]

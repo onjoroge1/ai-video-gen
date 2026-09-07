@@ -1553,8 +1553,16 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
     lines = [s.get("narration", "") for s in scenes]
     if len(lines) < 4:
         return scenes, 0.0
-    paired = "\n".join(f'{i+1}. [beat: {_s(beats[i].get("beat")) if i < len(beats) else "—"}] {lines[i]}'
-                       for i in range(len(lines)))
+    def _ceiling(index: int) -> str:
+        """The event this line may not exceed, when the sheet carries one."""
+        event = ((beats[index] or {}).get("event") or {}) if index < len(beats) else {}
+        return _s(event.get("text"))
+
+    paired = "\n".join(
+        f'{i+1}. [beat: {_s(beats[i].get("beat")) if i < len(beats) else "—"}]'
+        + (f' [may assert nothing beyond: {_ceiling(i)}]' if _ceiling(i) else "")
+        + f' {lines[i]}'
+        for i in range(len(lines)))
     sys = ("You are a ruthless script editor enforcing STATE-ONCE on an explainer narration. You get "
            "an ordered list of lines, each tagged with the single BEAT it should cover. Rewrite ONLY "
            "lines that (a) re-explain a concept already stated in an EARLIER line, (b) drift off their "
@@ -1567,7 +1575,17 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
            "'the restoration is not the original' tend to repeat there — keep ONE of each and rewrite "
            "the rest into DISTINCT closing reflections (or a forward-looking beat). Preserve order, "
            "EXACT count, tone, and approximate length. Never merge, drop, or add lines. Each entry is "
-           "the rewritten SPOKEN line ONLY — do NOT include the leading number or the '[beat: …]' tag. "
+           "the rewritten SPOKEN line ONLY — do NOT include the leading number or the '[beat: …]' "
+           "tag. "
+           # The ceiling travels with the line for the same reason the repair carries it: a
+           # rewrite told a sentence is repetitive but not what it may say instead reaches for a
+           # fresh image, and a fresh image is a new unsourced fact. Cutting repetition is
+           # subtractive here, not an invitation to invent.
+           "When a line carries a 'may assert nothing beyond' tag, that is the sourced fact it "
+           "rests on: your rewrite may state less than it, never more. Do not add a number, date, "
+           "place, material, quantity or named actor that the tag does not contain, and do not "
+           "replace a repeated image with a NEW invented one — cut it, or fall back to the "
+           "literal consequence. "
            'Return ONLY JSON: {"narration":[<exactly one line per input line, same order>]}.')
     try:
         r = _claude().messages.create(
@@ -3384,8 +3402,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         bi += per_batch
 
     # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
-    if research_dossier:
-        dc = 0.0  # claim-unaware rewrites would invalidate exact narration/source joins
+    # The old rule was "a dossier means never rewrite", because a claim-unaware edit destroys the
+    # exact narration/source joins the ledger checks. That is still true of a PHRASE-bound script.
+    # It is not true of one written under the fact model: there the binding is beat-level, each
+    # scene carries the event it may not exceed, and `rederive_narration_bindings` plus the claim
+    # repair loop re-check every line afterwards. So the pass runs, and it runs holding the
+    # ceiling -- repetition was the weakest axis on the delivered render (58) on both scorers, and
+    # stating a thing once is exactly what this pass is for.
+    if research_dossier and not any((beat or {}).get("event", {}).get("text") for beat in beats):
+        dc = 0.0
     else:
         all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
         cost += dc
