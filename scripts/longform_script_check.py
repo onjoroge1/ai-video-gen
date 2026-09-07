@@ -29,7 +29,7 @@ if __name__ == "__main__":
 import cost_ledger
 import explainer_pipeline as ep
 import illustrated_story as illustrated
-from longform_research import validate_claim_joins, validate_research_dossier
+from longform_research import validate_research_dossier
 from longform_retention import validate_longform_story
 from runtime_planner import plan_runtime
 
@@ -139,7 +139,12 @@ def run_sample(args, sample_id: int, log=print) -> dict:
             script, args.format, args.video_format, log)
         report["checks"]["structure_review"] = script["_story_structure_review"]
         report["stage"] = "claims_after_factcheck"
-        joins = validate_claim_joins(script, dossier)
+        # The ROUTED validator, which is what production calls. Calling validate_claim_joins
+        # directly ran the legacy phrase-overlap checker on a script written under the fact-model
+        # contract: it reported 22 claim_assertion_mismatch and scope_inflation failures on a
+        # script whose spine had just passed, for narration production never asks it to judge. A
+        # harness that measures a stage the pipeline does not run is measuring nothing.
+        joins = ep._validate_claims(script, dossier, costs)
         report["checks"][report["stage"]] = joins
         if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
             raise ValueError("Claim ledger failed after fact-check: " + json.dumps(joins.get("errors")))
@@ -153,7 +158,7 @@ def run_sample(args, sample_id: int, log=print) -> dict:
         report["checks"]["runtime"] = script["_runtime_plan"]
         ep.rederive_narration_bindings(script, log)
         report["stage"] = "claims_after_runtime"
-        joins = validate_claim_joins(script, dossier)
+        joins = ep._validate_claims(script, dossier, costs)
         report["checks"][report["stage"]] = joins
         if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
             raise ValueError("Claim ledger failed after runtime: " + json.dumps(joins.get("errors")))
