@@ -2887,7 +2887,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # say what each fact IS, so the roles are derived here and the labelling call is not made
         # at all -- one fewer paid provider call, and a deterministic answer instead of one that
         # moved across five measured sheets.
-        _roles = _compiler.compile_roles(beats, sheet_engine_id)
+        _roles = _compiler.compile_roles(beats, sheet_engine_id,
+                                         _spine_claims(research_dossier))
         if _roles["compiled"]:
             beats = _roles["beats"]
             for _beat in beats:

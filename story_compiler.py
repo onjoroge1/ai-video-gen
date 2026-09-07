@@ -51,7 +51,56 @@ def _state(beat: dict, side: str) -> str:
     return sfm._text(block.get(side)).strip()
 
 
-def derive_mechanism(intervention: dict) -> dict:
+def _claim_text(claims: dict, ref: str) -> str:
+    claim = (claims or {}).get(ref) or {}
+    return " ".join(sfm._text(claim.get(field)) for field in ("claim", "support_quote"))
+
+
+def _citations_mention(claims: dict, refs: list, phrase: str) -> bool:
+    """Do the cited claims talk about this at all?
+
+    A weak test on purpose. It does not decide whether the claims SUPPORT the sentence -- that is
+    Boundary A's job and it is the only thing qualified to say so. It asks the far cheaper
+    question of whether the citation is even on the subject, which is worth asking first because
+    the answer was no in five of five sampled sheets while the right claim sat in the dossier.
+    """
+    wanted = _distinctive(phrase, claims)
+    if not wanted or not claims:
+        return True
+    cited = set()
+    for ref in refs or []:
+        cited |= sfm._stems(_claim_text(claims, ref))
+    return bool(wanted & cited)
+
+
+def _distinctive(phrase: str, claims: dict) -> set:
+    """The stems in this phrase that are not the whole dossier's subject.
+
+    "a severed rat tail" shares "rat" with nearly every claim in a dossier about rats, and one
+    ubiquitous token was enough to pass the announcement off as evidence for what the clerk
+    accepted. The same shape as "and" certifying a China parallel case as a Hanoi mechanism, and
+    the same fix: a token that appears everywhere distinguishes nothing.
+    """
+    stems = sfm._stems(phrase)
+    if not stems or not claims:
+        return stems
+    everywhere = {stem for stem in stems
+                  if sum(1 for ref in claims if stem in sfm._stems(_claim_text(claims, ref)))
+                  > len(claims) / 2}
+    return stems - everywhere
+
+
+def _claims_that_mention(claims: dict, phrase: str, limit: int = 3) -> list:
+    wanted = sfm._stems(phrase)
+    scored = []
+    for ref, claim in (claims or {}).items():
+        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
+        if overlap:
+            scored.append((overlap, ref, sfm._text(claim.get("claim"))[:90]))
+    return [f"{ref}: {text}" for _, ref, text in sorted(scored, reverse=True)[:limit]]
+
+
+def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
     """The mechanism is `rewarded_measure != actual_goal`, and both halves must be sourced.
 
     `rewarded_measure` is a fact about the policy and 4 of 5 measured sheets already stated it
@@ -82,6 +131,21 @@ def derive_mechanism(intervention: dict) -> dict:
                            f"{incentive['rewarded_measure']!r} with no claim behind it. The "
                            "announcement and the proof actually accepted are different facts "
                            "from different sources, and the gap between them is the story"}
+    if not _citations_mention(claims, incentive["measure_claim_refs"],
+                              incentive["rewarded_measure"]):
+        # Measured on five sheets: the mechanism cited the announcement ("a bounty on every dead
+        # rat") and the tail COUNTS, while the claim saying a tail was accepted as proof sat
+        # unused in the same dossier. The evidence boundary refused it five times out of five and
+        # was right to. This says so before the judge is paid, and names the claim that fits.
+        nearest = _claims_that_mention(claims, incentive["rewarded_measure"])
+        return {"ok": False, "code": "MEASURE_CITES_THE_WRONG_CLAIM",
+                "message": f"beat {beat_id} says the reward was paid for "
+                           f"{incentive['rewarded_measure']!r} but cites "
+                           f"{', '.join(incentive['measure_claim_refs'])}, which do not mention "
+                           "it. What the policy was announced as and what was accepted as proof "
+                           "are different claims"
+                           + (f". Claims that do mention it: {'; '.join(nearest)}" if nearest
+                              else "")}
     if sfm._stems(incentive["rewarded_measure"]) == sfm._stems(incentive["actual_goal"]):
         return {"ok": False, "code": "NO_PROXY_GAP",
                 "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
@@ -129,7 +193,7 @@ def derive_reversal(setup: dict, compounds: dict) -> dict:
             "derived_from": [sfm._text(setup.get("beat_id")), sfm._text(compounds.get("beat_id"))]}
 
 
-def compile_roles(beats: list[dict], engine_id: str) -> dict:
+def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None) -> dict:
     """Assign every story role from the beats' factual functions. Nothing here asks a model."""
     mapping = ef.map_for(engine_id)
     if mapping is None:
@@ -183,7 +247,7 @@ def compile_roles(beats: list[dict], engine_id: str) -> dict:
 
     derived = []
     if len(interventions) == 1:
-        mechanism = derive_mechanism(interventions[0])
+        mechanism = derive_mechanism(interventions[0], claims)
         (derived.append(mechanism) if mechanism["ok"]
          else issues.append(sfm._issue(mechanism["code"], mechanism["message"])))
     setups = by_function.get(ef.ESTABLISHES_PROBLEM) or []

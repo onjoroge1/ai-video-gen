@@ -200,3 +200,43 @@ def test_the_prompt_asks_for_what_the_clerk_accepted_not_what_was_announced():
     block = block[:block.index('"goal_claim_refs"')]
     assert "accepted as proof" in block and "not what the policy was announced as" in block
     assert "severed rat tail" in block and "never" in block
+
+
+HANOI_CLAIMS = {
+    "c08": {"claim": "In April 1902 the colonial authorities announced a bounty on every dead rat."},
+    "c09": {"claim": "The bounty was extended to anyone in the city who brought a rat tail to the "
+                     "authorities after civil servants declined to handle thousands of corpses."},
+    "c10": {"claim": "The number of tails handed in climbed into the thousands within days."},
+    "c05": {"claim": "French medical experts feared the plague reaching Hanoi and wanted the rat "
+                     "population reduced."},
+}
+
+
+def test_the_mechanism_must_cite_a_claim_that_is_at_least_about_the_proof():
+    """Five of five sheets cited the announcement while the right claim sat unused."""
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail",
+                                     "measure_claim_refs": ["c08"],
+                                     "actual_goal": "fewer rats in the city",
+                                     "goal_claim_refs": ["c05"]})
+    result = sc.derive_mechanism(beat, HANOI_CLAIMS)
+    assert result["code"] == "MEASURE_CITES_THE_WRONG_CLAIM"
+    assert "c09" in result["message"], "the message names the claim that would work"
+
+
+def test_citing_the_right_claim_compiles():
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail",
+                                     "measure_claim_refs": ["c09"],
+                                     "actual_goal": "fewer rats in the city",
+                                     "goal_claim_refs": ["c05"]})
+    assert sc.derive_mechanism(beat, HANOI_CLAIMS)["ok"]
+
+
+def test_the_citation_check_is_a_pre_filter_not_a_verdict():
+    """It asks whether a citation is on the subject. Only Boundary A says whether it supports."""
+    assert sc._citations_mention(None, ["c08"], "a severed rat tail"), "no claims -> no opinion"
+    assert sc._citations_mention(HANOI_CLAIMS, ["c09"], "")
+    # "tail" is distinguishing and c10 has it, so this passes the pre-filter. Whether counting
+    # tails proves a tail was ACCEPTED as proof is a question only the judge answers.
+    assert sc._citations_mention(HANOI_CLAIMS, ["c10"], "a severed rat tail")
+    # "rat" is in every claim in a dossier about rats, so it distinguishes nothing.
+    assert sc._distinctive("a severed rat tail", HANOI_CLAIMS) == {"sever", "tail"}
