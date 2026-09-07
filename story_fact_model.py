@@ -321,7 +321,19 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         # 4. The claim must be the right KIND for this beat. A mechanism claim explains why
         #    something happened; it does not evidence that it happened.
         accepted = accepted_claim_kinds(role)
-        if claims is not None and role:
+        # A DERIVED beat is exempt. The gate exists to catch a PLANNER binding the wrong kind of
+        # claim to a role it chose -- a mechanism claim cited as evidence that something happened.
+        # A derived beat has no such binding to catch: its role was computed from the facts, and
+        # its citations are the facts the computation ran on. The derived mechanism is exactly
+        # this case and it is the whole design: "the reward was paid for X" and "the goal was Y"
+        # are an event claim and a context claim, and the mechanism is the gap between them, not a
+        # claim anyone labelled `mechanism`. Enforcing the old rule here made the fact model
+        # reject the compiler's output for being built the way the compiler builds it, in 5 of 5
+        # sheets -- and because the beat was then skipped for structure, it never reached the
+        # evidence boundary and the citation repair could not fire.
+        if beat.get("derived_from"):
+            accepted = ()
+        if claims is not None and role and not beat.get("derived_from"):
             for claim_id in event["claim_refs"]:
                 claim = claims.get(claim_id) or {}
                 # No label, an explicit unknown, a doubted one, or one that barely beat its nearest

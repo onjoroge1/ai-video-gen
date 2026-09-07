@@ -3018,6 +3018,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _mech_ids = {_s(b.get("beat_id")) for b in _sb if _s(b.get("role")) == "mechanism"}
         _mech_failed = next((row for row in _spine["cascade"]["evidence"]
                              if row.get("beat_id") in _mech_ids), None)
+        if not _mech_failed and not _spine["passed"] and "mechanism" in (
+                _spine["coverage"]["missing"] or []):
+            # Said out loud. The repair silently not firing is how two evaluations were spent
+            # without testing the thing they were meant to test.
+            print("[roles] the mechanism is missing but the evidence boundary returned no verdict "
+                  "on it, so no citation repair is possible — see the structural issues above")
         if _mech_failed and not _spine["passed"] and _claims_for_roles:
             _source = next((_s((b.get("derived_from") or [""])[0]) for b in _sb
                             if _s(b.get("beat_id")) == _mech_failed["beat_id"]), "")
