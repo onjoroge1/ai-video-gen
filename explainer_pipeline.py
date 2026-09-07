@@ -3959,7 +3959,17 @@ _CLAIM_REPAIR_SYSTEM = (
     "an unsupported assertion rather than inventing evidence. If a factual scene is anaphoric "
     "(for example, 'It worked'), use the read-only neighbouring context to identify its subject, "
     "then replace it with a self-contained proposition supported by a supplied claim. A factual "
-    "scene may not return an empty claim_refs list. Return only JSON."
+    "scene may not return an empty claim_refs list. "
+    # NARRATION_EXCEEDS_EVENT is a different repair from the binding ones and needs saying
+    # separately: the sentence is not mis-cited, it is too big. The failure arrives with the
+    # supported core the boundary would have accepted and the exact details that overshot it, so
+    # the instruction is subtractive. "Rows of pens" is the measured case -- a real image, no
+    # source, and cutting it costs the sentence nothing.
+    "When a scene fails NARRATION_EXCEEDS_EVENT, its narration claims more than its `event` "
+    "states. Rewrite that scene to assert nothing beyond the event: cut the listed unsupported "
+    "details rather than hedging them, and keep the writing vivid in HOW it says what remains. "
+    "Imagery, rhythm and voice are free; new facts are not. Do not add a number, date, place, "
+    "material, quantity or named actor that the event does not contain. Return only JSON."
 )
 
 
@@ -3974,8 +3984,25 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "claim_phrase_not_in_narration", "claim_assertion_mismatch", "unhedged_speculation",
         "scope_inflation", "timescale_contradiction", "unbound_factual_scene",
         "missing_evidence_join", "claim_evidence_mismatch",
+        # The fact model's own verdict. Narration that overshoots its event is the most repairable
+        # failure this pipeline produces -- the boundary returns the supported core it should have
+        # stopped at and the exact details it added -- and until now nothing consumed either. A
+        # render was refused for "Rows of pens" against an event that says people bred rats.
+        "NARRATION_EXCEEDS_EVENT",
     }
     errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    scenes_now = script.get("scenes") or []
+    # The fact-model codes address a scene by beat_id ("event_04"), the older ones by 1-based
+    # index. Resolved here so one repair path serves both rather than two paths drifting apart.
+    by_beat = {}
+    for position, scene in enumerate(scenes_now, 1):
+        for key in ("beat_id", "scene_id"):
+            if _s(scene.get(key)):
+                by_beat.setdefault(_s(scene.get(key)), position)
+    for item in errors:
+        marker = item.get("scene")
+        if isinstance(marker, str) and not marker.isdigit():
+            item["scene"] = by_beat.get(marker, 0)
     if not errors or any(item.get("code") not in repairable or not item.get("scene")
                          for item in errors):
         return script, 0.0
@@ -3990,6 +4017,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "scenes": [{"scene": index,
             "previous_narration": _s(scenes[index - 2].get("narration")) if index > 1 else "",
             "next_narration": _s(scenes[index].get("narration")) if index < len(scenes) else "",
+            # The event is the ceiling. Without it the repair is told a sentence is wrong and not
+            # what it is allowed to say instead, which is how a rewrite trades one overshoot for
+            # another.
+            "event": (scenes[index - 1].get("event") or {}).get("text", ""),
             **{
             key: scenes[index - 1].get(key)
             for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")

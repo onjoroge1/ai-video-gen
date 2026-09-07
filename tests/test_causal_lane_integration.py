@@ -1176,3 +1176,53 @@ def test_the_repair_asks_for_both_halves_of_the_mechanism():
     block = block[:block.index("def _generate_script_chunked")]
     assert "measure_claim_refs" in block and "goal_claim_refs" in block
     assert "COUNTING how many were handed in" in block, "name the claim that keeps being cited"
+
+
+def test_a_narration_that_overshoots_its_event_is_repaired_not_only_refused(monkeypatch):
+    """The fidelity boundary returns the core to stop at and the details that overshot. Nothing
+    consumed either, so a render was refused for "Rows of pens" against an event saying people
+    bred rats -- a real image, no source, and cutting it costs the sentence nothing.
+    """
+    script = {"scenes": [
+        {"scene_id": "event_07", "beat_id": "event_07", "narration": "Rows of pens. They bred rats.",
+         "causal_role": "reversal", "evidence_id": "e07",
+         "event": {"text": "People bred rats on the outskirts to earn the bounty."},
+         "claim_refs": [{"claim_id": "c14", "evidence_id": "e07",
+                         "narration_phrase": "They bred rats."}]}]}
+    dossier = {"claims": [{"claim_id": "c14", "claim": "People bred rats to earn the bounty."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07",
+                          "message": "asserts more than its event",
+                          "supported_core": "People bred rats on the outskirts.",
+                          "unsupported_details": ["Rows of pens"]}]}
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["payload"] = call["messages"][0]["content"]
+            seen["system"] = call["system"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 900, "output_tokens": 60})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "narration": "On the outskirts, they bred rats.",
+                     "evidence_id": "e07",
+                     "claim_refs": [{"claim_id": "c14", "evidence_id": "e07",
+                                     "narration_phrase": "On the outskirts, they bred rats."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0 and "Rows of pens" not in repaired["scenes"][0]["narration"]
+    # The repair is told what it MAY say, not only that it was wrong.
+    assert "People bred rats on the outskirts to earn the bounty." in seen["payload"]
+    assert "NARRATION_EXCEEDS_EVENT" in seen["system"] and "Imagery, rhythm and voice are free" in seen["system"]
+
+
+def test_a_beat_id_addressed_failure_resolves_to_its_scene():
+    """The fact model addresses scenes by beat_id; the older codes use a 1-based index."""
+    script = {"scenes": [{"beat_id": "event_01", "narration": "One."},
+                         {"beat_id": "event_07", "narration": "Two."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07"}]}
+    # An unresolvable id must refuse the repair rather than silently rewriting scene 0.
+    ep.repair_claim_join_failures(script, {"claims": []}, report)
+    assert report["errors"][0]["scene"] == 2
+    ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}
+    assert ep.repair_claim_join_failures(script, {"claims": []}, ghost) == (script, 0.0)
