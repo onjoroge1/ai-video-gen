@@ -1419,3 +1419,21 @@ def test_repairing_an_overreaching_hook_updates_the_hook_field_too(monkeypatch):
     assert "a cent" not in repaired["scenes"][0]["narration"]
     assert repaired["hook"] == "Officials paid a bounty per rat tail and bred more rats.", \
         "the hook field follows the repaired sentence, not the old one"
+
+
+def test_the_claim_repair_runs_again_while_it_is_still_converging():
+    """One pass took a render from five narration overshoots to one, then refused for the survivor.
+
+    Each pass rewrites only the scenes still failing, so a second pass on a shrinking list is a
+    smaller job rather than a retry of the one that just ran. Gated on the count going DOWN: a
+    repair that fixes nothing, or trades one overshoot for another, stops immediately.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("REPAIR WHILE IT IS CONVERGING"):]
+    block = block[:block.index("claim_validation = _validate_claims(script, research_dossier",
+                               block.index("_after_count"))]
+    assert "_CLAIM_REPAIR_PASSES" in block, "bounded by a named ceiling, not an open loop"
+    assert "if _after_count >= _before_count:" in block and "break" in block, \
+        "a pass that does not reduce the failures must be the last one"
+    assert ep._CLAIM_REPAIR_PASSES >= 2 and ep._CLAIM_REPAIR_PASSES <= 4, \
+        "a ceiling, and a small one — each pass is a paid provider call"

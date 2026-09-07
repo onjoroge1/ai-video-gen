@@ -7557,6 +7557,9 @@ _SCRIPT_ELEVATE_PASSES = int(os.environ.get("SCRIPT_ELEVATE_PASSES", "2"))
 # Structural retries happen before the subjective engagement grader. One re-plan is usually enough
 # to repair a missing prediction/payoff/loop while keeping provider cost bounded.
 _LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"))
+# Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
+# the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
+_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
 
 
 def _script_gate_hard() -> bool:
@@ -9079,20 +9082,36 @@ def run_explainer_pipeline(
         if video_format != "social":
             claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
-            if not claim_validation.get("passed"):
+            # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
+            # five narration overshoots to one -- "baskets of tails swelled and swelled" -- and
+            # then stopped and refused the render for the survivor. Each pass rewrites only the
+            # scenes still failing, so a second pass on a shrinking list is a different and
+            # smaller job, not a retry of the one that just ran.
+            #
+            # Gated on the count going DOWN. A repair that fixes nothing, or trades one overshoot
+            # for another, stops immediately rather than buying another call to find that out.
+            for _repair_pass in range(_CLAIM_REPAIR_PASSES):
+                if claim_validation.get("passed"):
+                    break
+                _before_count = len(claim_validation.get("errors") or [])
                 repaired_script, repair_cost = repair_claim_join_failures(
                     script, research_dossier, claim_validation,
                     operator_direction=operator_direction)
-                if repair_cost:
-                    script = repaired_script
-                    script["_script_cost_usd"] = round(
-                        float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
-                    rederive_narration_bindings(script, log, research_dossier)
-                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
-                    script["_claim_validation"] = claim_validation
-                    scenes = script.get("scenes", [])
-                    log("Claim ledger repair: "
-                        + ("PASS" if claim_validation.get("passed") else "still failing"))
+                if not repair_cost:
+                    break
+                script = repaired_script
+                script["_script_cost_usd"] = round(
+                    float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+                rederive_narration_bindings(script, log, research_dossier)
+                claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                script["_claim_validation"] = claim_validation
+                scenes = script.get("scenes", [])
+                _after_count = len(claim_validation.get("errors") or [])
+                log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
+                    + ("PASS" if claim_validation.get("passed")
+                       else f"{_before_count} -> {_after_count} failing"))
+                if _after_count >= _before_count:
+                    break
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
