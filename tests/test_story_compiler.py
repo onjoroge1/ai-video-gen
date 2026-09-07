@@ -212,15 +212,33 @@ HANOI_CLAIMS = {
 }
 
 
-def test_the_mechanism_must_cite_a_claim_that_is_at_least_about_the_proof():
-    """Five of five sheets cited the announcement while the right claim sat unused."""
+def test_a_suspect_citation_is_flagged_for_repair_and_does_not_block():
+    """Five of five sheets cited the announcement while the right claim sat unused.
+
+    Flagged, never refused. The check is a relevance heuristic: a claim saying "caudal appendage"
+    would support "tail" while sharing no vocabulary with it, so a false positive here must not be
+    able to kill a story whose citation is fine. Boundary A still rules.
+    """
     beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail",
                                      "measure_claim_refs": ["c08"],
                                      "actual_goal": "fewer rats in the city",
                                      "goal_claim_refs": ["c05"]})
     result = sc.derive_mechanism(beat, HANOI_CLAIMS)
-    assert result["code"] == "MEASURE_CITES_THE_WRONG_CLAIM"
-    assert "c09" in result["message"], "the message names the claim that would work"
+    assert result["ok"], "a suspicion is not a verdict"
+    assert result["suspect"]["code"] == "MEASURE_CITATION_SUSPECT"
+    assert "c09" in result["suspect"]["message"], "candidates are surfaced, not certified"
+    assert "not a ruling on support" in result["suspect"]["message"]
+
+
+def test_a_flagged_sheet_still_compiles_so_the_judge_gets_the_last_word():
+    beats = list(HANOI)
+    beats[1] = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail",
+                                         "measure_claim_refs": ["c08"],
+                                         "actual_goal": "fewer rats in the city",
+                                         "goal_claim_refs": ["c05"]})
+    out = sc.compile_roles(beats, "backfiring_solution", HANOI_CLAIMS)
+    assert out["passed"] and len(out["suspicions"]) == 1
+    assert "MEASURE_CITATION_SUSPECT" in sc.summary(out)
 
 
 def test_citing_the_right_claim_compiles():
@@ -228,7 +246,8 @@ def test_citing_the_right_claim_compiles():
                                      "measure_claim_refs": ["c09"],
                                      "actual_goal": "fewer rats in the city",
                                      "goal_claim_refs": ["c05"]})
-    assert sc.derive_mechanism(beat, HANOI_CLAIMS)["ok"]
+    result = sc.derive_mechanism(beat, HANOI_CLAIMS)
+    assert result["ok"] and result["suspect"] is None
 
 
 def test_the_citation_check_is_a_pre_filter_not_a_verdict():

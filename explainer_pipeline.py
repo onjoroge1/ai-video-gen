@@ -2342,6 +2342,58 @@ def _charge(sink, stage: str, amount: float, detail: str = "") -> float:
     return amount
 
 
+def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
+                                question: str) -> tuple[list, float]:
+    """Re-ask ONLY for the citations a relevance check flagged, and only once.
+
+    Not a replan. A full re-plan would re-roll every beat to fix one field, and the sheet around
+    the flagged beat has already been paid for and has already passed. This sends the beat, its
+    current incentive block, the concern and the candidate claims, and takes back a corrected
+    citation list -- nothing else about the beat may move.
+
+    Best-effort by construction: the flagged mechanism compiles either way, so a failed or
+    unparseable repair leaves the original citations to face the evidence boundary on their own
+    merits. That matters because the check that raised the concern cannot rule on entailment --
+    a claim saying "caudal appendage" would support "tail" while sharing no vocabulary with it.
+    """
+    by_id = {_s(beat.get("beat_id")): beat for beat in beats or []}
+    cost = 0.0
+    for suspect in suspicions or []:
+        beat = by_id.get(suspect.get("beat_id"))
+        if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
+            continue
+        ledger = "\n".join(
+            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
+        prompt = (
+            f'A beat sheet for "{question}" says this about the rule at its centre:\n\n'
+            f'  the reward was paid for: {suspect["phrase"]}\n'
+            f'  cited claims: {", ".join(suspect["cited"]) or "(none)"}\n\n'
+            "Those claims do not appear to mention what the reward was actually paid for. That "
+            "may be a wording difference rather than a mistake -- judge it yourself.\n\n"
+            f"THE FULL CLAIM LEDGER:\n{ledger}\n\n"
+            "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids that state what a person "
+            "had to hand over to be paid>\"],\"unchanged\":true|false}. Set unchanged to true "
+            "and repeat the current ids if they are already the right ones. Cite only claims "
+            "that state what was ACCEPTED AS PROOF -- a claim announcing the reward, or one "
+            "counting how many were handed in, is a different fact. Change nothing else.")
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_SYSTEM,
+                messages=[{"role": "user", "content": prompt}])
+            cost += _msg_cost(response.usage)
+            reply, parse_cost = _parse_script_json(response.content[0].text)
+            cost += parse_cost
+            refs = [_s(ref) for ref in (reply.get("measure_claim_refs") or []) if _s(ref)]
+            if refs and set(refs) <= set(claims):
+                beat["incentive"] = dict(beat["incentive"], measure_claim_refs=refs)
+                print(f"[roles] {suspect['beat_id']} measure citations "
+                      f"{', '.join(suspect['cited']) or '(none)'} -> {', '.join(refs)}")
+        except Exception as exc:                      # noqa: BLE001 - repair is best-effort
+            print(f"[roles] citation repair unavailable ({type(exc).__name__}); "
+                  "the original citations go to the evidence boundary unchanged")
+    return beats, cost
+
+
 def _generate_script_chunked(question, duration_sec, style, image_guidance, n_scenes, series="",
                              improve_note="", operator_direction="",
                              story_format="standard_explainer",
@@ -2887,8 +2939,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # say what each fact IS, so the roles are derived here and the labelling call is not made
         # at all -- one fewer paid provider call, and a deterministic answer instead of one that
         # moved across five measured sheets.
-        _roles = _compiler.compile_roles(beats, sheet_engine_id,
-                                         _spine_claims(research_dossier))
+        _claims_for_roles = _spine_claims(research_dossier)
+        _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+        # A suspected citation mismatch is worth a correction, not an early exit. Measured: five
+        # of five sheets derived a true mechanism from claims that did not mention what it
+        # asserted, while the claim that did sat unused in the same dossier. Refusing those five
+        # earlier would have saved money and left the blocker exactly where it was. One bounded
+        # re-ask, and whatever comes back is judged by the evidence boundary like anything else --
+        # the heuristic that noticed the problem never gets to certify the answer.
+        if _roles.get("suspicions") and _claims_for_roles:
+            beats, _repair_cost = _repair_incentive_citations(
+                beats, _roles["suspicions"], _claims_for_roles, question)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _repair_cost, "citation repair")
+            _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
         if _roles["compiled"]:
             beats = _roles["beats"]
             for _beat in beats:

@@ -1116,3 +1116,63 @@ def test_the_event_rules_do_not_excuse_the_roles_the_spine_requires():
     assert "REQUIRED_SPINE_ROLES" in rule, \
         "F3 must exempt the required roles, naming them from the list that defines them"
     assert "MUST carry an event" in rule
+
+
+def test_a_suspect_citation_is_repaired_and_re_judged_not_merely_refused_earlier(monkeypatch):
+    """Rejecting five attempts earlier is cheaper and leaves the blocker exactly where it was."""
+    claims = {"c08": {"claim": "Authorities announced a bounty on every dead rat."},
+              "c09": {"claim": "The bounty was extended to anyone who brought a rat tail."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a severed rat tail",
+                                                  "measure_claim_refs": ["c08"],
+                                                  "actual_goal": "fewer rats",
+                                                  "goal_claim_refs": ["c05"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a severed rat tail", "cited": ["c08"],
+                   "candidates": ["c09: ..."], "code": "MEASURE_CITATION_SUSPECT",
+                   "message": "..."}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 900, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, cost = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c09"]
+    assert cost > 0, "the repair is charged like any other provider call"
+    assert "ACCEPTED AS PROOF" in seen["prompt"] and "c09" in seen["prompt"]
+
+
+def test_an_unusable_repair_leaves_the_original_citations_for_the_judge(monkeypatch):
+    """The heuristic that raised the concern must never get to decide the outcome."""
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a tail",
+                                                  "measure_claim_refs": ["c08"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a tail", "cited": ["c08"], "candidates": []}]
+
+    class _Messages:
+        def create(self, **call):
+            raise RuntimeError("provider down")
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c08"], "unchanged, not dropped"
+
+
+def test_a_repair_cannot_invent_a_claim_id(monkeypatch):
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "beat_02", "incentive": {"rewarded_measure": "a tail",
+                                                  "measure_claim_refs": ["c08"]}}]
+    suspicions = [{"beat_id": "beat_02", "phrase": "a tail", "cited": ["c08"], "candidates": []}]
+
+    class _Messages:
+        def create(self, **call):
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 10, "output_tokens": 5})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c99"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c08"], "a ref outside the ledger is refused"

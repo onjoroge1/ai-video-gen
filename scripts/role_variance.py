@@ -87,6 +87,60 @@ def function_stability(fixture: dict, reports: list[Path]) -> dict:
             "covered_spines": spines, "fully_judged": judged, "computed_reversals": inverted}
 
 
+def acceptance(reports) -> str:
+    """The five conditions, and how many sheets satisfy all of them AT ONCE.
+
+    Reported per sheet rather than per condition because four separate 4/5s can still be 0/5
+    together, and it is the joint figure that decides whether narration may be bought.
+    """
+    import story_fact_model as _sfm
+    rows, spend = [], 0.0
+    for path in reports:
+        payload = json.loads(Path(path).read_text())
+        for sample in payload.get("samples") or []:
+            spend += float(sample.get("recorded_cost_usd") or 0)
+            spine = sample.get("spine") or {}
+            beats, compiled = spine.get("beats") or [], spine.get("compiled") or {}
+            if not beats:
+                rows.append({"sheet": sample.get("sample"), "reached_compiler": False})
+                continue
+            coverage = compiled.get("coverage") or {}
+            failing = set(compiled.get("still_failing") or [])
+            mech = next((b for b in beats if (b.get("role") or "") == "mechanism"), None)
+            rev = next((b for b in beats if (b.get("role") or "") == "reversal"), None)
+            rows.append({
+                "sheet": sample.get("sample"), "reached_compiler": True,
+                # every required function present AND its beat not failing the evidence boundary
+                "functions": bool(coverage.get("covered")),
+                # the two halves cited separately, and the mechanism beat not among the failures
+                "citations": bool(mech and _sfm.event_of(mech)["claim_refs"]),
+                "mechanism": bool(mech and _sfm._text(mech.get("beat_id")) not in failing),
+                "reversal": bool(rev and rev.get("derived_from")
+                                 and _sfm._text(rev.get("beat_id")) not in failing),
+            })
+    total = len(rows) or 1
+    def _count(key):
+        return sum(1 for row in rows if row.get(key))
+    joint = sum(1 for row in rows
+                if all(row.get(k) for k in ("functions", "citations", "mechanism", "reversal")))
+    lines = ["ACCEPTANCE", ""]
+    lines.append(f"  required event functions present and supported   {_count('functions')}/{total}")
+    lines.append(f"  measure and goal supported by their citations    {_count('citations')}/{total}")
+    lines.append(f"  derived mechanism passes Boundary A             {_count('mechanism')}/{total}")
+    lines.append(f"  reversal inverts a sourced property             {_count('reversal')}/{total}")
+    lines.append(f"  ALL OF THE ABOVE ON THE SAME SHEET              {joint}/{total}")
+    lines.append(f"  total spend including failures and repairs      ${spend:.2f}")
+    lines += ["", "Per sheet:"]
+    for row in rows:
+        if not row["reached_compiler"]:
+            lines.append(f"  sheet {row['sheet']}: never reached the compiler")
+            continue
+        marks = " ".join(f"{k}={'+' if row[k] else '-'}"
+                         for k in ("functions", "citations", "mechanism", "reversal"))
+        lines.append(f"  sheet {row['sheet']}: {marks}")
+    return "\n".join(lines)
+
+
 def render_stability(fixture: dict, result: dict) -> str:
     import event_functions as ef
     lines = [f"EVENT FUNCTION STABILITY ACROSS {result['sheets']} SHEETS", ""]
@@ -166,6 +220,9 @@ def main(argv=None):
         print(__doc__)
         return 2
     fixture = json.loads(Path(argv[0]).read_text())
+    if argv[1] == "--acceptance":
+        print(acceptance(argv[2:]))
+        return 0
     stability = argv[1] == "--functions"
     paths = [Path(p) for p in argv[(2 if stability else 1):]]
     if stability:

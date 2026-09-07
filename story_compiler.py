@@ -59,10 +59,17 @@ def _claim_text(claims: dict, ref: str) -> str:
 def _citations_mention(claims: dict, refs: list, phrase: str) -> bool:
     """Do the cited claims talk about this at all?
 
-    A weak test on purpose. It does not decide whether the claims SUPPORT the sentence -- that is
-    Boundary A's job and it is the only thing qualified to say so. It asks the far cheaper
-    question of whether the citation is even on the subject, which is worth asking first because
-    the answer was no in five of five sampled sheets while the right claim sat in the dossier.
+    A relevance heuristic and nothing more. It cannot establish support and it cannot establish
+    its absence, in either direction:
+
+        a claim saying "caudal appendage" shares no stem with "tail" and may support it exactly
+        a claim saying "tails were counted but not accepted for payment" shares the distinguishing
+        word and contradicts the assertion outright
+
+    So its output is a SUSPICION that drives a repair, never a verdict. Only Boundary A rules on
+    entailment. It is worth asking first because the answer was no in five of five sampled sheets
+    while the claim that fit sat unused in the same dossier -- a cheap prompt for a second look,
+    not a gate.
     """
     wanted = _distinctive(phrase, claims)
     if not wanted or not claims:
@@ -110,6 +117,7 @@ def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
     """
     incentive = incentive_of(intervention)
     beat_id = sfm._text((intervention or {}).get("beat_id"))
+    suspect = None
     if not incentive["rewarded_measure"] or not incentive["actual_goal"]:
         return {"ok": False, "code": "INTERVENTION_STATES_NO_INCENTIVE",
                 "message": f"beat {beat_id} changes the incentive but does not say what the rule "
@@ -131,6 +139,8 @@ def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
                            f"{incentive['rewarded_measure']!r} with no claim behind it. The "
                            "announcement and the proof actually accepted are different facts "
                            "from different sources, and the gap between them is the story"}
+    # NOT a failure. A false positive here would kill a story whose citation is fine, so the
+    # suspicion travels with the compiled mechanism and Boundary A still rules on it.
     if not _citations_mention(claims, incentive["measure_claim_refs"],
                               incentive["rewarded_measure"]):
         # Measured on five sheets: the mechanism cited the announcement ("a bounty on every dead
@@ -138,19 +148,22 @@ def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
         # unused in the same dossier. The evidence boundary refused it five times out of five and
         # was right to. This says so before the judge is paid, and names the claim that fits.
         nearest = _claims_that_mention(claims, incentive["rewarded_measure"])
-        return {"ok": False, "code": "MEASURE_CITES_THE_WRONG_CLAIM",
-                "message": f"beat {beat_id} says the reward was paid for "
-                           f"{incentive['rewarded_measure']!r} but cites "
-                           f"{', '.join(incentive['measure_claim_refs'])}, which do not mention "
-                           "it. What the policy was announced as and what was accepted as proof "
-                           "are different claims"
-                           + (f". Claims that do mention it: {'; '.join(nearest)}" if nearest
-                              else "")}
+        suspect = {
+            "code": "MEASURE_CITATION_SUSPECT", "beat_id": beat_id,
+            "field": "measure_claim_refs", "cited": list(incentive["measure_claim_refs"]),
+            "phrase": incentive["rewarded_measure"], "candidates": nearest,
+            "message": f"beat {beat_id} says the reward was paid for "
+                       f"{incentive['rewarded_measure']!r} and cites "
+                       f"{', '.join(incentive['measure_claim_refs'])}, which do not appear to "
+                       "mention it. What a policy was announced as and what was accepted as "
+                       "proof are usually different claims. This is a relevance check, not a "
+                       "ruling on support -- only the evidence boundary decides that"
+                       + (f". Candidates worth checking: {'; '.join(nearest)}" if nearest else "")}
     if sfm._stems(incentive["rewarded_measure"]) == sfm._stems(incentive["actual_goal"]):
         return {"ok": False, "code": "NO_PROXY_GAP",
                 "message": f"beat {beat_id} rewards the same thing it wants, so there is no "
                            "mechanism for the story to turn on"}
-    return {"ok": True, "role": "mechanism",
+    return {"ok": True, "role": "mechanism", "suspect": suspect,
             # Two positive propositions, not one negation. "Paid for tails, NOT for dead rats"
             # asks the evidence boundary to certify something no source states -- the archives
             # record what the bounty paid for, not what it declined to pay for -- and the derived
@@ -245,11 +258,15 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
             + ". Only the rule the story goes on to exploit belongs here; an earlier attempt to "
               "solve the problem directly is context"))
 
-    derived = []
+    derived, suspicions = [], []
     if len(interventions) == 1:
         mechanism = derive_mechanism(interventions[0], claims)
-        (derived.append(mechanism) if mechanism["ok"]
-         else issues.append(sfm._issue(mechanism["code"], mechanism["message"])))
+        if mechanism["ok"]:
+            derived.append(mechanism)
+            if mechanism.get("suspect"):
+                suspicions.append(mechanism["suspect"])
+        else:
+            issues.append(sfm._issue(mechanism["code"], mechanism["message"]))
     setups = by_function.get(ef.ESTABLISHES_PROBLEM) or []
     compounds = by_function.get(ef.COMPOUNDS_EXPLOIT) or []
     if setups and compounds:
@@ -258,7 +275,7 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
          else issues.append(sfm._issue(reversal["code"], reversal["message"])))
 
     return {"compiled": True, "engine": mapping.engine_id, "beats": out,
-            "derived": derived, "issues": issues,
+            "derived": derived, "issues": issues, "suspicions": suspicions,
             "roles": {b["beat_id"]: b.get("role", "") for b in out},
             "passed": not issues}
 
@@ -275,6 +292,8 @@ def summary(result: dict) -> str:
         lines += ["", f"  DERIVED {entry['role']}: {entry['event']['text'][:80]}",
                   f"      from {', '.join(entry['derived_from'])}  "
                   f"cites {', '.join(entry['event']['claim_refs']) or '-'}"]
+    for suspect in result.get("suspicions") or []:
+        lines += ["", f"  ? [{suspect['code']}] {suspect['message']}"]
     if result["issues"]:
         lines += ["", "Cannot compile:"]
         lines += [f"  ! [{i['code']}] {i['message']}" for i in result["issues"]]
