@@ -49,6 +49,25 @@ UNATTRIBUTED = "unattributed"
 SCRIPT_STAGES = (ENGINE_SELECT, BEAT_SHEET, CAUSAL_SPINE, BOUNDARY_A, BOUNDARY_B, EXPANSION)
 
 
+class StageCostSink(list):
+    """Collect a call's usage and immediately persist each response in the attempt ledger.
+
+    The returned subtotal is for the script's own accounting. Plain legacy list sinks are not
+    forwarded to, because their callers add that subtotal separately.
+    """
+
+    def __init__(self, ledger=None, stage=BOUNDARY_A):
+        super().__init__()
+        self.ledger = ledger if isinstance(ledger, CostLedger) else None
+        self.stage = stage
+
+    def append(self, amount):
+        amount = float(amount or 0)
+        super().append(amount)
+        if self.ledger is not None:
+            self.ledger.charge(self.stage, amount)
+
+
 class CostLedger:
     """A list of charges that can stand in for a `cost_sink` list.
 

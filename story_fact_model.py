@@ -23,11 +23,33 @@ misplaced comparison or an unbound assertion fails before a single judge call is
 """
 from __future__ import annotations
 
+from copy import deepcopy
+import hashlib
+import json
 import re
 from typing import Any
 
 
-SCHEMA_VERSION = "story_fact_model_v1"
+SCHEMA_VERSION = "story_fact_model_v2"
+
+
+def compiled_mechanism(beat: dict) -> bool:
+    """Recognize the compiler's conjunction of two separately evidence-bound assertions."""
+    derivation = beat.get("derivation") or {}
+    if (derivation.get("version") != "story_compiler_v2"
+            or derivation.get("kind") != "proxy_gap"
+            or (beat.get("causal_role") or beat.get("role")) != "mechanism"):
+        return False
+    parts = derivation.get("assertions") or {}
+    if set(parts) != {"measure", "goal"} or not derivation.get("source_ids"):
+        return False
+    if not all(isinstance(p, dict) and p.get("text") and p.get("claim_refs")
+               for p in parts.values()):
+        return False
+    event = event_of(beat)
+    return (event["text"] == " ".join(parts[k]["text"] for k in ("measure", "goal"))
+            and set(event["claim_refs"]) == set(parts["measure"]["claim_refs"]
+                                              + parts["goal"]["claim_refs"]))
 
 PRIMARY_STORY = "primary_story"
 PARALLEL_CASE = "parallel_case"
@@ -266,6 +288,10 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
     check is skipped rather than guessed at.
     """
     issues: list[dict] = []
+    ids = [_text(b.get("beat_id")) or f"beat_{i + 1:02d}" for i, b in enumerate(beats or [])]
+    for bid in set(ids):
+        if ids.count(bid) > 1:
+            issues.append(_issue("DUPLICATE_BEAT_ID", f"beat identity {bid} is repeated", beat_id=bid))
     case_only_claims = {}
     for case_id, claim_ids in (claims_by_case or {}).items():
         for claim_id in claim_ids or []:
@@ -306,7 +332,8 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
                         beat_id=beat_id, claim_id=claim_id))
 
         # 3. Historical assertion requires an event. Discourse does not.
-        if asserts_history(narration) and not event["text"]:
+        if (asserts_history(narration) and not event["text"]
+                and not (beat.get("presentation_device") and beat.get("context_refs"))):
             issues.append(_issue(
                 "ASSERTION_WITHOUT_EVENT",
                 f"beat {beat_id} narrates a historical specific with no event behind it; either "
@@ -317,6 +344,11 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
                 "EVENT_WITHOUT_EVIDENCE",
                 f"beat {beat_id} declares a factual event with no claim_refs",
                 beat_id=beat_id))
+        if claims is not None:
+            for ref in event["claim_refs"]:
+                if ref not in claims:
+                    issues.append(_issue("UNKNOWN_CLAIM_REF", f"beat {beat_id} cites unknown {ref}",
+                                         beat_id=beat_id, claim_id=ref))
 
         # 4. The claim must be the right KIND for this beat. A mechanism claim explains why
         #    something happened; it does not evidence that it happened.
@@ -331,9 +363,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         # reject the compiler's output for being built the way the compiler builds it, in 5 of 5
         # sheets -- and because the beat was then skipped for structure, it never reached the
         # evidence boundary and the citation repair could not fire.
-        if beat.get("derived_from"):
-            accepted = ()
-        if claims is not None and role and not beat.get("derived_from"):
+        if claims is not None and role and not compiled_mechanism(beat):
             for claim_id in event["claim_refs"]:
                 claim = claims.get(claim_id) or {}
                 # No label, an explicit unknown, a doubted one, or one that barely beat its nearest
@@ -392,7 +422,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         #     rhetorical device built from the story, not a new historical assertion — a measured
         #     sample gave its tool beat an event about Goodhart's 1975 law and marked it
         #     primary_story, which is neither this story nor a fact the close needs.
-        if role and not accepted and event["text"]:
+        if role in ("tool", "verdict") and event["text"]:
             issues.append(_issue(
                 "CLOSING_BEAT_ASSERTS_HISTORY",
                 f"beat {beat_id} is a {role} beat carrying a factual event; the close is built "
@@ -444,6 +474,7 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
     abstained = {row["beat_id"] for row in indeterminate}
 
     evidence, fidelity, skipped, unavailable = [], [], [], []
+    judgments, assertion_judgments = [], []
     for index, beat in enumerate(beats or []):
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
@@ -452,12 +483,39 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
             continue                       # discourse: nothing to evidence, nothing to exceed
         if beat_id in blocked:
             skipped.append(beat_id)
+            judgments.append({"beat_id": beat_id, "passed": False, "verdict": "structurally_blocked"})
             continue
 
         cited = [claims.get(ref) for ref in event["claim_refs"]] if claims else []
         cited = [claim for claim in cited if claim]
-        verdict = ce.evidence_entailment(cited, event["text"], judge=judge, cache=cache,
-                                         cost_sink=cost_sink)
+        if compiled_mechanism(beat):
+            parts = beat["derivation"]["assertions"]
+            results = []
+            for field, part in parts.items():
+                support = [claims[ref] for ref in part["claim_refs"] if ref in (claims or {})]
+                result = ce.evidence_entailment(support, part["text"], judge=judge,
+                                               cache=cache, cost_sink=cost_sink)
+                results.append(result)
+                assertion_judgments.append({"beat_id": beat_id, "field": field, "assertion": deepcopy(part),
+                    "fingerprint": ce.cache_key(support, part["text"]), **result})
+            failures = [v for v in results if not v["passed"]]
+            verdict = (dict(next((v for v in failures if ce.is_retryable(v)), failures[0]))
+                       if failures else {"passed": True, "verdict": "entailed",
+                           "supported_core": "", "unsupported_details": [],
+                           "reason": "both propositions independently supported"})
+            # Dropping a missing half would erase the relationship. Re-cite it or refuse it.
+            if failures:
+                verdict["supported_core"] = ""
+                verdict["unsupported_details"] = [
+                    f"{row['field']}: {row.get('reason', '')} "
+                    + "; ".join(row.get("unsupported_details") or [])
+                    for row in assertion_judgments if row["beat_id"] == beat_id and not row["passed"]]
+        else:
+            verdict = ce.evidence_entailment(cited, event["text"], judge=judge, cache=cache,
+                                             cost_sink=cost_sink)
+        judgments.append({"beat_id": beat_id, "event": deepcopy(event),
+                          "fingerprint": ce.cache_key(cited, event["text"]),
+                          **verdict})
         if ce.is_retryable(verdict):
             unavailable.append({"beat_id": beat_id, "stage": "evidence", **verdict})
             continue
@@ -465,10 +523,29 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
             evidence.append({"beat_id": beat_id, **verdict})
             continue
 
+    # Fidelity sees the accepted factual set, including facts a presentation device points to.
+    outcomes = {j["beat_id"]: j for j in judgments}
+    by_id = {_text(b.get("beat_id")) or f"beat_{i + 1:02d}": b
+             for i, b in enumerate(beats or [])}
+    for beat_id, beat in by_id.items():
         narration = _text(beat.get("narration"))
         if not narration:
             continue
-        told = ce.narration_fidelity(event["text"], narration, judge=judge, cache=cache,
+        event = event_of(beat)
+        ceiling = event["text"]
+        if beat.get("presentation_device") or beat.get("context_refs"):
+            refs = beat.get("context_refs") or []
+            if not refs or not all(outcomes.get(ref, {}).get("passed") for ref in refs):
+                fidelity.append({"beat_id": beat_id, "passed": False, "verdict": "unsupported",
+                                 "reason": "presentation context is not supported",
+                                 "unsupported_details": ["missing or unvalidated context"]})
+                continue
+            if event["text"] and not outcomes.get(beat_id, {}).get("passed"):
+                continue
+            ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs])
+        elif not outcomes.get(beat_id, {}).get("passed"):
+            continue
+        told = ce.narration_fidelity(ceiling, narration, judge=judge, cache=cache,
                                      cost_sink=cost_sink)
         if ce.is_retryable(told):
             unavailable.append({"beat_id": beat_id, "stage": "fidelity", **told})
@@ -493,6 +570,8 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         "beats_with_indeterminate_kinds": sorted(abstained),
         "structural": structural,
         "evidence": evidence,
+        "judgments": judgments,
+        "assertion_judgments": assertion_judgments,
         "fidelity": fidelity,
         # Judged nowhere, because the cheap layer already rejected them. Reported so the count is
         # never mistaken for a clean result.
@@ -529,12 +608,21 @@ CENTRAL_FUNCTIONS = {
 COLLAPSIBLE_ROLES = ("escalation", "generalization")
 # Roles a story can be told without. Context and comparison are enrichment: if the evidence does not
 # carry them, they are pruned rather than sourced harder or invented.
-OPTIONAL_ROLES = ("generalization",)
+OPTIONAL_ROLES = ("generalization", "context")
 # What a complete causal story must actually evidence. Raw supported/total is poor telemetry -- five
 # supported context beats with an unsupported reversal is a bad story, and five supported beats
 # carrying the whole mechanism is a good one.
 REQUIRED_SPINE_ROLES = ("setup", "intervention", "false_resolution", "mechanism",
                         "escalation", "reversal")
+
+
+def required_spine_roles(engine_id: str = "") -> tuple:
+    if engine_id:
+        import story_engines as engines
+        if engine_id in engines.ENGINES:
+            return tuple(r for r in engines.get(engine_id)["required"]
+                         if r not in ("hinge", "tool", "verdict"))
+    return REQUIRED_SPINE_ROLES
 
 
 def _state_signature(beat: dict) -> str:
@@ -583,7 +671,7 @@ def _content_words(text: str) -> set:
             if len(word) > 3 and word not in _FUNCTION_WORDS}
 
 
-def duplicate_event_functions(beats: list[dict]) -> list[dict]:
+def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[dict]:
     """Beats performing the same causal job twice.
 
     Compared on the state transition first and the event's content second, because two events can
@@ -595,6 +683,7 @@ def duplicate_event_functions(beats: list[dict]) -> list[dict]:
     Those are one beat. Wording similarity alone would miss it; the transition is the tell.
     """
     issues, seen = [], []
+    required = required_spine_roles(engine_id)
     for index, beat in enumerate(beats or []):
         beat = beat if isinstance(beat, dict) else {}
         role = _text(beat.get("role") or beat.get("causal_role")).lower()
@@ -614,8 +703,7 @@ def duplicate_event_functions(beats: list[dict]) -> list[dict]:
             # same sentence for its mechanism and its reversal, and collapsing them silently
             # removed the reversal, so the compiler reported the story as unsupported when the
             # real defect was that the planner never wrote a reversal at all.
-            if (prior_role != role and prior_role in REQUIRED_SPINE_ROLES
-                    and role in REQUIRED_SPINE_ROLES):
+            if (prior_role != role and prior_role in required and role in required):
                 issues.append(_issue(
                     "DUPLICATE_ACROSS_REQUIRED_ROLES",
                     f"{prior_role} and {role} describe the same state change, so the {role} is not "
@@ -660,7 +748,8 @@ def prune_unsupported_optional(beats: list[dict], failed_ids: set) -> tuple[list
     return kept, pruned
 
 
-def narrow_required_roles(beats: list[dict], verdicts: dict) -> tuple[list, list, list]:
+def narrow_required_roles(beats: list[dict], verdicts: dict,
+                          engine_id: str = "") -> tuple[list, list, list]:
     """Repair a required beat from its OWN evidence, and only when there is a core to keep.
 
     The free dossier search this replaces was unsound twice over. It picked the first verified claim
@@ -689,7 +778,7 @@ def narrow_required_roles(beats: list[dict], verdicts: dict) -> tuple[list, list
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
         role = _text(beat.get("role") or beat.get("causal_role")).lower()
         verdict = verdicts.get(beat_id) or {}
-        if role not in REQUIRED_SPINE_ROLES or not verdict or verdict.get("passed"):
+        if role not in required_spine_roles(engine_id) or not verdict or verdict.get("passed"):
             out.append(beat)
             continue
 
@@ -698,6 +787,7 @@ def narrow_required_roles(beats: list[dict], verdicts: dict) -> tuple[list, list
         if kind == "partially_entailed" and core:
             candidate = dict(beat, event={"text": core,
                                           "claim_refs": event_of(beat)["claim_refs"]})
+            candidate["beat"] = core
             holds, why = role_contract_holds(candidate)
             if holds:
                 narrowed.append({"beat_id": beat_id, "role": role,
@@ -780,7 +870,7 @@ _META_EVIDENCE = re.compile(
     r"(?:publish|writ|argu|document|record|not)\w*)", re.I)
 
 
-def spine_coverage(beats: list[dict], failed_ids: set) -> dict:
+def spine_coverage(beats: list[dict], failed_ids: set, engine_id: str = "") -> dict:
     """Which required causal functions the evidence actually supports.
 
     The gate that matters. A story whose setup, intervention, false resolution, mechanism,
@@ -788,7 +878,8 @@ def spine_coverage(beats: list[dict], failed_ids: set) -> dict:
     expendable beats that did not survive.
     """
     supported, missing, why = {}, [], {}
-    for role in REQUIRED_SPINE_ROLES:
+    required = required_spine_roles(engine_id)
+    for role in required:
         holders = [beat for beat in beats or []
                    if _text((beat or {}).get("role") or (beat or {}).get("causal_role")).lower() == role
                    and event_of(beat or {})["text"]]
@@ -803,7 +894,7 @@ def spine_coverage(beats: list[dict], failed_ids: set) -> dict:
                          if not holders else
                          "; ".join(f"{_text(b.get('beat_id'))} failed: "
                                    f"{event_of(b)['text'][:70]}" for b in holders))
-    return {"required": list(REQUIRED_SPINE_ROLES), "supported_by_role": supported,
+    return {"required": list(required), "supported_by_role": supported,
             "missing": missing, "missing_because": why, "covered": not missing}
 
 
@@ -860,7 +951,7 @@ def spine_report(beats: list[dict], report: dict) -> str:
 def compile_spine(beats: list[dict], claims: dict | None = None,
                   claims_by_case: dict | None = None, *,
                   judge=None, cache: dict | None = None,
-                  cost_sink: list | None = None) -> dict:
+                  cost_sink: list | None = None, engine_id: str = "") -> dict:
     """Produce the smallest complete supported causal spine, or say which function is missing.
 
     The target is not "make every proposed beat pass". A planner asked for nine beats will propose
@@ -875,6 +966,13 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     Pruning removes; it never rewrites. An unsupported fact is dropped from the spine, not softened
     until it passes.
     """
+    import claim_entailment as ce
+    beats = deepcopy(beats)
+    for i, beat in enumerate(beats):
+        beat["beat_id"] = _text(beat.get("beat_id")) or f"beat_{i + 1:02d}"
+    cache = {} if cache is None else cache
+    engine_id = engine_id or next((_text(b.get("_story_engine")) for b in beats
+                                   if b.get("_story_engine")), "")
     # A sheet carrying no events at all is not a supported spine and not an unsupported one -- the
     # fact model was handed nothing to weigh. Saying "passed" here would be the lying-PASS bug this
     # codebase has already paid for once, so the distinction is reported rather than flattened. But
@@ -886,17 +984,18 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                                  "so nothing about this story has been checked against evidence")
                           ] if claims else []
         return {"schema_version": SCHEMA_VERSION, "passed": not missing_events, "assessed": False,
-                "coverage": {"required": list(REQUIRED_SPINE_ROLES), "supported_by_role": {},
+                "coverage": {"required": list(required_spine_roles(engine_id)), "supported_by_role": {},
                              "missing": [], "covered": False},
                 "collapsed_duplicates": [], "duplicate_across_roles": [],
                 "unrepairable": missing_events, "narrowed": [], "pruned": [],
                 "kept_beats": [_text((b or {}).get("beat_id")) or f"beat_{i + 1:02d}"
                                for i, b in enumerate(beats or [])],
+                "effective_beats": beats, "relationships": [], "engine": engine_id,
                 "still_failing": [], "cascade": validate_cascade(beats, claims, claims_by_case,
                                                                  judge=judge, cache=cache,
                                                                  cost_sink=cost_sink)}
 
-    duplicates = duplicate_event_functions(beats)
+    duplicates = duplicate_event_functions(beats, engine_id)
     dropped_ids = {issue["beat_id"] for issue in duplicates if issue.get("collapsible")}
     deduped = [beat for index, beat in enumerate(beats or [])
                if (_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}") not in dropped_ids]
@@ -906,25 +1005,45 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     failed = {issue.get("beat_id") for issue in report["structural"] if issue.get("beat_id")}
     failed |= {row["beat_id"] for row in report["evidence"]}
     failed |= {row["beat_id"] for row in report["fidelity"]}
+    failed |= {row["beat_id"] for row in report["unavailable"]}
 
     kept, pruned = prune_unsupported_optional(deduped, failed)
     # A required role cannot be pruned, so it is narrowed to whatever Boundary A actually supported
     # -- never re-sourced from elsewhere in the dossier.
     kept, narrowed, unrepairable = narrow_required_roles(
-        kept, {row["beat_id"]: row for row in report["evidence"]})
+        kept, {row["beat_id"]: row for row in report["evidence"]}, engine_id)
     # No second entailment call: `supported_core` is Boundary A's own finding about these same
     # claims, so re-asking "do they support it" is a question whose answer we already bought. The
     # check worth running is the other contract -- whether the narrowed beat still does its job --
     # and `narrow_required_roles` has already run it, keeping only beats that passed.
     failed -= {row["beat_id"] for row in narrowed}
+    by_id = {b["beat_id"]: b for b in kept}
+    # Boundary A already judged this supported core. Retain that positive result for the exact
+    # event actually handed to expansion, and reuse it on retry rather than buying it again.
+    for narrow in narrowed:
+        beat = by_id[narrow["beat_id"]]
+        support = [(claims or {})[ref] for ref in event_of(beat)["claim_refs"] if ref in (claims or {})]
+        fingerprint = ce.cache_key(support, event_of(beat)["text"])
+        verdict = {"passed": True, "verdict": "entailed", "supported_core": "",
+                   "unsupported_details": [], "reason": "Boundary A supported core"}
+        cache[fingerprint] = verdict
+        report["judgments"] = [j for j in report["judgments"] if j["beat_id"] != beat["beat_id"]]
+        report["judgments"].append({"beat_id": beat["beat_id"], "fingerprint": fingerprint,
+                                    "event": deepcopy(event_of(beat)), "via": "supported_core", **verdict})
+    relationships = _validate_relationships(kept, report, judge=judge, cache=cache,
+                                             cost_sink=cost_sink)
+    report["unavailable"].extend(dict(row, stage="relationship") for row in relationships
+                                 if ce.is_retryable(row))
+    failed |= {row["beat_id"] for row in relationships if not row["passed"]}
     still_failing = sorted({bid for bid in failed
                             if bid in {_text(b.get("beat_id")) for b in kept}})
-    coverage = spine_coverage(kept, failed)
+    coverage = spine_coverage(kept, failed, engine_id)
     blocking = [i for i in duplicates if not i.get("collapsible")] + unrepairable
 
     return {
         "schema_version": SCHEMA_VERSION,
         "assessed": True,
+        "engine": engine_id,
         # A spine is usable when every required causal function is evidenced and nothing that
         # survived pruning is still failing.
         "passed": (coverage["covered"] and not still_failing and not blocking
@@ -936,9 +1055,73 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
         "narrowed": narrowed,
         "pruned": pruned,
         "kept_beats": [_text(b.get("beat_id")) for b in kept],
+        "effective_beats": kept,
+        "relationships": relationships,
         "still_failing": still_failing,
         "cascade": report,
     }
+
+
+def relationship_fingerprint(beat, beats):
+    """Bind the verdict to the current propositions, proposed states, and source events."""
+    derivation = beat.get("derivation") or {}
+    source_ids = set(derivation.get("source_ids") or []) | set(derivation.get("witness_ids") or [])
+    source_ids.add(derivation.get("goal_source_id"))
+    inputs = [{"beat_id": b["beat_id"], "event": event_of(b), "incentive": b.get("incentive"),
+               "derivation": b.get("derivation") if compiled_mechanism(b) else None}
+              for b in beats if b["beat_id"] in source_ids or compiled_mechanism(b)]
+    value = {"derivation": derivation, "event": event_of(beat),
+             "state": beat.get("changes_state"), "inputs": sorted(inputs, key=lambda b: b["beat_id"])}
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def _validate_relationships(beats, report, *, judge=None, cache=None, cost_sink=None):
+    """Judge relationships against accepted facts, never against role labels or word overlap."""
+    import claim_entailment as ce
+    by_id = {b["beat_id"]: b for b in beats}
+    supported = {j["beat_id"] for j in report["judgments"] if j.get("passed")}
+    assertions = {(j["beat_id"], j["field"]): j for j in report["assertion_judgments"]}
+    rows = []
+    for beat in beats:
+        derivation = beat.get("derivation") or {}
+        if derivation.get("version") != "story_compiler_v2":
+            continue
+        kind = derivation.get("kind")
+        sources = list(derivation.get("source_ids") or [])
+        mechanism = next((b for b in beats if compiled_mechanism(b)), None)
+        if kind == "proxy_gap":
+            sources += derivation.get("witness_ids") or []
+        elif kind == "behavior_inversion" and derivation.get("goal_source_id"):
+            sources.append(derivation["goal_source_id"])
+        if (not sources or any(s not in supported for s in sources)
+                or beat["beat_id"] not in supported or mechanism is None
+                or any(not assertions.get((mechanism["beat_id"], f), {}).get("passed")
+                       for f in ("measure", "goal"))):
+            rows.append({"beat_id": beat["beat_id"], "kind": kind, "passed": False,
+                         "verdict": "blocked_inputs", "reason": "relationship inputs are not supported"})
+            continue
+        facts = [{"claim_id": bid, "claim": event_of(by_id[bid])["text"]}
+                 for bid in dict.fromkeys(sources)]
+        for field, part in mechanism["derivation"]["assertions"].items():
+            facts.append({"claim_id": field, "claim": part["text"]})
+        if kind == "proxy_gap":
+            statement = ("The observed exploit shows that this policy's rewarded proof could be "
+                         "obtained without delivering its stated goal. Check the same policy, "
+                         "target and behavior; different words for the measure and goal do not "
+                         "establish a gap. Merely announcing a reward is insufficient.")
+        else:
+            state = beat.get("changes_state") or {}
+            statement = ("A material property or human action concerning the same target is "
+                         "inverted by the policy-induced compounded exploit. Verify both proposed "
+                         "states against the facts: " + repr(state.get("from")) + " -> "
+                         + repr(state.get("to")) + ". Added detail, the same problem persisting, "
+                         "or unrelated events are not inversions. Name the property in your reason.")
+        verdict = ce.relationship_entailment(facts, statement, judge=judge, cache=cache,
+                                             cost_sink=cost_sink)
+        rows.append({"beat_id": beat["beat_id"], "kind": kind,
+                     "input_fingerprint": relationship_fingerprint(beat, beats),
+                     "fingerprint": ce.cache_key(facts, statement, kind="relationship"), **verdict})
+    return rows
 
 
 def spine_summary(beats: list[dict], compiled: dict) -> str:
@@ -970,6 +1153,11 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
         lines += ["", "REQUIRED ROLES THAT CANNOT BE REPAIRED:"]
         for issue in compiled["unrepairable"]:
             lines.append(f"  ! [{issue['code']}] {issue['message']}")
+    for row in compiled.get("relationships") or []:
+        if not row.get("passed"):
+            lines.append(f"  ! [{row['kind']}] {row['beat_id']}: {row['verdict']} — "
+                         + (row.get("reason") or "")
+                         + "; ".join(row.get("unsupported_details") or []))
     if compiled.get("narrowed"):
         lines += ["", "Required roles narrowed to their supported core:"]
         for row in compiled["narrowed"]:

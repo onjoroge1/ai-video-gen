@@ -143,6 +143,9 @@ def test_provider_citation_extraction_ignores_urls_only_written_by_model():
 
 
 def test_research_generation_uses_bounded_server_search_and_validates(monkeypatch):
+    import claim_verify
+    # The model response is a fixture; its cited source must be one as well.
+    monkeypatch.setattr(claim_verify, "fetch_page_text", lambda url, **kwargs: QUOTE)
     dossier = _dossier()
     dossier.pop("citation_urls")
     calls = []

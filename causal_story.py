@@ -155,6 +155,7 @@ def _normalize_steps(raw: Any) -> list[dict]:
             "step_id": _text(item.get("step_id")) or f"step_{index + 1:02d}",
             "index": index,
             "role": _text(item.get("role")).lower(),
+            "event_function": _text(item.get("event_function")),
             "label": _text(item.get("label")),
             "start_sec": float(item.get("start_sec") or 0.0),
             "situation": _text(item.get("situation")),
@@ -236,7 +237,9 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
             "a causal story must close on a tool (hand the opening object back as a question) "
             "or a verdict (restate the opening claim now that it is proved)"))
 
-    if counts.get(ESCALATION, 0) < MIN_ESCALATIONS:
+    compounded = sum(s["role"] == REVERSAL and s.get("event_function") == "compounds_exploit"
+                     for s in steps) if (engine or {}).get("compiled_compounding") else 0
+    if counts.get(ESCALATION, 0) + compounded < MIN_ESCALATIONS:
         issues.append(_issue(
             "THIN_CHAIN",
             f"found {counts.get(ESCALATION, 0)} escalation steps; a causal chain needs at least "

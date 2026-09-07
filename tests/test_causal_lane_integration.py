@@ -44,27 +44,15 @@ def test_cinematic_lane_prompt_is_unchanged_by_the_causal_wiring(monkeypatch):
 
 
 def test_causal_lane_prompt_asks_for_the_chain(monkeypatch):
-    """On an engine with a function map the chain is still declared, but roles are not asked for.
-
-    Measured across five sheets: the same factual event landed in escalation, hinge and mechanism
-    on different runs. `causal_role` was asking an editorial question dressed as a factual one, so
-    for backfiring_solution the planner now states what each fact IS and story_compiler assigns
-    the roles. The chain itself -- caused_by, chapter -- is unchanged.
-    """
     import event_functions as ef
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    assert "DECLARED CAUSAL CHAIN" in prompt
-    assert '"caused_by"' in prompt and '"chapter"' in prompt
-    assert '"event_function"' in prompt and '"causal_role"' not in prompt
+    assert '"caused_by"' in prompt and '"event_function"' in prompt
+    for field in ('"causal_role"', '"role"', '"mechanism_beat"'):
+        assert field not in prompt
     for function in ef.map_for("backfiring_solution").required:
         assert function in prompt
-    # The mechanism is derived from these two halves, so both must be asked for by name.
     assert "rewarded_measure" in prompt and "goal_claim_refs" in prompt
-    # The prompt must state the same numbers the validator enforces, or the lane asks for one
-    # thing and rejects another.
-    assert f"{cs.MECHANISM_DEADLINE_PCT:.0%}" in prompt
-    assert f"{cs.MAX_HINGE_WORDS} words" in prompt
-    assert f"{cs.MIN_CHAPTERS}-{cs.MAX_CHAPTERS} spoken chapters" in prompt
+    assert "stated_policy_goal" in prompt and "same facts" in prompt
 
 
 def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
@@ -87,34 +75,22 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
     for conflict in ("40-55% third payoff + a reversal", "0-8% COLD CONSEQUENCE",
                      "28-40% first escalation", "STANDARD EXPLAINER. Deliver the first useful"):
         assert conflict not in causal
-    assert "ILLUSTRATED STORY DIRECTION" in causal
-    assert "End in the declared closing role" in causal
+    assert "The compiler assigns story roles" in causal
+    assert "Do not supply a hinge, mechanism, tool" in causal
 
 
 def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
-    """The guard against the bug that cost twelve renders.
-
-    FIXED ARCHITECTURE assigned the mechanism to 40-55% while rule C, ~100 lines earlier, demanded
-    it inside the engine's deadline. Two unconditional limits in one prompt string, neither aware
-    of the other, the later favoured by recency. Four measured runs landed the principle near 35%,
-    the average of the two.
-    """
     import story_engines as se
-    import causal_story as cs
-
-    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    stated = set(re.findall(r"pct MUST be under (\d+)", causal)) | set(
-        re.findall(r"pct must be under (\d+)", causal))
-    assert stated, "the deadline is stated nowhere"
-    assert len(stated) == 1, f"the prompt states conflicting deadlines: {stated}"
-
-    # And it is the deadline the VALIDATOR applies, not a hardcoded 20.
-    engine = se.get(se.DEFAULT_ENGINE)
-    expected = int(round(se.mechanism_deadline_pct(engine, cs.MECHANISM_DEADLINE_PCT) * 100))
-    assert stated == {str(expected)}
-
-    # No percentage RANGE may assign the mechanism a position — that was the rival instruction.
-    assert "40-55% mechanism" not in causal
+    import event_functions as ef
+    for engine_id in se.ENGINES:
+        prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine=engine_id)
+        if ef.map_for(engine_id):
+            assert '"mechanism_beat"' not in prompt
+            continue
+        stated = set(re.findall(r"pct [Mm][Uu][Ss][Tt] be under (\d+)", prompt))
+        expected = int(round(se.mechanism_deadline_pct(se.get(engine_id), cs.MECHANISM_DEADLINE_PCT) * 100))
+        assert stated == {str(expected)}
+        assert "40-55% mechanism" not in prompt
 
 
 def _sheet(n_beats):
@@ -202,7 +178,8 @@ def _spine(n_beats):
 
 def _route(prompt, n_beats):
     """Dispatch on what the prompt asks for, so adding a call cannot silently break the mock."""
-    if "Design a SCENE-BY-SCENE BEAT SHEET" in prompt:
+    if ("Design a SCENE-BY-SCENE BEAT SHEET" in prompt
+                    or "Plan the sourced factual events" in prompt):
         return _sheet(n_beats)
     if "Label the CAUSAL CHAIN" in prompt:
         return _spine(n_beats)
@@ -220,7 +197,8 @@ def _capture_expansion_prompt(monkeypatch, **kwargs):
         def create(self, **call):
             prompt = call["messages"][0]["content"]
             if ("Design a SCENE-BY-SCENE BEAT SHEET" not in prompt
-                    and "Label the CAUSAL CHAIN" not in prompt):
+                    and "Label the CAUSAL CHAIN" not in prompt
+                    and "Plan the sourced factual events" not in prompt):
                 seen["prompt"] = prompt
                 raise _Abort
             return _reply(_route(prompt, 10))
@@ -257,14 +235,9 @@ def test_the_beat_sheet_offers_somewhere_to_put_parallel_cases(monkeypatch):
 
 
 def test_singleton_roles_are_stated_as_a_countable_check(monkeypatch):
-    """Role counts came back setup x2, false_resolution x3, verdict x2 on the first real run.
-
-    The repo already learned on claim_refs that a standing rule does not hold across runs and
-    has to become a walk-the-beats-and-tally instruction. Same treatment here.
-    """
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    assert "COUNT THEM" in prompt and "must be exactly 1" in prompt
-    assert "Nothing follows the reversal" in prompt
+    assert "each required function exactly once" in prompt
+    assert "Do not pad" in prompt
 
 
 def test_the_hinge_word_cap_reaches_the_call_that_writes_narration(monkeypatch):
@@ -662,7 +635,8 @@ def test_the_sheets_planned_mechanism_slot_is_pinned(monkeypatch):
             # Serve the sheet built ABOVE, not a fresh one. Falling through to _route rebuilt the
             # sheet without the mechanism_beat this test exists to set, so the pin had nothing to
             # act on and the test failed against working code.
-            if "Design a SCENE-BY-SCENE BEAT SHEET" in prompt:
+            if ("Design a SCENE-BY-SCENE BEAT SHEET" in prompt
+                    or "Plan the sourced factual events" in prompt):
                 return _reply(sheet)
             if "Label the CAUSAL CHAIN" in prompt:
                 # The labelling pass disagrees and puts the mechanism late.
@@ -683,11 +657,10 @@ def test_the_sheets_planned_mechanism_slot_is_pinned(monkeypatch):
 
 
 def test_the_beat_sheet_declares_the_slot_only_on_this_lane(monkeypatch):
-    prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    assert '"mechanism_beat"' in prompt
-    assert "structural slot like peak_scene" in prompt
-    # And it must say what does NOT satisfy it, since the sheet already opens on a consequence.
-    assert "do NOT satisfy this" in prompt
+    factual = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    legacy = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine="accidental_invention")
+    assert '"mechanism_beat"' not in factual
+    assert '"mechanism_beat"' in legacy and "structural slot like peak_scene" in legacy
     assert '"mechanism_beat"' not in _capture_beat_prompt(monkeypatch)
 
 
@@ -872,6 +845,9 @@ def test_the_sheet_is_written_in_the_chosen_engines_own_order(monkeypatch):
     for engine_id in se.ENGINES:
         prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine=engine_id)
         order = se.expected_order(engine_id)
+        if engine_id == "backfiring_solution":
+            assert "Engine: backfiring_solution" in prompt and '"event_function"' in prompt
+            continue
         assert " -> ".join(order) in prompt, f"{engine_id}: sheet not written in its own order"
         assert se.get(engine_id)["name"].upper() in prompt
 
@@ -899,7 +875,7 @@ def test_a_pinned_engine_reaches_the_sheet(monkeypatch):
                                       pinned_engine=se.BACKFIRING_SOLUTION)
     assert indictment != backfiring, "the pin never reached the beat sheet"
     assert " -> ".join(se.expected_order(se.ACCUMULATING_INDICTMENT)) in indictment
-    assert " -> ".join(se.expected_order(se.BACKFIRING_SOLUTION)) in backfiring
+    assert "Engine: backfiring_solution" in backfiring and '"event_function"' in backfiring
 
 
 @pytest.mark.parametrize("pinned,expected", [("", "accumulating_indictment"),
@@ -924,9 +900,14 @@ def test_initial_preference_can_change_but_replan_pin_wins(monkeypatch, pinned, 
 
 
 def test_reference_is_retrieved_before_planning(monkeypatch):
-    monkeypatch.setattr(ep, "_retrieve_blueprint", lambda *a: "REFERENCE-BEFORE-BEATS")
+    seen = []
+    def retrieve(*args):
+        seen.append(args)
+        return "NARRATION-REFERENCE"
+    monkeypatch.setattr(ep, "_retrieve_blueprint", retrieve)
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine="backfiring_solution")
-    assert "REFERENCE-BEFORE-BEATS" in prompt
+    assert seen and seen[0][0] == "backfiring_solution"
+    assert "NARRATION-REFERENCE" not in prompt  # editorial roles belong in expansion
 
 
 def test_selector_uses_observed_runtime_without_banning_truthful_engine(monkeypatch):
@@ -1046,7 +1027,7 @@ def test_the_hook_rule_does_not_quote_a_failed_hook(monkeypatch):
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
     for failure in ("a menace", "erase a menace", "more of it"):
         assert failure not in causal, f"the prompt quotes a hook it is trying to prevent: {failure!r}"
-    assert "How the British Empire tried to solve a problem" in causal
+    assert "concrete title subject" in causal
 
 
 # --- the fact model reaches the calls that plan and write it -------------------------------------
@@ -1061,14 +1042,13 @@ def test_the_beat_sheet_asks_for_events_and_provenance(monkeypatch):
     for token in ('"event"', '"claim_refs"', '"scope"', '"parallel_case_id"', '"changes_state"'):
         assert token in causal, f"the beat sheet never asks for {token}"
     assert "primary_story" in causal and "parallel_case" in causal
-    assert "FACTUAL CEILING" in causal
+    assert "its own supporting claim_refs" in causal
 
 
 def test_the_beat_sheet_permits_an_unsourced_connective(monkeypatch):
-    """Demanding a citation for every beat is what made all of them look sourced and none checkable."""
-    causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
-    assert "asserts no history" in causal
-    assert "rhetorical questions and framing" in causal
+    factual = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    assert "Every event you supply needs a nonempty factual text" in factual
+    assert "adds presentation transitions" in factual
 
 
 def test_the_cinematic_lane_gains_no_fact_model(monkeypatch):
@@ -1179,21 +1159,14 @@ def test_a_repair_cannot_invent_a_claim_id(monkeypatch):
 
 
 def test_the_mechanism_repair_is_triggered_by_the_judge_not_by_stem_overlap():
-    """The heuristic cannot see this case, and five sheets proved it.
-
-    The mechanism cited a claim COUNTING tails handed in. That carries the distinguishing word
-    "tail" and says nothing about a tail being accepted as proof, so the relevance pre-filter
-    passed all five while Boundary A refused all five. Only the judge can rule on support, so the
-    judge's verdict is what asks for the correction.
-    """
-    source = Path(ep.__file__).read_text(encoding="utf-8")
-    block = source[source.index("SECOND CHANCE FOR THE DERIVED MECHANISM"):]
-    block = block[:block.index("print(_sfm.spine_summary")]
-    assert '_spine["cascade"]["evidence"]' in block, "triggered by the evidence verdict"
-    assert "unsupported_details" in block, "the judge's own reasoning is handed back"
-    assert "_repair_incentive_citations" in block
-    # Re-judged after repair. A repair that is not re-judged is a rewrite that agrees with itself.
-    assert block.count("_sfm.compile_spine") == 1 and "_spine_beats(beats)" in block
+    from test_story_planning_flow import factual_fixture, EvidenceFixture, recite
+    import story_planning
+    beats, claims = factual_fixture(wrong_citation=True)
+    judge = EvidenceFixture()
+    result = story_planning.prepare(beats, "backfiring_solution", claims, judge=judge, repair=recite)
+    assert result["compiled"]["passed"]
+    verdicts = [call for call in judge.calls if call["event"].startswith("The reward was paid")]
+    assert [{c["claim_id"] for c in v["claims"]} for v in verdicts] == [{"c3"}, {"c7"}]
 
 
 def test_the_repair_asks_for_both_halves_of_the_mechanism():

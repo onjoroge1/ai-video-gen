@@ -38,6 +38,7 @@ from longform_research import validate_claim_joins, validate_research_dossier
 from test_agent_actions import ACTION_ID, FakeActionRepository, _secure_environment
 from test_durable_execution_phase6 import MemoryBlob, MemoryStore
 from test_illustrated_story import _script
+from test_story_planning_flow import expanded_fixture
 
 
 class DeliveryStore(MemoryStore):
@@ -216,7 +217,7 @@ class FakeMediaSDK:
                 input_tokens=0, output_tokens=100, input_tokens_details=None))
 
 
-@pytest.mark.parametrize("restart_boundary", ["image", "render"])
+@pytest.mark.parametrize("restart_boundary", ["image", "render", "compiled"])
 def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_path, restart_boundary):
     _secure_environment(monkeypatch)
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'fake-provider-key')
@@ -227,7 +228,25 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     for name in ('ILLUSTRATED_STORYBOARD_HARD', 'CLAIM_LEDGER_HARD', 'LONGFORM_RESEARCH_MODE',
                  'DIAGNOSTIC_RENDER', 'RUNTIME_HARD'):
         monkeypatch.delenv(name, raising=False)
-    script, dossier = fixture_story()
+    if restart_boundary == "compiled":
+        script, dossier, _, _, _ = expanded_fixture(monkeypatch)
+        # The exact script returned by the production compiler/expansion now enters delivery.
+        # Only visual-provider fixtures are added; facts, citations and narration stay intact.
+        for index, scene in enumerate(script["scenes"]):
+            words = scene["narration"].split()
+            starts = ([0, max(1, len(words) // 2)] if index < 4 else
+                      range(0, max(1, len(words) - 2), 10))
+            scene["visual_beats"] = [{
+                "anchor_phrase": " ".join(words[start:start + 3]), "purpose": "evidence",
+                "visual": f"Rat and tail counter at position {start}",
+                "source": "master" if start == 0 else "distinct",
+                "state_before": "Rat beside a tail counter",
+                "state_after": f"Tail counter at position {start}",
+                "required_objects": ["rat", "tail counter"], "forbidden_objects": [],
+            } for start in starts]
+    else:
+        script, dossier = fixture_story()
+    scene_count = len(script["scenes"])
     sdk = FakeMediaSDK(script)
     store, blob = DeliveryStore(), DeliveryBlob(tmp_path / 'blob')
     actions = DeliveryActions()
@@ -273,7 +292,7 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     interrupted = []
 
     def verify_image(*args, **kwargs):
-        if restart_boundary == "image" and not interrupted:
+        if restart_boundary in {"image", "compiled"} and not interrupted:
             assert any(s['provider'] == 'openai-images' and s['status'] == 'completed'
                        for s in store.stages.values())
             interrupted.append(True)
@@ -310,16 +329,17 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
             assert executed.status_code == 200, executed.text
             job_id = store.job['id']
             first = await studio._run_durable_explainer_worker(job_id)
-            assert first.get('continued'), first
+            assert first.get('continued'), "\n".join(str(e) for e in store.events_seen[-8:])
             assert store.job['status'] == 'queued' and not store.finished
             assert store.job['checkpoint']['sha256']
             first_calls = copy.deepcopy(sdk.calls)
             image_calls = sum(n for (kind, _), n in first_calls.items() if kind == 'image')
-            assert image_calls == 1 if restart_boundary == 'image' else image_calls > 1
-            assert sum(n for (kind, _), n in first_calls.items() if kind == 'tts') == 10
+            assert image_calls == 1 if restart_boundary in {'image', 'compiled'} else image_calls > 1
+            assert sum(n for (kind, _), n in first_calls.items() if kind == 'tts') == scene_count
             # A fresh worker gets a new temporary directory and restores the real checkpoint.
             second = await studio._run_durable_explainer_worker(job_id)
-            assert store.job['status'] in {'done', 'degraded'}, second
+            assert store.job['status'] in {'done', 'degraded'}, "\n".join(
+                str(e) for e in store.events_seen[-8:])
             if restart_boundary == 'render':
                 assert any(kind == 'stage_reused' and details.get('provider') == 'ffmpeg'
                            for kind, _, details in store.events_seen)
@@ -333,7 +353,7 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
             assert [video['id'] for video in listing.json()['videos']] == [job_id]
             record = (await client.get(f'/api/finished/{job_id}')).json()
             assert record['metadata']['actual_cost'] == pytest.approx(store.job['spent_cost_usd'])
-            assert record['metadata']['scene_count'] == 10
+            assert record['metadata']['scene_count'] == scene_count
             assert record['metadata']['visual_style'] == 'illustrated_story'
             assert {'video', 'storyboard', 'claims', 'research', 'timing',
                     'generation-manifest'} <= record['artifacts'].keys()

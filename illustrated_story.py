@@ -259,6 +259,7 @@ def build_storyboard(script: dict, question: str) -> dict:
         steps.append({
             "step_id": _text(scene.get("scene_id")) or f"scene_{index + 1:03d}",
             "role": role,
+            "event_function": scene.get("event_function") or "",
             "chapter": scene.get("chapter") or 0,
             "start_sec": round(spoken, 1),
             "situation": narration,
@@ -296,7 +297,8 @@ def build_storyboard(script: dict, question: str) -> dict:
     # silently validates the story against the WRONG engine. Falling through to None applies
     # the generic contract, which is the honest answer when the engine is unreadable.
     declared = script.get("_story_engine")
-    engine = se.get(declared) if isinstance(declared, str) and declared.strip() else None
+    engine = (se.get(declared, compiled=bool(script.get("_compiled_story")))
+              if isinstance(declared, str) and declared.strip() else None)
     # REPAIR BEFORE VALIDATING, exactly as the spine pass does. _assign_causal_spine has always
     # run repair_chain on its output — "the mechanically decidable mistakes are fixed for free
     # rather than re-bought" — but the storyboard re-derived its steps from the scenes and
@@ -307,7 +309,7 @@ def build_storyboard(script: dict, question: str) -> dict:
     # validator. A repair that satisfies the check without changing the story is the kind of green
     # metric over wrong output this build has been bitten by repeatedly.
     causal_repairs: list = []
-    if engine:
+    if engine and not script.get("_compiled_story"):
         steps, causal_repairs = cs.repair_chain(steps, engine)
         for scene, step in zip(scenes, steps):
             scene["causal_role"] = step["role"]

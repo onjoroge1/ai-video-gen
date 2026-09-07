@@ -64,7 +64,7 @@ def test_the_beat_sheet_charges_before_the_spine_can_raise(monkeypatch):
         usage, stop_reason = _Usage(), "end_turn"
         content = [type("C", (), {"text": json.dumps({"beats": []})})()]
 
-    monkeypatch.setattr(ep, "_parse_script_json", lambda text: ({"beats": []}, 0.0))
+    monkeypatch.setattr(ep, "_parse_script_json", lambda text, **kwargs: ({"beats": []}, 0.0))
     expected = (_Usage.input_tokens * ep._RATE_SCRIPT_IN
                 + _Usage.output_tokens * ep._RATE_SCRIPT_OUT)
     ep._charge(ledger, cl.BEAT_SHEET, expected, "10 beats")
@@ -96,7 +96,7 @@ def test_every_stage_the_generator_charges_is_declared_a_script_stage():
     """Miss one and its spend is counted twice; add one wrongly and real spend disappears."""
     source = open(ep.__file__, encoding="utf-8").read()
     inside = source[source.index("def _generate_script_chunked("):]
-    inside = inside[:inside.index('"_script_cost_usd": round(cost, 4),')]
+    inside = inside[:inside.index('"_script_cost_usd": round(cost,')]
     charged = {line.split("_ledger.")[1].split(",")[0].split(")")[0].strip()
                for line in inside.splitlines() if "_charge(cost_sink, _ledger." in line}
     declared = {name for name in dir(cl)

@@ -434,26 +434,21 @@ def test_a_plural_does_not_hide_a_real_role_match():
     assert sfm.role_contract_holds(beat)[0]
 
 
-def test_a_derived_beat_is_exempt_from_the_claim_kind_gate():
-    """The gate catches a planner's bad binding. A derived beat has no planner binding.
-
-    Measured on five sheets: the derived mechanism cites an event claim ("the reward was paid for
-    a tail") and a context claim ("the goal was fewer rats") because the mechanism IS the gap
-    between them. The gate called that CLAIM_KIND_MISMATCH, the beat was skipped for structure,
-    and it therefore never reached the evidence boundary -- so the citation repair could not fire
-    and two evaluations were spent without testing what they were meant to test.
-    """
-    claims = {"c09": {"claim": "The bounty was extended to anyone who brought a rat tail.",
-                      "claim_kind": "event", "claim_kind_confidence": 0.95},
-              "c05": {"claim": "Officials wanted the rat population reduced.",
-                      "claim_kind": "context", "claim_kind_confidence": 0.95}}
-    beat = {"beat_id": "beat_06", "role": "mechanism", "scope": "primary_story",
-            "derived_from": ["beat_03"],
-            "changes_state": {"from": "a bounty", "to": "what pays and what was wanted differ"},
-            "event": {"text": "The reward was paid for a severed rat tail. The goal was fewer rats.",
-                      "claim_refs": ["c09", "c05"]}}
-    assert not [i for i in sfm.validate_structure([beat], {}, claims)
-                if i["code"] == "CLAIM_KIND_MISMATCH"]
+def test_a_derived_beat_reaches_the_actual_judge_without_a_structural_collision():
+    from test_story_planning_flow import factual_fixture, EvidenceFixture
+    import story_compiler as compiler
+    beats, claims = factual_fixture()
+    roles = compiler.compile_roles(beats, "backfiring_solution", claims)
+    sheet = compiler.splice_derived(roles["beats"], roles)
+    judge = EvidenceFixture()
+    result = sfm.validate_cascade(sheet, claims, judge=judge)
+    assert not result["structural"] and not result["skipped_for_structure"]
+    assert result["passed"]
+    assert len(result["assertion_judgments"]) == 2
+    assert any(c["event"].startswith("The reward was paid") for c in judge.calls)
+    forged = {"beat_id": "fake", "role": "mechanism", "derived_from": ["fact_2"],
+              "event": {"text": "The reward was paid for a tail.", "claim_refs": ["c7"]}}
+    assert any(i["code"] == "CLAIM_KIND_MISMATCH" for i in sfm.validate_structure([forged], {}, claims))
 
 
 def test_a_planner_written_beat_still_faces_the_kind_gate():

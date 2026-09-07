@@ -60,14 +60,16 @@ def function_stability(fixture: dict, reports: list[Path]) -> dict:
     sheets = spines = judged = inverted = 0
     for path in reports:
         for sample in json.loads(path.read_text()).get("samples") or []:
+            sheets += 1
             beats = ((sample.get("spine") or {}).get("beats")) or []
             if not beats:
                 continue
-            sheets += 1
             compiled = (sample.get("spine") or {}).get("compiled") or {}
             coverage = compiled.get("coverage") or {}
             spines += bool(coverage.get("covered"))
-            judged += bool(coverage.get("covered")) and not compiled.get("still_failing")
+            acceptance, _ = acceptance_rows([{"samples": [sample]}])
+            judged += acceptance[0]["functions"] and acceptance[0]["mechanism"]
+            inverted += acceptance[0]["reversal"]
             functions = set()
             for beat in beats:
                 declared = (beat.get("event_function") or "").strip().lower()
@@ -79,64 +81,75 @@ def function_stability(fixture: dict, reports: list[Path]) -> dict:
                 if expected and expected != declared:
                     disagreed.setdefault(expected, {})
                     disagreed[expected][declared] = disagreed[expected].get(declared, 0) + 1
-                if (beat.get("role") or "") == "reversal" and beat.get("derived_from"):
-                    inverted += 1
             for function in functions:
                 seen[function] = seen.get(function, 0) + 1
     return {"sheets": sheets, "present": seen, "disagreed": disagreed,
             "covered_spines": spines, "fully_judged": judged, "computed_reversals": inverted}
 
 
-def acceptance(reports) -> str:
-    """The five conditions, and how many sheets satisfy all of them AT ONCE.
-
-    Reported per sheet rather than per condition because four separate 4/5s can still be 0/5
-    together, and it is the joint figure that decides whether narration may be bought.
-    """
-    import story_fact_model as _sfm
+def acceptance_rows(payloads) -> tuple[list, float]:
+    """Only positive judgments of the current accepted objects count as support."""
+    import story_fact_model as sfm
+    import event_functions as ef
     rows, spend = [], 0.0
-    for path in reports:
-        payload = json.loads(Path(path).read_text())
+    for payload in payloads:
         for sample in payload.get("samples") or []:
             spend += float(sample.get("recorded_cost_usd") or 0)
             spine = sample.get("spine") or {}
-            beats, compiled = spine.get("beats") or [], spine.get("compiled") or {}
-            if not beats:
-                rows.append({"sheet": sample.get("sample"), "reached_compiler": False})
-                continue
-            coverage = compiled.get("coverage") or {}
-            failing = set(compiled.get("still_failing") or [])
-            mech = next((b for b in beats if (b.get("role") or "") == "mechanism"), None)
-            rev = next((b for b in beats if (b.get("role") or "") == "reversal"), None)
-            rows.append({
-                "sheet": sample.get("sample"), "reached_compiler": True,
-                # every required function present AND its beat not failing the evidence boundary
-                "functions": bool(coverage.get("covered")),
-                # the two halves cited separately, and the mechanism beat not among the failures
-                "citations": bool(mech and _sfm.event_of(mech)["claim_refs"]),
-                "mechanism": bool(mech and _sfm._text(mech.get("beat_id")) not in failing),
-                "reversal": bool(rev and rev.get("derived_from")
-                                 and _sfm._text(rev.get("beat_id")) not in failing),
-            })
-    total = len(rows) or 1
-    def _count(key):
-        return sum(1 for row in rows if row.get(key))
-    joint = sum(1 for row in rows
-                if all(row.get(k) for k in ("functions", "citations", "mechanism", "reversal")))
-    lines = ["ACCEPTANCE", ""]
-    lines.append(f"  required event functions present and supported   {_count('functions')}/{total}")
-    lines.append(f"  measure and goal supported by their citations    {_count('citations')}/{total}")
-    lines.append(f"  derived mechanism passes Boundary A             {_count('mechanism')}/{total}")
-    lines.append(f"  reversal inverts a sourced property             {_count('reversal')}/{total}")
-    lines.append(f"  ALL OF THE ABOVE ON THE SAME SHEET              {joint}/{total}")
-    lines.append(f"  total spend including failures and repairs      ${spend:.2f}")
-    lines += ["", "Per sheet:"]
+            compiled = spine.get("compiled") or {}
+            beats = compiled.get("effective_beats") or spine.get("beats") or []
+            cascade = compiled.get("cascade") or {}
+            judgments = {j["beat_id"]: j for j in cascade.get("judgments") or []}
+            def supported(beat):
+                result = judgments.get(beat.get("beat_id"), {})
+                return (result.get("passed") is True and result.get("verdict") == "entailed"
+                        and result.get("event") == sfm.event_of(beat))
+            mapping = ef.map_for(compiled.get("engine") or "backfiring_solution")
+            required = mapping.required if mapping else ()
+            mech = next((b for b in beats if sfm.compiled_mechanism(b)), {})
+            rev = next((b for b in beats if b.get("role") == "reversal"), {})
+            assertions = {j["field"]: j for j in cascade.get("assertion_judgments") or []
+                          if j["beat_id"] == mech.get("beat_id")}
+            parts = (mech.get("derivation") or {}).get("assertions") or {}
+            citations = all(assertions.get(f, {}).get("passed") is True
+                            and assertions[f].get("assertion") == parts.get(f)
+                            for f in ("measure", "goal"))
+            relationships = {(r["beat_id"], r["kind"]): r
+                             for r in compiled.get("relationships") or []}
+            def relationship_supported(beat, kind):
+                result = relationships.get((beat.get("beat_id"), kind), {})
+                return (result.get("passed") is True and result.get("verdict") == "entailed"
+                        and result.get("input_fingerprint") == sfm.relationship_fingerprint(beat, beats))
+            row = {"sheet": sample.get("sample"), "reached_compiler": bool(beats),
+                   "functions": bool(required) and all(any(
+                       b.get("event_function") == f and supported(b) for b in beats) for f in required),
+                   "citations": citations,
+                   "mechanism": bool(mech and supported(mech) and citations
+                                     and relationship_supported(mech, "proxy_gap")),
+                   "reversal": bool(rev and supported(rev)
+                                    and relationship_supported(rev, "behavior_inversion"))}
+            row["joint"] = (compiled.get("passed") is True and not cascade.get("unavailable")
+                            and not compiled.get("still_failing") and all(
+                                row[k] for k in ("functions", "citations", "mechanism", "reversal")))
+            rows.append(row)
+    return rows, spend
+
+
+def acceptance(reports) -> str:
+    rows, spend = acceptance_rows([json.loads(Path(p).read_text()) for p in reports])
+    total = len(rows)
+    def count(key):
+        return sum(bool(row.get(key)) for row in rows)
+    lines = ["ACCEPTANCE", "",
+        f"  required event functions present and supported   {count('functions')}/{total}",
+        f"  measure and goal supported by their citations    {count('citations')}/{total}",
+        f"  derived mechanism passes Boundary A             {count('mechanism')}/{total}",
+        f"  reversal inverts a sourced property             {count('reversal')}/{total}",
+        f"  ALL OF THE ABOVE ON THE SAME SHEET              {count('joint')}/{total}",
+        f"  total spend including failures and repairs      ${spend:.6f}", "", "Per sheet:"]
     for row in rows:
-        if not row["reached_compiler"]:
-            lines.append(f"  sheet {row['sheet']}: never reached the compiler")
-            continue
-        marks = " ".join(f"{k}={'+' if row[k] else '-'}"
-                         for k in ("functions", "citations", "mechanism", "reversal"))
+        marks = " ".join(f"{key}={'+' if row[key] else '-'}"
+                         for key in ("functions", "citations", "mechanism", "reversal", "joint"))
         lines.append(f"  sheet {row['sheet']}: {marks}")
     return "\n".join(lines)
 

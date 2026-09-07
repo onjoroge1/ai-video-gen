@@ -23,14 +23,14 @@ def test_the_production_pairing_is_rejected_before_any_call():
     """60s of backfiring_solution is arithmetic, not taste."""
     fit = ep._engine_runtime_fit(se.BACKFIRING_SOLUTION, 60)
     assert not fit["fits"]
-    assert fit["minimum_beats"] == 9
-    assert fit["words_demanded"] == 9 * ep._WORD_FLOOR
+    assert fit["minimum_beats"] == 8  # the compounded exploit also supplies the reversal
+    assert fit["words_demanded"] == 8 * ep._WORD_FLOOR
     assert fit["words_demanded"] > fit["word_ceiling"]
 
 
 def test_the_same_engine_fits_once_the_runtime_pays_for_its_beats():
     assert ep._engine_runtime_fit(se.BACKFIRING_SOLUTION, 90)["fits"]
-    assert ep._minimum_feasible_runtime(se.BACKFIRING_SOLUTION, 1) == 75
+    assert ep._minimum_feasible_runtime(se.BACKFIRING_SOLUTION, 1) == 67
 
 
 @pytest.mark.parametrize("engine_id", sorted(se.ENGINES))
@@ -111,8 +111,8 @@ def test_a_replan_pinning_an_impossible_engine_fails_before_the_sheet_is_bought(
         ep._generate_script_chunked("Why?", 60, "s", "", 12, causal_lane=True,
                                     pinned_engine=se.BACKFIRING_SOLUTION)
     message = str(excinfo.value)
-    assert "9 beats" in message and "225 words" in message
-    assert "75s" in message, "the operator must be told what to change, not only that it failed"
+    assert "8 beats" in message and "200 words" in message
+    assert "67s" in message, "the operator must be told what to change, not only that it failed"
     assert not calls
 
 

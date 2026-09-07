@@ -16,8 +16,40 @@ exercise the real motion path and only the network call is refused. A test that 
 drive a provider branch marks itself `@pytest.mark.live_motion` and mocks the transport itself.
 """
 import pytest
+import ipaddress
+import socket
 
 import explainer_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _no_external_network(request, monkeypatch):
+    """Default tests replace providers; an accidental live call must fail before sending data."""
+    if request.node.get_closest_marker("entailment_live"):
+        return  # separately opt-in and skipped by default below
+    original = socket.socket.connect
+    original_ex = socket.socket.connect_ex
+
+    def check(address):
+        if isinstance(address, tuple):
+            host = address[0]
+            try:
+                local = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                local = host == "localhost"
+            if not local:
+                raise AssertionError("External network is disabled in offline tests; mock the provider boundary")
+
+    def connect(sock, address):
+        check(address)
+        return original(sock, address)
+
+    def connect_ex(sock, address):
+        check(address)
+        return original_ex(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
 
 
 def pytest_configure(config):

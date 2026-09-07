@@ -138,24 +138,3 @@ _MERE_FAILURE = re.compile(
     r"\b(?:made no (?:dent|reduction|difference)|did not (?:fall|drop|decline|work|reduce)|"
     r"no reduction|failed to (?:reduce|eliminate|control|solve)|without reducing|"
     r"never (?:fell|dropped|declined)|was (?:abandoned|cancelled|scrapped|ended))\b", re.I)
-
-
-def inverts_setup_property(setup_state: str, end_state: str, stems) -> tuple[bool, str]:
-    """Does the end state say something about the setup's subject that was false at the start?
-
-    `stems` is passed in rather than imported so this stays free of the duplicate detector's
-    tokenizer, which has a different job and a different tolerance.
-    """
-    setup_state, end_state = (setup_state or "").strip(), (end_state or "").strip()
-    if not setup_state or not end_state:
-        return False, "the setup or the end state is missing"
-    if _MERE_FAILURE.search(end_state):
-        return False, ("it reports that the programme did not work, which the story already "
-                       "implies — a reversal names what the subject BECAME")
-    shared = stems(setup_state) & stems(end_state)
-    if not shared:
-        return False, (f"it is not about the same subject as the setup ({setup_state[:60]!r}), "
-                       "so nothing established at the start has been inverted")
-    if stems(setup_state) == stems(end_state):
-        return False, "it restates the setup rather than inverting it"
-    return True, ""
