@@ -317,3 +317,35 @@ def test_the_hook_ceiling_excludes_events_that_failed_their_own_evidence():
     assert not [p for p in seen if p.get("narration") == hook and "bred rats" in p["event"]], \
         "an unsupported event must not raise the hook's ceiling"
     assert "HOOK_EXCEEDS_STORY" in [e["code"] for e in report["errors"]]
+
+
+def test_the_hook_may_draw_on_the_claims_behind_the_supported_events():
+    """The events state the proxy; the story a viewer is promised starts with the announcement.
+
+    Measured: a hook saying officials "paid Hanoi residents for rats" was flagged for implying
+    whole rats, because the mechanism event says the reward was paid for a severed tail. The
+    announcement -- "a bounty on every dead rat" -- is a separate verified claim, and the judge's
+    own supported_core handed the same sentence back. Bounded by the spine: only claims cited by
+    events that passed.
+    """
+    import longform_research as lr
+
+    hook = "Officials paid Hanoi residents for rats, then residents bred rats to get paid."
+    script = {"hook": hook, "scenes": [
+        {"scene_id": "event_04", "causal_role": "intervention",
+         "narration": f"{hook} A bounty appeared.",
+         "event": {"text": "The reward was paid for a severed rat tail.", "claim_refs": ["c08"]}}]}
+    dossier = {"claims": [{"claim_id": "c08", "verified": True,
+                           "claim": "In April 1902 the authorities announced a bounty on every "
+                                    "dead rat."}]}
+    seen = []
+
+    def judge(payload, **kwargs):
+        seen.append(payload)
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    ceiling = next(p["event"] for p in seen
+                   if p.get("kind") == "fidelity" and p["narration"] == hook)
+    assert "severed rat tail" in ceiling, "the event is still the backbone of the ceiling"
+    assert "bounty on every dead rat" in ceiling, "and the claim behind it is available too"

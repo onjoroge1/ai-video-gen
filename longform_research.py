@@ -554,10 +554,28 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     if hook:
         import claim_entailment as ce
         import story_fact_model as _sfm
-        story = " ".join(_sfm.event_of(beat)["text"] for beat in beats
-                         if _sfm.event_of(beat)["text"]
-                         and _text(beat.get("beat_id")) not in
-                         {row["beat_id"] for row in report["evidence"]})
+        # The ceiling is the events AND the claims behind them. The events deliberately state the
+        # PROXY -- "the reward was paid for a severed rat tail" -- while the story a viewer is
+        # being promised starts with the announcement, "a bounty on every dead rat", which is a
+        # separate verified claim. Judged against the events alone, a hook saying officials "paid
+        # residents for rats" was flagged for implying whole rats, and the judge's own supported
+        # core said the same thing back. The hook promises the story; the story starts with the
+        # announcement, so the announcement belongs in what the hook may draw on.
+        #
+        # Still bounded by the spine: only claims cited by events that PASSED, so nothing the
+        # evidence boundary rejected can raise the ceiling.
+        index = _claim_index(dossier)
+        supported = [beat for beat in beats
+                     if _sfm.event_of(beat)["text"]
+                     and _text(beat.get("beat_id")) not in
+                     {row["beat_id"] for row in report["evidence"]}]
+        cited = []
+        for beat in supported:
+            for ref in _sfm.event_of(beat)["claim_refs"]:
+                claim = _text((index.get(ref) or {}).get("claim"))
+                if claim and claim not in cited:
+                    cited.append(claim)
+        story = " ".join([_sfm.event_of(beat)["text"] for beat in supported] + cited)
         if not story:
             # Nothing survived, so there is no ceiling to measure against. Reported as the hook
             # exceeding the story rather than skipped: a promise with no supported events behind
