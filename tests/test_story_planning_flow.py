@@ -269,7 +269,9 @@ def test_accepted_facts_reach_expansion_fidelity_and_storyboard(monkeypatch):
     cascade = research.validate_story_fact_model(script, dossier, judge=judge,
                                                  cache=script["_entailment_cache"])
     assert cascade["passed"], cascade
-    assert len([c for c in judge.calls if c["kind"] == "fidelity"]) == len(scenes)
+    # One per scene, plus the hook — which is judged against the union of the supported events
+    # rather than against whichever beat it happens to be prepended to.
+    assert len([c for c in judge.calls if c["kind"] == "fidelity"]) == len(scenes) + 1
     board = illustrated_story.build_storyboard(script, script["title"])
     assert board["validation"]["passed"], board["validation"]
     assert script["_script_cost_usd"] == pytest.approx(ledger.script_stage_total())

@@ -498,9 +498,30 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     import story_fact_model as sfm
 
     scenes = script.get("scenes") or []
+    # THE HOOK IS NOT AN ASSERTION ABOUT BEAT ONE.
+    #
+    # finalize_narration prepends the spoken hook to the first scene, so the fidelity boundary was
+    # measuring a promise about the WHOLE video against the single event that scene happens to
+    # carry. Measured on the Hanoi render: "French officials paid a bounty for every dead rat, then
+    # watched Hanoi breed more rats" came back `unsupported` against an event about sewers. Both
+    # halves of that sentence are sourced -- the bounty and the breeding are separate verified
+    # claims -- and neither is in the beat it was glued to. A true, cited hook was being reported
+    # as an unsupported claim, which is the kind of false failure that teaches people to disable a
+    # gate.
+    #
+    # So the hook is lifted out and judged against the story it promises: the union of the events
+    # the spine actually establishes. It may say anything those events support, and nothing more.
+    hook = _text(script.get("hook"))
     beats = [dict(scene, beat_id=_text(scene.get("beat_id")) or _text(scene.get("scene_id")) or f"scene_{index:03d}",
                   role=_text(scene.get("causal_role")) or _text(scene.get("story_role")))
              for index, scene in enumerate(scenes, 1)]
+    if hook and beats:
+        lead = _text(beats[0].get("narration"))
+        if lead.casefold().startswith(hook.casefold()):
+            # Strip the separator too. A hook already ending in "?" leaves ". Explained like you
+            # are five..." behind, and a narration opening on a bare full stop is both a worse
+            # sentence for the judge to read and a worse one for the narrator to say.
+            beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
     report = sfm.validate_cascade(
         beats, _claim_index(dossier), _claims_by_parallel_case(dossier),
         judge=judge, cache=cache, cost_sink=cost_sink)
@@ -530,6 +551,38 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                   + ", ".join(row.get("unsupported_details") or []),
                        "supported_core": row.get("supported_core"),
                        "unsupported_details": row.get("unsupported_details")})
+    if hook:
+        import claim_entailment as ce
+        import story_fact_model as _sfm
+        story = " ".join(_sfm.event_of(beat)["text"] for beat in beats
+                         if _sfm.event_of(beat)["text"]
+                         and _text(beat.get("beat_id")) not in
+                         {row["beat_id"] for row in report["evidence"]})
+        if not story:
+            # Nothing survived, so there is no ceiling to measure against. Reported as the hook
+            # exceeding the story rather than skipped: a promise with no supported events behind
+            # it is the strongest version of this failure, not an exemption from it.
+            errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           "message": "no event survived the evidence boundary, so nothing "
+                                      "supports the hook's promise"})
+            verdict = None
+        else:
+            verdict = ce.narration_fidelity(story, hook, judge=judge, cache=cache,
+                                            cost_sink=cost_sink)
+        if verdict is None:
+            pass
+        elif ce.is_retryable(verdict):
+            errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": "hook",
+                           "message": f"hook: {verdict.get('reason') or verdict['verdict']}",
+                           "retryable": True})
+        elif not verdict["passed"]:
+            errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           "message": "the hook promises more than the supported events deliver ("
+                                      f"{verdict['verdict']}): "
+                                      + ", ".join(verdict.get("unsupported_details") or []),
+                           "supported_core": verdict.get("supported_core"),
+                           "unsupported_details": verdict.get("unsupported_details")})
+
     # An outage is not a content failure, but it is not a pass either. It blocks and says why.
     for row in report["unavailable"]:
         errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": row["beat_id"],
@@ -537,7 +590,10 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                   f"judged — {row.get('reason')}", "retryable": True})
     return {
         "version": 2,
-        "passed": report["passed"] and all(r["passed"] for r in relationships),
+        # Every error blocks, including the hook's. A finding that reaches `errors` and not
+        # `passed` is a gate that reports a problem and lets the run through anyway.
+        "passed": (report["passed"] and all(r["passed"] for r in relationships)
+                   and not [e for e in errors if not e.get("retryable")]),
         "structure_status": report["structure_status"],
         "claim_count": len(_claim_index(dossier)),
         "errors": errors,
