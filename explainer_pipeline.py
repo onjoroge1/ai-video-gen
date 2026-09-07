@@ -3808,7 +3808,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=10000,
+        max_tokens=_RESEARCH_MAX_TOKENS,
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -7598,6 +7598,20 @@ _SCRIPT_ELEVATE_PASSES = int(os.environ.get("SCRIPT_ELEVATE_PASSES", "2"))
 # Structural retries happen before the subjective engagement grader. One re-plan is usually enough
 # to repair a missing prediction/payoff/loop while keeping provider cost bounded.
 _LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"))
+# Output budget for one research turn. This bounds what the model WRITES -- the search results it
+# reads are input -- so it is the ceiling on how many claims, quotes and URLs fit in the dossier
+# before the JSON is cut off mid-structure.
+#
+# Raised from 10k after "Why don't Americans eat hippo meat?" spent $1.30 and returned nothing:
+# stop_reason came back max_tokens with the ledger unfinished, and a partial dossier cannot be
+# repaired into verified claims. 10k was already known to be tight -- an earlier web_fetch
+# experiment against the same budget drove claims from 14 to 0 by leaving no room to write them.
+#
+# Note what this does NOT fix. A broad question makes the model search more before it writes, and
+# search blocks are output too, so extra budget can be spent on searching rather than on claims.
+# Budget helps a dossier that was nearly complete; it does not narrow a question that has no
+# single documented episode at its centre.
+_RESEARCH_MAX_TOKENS = max(4000, int(os.environ.get("RESEARCH_MAX_TOKENS", "20000")))
 # Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
 # the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
 _CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
