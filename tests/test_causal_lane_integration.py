@@ -1439,25 +1439,19 @@ def test_the_claim_repair_runs_again_while_it_is_still_converging():
         "a ceiling, and a small one — each pass is a paid provider call"
 
 
-def test_state_once_runs_on_a_fact_model_script_and_is_given_the_ceiling():
-    """The old rule was "a dossier means never rewrite", which is true of a PHRASE-bound script.
+def test_state_once_stays_off_on_a_sourced_script():
+    """Enabled once, measured, reverted. Kept as a test so it is not re-enabled from theory.
 
-    Under the fact model the binding is beat-level, each scene carries the event it may not exceed,
-    and rederive_narration_bindings plus the claim repair loop re-check every line afterwards.
-    Repetition scored 58 on the delivered render -- the weakest axis on both scorers -- and stating
-    a thing once is what this pass is for.
+    On the same topic and dossier it moved repetition 58 -> 52 (the axis it was turned on to fix),
+    the overall grade 74 -> 69 (back under the floor), and the runtime 79.9s -> 73.4s, under the
+    76.5s contract floor. The hook lost its mechanism -- "residents bred rats to be paid" became
+    "only made the rat problem worse" -- while scoring HIGHER for saying less.
     """
     source = Path(ep.__file__).read_text(encoding="utf-8")
-    gate = source[source.index("The old rule was \"a dossier means never rewrite\""):]
+    gate = source[source.index("OFF on a sourced script"):]
     gate = gate[:gate.index("for i, s in enumerate(all_scenes):")]
-    assert '.get("event", {}).get("text")' in gate, \
-        "the pass is skipped only for a script with no events, not for any script with a dossier"
-
-    prompt = source[source.index("You are a ruthless script editor"):]
-    prompt = prompt[:prompt.index("Return ONLY JSON")]
-    assert "may assert nothing beyond" in prompt, "the ceiling reaches the editor"
-    assert "never more" in prompt and "NEW invented one" in prompt, \
-        "cutting repetition must not become licence to invent a fresh unsourced image"
+    assert "if research_dossier:" in gate and "dc = 0.0" in gate
+    assert "58 -> 52" in gate, "the measurement stays next to the decision it justifies"
 
 
 def test_the_dedupe_tags_each_line_with_the_event_it_may_not_exceed(monkeypatch):

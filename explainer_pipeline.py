@@ -3402,14 +3402,30 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         bi += per_batch
 
     # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
-    # The old rule was "a dossier means never rewrite", because a claim-unaware edit destroys the
-    # exact narration/source joins the ledger checks. That is still true of a PHRASE-bound script.
-    # It is not true of one written under the fact model: there the binding is beat-level, each
-    # scene carries the event it may not exceed, and `rederive_narration_bindings` plus the claim
-    # repair loop re-check every line afterwards. So the pass runs, and it runs holding the
-    # ceiling -- repetition was the weakest axis on the delivered render (58) on both scorers, and
-    # stating a thing once is exactly what this pass is for.
-    if research_dossier and not any((beat or {}).get("event", {}).get("text") for beat in beats):
+    # OFF on a sourced script, and now for a measured reason rather than only a structural one.
+    #
+    # The structural reason came first: a claim-unaware edit destroys the exact narration/source
+    # joins the ledger checks. Under the fact model that objection is weaker -- the binding is
+    # beat-level and every line is re-validated afterwards -- so this was enabled, with each line
+    # carrying the event it may not exceed, on the theory that repetition (58, the weakest axis on
+    # both scorers) was exactly what STATE-ONCE is for.
+    #
+    # It made all three things worse, on the same topic and the same dossier:
+    #
+    #   repetition        58 -> 52          the axis it was turned on to fix
+    #   overall grade     74 -> 69          back under the quality floor
+    #   final runtime     79.9s -> 73.4s    under the 76.5s contract floor, DEGRADED
+    #
+    # And the hook lost its mechanism: "residents bred rats to be paid" became "only made the rat
+    # problem worse" -- the shape-not-substance phrasing deleted from story_direction earlier --
+    # while scoring HIGHER on the hook axis for saying less.
+    #
+    # The diagnosis: STATE-ONCE targets conceptual re-explanation, and the repetition here is
+    # structural -- parallel sentence shapes and repeated cadence. Wrong tool. It is also
+    # count-preserving but not LENGTH-preserving, so on a lane that budgets runtime per beat its
+    # trimming walks the video out of its own contract. Re-enabling it needs a pass built for
+    # cadence, not this one.
+    if research_dossier:
         dc = 0.0
     else:
         all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
