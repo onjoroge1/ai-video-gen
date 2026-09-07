@@ -1355,3 +1355,29 @@ def test_the_goal_is_read_under_the_name_the_schema_actually_uses():
                                              "measure_claim_refs": ["c1"],
                                              "goal_claim_refs": ["c2"]}})
         assert got["actual_goal"] == "fewer rats", f"{field} must resolve"
+
+
+def test_a_two_word_hook_overage_trims_the_hook_instead_of_replanning_the_story():
+    """A replan returns a DIFFERENT story whose evidence must be re-established from scratch.
+
+    Measured: a draft whose spine had just passed in full -- every required causal role supported,
+    the derived mechanism among them -- was replanned because its hook ran 20 words against an
+    18-word budget. The replacement sheet failed the spine. Two words cost a validated story, and
+    `_ensure_hook_fits_budget` already existed to fix exactly this.
+    """
+    assert ep._only_hook_length_blocks({"errors": [{"code": "LONG_HOOK"}]}, [])
+    assert ep._only_hook_length_blocks({"errors": []}, [{"code": "LONG_HOOK"}])
+    # Anything else still replans: a hook that is too long AND a mechanism that is too late is a
+    # story problem, and trimming the hook would leave the run failing on the other contract.
+    assert not ep._only_hook_length_blocks(
+        {"errors": [{"code": "LONG_HOOK"}]}, [{"code": "LATE_MECHANISM"}])
+    assert not ep._only_hook_length_blocks({"errors": []}, []), "nothing blocking is not this case"
+
+
+def test_the_hook_trim_is_wired_ahead_of_the_replan():
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("TRIM THE HOOK BEFORE THROWING THE STORY AWAY"):]
+    block = block[:block.index("cand = generate_script(")]
+    assert "_ensure_hook_fits_budget" in block
+    assert "_causal_contract_report" in block, "re-checked after trimming, not assumed fixed"
+    assert "break" in block, "a draft that now passes must not be replanned anyway"

@@ -7637,6 +7637,19 @@ def _lr_claims_by_case(dossier: dict) -> dict:
     return _claims_by_parallel_case(dossier or {})
 
 
+def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is hook length the only thing standing between this draft and the render?
+
+    Deliberately narrow. A replan is the right answer to a story that does not work; it is a
+    catastrophic answer to a sentence that is two words long, because the sheet it returns is a
+    different story whose evidence has to be re-established from scratch.
+    """
+    codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
+    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item)
+              for item in causal_errors or []]
+    return bool(codes) and all(code == "LONG_HOOK" for code in codes)
+
+
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
     """Sourcing validation, routed to whichever contract this script was written under.
 
@@ -7964,6 +7977,26 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     for _attempt in range(1, _attempts + 1):
         if best_validation.get("passed") and best_causal_ok:
             break
+        # TRIM THE HOOK BEFORE THROWING THE STORY AWAY.
+        #
+        # A replan rebuilds the whole causal sheet, and the sheet it produces is a different story
+        # with different evidence. Measured: a draft whose spine had just passed in full -- every
+        # required role supported, the derived mechanism among them -- was replanned because its
+        # hook was 20 words against an 18-word budget, and the replacement sheet failed the spine.
+        # Two words cost a validated story.
+        #
+        # `_ensure_hook_fits_budget` already exists and does exactly this. When hook length is the
+        # ONLY thing blocking, it is the whole repair; anything else still replans as before.
+        if causal_lane and _only_hook_length_blocks(best_validation, best_causal_errors):
+            best, _hook_cost = _ensure_hook_fits_budget(best, cost_sink)
+            total_generation_cost += float(_hook_cost or 0.0)
+            best_validation = validate_longform_story(best, question)
+            best_causal_ok, best_causal_errors = _causal_contract_report(best, question)
+            log(f"Hook trimmed to budget instead of replanning; contract "
+                f"{best_validation.get('score', 0)}/100"
+                + (" and the causal contract now passes" if best_causal_ok else ""))
+            if best_validation.get("passed") and best_causal_ok:
+                break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
         if causal_lane and not best_causal_ok:
             causal_fixes = "; ".join(
