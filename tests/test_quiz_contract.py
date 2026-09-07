@@ -1284,3 +1284,64 @@ def test_one_generation_covers_every_beat_it_pays_for():
     final_block = source[source.index("answer_motion = "):source.index("clips.extend((")]
     assert final_block.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 1, (
         "one charge per round that animates, not per segment")
+
+
+def test_the_opening_reveal_is_the_beat_worth_animating():
+    """The first default put motion on the FINAL reveal because that beat is the longest. Longest
+    is not the same as most valuable: stayed-to-watch is decided in the opening seconds, round
+    one's reveal lands around 2.4s inside that window, and the published curves fall in a straight
+    line from the very start with no plateau. Motion at 8s rewards a viewer who already chose to
+    stay; motion at 2.4s is aimed at the one still deciding.
+    """
+    import os
+    import importlib
+    import _quiz_pipeline_legacy as legacy
+
+    prior = os.environ.get("QUIZ_FAL_REVEAL")
+    try:
+        os.environ["QUIZ_FAL_REVEAL"] = "first"
+        importlib.reload(legacy)
+        assert [legacy.reveal_motion_wanted(i, 3) for i in (1, 2, 3)] == [True, False, False]
+    finally:
+        os.environ.pop("QUIZ_FAL_REVEAL", None)
+        if prior is not None:
+            os.environ["QUIZ_FAL_REVEAL"] = prior
+        importlib.reload(legacy)
+
+
+def test_an_animated_opening_reveal_is_held_long_enough_to_read():
+    """Round one's reveal floors at 0.8s and the match-cut transition takes 0.42s of it — twelve
+    frames, too few for a surge toward camera to read as anything but a glitch. The extra time is
+    bought only when the motion is actually there, so a still render keeps its pacing exactly."""
+    import _quiz_pipeline_legacy as legacy
+    from bolt_video.formats.quiz import QUIZ_V2
+
+    held = legacy._ANIMATED_FIRST_REVEAL_SEC
+    assert held > QUIZ_V2.reveal_max_sec, "the normal cap would clamp it straight back down"
+    playable = held - legacy._REVEAL_TRANSITION_SEC
+    assert playable >= 1.0, f"only {playable:.2f}s of motion after the transition"
+
+    source = inspect_source = __import__("inspect").getsource(legacy.run_quiz_pipeline)
+    assert "if i == 1 and reveal_motion_wanted(i, len(items)):" in source, (
+        "a still opening round must not pay the extra second")
+
+
+def test_the_opening_reveal_uses_a_reaction_prompt_not_the_calm_one():
+    """A calm "comes alive" rewards a viewer already watching. The first reveal has to interrupt
+    someone mid-scroll who has not decided yet.
+
+    Phrased as NOTICING rather than attacking: the set is not always a predator, and "attack" would
+    be wrong for most of it — a turtle swims at you, a manta banks over the lens. It would also push
+    the model toward inventing a scene rather than moving the one it was handed.
+    """
+    import _quiz_pipeline_legacy as legacy
+
+    reaction = legacy._REVEAL_REACTION_PROMPT
+    calm = legacy._REVEAL_MOTION_PROMPT
+    assert reaction != calm
+    assert "NOTICES the camera" in reaction and "surges" in reaction
+    assert "attack" not in reaction.lower(), "wrong for most of the set, and invites a new scene"
+    # Identity has to survive a violent motion prompt, so the guardrails are the same as the calm one.
+    for guard in ("EXACT same animal", "never becomes a different creature"):
+        assert guard in reaction, guard
+    assert "reaction=(i == 1)" in __import__("inspect").getsource(legacy.run_quiz_pipeline)

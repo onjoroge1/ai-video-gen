@@ -56,8 +56,20 @@ FAL_OPENER = os.environ.get("QUIZ_FAL_OPENER", "0") == "1"
 # the reveal the answer is already given, so motion there spoils nothing and lands on the beat the
 # published retention curves show producing no response at all.
 _FAL_REVEAL_MODE = os.environ.get("QUIZ_FAL_REVEAL", "0").strip().lower()
-FAL_REVEAL = _FAL_REVEAL_MODE in ("1", "final", "all")
+FAL_REVEAL = _FAL_REVEAL_MODE in ("1", "first", "final", "all")
 FAL_REVEAL_ALL = _FAL_REVEAL_MODE == "all"
+# "first" animates round ONE, and it is the mode worth reaching for. The earlier default put
+# motion on the final reveal because that beat is the longest — but longest is not the same as
+# most valuable. Stayed-to-watch is decided in the opening seconds, round one's reveal lands at
+# roughly 2.4s inside that window, and the published retention curves fall in a straight line from
+# the very start with no plateau. Motion at 8s rewards a viewer who has already chosen to stay;
+# motion at 2.4s is aimed at the one who has not decided yet.
+FAL_REVEAL_FIRST = _FAL_REVEAL_MODE == "first"
+# An animated opening reveal is held longer than a still one. Round one's reveal floors at 0.8s and
+# the match-cut transition takes 0.42s of it, leaving twelve frames — too few for a lunge toward
+# camera to read as anything but a glitch. The extra second is bought only when the motion is
+# actually there, so a still render keeps its pacing exactly.
+_ANIMATED_FIRST_REVEAL_SEC = 1.8
 FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
@@ -950,15 +962,34 @@ _REVEAL_MOTION_PROMPT = (
     "different creature."
 )
 
+# The opening reveal gets a different instruction. A calm "comes alive" is a reward for a viewer
+# already watching; the first reveal has to interrupt someone mid-scroll who has not decided yet.
+#
+# Phrased as NOTICING rather than attacking, because the set is not always a predator — a shark
+# lunges, a turtle swims straight at you, a manta banks over the lens, and all three read as the
+# animal reacting to being seen. "Attack" would be wrong for most of them and would push the model
+# toward inventing a scene rather than moving the one it was given.
+_REVEAL_REACTION_PROMPT = (
+    "The {answer} suddenly NOTICES the camera and surges straight toward it, filling more of the "
+    "frame as it comes — a fast, startling approach, as though it has just seen the viewer. Keep "
+    "the EXACT same animal, species, markings, scene and lighting throughout; the animal moves "
+    "toward the lens but never becomes a different creature, never cuts, and nothing is added or "
+    "removed from the scene."
+)
+
 
 def reveal_motion_wanted(index: int, total: int) -> bool:
     """Whether this reveal should be animated, given QUIZ_FAL_REVEAL."""
     if not FAL_REVEAL:
         return False
-    return FAL_REVEAL_ALL or index >= total
+    if FAL_REVEAL_ALL:
+        return True
+    if FAL_REVEAL_FIRST:
+        return index <= 1
+    return index >= total
 
 
-def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None):
+def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None, reaction=False):
     """Animate one answer reveal ONCE, then split that clip across ``segments``.
 
     ``segments`` is a list of ``(overlay_png, out_path, duration, overlay_fade)``. One five-second
@@ -976,16 +1007,17 @@ def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None):
     render that fails — because this is decoration on a beat that already works without it.
     """
     raw = segments[0][1] + ".fal.raw.mp4"
+    template = _REVEAL_REACTION_PROMPT if reaction else _REVEAL_MOTION_PROMPT
     try:
         ok, quota, err = ep._animate_one(
-            "fal", reveal_img, _REVEAL_MOTION_PROMPT.format(answer=answer), raw, W, H, 5)
+            "fal", reveal_img, template.format(answer=answer), raw, W, H, 5)
     except Exception as exc:                                          # noqa: BLE001
         ok, quota, err = False, False, f"{type(exc).__name__}: {exc}"
     used = bool(ok and os.path.exists(raw) and _dur(raw) > 0)
     if i2v_sink is not None:
         i2v_sink.append({"beat": os.path.basename(segments[0][1]), "used": used,
-                         "segments": len(segments), "quota_hit": bool(quota),
-                         "error": "" if used else (err or "")})
+                         "segments": len(segments), "reaction": bool(reaction),
+                         "quota_hit": bool(quota), "error": "" if used else (err or "")})
     if not used:
         return False
     # The transition has already landed the match cut by the time this plays, so the motion starts
@@ -1823,8 +1855,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             dr = min(QUIZ_V2.final_reveal_max_sec,
                      max(QUIZ_V2.final_reveal_min_sec, narration + 0.12))
         else:
-            dr = min(QUIZ_V2.reveal_max_sec,
-                     max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
+            floor, cap = QUIZ_V2.reveal_min_sec, QUIZ_V2.reveal_max_sec
+            if i == 1 and reveal_motion_wanted(i, len(items)):
+                # Bought only when the motion is really there: a still render keeps its pacing.
+                floor = cap = _ANIMATED_FIRST_REVEAL_SEC
+            dr = min(cap, max(floor, _dur(f"{A}/n_r{i}.mp3") + 0.1))
         # The silhouette becoming the animal is the one payoff this format has that the
         # flat-colour one cannot stage, and it was being spent on a hard cut. The transition
         # comes OUT of the beat rather than extending it, so the pacing is unchanged.
@@ -1897,7 +1932,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                     and _fal_reveal_motion(
                         f"{A}/rev{i}_b.png",
                         [(f"{A}/r{i}_t.png", motion_out, hold, None)],
-                        answer, fal_reveal)):
+                        answer, fal_reveal, reaction=(i == 1))):
                 costs.append(5 * FAL_OPENER_RATE_SEC)
                 render_specs.append((motion_out, hold, True))
                 clips.append(motion_out)

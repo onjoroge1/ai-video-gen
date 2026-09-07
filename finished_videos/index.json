@@ -1850,5 +1850,16 @@
     "fal_reveal_used": 1,
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-motion-reveal.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-motion-reveal.srt"
+  },
+  "quiz-v24-reaction-first": {
+    "title": "Ocean Shadow Quiz - V2.4 (animated opening reveal)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.1,
+    "actual_cost": 0.696,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [],
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-reaction-first.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-reaction-first.srt"
   }
 }
