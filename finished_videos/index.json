@@ -1836,5 +1836,19 @@
     "degraded_reasons": [],
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-varied.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-ocean-varied.srt"
+  },
+  "quiz-v24-motion-reveal": {
+    "title": "Ocean Shadow Quiz - V2.4 (animated final reveal)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.8,
+    "actual_cost": 0.815,
+    "question": "Can You Name Them From the Shadow?",
+    "degraded_reasons": [
+      "round 3 clue subject spans 62% of frame width; 50% is the most a expert round may fill before the habitat reads as a backdrop rather than a hiding place"
+    ],
+    "fal_reveal_used": 1,
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-motion-reveal.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-motion-reveal.srt"
   }
 }

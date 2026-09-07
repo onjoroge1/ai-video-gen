@@ -1174,3 +1174,113 @@ def test_the_close_up_ask_stays_inside_the_widened_band():
              "two fifths": 40.0, "one half": 50.0}
     for tier in ("hard", "expert"):
         assert words[legacy._CLOSE_UP_CEILING_SPAN[tier]] < legacy._READABILITY_WIDTH_MAX[tier]
+
+
+# ── animated reveals ────────────────────────────────────────────────────────────
+
+def test_only_the_reveal_is_ever_animated():
+    """Generative motion on a silhouette turns the animal side-on to front-on mid-guess, so the
+    outline the viewer is asked to name stops being the outline they were shown. That is why the
+    fal OPENER is never combined with progressive crops, and it is why the clue stays still here.
+
+    By the reveal the answer is already given, so motion spoils nothing — and it lands on the beat
+    the published retention curves show producing no response at all.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    # Whitespace-normalised: the call is wrapped across lines.
+    compact = " ".join(inspect.getsource(legacy.run_quiz_pipeline).split())
+    assert '_fal_reveal_motion( f"{A}/rev{i}_b.png"' in compact
+    assert "clue" not in compact[compact.index("_fal_reveal_motion("):][:200], (
+        "the clue must never be the animation seed")
+    doc = legacy._fal_reveal_motion.__doc__ or ""
+    assert "falls back to the still" in doc
+
+
+def test_reveal_motion_is_off_by_default_and_scoped_when_on():
+    """Kling bills a five-second minimum whatever is used of it, so this is opt-in. "final" buys one
+    clip on the longest beat; "all" buys one per round."""
+    import os
+    import importlib
+    import _quiz_pipeline_legacy as legacy
+
+    prior = os.environ.get("QUIZ_FAL_REVEAL")
+    try:
+        for mode, expected in (("0", [False, False, False]),
+                               ("final", [False, False, True]),
+                               ("1", [False, False, True]),
+                               ("all", [True, True, True])):
+            os.environ["QUIZ_FAL_REVEAL"] = mode
+            importlib.reload(legacy)
+            got = [legacy.reveal_motion_wanted(i, 3) for i in (1, 2, 3)]
+            assert got == expected, (mode, got)
+    finally:
+        os.environ.pop("QUIZ_FAL_REVEAL", None)
+        if prior is not None:
+            os.environ["QUIZ_FAL_REVEAL"] = prior
+        importlib.reload(legacy)
+    assert legacy.FAL_REVEAL is False, "stills remain the default"
+
+
+def test_the_closing_card_keeps_its_pre_dissolve_text_fade():
+    """The CTA card can now carry motion, but the loop dissolve still eats into its tail and the
+    text has to clear before that starts — a card that merely cross-faded with the next one was
+    illegible in both. The still renderer does that with overlay_fade; the video path has to bake
+    the same fade into the composite."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    # The still path is still what runs when motion is off or refused.
+    assert 'render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False, cta_opts))' in source
+    # And when motion IS used, the CTA overlay keeps its pre-dissolve text fade — baked into the
+    # composite, because a video overlay cannot be faded by the still renderer.
+    assert "cta_fade" in source and "overlay_fade" in inspect.getsource(legacy._fal_reveal_motion)
+
+
+def test_a_refused_clip_falls_back_rather_than_failing_the_render():
+    """No key, an exhausted balance, a quota refusal, a truncated download or a failed composite
+    all have to end in the still the round would have rendered anyway. This is decoration on a beat
+    that already works without it — it must never be able to take a render down."""
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    body = inspect.getsource(legacy._fal_reveal_motion)
+    assert "except Exception" in body, "a provider raising must not escape"
+    assert "return False" in body, "a refused clip must return, not raise"
+    # A composite that produced nothing has to report failure too, not just a download that never
+    # arrived — otherwise a broken segment reaches the assembler as a valid render spec.
+    assert "if not os.path.exists(out) or _dur(out) <= 0:" in body
+    # And the operator is told, because silent stills read as "that is the format".
+    assert "fell back to stills" in inspect.getsource(legacy.run_quiz_pipeline)
+
+
+def test_one_generation_covers_every_beat_it_pays_for():
+    """Hooking the motion to the closing answer beat alone spent a five-second clip on 0.2s of
+    screen time — six frames, 4% of what was billed. The countdown taper had cut that round's stage
+    to 0.6s and the reveal transition takes 0.42s of it, so the duration on the final round lives
+    in the CTA beat that follows.
+
+    One clip, split across both cards, the same way _fal_countdown_opener splits one clip under the
+    changing 3-2-1 overlays. Two generations would be the other way to cover both beats, and it
+    would cost twice as much for a clip that is already four times longer than the beat needs.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    body = inspect.getsource(legacy._fal_reveal_motion)
+    assert "segments" in inspect.signature(legacy._fal_reveal_motion).parameters
+    assert "start += duration" in body, "segments must run consecutively through one clip"
+    assert body.count("_animate_one") == 1, "one generation covers every segment"
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    # The final round passes two segments and pays once.
+    assert "answer_motion, answer_beat, None" in source
+    assert "cta_motion, cta_beat, cta_fade" in source
+    # Three charge sites in total: the fal opener, plus the two reveal paths (final and ordinary).
+    # What matters is that the FINAL round charges once despite rendering two segments.
+    assert source.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 3
+    final_block = source[source.index("answer_motion = "):source.index("clips.extend((")]
+    assert final_block.count("costs.append(5 * FAL_OPENER_RATE_SEC)") == 1, (
+        "one charge per round that animates, not per segment")

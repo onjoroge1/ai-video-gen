@@ -47,6 +47,17 @@ W, H, FPS = 1080, 1920, 30
 # kept deliberately as the A/B control rather than deleted.
 HABITAT = os.environ.get("QUIZ_HABITAT", "1") == "1"
 FAL_OPENER = os.environ.get("QUIZ_FAL_OPENER", "0") == "1"
+# Animated reveals. QUIZ_FAL_REVEAL: "0"/unset = stills; "final" or "1" = the closing answer only;
+# "all" = every reveal. Opt-in because Kling bills a five-second minimum whatever is used of it.
+#
+# Only the REVEAL is ever animated, never the clue. Generative motion on a silhouette turns the
+# animal side-on to front-on mid-guess, so the outline the viewer is asked to name stops being the
+# outline they were shown — that is why the fal OPENER is never combined with progressive crops. By
+# the reveal the answer is already given, so motion there spoils nothing and lands on the beat the
+# published retention curves show producing no response at all.
+_FAL_REVEAL_MODE = os.environ.get("QUIZ_FAL_REVEAL", "0").strip().lower()
+FAL_REVEAL = _FAL_REVEAL_MODE in ("1", "final", "all")
+FAL_REVEAL_ALL = _FAL_REVEAL_MODE == "all"
 FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
@@ -931,6 +942,78 @@ def _fal_countdown_opener(clean_img, overlays, outputs, segment_d, i2v_sink=None
             return False
     return True
 
+_REVEAL_MOTION_PROMPT = (
+    "The {answer} comes alive: it moves naturally where it stands — turning its head, breathing, "
+    "shifting its weight, fins or limbs stirring — as though the photograph started playing. Keep "
+    "the EXACT same animal, species, markings, scene, lighting and camera framing. Do not change "
+    "the composition, do not cut, do not add or remove anything, and never let it become a "
+    "different creature."
+)
+
+
+def reveal_motion_wanted(index: int, total: int) -> bool:
+    """Whether this reveal should be animated, given QUIZ_FAL_REVEAL."""
+    if not FAL_REVEAL:
+        return False
+    return FAL_REVEAL_ALL or index >= total
+
+
+def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None):
+    """Animate one answer reveal ONCE, then split that clip across ``segments``.
+
+    ``segments`` is a list of ``(overlay_png, out_path, duration, overlay_fade)``. One five-second
+    generation covers all of them consecutively, the same way ``_fal_countdown_opener`` splits a
+    single clip under the changing 3-2-1 overlays.
+
+    Splitting is the whole point. Hooking the motion to the closing round's answer beat alone spent
+    a five-second clip on 0.2s of screen time — six frames, 4% of what was billed — because the
+    countdown taper cut that beat to 0.6s and the reveal transition takes 0.42s of it. The time on
+    the final round lives in the CTA beat that follows, so the clip has to run under both.
+
+    Every failure path returns False and the caller falls back to the still it would have rendered
+    anyway: no key, an exhausted fal balance, a quota refusal, a truncated download, or a composite
+    that produces nothing. A reveal that cannot be animated is a reveal that does not move — never a
+    render that fails — because this is decoration on a beat that already works without it.
+    """
+    raw = segments[0][1] + ".fal.raw.mp4"
+    try:
+        ok, quota, err = ep._animate_one(
+            "fal", reveal_img, _REVEAL_MOTION_PROMPT.format(answer=answer), raw, W, H, 5)
+    except Exception as exc:                                          # noqa: BLE001
+        ok, quota, err = False, False, f"{type(exc).__name__}: {exc}"
+    used = bool(ok and os.path.exists(raw) and _dur(raw) > 0)
+    if i2v_sink is not None:
+        i2v_sink.append({"beat": os.path.basename(segments[0][1]), "used": used,
+                         "segments": len(segments), "quota_hit": bool(quota),
+                         "error": "" if used else (err or "")})
+    if not used:
+        return False
+    # The transition has already landed the match cut by the time this plays, so the motion starts
+    # from the frame the viewer just watched the silhouette become.
+    start = 0.0
+    for overlay, out, duration, overlay_fade in segments:
+        chain = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                 f"fps={FPS}[v];")
+        if overlay_fade:
+            # The loop dissolve eats into this segment's tail, so its text is faded out first —
+            # baked in here because a video overlay cannot be faded by the still renderer. A card
+            # that merely cross-faded with the next one was illegible in both.
+            fade_at, fade_len = overlay_fade
+            chain += (f"[1:v]format=rgba,fade=t=out:st={max(0.0, fade_at):.3f}:"
+                      f"d={fade_len:.3f}:alpha=1[ov];[v][ov]overlay=0:0,format=yuv420p[o]")
+        else:
+            chain += "[v][1:v]overlay=0:0,format=yuv420p[o]"
+        subprocess.run([
+            FF, "-y", "-ss", f"{start:.3f}", "-i", raw, "-loop", "1", "-i", overlay,
+            "-filter_complex", chain, "-map", "[o]", "-an", "-t", f"{max(0.1, duration):.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", out,
+        ], capture_output=True)
+        if not os.path.exists(out) or _dur(out) <= 0:
+            return False
+        start += duration
+    return True
+
+
 def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
     """LIVELY hook/outro: Kling-animate the game-show Bolt scene, overlay static text. Falls back to a
     slow zoom (Ken Burns) if i2v is unavailable. Returns a SILENT clip of `d`s (audio is the timeline)."""
@@ -1441,6 +1524,7 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     def stage_len(index):
         return window(index) / 3
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
+    fal_reveal = []
     timing_warnings = []; loop_warnings = []; opening_frame = None
     ladder_warnings = []
     readability_warnings = []
@@ -1772,24 +1856,54 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             answer_beat = stage_len(i) - trans_d
             cta_beat = max(0.3, dr - stage_len(i))
             answer_end_zoom = 1.0 + min(_DRIFT_CLOSING_MAX, _DRIFT_CLOSING_PER_SEC * answer_beat)
-            render_specs.append((f"{A}/rev{i}_b.png", answer_beat, False,
-                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0,
-                                  "drift": _DRIFT_CLOSING_PER_SEC,
-                                  "drift_max": _DRIFT_CLOSING_MAX}))
             cta_opts = {"overlay": f"{A}/r{i}_cta_t.png", "z_to": answer_end_zoom,
                         "drift": _DRIFT_CLOSING_PER_SEC, "drift_max": _DRIFT_CLOSING_MAX}
             # The loop dissolve eats into the tail of this card. Clear its text just before that
             # starts so the dissolve is scene-to-scene, with only the opening card's text fading
             # in. A card that merely cross-faded with the next one was illegible in both.
             text_clear_at = cta_beat - (_LOOP_DISSOLVE_SEC + _LOOP_SETTLE_SEC) - _LOOP_TEXT_CLEAR_SEC
-            if opening_frame and text_clear_at > 0:
-                cta_opts["overlay_fade"] = (text_clear_at, _LOOP_TEXT_CLEAR_SEC)
-            render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False, cta_opts))
+            cta_fade = ((text_clear_at, _LOOP_TEXT_CLEAR_SEC)
+                        if opening_frame and text_clear_at > 0 else None)
+            if cta_fade:
+                cta_opts["overlay_fade"] = cta_fade
+            # ONE clip under BOTH cards. The answer beat alone is 0.2s here — the taper cut this
+            # round's stage to 0.6s and the reveal transition takes 0.42s of that — so animating
+            # only it spent a five-second generation on six frames. The duration on this round
+            # lives in the CTA beat, so the clip has to run under both or it is not worth buying.
+            answer_motion = f"{A}/rmot{i}a.mp4"
+            cta_motion = f"{A}/rmot{i}b.mp4"
+            if (reveal_motion_wanted(i, len(items))
+                    and _fal_reveal_motion(
+                        f"{A}/rev{i}_b.png",
+                        [(f"{A}/r{i}_t.png", answer_motion, answer_beat, None),
+                         (f"{A}/r{i}_cta_t.png", cta_motion, cta_beat, cta_fade)],
+                        answer, fal_reveal)):
+                costs.append(5 * FAL_OPENER_RATE_SEC)
+                render_specs.append((answer_motion, answer_beat, True))
+                render_specs.append((cta_motion, cta_beat, True))
+                clips.extend((answer_motion, cta_motion))
+            else:
+                render_specs.append((f"{A}/rev{i}_b.png", answer_beat, False,
+                                     {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0,
+                                      "drift": _DRIFT_CLOSING_PER_SEC,
+                                      "drift_max": _DRIFT_CLOSING_MAX}))
+                render_specs.append((f"{A}/rev{i}_b.png", cta_beat, False, cta_opts))
             clips.append(f"{A}/r{i}.png"); clips.append(f"{A}/r{i}_cta_t.png")
             dr = trans_d + answer_beat + cta_beat
         else:
-            render_specs.append((f"{A}/rev{i}_b.png", dr - trans_d, False,
-                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+            hold = dr - trans_d
+            motion_out = f"{A}/rmot{i}.mp4"
+            if (reveal_motion_wanted(i, len(items))
+                    and _fal_reveal_motion(
+                        f"{A}/rev{i}_b.png",
+                        [(f"{A}/r{i}_t.png", motion_out, hold, None)],
+                        answer, fal_reveal)):
+                costs.append(5 * FAL_OPENER_RATE_SEC)
+                render_specs.append((motion_out, hold, True))
+                clips.append(motion_out)
+            else:
+                render_specs.append((f"{A}/rev{i}_b.png", hold, False,
+                                     {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
             clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding"))
         caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i]))
@@ -1909,6 +2023,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     if not os.path.exists(primary_output):
         _deg = ["final video file was not produced — assembly failed"] + _deg
     fal_used = any(event.get("used") for event in fal_opener)
+    reveal_motion_used = [e for e in fal_reveal if e.get("used")]
+    if FAL_REVEAL and not reveal_motion_used:
+        # Requested and not delivered is worth saying out loud. Silence here would read as "the
+        # reveals are stills because that is the format", when the truth is the provider refused.
+        why = next((e.get("error") for e in fal_reveal if e.get("error")), "no clip was produced")
+        log(f"⚠ animated reveals were requested but fell back to stills — {str(why)[:120]}")
     log(f"Complete — rapid quiz assembled · ${cost} · first clue at 0.0s · {TOTAL:.1f}s planned"
         + (" · fal opener" if fal_used else ""))
     # Shape matches run_explainer_pipeline so the app's save/index path consumes it unchanged.
@@ -1918,6 +2038,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "script": quiz, "hook": q_texts.get(1, ""), "video_format": "social",
             "quiz_creative": QUIZ_V2.version, "first_clue_at_sec": QUIZ_V2.first_clue_at_sec,
             "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
+            "fal_reveal_requested": _FAL_REVEAL_MODE if FAL_REVEAL else "",
+            "fal_reveal_used": len(reveal_motion_used), "fal_reveal_events": fal_reveal,
             "progressive_clues": QUIZ_V2.progressive_clues,
             "subscribe_cta": "integrated_final_reveal", "visual_qa": visual_qa,
             "habitat_loop_closed": HABITAT and not loop_warnings,
