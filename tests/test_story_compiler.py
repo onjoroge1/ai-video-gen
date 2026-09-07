@@ -196,7 +196,8 @@ def test_the_prompt_asks_for_what_the_clerk_accepted_not_what_was_announced():
     """4 of 5 sheets filled rewarded_measure with 'every dead rat' -- the announcement, not the
     proof -- which erases the proxy gap the whole story turns on."""
     source = open(__import__("explainer_pipeline").__file__, encoding="utf-8").read()
-    block = source[source.index('"rewarded_measure"'):]
+    # Anchor on the SCHEMA, not the first mention: the repair prompt also names these fields.
+    block = source[source.index('\'"incentive":{"rewarded_measure"'):]
     block = block[:block.index('"goal_claim_refs"')]
     assert "accepted as proof" in block and "not what the policy was announced as" in block
     assert "severed rat tail" in block and "never" in block

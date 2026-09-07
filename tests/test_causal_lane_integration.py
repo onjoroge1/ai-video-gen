@@ -1176,3 +1176,30 @@ def test_a_repair_cannot_invent_a_claim_id(monkeypatch):
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
     out, _ = ep._repair_incentive_citations(beats, suspicions, claims, "Why?")
     assert out[0]["incentive"]["measure_claim_refs"] == ["c08"], "a ref outside the ledger is refused"
+
+
+def test_the_mechanism_repair_is_triggered_by_the_judge_not_by_stem_overlap():
+    """The heuristic cannot see this case, and five sheets proved it.
+
+    The mechanism cited a claim COUNTING tails handed in. That carries the distinguishing word
+    "tail" and says nothing about a tail being accepted as proof, so the relevance pre-filter
+    passed all five while Boundary A refused all five. Only the judge can rule on support, so the
+    judge's verdict is what asks for the correction.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("SECOND CHANCE FOR THE DERIVED MECHANISM"):]
+    block = block[:block.index("print(_sfm.spine_summary")]
+    assert '_spine["cascade"]["evidence"]' in block, "triggered by the evidence verdict"
+    assert "unsupported_details" in block, "the judge's own reasoning is handed back"
+    assert "_repair_incentive_citations" in block
+    # Re-judged after repair. A repair that is not re-judged is a rewrite that agrees with itself.
+    assert block.count("_sfm.compile_spine") == 1 and "_spine_beats(beats)" in block
+
+
+def test_the_repair_asks_for_both_halves_of_the_mechanism():
+    """The goal citation was never checked at all, and it was wrong in every sampled sheet."""
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("def _repair_incentive_citations"):]
+    block = block[:block.index("def _generate_script_chunked")]
+    assert "measure_claim_refs" in block and "goal_claim_refs" in block
+    assert "COUNTING how many were handed in" in block, "name the claim that keeps being cited"

@@ -2358,24 +2358,31 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
     """
     by_id = {_s(beat.get("beat_id")): beat for beat in beats or []}
     cost = 0.0
+    if not isinstance(claims, dict) or not claims:
+        return beats, cost
     for suspect in suspicions or []:
         beat = by_id.get(suspect.get("beat_id"))
         if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
             continue
         ledger = "\n".join(
             f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
+        incentive = beat["incentive"]
         prompt = (
-            f'A beat sheet for "{question}" says this about the rule at its centre:\n\n'
-            f'  the reward was paid for: {suspect["phrase"]}\n'
-            f'  cited claims: {", ".join(suspect["cited"]) or "(none)"}\n\n'
-            "Those claims do not appear to mention what the reward was actually paid for. That "
-            "may be a wording difference rather than a mistake -- judge it yourself.\n\n"
+            f'A beat sheet for "{question}" states the rule at the centre of the story as two '
+            "propositions, each of which must be supported by the claims cited for it:\n\n"
+            f'  the reward was paid for: {_s(incentive.get("rewarded_measure"))}\n'
+            f'    cited: {", ".join(incentive.get("measure_claim_refs") or []) or "(none)"}\n'
+            f'  the goal was: {_s(incentive.get("actual_goal"))}\n'
+            f'    cited: {", ".join(incentive.get("goal_claim_refs") or []) or "(none)"}\n\n'
+            f'{suspect.get("why") or "Those citations do not appear to support what they are "
+                                     "cited for."}\n\n'
             f"THE FULL CLAIM LEDGER:\n{ledger}\n\n"
-            "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids that state what a person "
-            "had to hand over to be paid>\"],\"unchanged\":true|false}. Set unchanged to true "
-            "and repeat the current ids if they are already the right ones. Cite only claims "
-            "that state what was ACCEPTED AS PROOF -- a claim announcing the reward, or one "
-            "counting how many were handed in, is a different fact. Change nothing else.")
+            "Return ONLY JSON: {\"measure_claim_refs\":[\"<claim ids stating what a person had "
+            "to hand over to be paid>\"],\"goal_claim_refs\":[\"<claim ids stating what the "
+            "policy was trying to achieve>\"]}. Repeat the current ids where they are already "
+            "right. For the measure, cite only claims saying what was ACCEPTED AS PROOF: a claim "
+            "ANNOUNCING the reward, or one COUNTING how many were handed in, is a different fact "
+            "and supports neither proposition. Change nothing else.")
         try:
             response = _claude().messages.create(
                 model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_SYSTEM,
@@ -2383,11 +2390,15 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
             cost += _msg_cost(response.usage)
             reply, parse_cost = _parse_script_json(response.content[0].text)
             cost += parse_cost
-            refs = [_s(ref) for ref in (reply.get("measure_claim_refs") or []) if _s(ref)]
-            if refs and set(refs) <= set(claims):
-                beat["incentive"] = dict(beat["incentive"], measure_claim_refs=refs)
-                print(f"[roles] {suspect['beat_id']} measure citations "
-                      f"{', '.join(suspect['cited']) or '(none)'} -> {', '.join(refs)}")
+            updates = {}
+            for field in ("measure_claim_refs", "goal_claim_refs"):
+                refs = [_s(ref) for ref in (reply.get(field) or []) if _s(ref)]
+                if refs and set(refs) <= set(claims):
+                    updates[field] = refs
+            if updates:
+                beat["incentive"] = dict(beat["incentive"], **updates)
+                print(f"[roles] {suspect['beat_id']} citations repaired: "
+                      + "; ".join(f"{k} -> {', '.join(v)}" for k, v in updates.items()))
         except Exception as exc:                      # noqa: BLE001 - repair is best-effort
             print(f"[roles] citation repair unavailable ({type(exc).__name__}); "
                   "the original citations go to the evidence boundary unchanged")
@@ -2992,6 +3003,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                     _lr_claims_by_case(research_dossier), cost_sink=_spine_cost)
         cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
                         f"{len(_sb)} beats judged")
+        # SECOND CHANCE FOR THE DERIVED MECHANISM, AND ONLY FROM THE JUDGE'S OWN WORDS.
+        #
+        # The stem heuristic meant to catch a mis-citation cannot see this case, exactly as
+        # predicted: the mechanism cited a claim COUNTING tails handed in, which carries the
+        # distinguishing word "tail" and says nothing about a tail being accepted as proof. Five
+        # sheets cited it and the pre-filter passed all five. Relevance overlap is not entailment
+        # and was never going to be.
+        #
+        # So the trigger is Boundary A's verdict instead. It is the only thing qualified to say a
+        # citation does not support what it is cited for, it already reports which parts went
+        # unsupported, and that text is a correction the planner can act on. Once, then re-judged
+        # -- a repair that is not re-judged is a rewrite that agrees with itself.
+        _mech_ids = {_s(b.get("beat_id")) for b in _sb if _s(b.get("role")) == "mechanism"}
+        _mech_failed = next((row for row in _spine["cascade"]["evidence"]
+                             if row.get("beat_id") in _mech_ids), None)
+        if _mech_failed and not _spine["passed"] and _claims_for_roles:
+            _source = next((_s((b.get("derived_from") or [""])[0]) for b in _sb
+                            if _s(b.get("beat_id")) == _mech_failed["beat_id"]), "")
+            beats, _fix_cost = _repair_incentive_citations(
+                beats, [{"beat_id": _source,
+                         "why": "The evidence boundary judged this "
+                                f"{_mech_failed.get('verdict') or 'unsupported'}. "
+                                + "; ".join(_mech_failed.get("unsupported_details") or [])}],
+                _claims_for_roles, question)
+            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, _fix_cost, "mechanism re-citation")
+            if _fix_cost:
+                _retry = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+                if _retry.get("compiled") and _retry.get("passed"):
+                    beats = _compiler.splice_derived(_retry["beats"], _retry)
+                    _sb = _spine_beats(beats)
+                    _spine = _sfm.compile_spine(_sb, _spine_claims(research_dossier),
+                                                _lr_claims_by_case(research_dossier),
+                                                cost_sink=_spine_cost)
+                    cost += _charge(cost_sink, _ledger.BOUNDARY_A, sum(_spine_cost),
+                                    "mechanism re-judged")
         print(_sfm.spine_summary(_sb, _spine))
         plan["_spine"] = {"compiled": _spine, "beats": _sb}
         if not _spine["passed"] and not _diagnostic_render():
@@ -7544,6 +7590,7 @@ def _spine_beats(beats: list) -> list:
             # because this projection dropped them on the way into the exception.
             "event_function": _s(beat.get("event_function")),
             "derived_from": beat.get("derived_from") or [],
+            "incentive": beat.get("incentive") or {},
         })
     return out
 
