@@ -275,3 +275,23 @@ def test_the_citation_check_is_a_pre_filter_not_a_verdict():
         "\"rat\" is in most of the ledger and distinguishes nothing"
     # And the ranking that follows from it puts the claim about what was ACCEPTED first.
     assert sc.propose_measure_claims(HANOI_CLAIMS, "a severed rat tail")[0] == "c09"
+
+
+def test_the_ranking_skips_claims_about_the_scholarship_and_other_cases():
+    """A claim ABOUT the research is not evidence of the events it describes, and it scores well.
+
+    Measured on the real dossier: ranking a goal about "Hanoi's rat population and the plague risk
+    it carried" put "Vann's study is a scholarly work ... presenting the failure of the Hanoi rat
+    bounty" FIRST, ahead of the claim recording the actual plague fear. Same bibliography trap the
+    story spine already refuses, one layer down in the citation ranking.
+    """
+    claims = dict(HANOI_CLAIMS)
+    claims["c02"] = {"claim": "Vann's study is a scholarly work published in the OUP Graphic "
+                              "Histories series presenting the failed Hanoi rat bounty and the "
+                              "plague context that produced it."}
+    claims["c17"] = {"claim": "COMPARABLE CASE (USA): Fort Benning offered a bounty per pig tail "
+                              "and the feral pig population rose."}
+    ranked = sc.rank_claims_for(claims, "to reduce Hanoi's rat population and the plague risk")
+    assert "c02" not in ranked, "a claim about the study is not evidence of the episode"
+    assert "c17" not in ranked, "a comparable case can never source the primary story"
+    assert ranked and ranked[0] == "c05", "the claim recording the plague fear ranks first"

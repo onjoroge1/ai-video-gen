@@ -2383,7 +2383,12 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
         # plague as the reason", which is about the goal, while every fix I had made was about the
         # measure. A shortlist for one half of a two-part claim only moves the failure.
         block = beat.get("incentive") or {}
-        measure, goal = _s(block.get("rewarded_measure")), _s(block.get("actual_goal"))
+        # `stated_policy_goal` is the schema's name for this; `actual_goal` is the older one that
+        # story_compiler.incentive_of still accepts. Reading only the old name here silently gave
+        # the goal ranking an empty phrase, so the shortlist never carried a plague claim and the
+        # repair went on citing the bounty announcement for a goal about plague -- four times.
+        measure = _s(block.get("rewarded_measure"))
+        goal = _s(block.get("stated_policy_goal") or block.get("actual_goal"))
         shortlist = list(dict.fromkeys(
             [_s(ref) for ref in (block.get("measure_claim_refs") or [])]
             + [_s(ref) for ref in (block.get("goal_claim_refs") or [])]

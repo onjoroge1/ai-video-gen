@@ -193,7 +193,14 @@ def rank_claims_for(claims: dict, phrase: str) -> list:
         return []
     scored = []
     for ref in claims or {}:
-        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
+        text = _claim_text(claims, ref)
+        # A claim ABOUT the scholarship is not evidence of the events it describes, and it scores
+        # dangerously well: "Vann's study presents the failure of the Hanoi rat bounty and the
+        # plague context" shares almost every word with a goal about Hanoi's rats and plague, and
+        # ranked first for it. Same detector that keeps a bibliography out of the story spine.
+        if sfm._META_EVIDENCE.search(text) or sfm._PARALLEL_MARKER.search(text):
+            continue
+        overlap = len(wanted & sfm._stems(text))
         if overlap:
             scored.append((overlap, ref))
     return [ref for _, ref in sorted(scored, key=lambda row: (-row[0], row[1]))]

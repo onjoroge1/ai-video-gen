@@ -1333,3 +1333,25 @@ def test_the_shortlist_covers_the_goal_as_well_as_the_measure(monkeypatch):
     assert "c09" in seen["prompt"], "a candidate for what was accepted as proof"
     assert "c05" in seen["prompt"], "and one for why the policy existed at all"
     assert out[0]["incentive"]["goal_claim_refs"] == ["c05", "c06"]
+
+
+def test_the_goal_is_read_under_the_name_the_schema_actually_uses():
+    """`stated_policy_goal` is the schema's name; `actual_goal` is the older alias.
+
+    Reading only the old name gave the goal ranking an empty phrase, so the shortlist carried no
+    plague claim and the repair kept citing the bounty announcement for a goal about plague. The
+    boundary said so four times: "the claim mentions a bounty on dead rats but does not specify
+    Hanoi or state that plague risk was the motivation."
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("def _repair_incentive_citations"):]
+    block = block[:block.index("def _generate_script_chunked")]
+    assert 'block.get("stated_policy_goal")' in block, \
+        "the ranking must read the field the planner is actually asked to fill"
+    # And story_compiler must accept both, since it is the one that builds the sentence.
+    import story_compiler as sc
+    for field in ("stated_policy_goal", "actual_goal"):
+        got = sc.incentive_of({"incentive": {"rewarded_measure": "a tail", field: "fewer rats",
+                                             "measure_claim_refs": ["c1"],
+                                             "goal_claim_refs": ["c2"]}})
+        assert got["actual_goal"] == "fewer rats", f"{field} must resolve"
