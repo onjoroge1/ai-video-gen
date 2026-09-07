@@ -2377,11 +2377,18 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
         # It narrows the field; it does not make the choice. The currently cited claims are always
         # included so the model can keep them, everything offered is real, and whatever comes back
         # goes to the evidence boundary exactly as before.
-        measure = _s((beat.get("incentive") or {}).get("rewarded_measure"))
+        # BOTH HALVES GET RANKED. The measure had a shortlist and the goal did not, so the repair
+        # kept re-citing the announcement for a goal the announcement never states -- measured,
+        # the boundary's complaint was "the claim shows a bounty to kill rats but does not mention
+        # plague as the reason", which is about the goal, while every fix I had made was about the
+        # measure. A shortlist for one half of a two-part claim only moves the failure.
+        block = beat.get("incentive") or {}
+        measure, goal = _s(block.get("rewarded_measure")), _s(block.get("actual_goal"))
         shortlist = list(dict.fromkeys(
-            [_s(ref) for ref in ((beat.get("incentive") or {}).get("measure_claim_refs") or [])]
-            + [_s(ref) for ref in ((beat.get("incentive") or {}).get("goal_claim_refs") or [])]
-            + _compiler.rank_claims_for(claims, measure)[:6]))
+            [_s(ref) for ref in (block.get("measure_claim_refs") or [])]
+            + [_s(ref) for ref in (block.get("goal_claim_refs") or [])]
+            + _compiler.rank_claims_for(claims, measure)[:5]
+            + _compiler.rank_claims_for(claims, goal)[:5]))
         offered = [ref for ref in shortlist if ref in claims] or list(claims)
         ledger = "\n".join(
             f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in offered)

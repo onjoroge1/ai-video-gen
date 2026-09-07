@@ -1292,3 +1292,44 @@ def test_an_unrankable_measure_still_offers_the_model_the_whole_ledger(monkeypat
         beats, [{"beat_id": "event_04", "phrase": "", "cited": ["c08"]}], claims, "Why?")
     assert called, "an empty measure gives the ranking nothing to work with; the model still runs"
     assert "c08" in called[0]["messages"][0]["content"]
+
+
+def test_the_shortlist_covers_the_goal_as_well_as_the_measure(monkeypatch):
+    """A shortlist for one half of a two-part claim only moves the failure.
+
+    Measured: with the measure ranked and the goal not, the repair kept citing the bounty
+    announcement for a goal the announcement never states, and the boundary said so -- "the claim
+    shows a bounty to kill rats but does not mention plague as the reason". Every fix until then
+    had been about the measure.
+    """
+    claims = {
+        "c02": {"claim": "Colonial Hanoi was crowded and its sanitation was poor."},
+        "c05": {"claim": "French medical experts feared the Third Plague Pandemic reaching Hanoi."},
+        "c06": {"claim": "Researchers had shown rat fleas transmit plague to people."},
+        "c08": {"claim": "In April 1902 the authorities announced a bounty on every dead rat."},
+        "c09": {"claim": "The bounty was extended to anyone who brought a rat tail in."},
+        "c10": {"claim": "The number of tails handed in climbed into the thousands."},
+        "c14": {"claim": "Entrepreneurs bred rats on the outskirts to earn the bounty."},
+    }
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "a severed rat tail",
+                            "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer plague-carrying rats",
+                            "goal_claim_refs": ["c08"]}}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 400, "output_tokens": 30})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"],'
+                                                   '"goal_claim_refs":["c05","c06"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "a severed rat tail", "cited": ["c08"]}],
+        claims, "Why?")
+    assert "c09" in seen["prompt"], "a candidate for what was accepted as proof"
+    assert "c05" in seen["prompt"], "and one for why the policy existed at all"
+    assert out[0]["incentive"]["goal_claim_refs"] == ["c05", "c06"]
