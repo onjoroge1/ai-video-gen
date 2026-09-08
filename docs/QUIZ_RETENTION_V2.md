@@ -1,4 +1,4 @@
-# Quiz Short Retention V2.3 — Three-Round Rapid Reveal
+# Quiz Short Retention V2.4 — Accelerating Three-Round Rapid Reveal
 
 ## Measured failure
 
@@ -16,18 +16,22 @@ The retention curve has two different problems:
 The middle declines steadily because each round serializes “Number N. What is it?”, a 2.4-second timer,
 and a reaction reveal. Easy-first clues plus repeated setup make the interaction feel slower than it is.
 
-## V2.3 creative contract
+## V2.4 creative contract
 
 - The **first clue is frame zero**. No mascot intro or logo hold.
 - Three rounds maximum: **warm-up → no hints → final boss**. The opener cannot be trivial.
 - Voice and timer run concurrently over the clue; no separate “What is it?” card.
-- Each 2.4-second guess progressively widens from a tight detail to the complete clue every 0.8 seconds.
+- The opener retains 2.4 seconds of playable search time, then the established game accelerates to
+  2.0 seconds and 1.8 seconds. Each round still has three evenly spaced visual and audio timer stages.
 - Reveal: 0.8–1.2 seconds; the final reveal may run up to 3.6 seconds for the integrated replay CTA.
 - A vision QA pass grades first-crop difficulty, full-clue fairness, answer identity, anatomy, pose,
   subject occupancy and clue/background contrast at phone size.
 - Overly easy openings are cropped tighter; incorrect/anatomically weak reveals regenerate once.
 - Critical headers, timers, answers, and CTA remain inside the Shorts safe zone.
 - Every card has subtle duration-aware motion; no frozen multi-second PNG.
+- Immediately after item 1 transforms into colour, one generated clip gives the animal a sudden,
+  species-appropriate reaction before item 2. The existing punch/recoil remains the provider-free
+  fallback, and metadata distinguishes generated motion from that local treatment.
 - Optional `QUIZ_FAL_OPENER=1` uses one fal/Kling clip behind the first countdown only. This isolates
   the value of generative motion at the swipe/stay decision without paying to animate every card. It is
   not combined with progressive crops because generative silhouette morphing can make a clue unfair.
@@ -43,7 +47,7 @@ and a reaction reveal. Easy-first clues plus repeated setup make the interaction
   habitat, and the final animal is chosen to genuinely live there rather than relocated to fit.
 - The music has no tail fade. A fade to silence is an ending cue, and it played over the one beat
   built to hide the ending.
-- Expected duration is roughly **11 seconds**, designed to invite an immediate replay.
+- Expected duration is roughly **10 seconds**, designed to invite an immediate replay.
 
 ## Why this is a creative change, not only a trim
 

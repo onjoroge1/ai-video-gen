@@ -17,9 +17,14 @@ def test_quiz_v2_starts_with_gameplay_and_has_no_post_game_tail():
 def test_quiz_v2_caps_rounds_and_stays_replayable():
     assert clamp_quiz_items(6) == 3
     assert clamp_quiz_items(4) == 3, "the default flow is capped at three rounds"
-    assert clamp_quiz_items(0) == 3, "a missing count must use the V2.3 three-round default"
-    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 11.0
-    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 12.0
+    assert clamp_quiz_items(0) == 3, "a missing count must use the V2.4 three-round default"
+    assert QUIZ_V2.estimated_duration(3, reveal_sec=1.0) == 10.0
+    assert QUIZ_V2.estimated_duration(6, reveal_sec=1.2, final_reveal_sec=2.4) == 11.0
+
+
+def test_rounds_accelerate_after_the_readable_opener():
+    assert QUIZ_V2.round_guess_windows_sec == (2.4, 2.0, 1.8)
+    assert [QUIZ_V2.guess_window_for_round(i, 3) for i in range(1, 4)] == [2.4, 2.0, 1.8]
 
 
 def test_the_api_clamps_from_the_contract_not_a_literal():
@@ -40,6 +45,7 @@ def test_the_api_clamps_from_the_contract_not_a_literal():
     assert "clamp_quiz_items" in code
     assert not re.search(r"min\(\s*\d+\s*,\s*request\.n_items", code), (
         "a literal round cap must not outrank the creative contract")
+    assert "i2v=request.i2v" in code, "the quiz route must not discard the requested motion mode"
 
 
 def test_round_narration_avoids_repetitive_what_is_it_setup():
@@ -74,7 +80,8 @@ def test_round_lines_fit_the_guess_window():
             # "wild animals" rather than "animals": the category is interpolated into the opener,
             # and the real one is six characters longer than the one this test used to check.
             line = round_narration("wild animals", index, total)
-            assert len(line) / 15.0 <= QUIZ_V2.guess_window_sec, (total, index, line)
+            assert len(line) / 15.0 <= QUIZ_V2.guess_window_for_round(index, total), (
+                total, index, line)
 
 
 def test_quiz_v2_progressively_reveals_harder_clues():
@@ -333,9 +340,9 @@ def test_the_countdown_ticks_track_the_guess_window():
 
     import _quiz_pipeline_legacy as legacy
 
-    source = inspect.getsource(legacy.run_quiz_pipeline)
+    source = inspect.getsource(legacy._countdown_sfx)
     assert "adelay=800" not in source and "atrim=0:2.4" not in source
-    assert "CDN * 1000" in source and "guess_window_sec}" in source
+    assert "stage * 1000" in source and "guess_window_sec" in source
 
 
 def test_quiz_render_path_is_mascot_free():
@@ -408,6 +415,84 @@ def test_only_round_one_requests_the_aggressive_reveal():
 
     source = inspect.getsource(legacy.run_quiz_pipeline)
     assert "impact=(i == 1 and QUIZ_V2.first_reveal_impact)" in source
+    assert "i == 1 and first_reveal_i2v_requested" in source
+    assert legacy._REVEAL_TRANSITION_SEC >= legacy._FIRST_REVEAL_IMPACT_END_SEC
+    assert QUIZ_V2.reveal_max_sec - legacy._REVEAL_TRANSITION_SEC >= 0.6
+
+
+def test_first_reveal_motion_is_immediate_and_not_the_default_gentle_drift():
+    import inspect
+
+    import _quiz_pipeline_legacy as legacy
+
+    assert QUIZ_V2.first_reveal_i2v is True
+    source = inspect.getsource(legacy._first_reveal_motion_clip)
+    assert "Immediate quiz reveal reaction" in source
+    assert "not as a slow graceful drift" in source
+    assert "seconds=5" in source
+
+
+def test_first_reveal_motion_reports_provider_failure(monkeypatch, tmp_path):
+    import _quiz_pipeline_legacy as legacy
+
+    monkeypatch.setattr(
+        legacy.ep, "animate_scene",
+        lambda *args, err_sink=None, **kwargs: (
+            err_sink.append("[fal] quota exhausted") if err_sink is not None else None))
+    events = []
+    assert legacy._first_reveal_motion_clip(
+        "missing-reveal.png", "missing-overlay.png", "lion",
+        str(tmp_path / "reaction.mp4"), 0.5, event_sink=events) is False
+    assert events == [{
+        "round": 1,
+        "requested": True,
+        "used": False,
+        "provider": "",
+        "error": "[fal] quota exhausted",
+    }]
+
+
+def test_first_reveal_motion_trims_real_provider_video_into_the_payoff(monkeypatch, tmp_path):
+    import subprocess
+
+    from PIL import Image
+
+    import _quiz_pipeline_legacy as legacy
+
+    monkeypatch.setattr(legacy, "W", 90)
+    monkeypatch.setattr(legacy, "H", 160)
+    monkeypatch.setattr(legacy, "FPS", 10)
+    reveal = str(tmp_path / "reveal.png")
+    overlay = str(tmp_path / "overlay.png")
+    Image.new("RGB", (90, 160), (120, 80, 40)).save(reveal)
+    Image.new("RGBA", (90, 160), (0, 0, 0, 0)).save(overlay)
+
+    def fake_animate(_image, _prompt, out, _w, _h, cost_sink=None, err_sink=None, **_kwargs):
+        subprocess.run([
+            legacy.FF, "-y", "-v", "error", "-f", "lavfi", "-i",
+            "testsrc2=size=90x160:rate=10:duration=5", "-pix_fmt", "yuv420p", out,
+        ], check=True)
+        cost_sink.append(0.28)
+        err_sink.append("ok:fal")
+        return out
+
+    monkeypatch.setattr(legacy.ep, "animate_scene", fake_animate)
+    events, costs = [], []
+    out = str(tmp_path / "reaction.mp4")
+    assert legacy._first_reveal_motion_clip(
+        reveal, overlay, "lion", out, 0.7, cost_sink=costs, event_sink=events)
+    assert costs == [0.28]
+    assert events[0]["used"] is True and events[0]["provider"] == "fal"
+    assert abs(legacy._dur(out) - 0.7) < 0.08
+
+
+def test_each_round_countdown_audio_matches_its_window(tmp_path):
+    import _quiz_pipeline_legacy as legacy
+
+    for index, window in enumerate(QUIZ_V2.round_guess_windows_sec, 1):
+        out = str(tmp_path / f"countdown-{index}.wav")
+        assert legacy._countdown_sfx(out, window)
+        assert abs(legacy._dur(out) - window) < 0.08
 
 
 # ── difficulty ladder ───────────────────────────────────────────────────────────

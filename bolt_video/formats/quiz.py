@@ -4,13 +4,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class QuizCreativeContract:
-    version: str = "rapid_reveal_v2_3"
+    version: str = "rapid_reveal_v2_4"
     # Audience data favored the three-payoff arc: removing the fourth round restores a clean
     # warm-up -> hard -> final-boss escalation. The 2.4-second search window is the proven
     # three-round pace and keeps the default Short near eleven seconds without rushing play.
     max_items: int = 3
     first_clue_at_sec: float = 0.0
-    guess_window_sec: float = 2.4
+    # Keep the proven, readable opener, then accelerate once the viewer understands the game.
+    # A single scalar previously made every round 2.4s and erased the intended escalation.
+    round_guess_windows_sec: tuple[float, ...] = (2.4, 2.0, 1.8)
     reveal_min_sec: float = 0.8
     reveal_max_sec: float = 1.2
     final_reveal_min_sec: float = 1.6
@@ -26,6 +28,20 @@ class QuizCreativeContract:
     # Round one's answer gets a short, high-energy snap instead of the gentle reveal drift used
     # elsewhere. It replaces motion inside the existing reveal beat and never adds runtime.
     first_reveal_impact: bool = True
+    # One paid motion beat at the first payoff. Later rounds stay provider-free so the video gets
+    # an early surprise without multiplying cost or making the visual treatment repetitive.
+    first_reveal_i2v: bool = True
+
+    @property
+    def guess_window_sec(self) -> float:
+        """Compatibility alias for callers that mean the opening search window."""
+        return self.round_guess_windows_sec[0]
+
+    def guess_window_for_round(self, index: int, total: int | None = None) -> float:
+        """Return the one-based round window, clamped to the contract's final pace."""
+        del total  # Reserved for future two-round experiments; the three-round contract is fixed.
+        slot = max(0, min(len(self.round_guess_windows_sec) - 1, int(index) - 1))
+        return self.round_guess_windows_sec[slot]
 
     def estimated_duration(self, item_count: int, reveal_sec: float = 1.0,
                            final_reveal_sec: float = 1.8) -> float:
@@ -33,7 +49,8 @@ class QuizCreativeContract:
         reveal = min(self.reveal_max_sec, max(self.reveal_min_sec, reveal_sec))
         final_reveal = min(self.final_reveal_max_sec,
                            max(self.final_reveal_min_sec, final_reveal_sec))
-        return round(n * self.guess_window_sec + max(0, n - 1) * reveal + final_reveal, 2)
+        search = sum(self.guess_window_for_round(index, n) for index in range(1, n + 1))
+        return round(search + max(0, n - 1) * reveal + final_reveal, 2)
 
 
 QUIZ_V2 = QuizCreativeContract()
