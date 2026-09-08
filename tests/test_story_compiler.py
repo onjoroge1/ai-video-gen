@@ -11,6 +11,7 @@ import pytest
 
 import event_functions as ef
 import story_compiler as sc
+import story_fact_model as sfm
 
 
 def _beat(bid, function, text, frm="", to="", **extra):
@@ -405,3 +406,18 @@ def test_a_plan_engine_is_not_asked_for_a_bounty_incentive_block():
     # It still gets everything it does need.
     for function in ef.map_for("almost_happened_plan").required:
         assert function in plan
+
+
+def test_presentation_devices_attach_to_a_mechanism_nobody_derived():
+    """almost_happened_plan maps collapse_cause straight onto the role, so its mechanism beat is
+    planner-written and has no `derivation`. Subscripting it raised KeyError('derivation') one step
+    after the first hippo sheet whose spine passed."""
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "almost_happened_plan")
+    mechanism = next(b for b in sheet if b["role"] == "mechanism")
+    assert "derivation" not in mechanism, "this engine derives nothing"
+    devices = [b for b in sheet if b.get("presentation_device")]
+    assert {b["presentation_device"] for b in devices} >= {"hinge", "tool"}
+    for device in devices:
+        assert mechanism["beat_id"] in device["context_refs"]
+        assert sfm.event_of(device)["text"] == "", "a device asserts no history"

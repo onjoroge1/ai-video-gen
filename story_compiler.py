@@ -538,7 +538,13 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         ):
             if any(b.get("causal_role") == role for b in out):
                 continue
-            refs = [mechanism["beat_id"]] + (mechanism["derivation"].get("witness_ids") or [])
+            # `.get`, because a mechanism is not always derived. almost_happened_plan maps
+            # collapse_cause straight onto the role -- what killed the plan is an event somebody
+            # recorded -- so its mechanism beat is planner-written and carries no derivation.
+            # Subscripting raised KeyError('derivation') on the first hippo sheet whose spine
+            # passed, one step after the gate it had just cleared.
+            refs = [mechanism["beat_id"]] + (
+                (mechanism.get("derivation") or {}).get("witness_ids") or [])
             if role == "tool":
                 refs.append(reversal["beat_id"])
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
