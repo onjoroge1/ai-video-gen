@@ -24,7 +24,7 @@ rounds            = 3
 video_format       = "social"
 short_template     = "quiz"
 voice              = "echo"
-quiz contract      = deployed Quiz V2.3 / rapid_reveal_v2_3
+quiz contract      = deployed Quiz V2.4 / rapid_reveal_v2_4
 mascot             = prohibited
 normal compute     = production durable ReelForge worker
 recovery compute   = same durable job on a trusted higher-resource worker, only if required
@@ -245,12 +245,12 @@ Use this request shape, replacing only the category when the user supplied one:
   "fact_check": true,
   "video_format": "social",
   "speech_bubble": false,
-  "i2v": false,
+  "i2v": true,
   "motion_mode": null,
   "series": "",
   "short_template": "quiz",
   "n_items": 3,
-  "operator_direction": "Create three fair, broadly recognizable wild-animal habitat rounds ordered MEDIUM, HARD, EXPERT. Difficulty must come from plausible confusables, pose, framing, and habitat—not obscure species. Preserve the deployed Quiz V2.3 typography, difficulty labels, timer, transformation reveal, sound design, and seamless loop. Do not include a mascot, robot, host, presenter, character badge, or performer anywhere in the quiz.",
+  "operator_direction": "Create three fair, broadly recognizable wild-animal habitat rounds ordered MEDIUM, HARD, EXPERT. Difficulty must come from plausible confusables, pose, framing, and habitat—not obscure species. Preserve the deployed Quiz V2.4 typography, accelerating timer, transformation reveal, first-animal reaction, sound design, and seamless loop. Do not include a mascot, robot, host, presenter, character badge, or performer anywhere in the quiz.",
   "story_format": "standard_explainer"
 }
 ```
@@ -392,8 +392,11 @@ The existing pipeline owns the creative and production stages:
 4. Choose familiar but plausibly confusable animals.
 5. Generate habitat/reveal image pairs.
 6. Derive matching silhouette clues.
-7. Apply Quiz V2.3 typography and labels.
-8. Use the deployed 2.4-second search window.
+7. Apply Quiz V2.4 typography and labels.
+8. Accelerate the search windows across the rounds: 2.4, 2.0, then 1.8 seconds.
+9. After the first answer transforms into colour, use one immediate, species-appropriate generated
+   reaction when i2v succeeds. Preserve the aggressive local punch/recoil as the fallback and report
+   that fallback as degraded rather than claiming generated motion was used.
 9. Generate narration, captions, ticks, dings, and music.
 10. Grade visual difficulty, readability, identity, anatomy, and continuity.
 11. Render silhouette-to-answer transformations.
@@ -731,8 +734,10 @@ Review the entire sampled timeline for:
 - Exactly three complete rounds.
 - Medium → Hard → Expert progression.
 - First clue visible at frame zero.
-- Approximately 2.4 seconds of playable search time per round.
-- Current Quiz V2.3 typography.
+- Approximately 2.4, 2.0, and 1.8 seconds of playable search time across rounds 1–3.
+- Current Quiz V2.4 typography.
+- A genuine generated reaction immediately after item 1's reveal when `i2v_animated == 1`; otherwise
+  an explicitly reported local punch/recoil fallback.
 - Correct difficulty labels.
 - Readable countdown.
 - Clue/reveal identity match.
@@ -884,7 +889,7 @@ Cleanup is part of completion.
 - Job ID: `<job_id>`
 - Terminal status: `done` or `degraded`
 - Category: `<category>`
-- Quiz contract: `rapid_reveal_v2_3`
+- Quiz contract: `rapid_reveal_v2_4`
 - Rounds: `3`
 - Primary variant: `a`
 - Mascot present: `No`
