@@ -1482,7 +1482,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     # min(3, ...) which silently outranked the contract: raising max_items there
                     # would have changed the tests and nothing the API actually renders.
                     n_items=qp.clamp_quiz_items(request.n_items),
-                    voice=request.voice, operator_direction=request.operator_direction, progress_cb=push)),
+                    voice=request.voice, operator_direction=request.operator_direction,
+                    i2v=request.i2v, progress_cb=push)),
             )
         else:
             result = await loop.run_in_executor(
