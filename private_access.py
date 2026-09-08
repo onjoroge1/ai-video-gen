@@ -27,6 +27,17 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 COOKIE_NAME = "reelforge_session"
 PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz"))
 _AGENT_ACTION_ID = re.compile(r"^/api/agent/actions/act_[0-9a-f]{32}(?:/(?:execute|dispatch|public-status))?$")
+_QUIZ_QA_BRANCH = "qa/african-wild-quiz-v24-20260908"
+_QUIZ_QA_START_PATH = "/api/qa/qz-01aaab8c0e4d07d8fd2e3196/start"
+
+
+def _public_preview_quiz_bridge(scope) -> bool:
+    return (
+        scope.get("path", "") == _QUIZ_QA_START_PATH
+        and scope.get("method", "GET").upper() == "GET"
+        and os.environ.get("VERCEL_ENV") == "preview"
+        and os.environ.get("VERCEL_GIT_COMMIT_REF") == _QUIZ_QA_BRANCH
+    )
 
 
 def _public_agent_action(scope) -> bool:
@@ -159,7 +170,7 @@ class PrivateAccessMiddleware:
             return
 
         path = scope.get("path", "")
-        if (path in PUBLIC_PATHS or _public_agent_action(scope)
+        if (path in PUBLIC_PATHS or _public_agent_action(scope) or _public_preview_quiz_bridge(scope)
                 or verify_session(_cookie_from_scope(scope))):
             await self.app(scope, receive, send)
             return
