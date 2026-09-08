@@ -112,6 +112,75 @@ async def production_readiness():
             "checks": checks, "media": media,
             "providers": {"illustrated": illustrated}}
 
+
+@app.get("/api/qa/qz-01aaab8c0e4d07d8fd2e3196/start")
+async def qa_start_african_wild_animals_v24_quiz():
+    """Disposable preview bridge for one canonical Quiz V2.4 production run."""
+    expected_branch = "qa/african-wild-quiz-v24-20260908"
+    if (os.environ.get("VERCEL_ENV") != "preview"
+            or os.environ.get("VERCEL_GIT_COMMIT_REF") != expected_branch):
+        raise HTTPException(status_code=404, detail="Not found")
+    secret = os.environ.get("APP_SHARED_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Preview cannot authenticate to production")
+
+    import httpx
+
+    headers = {"X-App-Secret": secret, "Cache-Control": "no-cache"}
+    quiz_request = {
+        "question": "african wild animals",
+        "duration_sec": 15,
+        "voice": "echo",
+        "style": "engaging and scientific",
+        "image_guidance": "",
+        "fact_check": True,
+        "video_format": "social",
+        "speech_bubble": False,
+        "i2v": True,
+        "motion_mode": None,
+        "series": "",
+        "short_template": "quiz",
+        "n_items": 3,
+        "operator_direction": (
+            "Create three fair, broadly recognizable African wild-animal habitat rounds ordered "
+            "MEDIUM, HARD, EXPERT. Difficulty must come from plausible confusables, pose, framing, "
+            "and habitat—not obscure species. Preserve the deployed Quiz V2.4 typography, "
+            "accelerating timer, transformation reveal, first-animal reaction, sound design, and "
+            "seamless loop. Do not include a mascot, robot, host, presenter, character badge, or "
+            "performer anywhere in the quiz."
+        ),
+        "story_format": "standard_explainer",
+    }
+    async with httpx.AsyncClient(
+            base_url="https://ai-video-gen-nine.vercel.app", headers=headers,
+            timeout=60.0) as client:
+        readiness_response = await client.get(
+            "/api/production-readiness", params={"ts": int(datetime.now().timestamp() * 1000)})
+        readiness = readiness_response.json()
+        if readiness_response.status_code != 200 or not readiness.get("ready"):
+            return Response(content=json.dumps({"started": False, "readiness": readiness}),
+                            status_code=503, media_type="application/json")
+        generate_response = await client.post("/api/explainer/generate", json=quiz_request)
+        generated = generate_response.json()
+        job_id = generated.get("job_id")
+        dispatched = None
+        dispatch_status = None
+        if generate_response.status_code < 300 and job_id:
+            dispatch_response = await client.post(f"/api/explainer/dispatch/{job_id}")
+            dispatch_status = dispatch_response.status_code
+            try:
+                dispatched = dispatch_response.json()
+            except ValueError:
+                dispatched = {"detail": "Production dispatch returned a non-JSON response"}
+        return Response(content=json.dumps({
+            "started": bool(job_id and generate_response.status_code < 300),
+            "readiness": readiness,
+            "generate_status": generate_response.status_code,
+            "generation": generated,
+            "dispatch_status": dispatch_status,
+            "dispatch": dispatched,
+        }), status_code=generate_response.status_code, media_type="application/json")
+
 # ─── State store (in-memory; use Redis for production) ─────────────────────────
 
 jobs: dict[str, dict] = {}
