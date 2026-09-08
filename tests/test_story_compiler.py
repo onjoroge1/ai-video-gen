@@ -135,8 +135,9 @@ def test_outcome_state_is_never_load_bearing():
 
 def test_other_engines_do_not_inherit_the_bounty_contract():
     """An accidental invention has no incentive to change."""
-    for engine in ("accidental_invention", "power_reversal", "almost_happened_plan",
-                   "accumulating_indictment"):
+    # almost_happened_plan has its own map now, and its own functions. The three still unmapped
+    # keep the model-assigned path until each is measured the way these two were.
+    for engine in ("accidental_invention", "power_reversal", "accumulating_indictment"):
         assert ef.map_for(engine) is None
         assert sc.compile_roles(HANOI, engine)["compiled"] is False
 
@@ -323,3 +324,84 @@ def test_the_measure_reaches_the_derived_sentence_already_trimmed():
                                      "goal_claim_refs": ["c05"]})
     text = sc.derive_mechanism(beat, HANOI_CLAIMS)["event"]["text"]
     assert text.startswith("The reward was paid for a severed rat tail.")
+
+
+# --- almost_happened_plan -----------------------------------------------------------------------
+
+HIPPO = [
+    {"beat_id": "e01", "event_function": ef.ESTABLISHES_PROBLEM,
+     "event": {"text": "A 1910 meat shortage pushed Congress to look for new protein.",
+               "claim_refs": ["h1"]},
+     "changes_state": {"from": "cattle supply is falling", "to": "Congress wants new meat"}},
+    {"beat_id": "e02", "event_function": ef.PLAN_PROPOSED,
+     "event": {"text": "Robert Broussard introduced House Resolution 23261, the American Hippo "
+                       "Bill.", "claim_refs": ["h2"]},
+     "changes_state": {"from": "Congress wants new meat", "to": "a hippo bill is on the table"}},
+    {"beat_id": "e03", "event_function": ef.GAINS_BACKING,
+     "event": {"text": "A USDA researcher told the panel it could add a million tons of meat.",
+               "claim_refs": ["h3"]},
+     "changes_state": {"from": "a hippo bill is on the table", "to": "the bill looks credible"}},
+    {"beat_id": "e04", "event_function": ef.COLLAPSE_CAUSE,
+     "event": {"text": "The Lacey Act banned importing injurious wildlife.", "claim_refs": ["h4"]},
+     "changes_state": {"from": "the bill looks credible", "to": "importing hippos is unlawful"}},
+    {"beat_id": "e05", "event_function": ef.WORLD_WITHOUT_IT,
+     "event": {"text": "The bill never passed and hippo meat never entered the U.S. diet.",
+               "claim_refs": ["h5"]},
+     "changes_state": {"from": "importing hippos is unlawful",
+                       "to": "American meat stayed cattle, pigs and chickens"}},
+]
+
+
+def test_the_plan_engine_maps_its_own_functions_to_the_shared_roles():
+    """Measured: the planner had all of these facts and filed them under the wrong roles.
+
+    The Lacey Act -- what actually killed the 1910 bill -- arrived as an `escalation`, "the Bill
+    never passed" arrived as the closing `tool`, and the `mechanism` slot got "U.S. wildlife policy
+    distinguishes legal from unsustainable harvesting", a policy generality rather than an event.
+    """
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    assert out["passed"], sc.summary(out)
+    assert out["roles"] == {"e01": "setup", "e02": "intervention", "e03": "false_resolution",
+                            "e04": "mechanism", "e05": "reversal"}
+
+
+def test_this_engine_derives_nothing_because_its_mechanism_is_an_event():
+    """backfiring_solution must COMPUTE its mechanism; nobody recorded "what pays is not what was
+    wanted". Here the mechanism is a thing that happened, so deriving one would manufacture the
+    problem the map exists to avoid."""
+    assert ef.map_for("almost_happened_plan").derived == ()
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    assert out["derived"] == [] and not out["suspicions"]
+    assert all(not b.get("derived_from") for b in out["beats"])
+
+
+def test_a_plan_with_no_named_cause_of_death_does_not_compile():
+    """"If you cannot name what happened, this is missing rather than abstract"."""
+    without = [b for b in HIPPO if b["event_function"] != ef.COLLAPSE_CAUSE]
+    issues = sc.compile_roles(without, "almost_happened_plan")["issues"]
+    assert any(i["code"] == "MISSING_EVENT_FUNCTION" and "collapse_cause" in i["message"]
+               for i in issues)
+
+
+def test_the_two_engines_do_not_share_a_contract():
+    """A bounty story's functions must not become the contract for a plan that never happened."""
+    plan, bounty = ef.map_for("almost_happened_plan"), ef.map_for("backfiring_solution")
+    assert ef.CHANGES_INCENTIVE not in plan.required, "a shelved plan changes no incentive"
+    assert ef.COLLAPSE_CAUSE not in bounty.to_role, "a bounty that ran has no cause of death"
+    assert set(plan.required) & set(bounty.required) == {ef.ESTABLISHES_PROBLEM}
+
+
+def test_a_plan_engine_is_not_asked_for_a_bounty_incentive_block():
+    """The incentive block belongs to an engine that DERIVES its mechanism from it.
+
+    A plan that never happened has no rewarded measure, and asking for one is how a prompt teaches
+    a model to invent a field to fill -- the same shape as asking for a chapter marker and then
+    stripping it before it is spoken.
+    """
+    plan = sc.factual_plan_prompt("Why?", 90, 9, "almost_happened_plan")
+    bounty = sc.factual_plan_prompt("Why?", 90, 9, "backfiring_solution")
+    assert '"incentive":' in bounty and "rewarded_measure names" in bounty
+    assert '"incentive":' not in plan and "rewarded_measure names" not in plan
+    # It still gets everything it does need.
+    for function in ef.map_for("almost_happened_plan").required:
+        assert function in plan

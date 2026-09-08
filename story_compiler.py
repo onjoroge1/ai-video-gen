@@ -42,6 +42,11 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
                                  "measure_claim_refs": ["claim_id"],
                                  "stated_policy_goal": "the documented intended outcome",
                                  "goal_claim_refs": ["claim_id"]}}]}
+    # The incentive block belongs to an engine that DERIVES its mechanism from it. A plan that
+    # never happened has no rewarded measure, and asking for one is how a prompt teaches a model to
+    # invent a field to fill -- the same shape as asking for a chapter marker and then stripping it.
+    if "mechanism" not in mapping.derived:
+        schema["beats"][0].pop("incentive", None)
     return (
         f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
         f'Engine: {engine_id}. Return about {max(len(mapping.required), count - 3)} distinct factual '
@@ -55,11 +60,12 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
         'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
-        'On changes_incentive only, supply incentive. rewarded_measure names what was accepted '
-        'as proof, not what the policy was announced as. Bind it to the claim about accepted '
-        'proof. stated_policy_goal needs separate evidence of the policy purpose; never infer '
-        'intent. Both citation lists are required.\n'
-        'Keep every primary event about this policy and subject. A parallel_case event contains '
+        + ('On changes_incentive only, supply incentive. rewarded_measure names what was '
+           'accepted as proof, not what the policy was announced as. Bind it to the claim '
+           'about accepted proof. stated_policy_goal needs separate evidence of the policy '
+           'purpose; never infer intent. Both citation lists are required.\n'
+           if "mechanism" in mapping.derived else "")
+        + 'Keep every primary event about this policy and subject. A parallel_case event contains '
         'one comparison only, with its own id and citations; do not merge countries. If you add '
         f'comparisons, supply at least {causal_story.MIN_PARALLEL_CASES} distinct cases and fill '
         'parallel_cases with domain, problem, solution, and result for each. Otherwise leave it [].\n'

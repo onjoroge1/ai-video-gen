@@ -840,13 +840,22 @@ def test_the_sheet_is_written_in_the_chosen_engines_own_order(monkeypatch):
     power_reversal both run false_resolution BEFORE intervention and mechanism BEFORE hinge, and
     the labelling pass is forbidden to reorder what it labels. ENGINE_ORDER was therefore
     structurally guaranteed for the two engines the reference corpus backs best."""
+    import event_functions as ef
     import story_engines as se
 
     for engine_id in se.ENGINES:
         prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine=engine_id)
         order = se.expected_order(engine_id)
-        if engine_id == "backfiring_solution":
-            assert "Engine: backfiring_solution" in prompt and '"event_function"' in prompt
+        # A MAPPED engine is not asked for roles at all -- it states what each fact IS and the
+        # compiler assigns the order. So its prompt carries its own FUNCTIONS, and role order
+        # would be the contract it was given a map to escape.
+        if ef.map_for(engine_id) is not None:
+            mapping = ef.map_for(engine_id)
+            assert f"Engine: {engine_id}" in prompt and '"event_function"' in prompt
+            for function in mapping.required:
+                assert function in prompt, f"{engine_id}: {function} missing from its own prompt"
+            assert " -> ".join(order) not in prompt, \
+                f"{engine_id}: a mapped engine must not also be handed a role order"
             continue
         assert " -> ".join(order) in prompt, f"{engine_id}: sheet not written in its own order"
         assert se.get(engine_id)["name"].upper() in prompt

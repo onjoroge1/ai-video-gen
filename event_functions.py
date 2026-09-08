@@ -54,8 +54,25 @@ OUTCOME_STATE = "outcome_state"
 CONTEXT = "context"
 PARALLEL_CASE = "parallel_case"
 
+# --- the almost_happened_plan family ------------------------------------------------------------
+# A different shape, so different functions. Measured on "Why don't Americans eat hippo meat?", the
+# planner had every one of these facts and filed them under the wrong roles: the Lacey Act, which is
+# what actually killed the 1910 American Hippo Bill, arrived as an `escalation`; "the Bill never
+# passed, and hippo meat never entered the U.S. diet" arrived as the closing `tool`; and the
+# `mechanism` slot got "U.S. wildlife policy distinguishes legal from unsustainable harvesting" -- a
+# policy generality, not a thing that happened. Same ambiguity backfiring_solution had before it was
+# given a map.
+PLAN_PROPOSED = "plan_proposed"
+GAINS_BACKING = "gains_backing"
+OPPOSITION_MOUNTS = "opposition_mounts"
+COLLAPSE_CAUSE = "collapse_cause"
+WORLD_WITHOUT_IT = "world_without_it"
+
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
-                   COMPOUNDS_EXPLOIT, OUTCOME_STATE, CONTEXT, PARALLEL_CASE)
+                   COMPOUNDS_EXPLOIT, OUTCOME_STATE,
+                   PLAN_PROPOSED, GAINS_BACKING, OPPOSITION_MOUNTS, COLLAPSE_CAUSE,
+                   WORLD_WITHOUT_IT,
+                   CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
 # what the archives actually hold is "the bounty produced tails and no fewer rats", which is the
@@ -76,6 +93,16 @@ WHAT_EACH_FUNCTION_IS = {
                    "not by itself the story's reversal",
     CONTEXT: "background a viewer needs that is not a step of the causal chain",
     PARALLEL_CASE: "the same failure in another place or domain, for the generalisation only",
+    PLAN_PROPOSED: "the moment a specific plan was formally put forward — a bill, a filing, a "
+                   "commissioned design. NOT the idea circulating: the proposal itself",
+    GAINS_BACKING: "the first official signal it might really happen — a hearing, an endorsement, "
+                   "a figure put on the record by someone with standing",
+    OPPOSITION_MOUNTS: "the counter-force gathering: who stood against it and on what grounds",
+    COLLAPSE_CAUSE: "the specific thing that killed it. An event, not a principle — a vote, a "
+                    "competing law, a war, a death. If you cannot name what happened, this is "
+                    "missing rather than abstract",
+    WORLD_WITHOUT_IT: "what we live with because it did not happen, stated as record: the plan "
+                      "failed and this is the world that followed",
 }
 
 
@@ -121,7 +148,26 @@ BACKFIRING_SOLUTION = EngineFunctionMap(
              OUTCOME_STATE: "context", CONTEXT: "context"},
     derived=("mechanism", "reversal"))
 
-MAPS = {BACKFIRING_SOLUTION.engine_id: BACKFIRING_SOLUTION}
+# No derived roles. In backfiring_solution the mechanism has to be COMPUTED because "what pays is
+# not what was wanted" is a relationship nobody recorded. Here the mechanism is a thing that
+# happened -- the Lacey Act passed, the war came, the sponsor died -- so it is sourced like any
+# other event, and inventing a derivation for it would manufacture the problem the map exists to
+# avoid. The asymmetry is the point: derive only what the archives cannot state.
+ALMOST_HAPPENED_PLAN = EngineFunctionMap(
+    "almost_happened_plan",
+    required=(ESTABLISHES_PROBLEM, PLAN_PROPOSED, GAINS_BACKING, COLLAPSE_CAUSE,
+              WORLD_WITHOUT_IT),
+    to_role={ESTABLISHES_PROBLEM: "setup",
+             PLAN_PROPOSED: "intervention",
+             GAINS_BACKING: "false_resolution",
+             OPPOSITION_MOUNTS: "escalation",
+             COLLAPSE_CAUSE: "mechanism",
+             WORLD_WITHOUT_IT: "reversal",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"})
+
+MAPS = {engine.engine_id: engine
+        for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN)}
 
 
 def map_for(engine_id: str) -> EngineFunctionMap | None:
