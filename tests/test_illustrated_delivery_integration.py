@@ -7,6 +7,7 @@ No generation, storyboard/evidence compiler, audio timing, renderer, durable
 worker or Finished Videos route is replaced wholesale.
 """
 from collections import Counter
+from contextlib import asynccontextmanager
 import copy
 from datetime import datetime, timezone
 import base64
@@ -113,6 +114,26 @@ class DeliveryBlob(MemoryBlob):
         artifact.update(access='private', content_type=(
             mimetypes.guess_type(remote_path)[0] or 'application/octet-stream'))
         return artifact
+
+    @asynccontextmanager
+    async def stream(self, url, *, method='GET', request_headers=None):
+        """Adapt filesystem Blob storage at the network boundary, keeping the real route."""
+        path = Path(url)
+
+        class FileStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                with path.open('rb') as source:
+                    while chunk := source.read(64 * 1024):
+                        yield chunk
+
+        response = httpx.Response(200, headers={
+            'Content-Type': mimetypes.guess_type(path.name)[0] or 'application/octet-stream',
+            'Content-Length': str(path.stat().st_size),
+        }, stream=FileStream())
+        try:
+            yield response
+        finally:
+            await response.aclose()
 
 
 class DeliveryActions(FakeActionRepository):
@@ -257,7 +278,7 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     monkeypatch.setattr(db, 'db_enabled', lambda: True)
     monkeypatch.setattr(db, 'finished_video_get', store.finished_get)
     monkeypatch.setattr(finished_api, 'PostgresStore', lambda: store)
-    monkeypatch.setattr(finished_api, 'BlobStore', lambda: blob)
+    monkeypatch.setattr(finished_api.blob_compat, 'stream_private', blob.stream)
     monkeypatch.setattr(pipeline, '_openai', lambda: sdk)
 
     def unexpected_provider():
