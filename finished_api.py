@@ -1,20 +1,64 @@
 """Authenticated finished-video library backed by Postgres/Blob with a local fallback."""
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 import json
 import os
-import shutil
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
-from starlette.background import BackgroundTask
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 import db
 import artifact_store
-from durable_execution import BlobStore, PostgresStore, StorageUnavailable
+import blob_compat
+from durable_execution import PostgresStore, StorageUnavailable
+
+
+class _PrivateBlobResponse(Response):
+    """Keep the upstream context alive until the ASGI response finishes or disconnects."""
+
+    def __init__(self, artifact: dict, kind: str, request: Request, download: bool):
+        super().__init__()
+        self.artifact = artifact
+        self.kind = kind
+        self.method = request.method
+        self.request_headers = dict(request.headers)
+        self.download = download
+
+    async def __call__(self, scope, receive, send):
+        async with AsyncExitStack() as stack:
+            try:
+                upstream = await stack.enter_async_context(blob_compat.stream_private(
+                    self.artifact.get("url") or self.artifact["download_url"],
+                    method=self.method, request_headers=self.request_headers))
+            except blob_compat.BlobAuthError as exc:
+                await JSONResponse(status_code=503, content={"detail": {
+                    "code": "FINISHED_ARTIFACT_UNAVAILABLE",
+                    "message": str(exc), "retryable": True,
+                }}, headers={"Cache-Control": "private, no-store"})(scope, receive, send)
+                return
+            headers = {name: upstream.headers[name] for name in (
+                "content-type", "content-length", "content-range", "accept-ranges",
+                "etag", "last-modified", "content-encoding",
+            ) if name in upstream.headers}
+            headers["Cache-Control"] = "private, no-store"
+            if self.download:
+                suffix = Path(urlsplit(self.artifact.get("pathname") or
+                                       self.artifact.get("url") or "").path).suffix or ".bin"
+                headers["Content-Disposition"] = (
+                    f"attachment; filename*=UTF-8''{quote(self.kind + suffix, safe='')}")
+            if self.method == "HEAD" or upstream.status_code == 304:
+                response = Response(status_code=upstream.status_code, headers=headers)
+            else:
+                response = StreamingResponse(
+                    upstream.aiter_raw(chunk_size=64 * 1024),
+                    status_code=upstream.status_code, headers=headers,
+                    media_type=self.artifact.get("content_type"))
+            await response(scope, receive, send)
 
 
 def _local_index(finished_dir: str) -> dict:
@@ -138,9 +182,11 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
         return record
 
     @app.get("/api/finished/{video_id}/artifact/{kind}")
-    async def finished_artifact(video_id: str, kind: str, download: bool = False):
+    @app.head("/api/finished/{video_id}/artifact/{kind}", include_in_schema=False)
+    async def finished_artifact(video_id: str, kind: str, request: Request,
+                                download: bool = False):
         try:
-            record = _get(video_id, finished_dir)
+            record = await run_in_threadpool(_get, video_id, finished_dir)
         except StorageUnavailable as exc:
             raise HTTPException(status_code=503, detail={
                 "code": "FINISHED_STORAGE_UNAVAILABLE", "message": str(exc), "retryable": True,
@@ -150,24 +196,12 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
         artifact = (record.get("artifacts") or {}).get(kind)
         if not artifact:
             raise HTTPException(status_code=404, detail=f"Artifact {kind!r} not found")
-        remote = artifact.get("download_url") if download else artifact.get("url")
+        remote = (artifact.get("download_url") or artifact.get("url")) if download \
+            else (artifact.get("url") or artifact.get("download_url"))
         if remote:
-            if artifact.get("access") == "private":
-                root = tempfile.mkdtemp(prefix=f"finished_{video_id}_")
-                suffix = Path(artifact.get("pathname") or remote).suffix or ".bin"
-                local_path = os.path.join(root, f"{kind}{suffix}")
-                try:
-                    BlobStore().download(artifact, local_path)
-                except StorageUnavailable as exc:
-                    shutil.rmtree(root, ignore_errors=True)
-                    raise HTTPException(status_code=503, detail={
-                        "code": "FINISHED_ARTIFACT_UNAVAILABLE",
-                        "message": str(exc), "retryable": True,
-                    }) from exc
-                filename = os.path.basename(local_path) if download else None
-                return FileResponse(
-                    local_path, media_type=artifact.get("content_type"), filename=filename,
-                    background=BackgroundTask(shutil.rmtree, root, ignore_errors=True))
+            if artifact.get("access") == "private" or (urlsplit(remote).hostname or "").endswith(
+                    ".private.blob.vercel-storage.com"):
+                return _PrivateBlobResponse(artifact, kind, request, download)
             return RedirectResponse(remote, status_code=307)
         local_path = artifact.get("local_path")
         if local_path and os.path.isfile(local_path):

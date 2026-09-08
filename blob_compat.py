@@ -11,6 +11,7 @@ accepted as an alias for ``BLOB_STORE_ID``.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import os
@@ -18,7 +19,10 @@ from pathlib import Path
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
+import anyio
+import httpx
 import requests
 
 
@@ -246,6 +250,48 @@ def download_file(
 def download_public(url: str, local_path: str, *, overwrite: bool = True) -> str:
     """Compatibility wrapper for known-public legacy objects."""
     return download_file(url, local_path, access="public", overwrite=overwrite)
+
+
+@asynccontextmanager
+async def stream_private(url: str, *, method: str = "GET",
+                         request_headers: dict[str, str] | None = None):
+    """Read a private Blob without staging bytes on disk or buffering the whole file.
+
+    The caller owns this context through response delivery, including disconnects.
+    Only media/cache request headers cross the proxy; studio credentials never do.
+    """
+    credentials = resolve_credentials()
+    parsed = urlsplit(url)
+    expected_host = f"{credentials.store_id.lower()}.private.blob.vercel-storage.com"
+    if (parsed.scheme != "https" or parsed.hostname != expected_host
+            or parsed.username or parsed.password or parsed.port not in (None, 443)):
+        raise BlobAuthError("Private artifact does not belong to the configured Blob store")
+    headers = {**_auth_headers(credentials), "Accept-Encoding": "identity"}
+    for name, value in (request_headers or {}).items():
+        if name.lower() in {"range", "if-range", "if-none-match", "if-modified-since"}:
+            headers[name] = value
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0),
+                               follow_redirects=False)
+    response = None
+    try:
+        try:
+            response = await client.send(
+                client.build_request(method, url, headers=headers), stream=True)
+        except httpx.HTTPError as exc:
+            raise BlobAuthError("Private Blob connection failed; retry the request") from exc
+        if response.status_code not in {200, 206, 304, 416}:
+            # Do not expose the upstream URL, response body, or bearer credentials.
+            raise BlobAuthError(f"Private Blob returned HTTP {response.status_code}")
+        yield response
+    finally:
+        # Starlette cancels a stream when the browser disconnects. Cleanup must still run.
+        with anyio.CancelScope(shield=True):
+            try:
+                if response is not None:
+                    await response.aclose()
+            finally:
+                await client.aclose()
 
 
 def delete(url_or_path: str, *, credentials: BlobCredentials | None = None) -> None:
