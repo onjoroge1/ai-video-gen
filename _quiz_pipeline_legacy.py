@@ -414,6 +414,57 @@ def _reveal_clip(clue_png, reveal_png, answer, out, duration, dissolve=None, imp
         return False
 
 
+def _first_reveal_motion_clip(reveal_png, overlay_png, answer, out, duration,
+                              cost_sink=None, event_sink=None):
+    """Generate one genuine, immediate animal reaction after round one's reveal.
+
+    The paid provider clip is deliberately confined to the first payoff. The viewer sees only a
+    short reaction cut from the provider's five-second minimum; the answer overlay is reapplied so
+    the generated video cannot garble or erase the label. Failure is explicit in ``event_sink`` and
+    the caller keeps the deterministic punch/recoil reveal instead.
+    """
+    event = {"round": 1, "requested": True, "used": False, "provider": "", "error": ""}
+    raw = out + ".provider.mp4"
+    errors = []
+    prompt = (
+        f"Narration-aligned evidence change. Immediate quiz reveal reaction. From the very first "
+        f"frame, the {answer} makes one sudden, "
+        "high-energy, species-appropriate movement toward or across the camera, then begins to settle. "
+        "The reaction must read immediately, not as a slow graceful drift. Preserve the exact animal, "
+        "anatomy, habitat, lighting, framing, and visual style from the reference. Locked camera; no cuts, "
+        "no morphing, no extra animals, no text, no camera shake."
+    )
+    try:
+        generated = ep.animate_scene(
+            reveal_png, prompt, raw, W, H, cost_sink=cost_sink, seconds=5,
+            err_sink=errors)
+        if generated and os.path.exists(generated):
+            for note in errors:
+                if note.startswith("ok:"):
+                    event["provider"] = note.split(":", 1)[1]
+                    break
+            result = subprocess.run([
+                FF, "-y", "-v", "error", "-i", generated, "-loop", "1", "-i", overlay_png,
+                "-filter_complex",
+                f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                f"fps={FPS},trim=duration={duration:.3f},setpts=PTS-STARTPTS[v];"
+                "[v][1:v]overlay=0:0,format=yuv420p[o]",
+                "-map", "[o]", "-an", "-t", f"{duration:.3f}", "-c:v", "libx264",
+                "-preset", "veryfast", "-crf", "20", out,
+            ], capture_output=True)
+            event["used"] = bool(
+                result.returncode == 0 and os.path.exists(out) and _dur(out) >= duration - 0.08)
+            if not event["used"]:
+                event["error"] = "generated reaction could not be trimmed into the reveal beat"
+        else:
+            event["error"] = "; ".join(errors[-3:]) or "all motion providers failed"
+    except Exception as exc:
+        event["error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+    if event_sink is not None:
+        event_sink.append(event)
+    return event["used"]
+
+
 def _fit(src, out, mode="fit", bg=(0, 0, 0)):
     im = Image.open(src).convert("RGB")
     fitted = ImageOps.pad(im, (W, H), color=bg) if mode == "pad" else ImageOps.fit(im, (W, H))
@@ -757,6 +808,21 @@ def _fal_countdown_opener(clean_img, overlays, outputs, segment_d, i2v_sink=None
         if not os.path.exists(out) or _dur(out) <= 0:
             return False
     return True
+
+
+def _countdown_sfx(path, guess_window_sec):
+    """Write three evenly spaced ticks for one round's actual search window."""
+    stage = float(guess_window_sec) / 3.0
+    t1, t2 = int(round(stage * 1000)), int(round(stage * 2000))
+    result = subprocess.run([
+        FF, "-y", "-v", "error", "-filter_complex",
+        f"sine=1000:d=0.06,adelay=0|0[a];sine=1000:d=0.06,adelay={t1}|{t1}[b];"
+        f"sine=1300:d=0.09,adelay={t2}|{t2}[c];"
+        f"[a][b][c]amix=inputs=3:normalize=0,volume=2,"
+        f"apad=whole_dur={guess_window_sec:.3f},atrim=0:{guess_window_sec:.3f}[o]",
+        "-map", "[o]", path,
+    ], capture_output=True)
+    return result.returncode == 0 and os.path.exists(path) and _dur(path) > 0
 
 def _motion_clip(clean_img, textpng, out, d, motion, i2v_sink=None):
     """LIVELY hook/outro: Kling-animate the game-show Bolt scene, overlay static text. Falls back to a
@@ -1133,7 +1199,7 @@ def make_silhouette_clue(clue_visual, dst, size, cost_sink, idx=0):
 
 
 def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: str = "echo",
-                      progress_cb=None, operator_direction: str = "",
+                      progress_cb=None, operator_direction: str = "", i2v: bool | None = None,
                       variants: tuple = ("a",), primary_variant: str = "a") -> dict:
     """Generate + render a full quiz short. Returns {output_path,title,scene_count,...}.
 
@@ -1173,8 +1239,9 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                       else f"{ep._s(it.get('answer'))}!")
         ep.generate_tts(r_texts[i], f"{A}/n_r{i}.mp3", voice=voice)
 
-    CDN = QUIZ_V2.guess_window_sec / 3
+    first_reveal_i2v_requested = QUIZ_V2.first_reveal_i2v if i2v is None else bool(i2v)
     clips = []; render_specs = []; audio = []; caps = []; t = 0.0; fal_opener = []; visual_qa = []
+    first_reveal_motion = []
     timing_warnings = []; loop_warnings = []; opening_frame = None
     ladder_warnings = []
     readability_warnings = []
@@ -1196,6 +1263,8 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     loop_name, loop_rgb = sil_bg_for(1)
 
     for i, it in enumerate(items, 1):
+        guess_window = QUIZ_V2.guess_window_for_round(i, len(items))
+        CDN = guess_window / 3.0
         bg = _COLORS.get(ep._s(it.get("color")).strip().lower(), (40, 90, 140))
         clue = f"{A}/clue{i}.png"; rev = f"{A}/rev{i}.png"
         answer = ep._s(it.get("answer"))
@@ -1251,8 +1320,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         # Frame zero is already gameplay. Voice and timer run ON TOP of the clue instead of serially,
         # removing ~1.5-2 seconds of setup from every round.
         audio.append((f"{A}/n_q{i}.mp3", t, "narr"))
-        caps.append((t, min(QUIZ_V2.guess_window_sec, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
-        audio.append(("CD", t, "cd"))
+        caps.append((t, min(guess_window, _dur(f"{A}/n_q{i}.mp3")), q_texts[i]))
+        countdown_sfx = f"{A}/cdsfx_{i}.wav"
+        if not _countdown_sfx(countdown_sfx, guess_window):
+            raise RuntimeError(f"round {i} countdown audio failed")
+        audio.append((countdown_sfx, t, "cd"))
         countdown_overlays = []; countdown_outputs = []; countdown_bases = []
         # The ladder drives the eased render; the cropped PNGs still exist because the vision
         # QA pass grades the actual opening crop, and the fal opener needs flat cards.
@@ -1371,12 +1443,17 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
         else:
             dr = min(QUIZ_V2.reveal_max_sec,
                      max(QUIZ_V2.reveal_min_sec, _dur(f"{A}/n_r{i}.mp3") + 0.1))
+            if i == 1 and first_reveal_i2v_requested:
+                # Preserve the complete 0.38s punch/recoil, then leave a meaningful reaction beat.
+                # This remains inside the existing reveal cap rather than adding a new scene.
+                dr = QUIZ_V2.reveal_max_sec
         # The silhouette becoming the animal is the one payoff this format has that the
         # flat-colour one cannot stage, and it was being spent on a hard cut. The transition
         # comes OUT of the beat rather than extending it, so the pacing is unchanged.
         reveal_spec_start = len(render_specs)
         trans_clip = f"{A}/tr{i}.mp4"
         budget = (CDN if is_final else dr) - _REVEAL_HOLD_MIN_SEC
+        wants_reaction = bool(i == 1 and first_reveal_i2v_requested)
         trans_d = round(min(_REVEAL_TRANSITION_SEC, budget), 3)
         has_transition = trans_d > 0.05 and _reveal_clip(
             f"{A}/clue{i}_b.png", f"{A}/rev{i}_b.png", answer, trans_clip, trans_d,
@@ -1418,9 +1495,25 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             clips.append(f"{A}/r{i}.png"); clips.append(f"{A}/r{i}_cta_t.png")
             dr = trans_d + answer_beat + cta_beat
         else:
-            render_specs.append((f"{A}/rev{i}_b.png", dr - trans_d, False,
-                                 {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
-            clips.append(f"{A}/r{i}.png")
+            remaining_reveal = dr - trans_d
+            used_reaction = False
+            if wants_reaction and remaining_reveal >= 0.3:
+                reaction_clip = f"{A}/reaction{i}.mp4"
+                used_reaction = _first_reveal_motion_clip(
+                    f"{A}/rev{i}_b.png", f"{A}/r{i}_t.png", answer, reaction_clip,
+                    remaining_reveal, cost_sink=costs, event_sink=first_reveal_motion)
+                if used_reaction:
+                    render_specs.append((reaction_clip, remaining_reveal, True))
+                    clips.append(reaction_clip)
+            if not used_reaction:
+                if wants_reaction and not first_reveal_motion:
+                    first_reveal_motion.append({
+                        "round": 1, "requested": True, "used": False, "provider": "",
+                        "error": "reveal beat was too short for a generated reaction",
+                    })
+                render_specs.append((f"{A}/rev{i}_b.png", remaining_reveal, False,
+                                     {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+                clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding")); caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i])); t += dr
     TOTAL = t
     if opening_frame and len(render_specs) > 1:
@@ -1465,24 +1558,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     vsil = f"{A}/video_silent.mp4"
     _render_sequence(render_specs, vsil, TOTAL)
     # sfx
-    # Three ticks, one per countdown stage, rising pitch, NO ding. Derived from CDN rather than
-    # written out: these were hardcoded at 0/800/1600ms over a 2.4s trim, which was correct only
-    # while the guess window was 2.4s. Shortening the window would have left the ticks marking
-    # time that no longer existed — the last one landing after the answer had already appeared —
-    # and nothing would have failed, it would just have sounded wrong.
-    _t1, _t2 = int(CDN * 1000), int(CDN * 2000)
-    cdsfx = f"{A}/cdsfx.wav"
-    subprocess.run([FF, "-y", "-filter_complex",
-        f"sine=1000:d=0.06,adelay=0|0[a];sine=1000:d=0.06,adelay={_t1}|{_t1}[b];"
-        f"sine=1300:d=0.09,adelay={_t2}|{_t2}[c];"
-        f"[a][b][c]amix=inputs=3:normalize=0,volume=2,atrim=0:{QUIZ_V2.guess_window_sec}[o]",
-        "-map", "[o]", cdsfx], capture_output=True)
     ding = f"{A}/ding.wav"
     subprocess.run([FF, "-y", "-filter_complex", "sine=1600:d=0.25,volume=1.5[o]", "-map", "[o]", ding], capture_output=True)
     # single audio timeline
     ins = []; parts = []; idx = 0
     for f, off, kind in audio:
-        src = cdsfx if kind == "cd" else (ding if kind == "ding" else f)
+        src = ding if kind == "ding" else f
         ins += ["-i", src]; ms = int(off * 1000); vol = 1.0 if kind == "narr" else 0.7
         parts.append(f"[{idx}:a]adelay={ms}|{ms},volume={vol}[s{idx}]"); idx += 1
     music_path = get_music_path("upbeat", progress_cb=log)
@@ -1526,6 +1607,12 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
     cost = round(sum(costs), 3)
     _deg = (list(timing_warnings) + list(loop_warnings) + list(ladder_warnings)
             + list(readability_warnings))
+    first_reveal_i2v_used = any(event.get("used") for event in first_reveal_motion)
+    if first_reveal_i2v_requested and not first_reveal_i2v_used:
+        reason = next((event.get("error") for event in first_reveal_motion
+                       if event.get("error")), "no motion provider produced a usable clip")
+        _deg.append(f"first reveal requested generated animal motion but used the local fallback: {reason}")
+        log("⚠ first reveal i2v unavailable — kept the aggressive local fallback")
     if not os.path.exists(primary_output):
         _deg = ["final video file was not produced — assembly failed"] + _deg
     fal_used = any(event.get("used") for event in fal_opener)
@@ -1540,6 +1627,11 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
             "fal_opener_requested": FAL_OPENER, "fal_opener_used": fal_used,
             "progressive_clues": QUIZ_V2.progressive_clues,
             "first_reveal_impact": QUIZ_V2.first_reveal_impact,
+            "guess_windows_sec": [QUIZ_V2.guess_window_for_round(i, len(items))
+                                  for i in range(1, len(items) + 1)],
+            "i2v_requested": 1 if first_reveal_i2v_requested else 0,
+            "i2v_animated": 1 if first_reveal_i2v_used else 0,
+            "first_reveal_motion": first_reveal_motion,
             "subscribe_cta": "integrated_final_reveal", "visual_qa": visual_qa,
             "habitat_loop_closed": HABITAT and not loop_warnings,
             "difficulty_ladder_honoured": not ladder_warnings,
