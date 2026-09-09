@@ -28,6 +28,7 @@ ACCUMULATING_INDICTMENT = "accumulating_indictment"
 ALMOST_HAPPENED_PLAN = "almost_happened_plan"
 ACCIDENTAL_INVENTION = "accidental_invention"
 POWER_REVERSAL = "power_reversal"
+REMOVED_KEYSTONE = "removed_keystone"
 
 
 # REVEAL_DEADLINE_PCT: engines whose principle IS the reveal cannot state it in the first fifth.
@@ -44,6 +45,22 @@ REVEAL_DEADLINE_PCT = 0.60
 # distinction the one-size contract could not express: a lens close hands the opening object back
 # as a question, an indictment close restates the opening claim now that it is proved.
 ENGINES: dict[str, dict[str, Any]] = {
+    REMOVED_KEYSTONE: {
+        "name": "The Removed Keystone",
+        # Not a backfiring incentive. Nobody exploits anything here: a species is added or taken
+        # away and the system re-sorts itself around the gap. Measured on Macquarie Island, where
+        # backfiring_solution was selected because it was the only mapped engine, and its contract
+        # made the compiler invent "the reward was paid for the count of cats killed" for a
+        # government eradication that paid no reward. The evidence boundary refused it, correctly.
+        "premise": "A species is removed or introduced, and the system re-sorts itself around it.",
+        "reference": "macquarie-island cat eradication",
+        "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
+        "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL, cs.TOOL),
+        "closing": cs.TOOL,
+        "audience_before": "removing the pest fixes the problem",
+        "audience_after": "the pest was holding something else down",
+    },
     BACKFIRING_SOLUTION: {
         "name": "The Backfiring Solution",
         "premise": "A reasonable fix creates a larger version of the problem it solved.",

@@ -68,10 +68,29 @@ OPPOSITION_MOUNTS = "opposition_mounts"
 COLLAPSE_CAUSE = "collapse_cause"
 WORLD_WITHOUT_IT = "world_without_it"
 
+# --- the removed_keystone family ----------------------------------------------------------------
+# Nobody exploits anything in these. A species is added or taken away and the system re-sorts
+# itself around the gap, so `changes_incentive` and `exploit_behavior` have no referents: Macquarie
+# Island's cats were shot by a government programme that paid no reward, and asking that story for
+# a rewarded measure made the compiler invent one.
+#
+# HIDDEN_LINK is the load-bearing one and it is a FACT, not a relationship to be computed. Every
+# story of this shape turns on the same discovery -- what else the species was doing that nobody
+# counted. The cats were also eating the rabbits. The stoats preferred birds to rabbits. The
+# sparrows were eating insects, not only grain. Each of those is one sourceable sentence.
+ESTABLISHES_BALANCE = "establishes_balance"
+SPECIES_MOVED = "species_moved"
+INTENDED_EFFECT = "intended_effect"
+HIDDEN_LINK = "hidden_link"
+POPULATION_RESPONDS = "population_responds"
+SYSTEM_RESETTLES = "system_resettles"
+
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
                    COMPOUNDS_EXPLOIT, OUTCOME_STATE,
                    PLAN_PROPOSED, GAINS_BACKING, OPPOSITION_MOUNTS, COLLAPSE_CAUSE,
                    WORLD_WITHOUT_IT,
+                   ESTABLISHES_BALANCE, SPECIES_MOVED, INTENDED_EFFECT, HIDDEN_LINK,
+                   POPULATION_RESPONDS, SYSTEM_RESETTLES,
                    CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
@@ -103,6 +122,19 @@ WHAT_EACH_FUNCTION_IS = {
                     "missing rather than abstract",
     WORLD_WITHOUT_IT: "what we live with because it did not happen, stated as record: the plan "
                       "failed and this is the world that followed",
+    ESTABLISHES_BALANCE: "the state of the place before anyone moved a species — who was eating "
+                         "whom, and what was being held in check",
+    SPECIES_MOVED: "the moment a species was deliberately removed or introduced, and what it was "
+                   "meant to achieve",
+    INTENDED_EFFECT: "the target species responding as intended — the part that worked",
+    HIDDEN_LINK: "what else that species was doing that nobody counted. This is the whole story: "
+                 "the cats were also eating the rabbits; the stoats preferred birds to rabbits; "
+                 "the sparrows ate insects and not only grain. One sourceable sentence about a "
+                 "connection that existed before anyone acted on it",
+    POPULATION_RESPONDS: "the population that was being held down, no longer held down — "
+                         "measured, with numbers where the record has them",
+    SYSTEM_RESETTLES: "what the place became. Not 'the programme failed' but the new state: what "
+                      "now grows there, what no longer does, what it costs to keep",
 }
 
 
@@ -179,8 +211,31 @@ ALMOST_HAPPENED_PLAN = EngineFunctionMap(
         "reversal": "the world we live in because it did not happen",
         "tool": "hands back a reusable lens"})
 
+# No derived roles, for the same reason as almost_happened_plan: HIDDEN_LINK is a fact somebody
+# recorded, not a relationship the compiler has to compute from two halves.
+REMOVED_KEYSTONE = EngineFunctionMap(
+    "removed_keystone",
+    required=(ESTABLISHES_BALANCE, SPECIES_MOVED, HIDDEN_LINK, POPULATION_RESPONDS,
+              SYSTEM_RESETTLES),
+    to_role={ESTABLISHES_BALANCE: "setup",
+             SPECIES_MOVED: "intervention",
+             INTENDED_EFFECT: "false_resolution",
+             HIDDEN_LINK: "mechanism",
+             POPULATION_RESPONDS: "escalation",
+             SYSTEM_RESETTLES: "reversal",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    role_meanings={
+        "setup": "who was eating whom before anyone intervened",
+        "intervention": "the species deliberately removed or introduced",
+        "false_resolution": "the target responding as intended — the part that worked",
+        "mechanism": "what else that species was doing that nobody counted",
+        "escalation": "the population no longer held down, surging",
+        "reversal": "what the place became",
+        "tool": "hands back a reusable lens"})
+
 MAPS = {engine.engine_id: engine
-        for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN)}
+        for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN, REMOVED_KEYSTONE)}
 
 
 def map_for(engine_id: str) -> EngineFunctionMap | None:

@@ -421,3 +421,74 @@ def test_presentation_devices_attach_to_a_mechanism_nobody_derived():
     for device in devices:
         assert mechanism["beat_id"] in device["context_refs"]
         assert sfm.event_of(device)["text"] == "", "a device asserts no history"
+
+
+# --- removed_keystone ---------------------------------------------------------------------------
+
+MACQUARIE = [
+    {"beat_id": "k1", "event_function": ef.ESTABLISHES_BALANCE,
+     "event": {"text": "Feral cats on Macquarie Island preyed on both seabirds and rabbits.",
+               "claim_refs": ["m1"]},
+     "changes_state": {"from": "an island with introduced cats and rabbits",
+                       "to": "cats hold the rabbit population down while killing seabirds"}},
+    {"beat_id": "k2", "event_function": ef.SPECIES_MOVED,
+     "event": {"text": "From 1985 a programme shot the island's cats to protect the seabirds.",
+               "claim_refs": ["m2"]},
+     "changes_state": {"from": "cats hold the rabbit population down while killing seabirds",
+                       "to": "the cats are being removed"}},
+    {"beat_id": "k3", "event_function": ef.HIDDEN_LINK,
+     "event": {"text": "The cats had also been the main predator keeping rabbit numbers low.",
+               "claim_refs": ["m3"]},
+     "changes_state": {"from": "the cats are being removed",
+                       "to": "nothing is eating the rabbits"}},
+    {"beat_id": "k4", "event_function": ef.POPULATION_RESPONDS,
+     "event": {"text": "Rabbit numbers rose to roughly 100,000 after the last cat was killed.",
+               "claim_refs": ["m4"]},
+     "changes_state": {"from": "nothing is eating the rabbits",
+                       "to": "rabbits graze the island unchecked"}},
+    {"beat_id": "k5", "event_function": ef.SYSTEM_RESETTLES,
+     "event": {"text": "Rabbit grazing stripped the island's tussock slopes bare.",
+               "claim_refs": ["m5"]},
+     "changes_state": {"from": "rabbits graze the island unchecked",
+                       "to": "the island's vegetation is gone and the slopes are eroding"}},
+]
+
+
+def test_a_keystone_story_compiles_without_inventing_an_incentive():
+    """Measured on Macquarie: backfiring_solution was selected because it was the only mapped
+    engine, and its contract made the compiler write "the reward was paid for the count of cats
+    killed" for a government eradication that paid no reward. The evidence boundary refused it,
+    correctly -- nobody paid a reward for anything."""
+    out = sc.compile_roles(MACQUARIE, "removed_keystone")
+    assert out["passed"], sc.summary(out)
+    assert out["roles"] == {"k1": "setup", "k2": "intervention", "k3": "mechanism",
+                            "k4": "escalation", "k5": "reversal"}
+    assert out["derived"] == [], "hidden_link is a fact, not a computed relationship"
+
+
+def test_the_hidden_link_is_required_because_it_is_the_story():
+    """Every story of this shape turns on what else the species was doing."""
+    without = [b for b in MACQUARIE if b["event_function"] != ef.HIDDEN_LINK]
+    codes = [i["code"] for i in sc.compile_roles(without, "removed_keystone")["issues"]]
+    assert "MISSING_EVENT_FUNCTION" in codes
+    assert ef.HIDDEN_LINK in ef.map_for("removed_keystone").required
+
+
+def test_this_engine_is_not_asked_for_a_rewarded_measure():
+    """No bounty, no proxy, no exploitation. Asking teaches a model to invent one."""
+    prompt = sc.factual_plan_prompt("Why?", 90, 9, "removed_keystone")
+    assert '"incentive":' not in prompt and "rewarded_measure names" not in prompt
+    for function in ef.map_for("removed_keystone").required:
+        assert function in prompt
+    assert ef.CHANGES_INCENTIVE not in ef.map_for("removed_keystone").to_role
+    assert ef.EXPLOIT_BEHAVIOR not in ef.map_for("removed_keystone").to_role
+
+
+def test_its_roles_are_described_as_ecology_not_as_incentives():
+    assert sfm.role_function("mechanism", "removed_keystone") == \
+        "what else that species was doing that nobody counted"
+    assert sfm.role_function("escalation", "removed_keystone") == \
+        "the population no longer held down, surging"
+    # And the bounty engine keeps its own.
+    assert sfm.role_function("escalation", "backfiring_solution") == \
+        "HOW people exploit it, compounding"
