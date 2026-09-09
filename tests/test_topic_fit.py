@@ -106,3 +106,52 @@ def test_deterministic_signals_are_advisory_only():
     judge, _ = _judge({"verdict": "fits", "reason": "real episode", "episode": "x",
                        "intent": "y", "inversion": "z", "narrower_question": ""})
     assert not tf.blocks(tf.screen("Why don't we use nuclear ships?", judge=judge))
+
+
+# --- the topic generator for this lane ----------------------------------------------------------
+
+def test_the_causal_topic_prompt_states_the_series_not_just_history():
+    """The existing generator serves the simulation shorts; this lane had none, so topics arrived
+    by hand and one of them cost $3.20 before anything noticed it had no story in it."""
+    import explainer_pipeline as ep
+
+    system = ep._CAUSAL_TOPIC_SYSTEM
+    for reference in ("Washington DC", "Haiti", "Hanoi", "Romanovs"):
+        assert reference in system, "the standard is the corpus's own episodes"
+    assert "TRUE INVERSION, not a shortfall" in system
+    assert "hippo meat" in system, "the measured failure is named so it is not repeated"
+    assert "names the SUBJECT, not the shape" in system
+
+
+def test_a_proposed_topic_is_screened_before_it_reaches_an_operator(monkeypatch):
+    """A topic must not reach an operator and then be refused by the pipeline that proposed it."""
+    import explainer_pipeline as ep
+
+    proposals = {"questions": [
+        {"question": "Why did DC pay slave owners to free the people they enslaved?",
+         "curiosity_gap": 9},
+        {"question": "Why don't Americans eat hippo meat?", "curiosity_gap": 9},
+        {"question": "Too dull", "curiosity_gap": 3}]}
+    verdicts = {"Why don't Americans eat hippo meat?": "no_story"}
+
+    class _Messages:
+        def create(self, **call):
+            body = call["messages"][0]["content"]
+            if "Propose" in body:
+                text = json.dumps(proposals)
+            else:
+                asked = body.split('"')[1]
+                text = json.dumps({"verdict": verdicts.get(asked, "fits"), "reason": "r",
+                                   "episode": "e", "intent": "i", "inversion": "v",
+                                   "narrower_question": ""})
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 200, "output_tokens": 50})(),
+                "content": [type("C", (), {"text": text})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out = ep.generate_causal_topics(n=5, min_score=8)
+    questions = [item["question"] for item in out]
+    assert "Why did DC pay slave owners to free the people they enslaved?" in questions
+    assert "Why don't Americans eat hippo meat?" not in questions, "screened out, not shipped"
+    assert "Too dull" not in questions, "below the curiosity floor"
+    assert out[0]["topic_fit"]["verdict"] == "fits", "the verdict travels with the topic"

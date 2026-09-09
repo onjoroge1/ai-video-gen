@@ -6852,6 +6852,82 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
         return []
 
 
+_CAUSAL_TOPIC_SYSTEM = (
+    "You propose topics for a documentary series. Its subject is narrower than 'history': EVERY "
+    "episode is ONE documented episode whose outcome INVERTED the intent behind it.\n"
+    "What the series has already made, which is the standard:\n"
+    "- Washington DC ended slavery in the capital in 1862 -- and compensated the OWNERS\n"
+    "- Haiti freed itself from France in 1804 -- and France then billed it for the loss\n"
+    "- Hanoi paid a bounty per rat tail in 1902 -- and residents farmed rats to collect it\n"
+    "- Delhi paid a bounty per dead cobra -- and residents bred cobras\n"
+    "- The Romanovs held more wealth than any family in history -- and were shot in a cellar\n"
+    "HARD RULES, and a topic failing any one of them is worthless here:\n"
+    "- ONE episode, bounded in time and place. A standing condition with many parallel causes is "
+    "not an episode. 'Why don't Americans eat hippo meat' cost this series $3.20 in research and "
+    "produced nothing, because it names an absence rather than an event.\n"
+    "- A NAMED INTENT: somebody was trying to achieve something specific and documented.\n"
+    "- A TRUE INVERSION, not a shortfall. 'The plan failed' is NOT this series. 'The plan produced "
+    "MORE of the thing it was meant to remove', or 'the reward went to exactly the wrong party', "
+    "is. This rule rejects most candidates; apply it ruthlessly.\n"
+    "- SOURCEABLE: a literate person could name the law, the year, the place and the outcome. No "
+    "folk claims and no story whose central fact is disputed or apocryphal.\n"
+    "- The question names the SUBJECT, not the shape. 'Why did paying people to kill rats make "
+    "Hanoi worse?' -- not 'Why do incentives backfire?'\n"
+    "Score 0-10 on curiosity_gap (specific, an irresistible open loop, real stakes, and FRESH -- "
+    "the cobra effect itself is over-told). Be a harsh grader.\n"
+    "Return ONLY JSON: {\"questions\":[{\"question\":\"...\",\"curiosity_gap\":int,"
+    "\"episode\":\"the episode in a short phrase\",\"intent\":\"what was being attempted\","
+    "\"inversion\":\"how the outcome inverted it\"}]}."
+)
+
+
+def generate_causal_topics(n: int = 10, min_score: int = 8, cost_sink: list | None = None,
+                           avoid: list | None = None) -> list[dict]:
+    """Propose topics for the illustrated history lane, screened before they are returned.
+
+    The existing topic generator serves the simulation shorts ("What If You Grew 1cm Every
+    Second"), which is a different channel with a different contract. This lane had none, so
+    topics arrived by hand and one of them -- "Why don't Americans eat hippo meat?" -- cost $3.20
+    of research and four runs before anything noticed it had no story in it.
+
+    Every proposal is put through the same three-question screen the pipeline applies before
+    buying research, so a topic that reaches the operator has already survived the test that would
+    otherwise refuse it later.
+    """
+    import topic_fit
+
+    known = ", ".join(_s(item) for item in (avoid or []) if _s(item))
+    prompt = (f"Propose {max(1, n) * 2} candidate questions.\n"
+              + (f"Already made or proposed, do not repeat: {known}\n" if known else ""))
+    response = _claude().messages.create(
+        model=ANTHROPIC_MODEL, max_tokens=3000, system=_CAUSAL_TOPIC_SYSTEM,
+        messages=[{"role": "user", "content": prompt}])
+    _charge(cost_sink, _ledger.RESEARCH, _msg_cost(response.usage), "causal topics")
+    if isinstance(cost_sink, list) and not isinstance(cost_sink, _ledger.CostLedger):
+        cost_sink.append(_msg_cost(response.usage))
+    data, _ = _parse_script_json(response.content[0].text)
+
+    def judge(text: str, system: str = "") -> str:
+        reply = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=700, system=system,
+                                         messages=[{"role": "user", "content": text}])
+        _charge(cost_sink, _ledger.RESEARCH, _msg_cost(reply.usage), "topic fit")
+        return reply.content[0].text
+
+    out = []
+    for item in (data.get("questions") or []):
+        if not isinstance(item, dict) or int(item.get("curiosity_gap") or 0) < min_score:
+            continue
+        # Screened here so a topic cannot reach an operator and then be refused by the pipeline
+        # that proposed it. A verdict the generator disagrees with is the generator being wrong.
+        verdict = topic_fit.screen(_s(item.get("question")), judge=judge)
+        item["topic_fit"] = verdict
+        if verdict.get("verdict") != topic_fit.NO_STORY:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
 _SIM_TOPIC_SYSTEM = (
     "You are a YouTube SHORTS packaging strategist for the viral 'simulation' format (BoneLab-style): "
     "the viewer IS the subject, ONE measurable quantity changes to THEM on a clock, and it escalates "
