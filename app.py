@@ -169,22 +169,28 @@ _TRENDING_LOCK = threading.Lock()   # serialize the 3 callers (scheduler / GET a
 
 # One Bolt brand, three evidence-friendly lanes. TV reviews and quizzes keep their own production
 # workflows; this engine stays focused on the Earth/Physics/Space lane with the strongest retention.
+# TWO CHANNELS, and they share a house style and nothing else. The three science channels this
+# replaces (Earth, Physics, Space) were one channel's breadth wearing three labels, and the lane
+# that actually renders -- illustrated causal history -- fitted none of them. The niches here are
+# the same definitions topic_fit screens against, so the UI cannot propose a topic the pipeline
+# would refuse.
 CHANNELS = [
-    {"label": "Bolt Explains — Earth",
-     "niche": ("Grounded Earth-system mysteries and small-change consequence cascades: oceans, water, "
-               "oxygen, atmosphere, weather, climate, geology, magnetic field, ecosystems and the systems "
-               "that keep Earth habitable. Prefer an everyday observation or a precise 1%/24-hour change "
-               "with surprising but defensible consequences; no generic climate lectures or apocalypse bait.")},
-    {"label": "Bolt Explains — Physics",
-     "niche": ("Counterintuitive physics people can see or feel: touch, gravity, pressure, heat, light, "
-               "sound, electricity, motion, scale and time. The obvious explanation should be wrong or "
-               "incomplete. Prefer one strong visual experiment and a real limit; avoid abstract equation-"
-               "first topics, impossible superpowers and unsupported black-hole endings.")},
-    {"label": "Bolt Explains — Space",
-     "niche": ("Relatable space mysteries with a direct human or Earth consequence: Moon, Sun, night sky, "
-               "orbits, satellites, GPS, radiation and nearby planetary conditions. Use specific distances, "
-               "times or small changes; make the invisible system visible. Avoid aliens, generic planet "
-               "lists, speculative megastructures and Earth-explodes fantasy.")},
+    {"label": "Bolt Explains the World",
+     "topic_channel": "world",
+     "niche": ("What humans did to animal populations — and what happened next. One documented "
+               "intervention aimed at an animal population (a bounty, an eradication campaign, a "
+               "deliberate introduction, a predator-removal programme) and its documented "
+               "aftermath. The intervention must TARGET the animals: a river diversion that "
+               "ruined a fishery belongs to the other channel. No general animal facts, no food "
+               "explainers.")},
+    {"label": "Bolt Explains History",
+     "topic_channel": "history",
+     "niche": ("What governments imposed on people — and what it cost them. One state programme "
+               "— a law, decree, campaign or project — and documented harm. A programme that "
+               "FAILED qualifies, and so does one that SUCCEEDED at its stated aim while imposing "
+               "an enormous cost; the harm need not have been unforeseen. A state-run campaign "
+               "against an animal population belongs to the other channel. No daily politics, no "
+               "biographies, no corporate scandals.")},
 ]
 TOPICS_PER_FORMAT = max(2, min(8, int(os.environ.get("TOPICS_PER_FORMAT", "4"))))
 
@@ -238,10 +244,18 @@ def _refresh_trending() -> dict:
 
             channel_topics = []
             for content_format in ("short", "long"):
-                topics = ep.generate_curiosity_topics(
-                    niche=channel["niche"], n=TOPICS_PER_FORMAT,
-                    exclude=exclude, content_format=content_format,
-                )
+                # A causal channel proposes through the screened generator, so every topic that
+                # reaches the operator has already survived the check the pipeline applies before
+                # buying research. A topic suggested here and refused there is the UI arguing with
+                # its own back end.
+                if channel.get("topic_channel"):
+                    topics = ep.generate_causal_topics(
+                        channel=channel["topic_channel"], n=TOPICS_PER_FORMAT, avoid=exclude)
+                else:
+                    topics = ep.generate_curiosity_topics(
+                        niche=channel["niche"], n=TOPICS_PER_FORMAT,
+                        exclude=exclude, content_format=content_format,
+                    )
                 for topic in topics:
                     topic["channel"] = channel["label"]
                 try:

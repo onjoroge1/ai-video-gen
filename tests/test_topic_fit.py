@@ -197,3 +197,27 @@ def test_the_channel_can_be_asserted_and_still_challenged():
                           "aftermath": "a", "reason": "r", "narrower_question": ""})
     tf.screen("Why did Decree 770 fill Romania's orphanages?", channel=tf.HISTORY, judge=judge)
     assert "HISTORY channel" in seen["prompt"] and "belongs to the other one" in seen["prompt"]
+
+
+def test_the_ui_channels_and_the_screen_share_one_definition():
+    """A topic suggested in the UI and refused by the pipeline is the UI arguing with its back end.
+
+    The three science channels this replaces (Earth, Physics, Space) were one channel's breadth
+    wearing three labels, and the lane that actually renders fitted none of them.
+    """
+    import re
+    import app
+
+    labels = [c["label"] for c in app.CHANNELS]
+    assert labels == ["Bolt Explains the World", "Bolt Explains History"]
+    assert [c["topic_channel"] for c in app.CHANNELS] == [tf.WORLD, tf.HISTORY]
+
+    world, history = (c["niche"] for c in app.CHANNELS)
+    assert "TARGET the animals" in world, "the World/History boundary, stated to the operator"
+    assert "belongs to the other channel" in world and "belongs to the other channel" in history
+    # The rule that would otherwise refuse the history channel's own first episode.
+    assert "SUCCEEDED at its stated aim" in history and "need not have been unforeseen" in history
+
+    source = re.sub(r"\s+", " ", open(app.__file__, encoding="utf-8").read())
+    assert 'if channel.get("topic_channel"): topics = ep.generate_causal_topics(' in source, \
+        "a causal channel must propose through the screened generator"
