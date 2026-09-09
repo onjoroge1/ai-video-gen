@@ -3185,9 +3185,16 @@ def _introduction_checkpoint_repairable(job: dict, store, blob) -> bool:
 
 
 def _focused_provenance_checkpoint_repairable(job: dict, store, blob) -> bool:
-    from research_coverage import focused_provenance_dossier_repairable
-    return _checkpoint_dossier_matches(job, store, blob, lambda dossier:
-        focused_provenance_dossier_repairable(dossier, str(job.get("error") or "")))
+    """This failure is already downstream of a saved, validated base dossier.
+
+    Do not make recovery depend on opening the private archive twice. The database rearm below
+    atomically binds to this exact checkpoint SHA and error, and the resumed worker restores and
+    validates the archive before it can spend or accept evidence.
+    """
+    from research_coverage import focused_provenance_failure
+    checkpoint = job.get("checkpoint") or {}
+    return bool(focused_provenance_failure(str(job.get("error") or ""))
+                and re.fullmatch(r"[0-9a-f]{64}", str(checkpoint.get("sha256") or "")))
 
 
 @app.post("/api/agent/actions/{action_id}/dispatch")

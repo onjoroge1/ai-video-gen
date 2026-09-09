@@ -78,6 +78,13 @@ def test_checkpoint_review_reads_preserved_archive(tmp_path, valid, available):
     assert archive.exists()
 
 
+def test_provenance_recovery_is_bound_to_the_recorded_checkpoint_not_a_second_download():
+    job = {"error": PROVENANCE_ERROR, "checkpoint": {"sha256": CHECKPOINT_SHA}}
+    assert studio._focused_provenance_checkpoint_repairable(job, object(), object())
+    job["checkpoint"]["sha256"] = ""
+    assert not studio._focused_provenance_checkpoint_repairable(job, object(), object())
+
+
 @pytest.mark.parametrize("recovery_type", ["scope", "ecosystem", "introduction", "provenance"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
