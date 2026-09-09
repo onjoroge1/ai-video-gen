@@ -221,3 +221,18 @@ def test_the_ui_channels_and_the_screen_share_one_definition():
     source = re.sub(r"\s+", " ", open(app.__file__, encoding="utf-8").read())
     assert 'if channel.get("topic_channel"): topics = ep.generate_causal_topics(' in source, \
         "a causal channel must propose through the screened generator"
+
+
+def test_the_generator_is_told_to_name_the_right_actor():
+    """Measured: "Britain's bounty on the last thylacines". It was the TASMANIAN government's.
+
+    The screen asks whether a topic has a story in it, not whether its framing is true, so a
+    confidently misattributed topic sails through and the error lands in the title.
+    """
+    import explainer_pipeline as ep
+
+    for channel in ("world", "history"):
+        system = ep._causal_topic_system(channel)
+        assert "NAME THE RIGHT ACTOR" in system
+        assert "colonial administration rather than the imperial capital" in system
+        assert "an omission costs a rewrite, a wrong attribution costs a video" in system

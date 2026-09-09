@@ -6876,6 +6876,16 @@ def _causal_topic_system(channel: str) -> str:
         "- SOURCEABLE: a literate person could name the law, the year, the place and the outcome. "
         "No folk claims, and nothing whose central fact is disputed or apocryphal -- the Delhi "
         "cobra bounty fails this and the Hanoi rat bounty passes it.\n"
+        # Measured: a proposal came back as "Britain's bounty on the last thylacines". The bounty
+        # was the TASMANIAN government's, 1888-1909. The screen only asks whether a topic has a
+        # story in it, so a confidently misattributed one sails through and the error lands in the
+        # title, where research either wastes a run on it or -- worse -- works around it.
+        "- NAME THE RIGHT ACTOR. Whoever actually ran the programme: the specific government, "
+        "colony, state, agency or company. A colonial-era programme was usually run by the "
+        "colonial administration rather than the imperial capital, and a state programme by the "
+        "state rather than the nation. If you are not certain who ran it, describe the programme "
+        "without naming an actor -- an omission costs a rewrite, a wrong attribution costs a "
+        "video that is confidently false.\n"
         "- The question names the SUBJECT, not the shape. 'Why did paying people to kill rats "
         "make Hanoi worse?' -- not 'Why do incentives backfire?'\n"
         + ("- A state-run campaign against an animal population belongs to the OTHER channel. Do "
