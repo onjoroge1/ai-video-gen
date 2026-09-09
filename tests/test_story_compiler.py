@@ -507,3 +507,17 @@ def test_the_two_backfire_engines_are_told_apart_by_who_acts():
     assert "no reward is paid" in keystone
     # And neither premise can be read as the other's story.
     assert "incentive" not in keystone.replace("no reward is paid", "")
+
+
+def test_a_hinge_never_inherits_an_empty_cause():
+    """The hinge sits before its anchor so it inherits the anchor's cause rather than pointing at
+    it -- but only if the anchor has one. On removed_keystone the mechanism can be the first beat
+    with no antecedent, and the hinge then inherited nothing: ORPHAN_STEP refused a story whose
+    spine had passed in full."""
+    beats = [dict(b) for b in MACQUARIE]
+    beats[2]["caused_by"] = ""            # mechanism with no antecedent
+    out = sc.compile_roles(beats, "removed_keystone")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "removed_keystone")
+    hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
+    assert hinge["caused_by"], "a step after the setup must name the step it follows from"
+    assert hinge["caused_by"] == "k2", "falls back along its chain to the intervention"

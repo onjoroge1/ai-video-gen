@@ -550,7 +550,13 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
                       "causal_role": role, "presentation_device": role, "context_refs": refs,
                       "event": {"text": "", "claim_refs": []}, "beat": text,
-                      "caused_by": anchor.get("caused_by") if role == "hinge" else anchor["beat_id"],
+                      # The hinge sits BEFORE its anchor, so it inherits the anchor's cause
+                      # rather than pointing at it -- but only if the anchor has one. On
+                      # removed_keystone the mechanism is the first beat the planner writes with
+                      # no antecedent, so the hinge inherited an empty cause and ORPHAN_STEP
+                      # refused a story whose spine had passed in full.
+                      "caused_by": ((anchor.get("caused_by") or anchor["beat_id"])
+                                    if role == "hinge" else anchor["beat_id"]),
                       "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
             out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
@@ -573,14 +579,24 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # These are engine-owned narrative dependencies. Semantic support for the policy,
         # exploit and inversion was checked on the factual sheet before this adapter is called.
         previous = {}
-        parent_roles = {"intervention": "setup", "false_resolution": "intervention",
-                        "hinge": "false_resolution", "mechanism": "intervention",
-                        "escalation": "mechanism", "reversal": "escalation",
-                        "generalization": "reversal", "tool": "reversal"}
+        # CANDIDATES, not one parent. A single parent orphans any step whose ancestor is optional
+        # for this engine and absent from this story: removed_keystone does not require a false
+        # resolution, so the hinge pointed at a beat that was never written and ORPHAN_STEP
+        # refused a story whose spine had passed in full. Each role now falls back along its own
+        # chain to the nearest ancestor that exists.
+        parent_roles = {"intervention": ("setup",),
+                        "false_resolution": ("intervention", "setup"),
+                        "hinge": ("false_resolution", "intervention", "setup"),
+                        "mechanism": ("intervention", "setup"),
+                        "escalation": ("mechanism", "false_resolution", "intervention"),
+                        "reversal": ("escalation", "mechanism", "intervention"),
+                        "generalization": ("reversal", "escalation"),
+                        "tool": ("reversal", "escalation", "mechanism")}
         for beat in out:
             role = beat["causal_role"]
-            beat["caused_by"] = (previous.get(role) if role in ("escalation", "generalization")
-                                  else None) or previous.get(parent_roles.get(role), "")
+            inherited = previous.get(role) if role in ("escalation", "generalization") else None
+            beat["caused_by"] = inherited or next(
+                (previous[name] for name in parent_roles.get(role, ()) if previous.get(name)), "")
             previous[role] = beat["beat_id"]
         return out
     return deepcopy(beats)
