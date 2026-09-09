@@ -40,9 +40,11 @@ import re
 FITS, NEEDS_NARROWING, NO_STORY = "fits", "needs_narrowing", "no_story"
 
 WORLD, HISTORY = "world", "history"
+EDITORIAL_VERSION = "bolt_two_channels_v1"
 CHANNELS = {
     WORLD: {
         "name": "Bolt Explains the World",
+        "banner": "ANIMAL CONTROL. UNEXPECTED CONSEQUENCES.",
         "promise": "What humans did to animal populations -- and what happened next.",
         "requires": "an intervention aimed at an ANIMAL POPULATION (a bounty, an eradication "
                     "campaign, a deliberate introduction, a predator-removal programme) and a "
@@ -52,11 +54,13 @@ CHANNELS = {
         "examples": "Hanoi's 1902 rat-tail bounty and the rat farms it created; China's Four "
                     "Pests sparrow campaign; Australia's cane toads, introduced against beetles "
                     "and now the pest; Hawaii's mongooses, released for rats they barely touched",
-        "excludes": "general animal facts, food explainers, and environmental disasters where no "
+        "excludes": "general animal facts, animal quizzes, food explainers, unrealized proposals "
+                    "such as the American hippo-import plan, and environmental disasters where no "
                     "animal population was the target",
     },
     HISTORY: {
         "name": "Bolt Explains History",
+        "banner": "GOVERNMENT PLANS. HUMAN CONSEQUENCES.",
         "promise": "What governments imposed on people -- and what it cost them.",
         "requires": "one state PROGRAM -- a law, decree, campaign or project -- and documented "
                     "harm. A programme that FAILED qualifies, and so does one that SUCCEEDED at "
@@ -65,11 +69,48 @@ CHANNELS = {
         "examples": "the Soviet river diversions that grew cotton and emptied the Aral Sea; the "
                     "US denaturing of industrial alcohol during Prohibition, which killed the "
                     "people it was meant to deter; Romania's Decree 770 and the orphanages it "
-                    "filled; Washington DC ending slavery in 1862 and compensating the owners",
+                    "filled",
         "excludes": "daily political news, general biographies, unrelated wars, celebrity "
                     "controversies and corporate scandals",
     },
 }
+
+# Editorial research queue, not approved claims or a promise of a finished video.
+# Engine hints describe a candidate shape; research still decides the supported structure.
+TOPIC_CANDIDATES = {
+    WORLD: [
+        {"question": "What happened after Hanoi introduced its rat-tail bounty in 1902?",
+         "engine_hint": "backfiring_solution", "status": "research_candidate"},
+        {"question": "What followed China's campaign to eradicate sparrows during Four Pests?",
+         "engine_hint": "removed_keystone", "status": "research_candidate"},
+        {"question": "What happened after cane toads were introduced to control Australian cane beetles?",
+         "engine_hint": "removed_keystone", "status": "research_candidate"},
+        {"question": "What happened after mongooses were introduced to control rats in Hawaii?",
+         "engine_hint": "removed_keystone", "status": "research_candidate"},
+    ],
+    HISTORY: [
+        {"question": "How did Soviet irrigation diversions change the Aral Sea and surrounding communities?",
+         "engine_hint": "accumulating_indictment", "status": "research_candidate"},
+        {"question": "How did US industrial-alcohol denaturing policy harm drinkers during Prohibition?",
+         "engine_hint": "accumulating_indictment", "status": "research_candidate"},
+        {"question": "What did Romania's Decree 770 impose on families, and what were its consequences?",
+         "engine_hint": "accumulating_indictment", "status": "research_candidate"},
+    ],
+}
+
+
+def editorial_catalogue() -> dict:
+    """Free UI data. Corpus coverage describes format examples, never evidence about a topic."""
+    import reference_corpus
+
+    coverage = reference_corpus.coverage()
+    return {"editorial_version": EDITORIAL_VERSION, "channels": [
+        {"id": key, **spec, "topics": [
+            {**item, "topic_channel": key, "channel": spec["name"],
+             "content_format": "long", "visual_style": "illustrated_story",
+             "reference_count": coverage.get(item["engine_hint"], 0)}
+            for item in TOPIC_CANDIDATES[key]]}
+        for key, spec in CHANNELS.items()]}
 
 # "Why don't Americans eat hippo meat", "why isn't there a cure for X". A question about something
 # that never happened has no chain of events to follow, because nothing happened.

@@ -214,9 +214,11 @@ def test_the_ui_channels_and_the_screen_share_one_definition():
 
     world, history = (c["niche"] for c in app.CHANNELS)
     assert "TARGET the animals" in world, "the World/History boundary, stated to the operator"
-    assert "belongs to the other channel" in world and "belongs to the other channel" in history
+    assert "TARGET the animals" in tf.CHANNELS[tf.WORLD]["requires"]
+    assert "ANIMALS WIN TIES" in tf._SYSTEM
     # The rule that would otherwise refuse the history channel's own first episode.
-    assert "SUCCEEDED at its stated aim" in history and "need not have been unforeseen" in history
+    assert "SUCCEEDED at its stated aim" in history
+    assert "no requirement that the outcome invert" in history
 
     source = re.sub(r"\s+", " ", open(app.__file__, encoding="utf-8").read())
     assert 'if channel.get("topic_channel"): topics = ep.generate_causal_topics(' in source, \
@@ -249,14 +251,16 @@ def test_the_ui_fallback_chips_are_on_brand():
     from pathlib import Path
 
     page = Path("static/index.html").read_text(encoding="utf-8")
-    pool = re.search(r"const EXPL_QUESTION_POOL = \[(.*?)\n  \];", page, re.S).group(1)
-    entries = re.findall(r'^\s+"(.+?)",?$', pool, re.M)
-    assert len(entries) >= 16
-    assert all(entry.endswith("?") for entry in entries), "every chip is a question"
-    # Both channels represented, and nothing from the old generic pool survives anywhere on screen.
-    assert any("Hanoi" in entry for entry in entries)
-    assert any("Aral Sea" in entry for entry in entries)
-    for retired in ("What is gravity?", "Why do cats purr?", "What is dark matter?"):
-        assert retired not in page.replace(
-            page[page.index("// Fallback chips"):page.index("const EXPL_QUESTION_POOL")], ""), \
-            f"{retired} still offered to an operator"
+    catalogue = tf.editorial_catalogue()
+    world, history = catalogue['channels']
+    assert len(world['topics']) == 4 and len(history['topics']) == 3
+    assert all(t['topic_channel'] == 'world' for t in world['topics'])
+    assert all(t['topic_channel'] == 'history' for t in history['topics'])
+    assert all(t['status'] == 'research_candidate' for c in catalogue['channels'] for t in c['topics'])
+    assert 'Hanoi' in world['topics'][0]['question']
+    assert 'Aral Sea' in history['topics'][0]['question']
+    assert not any('sparrow' in t['question'].lower() for t in history['topics'])
+    assert world['topics'][1]['reference_count'] == 0
+    assert '/api/explainer/channels' in page
+    for retired in ('What is gravity?', 'Why do cats purr?', 'What is dark matter?'):
+        assert retired not in page
