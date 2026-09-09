@@ -3011,6 +3011,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
         import story_planning as _planning
+        # Said before the beat sheet is paid for. A dossier holding two periods is a dossier
+        # holding two stories, and the planner blends them: the hippo sheet's `world_without_it`
+        # came back as a 2006 IUCN listing for a bill that died in 1910. Reported, not refused --
+        # a story can legitimately span eras, and the spine gate reasons about events rather than
+        # counting years.
+        _eras = _lr_era_split(research_dossier)
+        if _eras.get("spans_eras"):
+            print(f"[research] {_lr_era_split_report(_eras)}")
         _claims_for_roles = _spine_claims(research_dossier)
         _cache = {}
         _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
@@ -7685,6 +7693,8 @@ def _stable_standard_longform(video_format: str, story_format: str,
 
 
 import cost_ledger as _ledger
+from longform_research import era_split as _lr_era_split, \
+    era_split_report as _lr_era_split_report
 import event_functions as _ef
 import story_compiler as _compiler
 import story_fact_model as _sfm

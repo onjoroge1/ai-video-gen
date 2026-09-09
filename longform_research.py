@@ -717,3 +717,74 @@ def claim_context_for_prompt(dossier: dict) -> list[dict]:
         for claim in (dossier.get("claims") or [])
         if isinstance(claim, dict)
     ]
+
+
+# --- dossier scope ------------------------------------------------------------------------------
+# A question can quietly ask for two stories, and research will answer both. "Why don't Americans
+# eat hippo meat?" returned 21 verified claims -- MORE than the Hanoi dossier that works -- split
+# between a 1910 congressional episode and modern African conservation. The planner then built one
+# spine from both: `world_without_it` came back as a 2006 IUCN listing and `outcome_state` as Congo
+# poaching figures, neither of which is about the American bill that the story is supposedly about.
+#
+# Nothing noticed. The dossier validated, the beat sheet was paid for, and the spine failed three
+# runs later for reasons that took a $2 render each to read. This is decidable by looking at the
+# dates, so it is decided here, before anything downstream is bought.
+ERA_GAP_YEARS = 50
+
+
+def era_split(dossier: dict) -> dict:
+    """Do the verified claims describe one period, or two separated by a lifetime?
+
+    Reports; never refuses. A story CAN legitimately span eras -- a 1910 plan and the world it
+    failed to produce -- so this names what it found and leaves the judgement to the spine gate,
+    which reasons about the events rather than counting years. Blocking on a date histogram is
+    exactly the kind of confident heuristic that has been wrong twice already here.
+
+    Two kinds of claim are excluded, and both matter. A comparable case is SUPPOSED to come from
+    another time and place, so counting it would flag every story that generalises. And a claim
+    ABOUT THE SCHOLARSHIP carries the publication's date, not the episode's: the Hanoi dossier --
+    the one that works -- cites Vann's 2003 history of a 1902 bounty, and reading that as a
+    century of drift flagged the story this check exists to leave alone.
+    """
+    import story_fact_model as _sfm
+
+    # The causal lane can reach here with research off, and a check that crashes on the absence of
+    # a dossier is a check that turns "no research" into a failed run.
+    if not isinstance(dossier, dict):
+        return {"spans_eras": False, "clusters": [], "dated": 0, "undated": 0, "largest": None}
+    dated: list[tuple[int, str]] = []
+    for ref, claim in (_claim_index(dossier) or {}).items():
+        text = " ".join(_text(claim.get(field)) for field in ("claim", "support_quote"))
+        if _sfm._PARALLEL_MARKER.search(text) or _sfm._META_EVIDENCE.search(text):
+            continue
+        import re as _re
+        years = [int(y) for y in _re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", text)]
+        if years:
+            dated.append((min(years), ref))
+    dated.sort()
+    if len(dated) < 2:
+        return {"spans_eras": False, "clusters": [], "dated": len(dated),
+                "undated": len(_claim_index(dossier) or {}) - len(dated)}
+
+    clusters: list[list[tuple[int, str]]] = [[dated[0]]]
+    for entry in dated[1:]:
+        (clusters[-1] if entry[0] - clusters[-1][-1][0] <= ERA_GAP_YEARS
+         else clusters.append([]) or clusters[-1]).append(entry)
+    described = [{"from": group[0][0], "to": group[-1][0],
+                  "claim_ids": [ref for _, ref in group]} for group in clusters]
+    return {"spans_eras": len(clusters) > 1, "clusters": described, "dated": len(dated),
+            "undated": len(_claim_index(dossier) or {}) - len(dated),
+            "largest": max(described, key=lambda c: len(c["claim_ids"])) if described else None}
+
+
+def era_split_report(split: dict) -> str:
+    if not split.get("spans_eras"):
+        return ""
+    periods = ", ".join(
+        f"{c['from']}" + (f"-{c['to']}" if c["to"] != c["from"] else "")
+        + f" ({len(c['claim_ids'])} claim{'s' if len(c['claim_ids']) != 1 else ''})"
+        for c in split["clusters"])
+    return (f"Dossier spans {len(split['clusters'])} periods more than {ERA_GAP_YEARS} years "
+            f"apart: {periods}. {split['undated']} claims carry no date. A question that asks "
+            "about a present-day absence AND a historical episode returns both, and one spine "
+            "cannot be built from two stories — say which period the video is about.")
