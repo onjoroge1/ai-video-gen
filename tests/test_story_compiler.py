@@ -492,3 +492,18 @@ def test_its_roles_are_described_as_ecology_not_as_incentives():
     # And the bounty engine keeps its own.
     assert sfm.role_function("escalation", "backfiring_solution") == \
         "HOW people exploit it, compounding"
+
+
+def test_the_two_backfire_engines_are_told_apart_by_who_acts():
+    """Both answer to "a reasonable fix made things worse", so the premises must differ on the
+    thing that actually separates them. Macquarie was selected as backfiring_solution on the old
+    wording, and the compiler then invented a bounty for a government cull that paid nobody."""
+    import story_engines as se
+
+    bounty = se.ENGINES["backfiring_solution"]["premise"]
+    keystone = se.ENGINES["removed_keystone"]["premise"]
+    assert "PEOPLE respond" in bounty and "incentive somebody exploits" in bounty
+    assert "ECOSYSTEM re-sorts" in keystone and "NOBODY exploits anything" in keystone
+    assert "no reward is paid" in keystone
+    # And neither premise can be read as the other's story.
+    assert "incentive" not in keystone.replace("no reward is paid", "")

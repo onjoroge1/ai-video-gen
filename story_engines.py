@@ -52,7 +52,9 @@ ENGINES: dict[str, dict[str, Any]] = {
         # backfiring_solution was selected because it was the only mapped engine, and its contract
         # made the compiler invent "the reward was paid for the count of cats killed" for a
         # government eradication that paid no reward. The evidence boundary refused it, correctly.
-        "premise": "A species is removed or introduced, and the system re-sorts itself around it.",
+        "premise": ("A species is removed or introduced and the ECOSYSTEM re-sorts itself. "
+                    "NOBODY exploits anything and no reward is paid: the harm comes from what "
+                    "the species was quietly doing, not from how people responded to a rule."),
         "reference": "macquarie-island cat eradication",
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
                      cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
@@ -63,7 +65,13 @@ ENGINES: dict[str, dict[str, Any]] = {
     },
     BACKFIRING_SOLUTION: {
         "name": "The Backfiring Solution",
-        "premise": "A reasonable fix creates a larger version of the problem it solved.",
+        # The deciding word is PEOPLE. Both this and removed_keystone answer to "a reasonable fix
+        # made things worse", so the premises have to differ on the thing that actually separates
+        # them, or the selector is choosing between two true descriptions. Macquarie was picked as
+        # backfiring_solution on the old wording, and the compiler then invented a bounty for a
+        # government cull that paid nobody.
+        "premise": ("PEOPLE respond to a reward, quota or rule and produce more of what it was "
+                    "meant to remove. There must be an incentive somebody exploits."),
         "reference": "cobra-bounty video",
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
                      cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
