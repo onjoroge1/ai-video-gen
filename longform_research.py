@@ -418,7 +418,14 @@ def validate_research_dossier(dossier: dict) -> dict:
         if not _text(claim.get("timescale")):
             errors.append(_issue("missing_timescale", "Claim timescale is required.", claim_id=claim_id))
         scope = _text(claim.get("geographic_scope")).casefold()
-        if scope in {"local", "regional", "site-specific", "single site"} and _GLOBAL_WORDS.search(_text(claim.get("claim"))):
+        # The research prompt's comparison label identifies a case, not the assertion's
+        # geographic reach. The cane-toad canary returned "COMPARABLE CASE (worldwide):"
+        # before a claim explicitly limited to the American West. Check the assertion
+        # after that complete label; genuine global wording in the body still fails.
+        scoped_assertion = re.sub(
+            r"^\s*COMPARABLE CASE\s*\([^\n)]+\)\s*:\s*", "", claim_text,
+            count=1, flags=re.I)
+        if scope in {"local", "regional", "site-specific", "single site"} and _GLOBAL_WORDS.search(scoped_assertion):
             errors.append(_issue("scope_inflation", "A local or regional source is stated as a global claim.", claim_id=claim_id))
         if claim.get("material", True) and claim.get("allowed_exaggeration") is True:
             errors.append(_issue("material_exaggeration", "A material scientific claim cannot permit exaggeration.", claim_id=claim_id))

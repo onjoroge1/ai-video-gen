@@ -76,6 +76,37 @@ def test_scope_inflated_claim_is_rejected_in_dossier():
     assert "scope_inflation" in _codes(report)
 
 
+def test_comparison_label_does_not_globalize_regional_claim():
+    # Regression from the paid cane-toad canary: c29's comparison label said
+    # "worldwide", while the sourced assertion explicitly said "American West".
+    source = "https://nas.er.usgs.gov/queries/factsheet.aspx?SpeciesID=846"
+    quote = "Introduced mosquitofish have been particularly destructive in the American West"
+    dossier = _dossier(
+        claim_id="c29", source_url=source, support_quote=quote,
+        claim="COMPARABLE CASE (worldwide): USGS reports mosquitofish have been "
+              "particularly destructive in the American West.")
+    dossier["citation_urls"] = [source]
+    dossier["citation_records"] = [{"url": source, "cited_text": quote}]
+    assert validate_research_dossier(dossier)["passed"] is True
+
+
+def test_comparison_label_cannot_hide_global_assertion():
+    for claim in (
+        "COMPARABLE CASE (worldwide): This happens globally everywhere.",
+        "COMPARABLE CASE (American West): This happens worldwide.",
+        "COMPARABLE CASE (worldwide) This happens in a regional gauge.",
+        "This happens worldwide: COMPARABLE CASE (American West).",
+    ):
+        report = validate_research_dossier(_dossier(claim=claim))
+        assert "scope_inflation" in _codes(report), claim
+
+
+def test_global_comparison_label_is_still_checked_when_narrated():
+    narration = "COMPARABLE CASE (worldwide): A regional gauge rose two meters."
+    report = validate_claim_joins(_script(narration), _dossier())
+    assert "scope_inflation" in _codes(report)
+
+
 def test_weak_community_source_is_rejected_even_if_cited():
     url = "https://www.reddit.com/r/science/example"
     dossier = _dossier(source_url=url)
