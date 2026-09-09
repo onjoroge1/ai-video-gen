@@ -236,3 +236,27 @@ def test_the_generator_is_told_to_name_the_right_actor():
         assert "NAME THE RIGHT ACTOR" in system
         assert "colonial administration rather than the imperial capital" in system
         assert "an omission costs a rewrite, a wrong attribution costs a video" in system
+
+
+def test_the_ui_fallback_chips_are_on_brand():
+    """These are what an operator sees when the trending research returns nothing.
+
+    The pool was generic science -- "What is gravity?", "Why do cats purr?" -- which offered topics
+    the illustrated lane refuses at its own topic screen, so the UI's first suggestion was a
+    question its back end would not build.
+    """
+    import re
+    from pathlib import Path
+
+    page = Path("static/index.html").read_text(encoding="utf-8")
+    pool = re.search(r"const EXPL_QUESTION_POOL = \[(.*?)\n  \];", page, re.S).group(1)
+    entries = re.findall(r'^\s+"(.+?)",?$', pool, re.M)
+    assert len(entries) >= 16
+    assert all(entry.endswith("?") for entry in entries), "every chip is a question"
+    # Both channels represented, and nothing from the old generic pool survives anywhere on screen.
+    assert any("Hanoi" in entry for entry in entries)
+    assert any("Aral Sea" in entry for entry in entries)
+    for retired in ("What is gravity?", "Why do cats purr?", "What is dark matter?"):
+        assert retired not in page.replace(
+            page[page.index("// Fallback chips"):page.index("const EXPL_QUESTION_POOL")], ""), \
+            f"{retired} still offered to an operator"

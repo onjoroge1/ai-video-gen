@@ -1501,7 +1501,7 @@
     <div class="card">
       <div class="card-title">Question</div>
       <textarea id="expl-question" rows="3"
-        placeholder="What is gravity?  /  How does the internet work?  /  Why is the sky blue?"></textarea>
+        placeholder="Why did paying people to kill rats make Hanoi worse?  /  Why did diverting two rivers destroy the Aral Sea?"></textarea>
 
       <!-- Example chips (rotating pool — populated by JS) -->
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
@@ -2745,32 +2745,33 @@
     document.getElementById('motion-mode-field').style.display = (fmt === 'social') ? 'none' : 'block';
   }
 
-  // High-search, curiosity-driven question pool (drives clicks)
+  // Fallback chips, shown only when the trending research returns nothing. They are on-brand on
+  // purpose: this pool used to be generic science ("What is gravity?", "Why do cats purr?"), which
+  // offered an operator topics the illustrated lane would refuse at the topic screen. Both channels
+  // are represented, and every entry names one documented intervention with a documented aftermath.
   const EXPL_QUESTION_POOL = [
-    "What is gravity?",
-    "How does the internet actually work?",
-    "Why do we dream?",
-    "What is a black hole?",
-    "How does DNA work?",
-    "Why is the sky blue?",
-    "What happens when you die?",
-    "How does the human brain store memories?",
-    "What is dark matter?",
-    "Why can't we feel the Earth spinning?",
-    "How do vaccines work?",
-    "What is the meaning of consciousness?",
-    "How does electricity work?",
-    "Why do we age?",
-    "What would happen if the sun disappeared?",
-    "How does the stock market work?",
-    "What is quantum entanglement?",
-    "Why do cats purr?",
-    "How does Wi-Fi send data through the air?",
-    "What causes déjà vu?",
-    "How do airplanes stay in the air?",
-    "Why does time slow down near a black hole?",
-    "What is the placebo effect?",
-    "How does AI actually learn?",
+    // Bolt Explains the World — what humans did to animal populations
+    "Why did paying people to kill rats make Hanoi's rat problem harder to solve?",
+    "Why did China's campaign to kill sparrows cause a famine?",
+    "Why did Macquarie Island's cat eradication strip the island bare?",
+    "Why did New Zealand import stoats to kill rabbits and doom its flightless birds?",
+    "Why did Australia's cane toads become a worse pest than the beetles they were brought to kill?",
+    "Why did Hawaii's mongooses fail to control rats?",
+    "Why did introducing Nile perch erase hundreds of fish species from Lake Victoria?",
+    "Why did the U.S. Bureau of Biological Survey poison prairie dogs and nearly lose the black-footed ferret?",
+    "Why did the United States release millions of carp into its rivers on purpose?",
+    "Why did Australia fight a war against emus and lose?",
+    // Bolt Explains History — what governments imposed on people
+    "Why did diverting two rivers destroy the Aral Sea?",
+    "Why did the US government poison alcohol during Prohibition?",
+    "Why did Romania's ban on abortion fill its orphanages?",
+    "Why did Washington DC end slavery by paying the slave owners?",
+    "Why did France bill Haiti for its own freedom?",
+    "Why did Britain clear millions of acres in Tanganyika and harvest almost no groundnuts?",
+    "Why did India suspend democracy to sterilise millions of men?",
+    "Why did Portugal's forced cotton growing in Mozambique cause famines?",
+    "Why did the United States pay farmers to kill six million pigs during a hunger crisis?",
+    "Why did the Soviet Union's Virgin Lands campaign turn grassland into dust?",
   ];
   let explShownChips = [];          // questions currently displayed
   let explReserve   = [];           // unused questions waiting to rotate in
