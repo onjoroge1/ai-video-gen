@@ -531,9 +531,25 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         out.sort(key=lambda b: order.index(b["role"]))
         mechanism = next(b for b in out if b["role"] == "mechanism")
         reversal = next(b for b in out if b["role"] == "reversal")
+        # The hinge instruction is the engine's, not one sentence for all of them. "Break the
+        # apparent success ... using the supported mechanism and exploit" describes a bounty: it
+        # presumes a moment where the fix looked like it worked, and people exploiting it.
+        # removed_keystone requires neither, so the expansion was told to break a success that was
+        # never claimed and to lean on an exploit nobody committed -- and the narration it wrote
+        # came back CONTRADICTED against the events, which is the boundary's strongest verdict.
+        hinge_text = {
+            "removed_keystone":
+                "Name the thing nobody counted, in one short sentence: what the removed species "
+                "had also been doing. Do not claim the programme looked successful and do not "
+                "say anyone exploited anything. No new historical detail.",
+            "almost_happened_plan":
+                "Name what stopped the plan, in one short sentence. Do not claim it had already "
+                "succeeded. No new historical detail.",
+        }.get(engine_id,
+              "Break the apparent success in one short sentence, using only the supported "
+              "mechanism and exploit. No new historical detail.")
         for role, anchor, text in (
-            ("hinge", mechanism, "Break the apparent success in one short sentence, using only "
-                                 "the supported mechanism and exploit. No new historical detail."),
+            ("hinge", mechanism, hinge_text),
             ("tool", reversal, "Close with one useful question the viewer can reuse; no new facts."),
         ):
             if any(b.get("causal_role") == role for b in out):

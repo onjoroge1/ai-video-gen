@@ -521,3 +521,22 @@ def test_a_hinge_never_inherits_an_empty_cause():
     hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
     assert hinge["caused_by"], "a step after the setup must name the step it follows from"
     assert hinge["caused_by"] == "k2", "falls back along its chain to the intervention"
+
+
+def test_the_hinge_instruction_belongs_to_the_engine():
+    """"Break the apparent success ... using the supported mechanism and exploit" describes a
+    bounty. removed_keystone requires neither a false resolution nor an exploit, so the expansion
+    was told to break a success never claimed and lean on an exploit nobody committed -- and the
+    narration came back CONTRADICTED against the events, the boundary's strongest verdict."""
+    out = sc.compile_roles(MACQUARIE, "removed_keystone")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "removed_keystone")
+    hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
+    assert "what the removed species had also been doing" in hinge["beat"]
+    assert "exploit" not in hinge["beat"].replace("exploited anything", "")
+    assert "Do not claim the programme looked successful" in hinge["beat"]
+
+    bounty = sc.compile_roles(HANOI, "backfiring_solution")
+    bsheet = sc.presentation_beats(sc.splice_derived(bounty["beats"], bounty),
+                                   "backfiring_solution")
+    bhinge = next(b for b in bsheet if b.get("presentation_device") == "hinge")
+    assert "Break the apparent success" in bhinge["beat"], "the bounty engine keeps its own"
