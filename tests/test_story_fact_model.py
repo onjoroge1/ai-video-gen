@@ -460,3 +460,36 @@ def test_a_planner_written_beat_still_faces_the_kind_gate():
             "event": {"text": "The reward was paid for a tail.", "claim_refs": ["c09"]}}
     assert [i["code"] for i in sfm.validate_structure([beat], {}, claims)
             if i["code"] == "CLAIM_KIND_MISMATCH"]
+
+
+def test_each_engine_describes_its_roles_in_its_own_terms():
+    """CENTRAL_FUNCTIONS describes a bounty that ran, which is where it came from.
+
+    Applied to almost_happened_plan it told a story about a bill dying in committee that its
+    escalation should show "HOW people exploit it, compounding" -- of an event where nobody
+    exploits anything. The role names are shared; the jobs are not.
+    """
+    assert sfm.role_function("escalation", "backfiring_solution") == \
+        "HOW people exploit it, compounding"
+    assert sfm.role_function("escalation", "almost_happened_plan") == \
+        "the opposition gathering against it"
+    assert sfm.role_function("mechanism", "almost_happened_plan") == \
+        "the specific thing that killed it"
+    # An engine with no map keeps the shared defaults rather than losing its guidance.
+    assert sfm.role_function("escalation", "power_reversal") == \
+        "HOW people exploit it, compounding"
+    assert sfm.role_function("escalation", "") == "HOW people exploit it, compounding"
+    assert sfm.role_function("not_a_role", "almost_happened_plan") == ""
+
+
+def test_the_engines_meaning_reaches_the_messages_an_operator_reads():
+    """A refusal that explains the role in another engine's terms sends the repair the wrong way."""
+    source = open(sfm.__file__, encoding="utf-8").read()
+    # Skip role_function's own fallback, which is the one legitimate default lookup.
+    body = source[source.index("def required_spine_roles"):]
+    for site in ("ROLE_CONTRACT_FAILED", "Required repair: write a"):
+        assert site in body
+    assert "CENTRAL_FUNCTIONS.get(role, '')" not in body, \
+        "every operator-facing message goes through role_function"
+    out = sfm.compile_spine([], {}, {}, engine_id="almost_happened_plan")
+    assert out["engine_id"] == "almost_happened_plan", "carried so the summary can use it"

@@ -616,6 +616,21 @@ REQUIRED_SPINE_ROLES = ("setup", "intervention", "false_resolution", "mechanism"
                         "escalation", "reversal")
 
 
+def role_function(role: str, engine_id: str = "") -> str:
+    """What this role means IN THIS ENGINE.
+
+    CENTRAL_FUNCTIONS describes a bounty that ran, which is where it came from. Applied to
+    almost_happened_plan it told a story about a bill dying in committee that its escalation should
+    show "HOW people exploit it, compounding" -- of an event where nobody exploits anything. The
+    role names are shared; the jobs are not.
+    """
+    import event_functions as _ef
+    mapping = _ef.map_for(engine_id) if engine_id else None
+    if mapping is not None and role in getattr(mapping, "role_meanings", {}):
+        return mapping.role_meanings[role]
+    return CENTRAL_FUNCTIONS.get(role, "")
+
+
 def required_spine_roles(engine_id: str = "") -> tuple:
     if engine_id:
         import story_engines as engines
@@ -707,8 +722,8 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
                 issues.append(_issue(
                     "DUPLICATE_ACROSS_REQUIRED_ROLES",
                     f"{prior_role} and {role} describe the same state change, so the {role} is not "
-                    f"doing its job. {prior_role}: {CENTRAL_FUNCTIONS.get(prior_role, '')}. "
-                    f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}. Required repair: write a {role} "
+                    f"doing its job. {prior_role}: {role_function(prior_role, engine_id)}. "
+                    f"{role}: {role_function(role, engine_id)}. Required repair: write a {role} "
                     "that is distinct from the " + prior_role,
                     beat_id=beat_id, duplicate_of=prior_id, collapsible=False))
                 break
@@ -716,7 +731,7 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
                 issues.append(_issue(
                     "DUPLICATE_EVENT_FUNCTION",
                     f"beat {beat_id} performs the same causal job as {prior_id} "
-                    f"({CENTRAL_FUNCTIONS.get(prior_role, prior_role)}); collapse them into one "
+                    f"({role_function(prior_role, engine_id) or prior_role}); collapse them into one "
                     "beat rather than sourcing the same state change twice",
                     beat_id=beat_id, duplicate_of=prior_id, collapsible=True))
                 break
@@ -800,7 +815,7 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
             blocked.append(_issue("ROLE_CONTRACT_FAILED",
                                   f"beat {beat_id}: narrowing to the supported core left a {role} "
                                   f"that no longer performs its function — {why}. "
-                                  f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}",
+                                  f"{role}: {role_function(role, engine_id)}",
                                   beat_id=beat_id, role=role))
             out.append(beat)
             continue
@@ -984,6 +999,7 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                                  "so nothing about this story has been checked against evidence")
                           ] if claims else []
         return {"schema_version": SCHEMA_VERSION, "passed": not missing_events, "assessed": False,
+                "engine_id": engine_id,
                 "coverage": {"required": list(required_spine_roles(engine_id)), "supported_by_role": {},
                              "missing": [], "covered": False},
                 "collapsed_duplicates": [], "duplicate_across_roles": [],
@@ -1043,6 +1059,8 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     return {
         "schema_version": SCHEMA_VERSION,
         "assessed": True,
+        # Carried so the summary can describe each role the way THIS engine means it.
+        "engine_id": engine_id,
         "engine": engine_id,
         # A spine is usable when every required causal function is evidenced and nothing that
         # survived pruning is still failing.
@@ -1140,7 +1158,7 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
     lines.append("Required causal functions:")
     for role in coverage["required"]:
         mark = "+" if coverage["supported_by_role"].get(role) else "-"
-        lines.append(f"  {mark} {role:18s} {CENTRAL_FUNCTIONS.get(role, '')}")
+        lines.append(f"  {mark} {role:18s} {role_function(role, compiled.get('engine_id', ''))}")
     if coverage["missing"]:
         lines += ["", "MISSING — the story cannot be told without these:"]
         for role in coverage["missing"]:

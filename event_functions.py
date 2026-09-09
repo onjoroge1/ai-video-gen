@@ -114,11 +114,16 @@ class EngineFunctionMap:
     become the contract for an accidental invention, which has no incentive to change.
     """
 
-    def __init__(self, engine_id, required, to_role, derived=()):
+    def __init__(self, engine_id, required, to_role, derived=(), role_meanings=None):
         self.engine_id = engine_id
         self.required = tuple(required)
         self.to_role = dict(to_role)
         self.derived = tuple(derived)
+        # What each role MEANS here. The shared defaults describe a bounty that ran, so an engine
+        # about a plan that never ran was being told its escalation should show "HOW people exploit
+        # it, compounding" -- of a bill dying in committee, where nobody exploits anything. A role
+        # name shared across engines does not make the job shared.
+        self.role_meanings = dict(role_meanings or {})
 
     def role_for(self, function: str) -> str:
         return self.to_role.get((function or "").strip().lower(), "")
@@ -164,7 +169,15 @@ ALMOST_HAPPENED_PLAN = EngineFunctionMap(
              COLLAPSE_CAUSE: "mechanism",
              WORLD_WITHOUT_IT: "reversal",
              PARALLEL_CASE: "generalization",
-             OUTCOME_STATE: "context", CONTEXT: "context"})
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    role_meanings={
+        "setup": "the pressure that made anyone propose something",
+        "intervention": "the plan formally put on the table",
+        "false_resolution": "the moment it looked like it would really happen",
+        "escalation": "the opposition gathering against it",
+        "mechanism": "the specific thing that killed it",
+        "reversal": "the world we live in because it did not happen",
+        "tool": "hands back a reusable lens"})
 
 MAPS = {engine.engine_id: engine
         for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN)}
