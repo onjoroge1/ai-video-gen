@@ -442,6 +442,33 @@ def validate_research_dossier(dossier: dict) -> dict:
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
+def is_legacy_scope_label_failure(message: str) -> bool:
+    """Only the single research-scope error repaired by the comparison-label fix."""
+    return bool(re.fullmatch(
+        r"Research dossier failed before scripting \[\d+ quotable excerpts available; "
+        r"scope_inflationx1\]: A local or regional source is stated as a global claim\.",
+        _text(message)))
+
+
+def scope_label_dossier_repaired(dossier: dict) -> bool:
+    """Recheck saved evidence without editing its original failed validation report."""
+    if not isinstance(dossier, dict):
+        return False
+    prior = dossier.get("validation") or {}
+    errors = prior.get("errors") or []
+    if prior.get("passed") is not False or len(errors) != 1:
+        return False
+    if not isinstance(errors[0], dict) or errors[0].get("code") != "scope_inflation":
+        return False
+    claim = next((item for item in dossier.get("claims") or []
+                  if isinstance(item, dict)
+                  and item.get("claim_id") == errors[0].get("claim_id")), {})
+    label = re.match(r"^\s*COMPARABLE CASE\s*\(([^\n)]+)\)\s*:",
+                     _text(claim.get("claim")), re.I)
+    return bool(label and _GLOBAL_WORDS.search(label.group(1))
+                and validate_research_dossier(dossier)["passed"])
+
+
 def _asserts_fact(narration: str) -> bool:
     """Does this narration ASSERT something a source must back?
 
