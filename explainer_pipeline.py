@@ -4076,7 +4076,17 @@ _CLAIM_REPAIR_SYSTEM = (
     "states. Rewrite that scene to assert nothing beyond the event: cut the listed unsupported "
     "details rather than hedging them, and keep the writing vivid in HOW it says what remains. "
     "Imagery, rhythm and voice are free; new facts are not. Do not add a number, date, place, "
-    "material, quantity or named actor that the event does not contain. Return only JSON."
+    "material, quantity or named actor that the event does not contain.\n"
+    # Measured on Macquarie: four survivors after a repair pass, and every one was an actor or
+    # a time hedge -- "Managers carried out the eradication", "Conservationists" as the ones
+    # doing the killing, "Decades earlier". The subtractive rule was already there and the
+    # model kept the attribution anyway, because naming a doer reads as clarity, not as a fact.
+    "TWO KINDS OF OVERSHOOT ARE EASY TO MISS BECAUSE THEY DO NOT FEEL LIKE FACTS. First, WHO "
+    "acted: if the event does not say who did a thing, the narration must not name them "
+    "either. Write it as the event has it, or in the passive -- 'the cats were shot', not "
+    "'managers shot the cats' or 'conservationists shot the cats'. Second, WHEN: 'decades "
+    "earlier', 'years later', 'by then' all assert an interval. Keep only intervals the "
+    "event states. Return only JSON."
 )
 
 

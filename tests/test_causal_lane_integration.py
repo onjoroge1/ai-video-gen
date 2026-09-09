@@ -1483,3 +1483,16 @@ def test_the_dedupe_tags_each_line_with_the_event_it_may_not_exceed(monkeypatch)
     assert "may assert nothing beyond: Officials paid a bounty per rat tail." in seen["prompt"]
     # A beat with no event carries no tag rather than an empty one.
     assert "[may assert nothing beyond: ]" not in seen["prompt"]
+
+
+def test_the_repair_is_told_that_actors_and_intervals_are_facts():
+    """Four survivors after a repair pass on Macquarie, and every one was an actor or a time hedge.
+
+    "Managers carried out the eradication", "Conservationists" as the ones doing the killing,
+    "Decades earlier". The subtractive rule was already there; the model kept the attribution
+    anyway, because naming a doer reads as clarity rather than as a new fact.
+    """
+    system = ep._CLAIM_REPAIR_SYSTEM
+    assert "if the event does not say who did a thing" in system
+    assert "'the cats were shot', not " in system
+    assert "'decades " in system and "assert an interval" in system
