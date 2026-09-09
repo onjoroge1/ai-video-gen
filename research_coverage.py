@@ -93,6 +93,26 @@ def legacy_introduction_dossier_repairable(dossier: dict, message: str) -> bool:
                 and not dossier.get(REPAIR_VERSION))
 
 
+def focused_provenance_failure(message: str) -> bool:
+    """The focused search found URLs but exposed no readable provider excerpts."""
+    match = re.fullmatch(
+        r"Research dossier failed before scripting \[0 quotable excerpts available; "
+        r"unverified_support_quotex([1-9]\d*)\]: (.+)", message or "")
+    if not match:
+        return False
+    expected = "The claim support excerpt was not observed in a provider citation for its source URL."
+    return match.group(2) == "; ".join([expected] * min(int(match.group(1)), 3))
+
+
+def focused_provenance_dossier_repairable(dossier: dict, message: str) -> bool:
+    """Permit one replay with citation extraction, from the validated pre-repair ledger."""
+    return bool(focused_provenance_failure(message)
+                and isinstance(dossier, dict)
+                and research.validate_research_dossier(dossier)["passed"]
+                and dossier.get(LEGACY_REPAIR_VERSION)
+                and not dossier.get(REPAIR_VERSION))
+
+
 def merge_supplement(original: dict, supplement: dict) -> tuple[dict, list[str]]:
     """Keep original IDs/evidence intact and append independently validated primary claims."""
     if not research.validate_research_dossier(supplement)["passed"]:

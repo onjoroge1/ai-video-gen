@@ -209,6 +209,45 @@ def test_research_generation_uses_bounded_server_search_and_validates(monkeypatc
     assert result["search_cost_reservation_usd"] == 0.2
 
 
+def test_focused_research_recovers_native_excerpts_from_saved_search_context(monkeypatch):
+    """URL-only search results get one evidence continuation; its prose never replaces JSON."""
+    import claim_verify
+    monkeypatch.setattr(claim_verify, "fetch_page_text", lambda url, **kwargs: "")
+    dossier = _dossier()
+    dossier.pop("citation_urls")
+    dossier.pop("citation_records")
+    calls = []
+
+    def response(blocks):
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=block.get("text", ""),
+                                     model_dump=lambda block=block: block) for block in blocks],
+            stop_reason="end_turn",
+            usage=SimpleNamespace(input_tokens=10, output_tokens=10,
+                                  server_tool_use=SimpleNamespace(web_search_requests=0)))
+
+    class Messages:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return response([
+                    {"type": "text", "text": json.dumps(dossier), "citations": []},
+                    {"type": "web_search_tool_result", "content": [{"url": SOURCE}]},
+                ])
+            return response([{"type": "text", "text": f"c01: {QUOTE}", "citations": [{
+                "type": "web_search_result_location", "url": SOURCE, "cited_text": QUOTE}]}])
+
+    monkeypatch.setattr(pipeline, "_anthropic_native",
+                        lambda: SimpleNamespace(messages=Messages()))
+    result = pipeline.generate_research_dossier(
+        "Why did the gauge move?", evidence_gaps=[{"beat_id": "event_01"}], cost_sink=[])
+    assert result["validation"]["passed"] is True
+    assert result["claims"][0]["claim"] == _dossier()["claims"][0]["claim"]
+    assert result["citation_records"] == [{"url": SOURCE, "cited_text": QUOTE}]
+    assert len(calls) == 2 and "tools" not in calls[1]
+    assert "do not rewrite the JSON" in calls[1]["messages"][-1]["content"]
+
+
 def test_a_two_era_dossier_is_named_before_the_beat_sheet_is_bought():
     """"Why don't Americans eat hippo meat?" returned 21 verified claims -- more than the Hanoi
     dossier that works -- split between a 1910 congressional episode and modern African

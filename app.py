@@ -3184,6 +3184,12 @@ def _introduction_checkpoint_repairable(job: dict, store, blob) -> bool:
         legacy_introduction_dossier_repairable(dossier, str(job.get("error") or "")))
 
 
+def _focused_provenance_checkpoint_repairable(job: dict, store, blob) -> bool:
+    from research_coverage import focused_provenance_dossier_repairable
+    return _checkpoint_dossier_matches(job, store, blob, lambda dossier:
+        focused_provenance_dossier_repairable(dossier, str(job.get("error") or "")))
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3195,7 +3201,8 @@ async def dispatch_agent_action(action_id: str, request: Request):
         is_legacy_scope_label_failure,
         is_legacy_weak_source_failure,
     )
-    from research_coverage import legacy_introduction_contract_failure, legacy_setup_failure
+    from research_coverage import (
+        focused_provenance_failure, legacy_introduction_contract_failure, legacy_setup_failure)
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
     except agent_actions.AgentActionError as exc:
@@ -3245,6 +3252,21 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="STORY_SPINE_UNSUPPORTED", extra_attempts=1,
                 recovery_key="introduction_contract_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+        elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and focused_provenance_failure(str(job.get("error") or ""))
+                and not (job.get("result") or {}).get("focused_evidence_provenance_recovery_v1")
+                and await asyncio.to_thread(
+                    _focused_provenance_checkpoint_repairable, job, store, blob)):
+            # Search found candidate URLs, but this host could fetch none of their pages and the
+            # provider emitted URL-only search blocks. Replay the focused step once so its saved
+            # search context can expose native cited excerpts; every resulting claim still passes
+            # the unchanged quote, source, and Boundary A checks.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="0 quotable excerpts available", extra_attempts=1,
+                recovery_key="focused_evidence_provenance_recovery_v1",
                 expected_checkpoint_sha256=job["checkpoint"]["sha256"])
         elif (job and job.get("status") == "error"
                 and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):

@@ -3906,6 +3906,10 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             "claim; never manufacture support for the proposed story.\n"
             + json.dumps(evidence_gaps, ensure_ascii=False) + "\n"
             + schema.replace("12 claims", "2 claims"))
+        prompt += ("\nUse Anthropic's native inline web-search citations on every "
+                   "support_quote. The JSON text must remain valid when citation annotations are "
+                   "removed; the citation attached to each quote must point to that claim's "
+                   "source_url.")
     # Consult the cache only now that the request exists, because the request is part of the key.
     cached = _cached_research_dossier(question, prompt, log)
     if cached:
@@ -3981,7 +3985,42 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                 f"Research provider did not finish its dossier (stop_reason={stop_reason}); "
                 "no source claims were accepted.")
         break
-    text_blocks = [_s(getattr(block, "text", "")) for block in response.content
+    # Keep the JSON-producing response distinct from an evidence-only continuation. The provider
+    # can discover URLs while emitting no readable citation excerpts (measured on the focused
+    # cane-toad repair). Client-side page fetch is still tried below, but Vercel may be unable to
+    # retrieve all five pages. Before treating that setup condition as five unsupported claims,
+    # ask the provider to expose the evidence it already searched as native citation annotations.
+    dossier_response = response
+    observed = [record for turn in responses for record in _provider_citation_records(turn)
+                if _s(record.get("cited_text"))]
+    if evidence_gaps and not observed:
+        prior_content = [block.model_dump() if hasattr(block, "model_dump") else dict(block)
+                         for block in dossier_response.content]
+        evidence_request = {key: value for key, value in request.items() if key != "tools"}
+        evidence_request["max_tokens"] = min(int(request["max_tokens"]), 2500)
+        evidence_response = client.messages.create(
+            **evidence_request,
+            messages=[*messages, {"role": "assistant", "content": prior_content},
+                      {"role": "user", "content":
+                       "Do not search again and do not rewrite the JSON. Using only the web-search "
+                       "results already in this conversation, provide one line per claim_id. Copy "
+                       "the exact source passage supporting that claim and attach the provider's "
+                       "native inline citation to the passage. Omit any claim that the searched "
+                       "source does not support."}])
+        responses.append(evidence_response)
+        server_usage = getattr(evidence_response.usage, "server_tool_use", None)
+        extra_searches = int(getattr(server_usage, "web_search_requests", 0) or 0)
+        search_requests += extra_searches
+        if isinstance(cost_sink, _ledger.CostLedger):
+            cost_sink.charge(_ledger.RESEARCH, _msg_cost(evidence_response.usage),
+                             "dossier evidence continuation")
+            cost_sink.charge(_ledger.RESEARCH,
+                             round(extra_searches * _WEB_SEARCH_COST_CEILING, 4),
+                             f"{extra_searches} web searches")
+        elif cost_sink is not None:
+            cost_sink.append(_msg_cost(evidence_response.usage))
+            cost_sink.append(round(extra_searches * _WEB_SEARCH_COST_CEILING, 4))
+    text_blocks = [_s(getattr(block, "text", "")) for block in dossier_response.content
                    if _s(getattr(block, "text", ""))]
     dossier = parse_research_dossier_text(text_blocks)
     dossier["version"] = 1
@@ -3989,7 +4028,9 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     for turn in responses:
         for record in _provider_citation_records(turn):
             citation_records[(record["url"], record["cited_text"])] = record
-    dossier["citation_records"] = [citation_records[key] for key in sorted(citation_records)]
+    excerpt_urls = {url for url, excerpt in citation_records if _s(excerpt)}
+    dossier["citation_records"] = [citation_records[key] for key in sorted(citation_records)
+                                   if _s(key[1]) or key[0] not in excerpt_urls]
     dossier["citation_urls"] = sorted({url for turn in responses
                                        for url in _provider_citation_urls(turn)})
     dossier["web_search_max_uses"] = request["tools"][0]["max_uses"]
