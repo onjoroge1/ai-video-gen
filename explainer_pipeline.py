@@ -3749,6 +3749,36 @@ def _store_research_dossier(question: str, dossier: dict, request: str = "") -> 
         print(f"[research] cache write skipped: {exc}")
 
 
+def screen_topic_fit(question: str, cost_sink: list | None = None, log=print) -> dict:
+    """Ask whether the question has a story in it, before a dossier is bought.
+
+    One small call against the cost of not asking: "Why don't Americans eat hippo meat?" spent
+    $3.20 across four runs and never produced a spine, because the question names an absence with
+    parallel causes rather than one episode that turned.
+    """
+    import topic_fit
+
+    def judge(prompt: str, system: str = "") -> str:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=700, system=system,
+            messages=[{"role": "user", "content": prompt}])
+        _charge(cost_sink, _ledger.RESEARCH, _msg_cost(response.usage), "topic fit")
+        if isinstance(cost_sink, list) and not isinstance(cost_sink, _ledger.CostLedger):
+            cost_sink.append(_msg_cost(response.usage))
+        return response.content[0].text
+
+    result = topic_fit.screen(question, judge=judge)
+    log(topic_fit.report(question, result))
+    if topic_fit.blocks(result):
+        raise ValueError(
+            "Topic does not fit this series: " + (result.get("reason") or "no inversion found")
+            + ". Every reference in the corpus is one documented episode whose outcome inverted "
+            "its intent. Set TOPIC_FIT=off to research it anyway."
+            + (f' Narrower question that would fit: "{result["narrower_question"]}"'
+               if result.get("narrower_question") else ""))
+    return result
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
@@ -9083,6 +9113,7 @@ def run_explainer_pipeline(
             else:
                 log("stage:Researching sourced claims...")
                 try:
+                    screen_topic_fit(question, aux_costs, log)
                     research_dossier = generate_research_dossier(
                         question, cost_sink=aux_costs, log=log)
                 except Exception as exc:

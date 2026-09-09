@@ -115,6 +115,7 @@ def run_sample(args, sample_id: int, log=print) -> dict:
     try:
         if research_mode != "off":
             try:
+                report["checks"]["topic_fit"] = ep.screen_topic_fit(args.question, costs, log)
                 dossier = ep.generate_research_dossier(args.question, cost_sink=costs, log=log)
             except Exception as exc:
                 if research_mode == "required":
