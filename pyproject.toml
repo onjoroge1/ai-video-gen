@@ -32,6 +32,7 @@ py-modules = [
     "illustrated_score",
     "provider_readiness",
     "reference_corpus",
+    "research_coverage",
     "render_cache",
     "script_provider",
     "story_engine",

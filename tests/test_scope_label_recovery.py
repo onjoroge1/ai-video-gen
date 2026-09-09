@@ -26,6 +26,9 @@ CHECKPOINT_SHA = "a" * 64
 ECOSYSTEM_ERROR = ("STORY_SPINE_UNSUPPORTED\nwho was eating whom before anyone intervened\n"
                    "[CLAIM_KIND_MISMATCH] beat event_01 is a setup beat citing c01, "
                    "which is a mechanism claim; a setup beat may cite event, context, outcome")
+INTRODUCTION_ERROR = ("STORY_SPINE_UNSUPPORTED\nwho was eating whom before anyone intervened\n"
+                      "the species deliberately removed or introduced\n"
+                      "[ROLE_CONTRACT_FAILED] event_01 no longer performs setup")
 
 
 def dossier():
@@ -71,7 +74,7 @@ def test_checkpoint_review_reads_preserved_archive(tmp_path, valid, available):
     assert archive.exists()
 
 
-@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem"])
+@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem", "introduction"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
     (False, True, False, "generic_illustrated"),
@@ -90,8 +93,10 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
         "expires_at": now - timedelta(minutes=1), "spec_sha256": "f" * 64,
         "cost_ceiling_usd": 5, "claim_token_sha256": agent_actions.token_digest(ACTION_ID),
     }
-    recovery = RECOVERY if recovery_type == "scope" else "evidence_coverage_recovery_v1"
-    error = ERROR if recovery_type == "scope" else ECOSYSTEM_ERROR
+    recovery = {"scope": RECOVERY, "ecosystem": "evidence_coverage_recovery_v1",
+                "introduction": "introduction_contract_recovery_v1"}[recovery_type]
+    error = {"scope": ERROR, "ecosystem": ECOSYSTEM_ERROR,
+             "introduction": INTRODUCTION_ERROR}[recovery_type]
     job = {"id": "same-job", "status": "error", "error": error,
            "spent_cost_usd": 0.9083, "max_cost_usd": 5,
            "checkpoint": {"sha256": CHECKPOINT_SHA},
@@ -101,8 +106,10 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     monkeypatch.setattr(agent_actions, "repository", lambda: repository)
     monkeypatch.setattr(studio, "_durable_components", lambda: (store, object()))
     check = Mock(return_value=repaired)
-    monkeypatch.setattr(studio, "_scope_label_checkpoint_repaired" if recovery_type == "scope"
-                        else "_ecosystem_checkpoint_repairable", check)
+    helper = {"scope": "_scope_label_checkpoint_repaired",
+              "ecosystem": "_ecosystem_checkpoint_repairable",
+              "introduction": "_introduction_checkpoint_repairable"}[recovery_type]
+    monkeypatch.setattr(studio, helper, check)
     workers = []
 
     async def worker(job_id):

@@ -60,6 +60,10 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
         'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
+        + ('First decide whether this episode REMOVES a species or INTRODUCES one, then follow the '
+           'matching definitions above all the way through. An introduced species cannot perform '
+           'a setup function in that place before it arrived.\n'
+           if engine_id == "removed_keystone" else "")
         + ('On changes_incentive only, supply incentive. rewarded_measure names what was '
            'accepted as proof, not what the policy was announced as. Bind it to the claim '
            'about accepted proof. stated_policy_goal needs separate evidence of the policy '
@@ -539,9 +543,9 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # came back CONTRADICTED against the events, which is the boundary's strongest verdict.
         hinge_text = {
             "removed_keystone":
-                "Name the thing nobody counted, in one short sentence: what the removed species "
-                "had also been doing. Do not claim the programme looked successful and do not "
-                "say anyone exploited anything. No new historical detail.",
+                "Name the ecological interaction nobody counted, in one short sentence: what the "
+                "removal erased or the introduction created. Do not claim the programme looked "
+                "successful and do not say anyone exploited anything. No new historical detail.",
             "almost_happened_plan":
                 "Name what stopped the plan, in one short sentence. Do not claim it had already "
                 "succeeded. No new historical detail.",

@@ -191,6 +191,29 @@ def test_only_the_legacy_setup_failure_is_recoverable_with_a_valid_saved_dossier
     assert not coverage.legacy_setup_dossier_repairable(data, message)
 
 
+def test_v1_introduction_repair_gets_one_directional_replan():
+    _, data = fixture()
+    data[coverage.LEGACY_REPAIR_VERSION] = {
+        "gaps": [{"beat_id": "event_01"}], "added_claim_ids": ["c1"]}
+    message = ("STORY_SPINE_UNSUPPORTED\n"
+               "who was eating whom before anyone intervened\n"
+               "the species deliberately removed or introduced\n"
+               "[ROLE_CONTRACT_FAILED] event_01 no longer performs setup")
+    assert coverage.legacy_introduction_contract_failure(message)
+    assert coverage.legacy_introduction_dossier_repairable(data, message)
+    data[coverage.REPAIR_VERSION] = {"gaps": []}
+    assert not coverage.legacy_introduction_dossier_repairable(data, message)
+
+
+def test_introduction_contract_never_requires_a_prearrival_role():
+    prompt = compiler.factual_plan_prompt("Cane toads", 90, 7, "removed_keystone")
+    assert "An introduced species cannot perform a setup function" in prompt
+    assert "target problem before introduction" in prompt
+    mapping = ef.map_for("removed_keystone")
+    assert "the ecological interaction the removal erased or the introduction created" == \
+        mapping.role_meanings["mechanism"]
+
+
 def test_original_paid_request_is_unchanged_and_focused_search_replays_on_restart(tmp_path, monkeypatch):
     _mock_sources(monkeypatch)
     store, blob = MemoryStore(cap=20), MemoryBlob(tmp_path / "blob")

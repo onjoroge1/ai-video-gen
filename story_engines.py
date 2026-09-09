@@ -53,8 +53,9 @@ ENGINES: dict[str, dict[str, Any]] = {
         # made the compiler invent "the reward was paid for the count of cats killed" for a
         # government eradication that paid no reward. The evidence boundary refused it, correctly.
         "premise": ("A species is removed or introduced and the ECOSYSTEM re-sorts itself. "
-                    "NOBODY exploits anything and no reward is paid: the harm comes from what "
-                    "the species was quietly doing, not from how people responded to a rule."),
+                    "NOBODY exploits anything and no reward is paid: a removal erases an existing "
+                    "ecological interaction, while an introduction creates a new one the plan "
+                    "did not account for."),
         "reference": "macquarie-island cat eradication",
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
                      cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
@@ -63,8 +64,8 @@ ENGINES: dict[str, dict[str, Any]] = {
         # A cascade runs once. See causal_story's THIN_CHAIN: two escalations is right for a
         # spiral, where each round of exploitation invites the next, and wrong here.
         "min_escalations": 1,
-        "audience_before": "removing the pest fixes the problem",
-        "audience_after": "the pest was holding something else down",
+        "audience_before": "moving one species changes only the intended target",
+        "audience_after": "the move also erased or created an ecological interaction",
     },
     BACKFIRING_SOLUTION: {
         "name": "The Backfiring Solution",

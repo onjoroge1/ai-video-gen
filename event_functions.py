@@ -74,10 +74,11 @@ WORLD_WITHOUT_IT = "world_without_it"
 # Island's cats were shot by a government programme that paid no reward, and asking that story for
 # a rewarded measure made the compiler invent one.
 #
-# HIDDEN_LINK is the load-bearing one and it is a FACT, not a relationship to be computed. Every
-# story of this shape turns on the same discovery -- what else the species was doing that nobody
-# counted. The cats were also eating the rabbits. The stoats preferred birds to rabbits. The
-# sparrows were eating insects, not only grain. Each of those is one sourceable sentence.
+# HIDDEN_LINK is the load-bearing one and it is a FACT, not a relationship to be computed. For a
+# removal it is what the removed species had also been doing: cats ate rabbits as well as seabirds.
+# For an introduction it is the ecological contact the plan created: toxic cane toads became prey
+# for native predators. Requiring the introduced species to have occupied the earlier food web is
+# impossible by definition and made the planner invent a pre-intervention role for cane toads.
 ESTABLISHES_BALANCE = "establishes_balance"
 SPECIES_MOVED = "species_moved"
 INTENDED_EFFECT = "intended_effect"
@@ -122,17 +123,19 @@ WHAT_EACH_FUNCTION_IS = {
                     "missing rather than abstract",
     WORLD_WITHOUT_IT: "what we live with because it did not happen, stated as record: the plan "
                       "failed and this is the world that followed",
-    ESTABLISHES_BALANCE: "the state of the place before anyone moved a species — who was eating "
-                         "whom, and what was being held in check",
+    ESTABLISHES_BALANCE: "the documented state that motivated the intervention. For a REMOVAL: "
+                         "the relevant food-web balance before removal. For an INTRODUCTION: the "
+                         "target problem before introduction, such as the pest and crop damage. "
+                         "Never assign an introduced species a role in a place before it arrived",
     SPECIES_MOVED: "the moment a species was deliberately removed or introduced, and what it was "
                    "meant to achieve",
     INTENDED_EFFECT: "the target species responding as intended — the part that worked",
-    HIDDEN_LINK: "what else that species was doing that nobody counted. This is the whole story: "
-                 "the cats were also eating the rabbits; the stoats preferred birds to rabbits; "
-                 "the sparrows ate insects and not only grain. One sourceable sentence about a "
-                 "connection that existed before anyone acted on it",
-    POPULATION_RESPONDS: "the population that was being held down, no longer held down — "
-                         "measured, with numbers where the record has them",
+    HIDDEN_LINK: "the ecological interaction the plan omitted. For a REMOVAL: what else the "
+                 "removed species had been doing. For an INTRODUCTION: the new interaction made "
+                 "possible by its arrival, such as native predators eating a toxic newcomer. One "
+                 "sourceable sentence; never imply the introduced species was already present",
+    POPULATION_RESPONDS: "a population changing because that omitted ecological interaction was "
+                         "removed or created — measured, with numbers where the record has them",
     SYSTEM_RESETTLES: "what the place became. Not 'the programme failed' but the new state: what "
                       "now grows there, what no longer does, what it costs to keep",
 }
@@ -232,11 +235,11 @@ REMOVED_KEYSTONE = EngineFunctionMap(
     # Boundary A must still establish that the particular setup follows from that source.
     claim_kinds={"setup": ("event", "context", "outcome", "mechanism")},
     role_meanings={
-        "setup": "who was eating whom before anyone intervened",
+        "setup": "the relevant prior food web for a removal, or the target problem before an introduction",
         "intervention": "the species deliberately removed or introduced",
         "false_resolution": "the target responding as intended — the part that worked",
-        "mechanism": "what else that species was doing that nobody counted",
-        "escalation": "the population no longer held down, surging",
+        "mechanism": "the ecological interaction the removal erased or the introduction created",
+        "escalation": "a population changing through that omitted interaction",
         "reversal": "what the place became",
         "tool": "hands back a reusable lens"})
 
