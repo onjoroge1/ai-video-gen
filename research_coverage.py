@@ -15,7 +15,8 @@ import event_functions
 import longform_research as research
 import story_fact_model as facts
 
-REPAIR_VERSION = "evidence_coverage_v1"
+REPAIR_VERSION = "evidence_coverage_v2"
+LEGACY_REPAIR_VERSION = "evidence_coverage_v1"
 MAX_GAPS = 4
 MAX_NEW_CLAIMS = 8
 
@@ -42,7 +43,10 @@ def evidence_gaps(compiled: dict, beats: list) -> list[dict]:
                 or facts.scope_of(beat) != facts.PRIMARY_STORY
                 or result.get("verdict") not in {"unsupported", "partially_entailed"}):
             continue
-        gaps.append({"beat_id": bid, "assertion_to_verify": facts.event_of(beat)["text"],
+        gaps.append({"beat_id": bid, "event_function": beat.get("event_function") or "",
+                     "role": role,
+                     "role_meaning": facts.role_function(role, compiled.get("engine_id", "")),
+                     "assertion_to_verify": facts.event_of(beat)["text"],
                      "missing_details": result.get("unsupported_details") or [],
                      "reason": result.get("reason", "")})
     # A broadly unsupported sheet needs a new editorial decision, not unlimited gap filling.
@@ -66,6 +70,27 @@ def legacy_setup_dossier_repairable(dossier: dict, message: str) -> bool:
     return bool(refs and all(facts.resolved_claim_kind(claims.get(ref) or {})[0] == "mechanism"
                              for ref in refs)
                 and "mechanism" in facts.accepted_claim_kinds("setup", "removed_keystone"))
+
+
+def legacy_introduction_contract_failure(message: str) -> bool:
+    """Recognize the one v1 sheet shaped by removal-only setup language."""
+    return bool(message.startswith("STORY_SPINE_UNSUPPORTED\n")
+                and "who was eating whom before anyone intervened" in message
+                and "the species deliberately removed or introduced" in message
+                and "[ROLE_CONTRACT_FAILED]" in message)
+
+
+def legacy_introduction_dossier_repairable(dossier: dict, message: str) -> bool:
+    """Allow one exact-checkpoint replan after v1 researched the impossible setup."""
+    if (not isinstance(dossier, dict) or not legacy_introduction_contract_failure(message)
+            or not research.validate_research_dossier(dossier)["passed"]):
+        return False
+    marker = dossier.get(LEGACY_REPAIR_VERSION)
+    claim_ids = {claim.get("claim_id") for claim in dossier.get("claims") or []}
+    return bool(isinstance(marker, dict) and marker.get("gaps")
+                and marker.get("added_claim_ids")
+                and set(marker["added_claim_ids"]) <= claim_ids
+                and not dossier.get(REPAIR_VERSION))
 
 
 def merge_supplement(original: dict, supplement: dict) -> tuple[dict, list[str]]:
@@ -104,7 +129,7 @@ def merge_supplement(original: dict, supplement: dict) -> tuple[dict, list[str]]
 def _state_path():
     from durable_execution import current
     runtime = current()
-    return (Path(runtime.output_dir) / "evidence_coverage_repair.json", runtime) if runtime else (None, None)
+    return (Path(runtime.output_dir) / f"{REPAIR_VERSION}.json", runtime) if runtime else (None, None)
 
 
 def _save(path, runtime, state):

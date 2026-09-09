@@ -486,9 +486,9 @@ def test_this_engine_is_not_asked_for_a_rewarded_measure():
 
 def test_its_roles_are_described_as_ecology_not_as_incentives():
     assert sfm.role_function("mechanism", "removed_keystone") == \
-        "what else that species was doing that nobody counted"
+        "the ecological interaction the removal erased or the introduction created"
     assert sfm.role_function("escalation", "removed_keystone") == \
-        "the population no longer held down, surging"
+        "a population changing through that omitted interaction"
     # And the bounty engine keeps its own.
     assert sfm.role_function("escalation", "backfiring_solution") == \
         "HOW people exploit it, compounding"
@@ -531,7 +531,7 @@ def test_the_hinge_instruction_belongs_to_the_engine():
     out = sc.compile_roles(MACQUARIE, "removed_keystone")
     sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "removed_keystone")
     hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
-    assert "what the removed species had also been doing" in hinge["beat"]
+    assert "what the removal erased or the introduction created" in hinge["beat"]
     assert "exploit" not in hinge["beat"].replace("exploited anything", "")
     assert "Do not claim the programme looked successful" in hinge["beat"]
 

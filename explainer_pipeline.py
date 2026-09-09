@@ -3894,7 +3894,12 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             "Find accessible primary or authoritative institutional sources that establish or "
             "contradict them. Do not infer an actor, implementation or intent from a proposed "
             "plan or the absence of studies. Establish the intervention and its stated purpose "
-            "separately if needed, as well as any missing ecological baseline. Use only URLs "
+            "as their own atomic claim, using a government program history or similarly direct "
+            "source when available. Treat each gap's event_function and role_meaning as the fact "
+            "the story needs, but do not assume its proposed assertion is true. For an introduced "
+            "species, establish the target problem before release and the ecological interaction "
+            "created after arrival; never search for or invent a pre-arrival role for that species. "
+            "For a removed species, establish the relevant pre-removal food-web connection. Use only URLs "
             "observed in your web-search results. Each support_quote must be a short exact "
             "excerpt from that URL that supports the ENTIRE atomic claim. Encyclopedia, forum "
             "and generic blog sources do not qualify. If the evidence is missing, omit the "
@@ -3908,7 +3913,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=min(_RESEARCH_MAX_TOKENS, 6000) if evidence_gaps else _RESEARCH_MAX_TOKENS,
+        max_tokens=_RESEARCH_MAX_TOKENS,
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -3930,6 +3935,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         # SDK retries are disabled in _anthropic_native when a durable runtime is active.
         timeout=max(1.0, min(240.0, float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
     )
+    if evidence_gaps:
+        request["max_tokens"] = min(_RESEARCH_MAX_TOKENS, 6000)
     messages = [{"role": "user", "content": prompt}]
     responses = []
     search_requests = 0

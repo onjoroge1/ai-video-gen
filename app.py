@@ -3178,6 +3178,12 @@ def _ecosystem_checkpoint_repairable(job: dict, store, blob) -> bool:
         legacy_setup_dossier_repairable(dossier, str(job.get("error") or "")))
 
 
+def _introduction_checkpoint_repairable(job: dict, store, blob) -> bool:
+    from research_coverage import legacy_introduction_dossier_repairable
+    return _checkpoint_dossier_matches(job, store, blob, lambda dossier:
+        legacy_introduction_dossier_repairable(dossier, str(job.get("error") or "")))
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3189,7 +3195,7 @@ async def dispatch_agent_action(action_id: str, request: Request):
         is_legacy_scope_label_failure,
         is_legacy_weak_source_failure,
     )
-    from research_coverage import legacy_setup_failure
+    from research_coverage import legacy_introduction_contract_failure, legacy_setup_failure
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
     except agent_actions.AgentActionError as exc:
@@ -3225,6 +3231,20 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="STORY_SPINE_UNSUPPORTED", extra_attempts=1,
                 recovery_key="evidence_coverage_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+        elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and legacy_introduction_contract_failure(str(job.get("error") or ""))
+                and not (job.get("result") or {}).get("introduction_contract_recovery_v1")
+                and await asyncio.to_thread(
+                    _introduction_checkpoint_repairable, job, store, blob)):
+            # v1 allowed mechanism evidence into setup, but still described setup and the hidden
+            # link as removal-only jobs. Replan once from this exact validated checkpoint under
+            # the directional introduction/removal contract; v2 may research only its new gaps.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="STORY_SPINE_UNSUPPORTED", extra_attempts=1,
+                recovery_key="introduction_contract_recovery_v1",
                 expected_checkpoint_sha256=job["checkpoint"]["sha256"])
         elif (job and job.get("status") == "error"
                 and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):
