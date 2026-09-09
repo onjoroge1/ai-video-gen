@@ -25,7 +25,8 @@ def _judge(payload):
 
 def test_an_absence_question_is_refused_before_research_is_bought():
     judge, seen = _judge({
-        "episode": "", "intent": "", "inversion": "", "verdict": "no_story",
+        "episode": "", "intent": "", "aftermath": "", "channel": "neither",
+        "verdict": "no_story",
         "reason": "an absence with parallel causes, not one episode that turned",
         "narrower_question": "Why did America nearly fill its rivers with hippos?"})
     result = tf.screen("Why don't Americans eat hippo meat?", judge=judge)
@@ -36,8 +37,9 @@ def test_an_absence_question_is_refused_before_research_is_bought():
 
 def test_the_hanoi_question_fits():
     judge, _ = _judge({"episode": "the 1902 Hanoi rat bounty", "intent": "fewer rats",
-                       "inversion": "residents farmed rats to earn the bounty",
-                       "verdict": "fits", "reason": "one episode, and the outcome turns",
+                       "aftermath": "residents farmed rats to earn the bounty",
+                       "channel": "world", "verdict": "fits",
+                       "reason": "one intervention on an animal population, and its aftermath",
                        "narrower_question": ""})
     result = tf.screen("Why did paying people to kill rats make Hanoi worse?", judge=judge)
     assert result["verdict"] == tf.FITS and not tf.blocks(result)
@@ -46,7 +48,8 @@ def test_the_hanoi_question_fits():
 def test_needs_narrowing_does_not_block():
     """The episode is real and the operator may know exactly which one they mean."""
     judge, _ = _judge({"episode": "the 1910 American Hippo Bill", "intent": "cheap meat",
-                       "inversion": "", "verdict": "needs_narrowing", "reason": "buried",
+                       "aftermath": "", "channel": "history",
+                       "verdict": "needs_narrowing", "reason": "buried",
                        "narrower_question": "Why did America nearly import hippos?"})
     result = tf.screen("Why don't Americans eat hippo meat?", judge=judge)
     assert result["verdict"] == tf.NEEDS_NARROWING and not tf.blocks(result)
@@ -79,8 +82,9 @@ def test_unparseable_and_unrecognised_verdicts_do_not_block():
 
 
 def test_the_screen_can_be_observed_without_refusing(monkeypatch):
-    judge, _ = _judge({"verdict": "no_story", "reason": "no turn", "episode": "",
-                       "intent": "", "inversion": "", "narrower_question": ""})
+    judge, _ = _judge({"verdict": "no_story", "reason": "no intervention", "episode": "",
+                       "intent": "", "aftermath": "", "channel": "neither",
+                       "narrower_question": ""})
     result = tf.screen("q", judge=judge)
     assert tf.blocks(result), "on by default; the point is to spend nothing"
     monkeypatch.setenv("TOPIC_FIT", "off")
@@ -90,12 +94,14 @@ def test_the_screen_can_be_observed_without_refusing(monkeypatch):
 def test_the_judge_is_told_what_the_series_actually_is():
     """Read off the corpus, not invented: every reference is one episode whose outcome inverted."""
     judge, seen = _judge({"verdict": "fits", "reason": "", "episode": "", "intent": "",
-                          "inversion": "", "narrower_question": ""})
+                          "aftermath": "", "channel": "world", "narrower_question": ""})
     tf.screen("Why did the bounty backfire?", judge=judge)
-    for reference in ("rat tail", "Washington DC", "Haiti"):
-        assert reference in seen["system"], "the examples are the corpus's own"
-    assert "Falling short is NOT an inversion" in seen["prompt"], \
-        "the distinction that rejects most near-misses"
+    assert "Bolt Explains the World" in seen["system"] and "Bolt Explains History" in seen["system"]
+    assert "ANIMALS WIN TIES" in seen["system"], \
+        "otherwise HISTORY absorbs a state-run animal campaign and the split collapses"
+    # The inversion LAW is gone. It was derived from a corpus that is mostly backfires and would
+    # have refused the Aral Sea, where the diversion did exactly what it was designed to do.
+    assert "need NOT be the opposite" in seen["prompt"]
 
 
 def test_deterministic_signals_are_advisory_only():
@@ -104,7 +110,8 @@ def test_deterministic_signals_are_advisory_only():
     assert tf.signals("Why did the 1902 bounty backfire?")["time_anchor"]
     # An absence-framed question the judge likes is still allowed through.
     judge, _ = _judge({"verdict": "fits", "reason": "real episode", "episode": "x",
-                       "intent": "y", "inversion": "z", "narrower_question": ""})
+                       "intent": "y", "aftermath": "z", "channel": "history",
+                       "narrower_question": ""})
     assert not tf.blocks(tf.screen("Why don't we use nuclear ships?", judge=judge))
 
 
@@ -115,12 +122,16 @@ def test_the_causal_topic_prompt_states_the_series_not_just_history():
     by hand and one of them cost $3.20 before anything noticed it had no story in it."""
     import explainer_pipeline as ep
 
-    system = ep._CAUSAL_TOPIC_SYSTEM
-    for reference in ("Washington DC", "Haiti", "Hanoi", "Romanovs"):
-        assert reference in system, "the standard is the corpus's own episodes"
-    assert "TRUE INVERSION, not a shortfall" in system
-    assert "hippo meat" in system, "the measured failure is named so it is not repeated"
-    assert "names the SUBJECT, not the shape" in system
+    world, history = ep._causal_topic_system("world"), ep._causal_topic_system("history")
+    assert "Hanoi" in world and "cane toads" in world
+    assert "Aral Sea" in history and "Decree 770" in history
+    for system in (world, history):
+        assert "hippo meat" in system, "the measured failure is named so it is not repeated"
+        assert "names the SUBJECT, not the shape" in system
+        assert "DOCUMENTED AFTERMATH" in system
+        assert "INVERT" not in system, "the inversion law is gone; it would refuse the Aral Sea"
+    assert "belongs to the OTHER channel" in history, "animals win ties"
+    assert "must TARGET the animal population" in world
 
 
 def test_a_proposed_topic_is_screened_before_it_reaches_an_operator(monkeypatch):
@@ -142,16 +153,47 @@ def test_a_proposed_topic_is_screened_before_it_reaches_an_operator(monkeypatch)
             else:
                 asked = body.split('"')[1]
                 text = json.dumps({"verdict": verdicts.get(asked, "fits"), "reason": "r",
-                                   "episode": "e", "intent": "i", "inversion": "v",
-                                   "narrower_question": ""})
+                                   "episode": "e", "intent": "i", "aftermath": "a",
+                                   "channel": "history", "narrower_question": ""})
             return type("R", (), {
                 "usage": type("U", (), {"input_tokens": 200, "output_tokens": 50})(),
                 "content": [type("C", (), {"text": text})()]})()
 
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
-    out = ep.generate_causal_topics(n=5, min_score=8)
+    out = ep.generate_causal_topics(channel="history", n=5, min_score=8)
     questions = [item["question"] for item in out]
     assert "Why did DC pay slave owners to free the people they enslaved?" in questions
     assert "Why don't Americans eat hippo meat?" not in questions, "screened out, not shipped"
     assert "Too dull" not in questions, "below the curiosity floor"
     assert out[0]["topic_fit"]["verdict"] == "fits", "the verdict travels with the topic"
+
+
+def test_a_programme_that_worked_and_cost_everything_is_not_refused():
+    """The rule this replaces would have refused the history channel's first episode.
+
+    "Inversion" was derived from a corpus that is mostly backfires, and turned a pattern into a
+    law. The Aral Sea diversion did exactly what it was designed to do -- cotton grew. The lake was
+    the price, not a reversal, and foreseen harm still counts: the hydrologists knew.
+    """
+    judge, seen = _judge({"episode": "the Soviet diversion of the Amu Darya and Syr Darya",
+                          "intent": "irrigate cotton", "channel": "history",
+                          "aftermath": "the Aral Sea lost most of its volume and the fishery died",
+                          "verdict": "fits", "reason": "one programme, documented cost",
+                          "narrower_question": ""})
+    result = tf.screen("Why did diverting two rivers destroy the Aral Sea?", judge=judge)
+    assert result["verdict"] == tf.FITS and not tf.blocks(result)
+    assert result["channel"] == tf.HISTORY
+    assert "foreseen" in seen["system"], "the harm need not have been a surprise"
+    assert "succeeded at" in seen["system"].lower() or "SUCCEEDED" in seen["system"]
+
+
+def test_a_river_diversion_is_not_the_animal_channel():
+    """The intervention has to TARGET the animals. Nobody was intervening on the fish."""
+    assert "nobody was intervening on the fish" in tf.CHANNELS[tf.WORLD]["requires"]
+
+
+def test_the_channel_can_be_asserted_and_still_challenged():
+    judge, seen = _judge({"verdict": "fits", "channel": "history", "episode": "e", "intent": "i",
+                          "aftermath": "a", "reason": "r", "narrower_question": ""})
+    tf.screen("Why did Decree 770 fill Romania's orphanages?", channel=tf.HISTORY, judge=judge)
+    assert "HISTORY channel" in seen["prompt"] and "belongs to the other one" in seen["prompt"]

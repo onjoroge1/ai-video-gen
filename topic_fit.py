@@ -1,33 +1,35 @@
-"""Does this question have a story in it, asked before any research is bought.
+"""Does this question belong to one of the channels, asked before any research is bought.
 
-Measured cost of not asking: "Why don't Americans eat hippo meat?" spent $3.20 across four runs
-and never produced a spine. The failure was not the engine and not the budget. The question has no
-story in it -- it asks about an ABSENCE with a dozen parallel causes, and research answered all of
-them, returning 21 verified claims split between a 1910 congressional episode and modern African
-conservation. The planner then built one spine from two stories, which is not a thing that can be
-done.
+Measured cost of not asking: "Why don't Americans eat hippo meat?" spent $3.20 across four runs and
+never produced a spine. Not the engine and not the budget -- the question names an ABSENCE with
+parallel causes, so research returned 21 verified claims split between a 1910 congressional episode
+and modern African conservation. One spine cannot be built from two stories.
 
-What fits is read off the reference corpus rather than invented. Every reference is one documented
-episode whose outcome inverted its intent:
+TWO CHANNELS, TWO TESTS. An earlier version of this file had one: the outcome had to INVERT the
+intent. That was derived from a corpus which happens to be mostly backfires, and it turned a
+pattern into a law -- it would have refused the Aral Sea, where the river diversion did exactly
+what it was designed to do. Cotton grew. The lake was the price, not a reversal.
 
-    DC emancipation   freed the slaves -- and paid the owners
-    Haiti             freed themselves -- then were billed for it by France
-    Hanoi             paid to kill rats -- bred rats
-    Romanovs          the richest family on earth -- shot in a cellar
-    Pompeii           the richest soil in the region, because of what killed them
+    world    an intervention aimed at an ANIMAL POPULATION, and what happened to it afterwards.
+             Hanoi's rat bounty, China's sparrows, Australia's cane toads, Hawaii's mongooses.
+             The intervention must TARGET the animals: a river diversion that ruined a fishery is
+             not this channel, because nobody was intervening on the fish.
 
-So the screen asks three things, and a question has to answer all three:
+    history  a state PROGRAM -- a law, decree, campaign or project -- and the harm it did. A
+             programme that failed qualifies; so does one that succeeded and imposed an enormous
+             cost doing it. The harm does not have to have been unforeseen: the Aral Sea's
+             hydrologists knew the lake would shrink, and it is still the story.
 
-    1. does it name ONE episode, bounded in time and place
-    2. is there an INTENT -- something someone was trying to achieve
-    3. does the OUTCOME invert that intent, rather than merely falling short
+Animals win ties. A state-run animal campaign is `world`, because otherwise `history` absorbs
+almost everything and the niches collapse back into "explains the world", which is the problem the
+split exists to solve.
 
-The third is the one that rejects most near-misses. "The programme failed" is not an inversion;
-"the programme produced more of what it was meant to remove" is.
+What both require, and what hippo lacked: ONE documented intervention, bounded in time and place,
+with a documented aftermath. Not an absence, not a standing condition with parallel causes.
 
-Structure is judged deterministically and cheaply; the inversion is a semantic question and gets a
-small model call. The deterministic half never refuses on its own -- it has been wrong twice in
-this codebase already -- it supplies signals to the call that rules.
+Structure is judged deterministically and cheaply; the fit is a semantic question and gets a small
+model call. The deterministic half never refuses on its own -- it has been wrong twice in this
+codebase already -- it supplies signals to the call that rules.
 """
 from __future__ import annotations
 
@@ -36,6 +38,38 @@ import os
 import re
 
 FITS, NEEDS_NARROWING, NO_STORY = "fits", "needs_narrowing", "no_story"
+
+WORLD, HISTORY = "world", "history"
+CHANNELS = {
+    WORLD: {
+        "name": "Bolt Explains the World",
+        "promise": "What humans did to animal populations -- and what happened next.",
+        "requires": "an intervention aimed at an ANIMAL POPULATION (a bounty, an eradication "
+                    "campaign, a deliberate introduction, a predator-removal programme) and a "
+                    "documented aftermath for that population or the ecosystem around it. The "
+                    "intervention must TARGET the animals: diverting a river and ruining a "
+                    "fishery is not this channel, because nobody was intervening on the fish",
+        "examples": "Hanoi's 1902 rat-tail bounty and the rat farms it created; China's Four "
+                    "Pests sparrow campaign; Australia's cane toads, introduced against beetles "
+                    "and now the pest; Hawaii's mongooses, released for rats they barely touched",
+        "excludes": "general animal facts, food explainers, and environmental disasters where no "
+                    "animal population was the target",
+    },
+    HISTORY: {
+        "name": "Bolt Explains History",
+        "promise": "What governments imposed on people -- and what it cost them.",
+        "requires": "one state PROGRAM -- a law, decree, campaign or project -- and documented "
+                    "harm. A programme that FAILED qualifies, and so does one that SUCCEEDED at "
+                    "its stated aim while imposing an enormous cost. The harm need not have been "
+                    "unforeseen, and there is no requirement that the outcome invert the intent",
+        "examples": "the Soviet river diversions that grew cotton and emptied the Aral Sea; the "
+                    "US denaturing of industrial alcohol during Prohibition, which killed the "
+                    "people it was meant to deter; Romania's Decree 770 and the orphanages it "
+                    "filled; Washington DC ending slavery in 1862 and compensating the owners",
+        "excludes": "daily political news, general biographies, unrelated wars, celebrity "
+                    "controversies and corporate scandals",
+    },
+}
 
 # "Why don't Americans eat hippo meat", "why isn't there a cure for X". A question about something
 # that never happened has no chain of events to follow, because nothing happened.
@@ -55,35 +89,48 @@ def signals(question: str) -> dict:
 
 
 _SYSTEM = (
-    "You screen questions for a documentary series. Every episode the series has made is ONE "
-    "documented historical episode whose outcome inverted its intent: a city paid a bounty per rat "
-    "tail and residents farmed rats; a law freed enslaved people in Washington DC and compensated "
-    "their owners; Haiti won its freedom and was then billed for it by France. Answer only about "
-    "the question you are given. Return only JSON.")
+    "You screen questions for two documentary channels that share a house style and nothing else. "
+    "Answer only about the question you are given. Return only JSON.\n\n"
+    + "\n\n".join(
+        f"{key.upper()} — {spec['name']}\n"
+        f"  promise:  {spec['promise']}\n"
+        f"  requires: {spec['requires']}\n"
+        f"  examples: {spec['examples']}\n"
+        f"  excludes: {spec['excludes']}"
+        for key, spec in CHANNELS.items())
+    + "\n\nANIMALS WIN TIES. A state-run campaign against an animal population belongs to WORLD, "
+      "not HISTORY, even though a government ran it. Otherwise HISTORY absorbs almost everything "
+      "and the two channels collapse back into one.")
 
 
-def _prompt(question: str, found: dict) -> str:
+def _prompt(question: str, found: dict, channel: str = "") -> str:
+    asked = (f"The operator says this is for the {channel.upper()} channel; say so if it belongs "
+             "to the other one.\n" if channel else
+             "Decide which channel it belongs to, or neither.\n")
     return (
-        f'QUESTION: "{question}"\n\n'
+        f'QUESTION: "{question}"\n\n{asked}'
         f"Deterministic signals (advisory, may be wrong): asks about something that did NOT happen "
         f"= {found['absence_framing']}; names a date or period = {found['time_anchor']}.\n\n"
-        "Answer three things about the question, in order:\n"
-        "1. EPISODE — does it point at one specific documented episode, bounded in time and "
-        "place? A standing condition with many parallel causes is not an episode.\n"
-        "2. INTENT — was somebody trying to achieve something? Name it in a few words.\n"
-        "3. INVERSION — did the outcome turn that intent into its opposite? Falling short is NOT "
-        "an inversion: a plan that simply failed, or a thing that never happened, has no turn in "
-        "it. Producing MORE of what was meant to be removed is an inversion.\n\n"
-        'Return ONLY JSON: {"episode":"the episode in a short phrase, or empty","intent":"",'
-        '"inversion":"how the outcome inverted the intent, or empty",'
+        "Answer in order:\n"
+        "1. INTERVENTION — does the question point at ONE documented intervention, bounded in "
+        "time and place? A standing condition with many parallel causes is not one, and neither "
+        "is something that never happened.\n"
+        "2. CHANNEL — world, history, or neither, by the definitions above.\n"
+        "3. AFTERMATH — what documented thing happened afterwards, to the animal population or to "
+        "the people subjected to the programme. This need NOT be the opposite of what was "
+        "intended: a programme that achieved its aim at enormous cost still qualifies for "
+        "HISTORY, and foreseen harm still counts.\n\n"
+        'Return ONLY JSON: {"episode":"the intervention in a short phrase, or empty",'
+        '"channel":"world|history|neither","intent":"what was being attempted",'
+        '"aftermath":"the documented consequence, or empty",'
         '"verdict":"fits|needs_narrowing|no_story",'
         '"reason":"one sentence a person can act on",'
-        '"narrower_question":"if needs_narrowing, the question that names the episode; else empty"}\n'
-        "Use needs_narrowing when a real episode is buried inside a broader question, and give the "
-        "narrower question. Use no_story when nothing in the topic inverts.")
+        '"narrower_question":"if needs_narrowing, the question that names the intervention; else empty"}\n'
+        "needs_narrowing when a real intervention is buried inside a broader question. no_story "
+        "when there is no single documented intervention, or it belongs to neither channel.")
 
 
-def screen(question: str, *, judge=None, cost_sink=None) -> dict:
+def screen(question: str, *, channel: str = "", judge=None, cost_sink=None) -> dict:
     """Screen one question. Returns a verdict; refusing is the caller's decision.
 
     `judge(prompt, system=...)` returns the model's raw text. Unreachable or unparseable means
@@ -95,7 +142,7 @@ def screen(question: str, *, judge=None, cost_sink=None) -> dict:
         return {"verdict": "unknown", "reason": "no judge available; not screened",
                 "signals": found, "screened": False}
     try:
-        raw = judge(_prompt(question, found), system=_SYSTEM)
+        raw = judge(_prompt(question, found, channel), system=_SYSTEM)
         data = json.loads(re.search(r"\{.*\}", str(raw), re.S).group(0))
     except Exception as exc:                                # noqa: BLE001 - advisory by design
         return {"verdict": "unknown", "signals": found, "screened": False,
@@ -104,9 +151,10 @@ def screen(question: str, *, judge=None, cost_sink=None) -> dict:
     if verdict not in (FITS, NEEDS_NARROWING, NO_STORY):
         verdict = "unknown"
     return {"verdict": verdict, "screened": True, "signals": found,
+            "channel": str(data.get("channel", "")).strip().lower(),
             "episode": str(data.get("episode", "")).strip(),
             "intent": str(data.get("intent", "")).strip(),
-            "inversion": str(data.get("inversion", "")).strip(),
+            "aftermath": str(data.get("aftermath", "")).strip(),
             "narrower_question": str(data.get("narrower_question", "")).strip(),
             "reason": str(data.get("reason", "")).strip()}
 
@@ -128,14 +176,15 @@ def enforced() -> bool:
 def report(question: str, result: dict) -> str:
     if not result.get("screened"):
         return f"[topic] {result.get('reason', 'not screened')}"
-    lines = [f"[topic] {result['verdict'].upper()}: {result.get('reason', '')}"]
+    channel = CHANNELS.get(result.get("channel", ""), {}).get("name", result.get("channel") or "—")
+    lines = [f"[topic] {result['verdict'].upper()} ({channel}): {result.get('reason', '')}"]
     if result.get("episode"):
-        lines.append(f"        episode:   {result['episode']}")
-    if result.get("inversion"):
-        lines.append(f"        inversion: {result['inversion']}")
+        lines.append(f"        intervention: {result['episode']}")
+    if result.get("aftermath"):
+        lines.append(f"        aftermath:    {result['aftermath']}")
     elif result["verdict"] != FITS:
-        lines.append("        inversion: none found — the series is built on outcomes that turn, "
-                     "and a topic without a turn has no spine to compile")
+        lines.append("        aftermath:    none found — both channels need one documented "
+                     "intervention and what documentably followed it")
     if result.get("narrower_question"):
         lines.append(f'        try:       "{result["narrower_question"]}"')
     return "\n".join(lines)

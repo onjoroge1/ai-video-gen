@@ -6852,37 +6852,45 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
         return []
 
 
-_CAUSAL_TOPIC_SYSTEM = (
-    "You propose topics for a documentary series. Its subject is narrower than 'history': EVERY "
-    "episode is ONE documented episode whose outcome INVERTED the intent behind it.\n"
-    "What the series has already made, which is the standard:\n"
-    "- Washington DC ended slavery in the capital in 1862 -- and compensated the OWNERS\n"
-    "- Haiti freed itself from France in 1804 -- and France then billed it for the loss\n"
-    "- Hanoi paid a bounty per rat tail in 1902 -- and residents farmed rats to collect it\n"
-    "- Delhi paid a bounty per dead cobra -- and residents bred cobras\n"
-    "- The Romanovs held more wealth than any family in history -- and were shot in a cellar\n"
-    "HARD RULES, and a topic failing any one of them is worthless here:\n"
-    "- ONE episode, bounded in time and place. A standing condition with many parallel causes is "
-    "not an episode. 'Why don't Americans eat hippo meat' cost this series $3.20 in research and "
-    "produced nothing, because it names an absence rather than an event.\n"
-    "- A NAMED INTENT: somebody was trying to achieve something specific and documented.\n"
-    "- A TRUE INVERSION, not a shortfall. 'The plan failed' is NOT this series. 'The plan produced "
-    "MORE of the thing it was meant to remove', or 'the reward went to exactly the wrong party', "
-    "is. This rule rejects most candidates; apply it ruthlessly.\n"
-    "- SOURCEABLE: a literate person could name the law, the year, the place and the outcome. No "
-    "folk claims and no story whose central fact is disputed or apocryphal.\n"
-    "- The question names the SUBJECT, not the shape. 'Why did paying people to kill rats make "
-    "Hanoi worse?' -- not 'Why do incentives backfire?'\n"
-    "Score 0-10 on curiosity_gap (specific, an irresistible open loop, real stakes, and FRESH -- "
-    "the cobra effect itself is over-told). Be a harsh grader.\n"
-    "Return ONLY JSON: {\"questions\":[{\"question\":\"...\",\"curiosity_gap\":int,"
-    "\"episode\":\"the episode in a short phrase\",\"intent\":\"what was being attempted\","
-    "\"inversion\":\"how the outcome inverted it\"}]}."
-)
+def _causal_topic_system(channel: str) -> str:
+    """The brief for one channel, built from the same definitions the screen uses.
+
+    An earlier version stated one rule for both -- the outcome had to INVERT the intent -- and it
+    would have refused the Aral Sea, where the diversion did exactly what it was designed to do.
+    A pattern read off a corpus of backfires is not a law, and the two channels do not share one.
+    """
+    import topic_fit
+
+    spec = topic_fit.CHANNELS[channel]
+    return (
+        f"You propose topics for {spec['name']}. Its promise to a viewer: {spec['promise']}\n"
+        f"WHAT QUALIFIES: {spec['requires']}.\n"
+        f"WHAT IT LOOKS LIKE: {spec['examples']}.\n"
+        f"WHAT STAYS OUT: {spec['excludes']}.\n"
+        "HARD RULES, and a topic failing any one of them is worthless here:\n"
+        "- ONE intervention, bounded in time and place. A standing condition with many parallel "
+        "causes is not one. 'Why don't Americans eat hippo meat' cost this series $3.20 in "
+        "research and produced nothing, because it names an absence rather than an event.\n"
+        "- A DOCUMENTED AFTERMATH. Not a claim about what it symbolises -- a thing that "
+        "measurably happened afterwards, to the animals or to the people.\n"
+        "- SOURCEABLE: a literate person could name the law, the year, the place and the outcome. "
+        "No folk claims, and nothing whose central fact is disputed or apocryphal -- the Delhi "
+        "cobra bounty fails this and the Hanoi rat bounty passes it.\n"
+        "- The question names the SUBJECT, not the shape. 'Why did paying people to kill rats "
+        "make Hanoi worse?' -- not 'Why do incentives backfire?'\n"
+        + ("- A state-run campaign against an animal population belongs to the OTHER channel. Do "
+           "not propose one here.\n" if channel == topic_fit.HISTORY else
+           "- The intervention must TARGET the animal population. A programme that harmed animals "
+           "incidentally belongs to the other channel.\n")
+        + "Score 0-10 on curiosity_gap (specific, an irresistible open loop, real stakes, and "
+        "FRESH -- the cobra effect itself is over-told). Be a harsh grader.\n"
+        'Return ONLY JSON: {"questions":[{"question":"...","curiosity_gap":int,'
+        '"episode":"the intervention in a short phrase","intent":"what was being attempted",'
+        '"aftermath":"what documentably followed"}]}.')
 
 
-def generate_causal_topics(n: int = 10, min_score: int = 8, cost_sink: list | None = None,
-                           avoid: list | None = None) -> list[dict]:
+def generate_causal_topics(channel: str = "world", n: int = 10, min_score: int = 8,
+                           cost_sink: list | None = None, avoid: list | None = None) -> list[dict]:
     """Propose topics for the illustrated history lane, screened before they are returned.
 
     The existing topic generator serves the simulation shorts ("What If You Grew 1cm Every
@@ -6900,7 +6908,7 @@ def generate_causal_topics(n: int = 10, min_score: int = 8, cost_sink: list | No
     prompt = (f"Propose {max(1, n) * 2} candidate questions.\n"
               + (f"Already made or proposed, do not repeat: {known}\n" if known else ""))
     response = _claude().messages.create(
-        model=ANTHROPIC_MODEL, max_tokens=3000, system=_CAUSAL_TOPIC_SYSTEM,
+        model=ANTHROPIC_MODEL, max_tokens=3000, system=_causal_topic_system(channel),
         messages=[{"role": "user", "content": prompt}])
     _charge(cost_sink, _ledger.RESEARCH, _msg_cost(response.usage), "causal topics")
     if isinstance(cost_sink, list) and not isinstance(cost_sink, _ledger.CostLedger):
@@ -6919,9 +6927,11 @@ def generate_causal_topics(n: int = 10, min_score: int = 8, cost_sink: list | No
             continue
         # Screened here so a topic cannot reach an operator and then be refused by the pipeline
         # that proposed it. A verdict the generator disagrees with is the generator being wrong.
-        verdict = topic_fit.screen(_s(item.get("question")), judge=judge)
+        verdict = topic_fit.screen(_s(item.get("question")), channel=channel, judge=judge)
         item["topic_fit"] = verdict
-        if verdict.get("verdict") != topic_fit.NO_STORY:
+        # Wrong channel is as disqualifying as no story: it is the other channel's episode.
+        if (verdict.get("verdict") != topic_fit.NO_STORY
+                and verdict.get("channel", channel) == channel):
             out.append(item)
         if len(out) >= n:
             break
