@@ -123,14 +123,15 @@ def test_real_cascade_reaches_repair_rejudges_only_changed_inputs_and_accounts_o
     counts = Counter((c["kind"], c["event"]) for c in judge.calls)
     assert counts[("evidence", "The reward was paid for a rat tail.")] == 2
     assert counts[("evidence", "The goal was fewer rats.")] == 1
-    assert len(judge.calls) == 10  # five events + two assertions + changed assertion + two relations
-    assert result["cost_usd"] == pytest.approx(.13)
-    assert ledger.by_stage() == {"boundary_a_evidence": .10, "causal_spine": .03}
-    assert json.loads((tmp_path / "cost.json").read_text())["total_usd"] == .13
+    assert sum(c["kind"] == "function" for c in judge.calls) == 1  # narrowed setup still does its job
+    assert len(judge.calls) == 11  # events + assertions + changed assertion + relations + function
+    assert result["cost_usd"] == pytest.approx(.14)
+    assert ledger.by_stage() == {"boundary_a_evidence": .11, "causal_spine": .03}
+    assert json.loads((tmp_path / "cost.json").read_text())["total_usd"] == .14
     replay = story_planning.prepare(result["beats"], "backfiring_solution", claims,
                                     judge=judge, cache=result["cache"])
     assert replay["compiled"]["passed"] and replay["cost_usd"] == 0
-    assert len(replay["beats"]) == 6 and len(judge.calls) == 10
+    assert len(replay["beats"]) == 6 and len(judge.calls) == 11
 
 
 @pytest.mark.parametrize("state", ["Hanoi has an unwanted rat infestation near the river",

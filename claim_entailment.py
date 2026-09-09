@@ -156,7 +156,17 @@ def _default_judge(payload: dict) -> dict:
     """The real call. Imported lazily so the module is testable without a provider configured."""
     import explainer_pipeline as ep
 
-    if payload.get("kind") == "relationship":
+    if payload.get("kind") == "function":
+        system = _EVIDENCE_SYSTEM
+        body = ("SUPPORTED STATEMENT:\n" + payload["claims"][0]["claim"]
+                + "\nREQUIRED FACTUAL FUNCTION:\n" + payload["event"]
+                + "\nDoes this statement actually supply every required part of this function? "
+                  "Judge only the statement, not a planner's label or your background knowledge. "
+                  "Shared subjects are insufficient. A lack of impact studies does not establish "
+                  "which intervention was implemented or its purpose. Omitting a date is fine "
+                  "when the function does not require one. Return entailed only if the function "
+                  "remains complete.\n" + _RETURN_SHAPE)
+    elif payload.get("kind") == "relationship":
         system = _EVIDENCE_SYSTEM
         body = ("SUPPORTED FACTS:\n" + json.dumps(payload["claims"], ensure_ascii=False)
                 + "\nPROPOSED RELATIONSHIP:\n" + payload["event"]
@@ -210,6 +220,14 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
     if cache is not None and not is_retryable(result):
         cache[key] = dict(result)
     return result
+
+
+def function_fulfillment(statement: str, function: str, *, judge=None,
+                         cache=None, cost_sink=None) -> dict:
+    """Check a narrowed, already-supported fact still supplies its compiled story function."""
+    facts = [{"claim_id": "supported_core", "claim": statement}]
+    payload = {"kind": "function", "claims": facts, "event": function, "cost_sink": cost_sink}
+    return _judged(payload, cache_key(facts, function, kind="function"), judge, cache, "")
 
 
 def relationship_entailment(facts: list[dict], statement: str, *, judge=None,

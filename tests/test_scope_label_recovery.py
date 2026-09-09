@@ -23,6 +23,9 @@ ERROR = ("Research dossier failed before scripting [9 quotable excerpts availabl
          "scope_inflationx1]: A local or regional source is stated as a global claim.")
 RECOVERY = "scope_label_recovery_v1"
 CHECKPOINT_SHA = "a" * 64
+ECOSYSTEM_ERROR = ("STORY_SPINE_UNSUPPORTED\nwho was eating whom before anyone intervened\n"
+                   "[CLAIM_KIND_MISMATCH] beat event_01 is a setup beat citing c01, "
+                   "which is a mechanism claim; a setup beat may cite event, context, outcome")
 
 
 def dossier():
@@ -68,6 +71,7 @@ def test_checkpoint_review_reads_preserved_archive(tmp_path, valid, available):
     assert archive.exists()
 
 
+@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
     (False, True, False, "generic_illustrated"),
@@ -75,7 +79,8 @@ def test_checkpoint_review_reads_preserved_archive(tmp_path, valid, available):
     (True, True, True, "generic_illustrated"),
     (True, True, False, "directed_pilot"),
 ])
-def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, repaired, used, operation):
+def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, repaired, used, operation,
+                                                   recovery_type):
     _secure_environment(monkeypatch)
     repository = FakeActionRepository()
     now = datetime.now(timezone.utc)
@@ -85,16 +90,19 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
         "expires_at": now - timedelta(minutes=1), "spec_sha256": "f" * 64,
         "cost_ceiling_usd": 5, "claim_token_sha256": agent_actions.token_digest(ACTION_ID),
     }
-    job = {"id": "same-job", "status": "error", "error": ERROR,
+    recovery = RECOVERY if recovery_type == "scope" else "evidence_coverage_recovery_v1"
+    error = ERROR if recovery_type == "scope" else ECOSYSTEM_ERROR
+    job = {"id": "same-job", "status": "error", "error": error,
            "spent_cost_usd": 0.9083, "max_cost_usd": 5,
            "checkpoint": {"sha256": CHECKPOINT_SHA},
-           "result": {RECOVERY: {"checkpoint_sha256": CHECKPOINT_SHA}} if used else {}}
+           "result": {recovery: {"checkpoint_sha256": CHECKPOINT_SHA}} if used else {}}
     store = Mock()
     store.get_job.return_value = job
     monkeypatch.setattr(agent_actions, "repository", lambda: repository)
     monkeypatch.setattr(studio, "_durable_components", lambda: (store, object()))
     check = Mock(return_value=repaired)
-    monkeypatch.setattr(studio, "_scope_label_checkpoint_repaired", check)
+    monkeypatch.setattr(studio, "_scope_label_checkpoint_repaired" if recovery_type == "scope"
+                        else "_ecosystem_checkpoint_repairable", check)
     workers = []
 
     async def worker(job_id):
@@ -113,8 +121,9 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     anyio.run(run)
     if authorized and repaired and not used and operation == "generic_illustrated":
         store.rearm_infrastructure_failure.assert_called_once_with(
-            "same-job", error_fragment="scope_inflationx1", extra_attempts=1,
-            recovery_key=RECOVERY, expected_checkpoint_sha256=CHECKPOINT_SHA)
+            "same-job", error_fragment="scope_inflationx1" if recovery_type == "scope"
+            else "STORY_SPINE_UNSUPPORTED", extra_attempts=1,
+            recovery_key=recovery, expected_checkpoint_sha256=CHECKPOINT_SHA)
     else:
         store.rearm_infrastructure_failure.assert_not_called()
     assert workers == (["same-job"] if authorized else [])
