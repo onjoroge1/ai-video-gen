@@ -205,6 +205,19 @@ def test_v1_introduction_repair_gets_one_directional_replan():
     assert not coverage.legacy_introduction_dossier_repairable(data, message)
 
 
+def test_zero_excerpt_focused_failure_gets_one_provenance_replay():
+    _, data = fixture()
+    data[coverage.LEGACY_REPAIR_VERSION] = {
+        "gaps": [{"beat_id": "event_01"}], "added_claim_ids": ["c1"]}
+    message = ("Research dossier failed before scripting [0 quotable excerpts available; "
+               "unverified_support_quotex5]: " + "; ".join([
+                   "The claim support excerpt was not observed in a provider citation for its source URL."
+               ] * 3))
+    assert coverage.focused_provenance_failure(message)
+    assert coverage.focused_provenance_dossier_repairable(data, message)
+    assert not coverage.focused_provenance_failure(message.replace("0 quotable", "1 quotable"))
+
+
 def test_introduction_contract_never_requires_a_prearrival_role():
     prompt = compiler.factual_plan_prompt("Cane toads", 90, 7, "removed_keystone")
     assert "An introduced species cannot perform a setup function" in prompt

@@ -29,6 +29,10 @@ ECOSYSTEM_ERROR = ("STORY_SPINE_UNSUPPORTED\nwho was eating whom before anyone i
 INTRODUCTION_ERROR = ("STORY_SPINE_UNSUPPORTED\nwho was eating whom before anyone intervened\n"
                       "the species deliberately removed or introduced\n"
                       "[ROLE_CONTRACT_FAILED] event_01 no longer performs setup")
+PROVENANCE_ERROR = ("Research dossier failed before scripting [0 quotable excerpts available; "
+                    "unverified_support_quotex5]: " + "; ".join([
+                        "The claim support excerpt was not observed in a provider citation for its source URL."
+                    ] * 3))
 
 
 def dossier():
@@ -74,7 +78,7 @@ def test_checkpoint_review_reads_preserved_archive(tmp_path, valid, available):
     assert archive.exists()
 
 
-@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem", "introduction"])
+@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem", "introduction", "provenance"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
     (False, True, False, "generic_illustrated"),
@@ -94,9 +98,10 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
         "cost_ceiling_usd": 5, "claim_token_sha256": agent_actions.token_digest(ACTION_ID),
     }
     recovery = {"scope": RECOVERY, "ecosystem": "evidence_coverage_recovery_v1",
-                "introduction": "introduction_contract_recovery_v1"}[recovery_type]
+                "introduction": "introduction_contract_recovery_v1",
+                "provenance": "focused_evidence_provenance_recovery_v1"}[recovery_type]
     error = {"scope": ERROR, "ecosystem": ECOSYSTEM_ERROR,
-             "introduction": INTRODUCTION_ERROR}[recovery_type]
+             "introduction": INTRODUCTION_ERROR, "provenance": PROVENANCE_ERROR}[recovery_type]
     job = {"id": "same-job", "status": "error", "error": error,
            "spent_cost_usd": 0.9083, "max_cost_usd": 5,
            "checkpoint": {"sha256": CHECKPOINT_SHA},
@@ -108,7 +113,8 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     check = Mock(return_value=repaired)
     helper = {"scope": "_scope_label_checkpoint_repaired",
               "ecosystem": "_ecosystem_checkpoint_repairable",
-              "introduction": "_introduction_checkpoint_repairable"}[recovery_type]
+              "introduction": "_introduction_checkpoint_repairable",
+              "provenance": "_focused_provenance_checkpoint_repairable"}[recovery_type]
     monkeypatch.setattr(studio, helper, check)
     workers = []
 
@@ -128,8 +134,11 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     anyio.run(run)
     if authorized and repaired and not used and operation == "generic_illustrated":
         store.rearm_infrastructure_failure.assert_called_once_with(
-            "same-job", error_fragment="scope_inflationx1" if recovery_type == "scope"
-            else "STORY_SPINE_UNSUPPORTED", extra_attempts=1,
+            "same-job", error_fragment={"scope": "scope_inflationx1",
+                                         "ecosystem": "STORY_SPINE_UNSUPPORTED",
+                                         "introduction": "STORY_SPINE_UNSUPPORTED",
+                                         "provenance": "0 quotable excerpts available"}[recovery_type],
+            extra_attempts=1,
             recovery_key=recovery, expected_checkpoint_sha256=CHECKPOINT_SHA)
     else:
         store.rearm_infrastructure_failure.assert_not_called()
