@@ -3150,6 +3150,25 @@ async def execute_agent_action(action_id: str, request: Request,
     }
 
 
+def _scope_label_checkpoint_repaired(job: dict, store, blob) -> bool:
+    """Read and validate the exact saved dossier; no provider call or artifact rewrite."""
+    from longform_research import scope_label_dossier_repaired
+
+    checkpoint = job.get("checkpoint") or {}
+    if not checkpoint.get("sha256"):
+        return False
+    try:
+        with tempfile.TemporaryDirectory(prefix="scope_label_review_") as output_dir:
+            runtime = durable_execution.DurableRuntime(
+                job_id=job["id"], worker_id="read-only", output_dir=output_dir,
+                store=store, blob=blob)
+            runtime.restore_checkpoint(checkpoint)
+            with open(os.path.join(output_dir, "research_dossier.json"), encoding="utf-8") as handle:
+                return scope_label_dossier_repaired(json.load(handle))
+    except (OSError, ValueError, durable_execution.DurableExecutionError):
+        return False
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3158,6 +3177,7 @@ async def dispatch_agent_action(action_id: str, request: Request):
         LEGACY_DOSSIER_JSON_ERROR,
         is_legacy_anaphoric_claim_failure,
         is_legacy_negation_scope_failure,
+        is_legacy_scope_label_failure,
         is_legacy_weak_source_failure,
     )
     try:
@@ -3169,9 +3189,22 @@ async def dispatch_agent_action(action_id: str, request: Request):
     if action.get("status") != "queued" or not action.get("job_id"):
         raise HTTPException(status_code=409, detail="Agent action has no queued job")
     try:
-        store, _ = _durable_components()
+        store, blob = _durable_components()
         job = await asyncio.to_thread(store.get_job, str(action["job_id"]))
         if (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and is_legacy_scope_label_failure(str(job.get("error") or ""))
+                and not (job.get("result") or {}).get("scope_label_recovery_v1")
+                and await asyncio.to_thread(_scope_label_checkpoint_repaired, job, store, blob)):
+            # PR92 fixed the validator; this resumes its terminal pre-script failure once.
+            # Revalidate the checkpoint first, then bind the recovery atomically to that hash.
+            # The unchanged job replays its completed provider stages under the same approval.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="scope_inflationx1", extra_attempts=1,
+                recovery_key="scope_label_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+        elif (job and job.get("status") == "error"
                 and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):
             # One migration of the legacy parser failure. The provider request is
             # unchanged, so durable execution replays its paid response. The new

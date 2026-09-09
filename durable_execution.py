@@ -110,11 +110,16 @@ class PostgresStore(_legacy.PostgresStore):
         return self.get_job(job_id) or {}
 
     def rearm_infrastructure_failure(
-            self, job_id: str, *, error_fragment: str, extra_attempts: int = 3) -> dict:
+            self, job_id: str, *, error_fragment: str, extra_attempts: int = 3,
+            recovery_key: str = "", expected_checkpoint_sha256: str = "") -> dict:
         """Add a bounded retry window without changing payload, stages, spend, or cost ceiling."""
         fragment = str(error_fragment or "").strip()
         if not fragment or len(fragment) > 160:
             raise DurableExecutionError("A bounded infrastructure error fragment is required")
+        if recovery_key or expected_checkpoint_sha256:
+            if (not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", recovery_key)
+                    or not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256)):
+                raise DurableExecutionError("Recovery requires a key and exact checkpoint hash")
         retries = max(1, min(int(extra_attempts), 3))
         with self._tx() as (_, cur):
             cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
@@ -126,12 +131,23 @@ class PostgresStore(_legacy.PostgresStore):
                     >= float(current.get("max_cost_usd") or 0)):
                 raise DurableExecutionError(
                     f"Job {job_id} is not eligible for infrastructure rearm")
+            recovery = {}
+            if recovery_key:
+                if ((current.get("result") or {}).get(recovery_key)
+                        or (current.get("checkpoint") or {}).get("sha256")
+                        != expected_checkpoint_sha256):
+                    raise DurableExecutionError("Recovery was already used or its checkpoint changed")
+                recovery[recovery_key] = {
+                    "checkpoint_sha256": expected_checkpoint_sha256,
+                    "prior_error": current.get("error"),
+                }
             cur.execute("""
                 UPDATE generation_jobs SET status='queued',error=NULL,
                     max_attempts=GREATEST(max_attempts,attempts+%s),
+                    result=result || %s::jsonb,
                     lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
                 WHERE id=%s RETURNING *
-            """, (retries, job_id))
+            """, (retries, json.dumps(recovery), job_id))
             row = self._json_ready(self._row(cur, cur.fetchone())) or {}
         self.append_event(job_id, "infrastructure_rearmed", "Infrastructure retry window added", {
             "prior_error": fragment, "extra_attempts": retries,
