@@ -180,9 +180,24 @@ _ROLE_ACCEPTS = {
 }
 
 
-def accepted_claim_kinds(role: str) -> tuple:
-    """Claim kinds a beat in this role may cite. Empty means the beat should assert no history."""
-    return _ROLE_ACCEPTS.get(_text(role).lower(), CLAIM_KINDS)
+def accepted_claim_kinds(role: str, engine_id: str = "") -> tuple:
+    """Claim kinds a beat in this role may cite. Empty means the beat should assert no history.
+
+    The mechanism is the exception, and it follows from something already true rather than from a
+    new table. Where an engine DERIVES its mechanism, the mechanism really is an explanatory claim
+    and the default holds. Where it does not, the mechanism is a plain recorded fact and must be
+    allowed to cite one: removed_keystone's is "the cats had also been eating the rabbits" and
+    almost_happened_plan's is "the Lacey Act banned importing injurious wildlife". Neither is a
+    `mechanism`-kind claim, and demanding one refused Macquarie on its fifth beat after the other
+    four had passed.
+    """
+    role = _text(role).lower()
+    if role == "mechanism" and engine_id:
+        import event_functions as _ef
+        mapping = _ef.map_for(engine_id)
+        if mapping is not None and "mechanism" not in mapping.derived:
+            return CLAIM_KINDS
+    return _ROLE_ACCEPTS.get(role, CLAIM_KINDS)
 
 
 def _text(value: Any) -> str:
@@ -244,7 +259,8 @@ def visual_assertions_for(beat: dict) -> list[str]:
     return [item for item in out if item]
 
 
-def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -> list[dict]:
+def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None,
+                                engine_id: str = "") -> list[dict]:
     """Bindings the kind gate could not decide: unknown, unlabelled, or below MIN_KIND_CONFIDENCE.
 
     These are not failures and not passes. The gate abstained, so the paid entailment layer is the
@@ -258,7 +274,7 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
         role = _text(beat.get("role") or beat.get("causal_role")).lower()
-        if not role or not accepted_claim_kinds(role):
+        if not role or not accepted_claim_kinds(role, engine_id):
             continue
         for claim_id in event_of(beat)["claim_refs"]:
             claim = claims.get(claim_id) or {}
@@ -275,7 +291,7 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -
 
 
 def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
-                       claims: dict | None = None) -> list[dict]:
+                       claims: dict | None = None, engine_id: str = "") -> list[dict]:
     """The invariants that need no model, run before any judge call is bought.
 
     1. parallel_case content cannot appear outside the generalization
@@ -352,7 +368,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
 
         # 4. The claim must be the right KIND for this beat. A mechanism claim explains why
         #    something happened; it does not evidence that it happened.
-        accepted = accepted_claim_kinds(role)
+        accepted = accepted_claim_kinds(role, engine_id)
         # A DERIVED beat is exempt. The gate exists to catch a PLANNER binding the wrong kind of
         # claim to a role it chose -- a mechanism claim cited as evidence that something happened.
         # A derived beat has no such binding to catch: its role was computed from the facts, and
@@ -450,7 +466,8 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
 
 def validate_cascade(beats: list[dict], claims: dict | None = None,
                      claims_by_case: dict | None = None, *,
-                     judge=None, cache: dict | None = None, cost_sink: list | None = None) -> dict:
+                     judge=None, cache: dict | None = None, cost_sink: list | None = None,
+                     engine_id: str = "") -> dict:
     """Structure, then evidence, then fidelity — each stage seeing only what survived the last.
 
         1. schema, role, scope, kind, parallel-case integrity   free
@@ -468,9 +485,9 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
     """
     import claim_entailment as ce
 
-    structural = validate_structure(beats, claims_by_case, claims)
+    structural = validate_structure(beats, claims_by_case, claims, engine_id)
     blocked = {issue.get("beat_id") for issue in structural if issue.get("beat_id")}
-    indeterminate = indeterminate_kind_bindings(beats, claims)
+    indeterminate = indeterminate_kind_bindings(beats, claims, engine_id)
     abstained = {row["beat_id"] for row in indeterminate}
 
     evidence, fidelity, skipped, unavailable = [], [], [], []
@@ -1009,7 +1026,8 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                 "effective_beats": beats, "relationships": [], "engine": engine_id,
                 "still_failing": [], "cascade": validate_cascade(beats, claims, claims_by_case,
                                                                  judge=judge, cache=cache,
-                                                                 cost_sink=cost_sink)}
+                                                                 cost_sink=cost_sink,
+                                                                 engine_id=engine_id)}
 
     duplicates = duplicate_event_functions(beats, engine_id)
     dropped_ids = {issue["beat_id"] for issue in duplicates if issue.get("collapsible")}
@@ -1017,7 +1035,7 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                if (_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}") not in dropped_ids]
 
     report = validate_cascade(deduped, claims, claims_by_case,
-                              judge=judge, cache=cache, cost_sink=cost_sink)
+                              judge=judge, cache=cache, cost_sink=cost_sink, engine_id=engine_id)
     failed = {issue.get("beat_id") for issue in report["structural"] if issue.get("beat_id")}
     failed |= {row["beat_id"] for row in report["evidence"]}
     failed |= {row["beat_id"] for row in report["fidelity"]}
