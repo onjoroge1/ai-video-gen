@@ -188,7 +188,11 @@ def test_measure_narration_reads_the_reference_cadence():
 def test_story_direction_states_what_the_validator_enforces():
     direction = cs.story_direction("Why did the bounty backfire?")
     assert "caused_by" in direction
-    assert f"{cs.MIN_CHAPTERS}-{cs.MAX_CHAPTERS} spoken chapters" in direction
+    # The chapter band is stated either way; whether the number is SPOKEN is the flag's business,
+    # and the direction must not ask for a marker the writers will strip.
+    assert f"{cs.MIN_CHAPTERS}-{cs.MAX_CHAPTERS} chapters" in direction
+    if not cs.speaks_chapter_markers():
+        assert "Step one" not in direction or "never write" in direction.casefold()
     assert "State the mechanism ONCE" in direction
 
 
@@ -301,6 +305,7 @@ def test_repair_rebuilds_dangling_and_backward_causal_edges():
     assert any("caused_by" in change for change in changes)
 
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_finalize_normalizes_the_spine_without_editing_prose():
     """The spoken marker is mechanical, so it is done in code. The hinge is not.
 
@@ -362,6 +367,7 @@ def test_the_spoken_marker_does_not_spend_the_hinge_budget():
     assert "SOFT_HINGE" not in {error["code"] for error in report["errors"]}
 
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_a_marker_repeated_inside_a_chapter_is_removed():
     """A live run announced "Step one" again three scenes into chapter one.
 
@@ -614,6 +620,7 @@ def test_a_mood_beat_needs_no_citation_but_a_factual_one_still_does():
 
 # --- the spoken hook, the reserved clock, and the per-engine deadline ---------------------------
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_the_hook_is_spoken_before_the_chapter_marker():
     """The video used to open on the literal numeral "Step one."
 
@@ -634,6 +641,7 @@ def test_the_hook_is_spoken_before_the_chapter_marker():
     assert scenes[1]["narration"] == "Step two. The canals leaked."
 
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_without_a_hook_the_marker_still_leads():
     scenes = [{"chapter": 1, "causal_role": "setup", "narration": "A trawler on sand."}]
     cs.finalize_narration(scenes)
@@ -677,6 +685,7 @@ def test_the_reveal_deadline_is_per_engine_not_a_global_loosening():
 # that existed. Two of them were introduced by the hook change in the same session that shipped it:
 # the tests passed because they called finalize_narration once and never checked the arithmetic.
 
+@pytest.mark.usefixtures("spoken_markers_on")
 def test_finalize_narration_is_idempotent():
     """A second pass used to prepend another copy of hook + tag + marker.
 
@@ -804,3 +813,71 @@ def test_an_engine_that_has_a_false_resolution_still_requires_one():
     issues = []
     cs._check_roles(steps, issues, se.get(se.BACKFIRING_SOLUTION))
     assert "UNEARNED_HINGE" in [i.get("code") for i in issues]
+
+
+def test_the_spoken_marker_is_off_by_default_at_both_writers():
+    """It was animated. `_repair_anchor_phrases` pins beat 0's anchor to the first five words of
+    the opening sentence, which on a chapter opener IS the marker, and that anchor flows into the
+    evidence state and then into the image-to-video prompt. Two delivered renders animated the
+    word "Step", at $1.12 of Kling v3 pro. It also lands in the narration the fidelity boundary
+    measures against a factual event, where a structural numeral has nothing to support it.
+    """
+    import illustrated_story as ils
+    assert not cs.speaks_chapter_markers(), "default is off"
+    scenes = [{"narration": "The sewers became a rat paradise.", "chapter": 1, "causal_role": "setup"},
+              {"narration": "Tail counts soared.", "chapter": 2, "causal_role": "false_resolution"}]
+    cs.finalize_narration(scenes, hook="Officials paid per tail and bred more rats.")
+    assert not ils.announce_chapters(scenes), "the second writer adds nothing either"
+    joined = " ".join(s["narration"] for s in scenes)
+    assert "Step one" not in joined and "Step two" not in joined
+    assert joined.startswith("Officials paid per tail"), "the spoken hook still leads"
+
+
+def test_chapters_themselves_survive_the_marker_being_silent():
+    """Only the spoken numeral goes. Chapters carry word budgets and the storyboard payload."""
+    scenes = [{"narration": "One.", "chapter": 1, "causal_role": "setup"},
+              {"narration": "Two.", "chapter": 2, "causal_role": "reversal"}]
+    cs.finalize_narration(scenes, hook="A hook.")
+    assert [s["chapter"] for s in scenes] == [1, 2]
+
+
+def test_a_cascade_engine_is_not_asked_for_a_spiral():
+    """Two escalations is right for a spiral and wrong for a cascade.
+
+    A bounty spirals: tails are cut, then rats are farmed, because each round of exploitation
+    invites the next. An ecological cascade runs once -- the cats go, the rabbits surge, the
+    vegetation goes -- and demanding a second escalation asks for a beat the events do not contain.
+    """
+    import story_engines as se
+
+    assert cs.MIN_ESCALATIONS == 2, "the default is still the spiral"
+    assert se.ENGINES["removed_keystone"]["min_escalations"] == 1
+    assert "min_escalations" not in se.ENGINES["backfiring_solution"]
+
+    steps = [{"role": cs.SETUP, "step_id": "s1"}, {"role": cs.INTERVENTION, "step_id": "s2"},
+             {"role": cs.MECHANISM, "step_id": "s3"}, {"role": cs.ESCALATION, "step_id": "s4"},
+             {"role": cs.REVERSAL, "step_id": "s5"}, {"role": cs.TOOL, "step_id": "s6"}]
+    issues = []
+    cs._check_roles(steps, issues, se.ENGINES["removed_keystone"])
+    assert "THIN_CHAIN" not in [i["code"] for i in issues]
+    spiral = []
+    cs._check_roles(steps, spiral, se.ENGINES["backfiring_solution"])
+    assert "THIN_CHAIN" in [i["code"] for i in spiral], "the bounty engine still wants two"
+
+
+def test_a_hinge_needs_a_false_resolution_only_where_the_engine_requires_one():
+    """removed_keystone CAN carry one -- the target species really did respond at first -- but does
+    not require it, because plenty of introductions never worked even briefly. Reading the sequence
+    rather than the requirement demanded a beat the engine calls optional."""
+    import story_engines as se
+
+    steps = [{"role": cs.SETUP, "step_id": "s1"}, {"role": cs.INTERVENTION, "step_id": "s2"},
+             {"role": cs.HINGE, "step_id": "s3"}, {"role": cs.MECHANISM, "step_id": "s4"},
+             {"role": cs.ESCALATION, "step_id": "s5"}, {"role": cs.REVERSAL, "step_id": "s6"},
+             {"role": cs.TOOL, "step_id": "s7"}]
+    keystone = []
+    cs._check_roles(steps, keystone, se.ENGINES["removed_keystone"])
+    assert "UNEARNED_HINGE" not in [i["code"] for i in keystone]
+    bounty = []
+    cs._check_roles(steps, bounty, se.ENGINES["backfiring_solution"])
+    assert "UNEARNED_HINGE" in [i["code"] for i in bounty], "a bounty must show the fix working"

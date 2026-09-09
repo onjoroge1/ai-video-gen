@@ -219,3 +219,156 @@ def test_a_hinge_that_moves_the_model_is_fine():
                               "to": "the bounty is paying for the wrong thing"}}
     codes = {i["code"] for i in sfm.validate_structure([beat])}
     assert "HINGE_CHANGES_NOTHING" not in codes
+
+
+def test_the_hook_is_judged_against_the_story_not_against_beat_one():
+    """Measured on the Hanoi render: a true, cited hook was reported as an unsupported claim.
+
+    finalize_narration prepends the spoken hook to scene 1, so the fidelity boundary compared a
+    promise about the whole video with the single event that scene carried -- one about sewers.
+    "French officials paid a bounty for every dead rat, then watched Hanoi breed more rats" is
+    sourced twice over and mentions neither sewers nor anything in that beat.
+    """
+    import longform_research as lr
+
+    hook = "Officials paid a bounty per rat tail, then watched the city breed more rats."
+    script = {"hook": hook, "scenes": [
+        {"scene_id": "event_01", "causal_role": "setup",
+         "narration": f"{hook} Hanoi's proud new sewers became a rat paradise.",
+         "event": {"text": "Hanoi's new sewers created ideal habitat for rats.",
+                   "claim_refs": ["c04"]}},
+        {"scene_id": "event_02", "causal_role": "intervention",
+         "narration": "So officials paid a bounty per rat tail.",
+         "event": {"text": "Authorities announced a bounty paid per rat tail.",
+                   "claim_refs": ["c08"]}},
+        {"scene_id": "event_03", "causal_role": "reversal",
+         "narration": "On the outskirts, people bred rats to earn it.",
+         "event": {"text": "People bred rats on the outskirts to earn the bounty.",
+                   "claim_refs": ["c14"]}}]}
+    dossier = {"claims": [
+        {"claim_id": "c04", "claim": "The sewers created ideal rat habitat.", "verified": True},
+        {"claim_id": "c08", "claim": "A bounty was paid per rat tail.", "verified": True},
+        {"claim_id": "c14", "claim": "People bred rats to earn the bounty.", "verified": True}]}
+
+    judged = []
+
+    def judge(payload, **kwargs):
+        judged.append(payload)
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    report = lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    assert not [e for e in report["errors"] if e["code"] == "HOOK_EXCEEDS_STORY"]
+    fidelity = [p for p in judged if p.get("kind") == "fidelity"]
+
+    # Scene 1 was measured WITHOUT the hook glued to it.
+    scene_one = [p for p in fidelity if "proud new sewers" in p["narration"]]
+    assert scene_one and hook not in scene_one[0]["narration"], \
+        "the hook must not be judged as an assertion about the sewers beat"
+
+    # And it WAS measured, against the union of the events the spine establishes.
+    hook_check = [p for p in fidelity if p["narration"] == hook]
+    assert hook_check, "the hook is judged, not merely excused"
+    assert "bred rats" in hook_check[0]["event"] and "sewers" in hook_check[0]["event"]
+
+
+def test_a_hook_that_promises_more_than_the_story_delivers_still_fails():
+    """Lifting the hook out of beat one must not become a way of exempting it."""
+    import longform_research as lr
+
+    hook = "The bounty was cancelled and the rats vanished overnight."
+    script = {"hook": hook, "scenes": [
+        {"scene_id": "event_01", "causal_role": "setup", "narration": f"{hook} The sewers filled.",
+         "event": {"text": "Hanoi's new sewers created ideal habitat for rats.",
+                   "claim_refs": ["c04"]}}]}
+    dossier = {"claims": [{"claim_id": "c04", "claim": "The sewers created rat habitat.",
+                           "verified": True}]}
+
+    def judge(payload, **kwargs):
+        if payload.get("narration") == hook:
+            return {"verdict": "unsupported", "supported_core": "",
+                    "unsupported_details": ["the cancellation", "the rats vanishing"]}
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    report = lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    codes = [e["code"] for e in report["errors"]]
+    assert "HOOK_EXCEEDS_STORY" in codes and not report["passed"]
+
+
+def test_the_hook_ceiling_excludes_events_that_failed_their_own_evidence():
+    """A hook cannot be justified by a beat the evidence boundary already rejected."""
+    import longform_research as lr
+
+    hook = "People bred rats to earn the bounty."
+    script = {"hook": hook, "scenes": [
+        {"scene_id": "event_01", "causal_role": "setup", "narration": f"{hook} The sewers filled.",
+         "event": {"text": "People bred rats on the outskirts.", "claim_refs": ["c14"]}}]}
+    dossier = {"claims": [{"claim_id": "c14", "claim": "Unrelated.", "verified": True}]}
+    seen = []
+
+    def judge(payload, **kwargs):
+        seen.append(payload)
+        if payload.get("kind") == "evidence":
+            return {"verdict": "unsupported", "supported_core": "", "unsupported_details": ["all"]}
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    report = lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    # The only event failed its evidence, so it cannot appear in the hook's ceiling. With nothing
+    # left, the hook is reported as exceeding the story rather than quietly excused.
+    assert not [p for p in seen if p.get("narration") == hook and "bred rats" in p["event"]], \
+        "an unsupported event must not raise the hook's ceiling"
+    assert "HOOK_EXCEEDS_STORY" in [e["code"] for e in report["errors"]]
+
+
+def test_the_hook_may_draw_on_the_claims_behind_the_supported_events():
+    """The events state the proxy; the story a viewer is promised starts with the announcement.
+
+    Measured: a hook saying officials "paid Hanoi residents for rats" was flagged for implying
+    whole rats, because the mechanism event says the reward was paid for a severed tail. The
+    announcement -- "a bounty on every dead rat" -- is a separate verified claim, and the judge's
+    own supported_core handed the same sentence back. Bounded by the spine: only claims cited by
+    events that passed.
+    """
+    import longform_research as lr
+
+    hook = "Officials paid Hanoi residents for rats, then residents bred rats to get paid."
+    script = {"hook": hook, "scenes": [
+        {"scene_id": "event_04", "causal_role": "intervention",
+         "narration": f"{hook} A bounty appeared.",
+         "event": {"text": "The reward was paid for a severed rat tail.", "claim_refs": ["c08"]}}]}
+    dossier = {"claims": [{"claim_id": "c08", "verified": True,
+                           "claim": "In April 1902 the authorities announced a bounty on every "
+                                    "dead rat."}]}
+    seen = []
+
+    def judge(payload, **kwargs):
+        seen.append(payload)
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    ceiling = next(p["event"] for p in seen
+                   if p.get("kind") == "fidelity" and p["narration"] == hook)
+    assert "severed rat tail" in ceiling, "the event is still the backbone of the ceiling"
+    assert "bounty on every dead rat" in ceiling, "and the claim behind it is available too"
+
+
+def test_the_engine_reaches_the_post_script_validation_too():
+    """The spine gate knew the engine and this path did not, so it fell back to a contract written
+    for another engine: CLAIM_KIND_MISMATCH on a removed_keystone mechanism citing a context claim,
+    which is what that engine's mechanism IS. And because that code is not repairable, the whole
+    claim repair bailed and seven ordinary narration overshoots went unrepaired behind it."""
+    import longform_research as lr
+
+    script = {"_story_engine": "removed_keystone", "hook": "", "scenes": [
+        {"scene_id": "event_04", "causal_role": "mechanism",
+         "narration": "The cats had also been eating the rabbits.",
+         "event": {"text": "Cats preyed on the island's rabbits as well as its seabirds.",
+                   "claim_refs": ["c01"]}}]}
+    dossier = {"claims": [{"claim_id": "c01", "verified": True, "claim_kind": "context",
+                           "claim_kind_confidence": 0.95,
+                           "claim": "Cats on the island preyed on rabbits and seabirds."}]}
+
+    def judge(payload, **kwargs):
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    report = lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    assert "CLAIM_KIND_MISMATCH" not in [e["code"] for e in report["errors"]]

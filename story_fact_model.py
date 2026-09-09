@@ -180,9 +180,24 @@ _ROLE_ACCEPTS = {
 }
 
 
-def accepted_claim_kinds(role: str) -> tuple:
-    """Claim kinds a beat in this role may cite. Empty means the beat should assert no history."""
-    return _ROLE_ACCEPTS.get(_text(role).lower(), CLAIM_KINDS)
+def accepted_claim_kinds(role: str, engine_id: str = "") -> tuple:
+    """Claim kinds a beat in this role may cite. Empty means the beat should assert no history.
+
+    The mechanism is the exception, and it follows from something already true rather than from a
+    new table. Where an engine DERIVES its mechanism, the mechanism really is an explanatory claim
+    and the default holds. Where it does not, the mechanism is a plain recorded fact and must be
+    allowed to cite one: removed_keystone's is "the cats had also been eating the rabbits" and
+    almost_happened_plan's is "the Lacey Act banned importing injurious wildlife". Neither is a
+    `mechanism`-kind claim, and demanding one refused Macquarie on its fifth beat after the other
+    four had passed.
+    """
+    role = _text(role).lower()
+    if role == "mechanism" and engine_id:
+        import event_functions as _ef
+        mapping = _ef.map_for(engine_id)
+        if mapping is not None and "mechanism" not in mapping.derived:
+            return CLAIM_KINDS
+    return _ROLE_ACCEPTS.get(role, CLAIM_KINDS)
 
 
 def _text(value: Any) -> str:
@@ -244,7 +259,8 @@ def visual_assertions_for(beat: dict) -> list[str]:
     return [item for item in out if item]
 
 
-def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -> list[dict]:
+def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None,
+                                engine_id: str = "") -> list[dict]:
     """Bindings the kind gate could not decide: unknown, unlabelled, or below MIN_KIND_CONFIDENCE.
 
     These are not failures and not passes. The gate abstained, so the paid entailment layer is the
@@ -258,7 +274,7 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
         role = _text(beat.get("role") or beat.get("causal_role")).lower()
-        if not role or not accepted_claim_kinds(role):
+        if not role or not accepted_claim_kinds(role, engine_id):
             continue
         for claim_id in event_of(beat)["claim_refs"]:
             claim = claims.get(claim_id) or {}
@@ -275,7 +291,7 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None) -
 
 
 def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
-                       claims: dict | None = None) -> list[dict]:
+                       claims: dict | None = None, engine_id: str = "") -> list[dict]:
     """The invariants that need no model, run before any judge call is bought.
 
     1. parallel_case content cannot appear outside the generalization
@@ -352,7 +368,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
 
         # 4. The claim must be the right KIND for this beat. A mechanism claim explains why
         #    something happened; it does not evidence that it happened.
-        accepted = accepted_claim_kinds(role)
+        accepted = accepted_claim_kinds(role, engine_id)
         # A DERIVED beat is exempt. The gate exists to catch a PLANNER binding the wrong kind of
         # claim to a role it chose -- a mechanism claim cited as evidence that something happened.
         # A derived beat has no such binding to catch: its role was computed from the facts, and
@@ -450,7 +466,8 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
 
 def validate_cascade(beats: list[dict], claims: dict | None = None,
                      claims_by_case: dict | None = None, *,
-                     judge=None, cache: dict | None = None, cost_sink: list | None = None) -> dict:
+                     judge=None, cache: dict | None = None, cost_sink: list | None = None,
+                     engine_id: str = "") -> dict:
     """Structure, then evidence, then fidelity — each stage seeing only what survived the last.
 
         1. schema, role, scope, kind, parallel-case integrity   free
@@ -468,9 +485,9 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
     """
     import claim_entailment as ce
 
-    structural = validate_structure(beats, claims_by_case, claims)
+    structural = validate_structure(beats, claims_by_case, claims, engine_id)
     blocked = {issue.get("beat_id") for issue in structural if issue.get("beat_id")}
-    indeterminate = indeterminate_kind_bindings(beats, claims)
+    indeterminate = indeterminate_kind_bindings(beats, claims, engine_id)
     abstained = {row["beat_id"] for row in indeterminate}
 
     evidence, fidelity, skipped, unavailable = [], [], [], []
@@ -616,6 +633,21 @@ REQUIRED_SPINE_ROLES = ("setup", "intervention", "false_resolution", "mechanism"
                         "escalation", "reversal")
 
 
+def role_function(role: str, engine_id: str = "") -> str:
+    """What this role means IN THIS ENGINE.
+
+    CENTRAL_FUNCTIONS describes a bounty that ran, which is where it came from. Applied to
+    almost_happened_plan it told a story about a bill dying in committee that its escalation should
+    show "HOW people exploit it, compounding" -- of an event where nobody exploits anything. The
+    role names are shared; the jobs are not.
+    """
+    import event_functions as _ef
+    mapping = _ef.map_for(engine_id) if engine_id else None
+    if mapping is not None and role in getattr(mapping, "role_meanings", {}):
+        return mapping.role_meanings[role]
+    return CENTRAL_FUNCTIONS.get(role, "")
+
+
 def required_spine_roles(engine_id: str = "") -> tuple:
     if engine_id:
         import story_engines as engines
@@ -707,8 +739,8 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
                 issues.append(_issue(
                     "DUPLICATE_ACROSS_REQUIRED_ROLES",
                     f"{prior_role} and {role} describe the same state change, so the {role} is not "
-                    f"doing its job. {prior_role}: {CENTRAL_FUNCTIONS.get(prior_role, '')}. "
-                    f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}. Required repair: write a {role} "
+                    f"doing its job. {prior_role}: {role_function(prior_role, engine_id)}. "
+                    f"{role}: {role_function(role, engine_id)}. Required repair: write a {role} "
                     "that is distinct from the " + prior_role,
                     beat_id=beat_id, duplicate_of=prior_id, collapsible=False))
                 break
@@ -716,7 +748,7 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
                 issues.append(_issue(
                     "DUPLICATE_EVENT_FUNCTION",
                     f"beat {beat_id} performs the same causal job as {prior_id} "
-                    f"({CENTRAL_FUNCTIONS.get(prior_role, prior_role)}); collapse them into one "
+                    f"({role_function(prior_role, engine_id) or prior_role}); collapse them into one "
                     "beat rather than sourcing the same state change twice",
                     beat_id=beat_id, duplicate_of=prior_id, collapsible=True))
                 break
@@ -800,7 +832,7 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
             blocked.append(_issue("ROLE_CONTRACT_FAILED",
                                   f"beat {beat_id}: narrowing to the supported core left a {role} "
                                   f"that no longer performs its function — {why}. "
-                                  f"{role}: {CENTRAL_FUNCTIONS.get(role, '')}",
+                                  f"{role}: {role_function(role, engine_id)}",
                                   beat_id=beat_id, role=role))
             out.append(beat)
             continue
@@ -984,6 +1016,7 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                                  "so nothing about this story has been checked against evidence")
                           ] if claims else []
         return {"schema_version": SCHEMA_VERSION, "passed": not missing_events, "assessed": False,
+                "engine_id": engine_id,
                 "coverage": {"required": list(required_spine_roles(engine_id)), "supported_by_role": {},
                              "missing": [], "covered": False},
                 "collapsed_duplicates": [], "duplicate_across_roles": [],
@@ -993,7 +1026,8 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                 "effective_beats": beats, "relationships": [], "engine": engine_id,
                 "still_failing": [], "cascade": validate_cascade(beats, claims, claims_by_case,
                                                                  judge=judge, cache=cache,
-                                                                 cost_sink=cost_sink)}
+                                                                 cost_sink=cost_sink,
+                                                                 engine_id=engine_id)}
 
     duplicates = duplicate_event_functions(beats, engine_id)
     dropped_ids = {issue["beat_id"] for issue in duplicates if issue.get("collapsible")}
@@ -1001,7 +1035,7 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
                if (_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}") not in dropped_ids]
 
     report = validate_cascade(deduped, claims, claims_by_case,
-                              judge=judge, cache=cache, cost_sink=cost_sink)
+                              judge=judge, cache=cache, cost_sink=cost_sink, engine_id=engine_id)
     failed = {issue.get("beat_id") for issue in report["structural"] if issue.get("beat_id")}
     failed |= {row["beat_id"] for row in report["evidence"]}
     failed |= {row["beat_id"] for row in report["fidelity"]}
@@ -1043,6 +1077,8 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     return {
         "schema_version": SCHEMA_VERSION,
         "assessed": True,
+        # Carried so the summary can describe each role the way THIS engine means it.
+        "engine_id": engine_id,
         "engine": engine_id,
         # A spine is usable when every required causal function is evidenced and nothing that
         # survived pruning is still failing.
@@ -1140,7 +1176,7 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
     lines.append("Required causal functions:")
     for role in coverage["required"]:
         mark = "+" if coverage["supported_by_role"].get(role) else "-"
-        lines.append(f"  {mark} {role:18s} {CENTRAL_FUNCTIONS.get(role, '')}")
+        lines.append(f"  {mark} {role:18s} {role_function(role, compiled.get('engine_id', ''))}")
     if coverage["missing"]:
         lines += ["", "MISSING — the story cannot be told without these:"]
         for role in coverage["missing"]:
@@ -1179,8 +1215,11 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
         # Every failure states its cause. A beat listed here with no reason sends an operator
         # hunting through three layers to find out whether the evidence or the schema rejected it.
         cascade = compiled.get("cascade") or {}
+        # NOT truncated. This line is the whole reason the summary exists, and clipping it at 90
+        # characters cut off the half that says what was missing -- "...but do not" was where three
+        # consecutive investigations had to stop and re-run the render to learn any more.
         reason = {row["beat_id"]: f"[{row.get('verdict', 'evidence')}] "
-                                  f"{_text(row.get('reason') or row.get('message'))[:90]}"
+                                  f"{_text(row.get('reason') or row.get('message'))}"
                   for row in (cascade.get("evidence") or []) + (cascade.get("fidelity") or [])
                   if row.get("beat_id")}
         for issue in cascade.get("structural") or []:

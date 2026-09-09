@@ -176,3 +176,59 @@ def test_research_generation_uses_bounded_server_search_and_validates(monkeypatc
     assert calls[0]["tools"][0]["max_uses"] == 5
     assert result["web_search_requests"] == 2
     assert result["search_cost_reservation_usd"] == 0.2
+
+
+def test_a_two_era_dossier_is_named_before_the_beat_sheet_is_bought():
+    """"Why don't Americans eat hippo meat?" returned 21 verified claims -- more than the Hanoi
+    dossier that works -- split between a 1910 congressional episode and modern African
+    conservation. The planner built one spine from both: `world_without_it` came back as a 2006
+    IUCN listing for a bill that died in 1910. Nothing noticed until three runs later."""
+    import longform_research as lr
+
+    dossier = {"claims": [
+        {"claim_id": "c1", "verified": True,
+         "claim": "In 1910 Robert Broussard introduced the American Hippo Bill."},
+        {"claim_id": "c2", "verified": True,
+         "claim": "The hippo has been listed as Vulnerable on the IUCN Red List since 2006."},
+        {"claim_id": "c3", "verified": True,
+         "claim": "A 2008 assessment counted 115,000 hippos across Africa."}]}
+    split = lr.era_split(dossier)
+    assert split["spans_eras"] and len(split["clusters"]) == 2
+    assert [c["from"] for c in split["clusters"]] == [1910, 2006]
+    assert "two stories" in lr.era_split_report(split)
+
+
+def test_a_history_written_later_is_not_era_drift():
+    """The Hanoi dossier -- the one that works -- cites Vann's 2003 history of a 1902 bounty.
+
+    Reading a publication date as a century of drift flagged the exact story this check exists to
+    leave alone. A comparable case is excluded for the same reason: it is SUPPOSED to come from
+    another time and place.
+    """
+    import longform_research as lr
+
+    dossier = {"claims": [
+        {"claim_id": "c1", "verified": True,
+         "claim": "In April 1902 the colonial authorities announced a bounty on every dead rat."},
+        {"claim_id": "c2", "verified": True,
+         "claim": "Michael G. Vann published a peer-reviewed academic account of the episode "
+                  "in 2003."},
+        {"claim_id": "c3", "verified": True,
+         "claim": "COMPARABLE CASE (USA, 2007): Fort Benning offered a bounty per pig tail."}]}
+    split = lr.era_split(dossier)
+    assert not split["spans_eras"], "one episode, one period"
+    assert lr.era_split_report(split) == ""
+
+
+def test_a_single_period_dossier_reports_nothing():
+    import longform_research as lr
+    assert not lr.era_split({"claims": []})["spans_eras"]
+    assert not lr.era_split({"claims": [{"claim_id": "c1", "verified": True,
+                                         "claim": "No dates here at all."}]})["spans_eras"]
+
+
+def test_no_dossier_is_not_a_failure():
+    """The causal lane reaches this with research off; crashing there turns absence into a fault."""
+    import longform_research as lr
+    for empty in (None, {}, {"claims": None}):
+        assert lr.era_split(empty)["spans_eras"] is False

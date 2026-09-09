@@ -42,6 +42,17 @@ from test_illustrated_story import _script
 from test_story_planning_flow import expanded_fixture
 
 
+@pytest.fixture(autouse=True)
+def _state_once_is_not_under_test(monkeypatch):
+    """STATE-ONCE now runs on fact-model scripts, and these tests are about the fact flow.
+
+    Left live it adds a provider call these fixtures do not stub, so the strict
+    unexpected-request guard fires on a pass that has nothing to do with what they assert.
+    """
+    import explainer_pipeline
+    monkeypatch.setattr(explainer_pipeline, "_dedupe_narration",
+                        lambda scenes, beats, throughline: (scenes, 0.0))
+
 class DeliveryStore(MemoryStore):
     """Persistence boundary only; the actual runtime owns spend and checkpoints."""
 

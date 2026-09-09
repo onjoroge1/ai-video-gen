@@ -460,3 +460,56 @@ def test_a_planner_written_beat_still_faces_the_kind_gate():
             "event": {"text": "The reward was paid for a tail.", "claim_refs": ["c09"]}}
     assert [i["code"] for i in sfm.validate_structure([beat], {}, claims)
             if i["code"] == "CLAIM_KIND_MISMATCH"]
+
+
+def test_each_engine_describes_its_roles_in_its_own_terms():
+    """CENTRAL_FUNCTIONS describes a bounty that ran, which is where it came from.
+
+    Applied to almost_happened_plan it told a story about a bill dying in committee that its
+    escalation should show "HOW people exploit it, compounding" -- of an event where nobody
+    exploits anything. The role names are shared; the jobs are not.
+    """
+    assert sfm.role_function("escalation", "backfiring_solution") == \
+        "HOW people exploit it, compounding"
+    assert sfm.role_function("escalation", "almost_happened_plan") == \
+        "the opposition gathering against it"
+    assert sfm.role_function("mechanism", "almost_happened_plan") == \
+        "the specific thing that killed it"
+    # An engine with no map keeps the shared defaults rather than losing its guidance.
+    assert sfm.role_function("escalation", "power_reversal") == \
+        "HOW people exploit it, compounding"
+    assert sfm.role_function("escalation", "") == "HOW people exploit it, compounding"
+    assert sfm.role_function("not_a_role", "almost_happened_plan") == ""
+
+
+def test_the_engines_meaning_reaches_the_messages_an_operator_reads():
+    """A refusal that explains the role in another engine's terms sends the repair the wrong way."""
+    source = open(sfm.__file__, encoding="utf-8").read()
+    # Skip role_function's own fallback, which is the one legitimate default lookup.
+    body = source[source.index("def required_spine_roles"):]
+    for site in ("ROLE_CONTRACT_FAILED", "Required repair: write a"):
+        assert site in body
+    assert "CENTRAL_FUNCTIONS.get(role, '')" not in body, \
+        "every operator-facing message goes through role_function"
+    out = sfm.compile_spine([], {}, {}, engine_id="almost_happened_plan")
+    assert out["engine_id"] == "almost_happened_plan", "carried so the summary can use it"
+
+
+def test_a_mechanism_the_engine_does_not_derive_may_cite_a_plain_fact():
+    """Macquarie passed four required functions and was refused on the fifth.
+
+    Its mechanism -- "the cats had also been eating the rabbits" -- cites a context claim, because
+    that is what it IS. Only an engine that DERIVES its mechanism has an explanatory claim to
+    demand; where the mechanism is a recorded fact, demanding a `mechanism`-kind claim refuses the
+    story for being built the way that engine builds it.
+    """
+    assert "mechanism" in sfm.CLAIM_KINDS
+    # Derived: the default holds, and a context claim is not acceptable evidence for the rule.
+    assert "context" not in sfm.accepted_claim_kinds("mechanism", "backfiring_solution")
+    # Not derived: the mechanism is a fact and may cite one.
+    for engine in ("removed_keystone", "almost_happened_plan"):
+        assert "context" in sfm.accepted_claim_kinds("mechanism", engine)
+        assert "event" in sfm.accepted_claim_kinds("mechanism", engine)
+    # Unmapped engines and other roles are untouched.
+    assert sfm.accepted_claim_kinds("mechanism") == sfm.accepted_claim_kinds("mechanism", "")
+    assert sfm.accepted_claim_kinds("setup", "removed_keystone") == sfm.accepted_claim_kinds("setup")

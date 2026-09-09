@@ -239,11 +239,17 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
 
     compounded = sum(s["role"] == REVERSAL and s.get("event_function") == "compounds_exploit"
                      for s in steps) if (engine or {}).get("compiled_compounding") else 0
-    if counts.get(ESCALATION, 0) + compounded < MIN_ESCALATIONS:
+    # A SPIRAL IS ONE SHAPE, NOT THE ONLY SHAPE. Two escalations is right where people keep
+    # responding to an incentive -- tails are cut, then rats are farmed -- because each round of
+    # exploitation invites the next. An ecological cascade does not spiral: the cats go, the
+    # rabbits surge, the vegetation goes, and that is the whole mechanism running once. Demanding
+    # a second escalation of removed_keystone asks for a beat the events do not contain.
+    minimum = int((engine or {}).get("min_escalations") or MIN_ESCALATIONS)
+    if counts.get(ESCALATION, 0) + compounded < minimum:
         issues.append(_issue(
             "THIN_CHAIN",
-            f"found {counts.get(ESCALATION, 0)} escalation steps; a causal chain needs at least "
-            f"{MIN_ESCALATIONS} or it is a single cause-and-effect, not a spiral"))
+            f"found {counts.get(ESCALATION, 0)} escalation steps; this engine needs at least "
+            f"{minimum} or it is a single cause-and-effect, not a spiral"))
 
     # Only for engines that HAVE a false resolution. accidental_invention requires a hinge and has
     # no false_resolution in its sequence at all -- its own comment says "the hinge here is the
@@ -251,7 +257,12 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
     # stories have no moment of apparent success to break". Firing unconditionally made that engine
     # impossible to satisfy for ANY input, and repair_chain never inserts a false resolution, so
     # nothing downstream could rescue it.
-    engine_has_false_resolution = FALSE_RESOLUTION in ((engine or {}).get("sequence") or ())
+    # REQUIRED, not merely present in the sequence. removed_keystone can carry a false resolution
+    # -- the target species really did respond at first -- but it does not require one, because
+    # plenty of introductions never worked even briefly. Reading the sequence rather than the
+    # requirement demanded a beat the engine calls optional, and refused a story for omitting it.
+    engine_has_false_resolution = FALSE_RESOLUTION in ((engine or {}).get("required")
+                                                       or (engine or {}).get("sequence") or ())
     if engine is not None and not engine_has_false_resolution:
         pass
     elif counts.get(HINGE) and not counts.get(FALSE_RESOLUTION):
@@ -702,8 +713,9 @@ Name the actor and the reversal in plain, concrete words, and let one named acto
 both halves: they do the sensible thing AND they cause the disaster. Do not greet the viewer or
 announce the video.
 
-Then walk the chain in {MIN_CHAPTERS}-{MAX_CHAPTERS} spoken chapters. Say the chapter numbers out
-loud in the narration ("Step one", "Step two"). A chapter may contain several causal steps; give
+Then walk the chain in {MIN_CHAPTERS}-{MAX_CHAPTERS} chapters. They are structural: they set word
+budgets and group the storyboard, and they are NOT announced in the narration — never write "Step
+one", "Part two", "First," or any other spoken signpost. A chapter may contain several causal steps; give
 each step a chapter number and do not make the chapters equal in length. Every step after the
 first must happen BECAUSE of a named earlier step — set caused_by to that step's id. If a step
 would still make sense in a different position, it is a fact, not a step, and does not belong.
@@ -1033,6 +1045,29 @@ def _turn_sentence(sentences: list[str]) -> int:
     return best
 
 
+def speaks_chapter_markers() -> bool:
+    """SPOKEN_CHAPTER_MARKERS=1 restores the spoken "Step one." openers. Default OFF.
+
+    The corpus references DO say their numbers, and that is why this was built: all six open on a
+    hook and then announce the chapter. Copying it was defensible and it is still available, which
+    is why this is a flag and not a deletion.
+
+    It is off because the device costs more than it returns HERE. Three things went wrong that the
+    references never had to deal with. The marker became the scene's `anchor_phrase` -- the first
+    five words of the opening sentence, which on a chapter opener IS the marker -- so it flowed
+    into the evidence state and then into the image-to-video prompt: two renders animated the word
+    "Step", at $1.12 of Kling v3 pro. It also lands in the same narration the fidelity boundary
+    measures against a factual event, where a structural numeral has nothing to support it. And a
+    90-second story that stops four times to count is not the 64-second reference's shape, it is a
+    lecture wearing its outline on the outside.
+
+    Chapters themselves are untouched: they still carry grouping, word budgets and the storyboard
+    payload. Only the spoken numeral goes.
+    """
+    import os
+    return os.environ.get("SPOKEN_CHAPTER_MARKERS", "0") == "1"
+
+
 def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "") -> list[str]:
     """Guarantee the spoken hook, the chapter spine, and the hinge cap. Returns what it changed.
 
@@ -1118,15 +1153,19 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "")
         if opener.get(chapter) == index and chapter:
             # The very first scene carries the spoken hook ahead of its marker, which is the
             # reference shape: promise, format tag, then the number. Every later chapter opener
-            # gets the marker alone.
+            # gets the marker alone. With markers off, the hook still leads and the number does not
+            # follow it -- and a marker the planner wrote itself is stripped by _strip_lead above,
+            # so turning the flag off removes them wherever they came from.
             lead = ""
             if index == 0:
                 lead = " ".join(p for p in (_sentence(hook), _sentence(format_tag)) if p).strip()
-            wanted = f"{lead} {_spoken(chapter)} {body}".strip()
+            marker = _spoken(chapter) if speaks_chapter_markers() else ""
+            wanted = " ".join(part for part in (lead, marker, body) if part).strip()
             if wanted != narration:
                 scene["narration"] = wanted
                 changes.append(
-                    f"chapter {chapter}: marker set to {_spoken(chapter)!r}"
+                    (f"chapter {chapter}: marker set to {_spoken(chapter)!r}" if marker
+                     else f"chapter {chapter}: opener left unmarked (spoken markers off)")
                     + (" after the spoken hook" if lead else ""))
         elif body != narration:
             scene["narration"] = body

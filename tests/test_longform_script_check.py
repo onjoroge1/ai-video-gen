@@ -59,7 +59,10 @@ def fake_pipeline(monkeypatch):
     monkeypatch.setattr(harness.ep, "_cached_graded_script", lambda *a: pytest.fail("must sample fresh"))
     monkeypatch.setattr(harness.ep, "_enforce_requested_runtime", lambda *a, **k: pytest.fail("no refit"))
     monkeypatch.setattr(harness.ep, "_ensure_hook_fits_budget", lambda script, *a: (script, 0))
-    monkeypatch.setattr(harness, "validate_claim_joins", joins)
+    # The harness calls production's ROUTED validator now, not the legacy phrase checker. Running
+    # validate_claim_joins directly reported 22 mismatches on a script whose spine had just
+    # passed, because the fact-model contract binds events rather than phrases.
+    monkeypatch.setattr(harness.ep, "_validate_claims", lambda script, dossier, *a, **k: joins(script, dossier))
     monkeypatch.setattr(harness, "validate_research_dossier", lambda *a: {"passed": True})
     monkeypatch.setattr(harness, "validate_longform_story", lambda *a: {"passed": False})
     monkeypatch.setattr(harness, "plan_runtime", lambda *a: {"passed": False, "estimated_seconds": 210})

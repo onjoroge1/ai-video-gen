@@ -1484,7 +1484,7 @@
       <div class="card-title">🏷️ Quick description + tags <span style="opacity:.6; font-weight:normal;">(no render)</span></div>
       <p class="field-hint" style="margin:4px 0 10px;">Enter a topic to instantly get an SEO description + architecture tags (5 exact-premise · 5 consequence · 3 subject-category · 2-4 format) — no full render needed.</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
-        <div class="field" style="flex:1; min-width:260px;"><label>Topic / title</label><input id="td-topic" class="input-field" placeholder="What Did Ancient Humans Do Before Salt Existed?"></div>
+        <div class="field" style="flex:1; min-width:260px;"><label>Topic / title</label><input id="td-topic" class="input-field" placeholder="Hanoi’s rat bounty: the plan and the consequences"></div>
         <div class="field"><label>Format</label><select id="td-format" class="input-field"><option value="landscape">long-form (16:9)</option><option value="social">short (9:16)</option></select></div>
         <button class="btn btn-primary" onclick="genTagsDesc()">Generate</button>
       </div>
@@ -1499,13 +1499,21 @@
 
     <!-- Question input -->
     <div class="card">
-      <div class="card-title">Question</div>
+      <div class="card-title">Choose the channel, then the story</div>
+      <div class="field" style="margin-bottom:14px;">
+        <label for="expl-channel">Channel</label>
+        <select id="expl-channel" onchange="setExplChannel(this.value)">
+          <option value="world">Bolt Explains the World</option>
+          <option value="history">Bolt Explains History</option>
+        </select>
+        <span class="field-hint" id="expl-channel-promise">Animal control. Unexpected consequences.</span>
+      </div>
       <textarea id="expl-question" rows="3"
-        placeholder="What is gravity?  /  How does the internet work?  /  Why is the sky blue?"></textarea>
+        placeholder="Why did paying people to kill rats make Hanoi worse?  /  Why did diverting two rivers destroy the Aral Sea?"></textarea>
 
       <!-- Example chips (rotating pool — populated by JS) -->
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px;">
-        <span class="field-hint" style="margin:0;">Trending questions — click to use</span>
+        <span class="field-hint" style="margin:0;">Research candidates — choose one to develop</span>
         <button class="copy-btn" type="button" onclick="shuffleExplChips()">↻ Shuffle</button>
       </div>
       <div class="examples-row" id="expl-chips"></div>
@@ -1520,11 +1528,11 @@
           <select id="expl-duration">
             <option value="45">~45 sec (social)</option>
             <option value="60">~1 min</option>
-            <option value="90">~1.5 min</option>
+            <option value="90" selected>~1.5 min</option>
             <option value="120">~2 min</option>
             <option value="180">~3 min</option>
             <option value="300">~5 min (~$6)</option>
-            <option value="600" selected>~10 min (long-form default)</option>
+            <option value="600">~10 min</option>
             <option value="900">~15 min (~$17, slow)</option>
             <option value="1200">~20 min (~$23, very slow)</option>
           </select>
@@ -1553,9 +1561,9 @@
           <label>Visual creative <span style="opacity:.6;">(long-form)</span></label>
           <select id="expl-visual-style" onchange="setExplainerVisualStyle(this.value)">
             <option value="cinematic">Cinematic evidence — existing lane</option>
-            <option value="illustrated_story">Illustrated Story — recurring cast + storyboard</option>
+            <option value="illustrated_story" selected>Illustrated Story — sourced events + storyboard</option>
           </select>
-          <span class="field-hint">Illustrated Story uses Standard structure, a four-location budget, recurring characters, and stable still/Ken Burns assembly.</span>
+          <span class="field-hint">One documented intervention and its consequences, told through illustrated scenes. Start with a 90-second landscape episode.</span>
         </div>
       </div>
       <div class="field" style="margin-top:14px;">
@@ -1578,7 +1586,7 @@
           <option value="standard_explainer">Standard explainer — answer early, escalate causally</option>
           <option value="evidence_led_mystery">Evidence-led mystery — build a belief, break it with proof</option>
         </select>
-        <span class="field-hint">Alex leads both structures and Bolt assists only when useful. If a topic cannot support a genuine mystery, the plan falls back to Standard before media spend and records the reason.</span>
+        <span class="field-hint">Illustrated stories choose a structure supported by the facts. Government programs can qualify even when they achieved their aim while causing harm.</span>
       </div>
 
       <details class="field" id="directed-longform-field" style="margin-top:14px; border:1px solid var(--border); border-radius:10px; padding:14px;">
@@ -1604,7 +1612,7 @@
       <div class="field" style="margin-top:14px;">
         <label>Series <span style="opacity:.6;">(optional — format-series mode)</span></label>
         <input type="text" id="expl-series" class="input-field"
-          placeholder="e.g. What Ancient Humans Did About ___  /  The Thing That Killed ___" />
+          placeholder="e.g. Animal Control, Unexpected Consequences  /  Government Plans, Human Consequences" />
         <span class="field-hint">Frames this video as one episode of a recurring series so your channel feels like one show.</span>
       </div>
 
@@ -1652,8 +1660,8 @@
       <div class="field" id="motion-mode-field" style="margin-top:14px;">
         <label>Motion treatment <span style="opacity:.6;">(long-form)</span></label>
         <select id="expl-motion-mode" class="input-field">
-          <option value="stills">Stills — evidence cuts only, zero AI motion</option>
-          <option value="standard" selected>Standard — motion for hook, tests, reversals and reveals</option>
+          <option value="stills" selected>Stills — evidence cuts only, zero AI motion</option>
+          <option value="standard">Standard — motion for hook, tests, reversals and reveals</option>
           <option value="full_motion">Full Motion — animate every eligible evidence state within the cap</option>
         </select>
         <span class="field-hint">Motion follows verified evidence states. Standard spends on story turns first; Full Motion requests every eligible state up to the cost and clip caps.</span>
@@ -2745,33 +2753,45 @@
     document.getElementById('motion-mode-field').style.display = (fmt === 'social') ? 'none' : 'block';
   }
 
-  // High-search, curiosity-driven question pool (drives clicks)
-  const EXPL_QUESTION_POOL = [
-    "What is gravity?",
-    "How does the internet actually work?",
-    "Why do we dream?",
-    "What is a black hole?",
-    "How does DNA work?",
-    "Why is the sky blue?",
-    "What happens when you die?",
-    "How does the human brain store memories?",
-    "What is dark matter?",
-    "Why can't we feel the Earth spinning?",
-    "How do vaccines work?",
-    "What is the meaning of consciousness?",
-    "How does electricity work?",
-    "Why do we age?",
-    "What would happen if the sun disappeared?",
-    "How does the stock market work?",
-    "What is quantum entanglement?",
-    "Why do cats purr?",
-    "How does Wi-Fi send data through the air?",
-    "What causes déjà vu?",
-    "How do airplanes stay in the air?",
-    "Why does time slow down near a black hole?",
-    "What is the placebo effect?",
-    "How does AI actually learn?",
-  ];
+  // Free editorial candidates come from the same profiles used by the topic screen.
+  // Minimal offline examples keep the channels separate if the catalogue is unavailable.
+  let explCatalogue = null;
+  let explChipRequest = 0;
+  const EXPL_QUESTION_POOL = {
+    world: ["What happened after Hanoi introduced its rat-tail bounty in 1902?"],
+    history: ["How did Soviet irrigation diversions change the Aral Sea and surrounding communities?"]
+  };
+  function selectedExplChannel() {
+    return document.getElementById('expl-channel').value;
+  }
+  function topicChannel(topic) {
+    return topic.topic_channel || ({'Bolt Explains the World':'world', 'Bolt Explains History':'history'}[topic.channel]) || '';
+  }
+  async function loadExplCatalogue() {
+    if (!explCatalogue) {
+      try {
+        const response = await fetch('/api/explainer/channels');
+        if (response.ok) explCatalogue = await response.json();
+      } catch (e) { /* keep the offline candidates */ }
+    }
+    return (explCatalogue && explCatalogue.channels) || [];
+  }
+  function applyIllustratedTopic(topic) {
+    const channel = topicChannel(topic) || selectedExplChannel();
+    document.getElementById('expl-channel').value = channel;
+    document.getElementById('expl-question').value = topic.question;
+    document.getElementById('expl-visual-style').value = 'illustrated_story';
+    setExplainerVisualStyle('illustrated_story');
+    setExplFormat('landscape');
+    initExplChips();
+  }
+  function setExplChannel(channel) {
+    document.getElementById('expl-question').value = '';
+    document.getElementById('expl-visual-style').value = 'illustrated_story';
+    setExplainerVisualStyle('illustrated_story');
+    setExplFormat('landscape');
+    initExplChips();
+  }
   let explShownChips = [];          // questions currently displayed
   let explReserve   = [];           // unused questions waiting to rotate in
   const EXPL_VISIBLE = 8;           // how many chips to show at once
@@ -2798,29 +2818,39 @@
   let explValidatedPool = [];       // validated questions, ranked best-first (curated chip source)
 
   async function initExplChips() {
-    // Chips = a CURATED SUBSET of the topic research: the highest-opportunity validated topics
-    // (best first). Falls back to the curiosity pool, then the built-in pool, if none are validated.
-    let pool = EXPL_QUESTION_POOL;
-    explMeta = {};
+    const request = ++explChipRequest;
+    const channel = selectedExplChannel();
+    const profiles = await loadExplCatalogue();
+    if (request !== explChipRequest) return;
+    const profile = profiles.find(p => p.id === channel);
+    const defaults = profile ? profile.topics : EXPL_QUESTION_POOL[channel].map(question => ({question, topic_channel:channel}));
+    let pool = defaults.map(t => t.question);
+    document.getElementById('expl-channel-promise').textContent = profile
+      ? profile.banner + ' ' + profile.promise
+      : channel === 'world' ? 'Animal control. Unexpected consequences.' : 'Government plans. Human consequences.';
+    document.getElementById('expl-question').placeholder = pool[0] || 'Name one intervention and its documented aftermath.';
+    explMeta = Object.fromEntries(defaults.map(t => [t.question, t]));
     explValidatedPool = [];
     let curiosityPool = [];
     try {
       const r = await fetch('/api/explainer/trending');
+      if (request !== explChipRequest) return;
       if (r.ok) {
         const d = await r.json();
-        const items = (d.questions || []).filter(q => q && q.question);
-        items.forEach(q => { if (q.validated) explMeta[q.question] = q; });
+        if (request !== explChipRequest) return;
+        const items = (d.questions || []).filter(q => q && q.question && topicChannel(q) === channel);
+        items.forEach(q => { explMeta[q.question] = q; });
         curiosityPool = items.map(q => q.question);
         explValidatedPool = items.filter(q => q.validated)
                                  .sort((a, b) => (b.opportunity || 0) - (a.opportunity || 0))
                                  .map(q => q.question);
       }
-    } catch (e) { /* offline / not ready → use the built-in pool */ }
+    } catch (e) { /* offline / not ready → use the channel's editorial queue */ }
     if (explValidatedPool.length) {
       // top-by-opportunity as the visible subset; rest (lower-opp + unvalidated) wait in reserve
       explShownChips = explValidatedPool.slice(0, EXPL_VISIBLE);
       explReserve    = explValidatedPool.slice(EXPL_VISIBLE)
-                         .concat(curiosityPool.filter(q => !explMeta[q]));
+                         .concat(curiosityPool.filter(q => !explMeta[q].validated));
     } else {
       pool = _shuffle(curiosityPool.length ? curiosityPool : pool);
       explShownChips = pool.slice(0, EXPL_VISIBLE);
@@ -2835,6 +2865,8 @@
     explShownChips.forEach(q => {
       const chip = document.createElement('span');
       chip.className = 'example-chip';
+      chip.setAttribute('role', 'button');
+      chip.tabIndex = 0;
       const m = explMeta[q];
       if (m && (m.opportunity != null)) {
         // Validated against real YouTube data → show an opportunity + outlier badge.
@@ -2855,9 +2887,9 @@
         chip.textContent = q;
       }
       chip.onclick = () => {
-        document.getElementById('expl-question').value = q;
-        if (m) setExplFormat(m.content_format === 'short' ? 'social' : 'landscape');
+        applyIllustratedTopic(m || {question:q, topic_channel:selectedExplChannel()});
       };
+      chip.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); } };
       wrap.appendChild(chip);
     });
   }
@@ -2897,6 +2929,11 @@
         topicsLoaded = (topicsData.channels || []).length > 0;
       }
     } catch (e) { /* offline */ }
+    if (!topicsData || !(topicsData.channels || []).length) {
+      const profiles = await loadExplCatalogue();
+      const groups = profiles.map(p => ({label:p.name, niche:p.promise, questions:p.topics}));
+      topicsData = {channels:groups, questions:groups.flatMap(g => g.questions), editorial_queue:true};
+    }
     const gen = document.getElementById('topics-generated');
     if (topicsData) {
       const active = (topicsData.validation_active != null) ? topicsData.validation_active : topicsData.validated;
@@ -2905,7 +2942,7 @@
       if (!active) v = 'curiosity-only (YouTube validation off)';
       else if (vc != null && tot && vc < tot) v = `YouTube-validated (${vc}/${tot} — partial, retrying next cycle)`;
       else v = 'YouTube-validated';
-      gen.textContent = `${(topicsData.questions || []).length} topics · ${v}`
+      gen.textContent = topicsData.editorial_queue ? 'Editorial research queue · facts and production readiness still need verification' : `${(topicsData.questions || []).length} topics · ${v}`
         + (topicsData.generated_at ? ` · updated ${topicsData.generated_at.replace('T', ' ')}` : '');
     }
     renderTopics();
@@ -2938,7 +2975,7 @@
     let html = '';
     (d.channels || []).forEach(g => {
       const qs = (g.questions || []).slice().sort(cmp);
-      html += `<div class="tgrp"><div class="tgrp-title">${_esc(g.label)} <span class="count">${qs.length} topics</span></div>`;
+      html += `<div class="tgrp"><div class="tgrp-title">${_esc(g.label)} <span class="count">${qs.length} topics</span></div><p class="field-hint">${_esc(g.niche || '')}</p>`;
       html += `<div class="ttable-wrap"><table class="ttable"><thead><tr>
         <th data-k="opportunity">⚡ ROI</th><th>Format</th><th>Pattern</th><th>Topic</th>
         <th data-k="median_views_per_day">Velocity</th><th data-k="own_fit">Own fit</th>
@@ -2970,7 +3007,7 @@
           html += `<tr${trCls}>
             <td><div class="opp-cell ${q.opportunity == null ? 'opp-lo' : _oppClass(q.opportunity)}">${q.opportunity == null ? '—' : q.opportunity}</div></td>
             <td><span class="ptag pt-format">${_esc(q.content_format || 'long')}</span></td>
-            <td><span class="ptag pt-weak">channel-only</span></td>
+            <td><span class="ptag pt-weak">research candidate</span></td>
             <td><div class="t-topic">${_esc(q.question)}</div>${q.suggested_title ? `<div class="t-suggested">🏷️ ${_esc(q.suggested_title)}</div>` : ''}${q.why ? `<div class="t-why">${_esc(q.why)}</div>` : ''}</td>
             <td class="t-num">—</td><td class="t-num">${q.own_fit == null ? '—' : Math.round(q.own_fit * 100) + '%'}</td>
             <td class="t-num">${q.visual_promise || '—'}/10</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td><td class="t-num">—</td>
@@ -2986,10 +3023,7 @@
   }
 
   function useTopic(topic) {
-    const q = typeof topic === 'string' ? topic : topic.question;
-    const inp = document.getElementById('expl-question');
-    if (inp) inp.value = q;
-    if (typeof topic === 'object') setExplFormat(topic.content_format === 'short' ? 'social' : 'landscape');
+    applyIllustratedTopic(typeof topic === 'string' ? {question:topic} : topic);
     switchTab('explainer');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -3178,6 +3212,7 @@
 
     const body = {
       question,
+      topic_channel: explFormat === 'landscape' && document.getElementById('expl-visual-style').value === 'illustrated_story' ? selectedExplChannel() : '',
       duration_sec:   parseInt(document.getElementById('expl-duration').value),
       voice:          document.getElementById('expl-voice').value,
       style:          document.getElementById('expl-style').value,

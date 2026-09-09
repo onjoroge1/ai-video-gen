@@ -90,3 +90,15 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "entailment_live" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def spoken_markers_on(monkeypatch):
+    """Run this test with the spoken "Step one." openers restored.
+
+    The device is off by default (see causal_story.speaks_chapter_markers) but it is a flag, not a
+    deletion: the corpus references all speak their numbers, and the machinery that places one
+    correctly -- after the hook on scene 1, alone on later openers, never duplicated, idempotent --
+    is worth keeping under test. These are the tests that specify it.
+    """
+    monkeypatch.setenv("SPOKEN_CHAPTER_MARKERS", "1")

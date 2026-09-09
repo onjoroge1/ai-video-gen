@@ -28,6 +28,7 @@ ACCUMULATING_INDICTMENT = "accumulating_indictment"
 ALMOST_HAPPENED_PLAN = "almost_happened_plan"
 ACCIDENTAL_INVENTION = "accidental_invention"
 POWER_REVERSAL = "power_reversal"
+REMOVED_KEYSTONE = "removed_keystone"
 
 
 # REVEAL_DEADLINE_PCT: engines whose principle IS the reveal cannot state it in the first fifth.
@@ -44,9 +45,36 @@ REVEAL_DEADLINE_PCT = 0.60
 # distinction the one-size contract could not express: a lens close hands the opening object back
 # as a question, an indictment close restates the opening claim now that it is proved.
 ENGINES: dict[str, dict[str, Any]] = {
+    REMOVED_KEYSTONE: {
+        "name": "The Removed Keystone",
+        # Not a backfiring incentive. Nobody exploits anything here: a species is added or taken
+        # away and the system re-sorts itself around the gap. Measured on Macquarie Island, where
+        # backfiring_solution was selected because it was the only mapped engine, and its contract
+        # made the compiler invent "the reward was paid for the count of cats killed" for a
+        # government eradication that paid no reward. The evidence boundary refused it, correctly.
+        "premise": ("A species is removed or introduced and the ECOSYSTEM re-sorts itself. "
+                    "NOBODY exploits anything and no reward is paid: the harm comes from what "
+                    "the species was quietly doing, not from how people responded to a rule."),
+        "reference": "macquarie-island cat eradication",
+        "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
+        "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL, cs.TOOL),
+        "closing": cs.TOOL,
+        # A cascade runs once. See causal_story's THIN_CHAIN: two escalations is right for a
+        # spiral, where each round of exploitation invites the next, and wrong here.
+        "min_escalations": 1,
+        "audience_before": "removing the pest fixes the problem",
+        "audience_after": "the pest was holding something else down",
+    },
     BACKFIRING_SOLUTION: {
         "name": "The Backfiring Solution",
-        "premise": "A reasonable fix creates a larger version of the problem it solved.",
+        # The deciding word is PEOPLE. Both this and removed_keystone answer to "a reasonable fix
+        # made things worse", so the premises have to differ on the thing that actually separates
+        # them, or the selector is choosing between two true descriptions. Macquarie was picked as
+        # backfiring_solution on the old wording, and the compiler then invented a bounty for a
+        # government cull that paid nobody.
+        "premise": ("PEOPLE respond to a reward, quota or rule and produce more of what it was "
+                    "meant to remove. There must be an incentive somebody exploits."),
         "reference": "cobra-bounty video",
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
                      cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
@@ -183,7 +211,8 @@ def minimum_beats(engine: dict | None) -> int:
     """
     if not engine:
         return 0
-    return (len(set(engine.get("required") or ()) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
+    return (len(set(engine.get("required") or ()) - {cs.ESCALATION})
+            + int(engine.get("min_escalations") or cs.MIN_ESCALATIONS)
             - int(bool(engine.get("compiled_compounding"))))
 
 

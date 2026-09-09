@@ -167,44 +167,39 @@ _METRICS_FILE = os.path.join(FINISHED_DIR, "video_metrics.json")
 import threading
 _TRENDING_LOCK = threading.Lock()   # serialize the 3 callers (scheduler / GET auto-seed / manual POST)
 
-# One Bolt brand, three evidence-friendly lanes. TV reviews and quizzes keep their own production
-# workflows; this engine stays focused on the Earth/Physics/Space lane with the strongest retention.
-CHANNELS = [
-    {"label": "Bolt Explains — Earth",
-     "niche": ("Grounded Earth-system mysteries and small-change consequence cascades: oceans, water, "
-               "oxygen, atmosphere, weather, climate, geology, magnetic field, ecosystems and the systems "
-               "that keep Earth habitable. Prefer an everyday observation or a precise 1%/24-hour change "
-               "with surprising but defensible consequences; no generic climate lectures or apocalypse bait.")},
-    {"label": "Bolt Explains — Physics",
-     "niche": ("Counterintuitive physics people can see or feel: touch, gravity, pressure, heat, light, "
-               "sound, electricity, motion, scale and time. The obvious explanation should be wrong or "
-               "incomplete. Prefer one strong visual experiment and a real limit; avoid abstract equation-"
-               "first topics, impossible superpowers and unsupported black-hole endings.")},
-    {"label": "Bolt Explains — Space",
-     "niche": ("Relatable space mysteries with a direct human or Earth consequence: Moon, Sun, night sky, "
-               "orbits, satellites, GPS, radiation and nearby planetary conditions. Use specific distances, "
-               "times or small changes; make the invisible system visible. Avoid aliens, generic planet "
-               "lists, speculative megastructures and Earth-explodes fantasy.")},
-]
 TOPICS_PER_FORMAT = max(2, min(8, int(os.environ.get("TOPICS_PER_FORMAT", "4"))))
+
+# One editorial definition for topic research, screening, and the UI.
+import topic_fit as _topic_fit
+CHANNELS = [{"label": spec["name"], "topic_channel": key,
+             "niche": spec["promise"] + " " + spec["requires"]}
+            for key, spec in _topic_fit.CHANNELS.items()]
+
+
+def _current_topic_cache(cached) -> bool:
+    return (isinstance(cached, dict) and cached.get("roi_version") == 2
+            and cached.get("editorial_version") == _topic_fit.EDITORIAL_VERSION
+            and all(group.get("label") in {c["label"] for c in CHANNELS}
+                    for group in cached.get("channels", [])))
 
 
 def _load_trending() -> dict:
     try:
         with open(_TRENDING_FILE) as f:
             cached = json.load(f)
-        if cached.get("roi_version") == 2:
+        if _current_topic_cache(cached):
             return cached
     except Exception:
         pass
     try:
         import db
         cached = db.cache_get("topic_roi_v2") if db.db_enabled() else None
-        if cached:
+        if _current_topic_cache(cached):
             return cached
     except Exception:
         pass
-    return {"questions": [], "channels": [], "generated_at": None, "roi_version": 2}
+    return {"questions": [], "channels": [], "generated_at": None, "roi_version": 2,
+            "editorial_version": _topic_fit.EDITORIAL_VERSION}
 
 
 def _refresh_trending() -> dict:
@@ -237,13 +232,27 @@ def _refresh_trending() -> dict:
                 print(f"[trending] used-topic exclusion skipped for {channel['label']}: {exc}")
 
             channel_topics = []
-            for content_format in ("short", "long"):
-                topics = ep.generate_curiosity_topics(
-                    niche=channel["niche"], n=TOPICS_PER_FORMAT,
-                    exclude=exclude, content_format=content_format,
-                )
+            # The illustrated route currently supports landscape only. Vertical adaptations
+            # need their own delivery verification before the topic UI offers them as renders.
+            for content_format in ("long",):
+                # A causal channel proposes through the screened generator, so every topic that
+                # reaches the operator has already survived the check the pipeline applies before
+                # buying research. A topic suggested here and refused there is the UI arguing with
+                # its own back end.
+                if channel.get("topic_channel"):
+                    topics = ep.generate_causal_topics(
+                        channel=channel["topic_channel"], n=TOPICS_PER_FORMAT, avoid=exclude)
+                else:
+                    topics = ep.generate_curiosity_topics(
+                        niche=channel["niche"], n=TOPICS_PER_FORMAT,
+                        exclude=exclude, content_format=content_format,
+                    )
                 for topic in topics:
                     topic["channel"] = channel["label"]
+                    topic["topic_channel"] = channel["topic_channel"]
+                    topic["visual_style"] = "illustrated_story"
+                    topic["content_format"] = content_format
+                    topic["status"] = "research_candidate"
                 try:
                     topics = ep.validate_topics_youtube(
                         topics, content_format=content_format, metrics=audience_metrics)
@@ -292,7 +301,8 @@ def _refresh_trending() -> dict:
             "validated": validated_count > 0,
             "validation_active": ep.youtube_validation_active(),
             "validated_count": validated_count, "total_topics": len(flat),
-            "roi_version": 2, "formats": ["short", "long"],
+            "roi_version": 2, "formats": ["long"],
+            "editorial_version": _topic_fit.EDITORIAL_VERSION,
             "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         }
         if flat and ep.youtube_validation_active() and validated_count == 0:
@@ -1116,6 +1126,7 @@ async def charts_metadata(job_id: str):
 
 class ExplainerRequest(BaseModel):
     question: str
+    topic_channel: Literal["", "world", "history"] = ""
     duration_sec: int = 90
     voice: str = "echo"
     style: str = "engaging and scientific"
@@ -1505,6 +1516,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     operator_direction=request.operator_direction,
                     story_format=request.story_format,
                     visual_style=request.visual_style,
+                    topic_channel=request.topic_channel,
                     controlled_pilot=request.controlled_pilot,
                     pilot_batch_id=request.pilot_batch_id,
                     pilot_kind=request.pilot_kind,
@@ -1651,6 +1663,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                        f"short-{template}" if request.video_format == "social" else "explainer"),
             "question": request.question, "scene_count": result["scene_count"],
             "visual_style": result.get("visual_style") or request.visual_style,
+            "topic_channel": request.topic_channel,
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
             "rendered_contract_score": (result.get("rendered_contract") or {}).get("score"),
@@ -1901,6 +1914,12 @@ async def explainer_config():
 async def explainer_trending():
     """Read-only ROI cache. Research spend only happens through the explicit protected POST."""
     return _load_trending()
+
+
+@app.get("/api/explainer/channels")
+async def explainer_channels():
+    """Editorial profiles and research candidates; no provider requests or billing."""
+    return _topic_fit.editorial_catalogue()
 
 
 _LAST_MANUAL_REFRESH = [0.0]
@@ -3251,6 +3270,11 @@ async def dispatch_agent_action(action_id: str, request: Request):
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    if request.topic_channel and (request.visual_style != "illustrated_story"
+                                  or request.video_format != "landscape"):
+        raise HTTPException(status_code=400, detail=(
+            "Channel stories currently use Illustrated Story in landscape. "
+            "Choose those settings to generate this episode."))
     if request.illustrated_authorization:
         raise HTTPException(status_code=403, detail=(
             "Illustrated authorization is internal; create a generic_illustrated agent action"))

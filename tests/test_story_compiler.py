@@ -11,6 +11,7 @@ import pytest
 
 import event_functions as ef
 import story_compiler as sc
+import story_fact_model as sfm
 
 
 def _beat(bid, function, text, frm="", to="", **extra):
@@ -52,7 +53,8 @@ def test_the_mechanism_is_the_gap_between_what_paid_and_what_was_wanted():
     assert derived["ok"]
     # Two positive propositions. The negation form ("paid for tails, NOT for dead rats") asks the
     # evidence boundary to certify what no source states, and failed Boundary A when it did.
-    assert derived["event"]["text"] == ("The reward was paid for rat tails handed in. "
+    # "handed in" is trimmed: no claim says who received the tail, and what pays is the object.
+    assert derived["event"]["text"] == ("The reward was paid for rat tails. "
                                         "The goal was fewer living rats in the city.")
     assert " not for " not in derived["event"]["text"]
     assert derived["event"]["claim_refs"] == ["c05", "c07"], \
@@ -75,8 +77,8 @@ def test_an_unevidenced_rewarded_measure_does_not_compile():
 
 
 def test_rewarding_exactly_what_you_want_is_no_mechanism():
-    beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats delivered",
-                                     "actual_goal": "rats delivered dead",
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "dead rats",
+                                     "actual_goal": "rats, dead",
                                      "measure_claim_refs": ["c07"], "goal_claim_refs": ["c05"]})
     assert sc.derive_mechanism(beat)["code"] == "NO_PROXY_GAP"
 
@@ -134,8 +136,9 @@ def test_outcome_state_is_never_load_bearing():
 
 def test_other_engines_do_not_inherit_the_bounty_contract():
     """An accidental invention has no incentive to change."""
-    for engine in ("accidental_invention", "power_reversal", "almost_happened_plan",
-                   "accumulating_indictment"):
+    # almost_happened_plan has its own map now, and its own functions. The three still unmapped
+    # keep the model-assigned path until each is measured the way these two were.
+    for engine in ("accidental_invention", "power_reversal", "accumulating_indictment"):
         assert ef.map_for(engine) is None
         assert sc.compile_roles(HANOI, engine)["compiled"] is False
 
@@ -206,13 +209,22 @@ def test_the_prompt_asks_for_what_the_clerk_accepted_not_what_was_announced():
     assert "severed rat tail" in block and "never" in block
 
 
+# Sized like a real dossier on purpose. The relevance ranking discounts stems that appear in more
+# than half the ledger, which needs a ledger big enough for "half" to mean something: across four
+# claims it means two, and "tail" -- the one word separating the claim about what was ACCEPTED
+# from the one counting how many ARRIVED -- reads as ubiquitous and gets discarded.
 HANOI_CLAIMS = {
+    "c03": {"claim": "In the 1890s the French installed modern sewers throughout Hanoi."},
+    "c04": {"claim": "Invasive brown rats colonised the new sewer network."},
+    "c05": {"claim": "French medical experts feared the plague reaching Hanoi and wanted the rat "
+                     "population reduced."},
+    "c06": {"claim": "Researchers had linked plague transmission to fleas carried by rodents."},
+    "c07": {"claim": "The administration first hired Vietnamese crews to hunt in the sewers."},
     "c08": {"claim": "In April 1902 the colonial authorities announced a bounty on every dead rat."},
     "c09": {"claim": "The bounty was extended to anyone in the city who brought a rat tail to the "
                      "authorities after civil servants declined to handle thousands of corpses."},
     "c10": {"claim": "The number of tails handed in climbed into the thousands within days."},
-    "c05": {"claim": "French medical experts feared the plague reaching Hanoi and wanted the rat "
-                     "population reduced."},
+    "c14": {"claim": "Entrepreneurs on the outskirts bred rats to profit from the bounty."},
 }
 
 
@@ -262,4 +274,269 @@ def test_the_citation_check_is_a_pre_filter_not_a_verdict():
     # tails proves a tail was ACCEPTED as proof is a question only the judge answers.
     assert sc._citations_mention(HANOI_CLAIMS, ["c10"], "a severed rat tail")
     # "rat" is in every claim in a dossier about rats, so it distinguishes nothing.
-    assert sc._distinctive("a severed rat tail", HANOI_CLAIMS) == {"sever", "tail"}
+    assert sc._distinctive("a severed rat tail", HANOI_CLAIMS) == {"sever", "tail"}, \
+        "\"rat\" is in most of the ledger and distinguishes nothing"
+    # And the ranking that follows from it puts the claim about what was ACCEPTED first.
+    assert sc.propose_measure_claims(HANOI_CLAIMS, "a severed rat tail")[0] == "c09"
+
+
+def test_the_ranking_skips_claims_about_the_scholarship_and_other_cases():
+    """A claim ABOUT the research is not evidence of the events it describes, and it scores well.
+
+    Measured on the real dossier: ranking a goal about "Hanoi's rat population and the plague risk
+    it carried" put "Vann's study is a scholarly work ... presenting the failure of the Hanoi rat
+    bounty" FIRST, ahead of the claim recording the actual plague fear. Same bibliography trap the
+    story spine already refuses, one layer down in the citation ranking.
+    """
+    claims = dict(HANOI_CLAIMS)
+    claims["c02"] = {"claim": "Vann's study is a scholarly work published in the OUP Graphic "
+                              "Histories series presenting the failed Hanoi rat bounty and the "
+                              "plague context that produced it."}
+    claims["c17"] = {"claim": "COMPARABLE CASE (USA): Fort Benning offered a bounty per pig tail "
+                              "and the feral pig population rose."}
+    ranked = sc.rank_claims_for(claims, "to reduce Hanoi's rat population and the plague risk")
+    assert "c02" not in ranked, "a claim about the study is not evidence of the episode"
+    assert "c17" not in ranked, "a comparable case can never source the primary story"
+    assert ranked and ranked[0] == "c05", "the claim recording the plague fear ranks first"
+
+
+def test_the_rewarded_measure_drops_the_hand_over_clause():
+    """Three consecutive samples decorated the measure and failed the boundary on the decoration.
+
+    The schema asks for the bare object -- "No rate, no date, no place -- just the object" -- and
+    got "a severed rat tail handed to the authorities", "...presented to the bounty clerk", "one
+    cent per rat tail handed in". No claim names who received it, so the derived mechanism failed
+    on the clause rather than on anything the story needed. What pays is the object.
+    """
+    for decorated in ("a severed rat tail handed to the authorities",
+                      "a severed rat tail presented to the bounty clerk",
+                      "A rat tail brought to the clerk."):
+        assert sc.normalise_measure(decorated).endswith("rat tail")
+    assert sc.normalise_measure("a severed rat tail") == "a severed rat tail", "already bare"
+    assert sc.normalise_measure("") == "", "nothing to trim"
+    # It must never trim a measure down to nothing.
+    assert sc.normalise_measure("handed to the clerk") == "handed to the clerk"
+
+
+def test_the_measure_reaches_the_derived_sentence_already_trimmed():
+    beat = dict(HANOI[1], incentive={"rewarded_measure": "a severed rat tail handed to the clerk",
+                                     "measure_claim_refs": ["c09"],
+                                     "actual_goal": "fewer rats in the city",
+                                     "goal_claim_refs": ["c05"]})
+    text = sc.derive_mechanism(beat, HANOI_CLAIMS)["event"]["text"]
+    assert text.startswith("The reward was paid for a severed rat tail.")
+
+
+# --- almost_happened_plan -----------------------------------------------------------------------
+
+HIPPO = [
+    {"beat_id": "e01", "event_function": ef.ESTABLISHES_PROBLEM,
+     "event": {"text": "A 1910 meat shortage pushed Congress to look for new protein.",
+               "claim_refs": ["h1"]},
+     "changes_state": {"from": "cattle supply is falling", "to": "Congress wants new meat"}},
+    {"beat_id": "e02", "event_function": ef.PLAN_PROPOSED,
+     "event": {"text": "Robert Broussard introduced House Resolution 23261, the American Hippo "
+                       "Bill.", "claim_refs": ["h2"]},
+     "changes_state": {"from": "Congress wants new meat", "to": "a hippo bill is on the table"}},
+    {"beat_id": "e03", "event_function": ef.GAINS_BACKING,
+     "event": {"text": "A USDA researcher told the panel it could add a million tons of meat.",
+               "claim_refs": ["h3"]},
+     "changes_state": {"from": "a hippo bill is on the table", "to": "the bill looks credible"}},
+    {"beat_id": "e04", "event_function": ef.COLLAPSE_CAUSE,
+     "event": {"text": "The Lacey Act banned importing injurious wildlife.", "claim_refs": ["h4"]},
+     "changes_state": {"from": "the bill looks credible", "to": "importing hippos is unlawful"}},
+    {"beat_id": "e05", "event_function": ef.WORLD_WITHOUT_IT,
+     "event": {"text": "The bill never passed and hippo meat never entered the U.S. diet.",
+               "claim_refs": ["h5"]},
+     "changes_state": {"from": "importing hippos is unlawful",
+                       "to": "American meat stayed cattle, pigs and chickens"}},
+]
+
+
+def test_the_plan_engine_maps_its_own_functions_to_the_shared_roles():
+    """Measured: the planner had all of these facts and filed them under the wrong roles.
+
+    The Lacey Act -- what actually killed the 1910 bill -- arrived as an `escalation`, "the Bill
+    never passed" arrived as the closing `tool`, and the `mechanism` slot got "U.S. wildlife policy
+    distinguishes legal from unsustainable harvesting", a policy generality rather than an event.
+    """
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    assert out["passed"], sc.summary(out)
+    assert out["roles"] == {"e01": "setup", "e02": "intervention", "e03": "false_resolution",
+                            "e04": "mechanism", "e05": "reversal"}
+
+
+def test_this_engine_derives_nothing_because_its_mechanism_is_an_event():
+    """backfiring_solution must COMPUTE its mechanism; nobody recorded "what pays is not what was
+    wanted". Here the mechanism is a thing that happened, so deriving one would manufacture the
+    problem the map exists to avoid."""
+    assert ef.map_for("almost_happened_plan").derived == ()
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    assert out["derived"] == [] and not out["suspicions"]
+    assert all(not b.get("derived_from") for b in out["beats"])
+
+
+def test_a_plan_with_no_named_cause_of_death_does_not_compile():
+    """"If you cannot name what happened, this is missing rather than abstract"."""
+    without = [b for b in HIPPO if b["event_function"] != ef.COLLAPSE_CAUSE]
+    issues = sc.compile_roles(without, "almost_happened_plan")["issues"]
+    assert any(i["code"] == "MISSING_EVENT_FUNCTION" and "collapse_cause" in i["message"]
+               for i in issues)
+
+
+def test_the_two_engines_do_not_share_a_contract():
+    """A bounty story's functions must not become the contract for a plan that never happened."""
+    plan, bounty = ef.map_for("almost_happened_plan"), ef.map_for("backfiring_solution")
+    assert ef.CHANGES_INCENTIVE not in plan.required, "a shelved plan changes no incentive"
+    assert ef.COLLAPSE_CAUSE not in bounty.to_role, "a bounty that ran has no cause of death"
+    assert set(plan.required) & set(bounty.required) == {ef.ESTABLISHES_PROBLEM}
+
+
+def test_a_plan_engine_is_not_asked_for_a_bounty_incentive_block():
+    """The incentive block belongs to an engine that DERIVES its mechanism from it.
+
+    A plan that never happened has no rewarded measure, and asking for one is how a prompt teaches
+    a model to invent a field to fill -- the same shape as asking for a chapter marker and then
+    stripping it before it is spoken.
+    """
+    plan = sc.factual_plan_prompt("Why?", 90, 9, "almost_happened_plan")
+    bounty = sc.factual_plan_prompt("Why?", 90, 9, "backfiring_solution")
+    assert '"incentive":' in bounty and "rewarded_measure names" in bounty
+    assert '"incentive":' not in plan and "rewarded_measure names" not in plan
+    # It still gets everything it does need.
+    for function in ef.map_for("almost_happened_plan").required:
+        assert function in plan
+
+
+def test_presentation_devices_attach_to_a_mechanism_nobody_derived():
+    """almost_happened_plan maps collapse_cause straight onto the role, so its mechanism beat is
+    planner-written and has no `derivation`. Subscripting it raised KeyError('derivation') one step
+    after the first hippo sheet whose spine passed."""
+    out = sc.compile_roles(HIPPO, "almost_happened_plan")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "almost_happened_plan")
+    mechanism = next(b for b in sheet if b["role"] == "mechanism")
+    assert "derivation" not in mechanism, "this engine derives nothing"
+    devices = [b for b in sheet if b.get("presentation_device")]
+    assert {b["presentation_device"] for b in devices} >= {"hinge", "tool"}
+    for device in devices:
+        assert mechanism["beat_id"] in device["context_refs"]
+        assert sfm.event_of(device)["text"] == "", "a device asserts no history"
+
+
+# --- removed_keystone ---------------------------------------------------------------------------
+
+MACQUARIE = [
+    {"beat_id": "k1", "event_function": ef.ESTABLISHES_BALANCE,
+     "event": {"text": "Feral cats on Macquarie Island preyed on both seabirds and rabbits.",
+               "claim_refs": ["m1"]},
+     "changes_state": {"from": "an island with introduced cats and rabbits",
+                       "to": "cats hold the rabbit population down while killing seabirds"}},
+    {"beat_id": "k2", "event_function": ef.SPECIES_MOVED,
+     "event": {"text": "From 1985 a programme shot the island's cats to protect the seabirds.",
+               "claim_refs": ["m2"]},
+     "changes_state": {"from": "cats hold the rabbit population down while killing seabirds",
+                       "to": "the cats are being removed"}},
+    {"beat_id": "k3", "event_function": ef.HIDDEN_LINK,
+     "event": {"text": "The cats had also been the main predator keeping rabbit numbers low.",
+               "claim_refs": ["m3"]},
+     "changes_state": {"from": "the cats are being removed",
+                       "to": "nothing is eating the rabbits"}},
+    {"beat_id": "k4", "event_function": ef.POPULATION_RESPONDS,
+     "event": {"text": "Rabbit numbers rose to roughly 100,000 after the last cat was killed.",
+               "claim_refs": ["m4"]},
+     "changes_state": {"from": "nothing is eating the rabbits",
+                       "to": "rabbits graze the island unchecked"}},
+    {"beat_id": "k5", "event_function": ef.SYSTEM_RESETTLES,
+     "event": {"text": "Rabbit grazing stripped the island's tussock slopes bare.",
+               "claim_refs": ["m5"]},
+     "changes_state": {"from": "rabbits graze the island unchecked",
+                       "to": "the island's vegetation is gone and the slopes are eroding"}},
+]
+
+
+def test_a_keystone_story_compiles_without_inventing_an_incentive():
+    """Measured on Macquarie: backfiring_solution was selected because it was the only mapped
+    engine, and its contract made the compiler write "the reward was paid for the count of cats
+    killed" for a government eradication that paid no reward. The evidence boundary refused it,
+    correctly -- nobody paid a reward for anything."""
+    out = sc.compile_roles(MACQUARIE, "removed_keystone")
+    assert out["passed"], sc.summary(out)
+    assert out["roles"] == {"k1": "setup", "k2": "intervention", "k3": "mechanism",
+                            "k4": "escalation", "k5": "reversal"}
+    assert out["derived"] == [], "hidden_link is a fact, not a computed relationship"
+
+
+def test_the_hidden_link_is_required_because_it_is_the_story():
+    """Every story of this shape turns on what else the species was doing."""
+    without = [b for b in MACQUARIE if b["event_function"] != ef.HIDDEN_LINK]
+    codes = [i["code"] for i in sc.compile_roles(without, "removed_keystone")["issues"]]
+    assert "MISSING_EVENT_FUNCTION" in codes
+    assert ef.HIDDEN_LINK in ef.map_for("removed_keystone").required
+
+
+def test_this_engine_is_not_asked_for_a_rewarded_measure():
+    """No bounty, no proxy, no exploitation. Asking teaches a model to invent one."""
+    prompt = sc.factual_plan_prompt("Why?", 90, 9, "removed_keystone")
+    assert '"incentive":' not in prompt and "rewarded_measure names" not in prompt
+    for function in ef.map_for("removed_keystone").required:
+        assert function in prompt
+    assert ef.CHANGES_INCENTIVE not in ef.map_for("removed_keystone").to_role
+    assert ef.EXPLOIT_BEHAVIOR not in ef.map_for("removed_keystone").to_role
+
+
+def test_its_roles_are_described_as_ecology_not_as_incentives():
+    assert sfm.role_function("mechanism", "removed_keystone") == \
+        "what else that species was doing that nobody counted"
+    assert sfm.role_function("escalation", "removed_keystone") == \
+        "the population no longer held down, surging"
+    # And the bounty engine keeps its own.
+    assert sfm.role_function("escalation", "backfiring_solution") == \
+        "HOW people exploit it, compounding"
+
+
+def test_the_two_backfire_engines_are_told_apart_by_who_acts():
+    """Both answer to "a reasonable fix made things worse", so the premises must differ on the
+    thing that actually separates them. Macquarie was selected as backfiring_solution on the old
+    wording, and the compiler then invented a bounty for a government cull that paid nobody."""
+    import story_engines as se
+
+    bounty = se.ENGINES["backfiring_solution"]["premise"]
+    keystone = se.ENGINES["removed_keystone"]["premise"]
+    assert "PEOPLE respond" in bounty and "incentive somebody exploits" in bounty
+    assert "ECOSYSTEM re-sorts" in keystone and "NOBODY exploits anything" in keystone
+    assert "no reward is paid" in keystone
+    # And neither premise can be read as the other's story.
+    assert "incentive" not in keystone.replace("no reward is paid", "")
+
+
+def test_a_hinge_never_inherits_an_empty_cause():
+    """The hinge sits before its anchor so it inherits the anchor's cause rather than pointing at
+    it -- but only if the anchor has one. On removed_keystone the mechanism can be the first beat
+    with no antecedent, and the hinge then inherited nothing: ORPHAN_STEP refused a story whose
+    spine had passed in full."""
+    beats = [dict(b) for b in MACQUARIE]
+    beats[2]["caused_by"] = ""            # mechanism with no antecedent
+    out = sc.compile_roles(beats, "removed_keystone")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "removed_keystone")
+    hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
+    assert hinge["caused_by"], "a step after the setup must name the step it follows from"
+    assert hinge["caused_by"] == "k2", "falls back along its chain to the intervention"
+
+
+def test_the_hinge_instruction_belongs_to_the_engine():
+    """"Break the apparent success ... using the supported mechanism and exploit" describes a
+    bounty. removed_keystone requires neither a false resolution nor an exploit, so the expansion
+    was told to break a success never claimed and lean on an exploit nobody committed -- and the
+    narration came back CONTRADICTED against the events, the boundary's strongest verdict."""
+    out = sc.compile_roles(MACQUARIE, "removed_keystone")
+    sheet = sc.presentation_beats(sc.splice_derived(out["beats"], out), "removed_keystone")
+    hinge = next(b for b in sheet if b.get("presentation_device") == "hinge")
+    assert "what the removed species had also been doing" in hinge["beat"]
+    assert "exploit" not in hinge["beat"].replace("exploited anything", "")
+    assert "Do not claim the programme looked successful" in hinge["beat"]
+
+    bounty = sc.compile_roles(HANOI, "backfiring_solution")
+    bsheet = sc.presentation_beats(sc.splice_derived(bounty["beats"], bounty),
+                                   "backfiring_solution")
+    bhinge = next(b for b in bsheet if b.get("presentation_device") == "hinge")
+    assert "Break the apparent success" in bhinge["beat"], "the bounty engine keeps its own"

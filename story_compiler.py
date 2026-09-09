@@ -12,6 +12,7 @@ reversal is a comparison between the world before and the world the exploit prod
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 import json
 import event_functions as ef
 import story_fact_model as sfm
@@ -41,6 +42,11 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
                                  "measure_claim_refs": ["claim_id"],
                                  "stated_policy_goal": "the documented intended outcome",
                                  "goal_claim_refs": ["claim_id"]}}]}
+    # The incentive block belongs to an engine that DERIVES its mechanism from it. A plan that
+    # never happened has no rewarded measure, and asking for one is how a prompt teaches a model to
+    # invent a field to fill -- the same shape as asking for a chapter marker and then stripping it.
+    if "mechanism" not in mapping.derived:
+        schema["beats"][0].pop("incentive", None)
     return (
         f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
         f'Engine: {engine_id}. Return about {max(len(mapping.required), count - 3)} distinct factual '
@@ -54,11 +60,12 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
         'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
-        'On changes_incentive only, supply incentive. rewarded_measure names what was accepted '
-        'as proof, not what the policy was announced as. Bind it to the claim about accepted '
-        'proof. stated_policy_goal needs separate evidence of the policy purpose; never infer '
-        'intent. Both citation lists are required.\n'
-        'Keep every primary event about this policy and subject. A parallel_case event contains '
+        + ('On changes_incentive only, supply incentive. rewarded_measure names what was '
+           'accepted as proof, not what the policy was announced as. Bind it to the claim '
+           'about accepted proof. stated_policy_goal needs separate evidence of the policy '
+           'purpose; never infer intent. Both citation lists are required.\n'
+           if "mechanism" in mapping.derived else "")
+        + 'Keep every primary event about this policy and subject. A parallel_case event contains '
         'one comparison only, with its own id and citations; do not merge countries. If you add '
         f'comparisons, supply at least {causal_story.MIN_PARALLEL_CASES} distinct cases and fill '
         'parallel_cases with domain, problem, solution, and result for each. Otherwise leave it [].\n'
@@ -107,10 +114,27 @@ def _phrase(value) -> str:
     return text
 
 
+# The schema asks for the bare object -- "No rate, no date, no place -- just the object" -- and
+# three consecutive samples returned "a severed rat tail handed to the authorities", "...presented
+# to the bounty clerk", "one cent per rat tail handed in". Each addition is a detail no claim
+# carries, so the derived mechanism failed the evidence boundary on the decoration rather than on
+# anything the story needed. Asking again has not worked; the clause is simply not part of the
+# measure, and dropping it is loss-free because what pays is the object, not who received it.
+_MEASURE_TAIL = re.compile(
+    r"\s+(?:handed|presented|brought|delivered|turned|submitted|given|surrendered)\b.*$", re.I)
+
+
+def normalise_measure(value) -> str:
+    """The object a person had to produce, without the hand-over clause wrapped around it."""
+    text = _phrase(value)
+    trimmed = _MEASURE_TAIL.sub("", text).strip().rstrip(",;")
+    return trimmed or text
+
+
 def incentive_of(beat: dict) -> dict:
     block = (beat or {}).get("incentive")
     block = block if isinstance(block, dict) else {}
-    return {"rewarded_measure": _phrase(block.get("rewarded_measure")),
+    return {"rewarded_measure": normalise_measure(block.get("rewarded_measure")),
             "actual_goal": _phrase(block.get("stated_policy_goal") or block.get("actual_goal")),
             "measure_claim_refs": [sfm._text(r) for r in (block.get("measure_claim_refs") or [])
                                    if sfm._text(r)],
@@ -162,22 +186,69 @@ def _distinctive(phrase: str, claims: dict) -> set:
     the same fix: a token that appears everywhere distinguishes nothing.
     """
     stems = sfm._stems(phrase)
-    if not stems or not claims:
+    # "Appears in more than half" needs a ledger big enough for half to mean anything. Across
+    # three claims it means two, which discarded "tail" from "a severed rat tail" -- the one word
+    # that separates the claim about what was accepted from the one counting how many arrived.
+    if not stems or len(claims or {}) < _UBIQUITY_FLOOR:
         return stems
     everywhere = {stem for stem in stems
                   if sum(1 for ref in claims if stem in sfm._stems(_claim_text(claims, ref)))
                   > len(claims) / 2}
-    return stems - everywhere
+    # Never everything. A phrase built entirely from the dossier's common vocabulary still has to
+    # rank against something, and an empty set silently turns the check into "no opinion".
+    return (stems - everywhere) or stems
+
+
+_UBIQUITY_FLOOR = 6
+
+
+def rank_claims_for(claims: dict, phrase: str) -> list:
+    """Claims ordered by how much of what makes this phrase SPECIFIC they contain.
+
+    Distinctive stems, not raw overlap: in a dossier about rats, "rat" appears nearly everywhere
+    and ranking on it puts the announcement level with the claim that actually describes what was
+    accepted. Scoring "a severed rat tail" on {sever, tail} separates them.
+
+    Ordering only. Whether the top claim SUPPORTS the sentence is Boundary A's question and this
+    cannot answer it -- "caudal appendage" would support "tail" and score zero here.
+    """
+    wanted = _distinctive(phrase, claims)
+    if not wanted:
+        return []
+    scored = []
+    for ref in claims or {}:
+        text = _claim_text(claims, ref)
+        # A claim ABOUT the scholarship is not evidence of the events it describes, and it scores
+        # dangerously well: "Vann's study presents the failure of the Hanoi rat bounty and the
+        # plague context" shares almost every word with a goal about Hanoi's rats and plague, and
+        # ranked first for it. Same detector that keeps a bibliography out of the story spine.
+        if sfm._META_EVIDENCE.search(text) or sfm._PARALLEL_MARKER.search(text):
+            continue
+        overlap = len(wanted & sfm._stems(text))
+        if overlap:
+            scored.append((overlap, ref))
+    return [ref for _, ref in sorted(scored, key=lambda row: (-row[0], row[1]))]
+
+
+def propose_measure_claims(claims: dict, phrase: str, limit: int = 2) -> list:
+    """The citations a mechanism's `rewarded_measure` should probably carry.
+
+    A PROPOSAL, made because asking a model to choose has now failed three times against a prompt
+    that names the exact trap it keeps falling into. Measured on Hanoi: it cited the announcement
+    ("a bounty on every dead rat") and then the tail COUNTS, while the claim saying a tail was
+    accepted -- "the bounty was extended to anyone in the city who brought a rat tail" -- sat
+    unused in the same ledger every time.
+
+    Nothing here certifies anything. The proposal is written into the beat and the evidence
+    boundary judges it exactly as it would judge a citation a model picked; a wrong proposal fails
+    there and the run fails with it.
+    """
+    return rank_claims_for(claims, phrase)[:max(1, limit)]
 
 
 def _claims_that_mention(claims: dict, phrase: str, limit: int = 3) -> list:
-    wanted = sfm._stems(phrase)
-    scored = []
-    for ref, claim in (claims or {}).items():
-        overlap = len(wanted & sfm._stems(_claim_text(claims, ref)))
-        if overlap:
-            scored.append((overlap, ref, sfm._text(claim.get("claim"))[:90]))
-    return [f"{ref}: {text}" for _, ref, text in sorted(scored, reverse=True)[:limit]]
+    return [f"{ref}: {sfm._text((claims.get(ref) or {}).get('claim'))[:90]}"
+            for ref in rank_claims_for(claims, phrase)[:limit]]
 
 
 def derive_mechanism(intervention: dict, claims: dict | None = None) -> dict:
@@ -460,20 +531,48 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         out.sort(key=lambda b: order.index(b["role"]))
         mechanism = next(b for b in out if b["role"] == "mechanism")
         reversal = next(b for b in out if b["role"] == "reversal")
+        # The hinge instruction is the engine's, not one sentence for all of them. "Break the
+        # apparent success ... using the supported mechanism and exploit" describes a bounty: it
+        # presumes a moment where the fix looked like it worked, and people exploiting it.
+        # removed_keystone requires neither, so the expansion was told to break a success that was
+        # never claimed and to lean on an exploit nobody committed -- and the narration it wrote
+        # came back CONTRADICTED against the events, which is the boundary's strongest verdict.
+        hinge_text = {
+            "removed_keystone":
+                "Name the thing nobody counted, in one short sentence: what the removed species "
+                "had also been doing. Do not claim the programme looked successful and do not "
+                "say anyone exploited anything. No new historical detail.",
+            "almost_happened_plan":
+                "Name what stopped the plan, in one short sentence. Do not claim it had already "
+                "succeeded. No new historical detail.",
+        }.get(engine_id,
+              "Break the apparent success in one short sentence, using only the supported "
+              "mechanism and exploit. No new historical detail.")
         for role, anchor, text in (
-            ("hinge", mechanism, "Break the apparent success in one short sentence, using only "
-                                 "the supported mechanism and exploit. No new historical detail."),
+            ("hinge", mechanism, hinge_text),
             ("tool", reversal, "Close with one useful question the viewer can reuse; no new facts."),
         ):
             if any(b.get("causal_role") == role for b in out):
                 continue
-            refs = [mechanism["beat_id"]] + (mechanism["derivation"].get("witness_ids") or [])
+            # `.get`, because a mechanism is not always derived. almost_happened_plan maps
+            # collapse_cause straight onto the role -- what killed the plan is an event somebody
+            # recorded -- so its mechanism beat is planner-written and carries no derivation.
+            # Subscripting raised KeyError('derivation') on the first hippo sheet whose spine
+            # passed, one step after the gate it had just cleared.
+            refs = [mechanism["beat_id"]] + (
+                (mechanism.get("derivation") or {}).get("witness_ids") or [])
             if role == "tool":
                 refs.append(reversal["beat_id"])
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
                       "causal_role": role, "presentation_device": role, "context_refs": refs,
                       "event": {"text": "", "claim_refs": []}, "beat": text,
-                      "caused_by": anchor.get("caused_by") if role == "hinge" else anchor["beat_id"],
+                      # The hinge sits BEFORE its anchor, so it inherits the anchor's cause
+                      # rather than pointing at it -- but only if the anchor has one. On
+                      # removed_keystone the mechanism is the first beat the planner writes with
+                      # no antecedent, so the hinge inherited an empty cause and ORPHAN_STEP
+                      # refused a story whose spine had passed in full.
+                      "caused_by": ((anchor.get("caused_by") or anchor["beat_id"])
+                                    if role == "hinge" else anchor["beat_id"]),
                       "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
             out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
@@ -496,14 +595,24 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # These are engine-owned narrative dependencies. Semantic support for the policy,
         # exploit and inversion was checked on the factual sheet before this adapter is called.
         previous = {}
-        parent_roles = {"intervention": "setup", "false_resolution": "intervention",
-                        "hinge": "false_resolution", "mechanism": "intervention",
-                        "escalation": "mechanism", "reversal": "escalation",
-                        "generalization": "reversal", "tool": "reversal"}
+        # CANDIDATES, not one parent. A single parent orphans any step whose ancestor is optional
+        # for this engine and absent from this story: removed_keystone does not require a false
+        # resolution, so the hinge pointed at a beat that was never written and ORPHAN_STEP
+        # refused a story whose spine had passed in full. Each role now falls back along its own
+        # chain to the nearest ancestor that exists.
+        parent_roles = {"intervention": ("setup",),
+                        "false_resolution": ("intervention", "setup"),
+                        "hinge": ("false_resolution", "intervention", "setup"),
+                        "mechanism": ("intervention", "setup"),
+                        "escalation": ("mechanism", "false_resolution", "intervention"),
+                        "reversal": ("escalation", "mechanism", "intervention"),
+                        "generalization": ("reversal", "escalation"),
+                        "tool": ("reversal", "escalation", "mechanism")}
         for beat in out:
             role = beat["causal_role"]
-            beat["caused_by"] = (previous.get(role) if role in ("escalation", "generalization")
-                                  else None) or previous.get(parent_roles.get(role), "")
+            inherited = previous.get(role) if role in ("escalation", "generalization") else None
+            beat["caused_by"] = inherited or next(
+                (previous[name] for name in parent_roles.get(role, ()) if previous.get(name)), "")
             previous[role] = beat["beat_id"]
         return out
     return deepcopy(beats)

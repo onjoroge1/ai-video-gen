@@ -49,7 +49,7 @@ def test_minimum_beats_matches_what_the_planner_actually_reserves():
     MIN_ESCALATIONS beats rather than one.
     """
     for engine_id, engine in se.ENGINES.items():
-        expected = len(set(engine["required"]) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
+        expected = len(set(engine["required"]) - {cs.ESCALATION}) + engine.get("min_escalations", cs.MIN_ESCALATIONS)
         assert se.minimum_beats(engine) == expected, engine_id
 
 
@@ -120,4 +120,4 @@ def test_no_engine_fits_a_very_short_runtime_and_the_error_says_the_shortest():
     with pytest.raises(ValueError) as excinfo:
         ep._select_story_engine("Why?", 20)
     assert "No narrative engine fits" in str(excinfo.value)
-    assert "59s" in str(excinfo.value)
+    assert "50s" in str(excinfo.value)

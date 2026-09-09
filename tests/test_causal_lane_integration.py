@@ -840,13 +840,22 @@ def test_the_sheet_is_written_in_the_chosen_engines_own_order(monkeypatch):
     power_reversal both run false_resolution BEFORE intervention and mechanism BEFORE hinge, and
     the labelling pass is forbidden to reorder what it labels. ENGINE_ORDER was therefore
     structurally guaranteed for the two engines the reference corpus backs best."""
+    import event_functions as ef
     import story_engines as se
 
     for engine_id in se.ENGINES:
         prompt = _capture_beat_prompt(monkeypatch, causal_lane=True, pinned_engine=engine_id)
         order = se.expected_order(engine_id)
-        if engine_id == "backfiring_solution":
-            assert "Engine: backfiring_solution" in prompt and '"event_function"' in prompt
+        # A MAPPED engine is not asked for roles at all -- it states what each fact IS and the
+        # compiler assigns the order. So its prompt carries its own FUNCTIONS, and role order
+        # would be the contract it was given a map to escape.
+        if ef.map_for(engine_id) is not None:
+            mapping = ef.map_for(engine_id)
+            assert f"Engine: {engine_id}" in prompt and '"event_function"' in prompt
+            for function in mapping.required:
+                assert function in prompt, f"{engine_id}: {function} missing from its own prompt"
+            assert " -> ".join(order) not in prompt, \
+                f"{engine_id}: a mapped engine must not also be handed a role order"
             continue
         assert " -> ".join(order) in prompt, f"{engine_id}: sheet not written in its own order"
         assert se.get(engine_id)["name"].upper() in prompt
@@ -1176,3 +1185,361 @@ def test_the_repair_asks_for_both_halves_of_the_mechanism():
     block = block[:block.index("def _generate_script_chunked")]
     assert "measure_claim_refs" in block and "goal_claim_refs" in block
     assert "COUNTING how many were handed in" in block, "name the claim that keeps being cited"
+
+
+def test_a_narration_that_overshoots_its_event_is_repaired_not_only_refused(monkeypatch):
+    """The fidelity boundary returns the core to stop at and the details that overshot. Nothing
+    consumed either, so a render was refused for "Rows of pens" against an event saying people
+    bred rats -- a real image, no source, and cutting it costs the sentence nothing.
+    """
+    script = {"scenes": [
+        {"scene_id": "event_07", "beat_id": "event_07", "narration": "Rows of pens. They bred rats.",
+         "causal_role": "reversal", "evidence_id": "e07",
+         "event": {"text": "People bred rats on the outskirts to earn the bounty."},
+         "claim_refs": [{"claim_id": "c14", "evidence_id": "e07",
+                         "narration_phrase": "They bred rats."}]}]}
+    dossier = {"claims": [{"claim_id": "c14", "claim": "People bred rats to earn the bounty."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07",
+                          "message": "asserts more than its event",
+                          "supported_core": "People bred rats on the outskirts.",
+                          "unsupported_details": ["Rows of pens"]}]}
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["payload"] = call["messages"][0]["content"]
+            seen["system"] = call["system"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 900, "output_tokens": 60})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "narration": "On the outskirts, they bred rats.",
+                     "evidence_id": "e07",
+                     "claim_refs": [{"claim_id": "c14", "evidence_id": "e07",
+                                     "narration_phrase": "On the outskirts, they bred rats."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0 and "Rows of pens" not in repaired["scenes"][0]["narration"]
+    # The repair is told what it MAY say, not only that it was wrong.
+    assert "People bred rats on the outskirts to earn the bounty." in seen["payload"]
+    assert "NARRATION_EXCEEDS_EVENT" in seen["system"] and "Imagery, rhythm and voice are free" in seen["system"]
+
+
+def test_a_beat_id_addressed_failure_resolves_to_its_scene():
+    """The fact model addresses scenes by beat_id; the older codes use a 1-based index."""
+    script = {"scenes": [{"beat_id": "event_01", "narration": "One."},
+                         {"beat_id": "event_07", "narration": "Two."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07"}]}
+    # An unresolvable id must refuse the repair rather than silently rewriting scene 0.
+    ep.repair_claim_join_failures(script, {"claims": []}, report)
+    assert report["errors"][0]["scene"] == 2
+    ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}
+    assert ep.repair_claim_join_failures(script, {"claims": []}, ghost) == (script, 0.0)
+
+
+def test_the_repair_chooses_from_a_ranked_shortlist_not_the_whole_ledger(monkeypatch):
+    """Handed the full ledger, a model picked the tail-COUNT claim three times running.
+
+    Ranking by the stems that make the rewarded measure specific puts the claim describing what
+    was ACCEPTED at the top, so the choice is made among a handful of plausible claims. It narrows
+    the field; it does not make the choice, and whatever comes back still faces the judge.
+    """
+    claims = {
+        "c03": {"claim": "The French installed modern sewers throughout Hanoi."},
+        "c04": {"claim": "Invasive brown rats colonised the new sewer network."},
+        "c05": {"claim": "Officials wanted the rat population reduced to hold off plague."},
+        "c06": {"claim": "Researchers had linked plague to fleas carried by rodents."},
+        "c08": {"claim": "In April 1902 the authorities announced a bounty on every dead rat."},
+        "c09": {"claim": "The bounty was extended to anyone in the city who brought a rat tail "
+                         "to the authorities after civil servants declined to handle corpses."},
+        "c10": {"claim": "The number of tails handed in climbed into the thousands within days."},
+        "c14": {"claim": "Entrepreneurs on the outskirts bred rats to profit from the bounty."},
+    }
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "a severed rat tail",
+                            "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer rats", "goal_claim_refs": ["c05"]}}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 400, "output_tokens": 30})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, cost = ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "a severed rat tail", "cited": ["c08"]}],
+        claims, "Why?")
+
+    assert "c09" in seen["prompt"], "the claim that fits must be on the shortlist"
+    assert "c08" in seen["prompt"] and "c05" in seen["prompt"], \
+        "what the planner already cited is always offered, so it can be kept"
+    assert "c03" not in seen["prompt"], "the whole dossier is not dumped in"
+    assert out[0]["incentive"]["measure_claim_refs"] == ["c09"]
+    assert cost > 0
+
+
+def test_an_unrankable_measure_still_offers_the_model_the_whole_ledger(monkeypatch):
+    """Ranking that separates nothing must widen the field, never hand over an empty one."""
+    claims = {"c08": {"claim": "A bounty was announced."}}
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "", "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer rats", "goal_claim_refs": []}}]
+    called = []
+
+    class _Messages:
+        def create(self, **call):
+            called.append(call)
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 100, "output_tokens": 20})(),
+                "content": [type("C", (), {"text": '{"goal_claim_refs":["c08"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "", "cited": ["c08"]}], claims, "Why?")
+    assert called, "an empty measure gives the ranking nothing to work with; the model still runs"
+    assert "c08" in called[0]["messages"][0]["content"]
+
+
+def test_the_shortlist_covers_the_goal_as_well_as_the_measure(monkeypatch):
+    """A shortlist for one half of a two-part claim only moves the failure.
+
+    Measured: with the measure ranked and the goal not, the repair kept citing the bounty
+    announcement for a goal the announcement never states, and the boundary said so -- "the claim
+    shows a bounty to kill rats but does not mention plague as the reason". Every fix until then
+    had been about the measure.
+    """
+    claims = {
+        "c02": {"claim": "Colonial Hanoi was crowded and its sanitation was poor."},
+        "c05": {"claim": "French medical experts feared the Third Plague Pandemic reaching Hanoi."},
+        "c06": {"claim": "Researchers had shown rat fleas transmit plague to people."},
+        "c08": {"claim": "In April 1902 the authorities announced a bounty on every dead rat."},
+        "c09": {"claim": "The bounty was extended to anyone who brought a rat tail in."},
+        "c10": {"claim": "The number of tails handed in climbed into the thousands."},
+        "c14": {"claim": "Entrepreneurs bred rats on the outskirts to earn the bounty."},
+    }
+    beats = [{"beat_id": "event_04",
+              "incentive": {"rewarded_measure": "a severed rat tail",
+                            "measure_claim_refs": ["c08"],
+                            "actual_goal": "fewer plague-carrying rats",
+                            "goal_claim_refs": ["c08"]}}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 400, "output_tokens": 30})(),
+                "content": [type("C", (), {"text": '{"measure_claim_refs":["c09"],'
+                                                   '"goal_claim_refs":["c05","c06"]}'})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    out, _ = ep._repair_incentive_citations(
+        beats, [{"beat_id": "event_04", "phrase": "a severed rat tail", "cited": ["c08"]}],
+        claims, "Why?")
+    assert "c09" in seen["prompt"], "a candidate for what was accepted as proof"
+    assert "c05" in seen["prompt"], "and one for why the policy existed at all"
+    assert out[0]["incentive"]["goal_claim_refs"] == ["c05", "c06"]
+
+
+def test_the_goal_is_read_under_the_name_the_schema_actually_uses():
+    """`stated_policy_goal` is the schema's name; `actual_goal` is the older alias.
+
+    Reading only the old name gave the goal ranking an empty phrase, so the shortlist carried no
+    plague claim and the repair kept citing the bounty announcement for a goal about plague. The
+    boundary said so four times: "the claim mentions a bounty on dead rats but does not specify
+    Hanoi or state that plague risk was the motivation."
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("def _repair_incentive_citations"):]
+    block = block[:block.index("def _generate_script_chunked")]
+    assert 'block.get("stated_policy_goal")' in block, \
+        "the ranking must read the field the planner is actually asked to fill"
+    # And story_compiler must accept both, since it is the one that builds the sentence.
+    import story_compiler as sc
+    for field in ("stated_policy_goal", "actual_goal"):
+        got = sc.incentive_of({"incentive": {"rewarded_measure": "a tail", field: "fewer rats",
+                                             "measure_claim_refs": ["c1"],
+                                             "goal_claim_refs": ["c2"]}})
+        assert got["actual_goal"] == "fewer rats", f"{field} must resolve"
+
+
+def test_a_two_word_hook_overage_trims_the_hook_instead_of_replanning_the_story():
+    """A replan returns a DIFFERENT story whose evidence must be re-established from scratch.
+
+    Measured: a draft whose spine had just passed in full -- every required causal role supported,
+    the derived mechanism among them -- was replanned because its hook ran 20 words against an
+    18-word budget. The replacement sheet failed the spine. Two words cost a validated story, and
+    `_ensure_hook_fits_budget` already existed to fix exactly this.
+    """
+    assert ep._only_hook_length_blocks({"errors": [{"code": "LONG_HOOK"}]}, [])
+    assert ep._only_hook_length_blocks({"errors": []}, [{"code": "LONG_HOOK"}])
+    # Anything else still replans: a hook that is too long AND a mechanism that is too late is a
+    # story problem, and trimming the hook would leave the run failing on the other contract.
+    assert not ep._only_hook_length_blocks(
+        {"errors": [{"code": "LONG_HOOK"}]}, [{"code": "LATE_MECHANISM"}])
+    assert not ep._only_hook_length_blocks({"errors": []}, []), "nothing blocking is not this case"
+
+
+def test_the_hook_trim_is_wired_ahead_of_the_replan():
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("TRIM THE HOOK BEFORE THROWING THE STORY AWAY"):]
+    block = block[:block.index("cand = generate_script(")]
+    assert "_ensure_hook_fits_budget" in block
+    assert "_causal_contract_report" in block, "re-checked after trimming, not assumed fixed"
+    assert "break" in block, "a draft that now passes must not be replanned anyway"
+
+
+def test_repairing_an_overreaching_hook_updates_the_hook_field_too(monkeypatch):
+    """The hook lives twice: in script["hook"] and prepended to the scene it opens.
+
+    Repairing only the narration leaves the over-reaching sentence in the field the description,
+    the thumbnail and the next finalize_narration all read -- and finalize_narration would put it
+    straight back into the narration it was just cut from.
+    """
+    script = {"hook": "Officials paid a cent per rat tail and bred more rats.",
+              "scenes": [{"scene_id": "event_01", "beat_id": "event_01", "evidence_id": "e01",
+                          "narration": "Officials paid a cent per rat tail and bred more rats. "
+                                       "The sewers filled.",
+                          "event": {"text": "Officials paid a bounty per rat tail."},
+                          "claim_refs": [{"claim_id": "c08", "evidence_id": "e01",
+                                          "narration_phrase": "The sewers filled."}]}]}
+    dossier = {"claims": [{"claim_id": "c08", "claim": "A bounty was paid per rat tail."}]}
+    report = {"errors": [{"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                          "message": "promises more than the events deliver",
+                          "unsupported_details": ["a cent per rat tail (specific amount)"]}]}
+
+    class _Messages:
+        def create(self, **call):
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 300, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "evidence_id": "e01",
+                     "narration": "Officials paid a bounty per rat tail and bred more rats. "
+                                  "The sewers filled.",
+                     "claim_refs": [{"claim_id": "c08", "evidence_id": "e01",
+                                     "narration_phrase": "The sewers filled."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0
+    assert "a cent" not in repaired["scenes"][0]["narration"]
+    assert repaired["hook"] == "Officials paid a bounty per rat tail and bred more rats.", \
+        "the hook field follows the repaired sentence, not the old one"
+
+
+def test_the_claim_repair_runs_again_while_it_is_still_converging():
+    """One pass took a render from five narration overshoots to one, then refused for the survivor.
+
+    Each pass rewrites only the scenes still failing, so a second pass on a shrinking list is a
+    smaller job rather than a retry of the one that just ran. Gated on the count going DOWN: a
+    repair that fixes nothing, or trades one overshoot for another, stops immediately.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("REPAIR WHILE IT IS CONVERGING"):]
+    block = block[:block.index("claim_validation = _validate_claims(script, research_dossier",
+                               block.index("_after_count"))]
+    assert "_CLAIM_REPAIR_PASSES" in block, "bounded by a named ceiling, not an open loop"
+    assert "if _after_count >= _before_count:" in block and "break" in block, \
+        "a pass that does not reduce the failures must be the last one"
+    assert ep._CLAIM_REPAIR_PASSES >= 2 and ep._CLAIM_REPAIR_PASSES <= 4, \
+        "a ceiling, and a small one — each pass is a paid provider call"
+
+
+def test_state_once_stays_off_on_a_sourced_script():
+    """Enabled once, measured, reverted. Kept as a test so it is not re-enabled from theory.
+
+    On the same topic and dossier it moved repetition 58 -> 52 (the axis it was turned on to fix),
+    the overall grade 74 -> 69 (back under the floor), and the runtime 79.9s -> 73.4s, under the
+    76.5s contract floor. The hook lost its mechanism -- "residents bred rats to be paid" became
+    "only made the rat problem worse" -- while scoring HIGHER for saying less.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    gate = source[source.index("OFF on a sourced script"):]
+    gate = gate[:gate.index("for i, s in enumerate(all_scenes):")]
+    assert "if research_dossier:" in gate and "dc = 0.0" in gate
+    assert "58 -> 52" in gate, "the measurement stays next to the decision it justifies"
+
+
+def test_the_dedupe_tags_each_line_with_the_event_it_may_not_exceed(monkeypatch):
+    beats = [{"beat": "b1", "event": {"text": "Officials paid a bounty per rat tail."}},
+             {"beat": "b2", "event": {"text": "People bred rats to earn it."}},
+             {"beat": "b3", "event": {}}, {"beat": "b4", "event": {"text": "Tails poured in."}}]
+    scenes = [{"narration": f"Line {i}."} for i in range(1, 5)]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 100, "output_tokens": 20})(),
+                "content": [type("C", (), {"text": json.dumps(
+                    {"narration": [f"Line {i}." for i in range(1, 5)]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep._dedupe_narration(scenes, beats, "throughline")
+    assert "may assert nothing beyond: Officials paid a bounty per rat tail." in seen["prompt"]
+    # A beat with no event carries no tag rather than an empty one.
+    assert "[may assert nothing beyond: ]" not in seen["prompt"]
+
+
+def test_the_repair_is_told_that_actors_and_intervals_are_facts():
+    """Four survivors after a repair pass on Macquarie, and every one was an actor or a time hedge.
+
+    "Managers carried out the eradication", "Conservationists" as the ones doing the killing,
+    "Decades earlier". The subtractive rule was already there; the model kept the attribution
+    anyway, because naming a doer reads as clarity rather than as a new fact.
+    """
+    system = ep._CLAIM_REPAIR_SYSTEM
+    assert "if the event does not say who did a thing" in system
+    assert "'the cats were shot', not " in system
+    assert "'decades " in system and "assert an interval" in system
+
+
+def test_actors_the_event_does_not_name_are_handed_over_by_name():
+    """Three rounds of instruction did not stop this.
+
+    The repair prompt says "if the event does not say who did a thing, the narration must not name
+    them either", gives 'the cats were shot', not 'managers shot the cats' as the worked example,
+    and a run came back asserting "Managers began killing cats". Naming a doer reads as clarity
+    rather than as a new fact, so the rule keeps losing to the instinct to write a clear sentence.
+    """
+    assert ep.unsupported_actors("The cats were shot from 1985.",
+                                 "Managers began killing cats.") == ["managers"]
+    # Supported by the event, so not flagged.
+    assert ep.unsupported_actors("Managers shot the cats.", "Managers began killing cats.") == []
+    assert ep.unsupported_actors("The cats were shot.", "The cats were shot.") == []
+    # It proposes only: it cannot know whether the event says the same thing in other words.
+    assert ep.unsupported_actors("", "Conservationists acted.") == ["conservationists"]
+
+
+def test_the_repair_payload_carries_the_flagged_actors(monkeypatch):
+    script = {"scenes": [
+        {"scene_id": "event_04", "beat_id": "event_04", "evidence_id": "e04",
+         "narration": "Managers began killing cats in 1985.",
+         "event": {"text": "A programme shot the island's cats from 1985."},
+         "claim_refs": [{"claim_id": "c1", "evidence_id": "e04",
+                         "narration_phrase": "Managers began killing cats in 1985."}]}]}
+    dossier = {"claims": [{"claim_id": "c1", "claim": "The cats were shot from 1985."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_04",
+                          "message": "asserts more than its event",
+                          "unsupported_details": ["Managers"]}]}
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["payload"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 200, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "narration": "The cats were shot from 1985.",
+                     "evidence_id": "e04",
+                     "claim_refs": [{"claim_id": "c1", "evidence_id": "e04",
+                                     "narration_phrase": "The cats were shot from 1985."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep.repair_claim_join_failures(script, dossier, report)
+    assert "actors_the_event_does_not_name" in seen["payload"]
+    assert "managers" in seen["payload"]

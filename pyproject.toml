@@ -75,6 +75,7 @@ py-modules = [
     "spec_pilot",
     "stateboard_pipeline",
     "topic_roi",
+    "topic_fit",
     "user_directed",
 ]
 
@@ -89,6 +90,6 @@ addopts = "-q"
 # Runtime references and entry pages must accompany installed modules. Generated samples
 # are diagnostic fixtures, not creative references.
 [tool.setuptools.package-data]
-"fixtures.causal" = ["cobra_effect.json", "bengal_famine.json", "dc_compensated_emancipation.json", "hippo_weed.json", "pompeii.json", "romanov_fall.json"]
+"fixtures.causal" = ["cobra_effect.json", "cobra_bounty_short.json", "bengal_famine.json", "dc_compensated_emancipation.json", "hippo_weed.json", "pompeii.json", "romanov_fall.json"]
 "static" = ["*.html", "*.json", "*.css", "*.js"]
 "spec" = ["*.json"]

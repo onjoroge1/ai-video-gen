@@ -1553,8 +1553,16 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
     lines = [s.get("narration", "") for s in scenes]
     if len(lines) < 4:
         return scenes, 0.0
-    paired = "\n".join(f'{i+1}. [beat: {_s(beats[i].get("beat")) if i < len(beats) else "—"}] {lines[i]}'
-                       for i in range(len(lines)))
+    def _ceiling(index: int) -> str:
+        """The event this line may not exceed, when the sheet carries one."""
+        event = ((beats[index] or {}).get("event") or {}) if index < len(beats) else {}
+        return _s(event.get("text"))
+
+    paired = "\n".join(
+        f'{i+1}. [beat: {_s(beats[i].get("beat")) if i < len(beats) else "—"}]'
+        + (f' [may assert nothing beyond: {_ceiling(i)}]' if _ceiling(i) else "")
+        + f' {lines[i]}'
+        for i in range(len(lines)))
     sys = ("You are a ruthless script editor enforcing STATE-ONCE on an explainer narration. You get "
            "an ordered list of lines, each tagged with the single BEAT it should cover. Rewrite ONLY "
            "lines that (a) re-explain a concept already stated in an EARLIER line, (b) drift off their "
@@ -1567,7 +1575,17 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
            "'the restoration is not the original' tend to repeat there — keep ONE of each and rewrite "
            "the rest into DISTINCT closing reflections (or a forward-looking beat). Preserve order, "
            "EXACT count, tone, and approximate length. Never merge, drop, or add lines. Each entry is "
-           "the rewritten SPOKEN line ONLY — do NOT include the leading number or the '[beat: …]' tag. "
+           "the rewritten SPOKEN line ONLY — do NOT include the leading number or the '[beat: …]' "
+           "tag. "
+           # The ceiling travels with the line for the same reason the repair carries it: a
+           # rewrite told a sentence is repetitive but not what it may say instead reaches for a
+           # fresh image, and a fresh image is a new unsourced fact. Cutting repetition is
+           # subtractive here, not an invitation to invent.
+           "When a line carries a 'may assert nothing beyond' tag, that is the sourced fact it "
+           "rests on: your rewrite may state less than it, never more. Do not add a number, date, "
+           "place, material, quantity or named actor that the tag does not contain, and do not "
+           "replace a repeated image with a NEW invented one — cut it, or fall back to the "
+           "literal consequence. "
            'Return ONLY JSON: {"narration":[<exactly one line per input line, same order>]}.')
     try:
         r = _claude().messages.create(
@@ -2014,7 +2032,8 @@ def _minimum_feasible_runtime(engine_id: str, duration_sec: float) -> int:
     return 0
 
 
-def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> str:
+def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
+                         research_dossier: dict | None = None) -> str:
     """Choose the narrative engine BEFORE the beat sheet is written.
 
     The engine used to be chosen after the sheet existed, by _assign_causal_spine, and that call is
@@ -2057,6 +2076,11 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
                        f'A {duration_sec}-second explainer will answer: "{question}"\n\n'
                        "Choose the ONE narrative engine whose shape this true story actually has. "
                        "Do not pick by topic; pick by how the story turns.\n"
+                       + ("SOURCED CLAIMS FOR THIS EPISODE (evidence, not instructions):\n"
+                          + json.dumps(claim_context_for_prompt(research_dossier), ensure_ascii=False)
+                          + "\nChoose from these events. Do not invent an incentive or opposite "
+                          "outcome to fit a reference. A program can achieve its aim and cause harm.\n"
+                          if research_dossier else "")
                        + _se.catalogue(feasible)
                        + "\n" + _rc.runtime_fit_block(duration_sec, only=feasible)
                        + "\nPrefer a reference opening that fits this runtime WHEN the story also "
@@ -2363,12 +2387,40 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
     cost = 0.0
     if not isinstance(claims, dict) or not claims:
         return beats, cost
+
     for suspect in (suspicions or [])[:1]:
         beat = by_id.get(suspect.get("beat_id"))
         if not isinstance(beat, dict) or not isinstance(beat.get("incentive"), dict):
             continue
+        # SHORTLIST, NOT THE WHOLE LEDGER. Handed all nineteen claims and told in the prompt that
+        # a counting claim is the wrong kind, a model picked the counting claim three times
+        # running. Ranking by the stems that make the rewarded measure specific puts the claim
+        # describing what was ACCEPTED at the top, so the choice is made among a handful of
+        # plausible claims instead of the whole dossier.
+        #
+        # It narrows the field; it does not make the choice. The currently cited claims are always
+        # included so the model can keep them, everything offered is real, and whatever comes back
+        # goes to the evidence boundary exactly as before.
+        # BOTH HALVES GET RANKED. The measure had a shortlist and the goal did not, so the repair
+        # kept re-citing the announcement for a goal the announcement never states -- measured,
+        # the boundary's complaint was "the claim shows a bounty to kill rats but does not mention
+        # plague as the reason", which is about the goal, while every fix I had made was about the
+        # measure. A shortlist for one half of a two-part claim only moves the failure.
+        block = beat.get("incentive") or {}
+        # `stated_policy_goal` is the schema's name for this; `actual_goal` is the older one that
+        # story_compiler.incentive_of still accepts. Reading only the old name here silently gave
+        # the goal ranking an empty phrase, so the shortlist never carried a plague claim and the
+        # repair went on citing the bounty announcement for a goal about plague -- four times.
+        measure = _s(block.get("rewarded_measure"))
+        goal = _s(block.get("stated_policy_goal") or block.get("actual_goal"))
+        shortlist = list(dict.fromkeys(
+            [_s(ref) for ref in (block.get("measure_claim_refs") or [])]
+            + [_s(ref) for ref in (block.get("goal_claim_refs") or [])]
+            + _compiler.rank_claims_for(claims, measure)[:5]
+            + _compiler.rank_claims_for(claims, goal)[:5]))
+        offered = [ref for ref in shortlist if ref in claims] or list(claims)
         ledger = "\n".join(
-            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in claims)
+            f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:240]}" for ref in offered)
         incentive = beat["incentive"]
         suspicion_reason = suspect.get("why") or (
             "Those citations do not appear to support what they are cited for.")
@@ -2485,7 +2537,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # contract that just failed instead of a fresh one.
         selection_costs = []
         sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
-                           else _select_story_engine(question, duration_sec, selection_costs))
+                           else _select_story_engine(question, duration_sec, selection_costs,
+                                                     research_dossier=research_dossier))
         cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(selection_costs))
         sheet_engine = _se.get(sheet_engine_id)
         blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
@@ -2632,7 +2685,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "\nDECLARED CAUSAL CHAIN — this video is a chain, not a list:\n"
             f"A. This story runs THE {sheet_engine['name'].upper()}: "
             + " -> ".join(engine_order)
-            + f". Roles run in that order, with at least {_cs.MIN_ESCALATIONS} escalation beats "
+            + f". Roles run in that order, with at least {sheet_engine.get('min_escalations', _cs.MIN_ESCALATIONS)} escalation beats "
             f"before the reversal and {sheet_engine['closing']} LAST. "
             + "/".join(engine_singletons)
             + " appear EXACTLY ONCE.\n"
@@ -2669,10 +2722,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "D. The hinge beat, when present, is at most "
             f"{_cs.MAX_HINGE_WORDS} words. It states the anomaly for accidental_invention; "
             "otherwise it breaks the apparent success in the engine's order.\n"
-            f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} spoken chapters, "
-            "numbered from 1 with no gaps, and say the number out loud in the narration of the "
-            "beat that opens each one.\n"
-            + "   " + 'Use the FEWEST chapters the story needs, and prefer {lo} unless the material genuinely demands more. A spoken number is a hard stop in the narration -- the viewer hears the story pause and restart -- so a chapter earns its marker only when the story has actually turned. The 64-second reference tells this shape in {lo}: its first chapter carries setup, intervention, false resolution and hinge together, and only then says the next number. A generated draft of the same story used six, which is six full stops in ninety seconds.\\n'.format(lo=_cs.MIN_CHAPTERS))
+            + (f"E. Group the beats into {_cs.MIN_CHAPTERS}-{_cs.MAX_CHAPTERS} chapters, "
+               "numbered from 1 with no gaps. "
+               + ("Say the number out loud in the narration of the beat that opens each one. "
+                  "A spoken number is a hard stop -- the viewer hears the story pause and "
+                  "restart -- so a chapter earns its marker only when the story has turned."
+                  if _cs.speaks_chapter_markers() else
+                  # Asking for a marker and then stripping it teaches a model to write
+                  # structure it will never be credited for. The chapter is still real: it
+                  # sets word budgets and groups the storyboard. It is simply not announced.
+                  "These chapters are STRUCTURAL ONLY -- they set word budgets and group the "
+                  "storyboard. DO NOT announce them in the narration. Never write \"Step "
+                  "one\", \"Part two\", \"First,\" \"Next up\" or any other spoken "
+                  "signpost. The story carries the viewer by what happens next, not by "
+                  "counting.")
+               + f" Use the FEWEST chapters the story needs, and prefer {_cs.MIN_CHAPTERS} "
+                 "unless the material genuinely demands more. The 64-second reference tells "
+                 "this shape in {_cs.MIN_CHAPTERS}: its first chapter carries setup, "
+                 "intervention, false resolution and hinge together.\n"))
 
     # 1) BEAT SHEET — spine in one call: cold-open, throughline, distributed payoffs, one beat/scene.
     beat_prompt = (
@@ -2951,6 +3018,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
         import story_planning as _planning
+        # Said before the beat sheet is paid for. A dossier holding two periods is a dossier
+        # holding two stories, and the planner blends them: the hippo sheet's `world_without_it`
+        # came back as a 2006 IUCN listing for a bill that died in 1910. Reported, not refused --
+        # a story can legitimately span eras, and the spine gate reasons about events rather than
+        # counting years.
+        _eras = _lr_era_split(research_dossier)
+        if _eras.get("spans_eras"):
+            print(f"[research] {_lr_era_split_report(_eras)}")
         _claims_for_roles = _spine_claims(research_dossier)
         _cache = {}
         _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
@@ -3342,8 +3417,31 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         bi += per_batch
 
     # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
+    # OFF on a sourced script, and now for a measured reason rather than only a structural one.
+    #
+    # The structural reason came first: a claim-unaware edit destroys the exact narration/source
+    # joins the ledger checks. Under the fact model that objection is weaker -- the binding is
+    # beat-level and every line is re-validated afterwards -- so this was enabled, with each line
+    # carrying the event it may not exceed, on the theory that repetition (58, the weakest axis on
+    # both scorers) was exactly what STATE-ONCE is for.
+    #
+    # It made all three things worse, on the same topic and the same dossier:
+    #
+    #   repetition        58 -> 52          the axis it was turned on to fix
+    #   overall grade     74 -> 69          back under the quality floor
+    #   final runtime     79.9s -> 73.4s    under the 76.5s contract floor, DEGRADED
+    #
+    # And the hook lost its mechanism: "residents bred rats to be paid" became "only made the rat
+    # problem worse" -- the shape-not-substance phrasing deleted from story_direction earlier --
+    # while scoring HIGHER on the hook axis for saying less.
+    #
+    # The diagnosis: STATE-ONCE targets conceptual re-explanation, and the repetition here is
+    # structural -- parallel sentence shapes and repeated cadence. Wrong tool. It is also
+    # count-preserving but not LENGTH-preserving, so on a lane that budgets runtime per beat its
+    # trimming walks the video out of its own contract. Re-enabling it needs a pass built for
+    # cadence, not this one.
     if research_dossier:
-        dc = 0.0  # claim-unaware rewrites would invalidate exact narration/source joins
+        dc = 0.0
     else:
         all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
         cost += dc
@@ -3658,6 +3756,41 @@ def _store_research_dossier(question: str, dossier: dict, request: str = "") -> 
         print(f"[research] cache write skipped: {exc}")
 
 
+def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *, channel: str = "") -> dict:
+    """Ask whether the question has a story in it, before a dossier is bought.
+
+    One small call against the cost of not asking: "Why don't Americans eat hippo meat?" spent
+    $3.20 across four runs and never produced a spine, because the question names an absence with
+    parallel causes rather than one episode that turned.
+    """
+    import topic_fit
+
+    def judge(prompt: str, system: str = "") -> str:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=700, system=system,
+            messages=[{"role": "user", "content": prompt}])
+        _charge(cost_sink, _ledger.RESEARCH, _msg_cost(response.usage), "topic fit")
+        if isinstance(cost_sink, list) and not isinstance(cost_sink, _ledger.CostLedger):
+            cost_sink.append(_msg_cost(response.usage))
+        return response.content[0].text
+
+    result = topic_fit.screen(question, channel=channel, judge=judge)
+    log(topic_fit.report(question, result))
+    if topic_fit.blocks(result):
+        raise ValueError(
+            "Topic does not fit these channels: " + (result.get("reason") or "no documented intervention and aftermath")
+            + ". Choose an animal-population intervention or a historical government program "
+            "with documented consequences. Harm does not have to reverse the intended result."
+            + (f' Narrower question that would fit: "{result["narrower_question"]}"'
+               if result.get("narrower_question") else ""))
+    if (channel and result.get("verdict") == topic_fit.FITS
+            and result.get("channel") in topic_fit.CHANNELS
+            and result["channel"] != channel and topic_fit.enforced()):
+        raise ValueError("This topic belongs to " + topic_fit.CHANNELS[result["channel"]]["name"]
+                         + ". Select that channel before generating; animal interventions take priority.")
+    return result
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
@@ -3725,7 +3858,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=10000,
+        max_tokens=_RESEARCH_MAX_TOKENS,
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -3945,8 +4078,59 @@ _CLAIM_REPAIR_SYSTEM = (
     "an unsupported assertion rather than inventing evidence. If a factual scene is anaphoric "
     "(for example, 'It worked'), use the read-only neighbouring context to identify its subject, "
     "then replace it with a self-contained proposition supported by a supplied claim. A factual "
-    "scene may not return an empty claim_refs list. Return only JSON."
+    "scene may not return an empty claim_refs list. "
+    # NARRATION_EXCEEDS_EVENT is a different repair from the binding ones and needs saying
+    # separately: the sentence is not mis-cited, it is too big. The failure arrives with the
+    # supported core the boundary would have accepted and the exact details that overshot it, so
+    # the instruction is subtractive. "Rows of pens" is the measured case -- a real image, no
+    # source, and cutting it costs the sentence nothing.
+    "When a scene fails NARRATION_EXCEEDS_EVENT, its narration claims more than its `event` "
+    "states. Rewrite that scene to assert nothing beyond the event: cut the listed unsupported "
+    "details rather than hedging them, and keep the writing vivid in HOW it says what remains. "
+    "Imagery, rhythm and voice are free; new facts are not. Do not add a number, date, place, "
+    "material, quantity or named actor that the event does not contain.\n"
+    # Measured on Macquarie: four survivors after a repair pass, and every one was an actor or
+    # a time hedge -- "Managers carried out the eradication", "Conservationists" as the ones
+    # doing the killing, "Decades earlier". The subtractive rule was already there and the
+    # model kept the attribution anyway, because naming a doer reads as clarity, not as a fact.
+    "TWO KINDS OF OVERSHOOT ARE EASY TO MISS BECAUSE THEY DO NOT FEEL LIKE FACTS. First, WHO "
+    "acted: if the event does not say who did a thing, the narration must not name them "
+    "either. Write it as the event has it, or in the passive -- 'the cats were shot', not "
+    "'managers shot the cats' or 'conservationists shot the cats'. Second, WHEN: 'decades "
+    "earlier', 'years later', 'by then' all assert an interval. Keep only intervals the "
+    "event states. Return only JSON."
 )
+
+
+_ACTOR_NOUNS = (
+    "managers", "manager", "conservationists", "conservationist", "officials", "official",
+    "authorities", "scientists", "scientist", "researchers", "researcher", "rangers", "ranger",
+    "workers", "worker", "engineers", "engineer", "hunters", "hunter", "farmers", "farmer",
+    "residents", "resident", "settlers", "settler", "crews", "crew", "teams", "team",
+    "administrators", "planners", "biologists", "ecologists", "the government", "the state")
+
+
+def unsupported_actors(event_text: str, narration: str) -> list[str]:
+    """Actor words the narration names and the event does not.
+
+    Three rounds of instruction did not stop this. The repair prompt says "if the event does not
+    say who did a thing, the narration must not name them either", gives 'the cats were shot', not
+    'managers shot the cats' as the worked example, and a run came back asserting "Managers began
+    killing cats". Naming a doer reads as clarity rather than as a new fact, so a rule against it
+    keeps losing to the instinct to write a clear sentence.
+
+    So the spans are found here and handed over by name, the way Boundary A hands over
+    `unsupported_details`. This PROPOSES -- it cannot tell whether an actor is genuinely supported
+    by wording the event puts differently, and only the boundary rules on that. It just stops the
+    repair having to notice on its own.
+    """
+    haystack = _s(event_text).casefold()
+    found = []
+    for word in _ACTOR_NOUNS:
+        if (word in _s(narration).casefold() and word not in haystack
+                and not any(word in seen for seen in found)):
+            found.append(word)
+    return found
 
 
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
@@ -3960,8 +4144,31 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "claim_phrase_not_in_narration", "claim_assertion_mismatch", "unhedged_speculation",
         "scope_inflation", "timescale_contradiction", "unbound_factual_scene",
         "missing_evidence_join", "claim_evidence_mismatch",
+        # The fact model's own verdict. Narration that overshoots its event is the most repairable
+        # failure this pipeline produces -- the boundary returns the supported core it should have
+        # stopped at and the exact details it added -- and until now nothing consumed either. A
+        # render was refused for "Rows of pens" against an event that says people bred rats.
+        "NARRATION_EXCEEDS_EVENT",
+        # The hook overshoots the same way and is repaired the same way. It is addressed to the
+        # scene it opens, because that is where the narrator reads it and where the trim has to
+        # land; `script["hook"]` is re-derived from the repaired sentence below.
+        "HOOK_EXCEEDS_STORY",
     }
     errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    scenes_now = script.get("scenes") or []
+    # The fact-model codes address a scene by beat_id ("event_04"), the older ones by 1-based
+    # index. Resolved here so one repair path serves both rather than two paths drifting apart.
+    by_beat = {}
+    for position, scene in enumerate(scenes_now, 1):
+        for key in ("beat_id", "scene_id"):
+            if _s(scene.get(key)):
+                by_beat.setdefault(_s(scene.get(key)), position)
+    for item in errors:
+        marker = item.get("scene")
+        if marker == "hook":
+            item["scene"] = 1 if scenes_now else 0
+        elif isinstance(marker, str) and not marker.isdigit():
+            item["scene"] = by_beat.get(marker, 0)
     if not errors or any(item.get("code") not in repairable or not item.get("scene")
                          for item in errors):
         return script, 0.0
@@ -3976,6 +4183,14 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "scenes": [{"scene": index,
             "previous_narration": _s(scenes[index - 2].get("narration")) if index > 1 else "",
             "next_narration": _s(scenes[index].get("narration")) if index < len(scenes) else "",
+            # The event is the ceiling. Without it the repair is told a sentence is wrong and not
+            # what it is allowed to say instead, which is how a rewrite trades one overshoot for
+            # another.
+            "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+            # Named, not left to be noticed. See unsupported_actors.
+            "actors_the_event_does_not_name": unsupported_actors(
+                (scenes[index - 1].get("event") or {}).get("text", ""),
+                _s(scenes[index - 1].get("narration"))),
             **{
             key: scenes[index - 1].get(key)
             for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")
@@ -4028,6 +4243,15 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             seen.add(index)
         if seen != set(indexes):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
+        # The hook lives twice: in `script["hook"]` and prepended to the scene it opens. Repairing
+        # only the narration leaves the old, over-reaching sentence in the field that the
+        # description, the thumbnail and the next finalize_narration all read from -- and
+        # finalize_narration would put it straight back into the narration it was just cut from.
+        if any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY" for error in errors):
+            opener = _s(candidate["scenes"][0].get("narration")).strip()
+            first = re.split(r"(?<=[.!?])\s+", opener, maxsplit=1)[0].strip()
+            if first:
+                candidate["hook"] = first
         cost = (response_cost + float(parse_cost or 0.0))
         return candidate, round(cost, 4)
     except Exception:
@@ -6685,6 +6909,102 @@ def generate_curiosity_topics(niche: str = "science, technology & history explai
         return []
 
 
+def _causal_topic_system(channel: str) -> str:
+    """The brief for one channel, built from the same definitions the screen uses.
+
+    An earlier version stated one rule for both -- the outcome had to INVERT the intent -- and it
+    would have refused the Aral Sea, where the diversion did exactly what it was designed to do.
+    A pattern read off a corpus of backfires is not a law, and the two channels do not share one.
+    """
+    import topic_fit
+
+    spec = topic_fit.CHANNELS[channel]
+    return (
+        f"You propose topics for {spec['name']}. Its promise to a viewer: {spec['promise']}\n"
+        f"WHAT QUALIFIES: {spec['requires']}.\n"
+        f"WHAT IT LOOKS LIKE: {spec['examples']}.\n"
+        f"WHAT STAYS OUT: {spec['excludes']}.\n"
+        "HARD RULES, and a topic failing any one of them is worthless here:\n"
+        "- ONE intervention, bounded in time and place. A standing condition with many parallel "
+        "causes is not one. 'Why don't Americans eat hippo meat' cost this series $3.20 in "
+        "research and produced nothing, because it names an absence rather than an event.\n"
+        "- A DOCUMENTED AFTERMATH. Not a claim about what it symbolises -- a thing that "
+        "measurably happened afterwards, to the animals or to the people.\n"
+        "- SOURCEABLE: a literate person could name the law, the year, the place and the outcome. "
+        "No folk claims, and nothing whose central fact is disputed or apocryphal -- the Delhi "
+        "cobra bounty fails this and the Hanoi rat bounty passes it.\n"
+        # Measured: a proposal came back as "Britain's bounty on the last thylacines". The bounty
+        # was the TASMANIAN government's, 1888-1909. The screen only asks whether a topic has a
+        # story in it, so a confidently misattributed one sails through and the error lands in the
+        # title, where research either wastes a run on it or -- worse -- works around it.
+        "- NAME THE RIGHT ACTOR. Whoever actually ran the programme: the specific government, "
+        "colony, state, agency or company. A colonial-era programme was usually run by the "
+        "colonial administration rather than the imperial capital, and a state programme by the "
+        "state rather than the nation. If you are not certain who ran it, describe the programme "
+        "without naming an actor -- an omission costs a rewrite, a wrong attribution costs a "
+        "video that is confidently false.\n"
+        "- The question names the SUBJECT, not the shape. 'Why did paying people to kill rats "
+        "make Hanoi worse?' -- not 'Why do incentives backfire?'\n"
+        + ("- A state-run campaign against an animal population belongs to the OTHER channel. Do "
+           "not propose one here.\n" if channel == topic_fit.HISTORY else
+           "- The intervention must TARGET the animal population. A programme that harmed animals "
+           "incidentally belongs to the other channel.\n")
+        + "Score 0-10 on curiosity_gap (specific, an irresistible open loop, real stakes, and "
+        "FRESH -- the cobra effect itself is over-told). Be a harsh grader.\n"
+        'Return ONLY JSON: {"questions":[{"question":"...","curiosity_gap":int,'
+        '"episode":"the intervention in a short phrase","intent":"what was being attempted",'
+        '"aftermath":"what documentably followed"}]}.')
+
+
+def generate_causal_topics(channel: str = "world", n: int = 10, min_score: int = 8,
+                           cost_sink: list | None = None, avoid: list | None = None) -> list[dict]:
+    """Propose topics for the illustrated history lane, screened before they are returned.
+
+    The existing topic generator serves the simulation shorts ("What If You Grew 1cm Every
+    Second"), which is a different channel with a different contract. This lane had none, so
+    topics arrived by hand and one of them -- "Why don't Americans eat hippo meat?" -- cost $3.20
+    of research and four runs before anything noticed it had no story in it.
+
+    Every proposal is put through the same three-question screen the pipeline applies before
+    buying research, so a topic that reaches the operator has already survived the test that would
+    otherwise refuse it later.
+    """
+    import topic_fit
+
+    known = ", ".join(_s(item) for item in (avoid or []) if _s(item))
+    prompt = (f"Propose {max(1, n) * 2} candidate questions.\n"
+              + (f"Already made or proposed, do not repeat: {known}\n" if known else ""))
+    response = _claude().messages.create(
+        model=ANTHROPIC_MODEL, max_tokens=3000, system=_causal_topic_system(channel),
+        messages=[{"role": "user", "content": prompt}])
+    _charge(cost_sink, _ledger.RESEARCH, _msg_cost(response.usage), "causal topics")
+    if isinstance(cost_sink, list) and not isinstance(cost_sink, _ledger.CostLedger):
+        cost_sink.append(_msg_cost(response.usage))
+    data, _ = _parse_script_json(response.content[0].text)
+
+    def judge(text: str, system: str = "") -> str:
+        reply = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=700, system=system,
+                                         messages=[{"role": "user", "content": text}])
+        _charge(cost_sink, _ledger.RESEARCH, _msg_cost(reply.usage), "topic fit")
+        return reply.content[0].text
+
+    out = []
+    for item in (data.get("questions") or []):
+        if not isinstance(item, dict) or int(item.get("curiosity_gap") or 0) < min_score:
+            continue
+        # Screened here so a topic cannot reach an operator and then be refused by the pipeline
+        # that proposed it. A verdict the generator disagrees with is the generator being wrong.
+        verdict = topic_fit.screen(_s(item.get("question")), channel=channel, judge=judge)
+        item["topic_fit"] = verdict
+        # Wrong channel is as disqualifying as no story: it is the other channel's episode.
+        if (verdict.get("verdict") != topic_fit.NO_STORY
+                and verdict.get("channel", channel) == channel):
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
 _SIM_TOPIC_SYSTEM = (
     "You are a YouTube SHORTS packaging strategist for the viral 'simulation' format (BoneLab-style): "
     "the viewer IS the subject, ONE measurable quantity changes to THEM on a clock, and it escalates "
@@ -7469,6 +7789,23 @@ _SCRIPT_ELEVATE_PASSES = int(os.environ.get("SCRIPT_ELEVATE_PASSES", "2"))
 # Structural retries happen before the subjective engagement grader. One re-plan is usually enough
 # to repair a missing prediction/payoff/loop while keeping provider cost bounded.
 _LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"))
+# Output budget for one research turn. This bounds what the model WRITES -- the search results it
+# reads are input -- so it is the ceiling on how many claims, quotes and URLs fit in the dossier
+# before the JSON is cut off mid-structure.
+#
+# Raised from 10k after "Why don't Americans eat hippo meat?" spent $1.30 and returned nothing:
+# stop_reason came back max_tokens with the ledger unfinished, and a partial dossier cannot be
+# repaired into verified claims. 10k was already known to be tight -- an earlier web_fetch
+# experiment against the same budget drove claims from 14 to 0 by leaving no room to write them.
+#
+# Note what this does NOT fix. A broad question makes the model search more before it writes, and
+# search blocks are output too, so extra budget can be spent on searching rather than on claims.
+# Budget helps a dossier that was nearly complete; it does not narrow a question that has no
+# single documented episode at its centre.
+_RESEARCH_MAX_TOKENS = max(4000, int(os.environ.get("RESEARCH_MAX_TOKENS", "20000")))
+# Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
+# the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
+_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
 
 
 def _script_gate_hard() -> bool:
@@ -7539,6 +7876,8 @@ def _stable_standard_longform(video_format: str, story_format: str,
 
 
 import cost_ledger as _ledger
+from longform_research import era_split as _lr_era_split, \
+    era_split_report as _lr_era_split_report
 import event_functions as _ef
 import story_compiler as _compiler
 import story_fact_model as _sfm
@@ -7562,6 +7901,19 @@ def _spine_claims(dossier: dict) -> dict:
 def _lr_claims_by_case(dossier: dict) -> dict:
     from longform_research import _claims_by_parallel_case
     return _claims_by_parallel_case(dossier or {})
+
+
+def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is hook length the only thing standing between this draft and the render?
+
+    Deliberately narrow. A replan is the right answer to a story that does not work; it is a
+    catastrophic answer to a sentence that is two words long, because the sheet it returns is a
+    different story whose evidence has to be re-established from scratch.
+    """
+    codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
+    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item)
+              for item in causal_errors or []]
+    return bool(codes) and all(code == "LONG_HOOK" for code in codes)
 
 
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
@@ -7891,6 +8243,26 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     for _attempt in range(1, _attempts + 1):
         if best_validation.get("passed") and best_causal_ok:
             break
+        # TRIM THE HOOK BEFORE THROWING THE STORY AWAY.
+        #
+        # A replan rebuilds the whole causal sheet, and the sheet it produces is a different story
+        # with different evidence. Measured: a draft whose spine had just passed in full -- every
+        # required role supported, the derived mechanism among them -- was replanned because its
+        # hook was 20 words against an 18-word budget, and the replacement sheet failed the spine.
+        # Two words cost a validated story.
+        #
+        # `_ensure_hook_fits_budget` already exists and does exactly this. When hook length is the
+        # ONLY thing blocking, it is the whole repair; anything else still replans as before.
+        if causal_lane and _only_hook_length_blocks(best_validation, best_causal_errors):
+            best, _hook_cost = _ensure_hook_fits_budget(best, cost_sink)
+            total_generation_cost += float(_hook_cost or 0.0)
+            best_validation = validate_longform_story(best, question)
+            best_causal_ok, best_causal_errors = _causal_contract_report(best, question)
+            log(f"Hook trimmed to budget instead of replanning; contract "
+                f"{best_validation.get('score', 0)}/100"
+                + (" and the causal contract now passes" if best_causal_ok else ""))
+            if best_validation.get("passed") and best_causal_ok:
+                break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
         if causal_lane and not best_causal_ok:
             causal_fixes = "; ".join(
@@ -8626,6 +8998,7 @@ def run_explainer_pipeline(
     pilot_kind: str = "",
     pilot_policy: dict | None = None,
     progress_cb=None,
+    topic_channel: str = "",
 ) -> dict:
 
     def log(msg: str):
@@ -8894,6 +9267,7 @@ def run_explainer_pipeline(
             else:
                 log("stage:Researching sourced claims...")
                 try:
+                    screen_topic_fit(question, aux_costs, log, channel=topic_channel)
                     research_dossier = generate_research_dossier(
                         question, cost_sink=aux_costs, log=log)
                 except Exception as exc:
@@ -8958,20 +9332,36 @@ def run_explainer_pipeline(
         if video_format != "social":
             claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
-            if not claim_validation.get("passed"):
+            # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
+            # five narration overshoots to one -- "baskets of tails swelled and swelled" -- and
+            # then stopped and refused the render for the survivor. Each pass rewrites only the
+            # scenes still failing, so a second pass on a shrinking list is a different and
+            # smaller job, not a retry of the one that just ran.
+            #
+            # Gated on the count going DOWN. A repair that fixes nothing, or trades one overshoot
+            # for another, stops immediately rather than buying another call to find that out.
+            for _repair_pass in range(_CLAIM_REPAIR_PASSES):
+                if claim_validation.get("passed"):
+                    break
+                _before_count = len(claim_validation.get("errors") or [])
                 repaired_script, repair_cost = repair_claim_join_failures(
                     script, research_dossier, claim_validation,
                     operator_direction=operator_direction)
-                if repair_cost:
-                    script = repaired_script
-                    script["_script_cost_usd"] = round(
-                        float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
-                    rederive_narration_bindings(script, log, research_dossier)
-                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
-                    script["_claim_validation"] = claim_validation
-                    scenes = script.get("scenes", [])
-                    log("Claim ledger repair: "
-                        + ("PASS" if claim_validation.get("passed") else "still failing"))
+                if not repair_cost:
+                    break
+                script = repaired_script
+                script["_script_cost_usd"] = round(
+                    float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+                rederive_narration_bindings(script, log, research_dossier)
+                claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                script["_claim_validation"] = claim_validation
+                scenes = script.get("scenes", [])
+                _after_count = len(claim_validation.get("errors") or [])
+                log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
+                    + ("PASS" if claim_validation.get("passed")
+                       else f"{_before_count} -> {_after_count} failing"))
+                if _after_count >= _before_count:
+                    break
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run

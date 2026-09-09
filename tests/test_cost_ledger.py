@@ -102,3 +102,17 @@ def test_every_stage_the_generator_charges_is_declared_a_script_stage():
     declared = {name for name in dir(cl)
                 if name.isupper() and getattr(cl, name) in cl.SCRIPT_STAGES}
     assert charged and charged <= declared, f"charged but not declared: {charged - declared}"
+
+
+def test_the_research_output_budget_is_configurable_and_defaults_above_the_old_ceiling():
+    """10k truncated a dossier mid-JSON and cost $1.30 for nothing.
+
+    It bounds what the model WRITES -- search results are input -- so it is the ceiling on how
+    many claims, quotes and URLs fit before the structure is cut off.
+    """
+    import os
+    assert ep._RESEARCH_MAX_TOKENS == 20000
+    assert ep._RESEARCH_MAX_TOKENS >= 4000, "there is a floor; a tiny budget cannot write a ledger"
+    source = open(ep.__file__, encoding="utf-8").read()
+    assert "max_tokens=_RESEARCH_MAX_TOKENS" in source, "the research call reads the constant"
+    assert "does NOT fix" in source, "the limits of the fix are recorded next to it"

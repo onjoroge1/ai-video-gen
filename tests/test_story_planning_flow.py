@@ -56,6 +56,17 @@ def factual_fixture(*, wrong_citation=False, narrow=False):
     return beats, claims
 
 
+@pytest.fixture(autouse=True)
+def _state_once_is_not_under_test(monkeypatch):
+    """STATE-ONCE now runs on fact-model scripts, and these tests are about the fact flow.
+
+    Left live it adds a provider call these fixtures do not stub, so the strict
+    unexpected-request guard fires on a pass that has nothing to do with what they assert.
+    """
+    import explainer_pipeline
+    monkeypatch.setattr(explainer_pipeline, "_dedupe_narration",
+                        lambda scenes, beats, throughline: (scenes, 0.0))
+
 class EvidenceFixture:
     def __init__(self, *, reject_relationship="", unavailable=False):
         self.calls = []
@@ -269,7 +280,9 @@ def test_accepted_facts_reach_expansion_fidelity_and_storyboard(monkeypatch):
     cascade = research.validate_story_fact_model(script, dossier, judge=judge,
                                                  cache=script["_entailment_cache"])
     assert cascade["passed"], cascade
-    assert len([c for c in judge.calls if c["kind"] == "fidelity"]) == len(scenes)
+    # One per scene, plus the hook — which is judged against the union of the supported events
+    # rather than against whichever beat it happens to be prepended to.
+    assert len([c for c in judge.calls if c["kind"] == "fidelity"]) == len(scenes) + 1
     board = illustrated_story.build_storyboard(script, script["title"])
     assert board["validation"]["passed"], board["validation"]
     assert script["_script_cost_usd"] == pytest.approx(ledger.script_stage_total())

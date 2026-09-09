@@ -498,12 +498,39 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     import story_fact_model as sfm
 
     scenes = script.get("scenes") or []
+    # THE HOOK IS NOT AN ASSERTION ABOUT BEAT ONE.
+    #
+    # finalize_narration prepends the spoken hook to the first scene, so the fidelity boundary was
+    # measuring a promise about the WHOLE video against the single event that scene happens to
+    # carry. Measured on the Hanoi render: "French officials paid a bounty for every dead rat, then
+    # watched Hanoi breed more rats" came back `unsupported` against an event about sewers. Both
+    # halves of that sentence are sourced -- the bounty and the breeding are separate verified
+    # claims -- and neither is in the beat it was glued to. A true, cited hook was being reported
+    # as an unsupported claim, which is the kind of false failure that teaches people to disable a
+    # gate.
+    #
+    # So the hook is lifted out and judged against the story it promises: the union of the events
+    # the spine actually establishes. It may say anything those events support, and nothing more.
+    hook = _text(script.get("hook"))
     beats = [dict(scene, beat_id=_text(scene.get("beat_id")) or _text(scene.get("scene_id")) or f"scene_{index:03d}",
                   role=_text(scene.get("causal_role")) or _text(scene.get("story_role")))
              for index, scene in enumerate(scenes, 1)]
+    if hook and beats:
+        lead = _text(beats[0].get("narration"))
+        if lead.casefold().startswith(hook.casefold()):
+            # Strip the separator too. A hook already ending in "?" leaves ". Explained like you
+            # are five..." behind, and a narration opening on a bare full stop is both a worse
+            # sentence for the judge to read and a worse one for the narrator to say.
+            beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+    # The engine travels with the script, and it has to reach the cascade here as well as at the
+    # spine gate. Without it this path fell back to backfiring_solution's contract and raised
+    # CLAIM_KIND_MISMATCH on a removed_keystone mechanism citing a context claim -- which is what
+    # that engine's mechanism IS. Worse, the code is not in the repairable set, so the whole claim
+    # repair bailed and seven ordinary narration overshoots went unrepaired behind it.
     report = sfm.validate_cascade(
         beats, _claim_index(dossier), _claims_by_parallel_case(dossier),
-        judge=judge, cache=cache, cost_sink=cost_sink)
+        judge=judge, cache=cache, cost_sink=cost_sink,
+        engine_id=_text(script.get("_story_engine")))
 
     relationships = sfm._validate_relationships(beats, report, judge=judge,
                                                 cache=cache, cost_sink=cost_sink)
@@ -530,6 +557,56 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                   + ", ".join(row.get("unsupported_details") or []),
                        "supported_core": row.get("supported_core"),
                        "unsupported_details": row.get("unsupported_details")})
+    if hook:
+        import claim_entailment as ce
+        import story_fact_model as _sfm
+        # The ceiling is the events AND the claims behind them. The events deliberately state the
+        # PROXY -- "the reward was paid for a severed rat tail" -- while the story a viewer is
+        # being promised starts with the announcement, "a bounty on every dead rat", which is a
+        # separate verified claim. Judged against the events alone, a hook saying officials "paid
+        # residents for rats" was flagged for implying whole rats, and the judge's own supported
+        # core said the same thing back. The hook promises the story; the story starts with the
+        # announcement, so the announcement belongs in what the hook may draw on.
+        #
+        # Still bounded by the spine: only claims cited by events that PASSED, so nothing the
+        # evidence boundary rejected can raise the ceiling.
+        index = _claim_index(dossier)
+        supported = [beat for beat in beats
+                     if _sfm.event_of(beat)["text"]
+                     and _text(beat.get("beat_id")) not in
+                     {row["beat_id"] for row in report["evidence"]}]
+        cited = []
+        for beat in supported:
+            for ref in _sfm.event_of(beat)["claim_refs"]:
+                claim = _text((index.get(ref) or {}).get("claim"))
+                if claim and claim not in cited:
+                    cited.append(claim)
+        story = " ".join([_sfm.event_of(beat)["text"] for beat in supported] + cited)
+        if not story:
+            # Nothing survived, so there is no ceiling to measure against. Reported as the hook
+            # exceeding the story rather than skipped: a promise with no supported events behind
+            # it is the strongest version of this failure, not an exemption from it.
+            errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           "message": "no event survived the evidence boundary, so nothing "
+                                      "supports the hook's promise"})
+            verdict = None
+        else:
+            verdict = ce.narration_fidelity(story, hook, judge=judge, cache=cache,
+                                            cost_sink=cost_sink)
+        if verdict is None:
+            pass
+        elif ce.is_retryable(verdict):
+            errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": "hook",
+                           "message": f"hook: {verdict.get('reason') or verdict['verdict']}",
+                           "retryable": True})
+        elif not verdict["passed"]:
+            errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           "message": "the hook promises more than the supported events deliver ("
+                                      f"{verdict['verdict']}): "
+                                      + ", ".join(verdict.get("unsupported_details") or []),
+                           "supported_core": verdict.get("supported_core"),
+                           "unsupported_details": verdict.get("unsupported_details")})
+
     # An outage is not a content failure, but it is not a pass either. It blocks and says why.
     for row in report["unavailable"]:
         errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": row["beat_id"],
@@ -537,7 +614,10 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                   f"judged — {row.get('reason')}", "retryable": True})
     return {
         "version": 2,
-        "passed": report["passed"] and all(r["passed"] for r in relationships),
+        # Every error blocks, including the hook's. A finding that reaches `errors` and not
+        # `passed` is a gate that reports a problem and lets the run through anyway.
+        "passed": (report["passed"] and all(r["passed"] for r in relationships)
+                   and not [e for e in errors if not e.get("retryable")]),
         "structure_status": report["structure_status"],
         "claim_count": len(_claim_index(dossier)),
         "errors": errors,
@@ -643,3 +723,74 @@ def claim_context_for_prompt(dossier: dict) -> list[dict]:
         for claim in (dossier.get("claims") or [])
         if isinstance(claim, dict)
     ]
+
+
+# --- dossier scope ------------------------------------------------------------------------------
+# A question can quietly ask for two stories, and research will answer both. "Why don't Americans
+# eat hippo meat?" returned 21 verified claims -- MORE than the Hanoi dossier that works -- split
+# between a 1910 congressional episode and modern African conservation. The planner then built one
+# spine from both: `world_without_it` came back as a 2006 IUCN listing and `outcome_state` as Congo
+# poaching figures, neither of which is about the American bill that the story is supposedly about.
+#
+# Nothing noticed. The dossier validated, the beat sheet was paid for, and the spine failed three
+# runs later for reasons that took a $2 render each to read. This is decidable by looking at the
+# dates, so it is decided here, before anything downstream is bought.
+ERA_GAP_YEARS = 50
+
+
+def era_split(dossier: dict) -> dict:
+    """Do the verified claims describe one period, or two separated by a lifetime?
+
+    Reports; never refuses. A story CAN legitimately span eras -- a 1910 plan and the world it
+    failed to produce -- so this names what it found and leaves the judgement to the spine gate,
+    which reasons about the events rather than counting years. Blocking on a date histogram is
+    exactly the kind of confident heuristic that has been wrong twice already here.
+
+    Two kinds of claim are excluded, and both matter. A comparable case is SUPPOSED to come from
+    another time and place, so counting it would flag every story that generalises. And a claim
+    ABOUT THE SCHOLARSHIP carries the publication's date, not the episode's: the Hanoi dossier --
+    the one that works -- cites Vann's 2003 history of a 1902 bounty, and reading that as a
+    century of drift flagged the story this check exists to leave alone.
+    """
+    import story_fact_model as _sfm
+
+    # The causal lane can reach here with research off, and a check that crashes on the absence of
+    # a dossier is a check that turns "no research" into a failed run.
+    if not isinstance(dossier, dict):
+        return {"spans_eras": False, "clusters": [], "dated": 0, "undated": 0, "largest": None}
+    dated: list[tuple[int, str]] = []
+    for ref, claim in (_claim_index(dossier) or {}).items():
+        text = " ".join(_text(claim.get(field)) for field in ("claim", "support_quote"))
+        if _sfm._PARALLEL_MARKER.search(text) or _sfm._META_EVIDENCE.search(text):
+            continue
+        import re as _re
+        years = [int(y) for y in _re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", text)]
+        if years:
+            dated.append((min(years), ref))
+    dated.sort()
+    if len(dated) < 2:
+        return {"spans_eras": False, "clusters": [], "dated": len(dated),
+                "undated": len(_claim_index(dossier) or {}) - len(dated)}
+
+    clusters: list[list[tuple[int, str]]] = [[dated[0]]]
+    for entry in dated[1:]:
+        (clusters[-1] if entry[0] - clusters[-1][-1][0] <= ERA_GAP_YEARS
+         else clusters.append([]) or clusters[-1]).append(entry)
+    described = [{"from": group[0][0], "to": group[-1][0],
+                  "claim_ids": [ref for _, ref in group]} for group in clusters]
+    return {"spans_eras": len(clusters) > 1, "clusters": described, "dated": len(dated),
+            "undated": len(_claim_index(dossier) or {}) - len(dated),
+            "largest": max(described, key=lambda c: len(c["claim_ids"])) if described else None}
+
+
+def era_split_report(split: dict) -> str:
+    if not split.get("spans_eras"):
+        return ""
+    periods = ", ".join(
+        f"{c['from']}" + (f"-{c['to']}" if c["to"] != c["from"] else "")
+        + f" ({len(c['claim_ids'])} claim{'s' if len(c['claim_ids']) != 1 else ''})"
+        for c in split["clusters"])
+    return (f"Dossier spans {len(split['clusters'])} periods more than {ERA_GAP_YEARS} years "
+            f"apart: {periods}. {split['undated']} claims carry no date. A question that asks "
+            "about a present-day absence AND a historical episode returns both, and one spine "
+            "cannot be built from two stories — say which period the video is about.")
