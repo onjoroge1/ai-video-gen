@@ -510,6 +510,7 @@ def test_a_mechanism_the_engine_does_not_derive_may_cite_a_plain_fact():
     for engine in ("removed_keystone", "almost_happened_plan"):
         assert "context" in sfm.accepted_claim_kinds("mechanism", engine)
         assert "event" in sfm.accepted_claim_kinds("mechanism", engine)
-    # Unmapped engines and other roles are untouched.
+    # Unmapped engines retain the default. Ecology's setup can cite a food-web mechanism.
     assert sfm.accepted_claim_kinds("mechanism") == sfm.accepted_claim_kinds("mechanism", "")
-    assert sfm.accepted_claim_kinds("setup", "removed_keystone") == sfm.accepted_claim_kinds("setup")
+    assert "mechanism" in sfm.accepted_claim_kinds("setup", "removed_keystone")
+    assert "mechanism" not in sfm.accepted_claim_kinds("setup", "backfiring_solution")

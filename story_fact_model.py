@@ -192,6 +192,11 @@ def accepted_claim_kinds(role: str, engine_id: str = "") -> tuple:
     four had passed.
     """
     role = _text(role).lower()
+    if engine_id:
+        import event_functions as _ef
+        mapping = _ef.map_for(engine_id)
+        if mapping is not None and role in mapping.claim_kinds:
+            return mapping.claim_kinds[role]
     if role == "mechanism" and engine_id:
         import event_functions as _ef
         mapping = _ef.map_for(engine_id)
@@ -781,7 +786,8 @@ def prune_unsupported_optional(beats: list[dict], failed_ids: set) -> tuple[list
 
 
 def narrow_required_roles(beats: list[dict], verdicts: dict,
-                          engine_id: str = "") -> tuple[list, list, list]:
+                          engine_id: str = "", *, judge=None, cache=None,
+                          cost_sink=None) -> tuple[list, list, list]:
     """Repair a required beat from its OWN evidence, and only when there is a core to keep.
 
     The free dossier search this replaces was unsound twice over. It picked the first verified claim
@@ -821,6 +827,21 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
                                           "claim_refs": event_of(beat)["claim_refs"]})
             candidate["beat"] = core
             holds, why = role_contract_holds(candidate)
+            # Shared nouns cannot prove a causal job survived narrowing. The cane-toad
+            # intervention lost the introduction and its purpose, yet "toad" overlapped its
+            # declared state. For compiled functions, check the supported core's meaning.
+            function_result = None
+            if holds and engine_id:
+                import claim_entailment as ce
+                import event_functions as ef
+                mapping = ef.map_for(engine_id)
+                function = _text(beat.get("event_function"))
+                if mapping and mapping.role_for(function) == role:
+                    function_result = ce.function_fulfillment(
+                        core, ef.WHAT_EACH_FUNCTION_IS[function],
+                        judge=judge, cache=cache, cost_sink=cost_sink)
+                    holds = function_result["passed"]
+                    why = function_result.get("reason") or "the supported core no longer performs the function"
             if holds:
                 narrowed.append({"beat_id": beat_id, "role": role,
                                  "was": event_of(beat)["text"], "now": core,
@@ -833,7 +854,8 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
                                   f"beat {beat_id}: narrowing to the supported core left a {role} "
                                   f"that no longer performs its function — {why}. "
                                   f"{role}: {role_function(role, engine_id)}",
-                                  beat_id=beat_id, role=role))
+                                  beat_id=beat_id, role=role,
+                                  function_verdict=(function_result or {}).get("verdict")))
             out.append(beat)
             continue
 
@@ -1045,7 +1067,8 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     # A required role cannot be pruned, so it is narrowed to whatever Boundary A actually supported
     # -- never re-sourced from elsewhere in the dossier.
     kept, narrowed, unrepairable = narrow_required_roles(
-        kept, {row["beat_id"]: row for row in report["evidence"]}, engine_id)
+        kept, {row["beat_id"]: row for row in report["evidence"]}, engine_id,
+        judge=judge, cache=cache, cost_sink=cost_sink)
     # No second entailment call: `supported_core` is Boundary A's own finding about these same
     # claims, so re-asking "do they support it" is a question whose answer we already bought. The
     # check worth running is the other contract -- whether the narrowed beat still does its job --

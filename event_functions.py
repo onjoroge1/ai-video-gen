@@ -146,7 +146,8 @@ class EngineFunctionMap:
     become the contract for an accidental invention, which has no incentive to change.
     """
 
-    def __init__(self, engine_id, required, to_role, derived=(), role_meanings=None):
+    def __init__(self, engine_id, required, to_role, derived=(), role_meanings=None,
+                 claim_kinds=None):
         self.engine_id = engine_id
         self.required = tuple(required)
         self.to_role = dict(to_role)
@@ -156,6 +157,7 @@ class EngineFunctionMap:
         # it, compounding" -- of a bill dying in committee, where nobody exploits anything. A role
         # name shared across engines does not make the job shared.
         self.role_meanings = dict(role_meanings or {})
+        self.claim_kinds = dict(claim_kinds or {})
 
     def role_for(self, function: str) -> str:
         return self.to_role.get((function or "").strip().lower(), "")
@@ -225,6 +227,10 @@ REMOVED_KEYSTONE = EngineFunctionMap(
              SYSTEM_RESETTLES: "reversal",
              PARALLEL_CASE: "generalization",
              OUTCOME_STATE: "context", CONTEXT: "context"},
+    # A food-web relationship can establish the prior ecology and explain the aftermath.
+    # Its use as setup does not turn a mechanism-labelled source into an historical event.
+    # Boundary A must still establish that the particular setup follows from that source.
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism")},
     role_meanings={
         "setup": "who was eating whom before anyone intervened",
         "intervention": "the species deliberately removed or introduced",

@@ -3051,6 +3051,36 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             cost += sum(_spine_cost)
             _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
+        if not _spine["passed"] and not _diagnostic_render():
+            from durable_execution import current as _current_runtime
+            import research_coverage
+            _runtime = _current_runtime()
+            if _runtime:
+                _persist_semantic_failure(
+                    output_dir=_runtime.output_dir, stage="story-spine",
+                    script={"beats": _roles.get("beats") or beats},
+                    research_dossier=research_dossier, report=_spine,
+                    operator_direction=operator_direction)
+            repaired = research_coverage.repair_sheet(
+                question, _roles.get("beats") or beats, _spine, research_dossier or {},
+                generate=generate_research_dossier, cache=_cache, cost_sink=cost_sink)
+            if repaired:
+                research_dossier = repaired["dossier"]
+                _claims_for_roles = _spine_claims(research_dossier)
+                # Preserve the engine and event text. New citations must support the same
+                # facts before any narration is purchased; there is no replacement plan.
+                prepared = _planning.prepare(
+                    repaired["beats"], sheet_engine_id, _claims_for_roles,
+                    _lr_claims_by_case(research_dossier), question=question,
+                    cost_sink=cost_sink, cache=_cache)
+                cost += repaired["cost_usd"] + prepared["cost_usd"]
+                _spine, _sb = prepared["compiled"], prepared["beats"]
+                print(_sfm.spine_summary(_sb, _spine))
+                if _runtime and not _spine["passed"]:
+                    _persist_semantic_failure(
+                        output_dir=_runtime.output_dir, stage="story-spine-after-research",
+                        script={"beats": _sb}, research_dossier=research_dossier,
+                        report=_spine, operator_direction=operator_direction)
         plan["_spine"] = {"compiled": _spine, "beats": _sb}
         plan["_entailment_cache"] = _cache
         if not _spine["passed"] and not _diagnostic_render():
@@ -3678,6 +3708,8 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
         log(f"  ✗ dropped {claim.get('claim_id') or '?'}: {reason} — "
             f"{_s(claim.get('source_url'))[:70]}")
     dossier["claims"] = verified
+    # Retain rejected candidates for diagnosis; only verified claims enter writing prompts.
+    dossier["unverified_claims"] = dropped
     # These now describe what WE read, so the ledger and its evidence cannot disagree.
     dossier["citation_records"] = [{"url": _s(claim.get("source_url")),
                                     "cited_text": _s(claim.get("support_quote"))}
@@ -3792,7 +3824,7 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
 
 
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
-                              log=lambda message: None) -> dict:
+                              log=lambda message: None, evidence_gaps: list | None = None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search."""
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
@@ -3851,6 +3883,24 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         "\"search_budget_exhausted\". Never emit a placeholder support_quote such as "
         "\"NOT_YET_VERIFIED\"; omit the claim instead."
     )
+    if evidence_gaps:
+        # Reuse the same schema and source rules, but spend this request on the missing primary
+        # facts. The normal prompt remains byte-identical so existing paid research replays.
+        schema = prompt[prompt.index("Return ONLY JSON with this schema:"):]
+        prompt = (
+            f'Research missing evidence for this documentary question: "{question}". '
+            "Return 2-6 atomic claims about ONLY this primary episode. No comparable cases. "
+            "The statements below are UNVERIFIED research questions, not facts to accept. "
+            "Find accessible primary or authoritative institutional sources that establish or "
+            "contradict them. Do not infer an actor, implementation or intent from a proposed "
+            "plan or the absence of studies. Establish the intervention and its stated purpose "
+            "separately if needed, as well as any missing ecological baseline. Use only URLs "
+            "observed in your web-search results. Each support_quote must be a short exact "
+            "excerpt from that URL that supports the ENTIRE atomic claim. Encyclopedia, forum "
+            "and generic blog sources do not qualify. If the evidence is missing, omit the "
+            "claim; never manufacture support for the proposed story.\n"
+            + json.dumps(evidence_gaps, ensure_ascii=False) + "\n"
+            + schema.replace("12 claims", "2 claims"))
     # Consult the cache only now that the request exists, because the request is part of the key.
     cached = _cached_research_dossier(question, prompt, log)
     if cached:
@@ -3858,7 +3908,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=_RESEARCH_MAX_TOKENS,
+        max_tokens=min(_RESEARCH_MAX_TOKENS, 6000) if evidence_gaps else _RESEARCH_MAX_TOKENS,
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -3874,7 +3924,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         # to supply text this function has already decided it does not use. Dropping it restores
         # the design the comment above describes.
         tools=[{"type": "web_search_20260318", "name": "web_search",
-                "allowed_callers": ["direct"], "max_uses": _WEB_SEARCH_MAX_USES}],
+                "allowed_callers": ["direct"],
+                "max_uses": min(_WEB_SEARCH_MAX_USES, 6) if evidence_gaps else _WEB_SEARCH_MAX_USES}],
         # Leave time for a durable worker to settle this response and yield to its replacement.
         # SDK retries are disabled in _anthropic_native when a durable runtime is active.
         timeout=max(1.0, min(240.0, float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
@@ -3882,7 +3933,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     messages = [{"role": "user", "content": prompt}]
     responses = []
     search_requests = 0
-    max_continuations = 3
+    max_continuations = 1 if evidence_gaps else 3
     for continuation in range(max_continuations + 1):
         response = client.messages.create(**request, messages=messages)
         responses.append(response)
@@ -3901,7 +3952,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         if stop_reason == "pause_turn":
             if continuation == max_continuations:
                 raise ValueError(
-                    "Research provider remained paused after 3 continuations; no complete "
+                    f"Research provider remained paused after {max_continuations} continuations; no complete "
                     "dossier was returned. Paid partial responses are retained for diagnosis.")
             # Server-search continuation requires every original block, including encrypted
             # results and pending tool IDs. Plain dictionaries also give a resumed worker the
@@ -3934,7 +3985,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     dossier["citation_records"] = [citation_records[key] for key in sorted(citation_records)]
     dossier["citation_urls"] = sorted({url for turn in responses
                                        for url in _provider_citation_urls(turn)})
-    dossier["web_search_max_uses"] = _WEB_SEARCH_MAX_USES
+    dossier["web_search_max_uses"] = request["tools"][0]["max_uses"]
     dossier["research_response_count"] = len(responses)
     dossier["research_pause_continuations"] = len(responses) - 1
     dossier["provider"] = "anthropic_server_web_search"
@@ -3959,7 +4010,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     research_runtime = current_research_runtime()
     if research_runtime:
         os.makedirs(research_runtime.output_dir, exist_ok=True)
-        with open(os.path.join(research_runtime.output_dir, "research_dossier.json"),
+        with open(os.path.join(research_runtime.output_dir,
+                               "research_supplement.json" if evidence_gaps else "research_dossier.json"),
                   "w", encoding="utf-8") as handle:
             json.dump(dossier, handle, indent=2, ensure_ascii=False)
     # An unverified-quote failure has two very different causes and the message could not tell them
@@ -8227,6 +8279,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                            video_format=video_format, series=series, operator_direction=operator_direction,
                            story_format=story_format, research_dossier=research_dossier,
                            cost_sink=cost_sink)
+    research_dossier = best.get("_research_dossier") or research_dossier
     total_generation_cost = float(best.get("_script_cost_usd") or 0.0)
     best_validation = validate_longform_story(best, question)
     # Two contracts want different things from the same script, and only one of them was steering
@@ -9295,6 +9348,7 @@ def run_explainer_pipeline(
                                                 research_dossier=research_dossier,
                                                 causal_lane=illustrated_story_on)
                 # Deliberately NOT stored here: see the store after the claim ledger.
+            research_dossier = script.get("_research_dossier") or research_dossier
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
