@@ -211,7 +211,8 @@ def minimum_beats(engine: dict | None) -> int:
     """
     if not engine:
         return 0
-    return (len(set(engine.get("required") or ()) - {cs.ESCALATION}) + cs.MIN_ESCALATIONS
+    return (len(set(engine.get("required") or ()) - {cs.ESCALATION})
+            + int(engine.get("min_escalations") or cs.MIN_ESCALATIONS)
             - int(bool(engine.get("compiled_compounding"))))
 
 
