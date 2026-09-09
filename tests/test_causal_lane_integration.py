@@ -1496,3 +1496,50 @@ def test_the_repair_is_told_that_actors_and_intervals_are_facts():
     assert "if the event does not say who did a thing" in system
     assert "'the cats were shot', not " in system
     assert "'decades " in system and "assert an interval" in system
+
+
+def test_actors_the_event_does_not_name_are_handed_over_by_name():
+    """Three rounds of instruction did not stop this.
+
+    The repair prompt says "if the event does not say who did a thing, the narration must not name
+    them either", gives 'the cats were shot', not 'managers shot the cats' as the worked example,
+    and a run came back asserting "Managers began killing cats". Naming a doer reads as clarity
+    rather than as a new fact, so the rule keeps losing to the instinct to write a clear sentence.
+    """
+    assert ep.unsupported_actors("The cats were shot from 1985.",
+                                 "Managers began killing cats.") == ["managers"]
+    # Supported by the event, so not flagged.
+    assert ep.unsupported_actors("Managers shot the cats.", "Managers began killing cats.") == []
+    assert ep.unsupported_actors("The cats were shot.", "The cats were shot.") == []
+    # It proposes only: it cannot know whether the event says the same thing in other words.
+    assert ep.unsupported_actors("", "Conservationists acted.") == ["conservationists"]
+
+
+def test_the_repair_payload_carries_the_flagged_actors(monkeypatch):
+    script = {"scenes": [
+        {"scene_id": "event_04", "beat_id": "event_04", "evidence_id": "e04",
+         "narration": "Managers began killing cats in 1985.",
+         "event": {"text": "A programme shot the island's cats from 1985."},
+         "claim_refs": [{"claim_id": "c1", "evidence_id": "e04",
+                         "narration_phrase": "Managers began killing cats in 1985."}]}]}
+    dossier = {"claims": [{"claim_id": "c1", "claim": "The cats were shot from 1985."}]}
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_04",
+                          "message": "asserts more than its event",
+                          "unsupported_details": ["Managers"]}]}
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["payload"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 200, "output_tokens": 40})(),
+                "content": [type("C", (), {"text": json.dumps({"scenes": [
+                    {"scene": 1, "narration": "The cats were shot from 1985.",
+                     "evidence_id": "e04",
+                     "claim_refs": [{"claim_id": "c1", "evidence_id": "e04",
+                                     "narration_phrase": "The cats were shot from 1985."}]}]})})()]})()
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    ep.repair_claim_join_failures(script, dossier, report)
+    assert "actors_the_event_does_not_name" in seen["payload"]
+    assert "managers" in seen["payload"]

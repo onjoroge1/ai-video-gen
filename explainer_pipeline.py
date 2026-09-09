@@ -4090,6 +4090,37 @@ _CLAIM_REPAIR_SYSTEM = (
 )
 
 
+_ACTOR_NOUNS = (
+    "managers", "manager", "conservationists", "conservationist", "officials", "official",
+    "authorities", "scientists", "scientist", "researchers", "researcher", "rangers", "ranger",
+    "workers", "worker", "engineers", "engineer", "hunters", "hunter", "farmers", "farmer",
+    "residents", "resident", "settlers", "settler", "crews", "crew", "teams", "team",
+    "administrators", "planners", "biologists", "ecologists", "the government", "the state")
+
+
+def unsupported_actors(event_text: str, narration: str) -> list[str]:
+    """Actor words the narration names and the event does not.
+
+    Three rounds of instruction did not stop this. The repair prompt says "if the event does not
+    say who did a thing, the narration must not name them either", gives 'the cats were shot', not
+    'managers shot the cats' as the worked example, and a run came back asserting "Managers began
+    killing cats". Naming a doer reads as clarity rather than as a new fact, so a rule against it
+    keeps losing to the instinct to write a clear sentence.
+
+    So the spans are found here and handed over by name, the way Boundary A hands over
+    `unsupported_details`. This PROPOSES -- it cannot tell whether an actor is genuinely supported
+    by wording the event puts differently, and only the boundary rules on that. It just stops the
+    repair having to notice on its own.
+    """
+    haystack = _s(event_text).casefold()
+    found = []
+    for word in _ACTOR_NOUNS:
+        if (word in _s(narration).casefold() and word not in haystack
+                and not any(word in seen for seen in found)):
+            found.append(word)
+    return found
+
+
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                                *, operator_direction: str = "") -> tuple[dict, float]:
     """Run one bounded, evidence-locked repair for scene-level claim failures.
@@ -4144,6 +4175,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             # what it is allowed to say instead, which is how a rewrite trades one overshoot for
             # another.
             "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+            # Named, not left to be noticed. See unsupported_actors.
+            "actors_the_event_does_not_name": unsupported_actors(
+                (scenes[index - 1].get("event") or {}).get("text", ""),
+                _s(scenes[index - 1].get("narration"))),
             **{
             key: scenes[index - 1].get(key)
             for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")
