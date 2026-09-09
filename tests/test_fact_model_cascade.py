@@ -349,3 +349,26 @@ def test_the_hook_may_draw_on_the_claims_behind_the_supported_events():
                    if p.get("kind") == "fidelity" and p["narration"] == hook)
     assert "severed rat tail" in ceiling, "the event is still the backbone of the ceiling"
     assert "bounty on every dead rat" in ceiling, "and the claim behind it is available too"
+
+
+def test_the_engine_reaches_the_post_script_validation_too():
+    """The spine gate knew the engine and this path did not, so it fell back to a contract written
+    for another engine: CLAIM_KIND_MISMATCH on a removed_keystone mechanism citing a context claim,
+    which is what that engine's mechanism IS. And because that code is not repairable, the whole
+    claim repair bailed and seven ordinary narration overshoots went unrepaired behind it."""
+    import longform_research as lr
+
+    script = {"_story_engine": "removed_keystone", "hook": "", "scenes": [
+        {"scene_id": "event_04", "causal_role": "mechanism",
+         "narration": "The cats had also been eating the rabbits.",
+         "event": {"text": "Cats preyed on the island's rabbits as well as its seabirds.",
+                   "claim_refs": ["c01"]}}]}
+    dossier = {"claims": [{"claim_id": "c01", "verified": True, "claim_kind": "context",
+                           "claim_kind_confidence": 0.95,
+                           "claim": "Cats on the island preyed on rabbits and seabirds."}]}
+
+    def judge(payload, **kwargs):
+        return {"verdict": "entailed", "supported_core": "", "unsupported_details": []}
+
+    report = lr.validate_story_fact_model(script, dossier, judge=judge, cache={}, cost_sink=[])
+    assert "CLAIM_KIND_MISMATCH" not in [e["code"] for e in report["errors"]]

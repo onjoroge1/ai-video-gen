@@ -522,9 +522,15 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
             # are five..." behind, and a narration opening on a bare full stop is both a worse
             # sentence for the judge to read and a worse one for the narrator to say.
             beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+    # The engine travels with the script, and it has to reach the cascade here as well as at the
+    # spine gate. Without it this path fell back to backfiring_solution's contract and raised
+    # CLAIM_KIND_MISMATCH on a removed_keystone mechanism citing a context claim -- which is what
+    # that engine's mechanism IS. Worse, the code is not in the repairable set, so the whole claim
+    # repair bailed and seven ordinary narration overshoots went unrepaired behind it.
     report = sfm.validate_cascade(
         beats, _claim_index(dossier), _claims_by_parallel_case(dossier),
-        judge=judge, cache=cache, cost_sink=cost_sink)
+        judge=judge, cache=cache, cost_sink=cost_sink,
+        engine_id=_text(script.get("_story_engine")))
 
     relationships = sfm._validate_relationships(beats, report, judge=judge,
                                                 cache=cache, cost_sink=cost_sink)
