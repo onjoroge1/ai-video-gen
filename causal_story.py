@@ -239,11 +239,17 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
 
     compounded = sum(s["role"] == REVERSAL and s.get("event_function") == "compounds_exploit"
                      for s in steps) if (engine or {}).get("compiled_compounding") else 0
-    if counts.get(ESCALATION, 0) + compounded < MIN_ESCALATIONS:
+    # A SPIRAL IS ONE SHAPE, NOT THE ONLY SHAPE. Two escalations is right where people keep
+    # responding to an incentive -- tails are cut, then rats are farmed -- because each round of
+    # exploitation invites the next. An ecological cascade does not spiral: the cats go, the
+    # rabbits surge, the vegetation goes, and that is the whole mechanism running once. Demanding
+    # a second escalation of removed_keystone asks for a beat the events do not contain.
+    minimum = int((engine or {}).get("min_escalations") or MIN_ESCALATIONS)
+    if counts.get(ESCALATION, 0) + compounded < minimum:
         issues.append(_issue(
             "THIN_CHAIN",
-            f"found {counts.get(ESCALATION, 0)} escalation steps; a causal chain needs at least "
-            f"{MIN_ESCALATIONS} or it is a single cause-and-effect, not a spiral"))
+            f"found {counts.get(ESCALATION, 0)} escalation steps; this engine needs at least "
+            f"{minimum} or it is a single cause-and-effect, not a spiral"))
 
     # Only for engines that HAVE a false resolution. accidental_invention requires a hinge and has
     # no false_resolution in its sequence at all -- its own comment says "the hinge here is the
@@ -251,7 +257,12 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
     # stories have no moment of apparent success to break". Firing unconditionally made that engine
     # impossible to satisfy for ANY input, and repair_chain never inserts a false resolution, so
     # nothing downstream could rescue it.
-    engine_has_false_resolution = FALSE_RESOLUTION in ((engine or {}).get("sequence") or ())
+    # REQUIRED, not merely present in the sequence. removed_keystone can carry a false resolution
+    # -- the target species really did respond at first -- but it does not require one, because
+    # plenty of introductions never worked even briefly. Reading the sequence rather than the
+    # requirement demanded a beat the engine calls optional, and refused a story for omitting it.
+    engine_has_false_resolution = FALSE_RESOLUTION in ((engine or {}).get("required")
+                                                       or (engine or {}).get("sequence") or ())
     if engine is not None and not engine_has_false_resolution:
         pass
     elif counts.get(HINGE) and not counts.get(FALSE_RESOLUTION):

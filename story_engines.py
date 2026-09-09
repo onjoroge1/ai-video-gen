@@ -60,6 +60,9 @@ ENGINES: dict[str, dict[str, Any]] = {
                      cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
         "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL, cs.TOOL),
         "closing": cs.TOOL,
+        # A cascade runs once. See causal_story's THIN_CHAIN: two escalations is right for a
+        # spiral, where each round of exploitation invites the next, and wrong here.
+        "min_escalations": 1,
         "audience_before": "removing the pest fixes the problem",
         "audience_after": "the pest was holding something else down",
     },

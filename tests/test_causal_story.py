@@ -839,3 +839,45 @@ def test_chapters_themselves_survive_the_marker_being_silent():
               {"narration": "Two.", "chapter": 2, "causal_role": "reversal"}]
     cs.finalize_narration(scenes, hook="A hook.")
     assert [s["chapter"] for s in scenes] == [1, 2]
+
+
+def test_a_cascade_engine_is_not_asked_for_a_spiral():
+    """Two escalations is right for a spiral and wrong for a cascade.
+
+    A bounty spirals: tails are cut, then rats are farmed, because each round of exploitation
+    invites the next. An ecological cascade runs once -- the cats go, the rabbits surge, the
+    vegetation goes -- and demanding a second escalation asks for a beat the events do not contain.
+    """
+    import story_engines as se
+
+    assert cs.MIN_ESCALATIONS == 2, "the default is still the spiral"
+    assert se.ENGINES["removed_keystone"]["min_escalations"] == 1
+    assert "min_escalations" not in se.ENGINES["backfiring_solution"]
+
+    steps = [{"role": cs.SETUP, "step_id": "s1"}, {"role": cs.INTERVENTION, "step_id": "s2"},
+             {"role": cs.MECHANISM, "step_id": "s3"}, {"role": cs.ESCALATION, "step_id": "s4"},
+             {"role": cs.REVERSAL, "step_id": "s5"}, {"role": cs.TOOL, "step_id": "s6"}]
+    issues = []
+    cs._check_roles(steps, issues, se.ENGINES["removed_keystone"])
+    assert "THIN_CHAIN" not in [i["code"] for i in issues]
+    spiral = []
+    cs._check_roles(steps, spiral, se.ENGINES["backfiring_solution"])
+    assert "THIN_CHAIN" in [i["code"] for i in spiral], "the bounty engine still wants two"
+
+
+def test_a_hinge_needs_a_false_resolution_only_where_the_engine_requires_one():
+    """removed_keystone CAN carry one -- the target species really did respond at first -- but does
+    not require it, because plenty of introductions never worked even briefly. Reading the sequence
+    rather than the requirement demanded a beat the engine calls optional."""
+    import story_engines as se
+
+    steps = [{"role": cs.SETUP, "step_id": "s1"}, {"role": cs.INTERVENTION, "step_id": "s2"},
+             {"role": cs.HINGE, "step_id": "s3"}, {"role": cs.MECHANISM, "step_id": "s4"},
+             {"role": cs.ESCALATION, "step_id": "s5"}, {"role": cs.REVERSAL, "step_id": "s6"},
+             {"role": cs.TOOL, "step_id": "s7"}]
+    keystone = []
+    cs._check_roles(steps, keystone, se.ENGINES["removed_keystone"])
+    assert "UNEARNED_HINGE" not in [i["code"] for i in keystone]
+    bounty = []
+    cs._check_roles(steps, bounty, se.ENGINES["backfiring_solution"])
+    assert "UNEARNED_HINGE" in [i["code"] for i in bounty], "a bounty must show the fix working"
