@@ -31,6 +31,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "story_fact_model_v2"
+ROLE_CONTRACT_VERSION = "semantic_function_v1"
 
 
 def compiled_mechanism(beat: dict) -> bool:
@@ -762,7 +763,8 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
     return issues
 
 
-def prune_unsupported_optional(beats: list[dict], failed_ids: set) -> tuple[list, list]:
+def prune_unsupported_optional(beats: list[dict], failed_ids: set,
+                               engine_id: str = "") -> tuple[list, list]:
     """Drop beats the evidence does not carry AND the story does not need.
 
     Returns (kept, pruned). Not every researched fact deserves a beat: a spine should contain only
@@ -770,12 +772,18 @@ def prune_unsupported_optional(beats: list[dict], failed_ids: set) -> tuple[list
     context is removed rather than rewritten or sourced harder. A required role is never pruned --
     if the reversal is unsupported the story genuinely cannot be told.
     """
+    import event_functions as ef
+    mapping = ef.map_for(engine_id) if engine_id else None
+    required = required_spine_roles(engine_id)
     kept, pruned = [], []
     for index, beat in enumerate(beats or []):
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
         role = _text(beat.get("role") or beat.get("causal_role")).lower()
-        optional = role in OPTIONAL_ROLES or scope_of(beat) == PARALLEL_CASE
+        function = _text(beat.get("event_function"))
+        mapped_optional = bool(mapping and role and mapping.role_for(function) == role
+                               and function not in mapping.required and role not in required)
+        optional = role in OPTIONAL_ROLES or scope_of(beat) == PARALLEL_CASE or mapped_optional
         if beat_id in failed_ids and optional:
             pruned.append({"beat_id": beat_id, "role": role,
                            "event": event_of(beat)["text"],
@@ -826,22 +834,22 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
             candidate = dict(beat, event={"text": core,
                                           "claim_refs": event_of(beat)["claim_refs"]})
             candidate["beat"] = core
-            holds, why = role_contract_holds(candidate)
-            # Shared nouns cannot prove a causal job survived narrowing. The cane-toad
-            # intervention lost the introduction and its purpose, yet "toad" overlapped its
-            # declared state. For compiled functions, check the supported core's meaning.
+            import event_functions as ef
+            mapping = ef.map_for(engine_id) if engine_id else None
+            function = _text(beat.get("event_function"))
+            compiled_function = bool(mapping and mapping.role_for(function) == role)
+            # A compiled function has a semantic contract. The planner's old state may still
+            # contain the very actors or details Boundary A removed; shared words with that
+            # state cannot decide whether the supported core still does its job.
+            holds, why = role_contract_holds(candidate, require_overlap=not compiled_function)
             function_result = None
-            if holds and engine_id:
+            if holds and compiled_function:
                 import claim_entailment as ce
-                import event_functions as ef
-                mapping = ef.map_for(engine_id)
-                function = _text(beat.get("event_function"))
-                if mapping and mapping.role_for(function) == role:
-                    function_result = ce.function_fulfillment(
-                        core, ef.WHAT_EACH_FUNCTION_IS[function],
-                        judge=judge, cache=cache, cost_sink=cost_sink)
-                    holds = function_result["passed"]
-                    why = function_result.get("reason") or "the supported core no longer performs the function"
+                function_result = ce.function_fulfillment(
+                    core, ef.WHAT_EACH_FUNCTION_IS[function],
+                    judge=judge, cache=cache, cost_sink=cost_sink)
+                holds = function_result["passed"]
+                why = function_result.get("reason") or "the supported core no longer performs the function"
             if holds:
                 narrowed.append({"beat_id": beat_id, "role": role,
                                  "was": event_of(beat)["text"], "now": core,
@@ -871,7 +879,7 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
     return out, narrowed, blocked
 
 
-def role_contract_holds(beat: dict) -> tuple[bool, str]:
+def role_contract_holds(beat: dict, *, require_overlap: bool = True) -> tuple[bool, str]:
     """Does this beat's event still perform the role it claims, after being narrowed?
 
     Support and narrative function are separate contracts: evidence can prove a statement true
@@ -901,7 +909,7 @@ def role_contract_holds(beat: dict) -> tuple[bool, str]:
     if role in REQUIRED_SPINE_ROLES and (_text(beat.get("scope")) == PARALLEL_CASE
                                          or _PARALLEL_MARKER.search(event)):
         return False, "its event is a comparable case, which cannot be a step of the primary story"
-    if not after:
+    if not after or not require_overlap:
         return True, ""
     # The narrowed event must still reach the state the beat exists to produce. Stripping the
     # unsupported specificity is fine; stripping the thing that made the transition happen is not.
@@ -1063,7 +1071,7 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     failed |= {row["beat_id"] for row in report["fidelity"]}
     failed |= {row["beat_id"] for row in report["unavailable"]}
 
-    kept, pruned = prune_unsupported_optional(deduped, failed)
+    kept, pruned = prune_unsupported_optional(deduped, failed, engine_id)
     # A required role cannot be pruned, so it is narrowed to whatever Boundary A actually supported
     # -- never re-sourced from elsewhere in the dossier.
     kept, narrowed, unrepairable = narrow_required_roles(

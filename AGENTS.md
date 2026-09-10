@@ -190,3 +190,12 @@ The v3 evidence-composition migration may grant one `evidence_composition_recove
 under the same approval only after reconciling the exact v2 gap JSON with the saved failed story
 and valid base evidence. An existing v3 checkpoint or consumed recovery marker forbids another
 attempt. Never dispatch merely because a PR merged; inspect the saved records first.
+
+Compiled functions use their semantic role requirement when narrowing supported facts; the
+planner's original state wording cannot veto a supported paraphrase through word overlap.
+Optional factual functions are determined by the selected engine. Unsupported optional beats
+are removed, while required functions still block the story when unsupported. The handoff key
+includes the role-contract version. One `compiled_function_recovery_v1` continuation is available
+only for an exact saved legacy overlap rejection with matching draft/evidence hashes and verified
+citations. It rechecks the role under the same approval; it does not turn the saved rejection into
+a pass or buy another research repair.

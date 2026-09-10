@@ -28,6 +28,7 @@ def identity(beats, engine, claims, cases, question, repair_enabled):
             "draft_sha256": _hash(beats), "evidence_sha256": _hash(claims),
             "cases_sha256": _hash(cases or {}), "repair_enabled": bool(repair_enabled),
             "compiler": compiler.COMPILER_VERSION, "fact_model": facts.SCHEMA_VERSION,
+            "role_contract": facts.ROLE_CONTRACT_VERSION,
             "entailment": entailment.ENTAILMENT_CONTRACT_VERSION,
             "roles_sha256": _hash({role: facts.role_function(role, engine)
                                     for role in facts.required_spine_roles(engine)})}
@@ -98,6 +99,56 @@ def load(key):
     if (compiled.get("cascade") or {}).get("unavailable"):
         return None
     return payload
+
+
+def legacy_compiled_function_failure(payload):
+    """Recognize a saved overlap-only rejection; never convert it into a pass."""
+    import event_functions as ef
+    key = payload.get("identity") or {}
+    prepared = payload.get("prepared") or {}
+    compiled = prepared.get("compiled") or {}
+    cascade = compiled.get("cascade") or {}
+    claims, beats = payload.get("research_claims") or {}, payload.get("draft_beats") or []
+    engine = payload.get("engine") or ""
+    mapping = ef.map_for(engine)
+    if (payload.get("status") != "blocked" or compiled.get("passed") or not mapping
+            or "role_contract" in key or key.get("version") != VERSION
+            or key.get("compiler") != compiler.COMPILER_VERSION
+            or key.get("fact_model") != facts.SCHEMA_VERSION
+            or key.get("entailment") != entailment.ENTAILMENT_CONTRACT_VERSION
+            or key.get("engine") != engine or key.get("question") != payload.get("question")
+            or key.get("draft_sha256") != _hash(beats)
+            or key.get("evidence_sha256") != _hash(claims)
+            or key.get("roles_sha256") != _hash({role: facts.role_function(role, engine)
+                                                for role in facts.required_spine_roles(engine)})
+            or cascade.get("structural") or cascade.get("fidelity") or cascade.get("unavailable")
+            or compiled.get("duplicate_across_roles")
+            or any(not row.get("passed") for row in compiled.get("relationships") or [])):
+        return False
+    issues = compiled.get("unrepairable") or []
+    by_id = {b.get("beat_id"): b for b in beats}
+    evidence = {row.get("beat_id"): row for row in cascade.get("evidence") or []}
+    if not issues:
+        return False
+    for issue in issues:
+        beat = by_id.get(issue.get("beat_id")) or {}
+        verdict = evidence.get(issue.get("beat_id")) or {}
+        role = beat.get("causal_role") or beat.get("role")
+        if (issue.get("code") != "ROLE_CONTRACT_FAILED"
+                or "the narrowed event shares nothing with the state it must produce" not in issue.get("message", "")
+                or mapping.role_for(beat.get("event_function", "")) != role
+                or role not in facts.required_spine_roles(engine)
+                or verdict.get("verdict") != "partially_entailed"
+                or not verdict.get("supported_core")):
+            return False
+        refs = facts.event_of(beat)["claim_refs"]
+        if not refs or any(not claims.get(ref, {}).get("quote_verified")
+                           or not claims.get(ref, {}).get("source_reachable") for ref in refs):
+            return False
+    # Apart from the measured role failures, only nonessential beats may be failing.
+    failed = set(compiled.get("still_failing") or []) - {row["beat_id"] for row in issues}
+    kept, _ = facts.prune_unsupported_optional(beats, failed, engine)
+    return not any(b.get("beat_id") in failed for b in kept)
 
 
 def from_saved_failure(dossier, failure):

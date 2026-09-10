@@ -110,7 +110,7 @@ def test_source_reuse_recovery_requires_page_verified_base_evidence(tmp_path):
 
 
 @pytest.mark.parametrize("recovery_type", [
-    "scope", "ecosystem", "introduction", "provenance", "source_reuse", "composition"])
+    "scope", "ecosystem", "introduction", "provenance", "source_reuse", "composition", "function"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
     (False, True, False, "generic_illustrated"),
@@ -133,10 +133,12 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
                 "introduction": "introduction_contract_recovery_v1",
                 "provenance": "focused_evidence_provenance_recovery_v1",
                 "source_reuse": "verified_source_reuse_recovery_v1",
-                "composition": "evidence_composition_recovery_v1"}[recovery_type]
+                "composition": "evidence_composition_recovery_v1",
+                "function": "compiled_function_recovery_v1"}[recovery_type]
     error = {"scope": ERROR, "ecosystem": ECOSYSTEM_ERROR,
              "introduction": INTRODUCTION_ERROR, "provenance": PROVENANCE_ERROR,
-             "source_reuse": PROVENANCE_ERROR, "composition": PROVENANCE_ERROR}[recovery_type]
+             "source_reuse": PROVENANCE_ERROR, "composition": PROVENANCE_ERROR,
+             "function": "STORY_SPINE_UNSUPPORTED"}[recovery_type]
     result = {recovery: {"checkpoint_sha256": CHECKPOINT_SHA}} if used else {}
     if recovery_type == "provenance" and used:
         result["verified_source_reuse_recovery_v1"] = {
@@ -160,7 +162,8 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
               "introduction": "_introduction_checkpoint_repairable",
               "provenance": "_focused_provenance_checkpoint_repairable",
               "source_reuse": "_verified_source_reuse_checkpoint_repairable",
-              "composition": "_composed_evidence_checkpoint_repairable"}[recovery_type]
+              "composition": "_composed_evidence_checkpoint_repairable",
+              "function": "_compiled_function_checkpoint_repairable"}[recovery_type]
     monkeypatch.setattr(studio, helper, check)
     workers = []
 
@@ -185,7 +188,8 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
                                          "introduction": "STORY_SPINE_UNSUPPORTED",
                                          "provenance": "0 quotable excerpts available",
                                          "source_reuse": "0 quotable excerpts available",
-                                         "composition": "0 quotable excerpts available"}[recovery_type],
+                                         "composition": "0 quotable excerpts available",
+                                         "function": "STORY_SPINE_UNSUPPORTED"}[recovery_type],
             extra_attempts=1,
             recovery_key=recovery, expected_checkpoint_sha256=CHECKPOINT_SHA)
     else:

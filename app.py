@@ -3335,6 +3335,23 @@ def _composed_evidence_checkpoint_repairable(job: dict, store, blob) -> bool:
         return False
 
 
+def _compiled_function_checkpoint_repairable(job: dict, store, blob) -> bool:
+    """Read the exact old handoff before one semantic-function continuation."""
+    import research_handoff
+    checkpoint = job.get("checkpoint") or {}
+    if not checkpoint.get("sha256") or not str(job.get("error") or "").startswith("STORY_SPINE_UNSUPPORTED"):
+        return False
+    try:
+        with tempfile.TemporaryDirectory(prefix="compiled_function_review_") as output_dir:
+            runtime = durable_execution.DurableRuntime(
+                job_id=job["id"], worker_id="read-only", output_dir=output_dir, store=store, blob=blob)
+            runtime.restore_checkpoint(checkpoint)
+            payload = json.loads((Path(output_dir) / research_handoff.FILENAME).read_text())
+            return research_handoff.legacy_compiled_function_failure(payload)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, durable_execution.DurableExecutionError):
+        return False
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3364,6 +3381,16 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.resume_provider_block, str(action["job_id"]),
                 expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
+        elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and str(job.get("error") or "").startswith("STORY_SPINE_UNSUPPORTED")
+                and not (job.get("result") or {}).get("compiled_function_recovery_v1")
+                and await asyncio.to_thread(_compiled_function_checkpoint_repairable, job, store, blob)):
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="STORY_SPINE_UNSUPPORTED", extra_attempts=1,
+                recovery_key="compiled_function_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
         elif (job and job.get("status") == "error"
                 and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and is_legacy_scope_label_failure(str(job.get("error") or ""))
