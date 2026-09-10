@@ -23,6 +23,8 @@ import time
 import uuid
 from typing import Any, Callable, Iterator
 
+from provider_blocks import ProviderBlocked
+
 
 SCHEMA_VERSION = 1
 DEFAULT_LEASE_SECONDS = max(60, int(os.environ.get("DURABLE_JOB_LEASE_SECONDS", "900")))
@@ -102,6 +104,7 @@ def version_hash(root: str | os.PathLike[str]) -> str:
         "app.py", "explainer_pipeline.py", "illustrated_story.py", "causal_story.py",
         "story_engines.py", "reference_corpus.py", "longform_research.py", "claim_verify.py",
         "script_provider.py", "_durable_execution_legacy.py",
+        "provider_blocks.py",
         "longform_retention.py", "longform_evidence.py",
         "longform_motion.py", "longform_pilots.py", "longform_production.py",
         "longform_rendered_gate.py", "durable_execution.py",
@@ -882,6 +885,13 @@ class DurableRuntime:
             self.event("stage_incomplete" if incomplete else "stage_completed", stage_key,
                        {"provider": provider, "cost_usd": actual})
             return result, actual, False
+        except ProviderBlocked as exc:
+            # The provider explicitly rejected this request. Retain the reservation until
+            # the exact request settles after manual resume; do not buy a replacement.
+            exc.stage_key = stage_key
+            self.store.fail_stage(self.job_id, stage_key, str(exc), retryable=True)
+            self.store.note_stage(self.job_id, stage_key, {"provider_block": exc.block})
+            raise
         except Exception as exc:
             self.store.fail_stage(self.job_id, stage_key, str(exc), retryable=True)
             self.event("stage_retry", stage_key, {"provider": provider, "error": str(exc)[:500]})
@@ -1154,7 +1164,14 @@ class _AnthropicMessagesProxy:
             call_kwargs = dict(kwargs)
             headers = dict(call_kwargs.pop("extra_headers", None) or {})
             headers["Idempotency-Key"] = idempotency_key
-            response = self._messages.create(**call_kwargs, extra_headers=headers)
+            try:
+                response = self._messages.create(**call_kwargs, extra_headers=headers)
+            except Exception as exc:
+                from provider_blocks import from_exception
+                block = from_exception(exc)
+                if block:
+                    raise ProviderBlocked(block) from exc
+                raise
             payload = _plain(response)
             usage = payload.get("usage") or {}
             actual = _anthropic_usage_cost(usage)

@@ -101,6 +101,15 @@ class DeliveryStore(MemoryStore):
         self.job['result']['continuation_count'] = 1
         return copy.deepcopy(self.job)
 
+    def resume_provider_block(self, job_id, *, expected_checkpoint_sha256):
+        # Persistence adapter only. The actual SQL eligibility/locking branch has
+        # separate tests in test_provider_blocks; dispatch and worker remain real here.
+        assert self.job['status'] == 'provider_blocked'
+        assert self.job['checkpoint']['sha256'] == expected_checkpoint_sha256
+        self.job.update(status='queued', error=None,
+                        max_attempts=max(self.job['max_attempts'], self.job['attempts'] + 1))
+        return copy.deepcopy(self.job)
+
     def finalize_finished(self, job_id, record, *, worker_id):
         self.heartbeat(job_id, worker_id)
         assert job_id not in self.finished
@@ -249,7 +258,7 @@ class FakeMediaSDK:
                 input_tokens=0, output_tokens=100, input_tokens_details=None))
 
 
-@pytest.mark.parametrize("restart_boundary", ["image", "render", "compiled"])
+@pytest.mark.parametrize("restart_boundary", ["image", "render", "compiled", "provider"])
 def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_path, restart_boundary):
     _secure_environment(monkeypatch)
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'fake-provider-key')
@@ -298,8 +307,24 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     monkeypatch.setattr(pipeline, '_claude', unexpected_provider)
     monkeypatch.setattr(pipeline, '_anthropic_native', unexpected_provider)
 
+    provider_funded = []
+    provider_attempts = []
+    class AccountProvider:
+        def create(self, **kwargs):
+            from test_provider_blocks import credit_error
+            from test_durable_anthropic_response import payload
+            provider_attempts.append(kwargs)
+            if not provider_funded:
+                raise credit_error()
+            return SimpleNamespace(model_dump=lambda: payload())
+    account_provider = SimpleNamespace(messages=AccountProvider())
+
     def fixture_provider(kind, value, request):
         rt = durable.current()
+        if restart_boundary == 'provider' and kind == 'script':
+            rt.wrap_anthropic(account_provider).messages.create(
+                model='approved-test-model', max_tokens=600,
+                messages=[{'role': 'user', 'content': request['topic']}])
         result, _, _ = rt.paid_value(stage_key=f'fixture:{kind}', provider='fixture-claude',
             request=request, estimated_cost=.01,
             operation=lambda _key: (copy.deepcopy(value), .01))
@@ -361,21 +386,50 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
             assert executed.status_code == 200, executed.text
             job_id = store.job['id']
             first = await studio._run_durable_explainer_worker(job_id)
-            assert first.get('continued'), "\n".join(str(e) for e in store.events_seen[-8:])
-            assert store.job['status'] == 'queued' and not store.finished
+            if restart_boundary == 'provider':
+                assert first.get('blocked') and store.job['status'] == 'provider_blocked'
+                paused = await client.get(f'/api/agent/actions/{ACTION_ID}/public-status')
+                assert paused.json()['job']['provider_block']['code'] == 'insufficient_credit'
+                assert 'credit' in paused.json()['job']['error'].lower()
+                assert not sdk.calls and not store.finished
+                # Scheduled worker polling must not retry a provider account block.
+                assert not (await studio._run_durable_explainer_worker(job_id))['claimed']
+                assert len(provider_attempts) == 1
+                bad_auth = await client.post(f'/api/agent/actions/{ACTION_ID}/dispatch')
+                assert bad_auth.status_code == 403
+                # Explicitly retrying before funding pauses again; it never buys media.
+                again = await client.post(f'/api/agent/actions/{ACTION_ID}/dispatch',
+                                         headers={'Authorization': f'Bearer {token}'})
+                assert again.status_code == 200 and again.json()['blocked']
+                assert not sdk.calls and len(provider_attempts) == 2
+                provider_funded.append(True)
+            else:
+                assert first.get('continued'), "\n".join(str(e) for e in store.events_seen[-8:])
+                assert store.job['status'] == 'queued' and not store.finished
             assert store.job['checkpoint']['sha256']
             first_calls = copy.deepcopy(sdk.calls)
             image_calls = sum(n for (kind, _), n in first_calls.items() if kind == 'image')
-            assert image_calls == 1 if restart_boundary in {'image', 'compiled'} else image_calls > 1
-            assert sum(n for (kind, _), n in first_calls.items() if kind == 'tts') == scene_count
+            if restart_boundary != 'provider':
+                assert image_calls == 1 if restart_boundary in {'image', 'compiled'} else image_calls > 1
+                assert sum(n for (kind, _), n in first_calls.items() if kind == 'tts') == scene_count
             # A fresh worker gets a new temporary directory and restores the real checkpoint.
-            second = await studio._run_durable_explainer_worker(job_id)
+            if restart_boundary == 'provider':
+                second = await client.post(f'/api/agent/actions/{ACTION_ID}/dispatch',
+                                          headers={'Authorization': f'Bearer {token}'})
+                assert second.status_code == 200
+                assert len(provider_attempts) == 3
+                assert len({p['extra_headers']['Idempotency-Key'] for p in provider_attempts}) == 1
+                assert any(kind == 'stage_reused' and data == 'fixture:research'
+                           for kind, data, _ in store.events_seen)
+            else:
+                second = await studio._run_durable_explainer_worker(job_id)
             assert store.job['status'] in {'done', 'degraded'}, "\n".join(
                 str(e) for e in store.events_seen[-8:])
             if restart_boundary == 'render':
                 assert any(kind == 'stage_reused' and details.get('provider') == 'ffmpeg'
                            for kind, _, details in store.events_seen)
-            assert len(set(store.workers)) == 2 and store.enqueues == 1
+            assert len(set(store.workers)) == (3 if restart_boundary == 'provider' else 2)
+            assert store.enqueues == 1
             assert all(sdk.calls[key] == count for key, count in first_calls.items())
             assert max(sdk.calls.values()) == 1
             assert store.job['spent_cost_usd'] < store.job['max_cost_usd'] == 5
