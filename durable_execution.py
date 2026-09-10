@@ -207,6 +207,60 @@ class PostgresStore(_legacy.PostgresStore):
         })
         return row
 
+    def rearm_local_render_failure(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
+        """One continuation after a lost local encoder, with no ambiguous paid calls.
+
+        FFmpeg has no remote billing or side effect to reconcile. Only its zero-cost
+        unfinished rows can become retryable; all provider results stay untouched.
+        The versioned marker also bounds repeated dispatches after this memory repair.
+        """
+        recovery_key = "render_memory_recovery_v1"
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256):
+            raise DurableExecutionError("Render recovery requires the saved checkpoint hash")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            error = str(job.get("error") or "")
+            lost_render = (error == "Maximum worker attempts exhausted" or (
+                error.startswith("Paid stage render:")
+                and "unresolved prior provider attempt" in error))
+            if (job.get("status") != "error" or not lost_render
+                    or job.get("lease_owner") or job.get("lease_expires_at")
+                    or (job.get("result") or {}).get(recovery_key)
+                    or (job.get("checkpoint") or {}).get("sha256") != expected_checkpoint_sha256
+                    or float(job.get("reserved_cost_usd") or 0) != 0
+                    or float(job.get("spent_cost_usd") or 0) >= float(job.get("max_cost_usd") or 0)):
+                raise DurableExecutionError("Job is not eligible for local-render recovery")
+            cur.execute("""
+                SELECT * FROM generation_stages WHERE job_id=%s
+                AND status NOT IN ('completed','incomplete') FOR UPDATE
+            """, (job_id,))
+            stages = [self._json_ready(self._row(cur, raw)) or {} for raw in cur.fetchall()]
+            if not stages or any(
+                    stage.get("provider") != "ffmpeg"
+                    or not re.fullmatch(r"render:[0-9a-f]{32}", str(stage.get("stage_key") or ""))
+                    or stage.get("status") not in {"running", "retry"}
+                    or float(stage.get("reserved_cost_usd") or 0) != 0
+                    or float(stage.get("actual_cost_usd") or 0) != 0 for stage in stages):
+                raise DurableExecutionError("Recovery requires only unfinished zero-cost local renders")
+            keys = [stage["stage_key"] for stage in stages]
+            cur.execute("""
+                UPDATE generation_stages SET status='retry',updated_at=now()
+                WHERE job_id=%s AND stage_key=ANY(%s)
+            """, (job_id, keys))
+            marker = {recovery_key: {"checkpoint_sha256": expected_checkpoint_sha256,
+                                     "prior_error": error, "local_stages": keys}}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,updated_at=now(),finished_at=NULL
+                WHERE id=%s RETURNING *
+            """, (json.dumps(marker), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed", "Local render continuation ready", {
+            "extra_attempts": 1, "checkpoint_sha256": expected_checkpoint_sha256})
+        return row
+
     def rearm_retryable_provider_stage(
             self, job_id: str, *, error_prefix: str, recovery_key: str,
             expected_checkpoint_sha256: str, extra_attempts: int = 1) -> dict:

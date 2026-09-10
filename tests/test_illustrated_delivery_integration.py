@@ -290,6 +290,19 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     scene_count = len(script["scenes"])
     sdk = FakeMediaSDK(script)
     store, blob = DeliveryStore(), DeliveryBlob(tmp_path / 'blob')
+    speech, image = sdk.audio.speech.create, sdk.images.generate
+    def saved_before_call(call, expected_label, **request):
+        # A hard process death cannot run the worker's exception checkpoint. These
+        # boundaries must already be in Blob when the first media request starts.
+        checkpoint = store.job.get('checkpoint') or {}
+        assert checkpoint.get('label') == expected_label
+        import tarfile
+        with tarfile.open(checkpoint['url'], 'r:gz') as archive:
+            saved = json.load(archive.extractfile('_state.json'))
+        assert saved['script']['scenes']
+        return call(**request)
+    sdk.audio.speech.create = lambda **kw: saved_before_call(speech, 'script-ready', **kw)
+    sdk.images.generate = sdk.images.edit = lambda **kw: saved_before_call(image, 'narration-ready', **kw)
     actions = DeliveryActions()
     monkeypatch.setattr(agent_actions, 'repository', lambda: actions)
     monkeypatch.setattr(studio, '_durable_components', lambda: (store, blob))

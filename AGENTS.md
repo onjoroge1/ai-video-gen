@@ -199,3 +199,12 @@ includes the role-contract version. One `compiled_function_recovery_v1` continua
 only for an exact saved legacy overlap rejection with matching draft/evidence hashes and verified
 citations. It rechecks the role under the same approval; it does not turn the saved rejection into
 a pass or buy another research repair.
+
+The assembled script is checkpointed as `script-ready` before narration and updated as
+`narration-ready` before images. These durable writes must succeed before the next media
+stage. Narration, images and completed local renders retain their immutable per-stage objects.
+If a worker dies during local encoding, dispatch may grant one `render_memory_recovery_v1`
+continuation only for the exact saved checkpoint, with no live lease, no reservation, remaining
+budget, and unfinished stages consisting entirely of zero-cost FFmpeg work. A content failure
+or unresolved paid-provider outcome does not qualify. Inspect infrastructure logs before using
+this recovery; a merged PR alone does not establish a retryable failure.
