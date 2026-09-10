@@ -184,6 +184,20 @@ def test_existing_page_lexical_match_cannot_bypass_entailment(monkeypatch):
     assert repaired and generate.call_count == 1
 
 
+def test_reused_page_preserves_operational_judge_reason(monkeypatch):
+    beats, data = fixture()
+    data["claims"][0].update(quote_verified=True, source_reachable=True)
+    report = prepare(beats, data, Judge())
+    monkeypatch.setattr(claim_verify, "fetch_page_text", lambda url, **kw: INTRO)
+
+    def unavailable(_payload):
+        raise RuntimeError("provider rejected the bounded request")
+
+    with pytest.raises(RuntimeError, match="provider_unavailable: RuntimeError: provider rejected"):
+        coverage.repair_sheet(
+            "Question", beats, report, data, generate=Mock(), judge=unavailable)
+
+
 @pytest.mark.parametrize("failure", ["unavailable", "contradicted", "function_unavailable"])
 def test_operational_failure_or_contradiction_never_starts_research(failure):
     beats, data = fixture()

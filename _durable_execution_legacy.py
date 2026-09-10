@@ -376,10 +376,14 @@ class PostgresStore:
                 if existing["request_hash"] != request_hash:
                     raise DurableExecutionError(
                         f"Stage identity collision for {stage_key}; request content changed")
-                if existing["status"] not in {"completed", "incomplete"}:
+                if existing["status"] not in {"completed", "incomplete", "retry"}:
                     raise AmbiguousProviderOutcome(
                         f"Paid stage {stage_key} has an unresolved prior provider attempt "
                         f"(status={existing['status']}); reconcile it before replay")
+                # A provider exception leaves the stage in retry with its original reservation
+                # and idempotency key.  Replaying that exact request is the recovery contract:
+                # the provider can return the prior response or safely retry the same call, and
+                # settlement consumes the existing reservation rather than reserving twice.
                 return self._json_ready(existing) or {}
             enforce_budget(job, reserve, stage_key)
             cur.execute("""

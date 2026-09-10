@@ -200,7 +200,9 @@ def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cach
             findings.append({"gap_id": gap.get("beat_id"), "source_url": url,
                              "support_quote": passage, **result})
             if entailment.is_retryable(result):
-                raise RuntimeError("Evidence coverage judgment unavailable; no new claim accepted")
+                reason = str(result.get("reason") or "unknown provider failure")[:240]
+                raise RuntimeError(
+                    f"Evidence coverage judgment unavailable; no new claim accepted: {reason}")
             if not result["passed"]:
                 continue
             origin = source_by_url[url]
@@ -304,7 +306,9 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
                 judge=judge, cache=cache, cost_sink=evidence_cost)
             findings.append({"claim_id": claim["claim_id"], **result})
             if entailment.is_retryable(result):
-                raise RuntimeError("Evidence coverage judgment unavailable; no new claim accepted")
+                reason = str(result.get("reason") or "unknown provider failure")[:240]
+                raise RuntimeError(
+                    f"Evidence coverage judgment unavailable; no new claim accepted: {reason}")
             if result["passed"]:
                 accepted.append(claim)
         combined = _supplement_with_claims(question, accepted)

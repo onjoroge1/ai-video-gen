@@ -3326,6 +3326,21 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 recovery_key="verified_source_reuse_recovery_v1",
                 expected_checkpoint_sha256=job["checkpoint"]["sha256"])
         elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and str(job.get("error") or "").startswith(
+                    "Evidence coverage judgment unavailable; no new claim accepted")
+                and (job.get("result") or {}).get("verified_source_reuse_recovery_v1")
+                and not (job.get("result") or {}).get("boundary_a_provider_recovery_v1")
+                and (job.get("checkpoint") or {}).get("sha256")):
+            # PR102 reached the reused source passage, then its one bounded entailment call
+            # failed operationally. Preserve that call's reservation and stable idempotency key;
+            # the store admits only one reconciled Anthropic retry stage for this continuation.
+            await asyncio.to_thread(
+                store.rearm_retryable_provider_stage, str(action["job_id"]),
+                error_prefix="Evidence coverage judgment unavailable; no new claim accepted",
+                recovery_key="boundary_a_provider_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"], extra_attempts=1)
+        elif (job and job.get("status") == "error"
                 and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):
             # One migration of the legacy parser failure. The provider request is
             # unchanged, so durable execution replays its paid response. The new

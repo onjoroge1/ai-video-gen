@@ -185,6 +185,36 @@ def test_postgres_reclassifies_legacy_truncation_without_mutating_job_spend():
     assert not any("UPDATE generation_jobs" in statement for statement in statements)
 
 
+def test_postgres_reuses_exact_retry_stage_without_reserving_twice():
+    request_hash = "a" * 64
+    retry = {
+        "stage_key": "anthropic:retry", "request_hash": request_hash,
+        "status": "retry", "idempotency_key": "stable-key", "reserved_cost_usd": .0173,
+    }
+    cursor = Mock()
+    cursor.fetchone.side_effect = [{"id": "job-1"}, retry]
+
+    class TransactionStore(PostgresStore):
+        def __init__(self):
+            pass
+
+        @contextmanager
+        def _tx(self):
+            yield None, cursor
+
+        @staticmethod
+        def _row(cur, row):
+            return row
+
+    restored = TransactionStore().prepare_stage(
+        "job-1", "anthropic:retry", "anthropic", request_hash, .0173)
+
+    assert restored["status"] == "retry" and restored["idempotency_key"] == "stable-key"
+    statements = [call.args[0] for call in cursor.execute.call_args_list]
+    assert not any("INSERT INTO generation_stages" in statement for statement in statements)
+    assert not any("UPDATE generation_jobs" in statement for statement in statements)
+
+
 def test_real_expander_splits_truncated_durable_batch_and_replays_without_spend(tmp_path, monkeypatch):
     import explainer_pipeline as pipeline
     from test_causal_lane_integration import _route
