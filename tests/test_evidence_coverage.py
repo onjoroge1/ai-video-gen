@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 import claim_entailment as ce
+import claim_verify
 import cost_ledger
 import durable_execution
 import event_functions as ef
@@ -131,6 +132,56 @@ def test_one_research_repair_preserves_events_old_claims_and_rechecks_the_same_s
     with pytest.raises(ValueError, match="different gap set"):
         coverage.repair_sheet("Question", beats, changed, data, generate=generate, judge=judge)
     assert generate.call_count == 1
+
+
+def test_existing_verified_page_repairs_gap_before_buying_search(monkeypatch):
+    beats, data = fixture()
+    data["claims"][0].update(quote_verified=True, source_reachable=True)
+    report = prepare(beats, data, Judge())
+    page = ("Cane beetles were damaging sugar cane roots. "
+            "Cane toads were introduced to control cane beetles. "
+            "The toads later spread across northern Australia.")
+    monkeypatch.setattr(claim_verify, "fetch_page_text", lambda url, **kw: page)
+    generate = Mock(side_effect=AssertionError("existing evidence should avoid another search"))
+
+    repaired = coverage.repair_sheet(
+        "Question", beats, report, data, generate=generate, judge=Judge())
+
+    assert repaired and generate.call_count == 0
+    marker = repaired["dossier"][coverage.REPAIR_VERSION]
+    assert marker["added_claim_ids"]
+    reused = repaired["dossier"]["claims"][-1]
+    assert reused["reused_from_claim_id"]
+    assert reused["support_quote"] in page
+    assert repaired["research_cost_usd"] == 0
+
+
+def test_only_page_verified_primary_sources_are_reused():
+    _, data = fixture()
+    data["claims"][0].update(quote_verified=True, source_reachable=True)
+    data["claims"][1].update(quote_verified=True, source_reachable=False)
+    data["claims"][2].update(
+        quote_verified=True, source_reachable=True,
+        claim="COMPARABLE CASE (elsewhere): Toads appeared.")
+
+    reusable = coverage._reusable_source_claims(data)
+
+    assert [claim["claim_id"] for claim in reusable] == ["c1"]
+
+
+def test_existing_page_lexical_match_cannot_bypass_entailment(monkeypatch):
+    beats, data = fixture()
+    data["claims"][0].update(quote_verified=True, source_reachable=True)
+    report = prepare(beats, data, Judge())
+    monkeypatch.setattr(
+        claim_verify, "fetch_page_text",
+        lambda url, **kw: "Cane toads and cane beetles appeared in the same museum catalogue.")
+    generate = Mock(return_value=dossier([(INTRO, "event")]))
+
+    repaired = coverage.repair_sheet(
+        "Question", beats, report, data, generate=generate, judge=Judge())
+
+    assert repaired and generate.call_count == 1
 
 
 @pytest.mark.parametrize("failure", ["unavailable", "contradicted", "function_unavailable"])

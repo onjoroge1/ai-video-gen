@@ -1,7 +1,8 @@
-"""One focused evidence repair for a failed factual sheet, before narration or media.
+"""One bounded evidence repair for a failed factual sheet, before narration or media.
 
-The sheet supplies questions to investigate, never facts to assume. New evidence must pass
-source verification and entailment. Only citations change; the same events are judged again.
+The sheet supplies questions to investigate, never facts to assume. Existing verified source
+pages are checked first; unresolved gaps may buy one focused search. New evidence must pass source
+verification and entailment. Only citations change; the same events are judged again.
 """
 from copy import deepcopy
 import hashlib
@@ -9,6 +10,7 @@ import json
 from pathlib import Path
 import re
 
+import claim_verify
 import claim_entailment as entailment
 import cost_ledger
 import event_functions
@@ -19,6 +21,7 @@ REPAIR_VERSION = "evidence_coverage_v2"
 LEGACY_REPAIR_VERSION = "evidence_coverage_v1"
 MAX_GAPS = 4
 MAX_NEW_CLAIMS = 8
+MAX_REUSED_PASSAGES_PER_GAP = 3
 
 
 def evidence_gaps(compiled: dict, beats: list) -> list[dict]:
@@ -146,6 +149,92 @@ def merge_supplement(original: dict, supplement: dict) -> tuple[dict, list[str]]
     return merged, added
 
 
+def _reusable_source_claims(dossier: dict) -> list[dict]:
+    """Use only retained primary-story sources from an already valid ledger."""
+    if not research.validate_research_dossier(dossier)["passed"]:
+        return []
+    comparison_ids = {ref for refs in research._claims_by_parallel_case(dossier).values()
+                      for ref in refs}
+    seen, reusable = set(), []
+    for claim in dossier.get("claims") or []:
+        url = str((claim or {}).get("source_url") or "").strip()
+        if (not url or claim.get("claim_id") in comparison_ids or url in seen
+                or claim.get("quote_verified") is not True
+                or claim.get("source_reachable") is not True):
+            continue
+        seen.add(url)
+        reusable.append(deepcopy(claim))
+    return reusable
+
+
+def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cache=None,
+                            cost_sink=None) -> tuple[list[dict], list[dict], set[str], dict]:
+    """Mine exact passages from trusted ledger sources before purchasing another search.
+
+    A retained source already passed source policy and provider-provenance validation. We fetch it
+    again, rank exact page passages against each unresolved assertion, then apply the unchanged
+    Boundary A entailment judge. A lexical match alone can never create a claim.
+    """
+    sources = _reusable_source_claims(dossier)
+    if not sources:
+        return [], [], set(), {"sources": 0, "fetched": 0, "recovered_gaps": 0}
+    fetched = claim_verify.verify_claims(sources, repair=False)
+    pages = fetched.get("pages") or {}
+    source_by_url = {str(claim.get("source_url") or "").strip(): claim for claim in sources}
+    accepted, findings, recovered = [], [], set()
+    for gap in gaps:
+        assertion = str(gap.get("assertion_to_verify") or "").strip()
+        query = " ".join([assertion, *[str(item) for item in gap.get("missing_details") or []]])
+        ranked = []
+        for url, page in pages.items():
+            for passage in claim_verify.candidate_passages(
+                    query, page, limit=MAX_REUSED_PASSAGES_PER_GAP):
+                overlap = len(claim_verify._content_words(query)
+                              & claim_verify._content_words(passage))
+                ranked.append((overlap, -len(passage), url, passage))
+        ranked.sort(reverse=True)
+        for _, _, url, passage in ranked[:MAX_REUSED_PASSAGES_PER_GAP]:
+            result = entailment.evidence_entailment(
+                [{"claim_id": "source_excerpt", "claim": passage, "source_url": url}],
+                assertion, judge=judge, cache=cache, cost_sink=cost_sink)
+            findings.append({"gap_id": gap.get("beat_id"), "source_url": url,
+                             "support_quote": passage, **result})
+            if entailment.is_retryable(result):
+                raise RuntimeError("Evidence coverage judgment unavailable; no new claim accepted")
+            if not result["passed"]:
+                continue
+            origin = source_by_url[url]
+            digest = hashlib.sha256(
+                f"{gap.get('beat_id')}\n{url}\n{passage}".encode("utf-8")).hexdigest()[:12]
+            accepted.append({
+                "claim_id": f"reuse_{digest}", "claim": assertion, "source_url": url,
+                "support_quote": passage, "source_type": origin.get("source_type"),
+                "claim_kind": facts.UNKNOWN_KIND, "claim_kind_confidence": 0.0,
+                "runner_up_kind": "", "runner_up_confidence": 0.0,
+                "calculation": "", "assumptions": [],
+                "geographic_scope": origin.get("geographic_scope") or "unspecified",
+                "timescale": origin.get("timescale") or "unspecified",
+                "confidence": origin.get("confidence") or "high",
+                "allowed_exaggeration": False, "material": True,
+                "quote_verified": True, "source_reachable": True,
+                "reused_from_claim_id": origin.get("claim_id"),
+            })
+            recovered.add(str(gap.get("beat_id") or ""))
+            break
+    return accepted, findings, recovered, {
+        "sources": len(sources), "fetched": fetched.get("fetched", 0),
+        "recovered_gaps": len(recovered),
+    }
+
+
+def _supplement_with_claims(question: str, claims: list[dict]) -> dict:
+    return {"topic": question, "version": 1, "claims": claims,
+            "citation_urls": sorted({claim["source_url"] for claim in claims}),
+            "citation_records": [{"url": claim["source_url"],
+                                  "cited_text": claim["support_quote"]}
+                                 for claim in claims]}
+
+
 def _state_path():
     from durable_execution import current
     runtime = current()
@@ -191,17 +280,24 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
         if isinstance(cost_sink, list):
             cost_sink.extend(research_cost)
     else:
+        reused, reuse_findings, recovered, reuse_summary = _reuse_existing_sources(
+            dossier, gaps, judge=judge, cache=cache, cost_sink=evidence_cost)
+        remaining_gaps = [gap for gap in gaps
+                          if str(gap.get("beat_id") or "") not in recovered]
+        supplement = None
         try:
-            supplement = generate(question, evidence_gaps=gaps, cost_sink=research_cost)
+            if remaining_gaps:
+                supplement = generate(
+                    question, evidence_gaps=remaining_gaps, cost_sink=research_cost)
         finally:
             if isinstance(cost_sink, list):
                 cost_sink.extend(research_cost)
-        if not research.validate_research_dossier(supplement)["passed"]:
+        if supplement is not None and not research.validate_research_dossier(supplement)["passed"]:
             raise ValueError("Evidence supplement failed source validation")
         # A real quote can still be irrelevant to its attached claim. Check meaning as well
         # as presence before new claims are allowed into the story's factual ceiling.
-        accepted, findings = [], []
-        for claim in supplement["claims"][:MAX_NEW_CLAIMS]:
+        accepted, findings = list(reused), list(reuse_findings)
+        for claim in (supplement or {}).get("claims", [])[:MAX_NEW_CLAIMS - len(accepted)]:
             result = entailment.evidence_entailment(
                 [{"claim_id": "source_excerpt", "claim": claim["support_quote"],
                   "source_url": claim["source_url"]}], claim["claim"],
@@ -211,14 +307,17 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
                 raise RuntimeError("Evidence coverage judgment unavailable; no new claim accepted")
             if result["passed"]:
                 accepted.append(claim)
-        state["supplement"] = deepcopy(supplement)
+        combined = _supplement_with_claims(question, accepted)
+        state["supplement"] = deepcopy(combined)
+        state["generated_supplement"] = (
+            deepcopy(supplement) if supplement is not None else None)
+        state["source_reuse"] = reuse_summary
         state["source_entailment"] = findings
-        supplement = dict(supplement, claims=accepted)
         if not accepted:
             state["status"] = "unresolved"
             _save(path, runtime, state)
             return None
-        merged, added = merge_supplement(dossier, supplement)
+        merged, added = merge_supplement(dossier, combined)
         if not added:
             state["status"] = "unresolved"
             _save(path, runtime, state)

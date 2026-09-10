@@ -167,3 +167,8 @@ in the public action event feed. Add `?inline=true` to the supplement URL to ins
 in an authenticated HTTP client without forcing an attachment download. The approval console links
 research failures to `/agent/research-supplement/{job_id}`, an authenticated HTML view for browsers
 that block direct navigation to API artifact routes.
+
+Evidence coverage repair first re-fetches the retained, page-verified primary-story sources and
+ranks a bounded set of exact passages for each unsupported assertion. Every passage must still pass
+Boundary A entailment; shared words alone grant nothing. Only gaps that remain may buy the single
+focused research supplement. Comparison-case sources are never reused for the primary story.
