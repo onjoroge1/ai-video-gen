@@ -207,14 +207,17 @@ class PostgresStore(_legacy.PostgresStore):
         })
         return row
 
-    def rearm_local_render_failure(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
+    def rearm_local_render_failure(self, job_id: str, *, expected_checkpoint_sha256: str,
+                                  failure_kind: str = "memory") -> dict:
         """One continuation after a lost local encoder, with no ambiguous paid calls.
 
         FFmpeg has no remote billing or side effect to reconcile. Only its zero-cost
         unfinished rows can become retryable; all provider results stay untouched.
-        The versioned marker also bounds repeated dispatches after this memory repair.
+        A separate versioned marker bounds each diagnosed memory or disk repair.
         """
-        recovery_key = "render_memory_recovery_v1"
+        if failure_kind not in {"memory", "disk"}:
+            raise DurableExecutionError("Unknown local-render recovery kind")
+        recovery_key = f"render_{failure_kind}_recovery_v1"
         if not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256):
             raise DurableExecutionError("Render recovery requires the saved checkpoint hash")
         with self._tx() as (_, cur):
@@ -224,7 +227,11 @@ class PostgresStore(_legacy.PostgresStore):
             lost_render = (error == "Maximum worker attempts exhausted" or (
                 error.startswith("Paid stage render:")
                 and "unresolved prior provider attempt" in error))
-            if (job.get("status") != "error" or not lost_render
+            eligible_statuses = {"error"}
+            if failure_kind == "disk":
+                lost_render = "No space left on device" in error
+                eligible_statuses.add("storage_error")
+            if (job.get("status") not in eligible_statuses or not lost_render
                     or job.get("lease_owner") or job.get("lease_expires_at")
                     or (job.get("result") or {}).get(recovery_key)
                     or (job.get("checkpoint") or {}).get("sha256") != expected_checkpoint_sha256

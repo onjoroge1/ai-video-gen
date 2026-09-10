@@ -3381,6 +3381,19 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.resume_provider_block, str(action["job_id"]),
                 expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
+        elif (job and job.get("status") in {"error", "storage_error"}
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and "No space left on device" in str(job.get("error") or "")):
+            # Reconcile all unfinished local encodes before one scratch-lifecycle
+            # recovery. This branch also blocks a consumed marker from falling
+            # through to the older unrestricted storage_error requeue below.
+            try:
+                await asyncio.to_thread(
+                    store.rearm_local_render_failure, str(action["job_id"]),
+                    expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""),
+                    failure_kind="disk")
+            except durable_execution.DurableExecutionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         elif (job and job.get("status") == "error"
                 and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and not (job.get("result") or {}).get("render_memory_recovery_v1")
