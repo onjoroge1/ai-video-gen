@@ -110,19 +110,26 @@ SHA = 'a' * 64
 KEY = 'render:' + 'b' * 32
 
 
+@pytest.mark.parametrize('failure_kind', ['memory', 'disk'])
 @pytest.mark.parametrize('change', [
-    'none', 'processing', 'lease', 'used', 'stale', 'cap', 'reserved', 'content_error',
+    'none', 'multiple_local', 'processing', 'lease', 'used', 'stale', 'cap', 'reserved', 'content_error',
     'no_stage', 'paid_stage', 'stage_reservation', 'stage_charge', 'wrong_key', 'failed_stage',
 ])
-def test_recovery_is_atomic_and_never_reopens_paid_work(change):
+def test_recovery_is_atomic_and_never_reopens_paid_work(change, failure_kind):
     job = {'id': 'same-job', 'status': 'error', 'error': 'Maximum worker attempts exhausted',
            'checkpoint': {'sha256': SHA}, 'result': {}, 'spent_cost_usd': 2.9473,
            'reserved_cost_usd': 0, 'max_cost_usd': 5}
+    recovery_key = f'render_{failure_kind}_recovery_v1'
+    options = {'failure_kind': 'disk'} if failure_kind == 'disk' else {}
+    if failure_kind == 'disk':
+        job.update(status='storage_error', error='[Errno 28] No space left on device')
     stages = [{'stage_key': KEY, 'provider': 'ffmpeg', 'status': 'running',
                'reserved_cost_usd': 0, 'actual_cost_usd': 0}]
+    if change == 'multiple_local':
+        stages.append(dict(stages[0], stage_key='render:' + 'd' * 32, status='retry'))
     if change == 'processing': job['status'] = 'processing'
     if change == 'lease': job['lease_owner'] = 'live-worker'
-    if change == 'used': job['result']['render_memory_recovery_v1'] = {'done': True}
+    if change == 'used': job['result'][recovery_key] = {'done': True}
     if change == 'stale': job['checkpoint']['sha256'] = 'c' * 64
     if change == 'cap': job['spent_cost_usd'] = 5
     if change == 'reserved': job['reserved_cost_usd'] = .1
@@ -143,19 +150,19 @@ def test_recovery_is_atomic_and_never_reopens_paid_work(change):
     store._tx = transaction
     store._row = lambda _cursor, row: row
     store.append_event = Mock()
-    if change != 'none':
+    if change not in {'none', 'multiple_local'}:
         with pytest.raises(durable.DurableExecutionError):
-            store.rearm_local_render_failure('same-job', expected_checkpoint_sha256=SHA)
+            store.rearm_local_render_failure('same-job', expected_checkpoint_sha256=SHA, **options)
         assert not any(call.args[0].lstrip().startswith('UPDATE ')
                        for call in cursor.execute.call_args_list)
     else:
-        assert store.rearm_local_render_failure('same-job', expected_checkpoint_sha256=SHA)['status'] == 'queued'
+        assert store.rearm_local_render_failure('same-job', expected_checkpoint_sha256=SHA, **options)['status'] == 'queued'
         updates = [call.args for call in cursor.execute.call_args_list
                    if call.args[0].lstrip().startswith('UPDATE ')]
         assert len(updates) == 2
-        assert updates[0][1] == ('same-job', [KEY])
+        assert updates[0][1] == ('same-job', [stage['stage_key'] for stage in stages])
         assert 'attempts+1' in updates[1][0]
-        assert json.loads(updates[1][1][0])['render_memory_recovery_v1']['checkpoint_sha256'] == SHA
+        assert json.loads(updates[1][1][0])[recovery_key]['checkpoint_sha256'] == SHA
         assert all(field not in updates[0][0] + updates[1][0]
                    for field in ('spent_cost_usd=', 'max_cost_usd=', 'request=', 'actual_cost_usd='))
     assert (job, stages) == before

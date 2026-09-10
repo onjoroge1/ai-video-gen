@@ -6547,7 +6547,6 @@ def _render_first_minute_preview(
     motion_clips: dict[str, str] | None = None,
 ) -> tuple[str, dict, list[dict], dict[int, str], list[list[dict]]]:
     """Render the paid opening assets into a real preview before later image spend."""
-    import shutil
     gate_dir = os.path.join(output_dir, "approved_opening")
     os.makedirs(gate_dir, exist_ok=True)
     videos, audios, plan, gate_scenes, frozen_segments = [], [], [], [], {}
@@ -6583,6 +6582,8 @@ def _render_first_minute_preview(
             captions=cap_mode, word_times=word_times, bubble_side=bubble_side,
             motion_video=visual,
         )
+        if visual:
+            os.remove(visual)  # captioned segment owns the pixels; source bed is durable
         videos.append(segment); audios.append(result["aud"])
         frozen_segments[int(result["i"])] = segment
         plan.append(shots); gate_scenes.append(scene)
@@ -6596,7 +6597,7 @@ def _render_first_minute_preview(
     # The first tranche crosses 45 seconds at a narration boundary. Preserve that complete final
     # beat instead of cutting its sentence and leaving the inspection plan pointing past the MP4.
     # This normally yields 45–55 seconds while purchasing no scene beyond the 45-second boundary.
-    shutil.copy(raw, preview_path)
+    os.replace(raw, preview_path)  # same filesystem; do not duplicate the assembled MP4
     return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
 
 
@@ -11135,6 +11136,8 @@ def run_explainer_pipeline(
                 bubble_side=bubble_side,
                 motion_video=_visual_source,
             )
+            if len(_shot_plan) > 1:
+                os.remove(_visual_source)  # remove only our local bed, never provider motion
             scene_videos.append(seg)
             scene_audios.append(r["aud"])
             rendered_narr.append(scene.get("narration", ""))

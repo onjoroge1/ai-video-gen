@@ -208,3 +208,13 @@ continuation only for the exact saved checkpoint, with no live lease, no reserva
 budget, and unfinished stages consisting entirely of zero-cost FFmpeg work. A content failure
 or unresolved paid-provider outcome does not qualify. Inspect infrastructure logs before using
 this recovery; a merged PR alone does not establish a retryable failure.
+
+Local render operations own temporary workspaces that are removed on completion, failure or
+cooperative yield. Completed child encodes remain in the durable stage store; a yielded parent
+is retryable zero-cost work. Uncaptioned beds are discarded only after their captioned segment
+exists. Storage-only changes preserve the PR108 rendering contract and its completed cache keys;
+pixel or timing changes must update `ILLUSTRATED_RENDER_VERSION` in `render_cache.py`.
+One `render_disk_recovery_v1` continuation may resume an exact checkpoint after observed ENOSPC
+in `error` or `storage_error`, subject to the same no-lease, no-reservation, remaining-budget and
+only-unfinished-zero-cost-FFmpeg checks. A consumed disk marker blocks another requeue. This is
+infrastructure recovery under the existing approval, not a new video or a relaxed quality gate.
