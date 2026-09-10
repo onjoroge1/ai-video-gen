@@ -65,6 +65,9 @@ FAL_REVEAL_ALL = _FAL_REVEAL_MODE == "all"
 # the very start with no plateau. Motion at 8s rewards a viewer who has already chosen to stay;
 # motion at 2.4s is aimed at the one who has not decided yet.
 FAL_REVEAL_FIRST = _FAL_REVEAL_MODE == "first"
+# The free half of the same idea, and on by default: no provider, no spend, no identity risk.
+# QUIZ_PUNCH_REVEAL=0 turns it off.
+PUNCH_FIRST_REVEAL = os.environ.get("QUIZ_PUNCH_REVEAL", "1") != "0"
 # An animated opening reveal is held longer than a still one. Round one's reveal floors at 0.8s and
 # the match-cut transition takes 0.42s of it, leaving twelve frames — too few for a lunge toward
 # camera to read as anything but a glitch. The extra second is bought only when the motion is
@@ -649,18 +652,21 @@ _READABILITY_WIDTH_MIN = {"medium": 28.0, "hard": 20.0, "expert": 16.0}
 # different phrasings spanning 20% to 33%. The model has a close-up mode and the numbers in the
 # ask are decoration. Between an estimate and a measurement, the estimate moves.
 _READABILITY_WIDTH_MAX = {"hard": 50.0, "expert": 50.0}
-# A reveal that is going to MOVE needs somewhere to move from, and that overrides the tier ceiling
-# — including medium's absence of one.
+# There is deliberately no animated width ceiling.
 #
-# The first animated opening reveal asked a great white shark to surge at the camera and it barely
-# shifted: net displacement 22.7 against 33.4 for a clip merely asked to drift. The subject filled
-# 95% of frame width. There was nowhere to surge to, because approaching the lens would have
-# pushed it out of frame, so the model did the only thing available and stayed put.
+# One existed, on the hypothesis that a 95%-wide shark had nowhere to charge to. That hypothesis
+# was then disproven: the pro tier at 30% width did not approach the lens either, and across four
+# attempts — two tiers, two prompts, widths from 22% to 95%, with and without the wrapper's
+# restraint preamble — no generated clip ever moved toward the camera. i2v animates WITHIN its
+# composition, full stop.
 #
-# Leaving medium uncapped was right for a still — frame zero should be big and legible — and
-# exactly wrong for a beat that has to travel. This ceiling applies only when the round will
-# actually be animated.
-_ANIMATED_WIDTH_MAX = 55.0
+# Keeping the ceiling after that meant shrinking the subject for an approach the model does not
+# perform, while starving the camera punch, which is the only thing that has ever produced one.
+# Measured: punch on a 98% subject netted 49.85; the same punch on a pulled-back 37% subject netted
+# 30.96; and when the pull-back overshot to 22% and the zoom was raised to compensate, 21.42.
+#
+# So the two are layered instead: the subject stays big, the camera drives in, and i2v supplies the
+# body movement a still cannot — fins driving, water churned — which is the half it does reliably.
 _READABILITY_CONTRAST_MIN = 55.0
 
 
@@ -709,8 +715,6 @@ def _width_fault(grade: dict, difficulty: str, animated: bool = False) -> str:
     if not isinstance(width, (int, float)) or width < floor:
         return "closer"
     ceiling = _READABILITY_WIDTH_MAX.get(difficulty, 10**9)
-    if animated:
-        ceiling = min(ceiling, _ANIMATED_WIDTH_MAX)
     if width > ceiling:
         return "further"
     return ""
@@ -779,6 +783,20 @@ def _still(img, out, d, drift=True):
 _DRIFT_PER_SEC = 0.0625        # 5% across a 0.8s countdown card
 _DRIFT_MAX = 0.11              # keep a long card from cropping its own safe zone
 _EASE_SEC = 0.28               # progressive-crop widening eases instead of cutting
+# The opening reveal's punch-in. Four i2v attempts failed to make an animal approach the lens —
+# across two tiers, two prompts, widths from 30% to 95%, and with and without the wrapper's
+# restraint preamble, every clip moved WITHIN its composition and none moved toward the camera.
+# So the camera lunges instead of the animal. At this speed the two read almost identically, it
+# costs nothing, and it cannot drift identity.
+#
+# Its own ease because 0.28s is a transition; this is a hit. Smoothstep still starts and ends at
+# zero velocity, so it lands rather than snapping to a halt.
+_PUNCH_EASE_SEC = 0.16
+_PUNCH_ZOOM = 1.45
+# One punch value for both paths. A separate, larger one existed only to compensate for the
+# animated width ceiling shrinking the subject; with that ceiling gone the animated round starts
+# from the same big subject a still one does, and a 1.9x on top would only cost sharpness — the
+# clip is generated at 720x1280 and already upscaled to 1080x1920.
 # The closing card is the payoff and the longest card in the video, and it read as static:
 # a slow push on a mostly-flat reveal barely moves. It gets its own faster rate and a higher
 # ceiling. Safe to push harder here than on a clue card because overlays composite *after*
@@ -805,7 +823,8 @@ _REVEAL_TRANSITION_SEC = 0.42
 _REVEAL_HOLD_MIN_SEC = 0.2
 
 
-def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max=None):
+def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max=None,
+               ease_sec=None):
     """zoompan `z` that eases z_from -> z_to, then holds, with duration-aware drift on top.
 
     The widening between countdown stages used to be a hard jump between two pre-cropped
@@ -818,7 +837,7 @@ def _zoom_expr(duration, z_from=None, z_to=None, drift=_DRIFT_PER_SEC, drift_max
     frames = max(2, int(round(duration * FPS)))
     target = float(z_to if z_to else 1.0)
     if z_from is not None and z_to is not None and abs(float(z_from) - float(z_to)) > 1e-6:
-        ease_frames = max(1, int(round(_EASE_SEC * FPS)))
+        ease_frames = max(1, int(round((_EASE_SEC if ease_sec is None else ease_sec) * FPS)))
         progress = f"(on/{ease_frames})"
         smoothstep = f"({progress}*{progress}*(3-2*{progress}))"
         eased = (f"({float(z_from):.4f}+({float(z_to) - float(z_from):.4f})*{smoothstep})")
@@ -860,7 +879,8 @@ def _render_sequence(specs, out, expected_duration):
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", path]
         slot += 1
         zoom = _zoom_expr(duration, opts.get("z_from"), opts.get("z_to"),
-                          opts.get("drift", _DRIFT_PER_SEC), opts.get("drift_max"))
+                          opts.get("drift", _DRIFT_PER_SEC), opts.get("drift_max"),
+                          opts.get("ease_sec"))
         stage = (f"[{index}:v]scale=1300:-1,zoompan=z='{zoom}':"
                  f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
                  f"trim=duration={duration:.3f},setpts=PTS-STARTPTS")
@@ -987,11 +1007,13 @@ _REVEAL_MOTION_PROMPT = (
 # animal reacting to being seen. "Attack" would be wrong for most of them and would push the model
 # toward inventing a scene rather than moving the one it was given.
 _REVEAL_REACTION_PROMPT = (
-    "AGGRESSIVE CHARGE AT THE CAMERA. The {answer} snaps its head toward the lens, then drives "
-    "straight at it fast and hard. Describe the arc explicitly: it BEGINS in the middle distance "
-    "and ENDS filling the whole frame, close enough to touch, its head or face dominating the "
-    "final moments. Powerful body movement throughout — tail thrashing, limbs or fins driving, "
-    "water or air disturbed behind it. This is a startle: the viewer should flinch. "
+    "The {answer} REACTS to being seen and BOLTS. It turns hard toward the lens, then powers "
+    "across the frame at speed and EXITS the shot entirely — gone past the edge before the clip "
+    "ends. Violent, urgent body movement: tail thrashing, fins or limbs driving hard, water or "
+    "air churned behind it. This is a startle, not a stroll. "
+    "The exit is the point: end with the animal leaving frame rather than filling it. Travel "
+    "ACROSS and OUT is motion this model actually delivers; four attempts to make an animal "
+    "approach the lens produced movement inside the composition and no approach at all. "
     "Keep the EXACT same animal, species, markings, scene and lighting throughout; it comes at "
     "the lens but never becomes a different creature, never cuts, and nothing is added to or "
     "removed from the scene."
@@ -1009,7 +1031,8 @@ def reveal_motion_wanted(index: int, total: int) -> bool:
     return index >= total
 
 
-def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None, reaction=False):
+def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None, reaction=False,
+                       punch=False):
     """Animate one answer reveal ONCE, then split that clip across ``segments``.
 
     ``segments`` is a list of ``(overlay_png, out_path, duration, overlay_fade)``. One five-second
@@ -1054,9 +1077,19 @@ def _fal_reveal_motion(reveal_img, segments, answer, i2v_sink=None, reaction=Fal
     # The transition has already landed the match cut by the time this plays, so the motion starts
     # from the frame the viewer just watched the silhouette become.
     start = 0.0
-    for overlay, out, duration, overlay_fade in segments:
+    for seg_index, (overlay, out, duration, overlay_fade) in enumerate(segments):
+        # The punch rides ON TOP of the generated motion rather than replacing it. They fix
+        # different halves of the same problem: i2v gives real body movement — fins driving, water
+        # churned — and reliably will not approach the lens; the zoom gives approach and cannot
+        # move a fin. Built as alternatives they each shipped half a startle. The first segment
+        # gets it; a punch on the closing card would fight the score ladder.
         chain = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-                 f"fps={FPS}[v];")
+                 f"fps={FPS}")
+        if punch and seg_index == 0:
+            zoom = _zoom_expr(duration, 1.0, _PUNCH_ZOOM, drift=0, ease_sec=_PUNCH_EASE_SEC)
+            chain += (f",zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                      f"d=1:s={W}x{H}:fps={FPS}")
+        chain += "[v];"
         if overlay_fade:
             # The loop dissolve eats into this segment's tail, so its text is faded out first —
             # baked in here because a video overlay cannot be faded by the still renderer. A card
@@ -1966,13 +1999,20 @@ def run_quiz_pipeline(category: str, output_dir: str, n_items: int = 3, voice: s
                     and _fal_reveal_motion(
                         f"{A}/rev{i}_b.png",
                         [(f"{A}/r{i}_t.png", motion_out, hold, None)],
-                        answer, fal_reveal, reaction=(i == 1))):
+                        answer, fal_reveal, reaction=(i == 1),
+                        punch=(i == 1 and PUNCH_FIRST_REVEAL))):
                 costs.append(5 * (_RATE_I2V_HERO_SEC if i == 1 else FAL_OPENER_RATE_SEC))
                 render_specs.append((motion_out, hold, True))
                 clips.append(motion_out)
             else:
-                render_specs.append((f"{A}/rev{i}_b.png", hold, False,
-                                     {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}))
+                reveal_opts = {"overlay": f"{A}/r{i}_t.png", "z_to": 1.0}
+                if i == 1 and PUNCH_FIRST_REVEAL:
+                    # The camera lunges where the animal would not. Starts on the frame the match
+                    # cut just landed, so the transformation still reads, then hits.
+                    reveal_opts = {"overlay": f"{A}/r{i}_t.png", "z_from": 1.0,
+                                   "z_to": _PUNCH_ZOOM, "ease_sec": _PUNCH_EASE_SEC,
+                                   "drift": 0}
+                render_specs.append((f"{A}/rev{i}_b.png", hold, False, reveal_opts))
             clips.append(f"{A}/r{i}.png")
         audio.append((f"{A}/n_r{i}.mp3", t, "narr")); audio.append(("DING", t, "ding"))
         caps.append((t, _dur(f"{A}/n_r{i}.mp3"), r_texts[i]))

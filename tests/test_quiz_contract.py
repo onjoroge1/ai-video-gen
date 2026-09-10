@@ -1342,7 +1342,7 @@ def test_the_opening_reveal_uses_a_reaction_prompt_not_the_calm_one():
     reaction = legacy._REVEAL_REACTION_PROMPT
     calm = legacy._REVEAL_MOTION_PROMPT
     assert reaction != calm
-    assert "AGGRESSIVE CHARGE" in reaction and "drives straight at it" in reaction
+    assert "BOLTS" in reaction and "EXITS the shot" in reaction
     # Species-agnostic: no teeth, no jaws, nothing that only fits a predator. A turtle and a manta
     # have to be able to execute the same instruction.
     for predator_only in ("teeth", "jaws", "bite", "prey"):
@@ -1353,57 +1353,34 @@ def test_the_opening_reveal_uses_a_reaction_prompt_not_the_calm_one():
     assert "reaction=(i == 1)" in __import__("inspect").getsource(legacy.run_quiz_pipeline)
 
 
-def test_a_reveal_that_must_move_gets_room_to_move():
-    """The first animated opening reveal asked a great white shark to charge the camera and it
-    barely shifted — net displacement 22.7 against 33.4 for a clip merely asked to drift. The
-    subject filled 95% of frame width. There was nowhere to surge to, because approaching the lens
-    would have pushed it out of frame, so the model stayed put.
+def test_animation_no_longer_narrows_the_width_band():
+    """A ceiling existed for animated rounds, on the hypothesis that a 95%-wide shark had nowhere to
+    charge to. That hypothesis was disproven: the pro tier at 30% width did not approach either, and
+    across four attempts — two tiers, two prompts, widths from 22% to 95%, with and without the
+    wrapper's restraint preamble — no generated clip ever moved toward the camera.
 
-    Leaving medium uncapped was right for a still and exactly wrong for a beat that has to travel.
+    Keeping it meant shrinking the subject for an approach the model does not perform while starving
+    the camera punch, which is the only thing that has ever produced one. Measured: 49.85 net on a
+    98% subject, 30.96 on a pulled-back 37%, 21.42 when the pull-back overshot to 22%.
     """
     import _quiz_pipeline_legacy as legacy
 
-    # Still: medium has no ceiling and 95% is fine.
-    assert legacy._width_fault({"subject_width_pct": 95}, "medium") == ""
-    # Animated: the same clue has to be pulled back so it has somewhere to come from.
-    assert legacy._width_fault({"subject_width_pct": 95}, "medium", animated=True) == "further"
-    assert legacy._width_fault({"subject_width_pct": 42}, "medium", animated=True) == ""
-    # The animated ceiling never loosens a tier that is already tighter.
-    for tier, ceiling in legacy._READABILITY_WIDTH_MAX.items():
-        assert legacy._width_fault({"subject_width_pct": ceiling + 5}, tier,
-                                   animated=True) == "further", tier
-
-    source = __import__("inspect").getsource(legacy.run_quiz_pipeline)
-    assert "animated=reveal_motion_wanted(i, len(items))" in source, (
-        "the gate has to know the round will move before it can make room for it")
+    assert not hasattr(legacy, "_ANIMATED_WIDTH_MAX")
+    # medium is uncapped whether or not the round moves; the tier ceilings are unchanged.
+    assert legacy._width_fault({"subject_width_pct": 98}, "medium", animated=True) == ""
+    assert legacy._width_fault({"subject_width_pct": 98}, "expert", animated=True) == "further"
+    assert legacy._width_fault({"subject_width_pct": 22}, "medium", animated=True) == "closer"
 
 
-def test_the_charge_names_an_arc_rather_than_an_adjective():
-    """"Surges toward the camera" produced almost no movement. A model given an adjective has
-    nothing to execute; a start and an end state is a thing it can actually animate."""
-    import _quiz_pipeline_legacy as legacy
-
-    prompt = legacy._REVEAL_REACTION_PROMPT
-    assert "BEGINS in the middle distance" in prompt and "ENDS filling the whole frame" in prompt
-    assert "the viewer should flinch" in prompt
-    # Identity guardrails survive the more violent instruction — this is where drift would show.
-    for guard in ("EXACT same animal", "never becomes a different creature"):
-        assert guard in prompt, guard
-
-
-def test_the_reaction_beat_buys_the_tier_that_follows_instructions():
-    """Measured on the mascot reaction library this session: the standard tier ignored an explicit
-    background instruction on 3 of 5 clips, the pro tier held 3 of 3. A charge at the camera is an
-    instruction-following problem before it is anything else, and it is one clip per video."""
+def test_one_punch_value_covers_both_paths():
+    """The larger animated punch existed only to compensate for that ceiling. With the subject back
+    to full size, 1.9x would buy nothing and cost sharpness — the clip is generated at 720x1280 and
+    already upscaled to 1080x1920."""
     import inspect
     import _quiz_pipeline_legacy as legacy
 
-    body = inspect.getsource(legacy._fal_reveal_motion)
-    assert "ep._FAL_MODEL_HERO if reaction else None" in body
-    assert legacy._RATE_I2V_HERO_SEC > legacy.FAL_OPENER_RATE_SEC
-    # Charged at the rate actually paid, not the standard one.
-    source = inspect.getsource(legacy.run_quiz_pipeline)
-    assert "_RATE_I2V_HERO_SEC if i == 1 else FAL_OPENER_RATE_SEC" in source
+    assert not hasattr(legacy, "_PUNCH_ZOOM_ANIMATED")
+    assert "_PUNCH_ZOOM" in inspect.getsource(legacy._fal_reveal_motion)
 
 
 def test_the_charge_is_not_sent_with_a_stay_still_preamble():
@@ -1423,3 +1400,77 @@ def test_the_charge_is_not_sent_with_a_stay_still_preamble():
     body = inspect.getsource(ep._animate_one)
     assert "if not restrain or" in body, "the opt-out must skip the preamble"
     assert "restrain=not reaction" in inspect.getsource(legacy._fal_reveal_motion)
+
+
+def test_the_opening_reveal_punches_in():
+    """Four i2v attempts failed to make an animal approach the lens — two tiers, two prompts,
+    widths from 30% to 95%, with and without the wrapper's restraint preamble. Every clip moved
+    within its composition and none moved toward the camera.
+
+    So the camera lunges instead of the animal. At this speed the two read almost identically, it
+    costs nothing, and it cannot drift identity — which is the whole argument for preferring it.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    assert legacy.PUNCH_FIRST_REVEAL is True, "free and deterministic — on by default"
+    assert legacy._PUNCH_ZOOM > 1.0
+    # Its own ease: 0.28s is a transition, this is a hit.
+    assert legacy._PUNCH_EASE_SEC < legacy._EASE_SEC
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "if i == 1 and PUNCH_FIRST_REVEAL:" in source, "only the opening reveal punches"
+    assert '"ease_sec": _PUNCH_EASE_SEC' in source
+
+
+def test_the_punch_starts_where_the_match_cut_landed():
+    """It begins at 1.0 — the frame the silhouette just became — so the transformation still reads
+    before the hit. Starting mid-zoom would throw away the payoff to get the startle."""
+    import _quiz_pipeline_legacy as legacy
+
+    expr = legacy._zoom_expr(0.8, 1.0, legacy._PUNCH_ZOOM, drift=0,
+                             ease_sec=legacy._PUNCH_EASE_SEC)
+    assert expr.startswith("(if(lt(on,")
+    assert "1.0000+" in expr, "the punch has to begin at the un-zoomed frame"
+    assert f"{legacy._PUNCH_ZOOM:.4f}" in expr
+    # Drift is off during a punch: ambient drift on top of a hit reads as a wobble.
+    assert "*(1+" not in expr
+
+
+def test_the_reaction_prompt_asks_for_the_motion_the_model_delivers():
+    """Every generated clip produced lateral travel; approach was the half that consistently
+    failed. Ending the beat on the animal leaving frame plays to what the model actually does
+    rather than fighting it for a fifth time."""
+    import _quiz_pipeline_legacy as legacy
+
+    prompt = legacy._REVEAL_REACTION_PROMPT
+    assert "EXITS the shot" in prompt and "leaving frame rather than filling it" in prompt
+    assert "ENDS filling the whole frame" not in prompt, "that is the ask that failed four times"
+    for guard in ("EXACT same animal", "never becomes a different creature"):
+        assert guard in prompt, guard
+
+
+def test_the_punch_rides_on_top_of_generated_motion():
+    """They were built as alternatives and each shipped half a startle. i2v produces real body
+    movement — fins driving, water churned — and reliably will not approach the lens. The zoom
+    produces approach and cannot move a fin. On a still the punch is visibly a Ken Burns zoom over
+    a photograph, which is exactly what it looked like.
+
+    Only the first segment: a punch on the closing card would fight the score ladder.
+    """
+    import inspect
+    import _quiz_pipeline_legacy as legacy
+
+    body = inspect.getsource(legacy._fal_reveal_motion)
+    assert "punch" in inspect.signature(legacy._fal_reveal_motion).parameters
+    assert "if punch and seg_index == 0:" in body
+    assert "zoompan=z=" in body, "the zoom has to be baked into the clip"
+
+    # _render_sequence skips zoom for video specs, so a clip can only carry it if it is baked in.
+    seq = inspect.getsource(legacy._render_sequence)
+    assert "if is_video:" in seq
+
+    source = inspect.getsource(legacy.run_quiz_pipeline)
+    assert "punch=(i == 1 and PUNCH_FIRST_REVEAL)" in source
+
+

@@ -1872,5 +1872,67 @@
     "degraded_reasons": [],
     "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-charge.mp4",
     "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-charge.srt"
+  },
+  "quiz-v24-sharks-punch": {
+    "title": "Shark Shadow Quiz - V2.4 (camera punch-in)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.0,
+    "actual_cost": 0.412,
+    "question": "Can You Name the Shark From Its Shadow?",
+    "degraded_reasons": [],
+    "build": "2e3e649",
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-punch.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-punch.srt"
+  },
+  "quiz-v24-sharks-motion-punch": {
+    "title": "Shark Shadow Quiz - V2.4 (i2v motion + camera punch)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.5,
+    "actual_cost": 1.088,
+    "question": "Can You Name These Sharks From the Shadow?",
+    "degraded_reasons": [],
+    "build": "2e3e649+uncommitted",
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-motion-punch.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-motion-punch.srt"
+  },
+  "quiz-v24-sharks-layered": {
+    "title": "Shark Shadow Quiz - V2.4 (i2v swim + punch, no width ceiling)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.6,
+    "actual_cost": 0.972,
+    "question": "Can You Name the Shark From the Shadow?",
+    "degraded_reasons": [],
+    "build": "2e3e649+uncommitted",
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-layered.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-sharks-layered.srt"
+  },
+  "quiz-v24-whales": {
+    "title": "Whale Shadow Quiz - V2.4 (punch, no i2v)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 10.6,
+    "actual_cost": 0.653,
+    "question": "Can You Name the Whale From the Shadow?",
+    "degraded_reasons": [],
+    "build": "2e3e649+uncommitted",
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-whales.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-whales.srt"
+  },
+  "quiz-v24-whales-underwater": {
+    "title": "Whale Shadow Quiz - V2.4 (underwater, i2v opening)",
+    "status": "done",
+    "format": "social",
+    "duration_sec": 11.1,
+    "actual_cost": 1.215,
+    "question": "Can You Name the Whale From Its Shadow?",
+    "degraded_reasons": [
+      "round 3 clue subject spans 52% of frame width; 50% is the most a expert round may fill before the habitat reads as a backdrop rather than a hiding place"
+    ],
+    "build": "2e3e649+uncommitted",
+    "path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-whales-underwater.mp4",
+    "srt_path": "/Users/obadiah/Documents/video/finished_videos/quiz-v24-whales-underwater.srt"
   }
 }
