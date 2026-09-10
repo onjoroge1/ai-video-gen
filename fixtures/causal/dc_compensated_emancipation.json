@@ -27,7 +27,9 @@
     "narrator_tone": "Calm, explanatory, and matter-of-fact with a deliberate 'simplify the complex' teaching cadence, using understated framing to let the shocking facts land on their own.",
     "humour_and_interrupts": "Dry ironic framing ('almost like an insurance claim'), casual asides that undercut the gravity, and the 'explained like you're five' conceit that lightens heavy subject matter.",
     "reveal_placement": "The biggest gut-punch reveal — that the debt was still being paid off by ordinary people generations later, into the present era — lands in the final third right before the sponsor pivot.",
-    "ending_callback": "Abruptly transitions from the historical payoff to a sponsor pitch, branding the story as 'just one story inside' an app, comparing it to a popular learning app, and closing with a flattering call-to-action to try it."
+    "ending_callback": "Abruptly transitions from the historical payoff to a sponsor pitch, branding the story as 'just one story inside' an app, comparing it to a popular learning app, and closing with a flattering call-to-action to try it.",
+    "narration_tense": "past tense, 6 present against 8 past finite verbs",
+    "sentence_length": "median 11 words per sentence, 10 of 29 sentences at five words or fewer (34%)"
   },
   "story": {
     "title": "America Freed the Slaves and Paid Their Owners Instead",

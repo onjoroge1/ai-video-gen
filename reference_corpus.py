@@ -318,15 +318,16 @@ DEFAULT_ADHERENCE = "loose"
 
 _ADHERENCE_FIELDS = {
     # Voice and posture only — the things that are true of the format regardless of subject.
-    # Tense and sentence length join the loose set deliberately. They are voice, they carry no
-    # subject, and they are the two things the generated scripts got most wrong -- withholding
-    # them until `balanced` means the engines with one reference never learn them at all.
-    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts",
-              "narration_tense", "sentence_length"),
+    # NOT YET SENT. narration_tense and sentence_length are measured and stored, but they only
+    # exist on the references whose source video is in assets/corpus -- and cobra_effect,
+    # bengal_famine and hippo_weed have none. Sending a field that three of six references lack
+    # means retrieval can pick a thinner one by runtime and quietly hand the generator less, which
+    # is precisely the regression `test_no_reference_is_thinner_than_the_one_it_can_displace`
+    # exists to catch. It caught this. They join the moment the corpus can measure them all.
+    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts"),
     # Adds the shape of the telling: where the turn lands and how it closes.
     "balanced": ("hook_type", "story_pattern", "narrator_tone", "humour_and_interrupts",
-                 "reveal_placement", "ending_callback",
-                 "narration_tense", "sentence_length"),
+                 "reveal_placement", "ending_callback"),
     # Everything judged, plus the abstract spine and the reference's own pacing.
     "strong": OBSERVED_FIELDS,
 }

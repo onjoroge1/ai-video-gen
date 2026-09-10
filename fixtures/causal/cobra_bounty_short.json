@@ -29,7 +29,10 @@
     "narrator_tone": "Plain and unhurried, closer to a friend explaining than a documentary narrating. Declarative throughout, no rhetorical build; the irony is left for the listener to notice rather than pointed at. Asks one real question at the end and stops.",
     "humour_and_interrupts": "dry understatement carried by juxtaposition rather than jokes: a two-word dismissal answers a rhetorical question, and a pest is renamed as stock-in-trade without comment. the comedy is the gap between how sensible the plan sounds and what people immediately did with it, never a gag laid on top.",
     "reveal_placement": "The principle is withheld until the story has already shown it twice. Named in the final step at 31% from the end, after the cages are open, so it lands as a summary of something watched rather than a lesson announced in advance.",
-    "ending_callback": "Returns to the PROBLEM, not to the opening object: 'Ask: where are the cobra farms?' The coin from the opening is never handed back. The close converts the story into a question the listener can carry to their own situation."
+    "ending_callback": "Returns to the PROBLEM, not to the opening object: 'Ask: where are the cobra farms?' The coin from the opening is never handed back. The close converts the story into a question the listener can carry to their own situation.",
+    "narration_tense": "past tense, 4 present against 9 past finite verbs",
+    "sentence_length": "median 6 words per sentence, 13 of 29 sentences at five words or fewer (45%)",
+    "_voice_source": "measured from the operator transcript this fixture was built from"
   },
   "expect": {
     "pass": true,

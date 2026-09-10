@@ -27,7 +27,9 @@
     "narrator_tone": "Calm, matter-of-fact educational voice using short punchy declarative sentences, escalating in drama at the disaster beat with emphatic repetition ('Instantly. Not slowly. Instantly.').",
     "humour_and_interrupts": "Light irony from the naive figures ('nobody knows that either') and mundane preserved details; no comedic cutaways, tension held straight until the sponsor pivot.",
     "reveal_placement": "The emotional payoff — that the destroying force perfectly preserved the scene — lands in the final third, delivered as a poignant twist after the aftermath is described.",
-    "ending_callback": "Abruptly pivots from the story to a sponsor plug, framing the tale as 'just one story inside' an app and issuing a download call-to-action with a status-boost promise."
+    "ending_callback": "Abruptly pivots from the story to a sponsor plug, framing the tale as 'just one story inside' an app and issuing a download call-to-action with a status-boost promise.",
+    "narration_tense": "present tense, 14 present against 1 past finite verbs — told as it happens",
+    "sentence_length": "median 6 words per sentence, 23 of 52 sentences at five words or fewer (44%)"
   },
   "story": {
     "title": "What Happened at Pompeii",

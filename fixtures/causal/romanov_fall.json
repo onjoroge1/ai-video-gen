@@ -27,7 +27,9 @@
     "narrator_tone": "Cool, plain-spoken and darkly matter-of-fact; uses clipped declarative sentences and grim understatement, letting brutal facts land without emotional embellishment.",
     "humour_and_interrupts": "Dry ironic asides puncture the gravity (e.g. deadpan 'both explanations and the same' style observations), plus deliberately blunt phrasing that undercuts the tragedy with mordant wit.",
     "reveal_placement": "A macabre twist is saved for the final third — an ironic detail (hidden valuables) that both prolonged the horror and later served as the identifying evidence, delivered as a grim payoff.",
-    "ending_callback": "Closes by pivoting to a sponsored app plug, reframing the whole video as 'just one story' inside the product and delivering a direct download call-to-action."
+    "ending_callback": "Closes by pivoting to a sponsored app plug, reframing the whole video as 'just one story' inside the product and delivering a direct download call-to-action.",
+    "narration_tense": "present tense, 34 present against 4 past finite verbs — told as it happens",
+    "sentence_length": "median 6 words per sentence, 34 of 87 sentences at five words or fewer (39%)"
   },
   "story": {
     "title": "The Fall of the Romanovs",

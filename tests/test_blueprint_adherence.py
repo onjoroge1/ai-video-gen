@@ -128,5 +128,43 @@ def test_the_two_voice_fields_reach_even_a_single_reference_engine():
 
     for field in ("narration_tense", "sentence_length"):
         assert field in rc.OBSERVED_FIELDS
-        for level in ("loose", "balanced", "strong"):
-            assert field in rc._ADHERENCE_FIELDS[level], f"{field} missing at {level}"
+    # They belong at loose once every reference carries them: they are voice, they carry no
+    # subject, and the engines that need them most have a single reference.
+    assert "cobra_effect" in {p.stem for p in __import__("pathlib").Path("fixtures/causal").glob("*.json")}
+
+
+def test_the_voice_fields_wait_until_every_reference_can_supply_them():
+    """Measured and stored, but not yet sent.
+
+    They exist only on references whose source video is in assets/corpus, and three of six have
+    none. Sending a field half the corpus lacks lets retrieval pick a thinner reference by runtime
+    and hand the generator less -- which is what
+    `test_no_reference_is_thinner_than_the_one_it_can_displace` caught when this shipped early.
+    """
+    import reference_corpus as rc
+
+    for field in ("narration_tense", "sentence_length"):
+        assert field in rc.OBSERVED_FIELDS, "measured and stored"
+        assert field not in rc._ADHERENCE_FIELDS["loose"], "not sent while the corpus is partial"
+        assert field in rc._ADHERENCE_FIELDS["strong"], "strong sends everything observed"
+
+
+def test_voice_is_measured_from_narration_not_from_beat_summaries():
+    """A fixture's `situation` is the labeller's summary of a beat, not the spoken narration.
+
+    Measuring those gave medians of 17-22 words against the 5-6 the real transcripts show, which
+    would have taught the generator that the corpus writes long -- the reverse of the truth.
+    Only fixtures whose text IS the narration carry these fields.
+    """
+    import json
+    from pathlib import Path
+
+    measured, summarised = [], []
+    for path in sorted(Path("fixtures/causal").glob("*.json")):
+        observed = json.loads(path.read_text()).get("observed") or {}
+        (measured if "sentence_length" in observed else summarised).append(path.stem)
+    assert measured, "at least the transcript-derived references carry it"
+    for name in measured:
+        observed = json.loads(Path(f"fixtures/causal/{name}.json").read_text())["observed"]
+        median = int(observed["sentence_length"].split()[1])
+        assert median <= 12, f"{name}: median {median} words looks like beat summaries, not speech"
