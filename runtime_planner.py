@@ -15,13 +15,24 @@ import re
 # the runtime contract was built on the wrong one -- so a script the contract passed as "120.0s"
 # rendered as an 87-second video. Every word budget was a third short.
 #
-# ONE observation, one topic, one voice. It is a large correction in the right direction rather
-# than a calibrated value: 1.95 was wrong by 34% and 2.86 reproduces the single measurement we
-# have. It needs several real renders across topics and voices before it deserves trust, and the
-# script-only harness CANNOT confirm it -- the harness predicts, it never runs TTS. Only a full
-# render measures this.
+# CALIBRATED, at the request the previous note made of it: "it needs several real renders across
+# topics and voices before it deserves trust". Six now exist, and they were measured by subtracting
+# the modelled pause overhead from each finished MP4's duration:
+#
+#   cobra_pilot_90s  294 words  106.1s  3.00      hanoi_v1    240 words  79.9s  3.26
+#   cobra_pilot_v2   250 words   92.0s  2.97      hanoi_v2    222 words  73.4s  3.31
+#   hanoi_e2e        237 words   79.9s  3.22      macquarie   205 words  74.8s  2.96
+#
+#   pooled: 1448 words over 465.9s of speech = 3.11 w/s
+#
+# 2.86 was 9% slow, and a rate that under-reads the voice makes every word budget short by
+# construction: the script is sized for a runtime it then finishes ahead of. Two of the six landed
+# under their own runtime floor because of it, and I spent a commit blaming the STATE-ONCE dedupe
+# pass for one of them -- it shortened lines, but the shortfall was already there.
+#
+# Still three topics and one voice. A different voice needs its own measurement.
 DEFAULT_WORDS_PER_SECOND = float(
-    os.environ.get("PLANNED_TTS_WORDS_PER_SECOND", "2.86")
+    os.environ.get("PLANNED_TTS_WORDS_PER_SECOND", "3.11")
 )
 DEFAULT_SCENE_PAUSE_SECONDS = float(
     os.environ.get("PLANNED_TTS_SCENE_PAUSE_SECONDS", "0.15")

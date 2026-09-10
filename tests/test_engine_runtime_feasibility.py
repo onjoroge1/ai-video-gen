@@ -30,7 +30,12 @@ def test_the_production_pairing_is_rejected_before_any_call():
 
 def test_the_same_engine_fits_once_the_runtime_pays_for_its_beats():
     assert ep._engine_runtime_fit(se.BACKFIRING_SOLUTION, 90)["fits"]
-    assert ep._minimum_feasible_runtime(se.BACKFIRING_SOLUTION, 1) == 67
+    # Derived, not hardcoded: this figure follows from the measured speaking rate, and pinning
+    # the number meant recalibrating the rate broke a test about engine feasibility.
+    shortest = ep._minimum_feasible_runtime(se.BACKFIRING_SOLUTION, 1)
+    assert 40 < shortest < 90, shortest
+    assert not ep._engine_runtime_fit(se.BACKFIRING_SOLUTION, shortest - 1)["fits"]
+    assert ep._engine_runtime_fit(se.BACKFIRING_SOLUTION, shortest)["fits"]
 
 
 @pytest.mark.parametrize("engine_id", sorted(se.ENGINES))
@@ -112,7 +117,9 @@ def test_a_replan_pinning_an_impossible_engine_fails_before_the_sheet_is_bought(
                                     pinned_engine=se.BACKFIRING_SOLUTION)
     message = str(excinfo.value)
     assert "8 beats" in message and "200 words" in message
-    assert "67s" in message, "the operator must be told what to change, not only that it failed"
+    shortest = ep._minimum_feasible_runtime(se.BACKFIRING_SOLUTION, 1)
+    assert f"{shortest}s" in message, \
+        "the operator must be told what to change, not only that it failed"
     assert not calls
 
 
@@ -120,4 +127,31 @@ def test_no_engine_fits_a_very_short_runtime_and_the_error_says_the_shortest():
     with pytest.raises(ValueError) as excinfo:
         ep._select_story_engine("Why?", 20)
     assert "No narrative engine fits" in str(excinfo.value)
-    assert "50s" in str(excinfo.value)
+    # Derived from the measured rate, like the figure above: the point is that the operator is
+    # told the shortest runtime that WOULD work, not that it happens to be any given number.
+    shortest = min(ep._minimum_feasible_runtime(engine, 1) or 10 ** 6 for engine in se.ENGINES)
+    assert f"{shortest}s" in str(excinfo.value)
+
+
+def test_the_speaking_rate_is_the_measured_one():
+    """Calibrated from six finished renders, which is what the previous note asked for.
+
+    2.86 was 9% slow, and a rate that under-reads the voice makes every word budget short by
+    construction: the script is sized for a runtime it then finishes ahead of. Two of the six
+    landed under their own runtime floor because of it.
+    """
+    import runtime_planner as rp
+
+    assert rp.DEFAULT_WORDS_PER_SECOND == 3.11
+    source = open(rp.__file__, encoding="utf-8").read()
+    assert "1448 words over 465.9s" in source, "the measurement stays next to the constant"
+    assert "Still three topics and one voice" in source, "and so do its limits"
+
+
+def test_the_expansion_is_told_the_budget_is_a_target():
+    """Every draft hugged the bottom of its allowance, landing within a word or two of the floor."""
+    import explainer_pipeline as ep
+
+    source = open(ep.__file__, encoding="utf-8").read()
+    assert "narration_words is a TARGET, not a maximum" in source
+    assert "makes the finished video short" in source

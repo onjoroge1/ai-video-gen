@@ -3276,6 +3276,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "its assigned beat; local consequences may appear earlier. Include spoken chapter "
             "markers inside each narration_words budget. Do not add the hook or format tag: "
             "they are prepended once after expansion and budgeted separately."
+            # narration_words read as a ceiling and every draft hugged the bottom of its
+            # allowance: measured across six renders, scripts landed within a word or two of
+            # their floor, and two finished under their own runtime contract because of it. The
+            # budget is the LENGTH OF THE VIDEO, not a limit to stay under.
+            " narration_words is a TARGET, not a maximum. Write close to it — a beat at 60% of "
+            "its budget makes the finished video short, and the runtime contract fails on the "
+            "sum. If a beat genuinely has less to say than its budget, give the room to the "
+            "beat before or after it rather than handing back a shorter video."
             " WRITE EACH NARRATION FROM ITS BEAT'S event.text, which is the FACTUAL CEILING for "
             "that beat. Say it however you like — as a scene, a question, a short punch, in your "
             "own words, with the story's own rhythm. You may not add a fact the event does not "
