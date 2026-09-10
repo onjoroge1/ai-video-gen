@@ -389,3 +389,23 @@ def test_only_the_event_text_survives_a_sentence_repair(monkeypatch):
     block = block[:block.index("source = mechanism[")]
     assert "working = original" in block, "everything but the text is restored"
     assert re.search(r'beat\["event"\] = dict\(beat\.get\("event"\) or \{\}, text=text\)', block)
+
+
+def test_a_beat_research_can_still_fix_is_not_sent_to_the_sentence_repair():
+    """The cane-toad fixture is exactly this case, and it caught the mistake.
+
+    Its intervention beat carries "Cane toads were introduced to control cane beetles" while citing
+    a claim about the ABSENCE of impact studies. What it needs is the claim saying the toads were
+    introduced -- a fact no rewording can add, because the sentence repair may only work inside the
+    citations the beat already has. Firing there spends a call that cannot help AND consumes the
+    round that would have bought the research that could.
+    """
+    import re
+    from pathlib import Path
+    import story_planning
+
+    body = Path(story_planning.__file__).read_text(encoding="utf-8")
+    block = body[body.index("A beat research can still help"):]
+    block = block[:block.index("if role_issues")]
+    assert "_coverage.evidence_gaps(compiled, effective)" in block
+    assert re.search(r'issue\["beat_id"\] not in gapped', body)

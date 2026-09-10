@@ -63,8 +63,18 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
             # wrong claim is work thrown away. It used to block outright, which refused stories
             # whose evidence was sound because a beat carried one figure too many or
             # under-specified an end state.
+            # A beat research can still help is NOT a sentence problem. evidence_gaps decides
+            # when a missing fact justifies a supplement, and rewording inside the claims a beat
+            # already cites can never add one -- so firing here would spend a call that cannot
+            # help AND consume the round that would have bought the research that could. The
+            # cane-toad fixture is exactly this: its intervention beat cites a claim about the
+            # ABSENCE of studies, and what it needs is the claim saying the toads were introduced.
+            import research_coverage as _coverage
+
+            gapped = {gap.get("beat_id") for gap in _coverage.evidence_gaps(compiled, effective)}
             role_issues = [issue for issue in (compiled.get("unrepairable") or [])
-                           if issue.get("code") == "ROLE_CONTRACT_FAILED" and issue.get("beat_id")]
+                           if issue.get("code") == "ROLE_CONTRACT_FAILED"
+                           and issue.get("beat_id") and issue["beat_id"] not in gapped]
             if role_issues and repair_event is not None:
                 working = [deepcopy(b) for b in effective if not b.get("derived")]
                 original = deepcopy(working)
