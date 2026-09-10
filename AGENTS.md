@@ -172,3 +172,6 @@ Evidence coverage repair first re-fetches the retained, page-verified primary-st
 ranks a bounded set of exact passages for each unsupported assertion. Every passage must still pass
 Boundary A entailment; shared words alone grant nothing. Only gaps that remain may buy the single
 focused research supplement. Comparison-case sources are never reused for the primary story.
+A terminal zero-excerpt job that already consumed the provider-provenance replay may receive one
+additional checkpoint-bound `verified_source_reuse_recovery_v1` attempt only when that exact saved
+base dossier contains page-verified, reachable primary-story evidence.

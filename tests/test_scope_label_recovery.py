@@ -85,7 +85,32 @@ def test_provenance_recovery_is_bound_to_the_recorded_checkpoint_not_a_second_do
     assert not studio._focused_provenance_checkpoint_repairable(job, object(), object())
 
 
-@pytest.mark.parametrize("recovery_type", ["scope", "ecosystem", "introduction", "provenance"])
+def test_source_reuse_recovery_requires_page_verified_base_evidence(tmp_path):
+    blob = MemoryBlob(tmp_path / "blob")
+    saved = _dossier()
+    saved["claims"][0].update(quote_verified=True, source_reachable=True)
+    encoded = json.dumps(saved).encode()
+    archive = tmp_path / "checkpoint.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        member = tarfile.TarInfo("research_dossier.json")
+        member.size = len(encoded)
+        tar.addfile(member, io.BytesIO(encoded))
+    checkpoint = blob.upload(str(archive), "checkpoint.tar.gz")
+    job = {"id": "same-job", "error": PROVENANCE_ERROR, "checkpoint": checkpoint}
+
+    assert studio._verified_source_reuse_checkpoint_repairable(job, object(), blob)
+    saved["claims"][0]["source_reachable"] = False
+    encoded = json.dumps(saved).encode()
+    with tarfile.open(archive, "w:gz") as tar:
+        member = tarfile.TarInfo("research_dossier.json")
+        member.size = len(encoded)
+        tar.addfile(member, io.BytesIO(encoded))
+    job["checkpoint"] = blob.upload(str(archive), "checkpoint-unverified.tar.gz")
+    assert not studio._verified_source_reuse_checkpoint_repairable(job, object(), blob)
+
+
+@pytest.mark.parametrize("recovery_type", [
+    "scope", "ecosystem", "introduction", "provenance", "source_reuse"])
 @pytest.mark.parametrize("authorized,repaired,used,operation", [
     (True, True, False, "generic_illustrated"),
     (False, True, False, "generic_illustrated"),
@@ -106,13 +131,22 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     }
     recovery = {"scope": RECOVERY, "ecosystem": "evidence_coverage_recovery_v1",
                 "introduction": "introduction_contract_recovery_v1",
-                "provenance": "focused_evidence_provenance_recovery_v1"}[recovery_type]
+                "provenance": "focused_evidence_provenance_recovery_v1",
+                "source_reuse": "verified_source_reuse_recovery_v1"}[recovery_type]
     error = {"scope": ERROR, "ecosystem": ECOSYSTEM_ERROR,
-             "introduction": INTRODUCTION_ERROR, "provenance": PROVENANCE_ERROR}[recovery_type]
+             "introduction": INTRODUCTION_ERROR, "provenance": PROVENANCE_ERROR,
+             "source_reuse": PROVENANCE_ERROR}[recovery_type]
+    result = {recovery: {"checkpoint_sha256": CHECKPOINT_SHA}} if used else {}
+    if recovery_type == "provenance" and used:
+        result["verified_source_reuse_recovery_v1"] = {
+            "checkpoint_sha256": CHECKPOINT_SHA}
+    if recovery_type == "source_reuse":
+        result["focused_evidence_provenance_recovery_v1"] = {
+            "checkpoint_sha256": CHECKPOINT_SHA}
     job = {"id": "same-job", "status": "error", "error": error,
            "spent_cost_usd": 0.9083, "max_cost_usd": 5,
            "checkpoint": {"sha256": CHECKPOINT_SHA},
-           "result": {recovery: {"checkpoint_sha256": CHECKPOINT_SHA}} if used else {}}
+           "result": result}
     store = Mock()
     store.get_job.return_value = job
     monkeypatch.setattr(agent_actions, "repository", lambda: repository)
@@ -121,7 +155,8 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
     helper = {"scope": "_scope_label_checkpoint_repaired",
               "ecosystem": "_ecosystem_checkpoint_repairable",
               "introduction": "_introduction_checkpoint_repairable",
-              "provenance": "_focused_provenance_checkpoint_repairable"}[recovery_type]
+              "provenance": "_focused_provenance_checkpoint_repairable",
+              "source_reuse": "_verified_source_reuse_checkpoint_repairable"}[recovery_type]
     monkeypatch.setattr(studio, helper, check)
     workers = []
 
@@ -144,7 +179,8 @@ def test_dispatch_continues_only_corrected_bound_job(monkeypatch, authorized, re
             "same-job", error_fragment={"scope": "scope_inflationx1",
                                          "ecosystem": "STORY_SPINE_UNSUPPORTED",
                                          "introduction": "STORY_SPINE_UNSUPPORTED",
-                                         "provenance": "0 quotable excerpts available"}[recovery_type],
+                                         "provenance": "0 quotable excerpts available",
+                                         "source_reuse": "0 quotable excerpts available"}[recovery_type],
             extra_attempts=1,
             recovery_key=recovery, expected_checkpoint_sha256=CHECKPOINT_SHA)
     else:
