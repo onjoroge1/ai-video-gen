@@ -3494,6 +3494,7 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "transcript_path": "transcript.txt", "srt_path": "captions.srt",
         "description_path": "youtube_description.txt", "thumbnail_path": "thumbnail.jpg",
         "research_report_path": "research_dossier.json",
+        "research_supplement_path": "research_supplement.json",
         "claim_report_path": "claim_ledger_report.json",
         "audio_timing_report_path": "audio_timing_report.json",
         "evidence_plan_path": "evidence_asset_plan.json",
@@ -3907,6 +3908,7 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "script": "script_path", "txt": "transcript_path", "srt": "srt_path",
         "desc": "description_path",
         "grade": "grade_path", "research": "research_report_path",
+        "research-supplement": "research_supplement_path",
         "claims": "claim_report_path", "timing": "audio_timing_report_path",
         "evidence-plan": "evidence_plan_path",
         "evidence-validation": "evidence_validation_path",
@@ -4058,6 +4060,16 @@ async def explainer_generation_manifest(job_id: str):
 @app.get("/api/explainer/research/{job_id}")
 async def explainer_research(job_id: str):
     return _explainer_json_response(job_id, "research", "research-dossier")
+
+
+@app.get("/api/explainer/research-supplement/{job_id}")
+async def explainer_research_supplement(job_id: str):
+    """Download the saved follow-up evidence, including failed validation, without rerunning it.
+
+    Uses the existing studio-session boundary and read-only checkpoint restoration. This is
+    diagnostic evidence; downloading it neither accepts its claims nor resumes a paid job.
+    """
+    return _explainer_json_response(job_id, "research-supplement", "research-supplement")
 
 
 @app.get("/api/explainer/claims/{job_id}")
