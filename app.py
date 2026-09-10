@@ -3223,6 +3223,15 @@ def _focused_provenance_checkpoint_repairable(job: dict, store, blob) -> bool:
                 and re.fullmatch(r"[0-9a-f]{64}", str(checkpoint.get("sha256") or "")))
 
 
+def _verified_source_reuse_checkpoint_repairable(job: dict, store, blob) -> bool:
+    """The saved base ledger contains page-verified primary sources PR101 can mine."""
+    from research_coverage import _reusable_source_claims, focused_provenance_failure
+    if not focused_provenance_failure(str(job.get("error") or "")):
+        return False
+    return _checkpoint_dossier_matches(
+        job, store, blob, lambda dossier: bool(_reusable_source_claims(dossier)))
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3300,6 +3309,21 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="0 quotable excerpts available", extra_attempts=1,
                 recovery_key="focused_evidence_provenance_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+        elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and focused_provenance_failure(str(job.get("error") or ""))
+                and (job.get("result") or {}).get("focused_evidence_provenance_recovery_v1")
+                and not (job.get("result") or {}).get("verified_source_reuse_recovery_v1")
+                and await asyncio.to_thread(
+                    _verified_source_reuse_checkpoint_repairable, job, store, blob)):
+            # PR101 can satisfy a gap from exact passages on the already page-verified base
+            # sources before another search. Continue this exact failed checkpoint once; the
+            # action payload, prior spend, provider stages, gates and $5 ceiling stay unchanged.
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="0 quotable excerpts available", extra_attempts=1,
+                recovery_key="verified_source_reuse_recovery_v1",
                 expected_checkpoint_sha256=job["checkpoint"]["sha256"])
         elif (job and job.get("status") == "error"
                 and str(job.get("error") or "") == LEGACY_DOSSIER_JSON_ERROR):
