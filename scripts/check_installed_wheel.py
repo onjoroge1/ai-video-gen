@@ -17,10 +17,10 @@ sys.path.extend(json.loads(sys.argv[2]))
 sys.path.insert(0, str(root))
 import app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus
 import claim_entailment, cost_ledger, event_functions, prompt_contract
-import story_compiler, story_fact_model, story_planning, topic_fit
+import story_compiler, story_fact_model, story_planning, research_handoff, topic_fit
 for module in (app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus,
                claim_entailment, cost_ledger, event_functions, prompt_contract,
-               story_compiler, story_fact_model, story_planning, topic_fit):
+               story_compiler, story_fact_model, story_planning, research_handoff, topic_fit):
     assert pathlib.Path(module.__file__).resolve().is_relative_to(root), module.__file__
 assert len(reference_corpus.load()) == 7
 assert reference_corpus.coverage()['backfiring_solution'] == 2

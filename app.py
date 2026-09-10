@@ -2857,6 +2857,76 @@ async def agent_research_supplement_page(job_id: str):
         "</main></body></html>")
 
 
+def _read_research_handoff(resolve) -> dict:
+    import research_handoff
+    path = resolve("research-handoff")
+    if path:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    else:
+        original = resolve("research")
+        if not original:
+            raise HTTPException(status_code=404, detail="Saved research not found")
+        with open(original, encoding="utf-8") as handle:
+            dossier = json.load(handle)
+        failure = {}
+        for kind in ("spine-after-research", "spine-failure"):
+            failure_path = resolve(kind)
+            if failure_path:
+                with open(failure_path, encoding="utf-8") as handle:
+                    failure = json.load(handle)
+                break
+        payload = research_handoff.from_saved_failure(dossier, failure)
+    supplement = resolve("research-supplement")
+    if supplement:
+        with open(supplement, encoding="utf-8") as handle:
+            payload["research_supplement"] = json.load(handle)
+    for kind in ("evidence-repair", "legacy-evidence-repair"):
+        repair = resolve(kind)
+        if repair:
+            with open(repair, encoding="utf-8") as handle:
+                payload["evidence_repair"] = json.load(handle)
+            break
+    return payload
+
+
+def _research_handoff_payload(job_id: str) -> dict:
+    """Read one current checkpoint, avoiding stale or mixed files after a worker resumes."""
+    if not _durable_execution_required():
+        return _read_research_handoff(lambda kind: _explainer_text_artifact(job_id, kind)[0])
+    import research_coverage
+    store, blob = _durable_components()
+    job = store.get_job(job_id)
+    if not job or not job.get("checkpoint"):
+        raise HTTPException(status_code=404, detail="Saved research not found")
+    names = {"research": "research_dossier.json", "research-handoff": "research_handoff.json",
+             "research-supplement": "research_supplement.json",
+             "spine-failure": "semantic_failure_story-spine.json",
+             "spine-after-research": "semantic_failure_story-spine-after-research.json",
+             "evidence-repair": f"{research_coverage.REPAIR_VERSION}.json",
+             "legacy-evidence-repair": "evidence_coverage_v2.json"}
+    with tempfile.TemporaryDirectory(prefix="research_handoff_read_") as output_dir:
+        runtime = durable_execution.DurableRuntime(job_id=job_id, worker_id="read-only",
+                                                  output_dir=output_dir, store=store, blob=blob)
+        runtime.restore_checkpoint(job["checkpoint"])
+        def resolve(kind):
+            path = Path(output_dir) / names[kind]
+            return path if path.is_file() else None
+        return _read_research_handoff(resolve)
+
+
+@app.get("/agent/research/{job_id}")
+async def agent_research_handoff_page(job_id: str):
+    import research_handoff
+    return HTMLResponse(research_handoff.render_table(
+        await asyncio.to_thread(_research_handoff_payload, job_id)))
+
+
+@app.get("/api/explainer/research-handoff/{job_id}")
+async def explainer_research_handoff(job_id: str):
+    return await asyncio.to_thread(_research_handoff_payload, job_id)
+
+
 @app.post("/api/agent/actions")
 async def create_agent_action(request: AgentActionCreateRequest):
     """Create a non-spending proposal. The claim token is returned once and stored only hashed."""
@@ -3239,6 +3309,32 @@ def _verified_source_reuse_checkpoint_repairable(job: dict, store, blob) -> bool
         job, store, blob, lambda dossier: bool(_reusable_source_claims(dossier)))
 
 
+def _composed_evidence_checkpoint_repairable(job: dict, store, blob) -> bool:
+    """Reconcile the failed v2 gap set with its exact saved research before one v3 attempt."""
+    import research_coverage as coverage
+    checkpoint = job.get("checkpoint") or {}
+    if not checkpoint.get("sha256") or not coverage.focused_provenance_failure(job.get("error", "")):
+        return False
+    try:
+        with tempfile.TemporaryDirectory(prefix="evidence_composition_review_") as output_dir:
+            runtime = durable_execution.DurableRuntime(
+                job_id=job["id"], worker_id="read-only", output_dir=output_dir, store=store, blob=blob)
+            runtime.restore_checkpoint(checkpoint)
+            root = Path(output_dir)
+            if (root / f"{coverage.REPAIR_VERSION}.json").exists():
+                return False
+            dossier = json.loads((root / "research_dossier.json").read_text())
+            previous = json.loads((root / "evidence_coverage_v2.json").read_text())
+            failure = json.loads((root / "semantic_failure_story-spine.json").read_text())
+            gaps = coverage.evidence_gaps(failure.get("report") or {},
+                                          (failure.get("script") or {}).get("beats") or [])
+            return bool(gaps and gaps == (previous.get("identity") or {}).get("gaps")
+                        and previous.get("status") in {"started", "unresolved"}
+                        and coverage._reusable_source_claims(dossier))
+    except (OSError, ValueError, TypeError, AttributeError, durable_execution.DurableExecutionError):
+        return False
+
+
 @app.post("/api/agent/actions/{action_id}/dispatch")
 async def dispatch_agent_action(action_id: str, request: Request):
     """Idempotently start only the durable job already bound to this action."""
@@ -3372,7 +3468,18 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 store.rearm_infrastructure_failure, str(action["job_id"]),
                 error_fragment="weak_source_domainx", extra_attempts=1)
         elif (job and job.get("status") == "error"
-              and str(job.get("error") or "").startswith(
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and focused_provenance_failure(str(job.get("error") or ""))
+                and (job.get("result") or {}).get("verified_source_reuse_recovery_v1")
+                and not (job.get("result") or {}).get("evidence_composition_recovery_v1")
+                and await asyncio.to_thread(_composed_evidence_checkpoint_repairable, job, store, blob)):
+            await asyncio.to_thread(
+                store.rearm_infrastructure_failure, str(action["job_id"]),
+                error_fragment="0 quotable excerpts available", extra_attempts=1,
+                recovery_key="evidence_composition_recovery_v1",
+                expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+        elif (job and job.get("status") == "error"
+                and str(job.get("error") or "").startswith(
                   "Claim ledger failed after script/fact-check before asset spend:")
               and "A speculative claim is narrated as certain." in str(job.get("error") or "")):
             # PR81 replaces the six-word binding that caused false rejections and adds one
@@ -3583,6 +3690,9 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "description_path": "youtube_description.txt", "thumbnail_path": "thumbnail.jpg",
         "research_report_path": "research_dossier.json",
         "research_supplement_path": "research_supplement.json",
+        "research_handoff_path": "research_handoff.json",
+        "spine_failure_path": "semantic_failure_story-spine.json",
+        "spine_after_research_path": "semantic_failure_story-spine-after-research.json",
         "claim_report_path": "claim_ledger_report.json",
         "audio_timing_report_path": "audio_timing_report.json",
         "evidence_plan_path": "evidence_asset_plan.json",
@@ -3997,6 +4107,9 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "desc": "description_path",
         "grade": "grade_path", "research": "research_report_path",
         "research-supplement": "research_supplement_path",
+        "research-handoff": "research_handoff_path",
+        "spine-failure": "spine_failure_path",
+        "spine-after-research": "spine_after_research_path",
         "claims": "claim_report_path", "timing": "audio_timing_report_path",
         "evidence-plan": "evidence_plan_path",
         "evidence-validation": "evidence_validation_path",
