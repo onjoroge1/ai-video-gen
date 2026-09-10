@@ -316,7 +316,7 @@ def test_acceptance_requires_positive_current_evidence_and_relationships(monkeyp
     assert not acceptance_rows([unavailable])[0][0]["joint"]
 
 
-def test_a_role_contract_failure_gets_the_sentence_repair_not_the_citation_one():
+def test_a_role_contract_failure_gets_the_sentence_repair_not_the_citation_one(monkeypatch):
     """The two complaints need opposite edits, and only one repair can make either.
 
     Measured on Macquarie: the mechanism "bundles in an unrelated peak-population figure not needed
@@ -344,7 +344,7 @@ def test_a_role_contract_failure_gets_the_sentence_repair_not_the_citation_one()
                 "content": [type("C", (), {
                     "text": '{"text":"Cats had also preyed on the rabbits.","unchanged":false}'})()]})()
 
-    ep._claude = lambda: type("C", (), {"messages": _Messages()})()
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
     out, cost = ep._repair_event_text(beats, concerns, claims, "Why?")
     assert cost > 0
     assert out[0]["event"]["text"] == "Cats had also preyed on the rabbits."
@@ -354,7 +354,7 @@ def test_a_role_contract_failure_gets_the_sentence_repair_not_the_citation_one()
     assert "Prefer cutting" in seen["prompt"]
 
 
-def test_the_sentence_repair_will_not_invent_what_no_claim_states():
+def test_the_sentence_repair_will_not_invent_what_no_claim_states(monkeypatch):
     """Where the complaint is that something is MISSING, adding it needs a claim that says it."""
     import explainer_pipeline as ep
 
@@ -370,7 +370,7 @@ def test_the_sentence_repair_will_not_invent_what_no_claim_states():
                 "usage": type("U", (), {"input_tokens": 200, "output_tokens": 20})(),
                 "content": [type("C", (), {"text": '{"text":"","unchanged":true}'})()]})()
 
-    ep._claude = lambda: type("C", (), {"messages": _Messages()})()
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
     out, _ = ep._repair_event_text(
         beats, [{"beat_id": "k5", "role": "reversal", "why": "does not name the new state"}],
         claims, "Why?")
