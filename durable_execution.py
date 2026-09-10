@@ -67,6 +67,57 @@ class PostgresStore(_legacy.PostgresStore):
     _pilot_schema_ready = False
     _production_schema_ready = False
 
+    def resume_provider_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
+        """One explicit resume of a provider account block, for any topic or stage.
+
+        No automatic worker/cron path calls this. A rejected retry pauses again. Unknown
+        outcomes, content failures and budget exhaustion do not qualify. Preserve the
+        existing stage identity and reservation until actual usage is settled.
+        """
+        import provider_blocks
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256):
+            raise DurableExecutionError("Provider resume requires the saved checkpoint hash")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if job.get("status") in {"queued", "processing"}:
+                return job  # concurrent clicks cannot create two recovery attempts
+            block = provider_blocks.for_job(job)
+            reserved = float(job.get("reserved_cost_usd") or 0)
+            if (not block or (job.get("checkpoint") or {}).get("sha256")
+                    != expected_checkpoint_sha256 or reserved <= 0
+                    or float(job.get("spent_cost_usd") or 0) + reserved
+                    > float(job.get("max_cost_usd") or 0) + 1e-9
+                    or reserved > float(job.get("max_inflight_call_usd") or 0) + 1e-9):
+                raise DurableExecutionError("Job is not eligible for provider-account resume")
+            cur.execute("""
+                SELECT * FROM generation_stages WHERE job_id=%s
+                AND status IN ('running','retry') FOR UPDATE
+            """, (job_id,))
+            stages = [self._json_ready(self._row(cur, raw)) or {} for raw in cur.fetchall()]
+            stage = stages[0] if len(stages) == 1 else {}
+            recorded = (stage.get("result") or {}).get("provider_block") or (
+                provider_blocks.from_recorded_error(stage.get("error")))
+            if (len(stages) != 1 or stage.get("status") != "retry"
+                    or stage.get("provider") != "anthropic"
+                    or not str(stage.get("stage_key") or "").startswith("anthropic:")
+                    or recorded.get("code") != block["code"]
+                    or recorded.get("http_status") != block["http_status"]
+                    or abs(float(stage.get("reserved_cost_usd") or 0) - reserved) > 0.0001):
+                raise DurableExecutionError("Provider stage outcome or reservation is ambiguous")
+            patch = {"provider_block": block,
+                     "provider_resume_count": int((job.get("result") or {}).get(
+                         "provider_resume_count") or 0) + 1}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,lease_owner=NULL,lease_expires_at=NULL,
+                    finished_at=NULL,updated_at=now() WHERE id=%s RETURNING *
+            """, (json.dumps(patch), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "provider_resumed", "Resuming after provider access repair")
+        return row
+
     def reclassify_delivered_directed_pilot(self, job_id: str, grading: dict) -> dict:
         """Correct the legacy `degraded` overload after inspecting immutable grade evidence.
 

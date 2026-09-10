@@ -2625,6 +2625,7 @@ def _directed_parent_pilot_context(parent_action_id: str, parent_job_id: str) ->
 _AGENT_TERMINAL_JOB_STATUSES = {
     "done", "degraded", "error", "storage_error", "pilot_awaiting_editorial",
     "pilot_passed", "pilot_failed", "human_rejected", "format_rejected",
+    "provider_blocked",
 }
 _AGENT_PUBLIC_EVENT_TYPES = {
     "queued", "stage", "log", "done", "error", "finalized", "review_required",
@@ -2632,8 +2633,11 @@ _AGENT_PUBLIC_EVENT_TYPES = {
     "pilot_failed", "storage_error", "infrastructure_rearmed",
     "directed_audio_fit_rearmed", "pilot_artifacts_persisted",
     "retry", "continuation",
+    "provider_blocked", "provider_resumed",
 }
 _AGENT_PUBLIC_EVENT_MESSAGES = {
+    "provider_blocked": "Video paused until provider account access is restored",
+    "provider_resumed": "Resuming the same video; completed work will be reused",
     "retry": "Worker retry queued; existing progress and spending remain attached",
     "continuation": "Worker continuation queued; completed work will be reused",
     "queued": "Render queued",
@@ -3032,13 +3036,16 @@ async def get_agent_action_public_status(action_id: str, after: int = 0):
                 next_event_seq = max(
                     [max(0, int(after)), *[int(event.get("seq") or 0) for event in new_events]])
                 job_status = str(row.get("status") or "")
+                import provider_blocks
+                provider_block = provider_blocks.for_job(row)
                 # The immutable action stays queued in storage; its bound job owns
                 # the lifecycle after execution, including terminal research errors.
                 summary["status"] = job_status or summary["status"]
                 summary["job"] = {
                     "id": row.get("id"),
                     "status": job_status,
-                    "error": _public_agent_text(row.get("error")),
+                    "error": provider_block.get("message") or _public_agent_text(row.get("error")),
+                    "provider_block": provider_block,
                     "spent_cost_usd": float(row.get("spent_cost_usd") or 0),
                     "reserved_cost_usd": float(row.get("reserved_cost_usd") or 0),
                     "max_cost_usd": float(row.get("max_cost_usd") or 0),
@@ -3256,7 +3263,12 @@ async def dispatch_agent_action(action_id: str, request: Request):
     try:
         store, blob = _durable_components()
         job = await asyncio.to_thread(store.get_job, str(action["job_id"]))
-        if (job and job.get("status") == "error"
+        import provider_blocks
+        if job and provider_blocks.for_job(job):
+            await asyncio.to_thread(
+                store.resume_provider_block, str(action["job_id"]),
+                expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
+        elif (job and job.get("status") == "error"
                 and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and is_legacy_scope_label_failure(str(job.get("error") or ""))
                 and not (job.get("result") or {}).get("scope_label_recovery_v1")
@@ -3511,6 +3523,17 @@ async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
             await run_explainer_task(
                 job_id, request, output_dir, resume=resume, durable_runtime=runtime)
         return {"claimed": True, "job": await asyncio.to_thread(store.get_job, job_id)}
+    except durable_execution.ProviderBlocked as exc:
+        # Account problems are pauses, not creative failures or automatic retry loops.
+        # The explicit action dispatch is the sole resume path after access is restored.
+        await asyncio.to_thread(runtime.checkpoint, "provider-blocked")
+        await asyncio.to_thread(
+            store.set_status, job_id, "provider_blocked", error=str(exc),
+            result={"provider_block": exc.block}, worker_id=worker_id)
+        await asyncio.to_thread(store.append_event, job_id, "provider_blocked", str(exc))
+        row = await asyncio.to_thread(store.get_job, job_id)
+        explainer_jobs[job_id] = _durable_job_view(row)
+        return {"claimed": True, "blocked": True, "job": row}
     except durable_execution.CooperativeYield:
         # All pipeline threads have unwound before the checkpoint and lease release. Completed
         # paid outputs already exist in Blob; future invocations restore them with the same keys.
