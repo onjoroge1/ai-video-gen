@@ -60,9 +60,13 @@ def test_supplement_download_restores_failed_checkpoint_privately(tmp_path, monk
             if present:
                 assert response.json() == supplement
                 assert "attachment" in response.headers["content-disposition"]
+                inline = await client.get(path + "?inline=true")
+                assert inline.status_code == 200
+                assert inline.json() == supplement
+                assert "content-disposition" not in inline.headers
             assert row["status"] == "error"
             assert row["spent_cost_usd"] == 2.21
-            assert restored == [row["checkpoint"]]
+            assert restored == [row["checkpoint"]]  # materialized once, then reused by inline view
 
     try:
         anyio.run(run)
