@@ -50,7 +50,8 @@ Evidence coverage now also checkpoints the work between provider calls:
 - Each decided entailment result, including rejections and its usage subtotal.
 - The returned focused supplement, before its source validation and claim judgments.
 
-These records live in the private `evidence_coverage_v2.json` checkpoint. The repair identity
+These records live in the private `evidence_coverage_v3.json` checkpoint (older v2 records remain
+preserved). The repair identity
 binds them to the same topic, engine, gaps and original claims; judgment keys additionally
 bind the source text, assertion and entailment contract. Restoring a partial repair avoids
 re-fetching pages and changing passage selection merely because a worker restarted. A
@@ -61,3 +62,28 @@ Restart tests restore actual checkpoint archives into separate worker directorie
 verify passage reuse, interrupted supplement validation, unchanged evidence rejection and
 cost reporting. This does not relax evidence gates or grant an extra attempt to a terminal
 research failure. Nor does it establish a speed improvement for a complete live video.
+
+## Research-to-story handoff
+
+`research_handoff.json` records the input hashes, complete retained claims, draft beats, per-beat
+citations and quotations, missing details, validation decisions and usage totals. A worker checks
+this record before repeating story validation. An unchanged, completed decision is restored;
+unavailable judgments are retried. A saved rejection stays a rejection. The version must change
+when validation behavior changes beyond the component contract versions included in the key.
+
+The authenticated `/agent/research/{job_id}` table and
+`/api/explainer/research-handoff/{job_id}` JSON endpoint inspect the same checkpoint without
+spending. The table includes the failed supplement separately, so a model's proposed quote cannot
+be mistaken for verified evidence. Older jobs use saved semantic-failure and dossier JSON for
+inspection only. A ready handoff is a supported factual outline; narration expansion is still ahead.
+
+Evidence repair v3 judges up to three exact quotations together per gap, using the retained
+verified quotes even when a later fetch fails. Every quotation retains its own URL and becomes
+its own evidence record. A partially supported event can proceed only when its supported core
+still fulfills the required role, then the existing compiler rechecks and narrows the actual beat.
+Contradictory evidence stops the repair. The new logic does not require a specific topic or engine.
+
+One explicit composition recovery is available for a failed v2 checkpoint whose gap record matches
+its saved failed story and whose base evidence validates. The transaction binds the recovery to
+the checkpoint hash, preserves completed provider stages and the original budget, and marks the
+one attempt consumed. It cannot repeatedly reopen a failed v3 repair.

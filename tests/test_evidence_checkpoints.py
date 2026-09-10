@@ -42,11 +42,14 @@ def test_source_passages_and_decisions_survive_account_pause_in_new_worker(tmp_p
     calls = []
 
     def judge(payload):
-        calls.append(payload["claims"][0]["claim"])
+        calls.append(payload["kind"])
         if len(calls) == 2:
             raise blocked()
         payload["cost_sink"].append(.02)
-        return {"verdict": "entailed" if calls[-1] == INTRO else "unsupported"}
+        if payload["kind"] == "function":
+            return {"verdict": "entailed"}
+        return {"verdict": "partially_entailed", "supported_core": INTRO,
+                "unsupported_details": ["Fixture detail absent"]}
 
     generate = Mock(side_effect=AssertionError("A verified page should cover this gap"))
     with pytest.raises(ProviderBlocked):
@@ -62,7 +65,7 @@ def test_source_passages_and_decisions_survive_account_pause_in_new_worker(tmp_p
     repaired = coverage.repair_sheet("Question", beats, report, data,
                                     generate=generate, judge=judge, cost_sink=sink)
     assert repaired and fetch.call_count == 1
-    assert calls == [question, INTRO, INTRO]  # Only the rejected account call is retried.
+    assert calls == ["evidence", "function", "function"]  # Only the rejected account call is retried.
     assert generate.call_count == 0
     assert repaired["cost_usd"] == pytest.approx(.04)
     assert sink.by_stage() == {cost_ledger.BOUNDARY_A: .04}

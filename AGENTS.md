@@ -168,10 +168,25 @@ in an authenticated HTTP client without forcing an attachment download. The appr
 research failures to `/agent/research-supplement/{job_id}`, an authenticated HTML view for browsers
 that block direct navigation to API artifact routes.
 
-Evidence coverage repair first re-fetches the retained, page-verified primary-story sources and
-ranks a bounded set of exact passages for each unsupported assertion. Every passage must still pass
-Boundary A entailment; shared words alone grant nothing. Only gaps that remain may buy the single
-focused research supplement. Comparison-case sources are never reused for the primary story.
+Evidence coverage repair uses saved, page-verified primary-story quotations plus bounded source
+re-fetching. It judges a bounded set of exact passages together for each unsupported assertion,
+keeping every quote attached to its own URL. A supported core must still satisfy the required
+story function; absent implementation or purpose cannot be narrowed away. Only remaining gaps may
+buy the single focused supplement. Comparison-case sources are excluded from the primary story.
 A terminal zero-excerpt job that already consumed the provider-provenance replay may receive one
 additional checkpoint-bound `verified_source_reuse_recovery_v1` attempt only when that exact saved
 base dossier contains page-verified, reachable primary-story evidence.
+
+Research and story handoff decisions are saved as `research_handoff.json` in the private durable
+checkpoint. Inspect `/agent/research/{job_id}` for a table of beats, claim IDs, exact quotations,
+source URLs, verdicts and missing details; `/api/explainer/research-handoff/{job_id}` returns the
+same snapshot as JSON. These authenticated GETs make no provider calls or job changes. Old jobs
+are shown from their saved dossier and semantic-failure JSON; a legacy view is not a reusable pass.
+An unchanged handoff restores its completed result and usage; changed evidence, draft, engine or
+validation contracts require rechecking. `ready` means the factual outline is supported, not that
+the full narration script or video has been generated.
+
+The v3 evidence-composition migration may grant one `evidence_composition_recovery_v1` attempt
+under the same approval only after reconciling the exact v2 gap JSON with the saved failed story
+and valid base evidence. An existing v3 checkpoint or consumed recovery marker forbids another
+attempt. Never dispatch merely because a PR merged; inspect the saved records first.

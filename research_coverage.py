@@ -17,7 +17,7 @@ import event_functions
 import longform_research as research
 import story_fact_model as facts
 
-REPAIR_VERSION = "evidence_coverage_v2"
+REPAIR_VERSION = "evidence_coverage_v3"
 LEGACY_REPAIR_VERSION = "evidence_coverage_v1"
 MAX_GAPS = 4
 MAX_NEW_CLAIMS = 8
@@ -168,13 +168,13 @@ def _reusable_source_claims(dossier: dict) -> list[dict]:
 
 
 def _checkpointed_entailment(claims, assertion, *, progress, save, accounted,
-                             judge=None, cache=None, cost_sink=None):
+                             judge=None, cache=None, cost_sink=None, kind="evidence"):
     """Persist a decided result before the next call; never freeze an account outage.
 
     Provider responses are already durable. This also preserves their interpretation and
     usage subtotal, so a restart needs neither another judgment nor a reconstructed cache.
     """
-    key = entailment.cache_key(claims, assertion,
+    key = entailment.cache_key(claims, assertion, kind=kind,
                               contract_version=entailment.ENTAILMENT_CONTRACT_VERSION)
     decisions = progress.setdefault("decisions", {})
     if key in decisions:
@@ -184,8 +184,12 @@ def _checkpointed_entailment(claims, assertion, *, progress, save, accounted,
         accounted.add(key)
         return deepcopy(saved["result"])
     before = sum(cost_sink) if cost_sink is not None else 0
-    result = entailment.evidence_entailment(
-        claims, assertion, judge=judge, cache=cache, cost_sink=cost_sink)
+    if kind == "function":
+        result = entailment.function_fulfillment(
+            claims[0]["claim"], assertion, judge=judge, cache=cache, cost_sink=cost_sink)
+    else:
+        result = entailment.evidence_entailment(
+            claims, assertion, judge=judge, cache=cache, cost_sink=cost_sink)
     accounted.add(key)
     if not entailment.is_retryable(result):
         decisions[key] = {"result": deepcopy(result),
@@ -201,56 +205,82 @@ def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cach
 
     A retained source already passed source policy and provider-provenance validation. We fetch it
     once, freeze the ranked exact passages, then apply the unchanged Boundary A entailment judge.
-    A lexical match alone can never create a claim. The enclosing repair identity binds this
-    progress to the topic, base evidence, events and gaps.
+    Quotes are judged together, as they are in the story compiler. Each retained quote keeps
+    its own source; a joint event is never misattributed to one page. The enclosing repair
+    identity binds this progress to the topic, base evidence, events and gaps.
     """
     sources = _reusable_source_claims(dossier)
     if not sources:
         return [], [], set(), {"sources": 0, "fetched": 0, "recovered_gaps": 0}
     progress = progress if progress is not None else {}
+    source_by_url = {str(claim.get("source_url") or "").strip(): claim for claim in sources}
     if "candidates" not in progress:
+        comparisons = {ref for refs in research._claims_by_parallel_case(dossier).values() for ref in refs}
+        retained = [(c["source_url"], c["support_quote"]) for c in dossier.get("claims") or []
+                    if c.get("claim_id") not in comparisons and c.get("quote_verified") is True
+                    and c.get("source_reachable") is True and c.get("source_url") in source_by_url]
         fetched = claim_verify.verify_claims(sources, repair=False)
         pages = fetched.get("pages") or {}
         candidates = {}
         for gap in gaps:
             assertion = str(gap.get("assertion_to_verify") or "").strip()
             query = " ".join([assertion, *[str(item) for item in gap.get("missing_details") or []]])
-            ranked = []
+            passages = set(retained)
             for url, page in pages.items():
                 for passage in claim_verify.candidate_passages(
                         query, page, limit=MAX_REUSED_PASSAGES_PER_GAP):
-                    overlap = len(claim_verify._content_words(query)
-                                  & claim_verify._content_words(passage))
-                    ranked.append((overlap, -len(passage), url, passage))
+                    passages.add((url, passage))
+            wanted = claim_verify._content_words(query)
+            ranked = [(len(wanted & claim_verify._content_words(passage)), -len(passage), url, passage)
+                      for url, passage in passages if len(passage) <= 800
+                      and len(wanted & claim_verify._content_words(passage)) >= min(2, len(wanted))]
             ranked.sort(reverse=True)
             candidates[str(gap.get("beat_id") or "")] = [
                 {"source_url": url, "support_quote": passage}
                 for _, _, url, passage in ranked[:MAX_REUSED_PASSAGES_PER_GAP]]
         progress.update(candidates=candidates, fetched=fetched.get("fetched", 0))
         save()
-    source_by_url = {str(claim.get("source_url") or "").strip(): claim for claim in sources}
     accepted, findings, recovered, accounted = [], [], set(), set()
     for gap in gaps:
         assertion = str(gap.get("assertion_to_verify") or "").strip()
-        for candidate in progress["candidates"].get(str(gap.get("beat_id") or ""), []):
-            url, passage = candidate["source_url"], candidate["support_quote"]
+        candidates = progress["candidates"].get(str(gap.get("beat_id") or ""), [])
+        candidates = candidates[:max(0, MAX_NEW_CLAIMS - len(accepted))]
+        if not candidates:
+            continue
+        result = _checkpointed_entailment(
+            [{"claim_id": f"source_excerpt_{i}", "claim": c["support_quote"],
+              "source_url": c["source_url"]} for i, c in enumerate(candidates)],
+            assertion, progress=progress, save=save, accounted=accounted,
+            judge=judge, cache=cache, cost_sink=cost_sink)
+        findings.append({"gap_id": gap.get("beat_id"), "sources": deepcopy(candidates), **result})
+        if result.get("verdict") == "partially_entailed" and result.get("supported_core"):
             result = _checkpointed_entailment(
-                [{"claim_id": "source_excerpt", "claim": passage, "source_url": url}],
-                assertion, progress=progress, save=save, accounted=accounted,
-                judge=judge, cache=cache, cost_sink=cost_sink)
-            findings.append({"gap_id": gap.get("beat_id"), "source_url": url,
-                             "support_quote": passage, **result})
-            if entailment.is_retryable(result):
-                reason = str(result.get("reason") or "unknown provider failure")[:240]
-                raise RuntimeError(
-                    f"Evidence coverage judgment unavailable; no new claim accepted: {reason}")
-            if not result["passed"]:
+                [{"claim_id": "supported_core", "claim": result["supported_core"]}],
+                gap["role_meaning"], kind="function", progress=progress, save=save,
+                accounted=accounted, judge=judge, cache=cache, cost_sink=cost_sink)
+            findings.append({"gap_id": gap.get("beat_id"), "kind": "function", **result})
+        if entailment.is_retryable(result):
+            reason = str(result.get("reason") or "unknown provider failure")[:240]
+            raise RuntimeError(
+                f"Evidence coverage judgment unavailable; no new claim accepted: {reason}")
+        if result.get("verdict") == "contradicted":
+            progress["contradiction"] = deepcopy(findings[-1])
+            save()
+            raise ValueError("Verified source passages contradict a required story event")
+        if not result["passed"]:
+            continue
+        for candidate in candidates:
+            url, passage = candidate["source_url"], candidate["support_quote"]
+            existing = next((c for c in accepted
+                             if c["source_url"] == url and c["claim"] == passage), None)
+            if existing:
+                existing["evidence_gap_ids"].append(gap.get("beat_id"))
                 continue
             origin = source_by_url[url]
             digest = hashlib.sha256(
                 f"{gap.get('beat_id')}\n{url}\n{passage}".encode("utf-8")).hexdigest()[:12]
             accepted.append({
-                "claim_id": f"reuse_{digest}", "claim": assertion, "source_url": url,
+                "claim_id": f"reuse_{digest}", "claim": passage, "source_url": url,
                 "support_quote": passage, "source_type": origin.get("source_type"),
                 "claim_kind": facts.UNKNOWN_KIND, "claim_kind_confidence": 0.0,
                 "runner_up_kind": "", "runner_up_confidence": 0.0,
@@ -261,9 +291,9 @@ def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cach
                 "allowed_exaggeration": False, "material": True,
                 "quote_verified": True, "source_reachable": True,
                 "reused_from_claim_id": origin.get("claim_id"),
+                "evidence_gap_ids": [gap.get("beat_id")],
             })
-            recovered.add(str(gap.get("beat_id") or ""))
-            break
+        recovered.add(str(gap.get("beat_id") or ""))
     return accepted, findings, recovered, {
         "sources": len(sources), "fetched": progress.get("fetched", 0),
         "recovered_gaps": len(recovered),
@@ -379,12 +409,26 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
             _save(path, runtime, state)
             return None
         merged, added = merge_supplement(dossier, combined)
-        if not added:
+        # A quote may already be a retained claim that the planner simply failed to cite.
+        # Re-cite that existing ID instead of requiring a duplicate new research claim.
+        comparisons = {ref for refs in research._claims_by_parallel_case(merged).values() for ref in refs}
+        targets = {(claim["claim"], claim["source_url"]): claim for claim in accepted}
+        refs_by_gap = {gap["beat_id"]: [] for gap in gaps}
+        for claim in merged["claims"]:
+            target = targets.get((claim["claim"], claim["source_url"]))
+            if not target or claim["claim_id"] in comparisons:
+                continue
+            for gap_id in target.get("evidence_gap_ids") or refs_by_gap:
+                if gap_id in refs_by_gap:
+                    refs_by_gap[gap_id].append(claim["claim_id"])
+        if not any(refs_by_gap.values()):
             state["status"] = "unresolved"
             _save(path, runtime, state)
             return None
-        merged[REPAIR_VERSION] = {"gaps": gaps, "added_claim_ids": added}
+        merged[REPAIR_VERSION] = {"gaps": gaps, "added_claim_ids": added,
+                                  "claim_refs_by_gap": refs_by_gap}
         state.update(status="completed", dossier=merged, added_claim_ids=added,
+                     claim_refs_by_gap=refs_by_gap,
                      research_cost_usd=sum(research_cost), script_cost_usd=sum(evidence_cost))
         _save(path, runtime, state)
     merged, added = deepcopy(state["dossier"]), state["added_claim_ids"]
@@ -405,8 +449,11 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
             event = facts.event_of(beat)
             kinds = facts.accepted_claim_kinds(
                 beat.get("causal_role") or beat.get("role"), compiled.get("engine_id", ""))
-            eligible = [ref for ref in added if facts.resolved_claim_kind(claims[ref])[0]
-                        in (*kinds, facts.UNKNOWN_KIND)]
+            refs = (state.get("claim_refs_by_gap") or {}).get(beat.get("beat_id"), added)
+            eligible = [ref for ref in refs if facts.resolved_claim_kind(claims[ref])[0]
+                        in (*kinds, facts.UNKNOWN_KIND)
+                        and (not claims[ref].get("evidence_gap_ids")
+                             or beat.get("beat_id") in claims[ref]["evidence_gap_ids"])]
             event["claim_refs"] = list(dict.fromkeys(event["claim_refs"] + eligible))
             beat["event"] = event
     return {"beats": repaired, "dossier": merged,

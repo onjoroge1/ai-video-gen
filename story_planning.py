@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 import cost_ledger
+import research_handoff as handoff
 import story_compiler as compiler
 import story_fact_model as facts
 
@@ -16,11 +17,24 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
     cache = {} if cache is None else cache
     evidence_cost = cost_ledger.StageCostSink(cost_sink, cost_ledger.BOUNDARY_A)
     repair_cost = cost_ledger.StageCostSink(cost_sink, cost_ledger.CAUSAL_SPINE)
+    key = handoff.identity(beats, engine_id, claims, claims_by_case, question, repair is not None)
+    saved = handoff.load(key)
+    if saved:
+        evidence_cost.append(saved["costs"].get("evidence", 0))
+        repair_cost.append(saved["costs"].get("repair", 0))
+        result = deepcopy(saved["prepared"])
+        cache.update(result.get("cache") or {})
+        result["cache"] = cache
+        return result
+    handoff.save(handoff.record(key, beats, claims))
     working = compiler.canonical_beats(beats)
     repairs = []
     for attempt in range(2):
         roles = compiler.compile_roles(working, engine_id, claims)
         if not roles.get("compiled") or not roles.get("passed"):
+            failure = handoff.record(key, working, claims)
+            failure.update(status="blocked", failure=compiler.summary(roles))
+            handoff.save(failure)
             raise facts.StorySpineUnsupported(compiler.summary(roles), beats=working)
         sheet = compiler.splice_derived(roles["beats"], roles)
         compiled = facts.compile_spine(sheet, claims, claims_by_case, judge=judge, cache=cache,
@@ -70,5 +84,8 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
         if not changed:
             break
     compiled["citation_repairs"] = repairs
-    return {"beats": compiled["effective_beats"], "compiled": compiled,
-            "cache": cache, "cost_usd": sum(evidence_cost) + sum(repair_cost)}
+    result = {"beats": compiled["effective_beats"], "compiled": compiled,
+              "cache": cache, "cost_usd": sum(evidence_cost) + sum(repair_cost)}
+    handoff.save(handoff.record(key, beats, claims, result,
+                               {"evidence": sum(evidence_cost), "repair": sum(repair_cost)}))
+    return result
