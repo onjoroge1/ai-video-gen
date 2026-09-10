@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -3991,10 +3991,16 @@ async def explainer_grade(job_id: str):
     return FileResponse(path, media_type="text/plain", filename=f"{safe} - {label}.txt")
 
 
-def _explainer_json_response(job_id: str, kind: str, label: str):
+def _explainer_json_response(job_id: str, kind: str, label: str, *, inline: bool = False):
     path, title = _explainer_text_artifact(job_id, kind)
     if not path:
         raise HTTPException(status_code=404, detail=f"{label} not found")
+    if inline:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return JSONResponse(content=json.load(handle))
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail=f"Invalid {label}: {exc}") from exc
     safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
     return FileResponse(path, media_type="application/json", filename=f"{safe} - {label}.json")
 
@@ -4063,13 +4069,14 @@ async def explainer_research(job_id: str):
 
 
 @app.get("/api/explainer/research-supplement/{job_id}")
-async def explainer_research_supplement(job_id: str):
+async def explainer_research_supplement(job_id: str, inline: bool = False):
     """Download the saved follow-up evidence, including failed validation, without rerunning it.
 
     Uses the existing studio-session boundary and read-only checkpoint restoration. This is
     diagnostic evidence; downloading it neither accepts its claims nor resumes a paid job.
     """
-    return _explainer_json_response(job_id, "research-supplement", "research-supplement")
+    return _explainer_json_response(
+        job_id, "research-supplement", "research-supplement", inline=inline)
 
 
 @app.get("/api/explainer/claims/{job_id}")

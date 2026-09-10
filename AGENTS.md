@@ -163,4 +163,5 @@ authenticated `GET /api/explainer/research/{job_id}` downloads the original doss
 `GET /api/explainer/research-supplement/{job_id}` downloads the focused follow-up, including its
 source URLs, fetch counts and validation failures. Both are read-only, restore the saved checkpoint,
 and make no provider calls. A missing supplement returns 404. These private downloads do not belong
-in the public action event feed.
+in the public action event feed. Add `?inline=true` to the supplement URL to inspect the same JSON
+in an authenticated browser without forcing an attachment download.
