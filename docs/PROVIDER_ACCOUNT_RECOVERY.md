@@ -35,3 +35,29 @@ legacy errors, ambiguous reservations, exhausted budgets, and duplicate resume r
 The delivery integration test simulates credit rejection twice, restores access, and then
 uses real FFmpeg and download/hash verification to deliver an MP4. Provider responses and
 database/Blob adapters are simulated; this does not prove a fresh live story's quality.
+
+## What a resumed worker saves and reuses
+
+The worker may enter the pipeline from its beginning, but completed provider requests are
+replayed by request hash. A changed prompt is a new request. Research and draft factual
+beats can therefore be saved even while evidence validation still prevents a full script.
+The complete script is saved before narration and images; completed media has its own
+immutable per-stage artifact and is restored separately from the control checkpoint.
+
+Evidence coverage now also checkpoints the work between provider calls:
+
+- The bounded set of exact passages selected from verified primary sources, before judging.
+- Each decided entailment result, including rejections and its usage subtotal.
+- The returned focused supplement, before its source validation and claim judgments.
+
+These records live in the private `evidence_coverage_v2.json` checkpoint. The repair identity
+binds them to the same topic, engine, gaps and original claims; judgment keys additionally
+bind the source text, assertion and entailment contract. Restoring a partial repair avoids
+re-fetching pages and changing passage selection merely because a worker restarted. A
+completed judgment's usage is included once in the attempt report; replay is not a new
+provider charge. Account outages and unavailable judgments are never saved as decisions.
+
+Restart tests restore actual checkpoint archives into separate worker directories and
+verify passage reuse, interrupted supplement validation, unchanged evidence rejection and
+cost reporting. This does not relax evidence gates or grant an extra attempt to a terminal
+research failure. Nor does it establish a speed improvement for a complete live video.

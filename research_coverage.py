@@ -167,36 +167,77 @@ def _reusable_source_claims(dossier: dict) -> list[dict]:
     return reusable
 
 
+def _checkpointed_entailment(claims, assertion, *, progress, save, accounted,
+                             judge=None, cache=None, cost_sink=None):
+    """Persist a decided result before the next call; never freeze an account outage.
+
+    Provider responses are already durable. This also preserves their interpretation and
+    usage subtotal, so a restart needs neither another judgment nor a reconstructed cache.
+    """
+    key = entailment.cache_key(claims, assertion,
+                              contract_version=entailment.ENTAILMENT_CONTRACT_VERSION)
+    decisions = progress.setdefault("decisions", {})
+    if key in decisions:
+        saved = decisions[key]
+        if cost_sink is not None and key not in accounted:
+            cost_sink.append(saved["cost_usd"])
+        accounted.add(key)
+        return deepcopy(saved["result"])
+    before = sum(cost_sink) if cost_sink is not None else 0
+    result = entailment.evidence_entailment(
+        claims, assertion, judge=judge, cache=cache, cost_sink=cost_sink)
+    accounted.add(key)
+    if not entailment.is_retryable(result):
+        decisions[key] = {"result": deepcopy(result),
+                          "cost_usd": (sum(cost_sink) - before) if cost_sink is not None else 0}
+        save()
+    return result
+
+
 def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cache=None,
-                            cost_sink=None) -> tuple[list[dict], list[dict], set[str], dict]:
+                            cost_sink=None, progress=None, save=lambda: None
+                            ) -> tuple[list[dict], list[dict], set[str], dict]:
     """Mine exact passages from trusted ledger sources before purchasing another search.
 
     A retained source already passed source policy and provider-provenance validation. We fetch it
-    again, rank exact page passages against each unresolved assertion, then apply the unchanged
-    Boundary A entailment judge. A lexical match alone can never create a claim.
+    once, freeze the ranked exact passages, then apply the unchanged Boundary A entailment judge.
+    A lexical match alone can never create a claim. The enclosing repair identity binds this
+    progress to the topic, base evidence, events and gaps.
     """
     sources = _reusable_source_claims(dossier)
     if not sources:
         return [], [], set(), {"sources": 0, "fetched": 0, "recovered_gaps": 0}
-    fetched = claim_verify.verify_claims(sources, repair=False)
-    pages = fetched.get("pages") or {}
+    progress = progress if progress is not None else {}
+    if "candidates" not in progress:
+        fetched = claim_verify.verify_claims(sources, repair=False)
+        pages = fetched.get("pages") or {}
+        candidates = {}
+        for gap in gaps:
+            assertion = str(gap.get("assertion_to_verify") or "").strip()
+            query = " ".join([assertion, *[str(item) for item in gap.get("missing_details") or []]])
+            ranked = []
+            for url, page in pages.items():
+                for passage in claim_verify.candidate_passages(
+                        query, page, limit=MAX_REUSED_PASSAGES_PER_GAP):
+                    overlap = len(claim_verify._content_words(query)
+                                  & claim_verify._content_words(passage))
+                    ranked.append((overlap, -len(passage), url, passage))
+            ranked.sort(reverse=True)
+            candidates[str(gap.get("beat_id") or "")] = [
+                {"source_url": url, "support_quote": passage}
+                for _, _, url, passage in ranked[:MAX_REUSED_PASSAGES_PER_GAP]]
+        progress.update(candidates=candidates, fetched=fetched.get("fetched", 0))
+        save()
     source_by_url = {str(claim.get("source_url") or "").strip(): claim for claim in sources}
-    accepted, findings, recovered = [], [], set()
+    accepted, findings, recovered, accounted = [], [], set(), set()
     for gap in gaps:
         assertion = str(gap.get("assertion_to_verify") or "").strip()
-        query = " ".join([assertion, *[str(item) for item in gap.get("missing_details") or []]])
-        ranked = []
-        for url, page in pages.items():
-            for passage in claim_verify.candidate_passages(
-                    query, page, limit=MAX_REUSED_PASSAGES_PER_GAP):
-                overlap = len(claim_verify._content_words(query)
-                              & claim_verify._content_words(passage))
-                ranked.append((overlap, -len(passage), url, passage))
-        ranked.sort(reverse=True)
-        for _, _, url, passage in ranked[:MAX_REUSED_PASSAGES_PER_GAP]:
-            result = entailment.evidence_entailment(
+        for candidate in progress["candidates"].get(str(gap.get("beat_id") or ""), []):
+            url, passage = candidate["source_url"], candidate["support_quote"]
+            result = _checkpointed_entailment(
                 [{"claim_id": "source_excerpt", "claim": passage, "source_url": url}],
-                assertion, judge=judge, cache=cache, cost_sink=cost_sink)
+                assertion, progress=progress, save=save, accounted=accounted,
+                judge=judge, cache=cache, cost_sink=cost_sink)
             findings.append({"gap_id": gap.get("beat_id"), "source_url": url,
                              "support_quote": passage, **result})
             if entailment.is_retryable(result):
@@ -224,7 +265,7 @@ def _reuse_existing_sources(dossier: dict, gaps: list[dict], *, judge=None, cach
             recovered.add(str(gap.get("beat_id") or ""))
             break
     return accepted, findings, recovered, {
-        "sources": len(sources), "fetched": fetched.get("fetched", 0),
+        "sources": len(sources), "fetched": progress.get("fetched", 0),
         "recovered_gaps": len(recovered),
     }
 
@@ -282,15 +323,28 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
         if isinstance(cost_sink, list):
             cost_sink.extend(research_cost)
     else:
+        save = lambda: _save(path, runtime, state)
         reused, reuse_findings, recovered, reuse_summary = _reuse_existing_sources(
-            dossier, gaps, judge=judge, cache=cache, cost_sink=evidence_cost)
+            dossier, gaps, judge=judge, cache=cache, cost_sink=evidence_cost,
+            progress=state.setdefault("source_progress", {}), save=save)
+        # Keep the partial evidence and exact rejections even if focused research raises.
+        state.update(reused_claims=deepcopy(reused), source_reuse=reuse_summary,
+                     source_entailment=deepcopy(reuse_findings))
+        save()
         remaining_gaps = [gap for gap in gaps
                           if str(gap.get("beat_id") or "") not in recovered]
         supplement = None
         try:
             if remaining_gaps:
-                supplement = generate(
-                    question, evidence_gaps=remaining_gaps, cost_sink=research_cost)
+                if "generated_supplement" in state:
+                    supplement = deepcopy(state["generated_supplement"])
+                    research_cost.append(state.get("research_cost_usd", 0))
+                else:
+                    supplement = generate(
+                        question, evidence_gaps=remaining_gaps, cost_sink=research_cost)
+                    state.update(generated_supplement=deepcopy(supplement),
+                                 research_cost_usd=sum(research_cost))
+                    save()
         finally:
             if isinstance(cost_sink, list):
                 cost_sink.extend(research_cost)
@@ -299,10 +353,13 @@ def repair_sheet(question, beats, compiled, dossier, *, generate, judge=None,
         # A real quote can still be irrelevant to its attached claim. Check meaning as well
         # as presence before new claims are allowed into the story's factual ceiling.
         accepted, findings = list(reused), list(reuse_findings)
+        accounted = set()
         for claim in (supplement or {}).get("claims", [])[:MAX_NEW_CLAIMS - len(accepted)]:
-            result = entailment.evidence_entailment(
+            result = _checkpointed_entailment(
                 [{"claim_id": "source_excerpt", "claim": claim["support_quote"],
                   "source_url": claim["source_url"]}], claim["claim"],
+                progress=state.setdefault("supplement_progress", {}), save=save,
+                accounted=accounted,
                 judge=judge, cache=cache, cost_sink=evidence_cost)
             findings.append({"claim_id": claim["claim_id"], **result})
             if entailment.is_retryable(result):
