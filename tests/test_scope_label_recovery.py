@@ -230,3 +230,88 @@ def test_atomic_rearm_preserves_budget_and_rejects_stale_or_repeated_recovery(ch
         assert "result=result ||" in sql
         assert json.loads(params[1])[RECOVERY]["checkpoint_sha256"] == CHECKPOINT_SHA
         assert "spent_cost_usd=" not in sql and "request=" not in sql and "max_cost_usd=" not in sql
+
+
+def test_provider_rearm_preserves_one_reconciled_retry_reservation():
+    recovery = "boundary_a_provider_recovery_v1"
+    job = {
+        "id": "same-job", "status": "error",
+        "error": "Evidence coverage judgment unavailable; no new claim accepted",
+        "reserved_cost_usd": .0173, "spent_cost_usd": 2.2109, "max_cost_usd": 5,
+        "max_inflight_call_usd": .25, "checkpoint": {"sha256": CHECKPOINT_SHA},
+        "result": {},
+    }
+    stage = {
+        "stage_key": "anthropic:abc", "status": "retry", "provider": "anthropic",
+        "reserved_cost_usd": .0173, "error": "BadRequestError: unavailable",
+    }
+    cursor = Mock()
+    cursor.fetchone.side_effect = [job, {**job, "status": "queued"}]
+    cursor.fetchall.return_value = [stage]
+
+    class Store(durable.PostgresStore):
+        def __init__(self):
+            self.append_event = Mock()
+
+        @contextmanager
+        def _tx(self):
+            yield None, cursor
+
+        @staticmethod
+        def _row(cur, value):
+            return value
+
+    store = Store()
+    row = store.rearm_retryable_provider_stage(
+        "same-job", error_prefix="Evidence coverage judgment unavailable",
+        recovery_key=recovery, expected_checkpoint_sha256=CHECKPOINT_SHA)
+
+    assert row["status"] == "queued"
+    update = [call.args for call in cursor.execute.call_args_list
+              if call.args[0].lstrip().startswith("UPDATE generation_jobs")][0]
+    marker = json.loads(update[1][1])[recovery]
+    assert marker["stage_key"] == "anthropic:abc"
+    assert marker["preserved_reserved_cost_usd"] == pytest.approx(.0173)
+    sql = update[0]
+    assert "reserved_cost_usd=" not in sql and "spent_cost_usd=" not in sql
+
+
+def test_dispatch_rearms_exact_boundary_a_provider_failure(monkeypatch):
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    repository.action = {
+        "action_id": ACTION_ID, "operation": "generic_illustrated",
+        "status": "queued", "job_id": "same-job",
+        "claim_token_sha256": agent_actions.token_digest(ACTION_ID),
+    }
+    job = {
+        "id": "same-job", "status": "error",
+        "error": "Evidence coverage judgment unavailable; no new claim accepted",
+        "checkpoint": {"sha256": CHECKPOINT_SHA},
+        "result": {"verified_source_reuse_recovery_v1": {"done": True}},
+    }
+    store = Mock()
+    store.get_job.return_value = job
+    monkeypatch.setattr(agent_actions, "repository", lambda: repository)
+    monkeypatch.setattr(studio, "_durable_components", lambda: (store, object()))
+    monkeypatch.setattr(studio, "_run_durable_explainer_worker",
+                        lambda job_id: _async_result({"claimed": True}))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app),
+                                     base_url="http://test") as client:
+            response = await client.post(f"/api/agent/actions/{ACTION_ID}/dispatch",
+                headers={"Authorization": f"Bearer {ACTION_ID}"})
+            assert response.status_code == 200
+
+    async def _async_result_value(value):
+        return value
+
+    def _async_result(value):
+        return _async_result_value(value)
+
+    anyio.run(run)
+    store.rearm_retryable_provider_stage.assert_called_once_with(
+        "same-job", error_prefix="Evidence coverage judgment unavailable; no new claim accepted",
+        recovery_key="boundary_a_provider_recovery_v1",
+        expected_checkpoint_sha256=CHECKPOINT_SHA, extra_attempts=1)

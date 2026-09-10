@@ -156,6 +156,72 @@ class PostgresStore(_legacy.PostgresStore):
         })
         return row
 
+    def rearm_retryable_provider_stage(
+            self, job_id: str, *, error_prefix: str, recovery_key: str,
+            expected_checkpoint_sha256: str, extra_attempts: int = 1) -> dict:
+        """Resume one exact failed provider stage without clearing its reservation.
+
+        This is deliberately narrower than an infrastructure rearm.  The job must reconcile to
+        exactly one Anthropic retry stage, bounded by the existing single-call liability cap.
+        Its stable request hash, idempotency key, reservation, approved payload and cost ceiling
+        remain unchanged.
+        """
+        prefix = str(error_prefix or "").strip()
+        if (not prefix or len(prefix) > 200
+                or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", recovery_key)
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256)):
+            raise DurableExecutionError("Provider recovery requires an exact bounded identity")
+        retries = max(1, min(int(extra_attempts), 1))
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            current = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            reserved = float(current.get("reserved_cost_usd") or 0)
+            if (not current or current.get("status") != "error"
+                    or not str(current.get("error") or "").startswith(prefix)
+                    or reserved <= 0
+                    or float(current.get("spent_cost_usd") or 0)
+                    >= float(current.get("max_cost_usd") or 0)
+                    or (current.get("result") or {}).get(recovery_key)
+                    or (current.get("checkpoint") or {}).get("sha256")
+                    != expected_checkpoint_sha256):
+                raise DurableExecutionError(f"Job {job_id} is not eligible for provider recovery")
+            cur.execute("""
+                SELECT stage_key,status,provider,reserved_cost_usd,error
+                FROM generation_stages
+                WHERE job_id=%s AND status IN ('running','retry') FOR UPDATE
+            """, (job_id,))
+            open_stages = [self._json_ready(self._row(cur, raw)) or {}
+                           for raw in cur.fetchall()]
+            stage = open_stages[0] if len(open_stages) == 1 else {}
+            if (len(open_stages) != 1 or stage.get("status") != "retry"
+                    or stage.get("provider") != "anthropic"
+                    or not str(stage.get("stage_key") or "").startswith("anthropic:")
+                    or not str(stage.get("error") or "").strip()
+                    or abs(float(stage.get("reserved_cost_usd") or 0) - reserved) > 0.0001
+                    or reserved > float(current.get("max_inflight_call_usd") or 0)):
+                raise DurableExecutionError(
+                    f"Job {job_id} has an ambiguous provider reservation; recovery stopped")
+            marker = {recovery_key: {
+                "checkpoint_sha256": expected_checkpoint_sha256,
+                "stage_key": stage["stage_key"],
+                "preserved_reserved_cost_usd": reserved,
+            }}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+%s),
+                    result=result || %s::jsonb,
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (retries, json.dumps(marker), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "provider_stage_rearmed",
+                          "Retrying one idempotent provider judgment", {
+                              "extra_attempts": retries,
+                              "preserved_reserved_cost_usd": reserved,
+                              "stage_key": stage["stage_key"],
+                          })
+        return row
+
     def rearm_disk_exhaustion(self, job_id: str, *, extra_attempts: int = 3) -> dict:
         """Resume one ENOSPC job while preserving a single ambiguous paid-stage reservation.
 
