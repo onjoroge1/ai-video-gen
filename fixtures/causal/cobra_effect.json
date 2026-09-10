@@ -27,7 +27,9 @@
     "narrator_tone": "Conversational, wry and explanatory; builds suspense with short punchy declaratives and deadpan reversals, treating the audience as smart but needing things spelled out plainly.",
     "humour_and_interrupts": "Comedy comes from dramatic irony and understatement — the logical-sounding plan repeatedly backfiring — plus visual gags like an overwhelming swarm and mock-'sensible' bureaucratic reactions.",
     "reveal_placement": "The core twist (the exploit backfiring) lands around the one-third to halfway mark, followed by a later reveal naming the general principle, then rapid-fire parallel real-world examples to reinforce it.",
-    "ending_callback": "Closes by circling back to the opening theme, poses a reflective rhetorical question tying the abstract lesson to the viewer's own life, then delivers a sponsor plug and a call-to-action to try an app."
+    "ending_callback": "Closes by circling back to the opening theme, poses a reflective rhetorical question tying the abstract lesson to the viewer's own life, then delivers a sponsor plug and a call-to-action to try an app.",
+    "narration_tense": "present tense, 28 present against 10 past finite verbs — told as it happens",
+    "sentence_length": "median 8 words per sentence, 18 of 76 sentences at five words or fewer (24%)"
   },
   "story": {
     "title": "The Cobra Effect",

@@ -318,16 +318,20 @@ DEFAULT_ADHERENCE = "loose"
 
 _ADHERENCE_FIELDS = {
     # Voice and posture only — the things that are true of the format regardless of subject.
-    # NOT YET SENT. narration_tense and sentence_length are measured and stored, but they only
-    # exist on the references whose source video is in assets/corpus -- and cobra_effect,
-    # bengal_famine and hippo_weed have none. Sending a field that three of six references lack
-    # means retrieval can pick a thinner one by runtime and quietly hand the generator less, which
-    # is precisely the regression `test_no_reference_is_thinner_than_the_one_it_can_displace`
-    # exists to catch. It caught this. They join the moment the corpus can measure them all.
-    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts"),
+    # Tense and sentence length sit at LOOSE deliberately. They are voice, they carry no subject,
+    # and they are the two things generated scripts got most wrong -- withholding them until
+    # `balanced` means the engines with a single reference never learn them at all.
+    #
+    # They were held back for a day because three references had no source video to measure, and
+    # sending a field half the corpus lacks lets retrieval pick a thinner reference by runtime and
+    # quietly hand the generator less. `test_no_reference_is_thinner_than_the_one_it_can_displace`
+    # caught exactly that. Every reference an engine can retrieve now carries both.
+    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts",
+              "narration_tense", "sentence_length"),
     # Adds the shape of the telling: where the turn lands and how it closes.
     "balanced": ("hook_type", "story_pattern", "narrator_tone", "humour_and_interrupts",
-                 "reveal_placement", "ending_callback"),
+                 "reveal_placement", "ending_callback",
+                 "narration_tense", "sentence_length"),
     # Everything judged, plus the abstract spine and the reference's own pacing.
     "strong": OBSERVED_FIELDS,
 }

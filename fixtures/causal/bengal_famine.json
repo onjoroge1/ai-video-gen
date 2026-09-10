@@ -27,7 +27,9 @@
     "narrator_tone": "Cold, clipped, morally damning documentary voice; short declarative sentences, heavy repetition of a phrase to hammer the pattern, escalating from explanatory to accusatory.",
     "humour_and_interrupts": "Dark ironic beats delivered deadpan (e.g. 'the response is immediate and precise. They do almost nothing') and grim juxtapositions used as bitter punchlines rather than jokes.",
     "reveal_placement": "The emotional gut-punch statistic and the 'it was never natural, it was policy' reveal land in the final third, right before the wrap-up.",
-    "ending_callback": "Closes by folding the whole story into a single line, then pivots abruptly to a sponsor pitch for an app, framing consuming such content as self-improvement with a direct call to download."
+    "ending_callback": "Closes by folding the whole story into a single line, then pivots abruptly to a sponsor pitch for an app, framing consuming such content as self-improvement with a direct call to download.",
+    "narration_tense": "present tense, 16 present against 5 past finite verbs — told as it happens",
+    "sentence_length": "median 7 words per sentence, 23 of 67 sentences at five words or fewer (34%)"
   },
   "story": {
     "title": "Why the British Starved the Indians",

@@ -133,20 +133,44 @@ def test_the_two_voice_fields_reach_even_a_single_reference_engine():
     assert "cobra_effect" in {p.stem for p in __import__("pathlib").Path("fixtures/causal").glob("*.json")}
 
 
-def test_the_voice_fields_wait_until_every_reference_can_supply_them():
-    """Measured and stored, but not yet sent.
+def test_every_retrievable_reference_carries_the_voice_fields():
+    """They are sent at loose, so any reference retrieval can pick must supply them.
 
-    They exist only on references whose source video is in assets/corpus, and three of six have
-    none. Sending a field half the corpus lacks lets retrieval pick a thinner reference by runtime
-    and hand the generator less -- which is what
-    `test_no_reference_is_thinner_than_the_one_it_can_displace` caught when this shipped early.
+    Held back for a day because three references had no source video: sending a field half the
+    corpus lacks lets retrieval pick a thinner one by runtime and hand the generator less, which
+    `test_no_reference_is_thinner_than_the_one_it_can_displace` caught when it shipped early.
     """
+    import json
+    from pathlib import Path
+    import explainer_pipeline as ep
     import reference_corpus as rc
 
     for field in ("narration_tense", "sentence_length"):
-        assert field in rc.OBSERVED_FIELDS, "measured and stored"
-        assert field not in rc._ADHERENCE_FIELDS["loose"], "not sent while the corpus is partial"
-        assert field in rc._ADHERENCE_FIELDS["strong"], "strong sends everything observed"
+        for level in ("loose", "balanced", "strong"):
+            assert field in rc._ADHERENCE_FIELDS[level], f"{field} missing at {level}"
+
+    # Only where an engine has SIBLINGS. The harm this guards is asymmetry -- retrieval choosing
+    # by runtime between two references and picking the thinner one. An engine with a single
+    # reference cannot be inconsistent with itself: almost_happened_plan's hippo_weed has no
+    # source video to measure and simply omits the fields, which is the status quo for that engine
+    # rather than a regression.
+    by_engine = {}
+    for path in Path("fixtures/causal").glob("*.json"):
+        payload = json.loads(path.read_text())
+        engine = (payload.get("story") or {}).get("engine")
+        if engine:
+            by_engine.setdefault(engine, []).append((path.stem, payload.get("observed") or {}))
+    for engine, refs in by_engine.items():
+        if len(refs) < 2:
+            continue
+        for name, observed in refs:
+            assert "sentence_length" in observed, \
+                f"{name} cannot supply what loose sends, and a sibling can"
+
+    for engine, runtime in (("backfiring_solution", 90), ("backfiring_solution", 220),
+                            ("accumulating_indictment", 170), ("power_reversal", 220)):
+        block = ep._retrieve_blueprint(engine, "loose", runtime)
+        assert "narration_tense" in block and "sentence_length" in block, f"{engine}@{runtime}"
 
 
 def test_voice_is_measured_from_narration_not_from_beat_summaries():
