@@ -74,3 +74,28 @@ def test_supplement_download_restores_failed_checkpoint_privately(tmp_path, monk
         import shutil
         for job in studio.explainer_jobs.values():
             shutil.rmtree(job.get("_materialized_dir", ""), ignore_errors=True)
+
+
+def test_private_supplement_page_renders_escaped_saved_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "test-studio-secret")
+    monkeypatch.setenv("APP_USERNAME", "admin")
+    monkeypatch.setenv("APP_SESSION_SECRET", "test-session-secret")
+    path = tmp_path / "research_supplement.json"
+    path.write_text(json.dumps({"claim": "<not markup>", "fetched": 0}))
+    monkeypatch.setattr(studio, "_explainer_text_artifact",
+                        lambda job_id, kind: (str(path), "failed research"))
+
+    async def run():
+        transport = httpx.ASGITransport(app=studio.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            url = "/agent/research-supplement/failed-job"
+            assert (await client.get(
+                url, headers={"Accept": "text/html"}, follow_redirects=False)).status_code == 303
+            client.cookies.set(private_access.COOKIE_NAME, private_access.create_session("admin"))
+            response = await client.get(url)
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/html")
+            assert "&lt;not markup&gt;" in response.text
+            assert "<not markup>" not in response.text
+
+    anyio.run(run)

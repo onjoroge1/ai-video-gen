@@ -164,4 +164,6 @@ authenticated `GET /api/explainer/research/{job_id}` downloads the original doss
 source URLs, fetch counts and validation failures. Both are read-only, restore the saved checkpoint,
 and make no provider calls. A missing supplement returns 404. These private downloads do not belong
 in the public action event feed. Add `?inline=true` to the supplement URL to inspect the same JSON
-in an authenticated browser without forcing an attachment download.
+in an authenticated HTTP client without forcing an attachment download. The approval console links
+research failures to `/agent/research-supplement/{job_id}`, an authenticated HTML view for browsers
+that block direct navigation to API artifact routes.

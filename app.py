@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)   # override so .env edits (e.g. I2V_PROVIDER) reliably take on reload
 import uuid
 import asyncio
+import html
 import json
 import re
 import shutil
@@ -20,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -2825,6 +2826,31 @@ async def agent_action_request_page():
 @app.get("/agent/actions")
 async def agent_action_approval_page():
     return FileResponse(str(STATIC_DIR / "agent_actions.html"), media_type="text/html")
+
+
+@app.get("/agent/research-supplement/{job_id}")
+async def agent_research_supplement_page(job_id: str):
+    """Render a failed focused-research artifact inside the authenticated studio."""
+    path, _ = _explainer_text_artifact(job_id, "research-supplement")
+    if not path:
+        raise HTTPException(status_code=404, detail="research-supplement not found")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=f"Invalid research-supplement: {exc}") from exc
+    rendered = html.escape(json.dumps(payload, indent=2, ensure_ascii=False))
+    return HTMLResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Research supplement · ReelForge</title>"
+        "<style>body{margin:0;background:#090b10;color:#f5f7fa;font:14px/1.5 "
+        "ui-monospace,SFMono-Regular,Menlo,monospace;padding:24px}"
+        "main{max-width:1100px;margin:auto}a{color:#5aa9ff}"
+        "pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#11151d;"
+        "border:1px solid #293241;border-radius:12px;padding:18px}</style></head>"
+        f"<body><main><p><a href='/agent/actions'>← Agent approvals</a></p><pre>{rendered}</pre>"
+        "</main></body></html>")
 
 
 @app.post("/api/agent/actions")
