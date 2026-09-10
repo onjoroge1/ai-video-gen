@@ -122,11 +122,16 @@ def test_observations_reach_the_draft_and_stay_out_of_measured(clip):
     draft, measured = module.build_draft(clip, "synthetic", "backfiring_solution",
                                          [(0.5, "Hello.")], observed)
 
-    assert draft["observed"] == observed
+    # `observed` now carries the MEASURED voice fields as well as the judged vision pass.
+    # narration_tense and sentence_length are counts over the transcript, so ingest fills them
+    # without a human; a field left for a human pass is a field that never reaches the generator.
+    assert observed.items() <= draft["observed"].items(), "the vision pass survives intact"
+    assert {"narration_tense", "sentence_length"} <= set(draft["observed"])
     assert not set(measured) & set(rc.OBSERVED_FIELDS), "a judged field leaked into measured"
 
 
 def test_a_draft_without_the_pass_still_has_the_key(clip):
     """Present and empty rather than absent, so every reference has one shape."""
     draft, _ = _module().build_draft(clip, "synthetic", "backfiring_solution", [(0.5, "Hello.")])
-    assert draft["observed"] == {}
+    assert set(draft["observed"]) == {"narration_tense", "sentence_length"}, \
+        "without the vision pass, only the measured voice fields are present"

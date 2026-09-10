@@ -98,3 +98,35 @@ def test_no_field_is_silently_withheld_for_topic_leak():
         assert not withheld, (
             f"{reference.name} withholds {sorted(withheld)} at {level}; reword the fixture so the "
             "observation carries no subject tokens")
+
+
+def test_voice_is_measured_from_the_transcript_not_hand_labelled():
+    """A field nobody fills never reaches the generator, which is what happened to story_pattern.
+
+    Both were found by comparing a generated script against the two references that perform best:
+    the corpus speaks in the present and hits in five words, ours reported in the past at nearly
+    twice the length, and the generator had never been told either property existed.
+    """
+    import reference_corpus as rc
+
+    haiti = ("In 1791, Haiti is called Saint-Domingue. It belongs to France. They defeat the "
+             "French. They defeat the British. Haiti has no navy. Haiti has no allies. It pays. "
+             "It pays for 122 years.")
+    ours = ("Cats were eradicated on Macquarie Island to save the seabirds, and afterwards the "
+            "rabbits stripped the plants bare across the slopes and the hillsides beyond them.")
+
+    corpus, generated = rc.measure_voice(haiti), rc.measure_voice(ours)
+    assert corpus["narration_tense"].startswith("present")
+    assert generated["narration_tense"].startswith("past")
+    assert "five words or fewer" in corpus["sentence_length"]
+    assert rc.measure_voice("") == {}, "an empty transcript measures nothing"
+
+
+def test_the_two_voice_fields_reach_even_a_single_reference_engine():
+    """Withholding them until `balanced` means an engine with one reference never learns them."""
+    import reference_corpus as rc
+
+    for field in ("narration_tense", "sentence_length"):
+        assert field in rc.OBSERVED_FIELDS
+        for level in ("loose", "balanced", "strong"):
+            assert field in rc._ADHERENCE_FIELDS[level], f"{field} missing at {level}"

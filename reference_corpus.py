@@ -51,7 +51,55 @@ OBSERVED_FIELDS = (
     "humour_and_interrupts",  # where it breaks pattern to re-earn attention
     "reveal_placement",       # when the governing idea lands, in the video's own words
     "ending_callback",        # how the close returns to the opening
+    # MEASURED FROM THE TRANSCRIPT, not judged. Both were found by comparing a generated script
+    # against the two references that perform best, and both are properties the generator had
+    # never been told about:
+    #
+    #                     sents  median words  <=5 words  present/past
+    #   haiti                30           6.0         12          17/3
+    #   black_death          57           5.0         34          13/0
+    #   macquarie (ours)     21           9.0          4          2/13
+    #
+    # The corpus speaks in the present and hits in five words. Ours reports in the past at nearly
+    # twice the length, which is most of why it reads as a summary rather than as something
+    # happening. Neither is a matter of taste that a prompt should argue about -- they are counts.
+    "narration_tense",        # present or past, and how consistently
+    "sentence_length",        # median words per sentence, and the share at five or fewer
 )
+
+
+def measure_voice(transcript: str) -> dict:
+    """Derive narration_tense and sentence_length from a transcript.
+
+    Counts, not judgements, so ingest can fill them without a human and without a model. The
+    alternative was hand-labelling, and a field nobody fills is a field that never reaches the
+    generator -- which is exactly what happened to `story_pattern` at loose adherence.
+    """
+    import re as _re
+    import statistics as _stats
+
+    text = (transcript or "").strip()
+    sentences = [part.strip() for part in _re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    if not sentences:
+        return {}
+    lengths = [len(part.split()) for part in sentences]
+    short = sum(1 for length in lengths if length <= 5)
+    present = len(_re.findall(
+        r"\b(is|are|has|have|does|do|say|says|pay|pays|kill|kills|move|moves|dock|docks|"
+        r"blame|blames|want|wants|come|comes|go|goes|take|takes|begin|begins)\b", text, _re.I))
+    past = len(_re.findall(
+        r"\b(was|were|had|did|said|paid|killed|moved|docked|blamed|wanted|came|went|took|began|"
+        r"turned|stripped|became|arrived)\b", text, _re.I))
+    dominant = "present" if present > past else ("past" if past > present else "mixed")
+    return {
+        "narration_tense": (
+            f"{dominant} tense, {present} present against {past} past finite verbs"
+            + (" — told as it happens" if dominant == "present" else "")),
+        "sentence_length": (
+            f"median {_stats.median(lengths):.0f} words per sentence, "
+            f"{short} of {len(sentences)} sentences at five words or fewer "
+            f"({short / len(sentences):.0%})"),
+    }
 
 
 class Reference:
@@ -270,10 +318,15 @@ DEFAULT_ADHERENCE = "loose"
 
 _ADHERENCE_FIELDS = {
     # Voice and posture only — the things that are true of the format regardless of subject.
-    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts"),
+    # Tense and sentence length join the loose set deliberately. They are voice, they carry no
+    # subject, and they are the two things the generated scripts got most wrong -- withholding
+    # them until `balanced` means the engines with one reference never learn them at all.
+    "loose": ("hook_type", "narrator_tone", "humour_and_interrupts",
+              "narration_tense", "sentence_length"),
     # Adds the shape of the telling: where the turn lands and how it closes.
     "balanced": ("hook_type", "story_pattern", "narrator_tone", "humour_and_interrupts",
-                 "reveal_placement", "ending_callback"),
+                 "reveal_placement", "ending_callback",
+                 "narration_tense", "sentence_length"),
     # Everything judged, plus the abstract spine and the reference's own pacing.
     "strong": OBSERVED_FIELDS,
 }

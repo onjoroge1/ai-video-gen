@@ -258,7 +258,13 @@ def build_draft(video: Path, name: str, engine_id: str,
         # The judged half, from --observe. Present and empty rather than absent, so every
         # reference has the same shape and a consumer never has to guess which kind of file it
         # is holding. reference_corpus.OBSERVED_FIELDS is the vocabulary.
-        "observed": dict(observed or {}),
+        # Voice is MEASURED here, not left for the human pass. narration_tense and
+        # sentence_length are counts over the transcript, and a field nobody fills is a field
+        # that never reaches the generator -- which is what happened to story_pattern, withheld
+        # at loose adherence for so long that the scripts never learned the shape.
+        # `narration` is the same text the measurements above are taken from: cues are
+        # (start_sec, text) pairs, not mappings.
+        "observed": {**rc.measure_voice(narration), **dict(observed or {})},
         "story": {
             "title": name.replace("_", " ").title(),
             "runtime_sec": round(duration, 2),
