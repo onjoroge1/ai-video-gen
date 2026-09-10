@@ -87,3 +87,23 @@ One explicit composition recovery is available for a failed v2 checkpoint whose 
 its saved failed story and whose base evidence validates. The transaction binds the recovery to
 the checkpoint hash, preserves completed provider stages and the original budget, and marks the
 one attempt consumed. It cannot repeatedly reopen a failed v3 repair.
+
+## Compiled function continuation
+
+The first live handoff exposed a disagreement between two role checks: semantic evidence repair
+accepted a supported setup, but narrowing stopped before the semantic function check because the
+supported wording shared no stems with the planner's earlier state. Compiled functions now reach
+their existing semantic check after the hard empty-event, source-as-story, comparison and
+identical-reversal-state checks. Unmapped legacy beats retain their prior fallback. This neither
+accepts shared vocabulary as proof nor permits an intervention to lose its purpose.
+
+Unsupported optional functions are pruned according to the selected engine. For example,
+`intended_effect` is optional for the ecosystem engine; `apparent_success` remains required for the
+bounty engine. The same pruning and narrowing decisions feed the saved handoff and script writer.
+
+An old handoff rejection cannot satisfy the new role-contract key. Dispatch can grant one
+checkpoint-bound `compiled_function_recovery_v1` attempt only when the old JSON's evidence/draft
+hashes match, the required failure is the measured overlap check, its own citations are verified,
+and no independent required, structural, relationship or operational failure remains. New-contract
+rejections cannot use this migration. The existing v3 source-repair result and provider stages
+remain reusable; the live function decision and later writing still have to pass.
