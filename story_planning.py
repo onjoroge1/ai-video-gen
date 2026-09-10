@@ -8,11 +8,18 @@ import story_fact_model as facts
 
 
 def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge=None,
-            repair=None, cost_sink=None, cache=None):
+            repair=None, repair_event=None, cost_sink=None, cache=None):
     """Return the actual accepted objects and explicit results, not only kept IDs.
 
-    Repair changes citations on the same factual sheet. It cannot generate replacement events,
-    switch engines, add a second mechanism, or buy another full plan.
+    TWO REPAIRS, ONE SHEET. `repair` changes citations; `repair_event` rewrites a beat's factual
+    sentence inside the citations it already has. Neither may generate replacement events, switch
+    engines, add a second mechanism, or buy another full plan.
+
+    They are separate because the complaints are. The role contract says things like "bundles in
+    an unrelated peak-population figure not needed for the function" and "does not specify the new
+    ecological state" -- the first needs the sentence trimmed, the second extended, and neither is
+    a question about which claim was cited. Sending those to the citation repair buys a call that
+    cannot answer them.
     """
     cache = {} if cache is None else cache
     evidence_cost = cost_ledger.StageCostSink(cost_sink, cost_ledger.BOUNDARY_A)
@@ -50,6 +57,40 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
                for row in compiled["cascade"]["assertion_judgments"]):
             break
         if not failures:
+            # A ROLE CONTRACT FAILURE IS A SENTENCE PROBLEM, so it gets the sentence repair --
+            # but only once the evidence has nothing left to fix. A wrong citation is the more
+            # fundamental fault and the round belongs to it; polishing prose that rests on the
+            # wrong claim is work thrown away. It used to block outright, which refused stories
+            # whose evidence was sound because a beat carried one figure too many or
+            # under-specified an end state.
+            role_issues = [issue for issue in (compiled.get("unrepairable") or [])
+                           if issue.get("code") == "ROLE_CONTRACT_FAILED" and issue.get("beat_id")]
+            if role_issues and repair_event is not None:
+                working = [deepcopy(b) for b in effective if not b.get("derived")]
+                original = deepcopy(working)
+                before_charge = len(repair_cost)
+                working, subtotal = repair_event(
+                    working,
+                    [{"beat_id": i["beat_id"], "role": i.get("role", ""), "why": i.get("message", "")}
+                     for i in role_issues],
+                    claims, question, cost_sink=repair_cost)
+                if len(repair_cost) == before_charge and subtotal:
+                    repair_cost.append(subtotal)
+                # Only event TEXT may change. Everything else on the beat is restored, so a provider
+                # that edits a role, a citation or a state transition cannot smuggle it through here.
+                rewritten = {b["beat_id"]: facts.event_of(b)["text"] for b in working}
+                working = original
+                changed = False
+                for beat in working:
+                    text = rewritten.get(beat["beat_id"])
+                    if text and text != facts.event_of(beat)["text"]:
+                        beat["event"] = dict(beat.get("event") or {}, text=text)
+                        changed = True
+                repairs.append({"beat_id": role_issues[0]["beat_id"], "kind": "event_text",
+                                "attempted": True, "changed": changed})
+                if changed:
+                    continue
+                break
             break
         source = mechanism["derivation"]["source_ids"][0]
         # Keep narrowed factual events and pruning; never feed old synthetic nodes into repair.

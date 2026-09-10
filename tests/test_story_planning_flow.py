@@ -314,3 +314,78 @@ def test_acceptance_requires_positive_current_evidence_and_relationships(monkeyp
     unavailable["samples"][0]["spine"]["compiled"]["passed"] = False
     unavailable["samples"][0]["spine"]["compiled"]["cascade"]["unavailable"] = [{"beat_id": "fact_1"}]
     assert not acceptance_rows([unavailable])[0][0]["joint"]
+
+
+def test_a_role_contract_failure_gets_the_sentence_repair_not_the_citation_one():
+    """The two complaints need opposite edits, and only one repair can make either.
+
+    Measured on Macquarie: the mechanism "bundles in an unrelated peak-population figure not needed
+    for the function" and the reversal "does not specify the new ecological state". The first needs
+    the sentence trimmed, the second extended. Neither is a question about which claim was cited,
+    so the citation repair buys a call that cannot answer them.
+    """
+    import explainer_pipeline as ep
+
+    claims = {"m1": {"claim": "Cats preyed on the island's rabbits as well as its seabirds.",
+                     "verified": True, "quote_verified": True}}
+    beats = [{"beat_id": "k3", "role": "mechanism",
+              "event": {"text": "Cats had also preyed on rabbits, which peaked at 130,000 in 1978.",
+                        "claim_refs": ["m1"]},
+              "incentive": {}}]
+    concerns = [{"beat_id": "k3", "role": "mechanism",
+                 "why": "bundles in an unrelated peak-population figure"}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 300, "output_tokens": 40})(),
+                "content": [type("C", (), {
+                    "text": '{"text":"Cats had also preyed on the rabbits.","unchanged":false}'})()]})()
+
+    ep._claude = lambda: type("C", (), {"messages": _Messages()})()
+    out, cost = ep._repair_event_text(beats, concerns, claims, "Why?")
+    assert cost > 0
+    assert out[0]["event"]["text"] == "Cats had also preyed on the rabbits."
+    assert out[0]["event"]["claim_refs"] == ["m1"], "citations are frozen while prose is repaired"
+    assert "bundles in an unrelated peak-population figure" in seen["prompt"]
+    assert "THE ONLY CLAIMS THIS BEAT STANDS ON" in seen["prompt"]
+    assert "Prefer cutting" in seen["prompt"]
+
+
+def test_the_sentence_repair_will_not_invent_what_no_claim_states():
+    """Where the complaint is that something is MISSING, adding it needs a claim that says it."""
+    import explainer_pipeline as ep
+
+    claims = {"m1": {"claim": "The programme removed the cats.", "verified": True}}
+    beats = [{"beat_id": "k5", "role": "reversal",
+              "event": {"text": "The programme ended.", "claim_refs": ["m1"]}}]
+    seen = {}
+
+    class _Messages:
+        def create(self, **call):
+            seen["prompt"] = call["messages"][0]["content"]
+            return type("R", (), {
+                "usage": type("U", (), {"input_tokens": 200, "output_tokens": 20})(),
+                "content": [type("C", (), {"text": '{"text":"","unchanged":true}'})()]})()
+
+    ep._claude = lambda: type("C", (), {"messages": _Messages()})()
+    out, _ = ep._repair_event_text(
+        beats, [{"beat_id": "k5", "role": "reversal", "why": "does not name the new state"}],
+        claims, "Why?")
+    assert out[0]["event"]["text"] == "The programme ended.", "unchanged, not invented"
+    assert "if none does, return the sentence unchanged" in seen["prompt"].lower()
+
+
+def test_only_the_event_text_survives_a_sentence_repair(monkeypatch):
+    """A provider that edits a role, a citation or a state transition must not smuggle it through."""
+    import re
+    from pathlib import Path
+    import story_planning
+
+    body = Path(story_planning.__file__).read_text(encoding="utf-8")
+    block = body[body.index("A ROLE CONTRACT FAILURE IS A SENTENCE PROBLEM"):]
+    block = block[:block.index("source = mechanism[")]
+    assert "working = original" in block, "everything but the text is restored"
+    assert re.search(r'beat\["event"\] = dict\(beat\.get\("event"\) or \{\}, text=text\)', block)

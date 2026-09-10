@@ -3042,6 +3042,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             prepared = _planning.prepare(
                 beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
                 question=question, repair=_repair_incentive_citations,
+                repair_event=_repair_event_text,
                 cost_sink=cost_sink, cache=_cache)
             cost += prepared["cost_usd"]
             _spine = prepared["compiled"]
@@ -4240,6 +4241,66 @@ def unsupported_actors(event_text: str, narration: str) -> list[str]:
                 and not any(word in seen for seen in found)):
             found.append(word)
     return found
+
+
+def _repair_event_text(beats: list, concerns: list, claims: dict, question: str,
+                       cost_sink=None) -> tuple[list, float]:
+    """Rewrite a flagged beat's event text within the claims it already cites.
+
+    The citation repair beside this one edits `measure_claim_refs` and `goal_claim_refs` and
+    nothing else, so it cannot answer the role contract's complaints. Measured on Macquarie: the
+    mechanism "bundles in an unrelated peak-population figure not needed for the function" and the
+    reversal "does not specify the new ecological state". The first needs the sentence trimmed and
+    the second needs it extended, and neither is a question about which claim was cited.
+
+    Citations are FROZEN here for the same reason the citation repair may not touch prose: a repair
+    allowed to change both can satisfy any complaint by drifting to whichever evidence happens to
+    fit, which is how a repair stops being a repair. The rewrite lives inside the claims the beat
+    already stands on, and it is re-judged afterwards like anything else.
+    """
+    by_id = {_s(beat.get("beat_id")): beat for beat in beats or []}
+    cost = 0.0
+    if not isinstance(claims, dict) or not claims:
+        return beats, cost
+    for concern in concerns or []:
+        beat = by_id.get(_s(concern.get("beat_id")))
+        if not isinstance(beat, dict):
+            continue
+        event = beat.get("event") if isinstance(beat.get("event"), dict) else {}
+        refs = [_s(ref) for ref in (event.get("claim_refs") or []) if _s(ref)]
+        current = _s(event.get("text"))
+        if not current or not refs:
+            continue
+        cited = "\n".join(f"{ref}: {_s((claims.get(ref) or {}).get('claim'))[:300]}"
+                           for ref in refs if ref in claims)
+        prompt = (
+            f'A beat sheet for "{question}" has one beat whose factual sentence does not perform '
+            f"its role.\n\n  role:     {_s(concern.get('role')) or 'required'}\n"
+            f"  sentence: {current}\n"
+            f"  problem:  {_s(concern.get('why'))}\n\n"
+            f"THE ONLY CLAIMS THIS BEAT STANDS ON:\n{cited}\n\n"
+            "Rewrite the sentence so it performs its role, using nothing beyond those claims. "
+            "Prefer cutting: a detail the role does not need is the usual problem. Where the "
+            "problem is that something is MISSING, add it only if a claim above states it — if "
+            "none does, return the sentence unchanged and say so. Keep it one plain factual "
+            "sentence as a historian would write it: no imagery, no rhetoric. Do not add a number, "
+            "date, place, quantity or named actor the claims do not contain.\n"
+            'Return ONLY JSON: {"text":"the rewritten sentence","unchanged":true|false}.')
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=800, system=_CLAIM_REPAIR_SYSTEM,
+                messages=[{"role": "user", "content": prompt}])
+            cost += _msg_cost(response.usage)
+            reply, parse_cost = _parse_script_json(response.content[0].text)
+            cost += parse_cost
+            rewritten = _s(reply.get("text")).strip()
+            if rewritten and not reply.get("unchanged") and rewritten != current:
+                beat["event"] = dict(event, text=rewritten, claim_refs=refs)
+                print(f"[roles] {concern.get('beat_id')} event rewritten: {rewritten[:90]}")
+        except Exception as exc:                       # noqa: BLE001 - repair is best-effort
+            print(f"[roles] event repair unavailable ({type(exc).__name__}); "
+                  "the original sentence goes to the boundary unchanged")
+    return beats, cost
 
 
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
