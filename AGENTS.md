@@ -157,3 +157,10 @@ only; model access, quota, story quality and successful live delivery remain unv
 A failed gate stays failed. The estimated allowance is not a guarantee of a finished video. Current
 provider reservations estimate input/search usage; provider-side billing is reconciled after responses.
 Do not describe that accounting as a provider-enforced invoice limit.
+
+For a research failure, inspect the saved evidence before dispatching another recovery. The studio's
+authenticated `GET /api/explainer/research/{job_id}` downloads the original dossier;
+`GET /api/explainer/research-supplement/{job_id}` downloads the focused follow-up, including its
+source URLs, fetch counts and validation failures. Both are read-only, restore the saved checkpoint,
+and make no provider calls. A missing supplement returns 404. These private downloads do not belong
+in the public action event feed.
