@@ -232,14 +232,23 @@ def _run_ffmpeg(cmd: list, timeout: float = 180.0):
 
     - injects `-nostdin` so ffmpeg never blocks waiting on inherited stdin
     - detaches stdin (DEVNULL) for the same reason
-    - bounds runtime with a timeout so a hung encode raises (and the caller's
-      per-scene fail-safe skips it) instead of stalling the whole job forever
+    - bounds decoder, filter and encoder threads independently; FFmpeg's CPU-based
+      defaults multiply full-resolution frame buffers for every caption/input
+    - bounds runtime with a timeout so a hung encode raises
     """
     # cmd[0] is a resolved path (system or bundled static build), so match on the
     # basename rather than a bare name, or -nostdin silently stops being injected.
-    if cmd and os.path.basename(str(cmd[0])).startswith("ffmpeg") \
-            and "-nostdin" not in cmd:
-        cmd = [cmd[0], "-nostdin", *cmd[1:]]
+    if cmd and os.path.basename(str(cmd[0])).startswith("ffmpeg"):
+        bounded = [cmd[0], "-nostdin", "-filter_threads", "1", "-filter_complex_threads", "1"]
+        for item in cmd[1:]:
+            if item == "-nostdin":
+                continue
+            # Codec options apply to the next input/output. An output-only -threads
+            # setting leaves every PNG/video decoder at its automatic default.
+            if item == "-i":
+                bounded.extend(["-threads", "1"])
+            bounded.append(item)
+        cmd = [*bounded[:-1], "-threads", "2", bounded[-1]]
     return subprocess.run(cmd, check=True, capture_output=True,
                           stdin=subprocess.DEVNULL, timeout=timeout)
 
@@ -6177,6 +6186,48 @@ def animate_scene(image_path: str, prompt: str, out_mp4: str, vw: int, vh: int,
 from render_cache import durable_render
 
 
+def _save_script_checkpoint(state_path: str, script: dict, style_mode: str,
+                            short_grade, video_format: str, *, label: str = "") -> None:
+    """Atomically save the assembled script; durable boundaries must upload or fail.
+
+    Paid provider results live in their own stage rows. This snapshot also saves
+    the assembled plan so recovery need not rebuild it from those responses.
+    """
+    temporary = state_path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump({"script": script, "style_mode": style_mode,
+                   "short_grade": short_grade, "video_format": video_format}, handle)
+    os.replace(temporary, state_path)
+    if label:
+        from durable_execution import current
+        runtime = current()
+        if runtime:
+            runtime.checkpoint(label)
+
+
+def _crop_overlay(path: str) -> tuple[int, int]:
+    """Keep the painted pixels and their canvas origin, without full-frame buffers.
+
+    Align the origin to chroma pixels so cropping preserves overlay placement in
+    yuv420 output. Empty captions remain one transparent pixel.
+    """
+    with Image.open(path) as image:
+        box = image.getchannel("A").getbbox()
+        if box:
+            left, top, right, bottom = box
+            box = (left // 2 * 2, top // 2 * 2,
+                   min(image.width, (right + 1) // 2 * 2),
+                   min(image.height, (bottom + 1) // 2 * 2))
+        else:
+            box = (0, 0, 1, 1)
+        cropped = image.crop(box)
+    try:
+        cropped.save(path, "PNG")
+    finally:
+        cropped.close()
+    return box[0], box[1]
+
+
 @durable_render
 def _make_scene_segment(
     image_path: str,
@@ -6225,7 +6276,7 @@ def _make_scene_segment(
             f"crop={vw}:{vh},fps={fps},setsar=1"
         )
     else:
-        n_frames = max(1, int(dur * fps))
+        n_frames = max(1, math.ceil(dur * fps))
         z_expr, x_expr, y_expr = _motion(motion, n_frames)
         # Cover the canvas, then Ken-Burns within it. SUPERSAMPLE the frame ~2× before
         # zoompan: zoompan rounds its crop origin (x/y) to whole INPUT pixels every frame, so
@@ -6234,7 +6285,9 @@ def _make_scene_segment(
         # they scale automatically; zoompan downscales to the target via s=.
         SS = 2
         cw, ch = vw * SS, vh * SS
-        inputs = ["-loop", "1", "-i", image_path]
+        # zoompan emits the entire scene from this one frame. Looping the input
+        # decodes and queues additional full-resolution copies that are never used.
+        inputs = ["-i", image_path]
         bg_chain = (
             f"scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch},"
             f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={n_frames}:s={vw}x{vh}:fps={fps},"
@@ -6258,10 +6311,11 @@ def _make_scene_segment(
             hmeta["placement"], hmeta["alignment"] = "top_center", "center"
         hp = output_path + ".text.png"
         if _make_text_png(text_overlay, text_sub, hp, text_meta=hmeta, style_mode=style_mode):
+            hx, hy = _crop_overlay(hp)
             inputs += ["-loop", "1", "-i", hp]
-            y_slide = "26-26*min(t/0.5\\,1)"   # slide up while fading in
+            y_slide = f"{hy}+26-26*min(t/0.5\\,1)"   # slide up while fading in
             parts.append(f"[{nidx}:v]format=rgba,fade=in:st=0:d=0.5:alpha=1[hl]")
-            parts.append(f"[{prev}][hl]overlay=x=0:y='{y_slide}':format=auto[h{nidx}]")
+            parts.append(f"[{prev}][hl]overlay=x={hx}:y='{y_slide}':format=auto[h{nidx}]")
             prev = f"h{nidx}"; nidx += 1
 
     if want_phrases:
@@ -6271,9 +6325,12 @@ def _make_scene_segment(
                 _make_bubble_png(word, vw, vh, bubble_side, cap_png, style_mode=style_mode)
             else:
                 _make_caption_png(word, vw, vh, cap_png, style_mode=style_mode)
-            inputs += ["-loop", "1", "-i", cap_png]
+            cx, cy = _crop_overlay(cap_png)
+            # overlay repeats its last secondary frame by default. A single PNG
+            # supplies every timed appearance without a decoder queue per phrase.
+            inputs += ["-i", cap_png]
             # commas inside between() must be escaped in filter_complex
-            parts.append(f"[{prev}][{nidx}:v]overlay=0:0:enable='between(t\\,{start:.2f}\\,{end:.2f})'[p{nidx}]")
+            parts.append(f"[{prev}][{nidx}:v]overlay={cx}:{cy}:enable='between(t\\,{start:.2f}\\,{end:.2f})'[p{nidx}]")
             prev = f"p{nidx}"; nidx += 1
 
     cmd = [_ffmpeg_bin(), "-y", *inputs, "-filter_complex", ";".join(parts),
@@ -6339,6 +6396,19 @@ def _xfade_concat(videos: list[str], durations: list[float], out: str, tmp_dir: 
         import shutil as _sh
         _sh.copy(videos[0], out)
         return
+    # Each xfade holds decoded frames for all its inputs. Bound fan-in at every
+    # level, including the final join of batches in longer videos.
+    if len(videos) > 4:
+        batches, lengths = [], []
+        for index in range(0, len(videos), 4):
+            batch = f"{out}.group{index // 4:03d}.mp4"
+            _xfade_concat(videos[index:index + 4], durations[index:index + 4], batch, tmp_dir)
+            batches.append(batch)
+            lengths.append(sum(durations[index:index + 4]))
+        _xfade_concat(batches, lengths, out, tmp_dir)
+        for batch in batches:
+            os.remove(batch)
+        return
     inputs = []
     for v in videos:
         inputs += ["-i", v]
@@ -6394,30 +6464,13 @@ def _assemble(
     n = len(scene_videos)
     durations = [_audio_dur(a) for a in scene_audios]   # narration-only durations
 
-    # 1. Concat video with xfade transitions. Each segment is (narration + fade_dur) long,
-    # so the crossfade overlaps the held tail (no narration covered); the result is
-    # sum(narration)+fade_dur long. For long-form we batch the xfade (a 240-input
-    # filtergraph would choke ffmpeg) — each batch is xfaded, then the batch outputs are
-    # xfaded together. A batch behaves like one super-segment of length sum(its narration),
-    # so the offset math is identical at both levels.
+    # Each segment holds a fade tail; only those holds overlap. _xfade_concat owns
+    # bounded batches at every level, keeping the same narration offsets.
     if n == 1:
         concat_video = scene_videos[0]
     else:
-        BATCH = 20
-        if n <= BATCH:
-            concat_video = os.path.join(tmp_dir, "_concat_video.mp4")
-            _xfade_concat(scene_videos, durations, concat_video, tmp_dir)
-        else:
-            batch_videos, batch_durs = [], []
-            for b, i in enumerate(range(0, n, BATCH)):
-                vids = scene_videos[i:i + BATCH]
-                durs = durations[i:i + BATCH]
-                bv = os.path.join(tmp_dir, f"_batch_{b:03d}.mp4")
-                _xfade_concat(vids, durs, bv, tmp_dir)
-                batch_videos.append(bv)
-                batch_durs.append(sum(durs))   # batch's narration length (super-segment)
-            concat_video = os.path.join(tmp_dir, "_concat_video.mp4")
-            _xfade_concat(batch_videos, batch_durs, concat_video, tmp_dir)
+        concat_video = os.path.join(tmp_dir, "_concat_video.mp4")
+        _xfade_concat(scene_videos, durations, concat_video, tmp_dir)
 
     # 2. Concat narration audio
     audio_list = os.path.join(tmp_dir, "_audio_list.txt")
@@ -9935,6 +9988,8 @@ def run_explainer_pipeline(
     img_costs: list[float] = []   # ACTUAL per-image USD (thread-safe list.append)
     tts_costs: list[float] = []
     prepared_audio: dict[int, dict] = {}
+    _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                            video_format, label="script-ready")
     if video_format != "social":
         log("stage:Generating and measuring final-speed narration...")
         prepared, audio_timing = _prepare_longform_audio(
@@ -10107,14 +10162,8 @@ def run_explainer_pipeline(
             retention_validation, script.get("_story_contract") or {}, output_dir)
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation, handle, indent=2, ensure_ascii=False)
-        try:
-            temporary_state = state_path + ".tmp"
-            with open(temporary_state, "w") as handle:
-                json.dump({"script": script, "style_mode": style_mode,
-                           "short_grade": short_grade, "video_format": video_format}, handle)
-            os.replace(temporary_state, state_path)
-        except OSError:
-            pass
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="narration-ready")
 
     evidence_asset_paths: dict[str, str] = {}
 

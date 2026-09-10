@@ -3383,6 +3383,18 @@ async def dispatch_agent_action(action_id: str, request: Request):
                 expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
         elif (job and job.get("status") == "error"
                 and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and not (job.get("result") or {}).get("render_memory_recovery_v1")
+                and (job.get("error") == "Maximum worker attempts exhausted" or (
+                    str(job.get("error") or "").startswith("Paid stage render:")
+                    and "unresolved prior provider attempt" in str(job.get("error") or "")))):
+            try:
+                await asyncio.to_thread(
+                    store.rearm_local_render_failure, str(action["job_id"]),
+                    expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
+            except durable_execution.DurableExecutionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+        elif (job and job.get("status") == "error"
+                and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and str(job.get("error") or "").startswith("STORY_SPINE_UNSUPPORTED")
                 and not (job.get("result") or {}).get("compiled_function_recovery_v1")
                 and await asyncio.to_thread(_compiled_function_checkpoint_repairable, job, store, blob)):
