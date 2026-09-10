@@ -29,7 +29,7 @@ flowchart TD
 | Compiler | Engine owns roles. Stable IDs survive retries; synthetic mechanisms are rebuilt once. The compounded exploit supplies the reversal without copying the event. |
 | Boundary A | Every event and each incentive assertion receives an explicit result. A structural block, invalid response, or outage is never evidence of support. |
 | Narrowing | Only `partially_entailed` may keep the judge's supported core, using the same citations and passing the role/state check. The changed event and its positive finding survive the handoff. |
-| Citation repair | One correction after a substantive unsupported/partial assertion verdict. Only the two citation lists may change. The correction is judged again; unchanged inputs reuse content-addressed judgments. Contradictions stop. |
+| Citation repair | Re-fetch retained, page-verified primary sources first and test a bounded exact-passage shortlist through Boundary A. Only unresolved gaps may buy one focused search. Comparison sources cannot repair the primary story; contradictions stop. |
 | Derived relationships | The existing evidence judge tests the proxy gap and material inversion against supported facts. Different words, farming vocabulary, or a restated failure do not establish an inversion. |
 | Narration | Hinge and closing question are presentation nodes with references to supported context. Historical claims remain bounded by their accepted events and explicit derivation inputs. |
 | Storyboard | Compiled roles are preserved. The compiled engine's causal requirements apply; it does not simultaneously require a fictional Alex/Bolt investigation. |

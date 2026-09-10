@@ -81,6 +81,37 @@ def _content_words(text: str) -> set:
     return {w for w in re.findall(r"[a-z0-9]+", normalise(text)) if len(w) > 3}
 
 
+def candidate_passages(query: str, page_text: str, *, limit: int = 3) -> list[str]:
+    """Return a few exact page passages most likely to answer a factual gap.
+
+    This is retrieval, not verification. It only ranks one- and two-sentence windows copied
+    from bytes we fetched; Boundary A must still decide whether a returned passage entails the
+    gap. Keeping the shortlist small prevents source reuse from becoming unbounded judge calls.
+    """
+    wanted = _content_words(query)
+    sentences = [sentence.strip() for sentence in _SENTENCE.findall(page_text or "")]
+    if not wanted or not sentences or limit <= 0:
+        return []
+    ranked = []
+    for index, sentence in enumerate(sentences):
+        for width in (1, 2):
+            window = " ".join(sentences[index:index + width]).strip()
+            if not window or len(window) > 800:
+                continue
+            shared = wanted & _content_words(window)
+            if len(shared) < min(2, len(wanted)):
+                continue
+            ranked.append((len(shared) / len(wanted), -len(window), window))
+    ranked.sort(reverse=True)
+    passages = []
+    for _, _, passage in ranked:
+        if passage not in passages:
+            passages.append(passage)
+        if len(passages) >= limit:
+            break
+    return passages
+
+
 def repair_quote(claim_text: str, quote: str, page_text: str, *, min_overlap: float = 0.5) -> str:
     """Find a real sentence on the page that carries the claim, or "" if none does.
 

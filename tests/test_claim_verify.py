@@ -74,3 +74,14 @@ def test_an_unreachable_source_fails_rather_than_passing(monkeypatch):
 def test_fetch_never_raises_on_a_hostile_url():
     for url in ("", "not-a-url", "http://insecure.example", "https://[::bad"):
         assert cv.fetch_page_text(url) == ""
+
+
+def test_candidate_passages_are_exact_ranked_windows_not_verified_claims():
+    page = ("Cane farmers first tried chemical controls. "
+            "In 1935 cane toads were brought to Queensland to control cane beetles. "
+            "The weather remained warm.")
+    passages = cv.candidate_passages(
+        "Cane toads were introduced to control cane beetles.", page, limit=2)
+    assert passages
+    assert passages[0] in page
+    assert "cane toads were brought" in passages[0].lower()
