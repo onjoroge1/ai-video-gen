@@ -24,7 +24,17 @@ SRT = ROOT / "references" / "transcripts" / "cobra_effect.srt"
 # The video is a 16 MB binary that is not in the repo, so this one legitimately may be absent.
 # Overridable, because hardcoding one machine's path is what broke the transcript above.
 VIDEO_DIR = Path(os.environ.get("REFERENCE_VIDEO_DIR", "/Users/obadiah/Documents/video"))
-VIDEO = VIDEO_DIR / "savefromins.com  1 720P 2.MP4"
+
+# Resolved from candidates rather than one path. The corpus has now moved AND been renamed once
+# (video/"savefromins.com  1 720P 2.MP4" -> video/assets/corpus/cobra_effect.MP4), and each time a
+# single hardcoded path went stale these measurement tests silently downgraded to skips — passing
+# everywhere while checking nothing. That has happened twice in this file's short history.
+_CANDIDATES = (
+    VIDEO_DIR / "assets" / "corpus" / "cobra_effect.MP4",
+    VIDEO_DIR / "assets" / "corpus" / "savefromins.com  1 720P 2.MP4",
+    VIDEO_DIR / "savefromins.com  1 720P 2.MP4",
+)
+VIDEO = next((path for path in _CANDIDATES if path.exists()), _CANDIDATES[0])
 
 
 def _module():

@@ -1790,7 +1790,8 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None) -> st
 
 def _assign_causal_spine(beats: list, question: str, duration_sec: int,
                          mechanism_beat: int = 0,
-                         pinned_engine: str = "") -> tuple[list, float]:
+                         pinned_engine: str = "",
+                         preferred_engine: str = "") -> tuple[list, float]:
     """Label a planned beat sheet with the causal chain. One call, one job, no other vocabulary.
 
     Returns the beats with causal_role/caused_by/chapter set, plus the call cost. The result is
@@ -1807,8 +1808,23 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         + json.dumps(compact, ensure_ascii=False)
         + "\n\nLabel the CAUSAL CHAIN over these beats. Do not rewrite, reorder, merge, split or "
         "reword them — the order is fixed and the words are not yours to change.\n"
-        "\n\nFIRST choose ONE narrative engine. Do not blend two — a planner asked to satisfy two "
-        "role systems at once returned duplicate roles and an escalation after its own reversal.\n"
+        + (f"\n\nTHE ENGINE IS ALREADY CHOSEN: {pinned_engine}. This is a replan of a story that "
+           "was planned with it, so label the beats with THAT engine's role order and do not "
+           "select a different one. Returning another engine will be ignored.\n"
+           if pinned_engine else
+           # A PREFERENCE, not a pin. The sheet was written to this engine's order so it is the
+           # right default -- but a hard pin removes the only escape hatch this call has ever had,
+           # the "choose a different engine rather than mislabelling" line further down. That
+           # matters: with the engine pinned on the first pass, ENGINE_ORDER fired on 3 of 5
+           # sampled scripts, because a sheet that came back in another shape had nowhere to go.
+           f"\n\nTHE BEAT SHEET WAS PLANNED FOR: {preferred_engine}. Label the beats with THAT "
+           "engine's role order if they fit it, which they normally will. If the beats genuinely "
+           "run a different shape, name the engine they DO fit instead — a correct label on a "
+           "different engine beats a wrong label on this one.\n"
+           if preferred_engine else
+           "\n\nFIRST choose ONE narrative engine. Do not blend two — a planner asked to satisfy "
+           "two role systems at once returned duplicate roles and an escalation after its own "
+           "reversal.\n")
         + _se.catalogue() + "\n\n"
         'Return ONLY JSON: {"engine":"<engine id>","spine":[{"n":<beat number>,"causal_role":"...",'
         '"caused_by":<the beat number this happens BECAUSE of; 0 for beat 1 only>,'
@@ -1873,8 +1889,18 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
     # an engine with no reference in the corpus — then back again. Each attempt was therefore
     # fixing a DIFFERENT contract from the one that had just failed, which is why the retry loop
     # needed three passes to converge on a single error.
-    engine_id = (pinned_engine if pinned_engine in _se.ENGINES
-                 else _se.resolve_id(parsed.get("engine")))
+    # A pin overrides the reply; a preference only fills in when the reply is unusable.
+    returned = _s(parsed.get("engine"))
+    if pinned_engine in _se.ENGINES:
+        engine_id = pinned_engine
+    elif returned in _se.ENGINES:
+        engine_id = returned
+        if preferred_engine and returned != preferred_engine:
+            print(f"[engine] labeller switched {preferred_engine} -> {returned}; the beats fit a "
+                  "different shape than the sheet was planned for")
+    else:
+        engine_id = (preferred_engine if preferred_engine in _se.ENGINES
+                     else _se.resolve_id(returned))
     engine = _se.get(engine_id)
     # Pin the slot the SHEET planned. The labelling call is free to disagree about everything
     # else, but not about where the principle lands: it sees beat text without runtime, so it
@@ -2377,8 +2403,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # Pinned to the engine the sheet was PLANNED for. Passing pinned_engine here would leave
         # the first pass free to re-pick after the sheet was already written to sheet_engine_id's
         # order, which is the mismatch this whole change removes.
-        beats, spine_cost = _assign_causal_spine(beats, question, duration_sec,
-                                                 planned_mechanism, sheet_engine_id)
+        # Hard pin on a REPLAN so the retry repairs the contract that just failed. On a first
+        # pass the sheet's engine is a PREFERENCE, leaving the labeller free to switch when the
+        # beats genuinely came back in another shape.
+        beats, spine_cost = _assign_causal_spine(
+            beats, question, duration_sec, planned_mechanism,
+            pinned_engine=(pinned_engine if pinned_engine in _se.ENGINES else ""),
+            preferred_engine=sheet_engine_id)
         cost += spine_cost
         # RETRIEVAL HAPPENS HERE, not earlier, because the engine is not known until this call
         # returns: _assign_causal_spine chooses it. The corpus is keyed on engine, so a blueprint

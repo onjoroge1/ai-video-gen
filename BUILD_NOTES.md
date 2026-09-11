@@ -197,3 +197,59 @@ Kept because the mistakes are informative.
 - I reported a dry-run "mechanism at 21%" as a near-miss; that number is *beat position*, while the
   contract measures `start_sec / runtime`. Different metric, not comparable.
 - I changed the mechanism aim on one observation after criticising exactly that pattern.
+
+---
+
+## 7. Corpus expansion — 8 new references ingested
+
+Eight videos added to `assets/corpus` and ingested (measurement + vision pass, $0.78). Drafts are in
+`references/*.draft.json`; role labelling is still outstanding. Engine assignments read from the
+transcripts:
+
+| video | runtime | engine | the line that decides it |
+|---|---|---|---|
+| cold_war | 186s | backfiring_solution | "The weapon that made the two of them safe from each other made everybody else the battlefield" |
+| french_revolution | 207s | backfiring_solution | "The instrument of the revolution used on the revolution's own leader" |
+| britain_nuclear_tests | 229s | accumulating_indictment | "acknowledgement without compensation is just a different kind of denial" |
+| haiti_indemnity | 110s | accumulating_indictment | "It was never conquered. It was invoiced." |
+| irish_british_800_years | 82s | accumulating_indictment | 800 years of harm, then "That's why." |
+| black_death | 93s | power_reversal | catastrophe makes labour scarce; peasants gain rights |
+| ottoman_collapse | 86s | power_reversal | "the Empire that once terrified Europe became dependent on it" |
+| iran_persia | 116s | **uncertain** | reads as a survey, not a causal chain — may not fit any engine |
+
+`cold_war` matters most: `backfiring_solution` had exactly ONE reference (cobra, 220s), which is why
+its five-milestone opening had only ever been observed at a single runtime — the heart of the open
+blocker in §2a. This is a second, at 186s.
+
+### Two bands are now demonstrably too narrow
+
+Measured across 11 references, against bands fitted from 2:
+
+- `words_per_minute` **(165, 200)** vs observed **137.5 – 210.9**. Four real references are outside
+  it: haiti 137.5, french_revolution 147.4, ottoman 156.1, irish 158.5; cold_war 210.9 exceeds it.
+- `step_markers` **(4, 8)** vs observed **0 – 6**.
+
+### A second format variant exists
+
+`haiti`, `irish_british` and `ottoman_collapse` have NO spoken chapter markers. They open "simple
+enough for a kid to understand" rather than "explained like you are five", and never say "Step one".
+
+This contradicts an assumption baked into the pipeline earlier today: `announce_chapters()` forces a
+spoken marker onto every chapter because `CHAPTER_NOT_ANNOUNCED` treats them as universal. Three of
+eleven references say they are not. The rule should be conditional on the format variant, not
+unconditional.
+
+### Two measurements were artifacts, not findings
+
+Checked before being believed:
+
+- `irish_british` reported 10 visual states / 8.18s mean hold, wildly off every other reference. The
+  `SCENE_THRESHOLD = 0.2` cut detector does not fire on that encode; at 0.12 it finds 64 states /
+  1.28s, in line with the corpus. **The ingester needs an adaptive threshold**, or it will keep
+  producing confident wrong numbers for videos encoded differently.
+- `britain_nuclear` reported a 103-word hook. Whisper returned that transcript with no sentence
+  punctuation, so "the first sentence" is the whole opening run. Hook and median-sentence metrics
+  are unreliable for any transcript lacking punctuation, and nothing currently detects that.
+
+Both were nearly reported as real format variance. A corpus that measures the wrong thing
+confidently is worse than one that admits it does not know.

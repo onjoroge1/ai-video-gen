@@ -391,9 +391,40 @@ def test_the_spine_prompt_offers_the_engines_and_demands_one(monkeypatch):
                                     causal_lane=True)
     spine = prompts[-1]
     for engine_id in se.ENGINES:
-        assert engine_id in spine
-    assert "Do not blend two" in spine
+        assert engine_id in spine, "the full catalogue must still be offered"
     assert "WALK YOUR LABELS ONCE MORE" in spine
+
+    # The sheet is now PLANNED for an engine, so the spine call is told which one and asked to keep
+    # it unless the beats genuinely run another shape. "Do not blend two" was the old blind-choice
+    # wording; the escape hatch it guarded is what matters and it must survive, because pinning the
+    # engine outright removed it and ENGINE_ORDER then fired on 3 of 5 sampled scripts.
+    assert "THE BEAT SHEET WAS PLANNED FOR:" in spine
+    assert "name the engine they DO fit instead" in spine
+
+
+def test_a_replan_pins_the_engine_but_a_first_pass_only_prefers_it(monkeypatch):
+    """A retry must repair the contract that just failed, so a replan states the engine as fixed.
+    A first pass states it as a preference, keeping the labeller's ability to switch."""
+    import story_engines as se
+    prompts = []
+
+    class _Messages:
+        def create(self, **call):
+            prompt = call["messages"][0]["content"]
+            prompts.append(prompt)
+            if "Label the CAUSAL CHAIN" in prompt:
+                raise _Abort
+            return _reply(_route(prompt, 10))
+
+    monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
+    with pytest.raises(_Abort):
+        ep._generate_script_chunked("Why did the plan fail?", 200, "engaging", "", 10,
+                                    causal_lane=True,
+                                    pinned_engine=se.ACCUMULATING_INDICTMENT)
+    spine = prompts[-1]
+    assert "THE ENGINE IS ALREADY CHOSEN" in spine
+    assert "Returning another engine will be ignored" in spine
+    assert "THE BEAT SHEET WAS PLANNED FOR:" not in spine
 
 
 def test_an_explicit_research_override_wins_on_every_lane(monkeypatch):
