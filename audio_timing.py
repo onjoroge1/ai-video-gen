@@ -53,6 +53,36 @@ def _split_joined(word: str, start: float, end: float) -> list:
     return [(part, start + i * step, start + (i + 1) * step) for i, part in enumerate(parts)]
 
 
+_MULTIPLIERS = {"100": 100, "1000": 1000, "1000000": 1000000}
+
+
+def _compose(cleaned: list[str]) -> list[tuple[str, int, int]]:
+    """Fold "two hundred" into one token, with the source indices it came from.
+
+    _NUMBER_WORDS maps word to digit one token at a time, so "Two hundred" cleans to ["2", "100"]
+    while Whisper writes the same spoken words as the single token "200". The anchor then matches
+    nothing and the run dies AFTER the audio is paid for -- which is what happened to a Lake
+    Victoria script whose hook said "two hundred species".
+
+    Only a value followed by a multiplier is folded. That is the case that fails, and it is safe
+    because the arithmetic does not have to be right: both sides fold identically, so this is a
+    matching key rather than a number. Years are left alone -- "nineteen eighty five" carries no
+    multiplier and stays three tokens, as it already does on both sides.
+    """
+    out: list[tuple[str, int, int]] = []
+    index = 0
+    while index < len(cleaned):
+        token = cleaned[index]
+        if (token.isdigit() and index + 1 < len(cleaned)
+                and cleaned[index + 1] in _MULTIPLIERS and token not in _MULTIPLIERS):
+            out.append((str(int(token) * _MULTIPLIERS[cleaned[index + 1]]), index, index + 1))
+            index += 2
+            continue
+        out.append((token, index, index))
+        index += 1
+    return out
+
+
 def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[float, float, str, float] | None:
     # Split the needle on the SAME joiners as the haystack. _split_joined breaks a
     # transcriber-fused "two-the" into two tokens; if the phrase is not split identically then a
@@ -62,12 +92,18 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
     needle = [_clean(part) for token in str(phrase or "").split()
               for part in _JOINER.split(token)]
     needle = [token for token in needle if token]
-    haystack = [_clean(item[0]) for item in words]
+    raw_haystack = [_clean(item[0]) for item in words]
+    # Compose BOTH sides. The haystack keeps the source indices each composed token covers, so a
+    # match still resolves to the right word timings.
+    composed = _compose(raw_haystack)
+    haystack = [token for token, _, _ in composed]
+    needle = [token for token, _, _ in _compose(needle)]
     if not needle:
         return None
     for start in range(len(haystack) - len(needle) + 1):
         if haystack[start:start + len(needle)] == needle:
-            return (float(words[start][1]), float(words[start + len(needle) - 1][2]),
+            first, last = composed[start][1], composed[start + len(needle) - 1][2]
+            return (float(words[first][1]), float(words[last][2]),
                     "measured_word_timestamps", 1.0)
     # Whisper occasionally expands contractions or substitutes one short token. Permit only a
     # high-confidence local alignment, and reject ambiguous matches instead of guessing a timestamp.

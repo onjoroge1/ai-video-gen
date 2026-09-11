@@ -1560,3 +1560,24 @@ def test_presentation_devices_are_attached_even_when_the_spine_fails():
     assert '_spine["passed"]' not in block, "the spine verdict no longer gates the devices"
     assert '_roles.get("compiled")' in block
     assert "except StopIteration" in block, "a sheet with no mechanism or reversal must not crash"
+
+
+def test_diagnostic_render_covers_the_storyboard_gate_but_not_the_claim_ledger(monkeypatch):
+    """DIAGNOSTIC_RENDER promises "past every pre-spend quality gate" and missed this one.
+
+    A 3-minute Lake Victoria script was refused for LATE_MECHANISM -- its principle landing at 36s
+    against a 33s mark -- three seconds of pacing on a video nobody could then watch to judge.
+
+    The claim ledger stays separate on purpose. Chain shape is a quality judgement; whether the
+    narration is supported by evidence is a question about truth, and an override for pacing must
+    not quietly become an override for that.
+    """
+    monkeypatch.delenv("ILLUSTRATED_STORYBOARD_HARD", raising=False)
+    monkeypatch.delenv("CLAIM_LEDGER_HARD", raising=False)
+    monkeypatch.delenv("DIAGNOSTIC_RENDER", raising=False)
+    assert ep._illustrated_storyboard_hard() is True
+    assert ep._claim_ledger_hard() is True
+
+    monkeypatch.setenv("DIAGNOSTIC_RENDER", "1")
+    assert ep._illustrated_storyboard_hard() is False, "the storyboard gate is a quality gate"
+    assert ep._claim_ledger_hard() is True, "evidence is not a pacing override"

@@ -245,3 +245,36 @@ def test_phase_two_report_download_controls_are_exposed():
         "/api/explainer/claims/{job_id}",
         "/api/explainer/audio-timing/{job_id}",
     }.issubset(route_paths)
+
+
+def test_a_spoken_number_matches_the_digits_the_transcriber_wrote():
+    """"Two hundred" cleans to ["2","100"] while Whisper writes the same speech as "200".
+
+    The anchor then matched nothing and the run died AFTER the audio was paid for -- a Lake
+    Victoria script whose hook said "two hundred species" failed exactly there.
+    """
+    import audio_timing as at
+
+    spoken_words = [("Two", 0.0, 0.4), ("hundred", 0.4, 0.9), ("species", 0.9, 1.5)]
+    spoken_digits = [("200", 0.0, 0.9), ("species", 0.9, 1.5)]
+
+    # Either side may carry either form, so both directions must resolve.
+    assert at._find_span(spoken_digits, "Two hundred species")[:2] == (0.0, 1.5)
+    assert at._find_span(spoken_words, "200 species")[:2] == (0.0, 1.5)
+    # And the timings come from the real words the composed token covered.
+    assert at._find_span(spoken_words, "Two hundred")[:2] == (0.0, 0.9)
+
+
+def test_composition_folds_only_a_multiplier_so_years_survive():
+    """The arithmetic need not be right -- both sides fold identically, so this is a matching key.
+
+    But folding everything would turn "nineteen eighty five" into one token on the word side and
+    leave "1985" alone on the digit side, trading one mismatch for another.
+    """
+    import audio_timing as at
+
+    assert [t for t, _, _ in at._compose(["2", "100"])] == ["200"]
+    assert [t for t, _, _ in at._compose(["3", "1000"])] == ["3000"]
+    assert [t for t, _, _ in at._compose(["19", "80", "5"])] == ["19", "80", "5"]
+    assert [t for t, _, _ in at._compose(["9", "in", "every", "10"])] == ["9", "in", "every", "10"]
+    assert [t for t, _, _ in at._compose(["100", "100"])] == ["100", "100"], "no runaway folding"

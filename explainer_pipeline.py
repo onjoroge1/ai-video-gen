@@ -8285,7 +8285,20 @@ def _illustrated_storyboard_hard() -> bool:
     Same shape as CLAIM_LEDGER_HARD and DIAGNOSTIC_RENDER: an unvalidated storyboard means the
     causal chain was never confirmed, so the output is diagnostic and not publishable — but a gate
     with no escape hatch made it impossible to look at a finished video at all.
+
+    DIAGNOSTIC_RENDER now covers it, which that flag's own docstring always claimed: "push a run
+    past every pre-spend quality gate to get a video out". This one was not covered, so a run with
+    DIAGNOSTIC_RENDER=1 still died here -- a 3-minute Lake Victoria script was refused for
+    LATE_MECHANISM, its principle landing at 36s against a 33s mark, three seconds of pacing on a
+    180-second video that nobody could watch to judge.
+    
+    This gate is about the SHAPE of the causal chain, which is a quality judgement. CLAIM_LEDGER_HARD
+    stays separate and is not folded in: whether the narration is supported by evidence is a
+    question about truth, and an override for pacing should not quietly become an override for
+    that.
     """
+    if _diagnostic_render():
+        return False
     return (os.environ.get("ILLUSTRATED_STORYBOARD_HARD", "1") or "1").strip().lower() \
         not in ("0", "false", "no", "off")
 
