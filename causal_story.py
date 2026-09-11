@@ -147,10 +147,21 @@ def _issue(code: str, message: str, step_id: str = "") -> dict:
     return {"code": code, "message": message, "step_id": step_id}
 
 
+# The compiler's own word for a beat that is NOT a step of the chain. story_compiler assigns it to
+# outcome_state, context and anything an engine's function map does not place, precisely so such a
+# beat cannot inherit a causal role from the pacing vocabulary -- the two share the words mechanism,
+# escalation and reversal. Letting it reach the chain validator turned background into a broken
+# spine: a 3-minute Lake Victoria script had four of them, each returning UNKNOWN_ROLE, and the
+# cascade then reported a missing tool, a bad close and no chapters for a story that had all three.
+CONTEXT_ROLE = "context"
+
+
 def _normalize_steps(raw: Any) -> list[dict]:
     steps = []
     for index, item in enumerate(raw or []):
         item = item if isinstance(item, dict) else {}
+        if _text(item.get("role")).lower() == CONTEXT_ROLE:
+            continue
         steps.append({
             "step_id": _text(item.get("step_id")) or f"step_{index + 1:02d}",
             "index": index,

@@ -881,3 +881,39 @@ def test_a_hinge_needs_a_false_resolution_only_where_the_engine_requires_one():
     bounty = []
     cs._check_roles(steps, bounty, se.ENGINES["backfiring_solution"])
     assert "UNEARNED_HINGE" in [i["code"] for i in bounty], "a bounty must show the fix working"
+
+
+def test_a_context_beat_is_background_not_a_broken_step():
+    """`context` is story_compiler's word for a beat that is NOT part of the chain.
+
+    It assigns it to outcome_state, context and anything an engine's map does not place, so such a
+    beat cannot inherit a causal role from the pacing vocabulary -- the two share the words
+    mechanism, escalation and reversal. Letting it reach the chain validator turned background into
+    a broken spine: a 3-minute Lake Victoria script had four, each returning UNKNOWN_ROLE, and the
+    cascade then reported a missing tool, a bad close and no chapters for a story that had all three.
+    """
+    raw = [{"role": cs.SETUP, "situation": "the lake before anyone stocked it"},
+           {"role": "context", "situation": "the lake is the size of Ireland"},
+           {"role": cs.INTERVENTION, "situation": "perch are stocked"},
+           {"role": "context", "situation": "the perch is oily"},
+           {"role": cs.MECHANISM, "situation": "the perch eat the cichlids"},
+           {"role": cs.ESCALATION, "situation": "the cichlids collapse"},
+           {"role": cs.REVERSAL, "situation": "the lake is a perch fishery"},
+           {"role": cs.TOOL, "situation": "what else was it holding down?"}]
+    steps = cs._normalize_steps(raw)
+    assert [s["role"] for s in steps] == [cs.SETUP, cs.INTERVENTION, cs.MECHANISM,
+                                          cs.ESCALATION, cs.REVERSAL, cs.TOOL]
+    issues = []
+    cs._check_roles(steps, issues)
+    assert not [i for i in issues if i["code"] == "UNKNOWN_ROLE"]
+    # And the close is still found, which the cascade had been reporting as missing.
+    assert steps[-1]["role"] == cs.TOOL
+
+
+def test_an_unknown_role_that_is_not_context_still_fails():
+    """The exclusion is for one named role, not a general amnesty for bad labels."""
+    steps = cs._normalize_steps([{"role": "banana", "situation": "x"},
+                                 {"role": cs.SETUP, "situation": "y"}])
+    issues = []
+    cs._check_roles(steps, issues)
+    assert "UNKNOWN_ROLE" in [i["code"] for i in issues]
