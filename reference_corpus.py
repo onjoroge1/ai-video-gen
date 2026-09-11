@@ -433,3 +433,32 @@ def blueprint_block(reference: "Reference", adherence: str = DEFAULT_ADHERENCE) 
         "apply the underlying technique to THIS video's subject instead.\n"
         + json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     )
+
+
+def voice_target(engine_id: str = "", corpus_dir=None) -> dict:
+    """What the corpus sounds like, pooled from the references that have been measured.
+
+    Derived rather than declared. The numbers move when the corpus does, and an engine with its
+    own references is judged against those rather than against the house average.
+    """
+    import re as _re
+    import statistics as _stats
+
+    refs = [r for r in (by_engine(engine_id, corpus_dir) if engine_id else load(corpus_dir))
+            if (r.creative_context().get("observed") or {}).get("sentence_length")]
+    if not refs and engine_id:
+        refs = [r for r in load(corpus_dir)
+                if (r.creative_context().get("observed") or {}).get("sentence_length")]
+    medians, shares, present = [], [], 0
+    for reference in refs:
+        observed = reference.creative_context()["observed"]
+        found = _re.search(r"median (\d+) words.*?\((\d+)%", observed["sentence_length"])
+        if found:
+            medians.append(int(found.group(1)))
+            shares.append(int(found.group(2)))
+        present += observed.get("narration_tense", "").startswith("present")
+    if not medians:
+        return {}
+    return {"references": len(refs), "tense": "present" if present * 2 >= len(refs) else "past",
+            "median_words": int(_stats.median(medians)),
+            "short_share_pct": int(_stats.median(shares))}

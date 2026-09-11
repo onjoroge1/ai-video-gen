@@ -1554,6 +1554,78 @@ _NARRATION_CADENCE = (
 )
 
 
+def _enforce_voice(scenes: list, engine_id: str, cost_sink=None) -> tuple[list, float]:
+    """Measure the draft's voice against the corpus and, if it misses, rewrite for form only.
+
+    Corpus adherence was the obvious place for this and it did nothing. narration_tense and
+    sentence_length reached every blueprint and five consecutive drafts came back past tense at a
+    9-word median against a corpus that is 6 and present. That is the fourth time in this work
+    that a property STATED in a prompt failed to move the output while a property CHECKED after
+    the fact moved it -- citations, actor attribution, word budget, and now voice.
+
+    So this measures and hands back numbers. It is a FORM pass and says so: tense and sentence
+    length are how a sentence is said, not what it claims, and every scene still faces the
+    fidelity boundary afterwards. Nothing here may add a fact -- splitting one sentence into two
+    and moving a verb to the present are both rewrites that cannot introduce one.
+    """
+    import reference_corpus as _rc
+
+    lines = [_s(scene.get("narration")) for scene in scenes or []]
+    text = " ".join(line for line in lines if line)
+    target, actual = _rc.voice_target(engine_id), _rc.measure_voice(text)
+    if not target or not actual or len(lines) < 3:
+        return scenes, 0.0
+    median = int(actual["sentence_length"].split()[1])
+    tense_ok = actual["narration_tense"].startswith(target["tense"])
+    # One word of slack on the median: the corpus itself spans 6-8, and rewriting a draft that is
+    # already inside that range buys a provider call to move it sideways.
+    if tense_ok and median <= target["median_words"] + 1:
+        return scenes, 0.0
+
+    numbered = "\n".join(f"{i + 1}. {line}" for i, line in enumerate(lines))
+    system = (
+        "You are a script editor matching a narration to a series' established voice. You change "
+        "HOW something is said and never WHAT it says. Return only JSON.")
+    prompt = (
+        f"THIS DRAFT: {actual['narration_tense']}; {actual['sentence_length']}.\n"
+        f"THE SERIES, measured across {target['references']} reference videos: "
+        f"{target['tense']} tense; median {target['median_words']} words per sentence; "
+        f"{target['short_share_pct']}% of sentences at five words or fewer.\n\n"
+        f"{numbered}\n\n"
+        "Rewrite every line to the series' voice. Two changes only:\n"
+        f"1. TENSE — put the narration in the {target['tense']} tense. 'Cats were shot' becomes "
+        "'Cats are shot'. A date that has passed stays past: 'in 1985' does not change.\n"
+        f"2. LENGTH — break long sentences into short ones until the median is about "
+        f"{target['median_words']} words. Splitting is the tool; deleting content is not.\n\n"
+        "You may NOT add a fact, a number, a date, a place, a name or an actor that is not "
+        "already in the line you are rewriting, and you may not merge or drop lines. Same count, "
+        "same order, same meaning.\n"
+        'Return ONLY JSON: {"narration":[<exactly one line per input line, same order>]}.')
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=4000, system=system,
+            messages=[{"role": "user", "content": prompt}])
+        cost = _msg_cost(response.usage)
+        reply, parse_cost = _parse_script_json(response.content[0].text)
+        cost += parse_cost
+        rewritten = reply.get("narration")
+        if not isinstance(rewritten, list) or len(rewritten) != len(lines):
+            return scenes, round(cost, 4)
+        out = json.loads(json.dumps(scenes))
+        for scene, line in zip(out, rewritten):
+            line = _s(line).strip()
+            if line:
+                scene["narration"] = line
+        after = _rc.measure_voice(" ".join(_s(x.get("narration")) for x in out))
+        print(f"[voice] {actual['narration_tense'].split(' tense')[0]} "
+              f"median {median} -> {after['narration_tense'].split(' tense')[0]} "
+              f"median {after['sentence_length'].split()[1]}")
+        return out, round(cost, 4)
+    except Exception as exc:                          # noqa: BLE001 - form pass is best-effort
+        print(f"[voice] check unavailable ({type(exc).__name__}); the draft stands as written")
+        return scenes, 0.0
+
+
 def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list, float]:
     """Final 'state once' pass: rewrite ONLY narration lines that re-explain a concept already
     stated in an earlier line (or drift off their assigned beat) so each scene adds something new.
@@ -3493,6 +3565,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     else:
         all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
         cost += dc
+
+    if causal_lane:
+        all_scenes, vc = _enforce_voice(all_scenes, _s(beats[0].get("_story_engine")) if beats else "",
+                                        cost_sink)
+        cost += _charge(cost_sink, _ledger.EXPANSION, vc, "voice")
 
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1

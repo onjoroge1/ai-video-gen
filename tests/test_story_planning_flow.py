@@ -66,6 +66,10 @@ def _state_once_is_not_under_test(monkeypatch):
     import explainer_pipeline
     monkeypatch.setattr(explainer_pipeline, "_dedupe_narration",
                         lambda scenes, beats, throughline: (scenes, 0.0))
+    # The voice check is a second post-expansion pass with the same property: it makes a provider
+    # call these fixtures do not stub, and it is not what they assert.
+    monkeypatch.setattr(explainer_pipeline, "_enforce_voice",
+                        lambda scenes, engine_id, cost_sink=None: (scenes, 0.0))
 
 class EvidenceFixture:
     def __init__(self, *, reject_relationship="", unavailable=False):
