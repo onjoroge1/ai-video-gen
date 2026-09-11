@@ -3169,8 +3169,22 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
                                              spine=_spine, beats=_sb)
         # These are the narrowed, pruned and re-cited objects that were actually accepted.
-        beats = (_compiler.presentation_beats(_sb, sheet_engine_id)
-                 if _roles.get("compiled") and _spine["passed"] else _sb)
+        # Devices are attached whenever the ROLES compiled, not only when the spine passed. They
+        # are the hinge and the closing tool, and the storyboard requires a tool: gating them on
+        # the spine meant a diagnostic render -- which exists precisely to push a failed spine
+        # through -- handed the storyboard a script with no close, which it then refused for
+        # MISSING_ROLE, BAD_CLOSE and ENGINE_MISSING_ROLE. The escape hatch produced a script that
+        # could not be rendered by construction.
+        #
+        # presentation_beats needs a mechanism and a reversal to anchor to and raises without
+        # them, so a sheet missing either keeps its raw beats rather than crashing.
+        beats = _sb
+        if _roles.get("compiled"):
+            try:
+                beats = _compiler.presentation_beats(_sb, sheet_engine_id)
+            except StopIteration:
+                print("[roles] no mechanism or reversal to anchor the hinge and tool to; "
+                      "the sheet keeps its raw beats")
         for i, beat in enumerate(beats):
             beat["n"] = i + 1
             if _illustrated_is_cast_free():

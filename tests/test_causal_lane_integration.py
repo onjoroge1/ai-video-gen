@@ -1543,3 +1543,20 @@ def test_the_repair_payload_carries_the_flagged_actors(monkeypatch):
     ep.repair_claim_join_failures(script, dossier, report)
     assert "actors_the_event_does_not_name" in seen["payload"]
     assert "managers" in seen["payload"]
+
+
+def test_presentation_devices_are_attached_even_when_the_spine_fails():
+    """DIAGNOSTIC_RENDER exists to push a failed spine through, and it was producing a script that
+    could not be rendered by construction.
+
+    The hinge and the closing tool are attached by presentation_beats, which was gated on the spine
+    PASSING. A Lake Victoria run kept its closest draft after a replan, so no tool was ever added,
+    and the storyboard refused it for MISSING_ROLE, BAD_CLOSE and ENGINE_MISSING_ROLE -- a missing
+    close reported as three separate contract failures.
+    """
+    source = Path(ep.__file__).read_text(encoding="utf-8")
+    block = source[source.index("Devices are attached whenever the ROLES compiled"):]
+    block = block[:block.index("for i, beat in enumerate(beats):")]
+    assert '_spine["passed"]' not in block, "the spine verdict no longer gates the devices"
+    assert '_roles.get("compiled")' in block
+    assert "except StopIteration" in block, "a sheet with no mechanism or reversal must not crash"
