@@ -136,7 +136,11 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
         ]
         if not rivals or best[0] - rivals[0][0] >= 0.08:
             _, start, width = best
-            return (float(words[start][1]), float(words[start + width - 1][2]),
+            # Composed indices, not source indices. _compose folds "2","100" into one token, so
+            # every index after a fold is shifted -- the exact path above maps through `composed`
+            # and these did not, returning a span one word early for any phrase after a number.
+            first, last = composed[start][1], composed[start + width - 1][2]
+            return (float(words[first][1]), float(words[last][2]),
                     "measured_word_timestamps_fuzzy", round(best[0], 3))
     # A long anchor may contain a transcription substitution while retaining an exact, unique
     # consecutive subphrase. Use only an unambiguous subphrase so timing never silently jumps to
@@ -150,13 +154,15 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
                     matches.append((start, width))
         if len(matches) == 1:
             start, matched_width = matches[0]
-            return (float(words[start][1]), float(words[start + matched_width - 1][2]),
+            first, last = composed[start][1], composed[start + matched_width - 1][2]
+            return (float(words[first][1]), float(words[last][2]),
                     "measured_unique_subphrase", round(matched_width / len(needle), 3))
     unique_tokens = [token for token in needle if len(token) >= 4
                      and needle.count(token) == 1 and haystack.count(token) == 1]
     if len(unique_tokens) == 1:
         start = haystack.index(unique_tokens[0])
-        return (float(words[start][1]), float(words[start][2]),
+        first, last = composed[start][1], composed[start][2]
+        return (float(words[first][1]), float(words[last][2]),
                 "measured_unique_token", round(1 / len(needle), 3))
     return None
 

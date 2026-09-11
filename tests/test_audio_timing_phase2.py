@@ -278,3 +278,38 @@ def test_composition_folds_only_a_multiplier_so_years_survive():
     assert [t for t, _, _ in at._compose(["19", "80", "5"])] == ["19", "80", "5"]
     assert [t for t, _, _ in at._compose(["9", "in", "every", "10"])] == ["9", "in", "every", "10"]
     assert [t for t, _, _ in at._compose(["100", "100"])] == ["100", "100"], "no runaway folding"
+
+
+def test_the_shot_planner_and_the_audio_matcher_agree():
+    """A phrase must not time in one and fail in the other.
+
+    longform_shots had its own tokenizer and its own search. audio_timing learned that a spoken
+    number and a transcribed digit are the same word; this did not. A run could clear the audio
+    gate and then find no anchor when shots were planned -- and an unmatched anchor makes the
+    planner space every state in that scene evenly, which is a direct route to the low
+    semantic-cut alignment the retention rubric hard-fails on.
+    """
+    import audio_timing as at
+    import longform_shots as ls
+
+    timed = [("200", 0.0, 0.9), ("species", 0.9, 1.5), ("vanish", 1.5, 2.0)]
+    for phrase in ("two hundred species", "200 species"):
+        assert ls._find_phrase_span(timed, phrase) is not None, phrase
+        assert ls._find_phrase_span(timed, phrase) == at._find_span(timed, phrase)[:2]
+
+
+def test_every_match_path_maps_composed_indices_back_to_real_words():
+    """_compose folds "2","100" into one token, so every index after a fold is shifted.
+
+    The exact path mapped through `composed` and the fuzzy, subphrase and unique-token paths did
+    not -- each returned a span one word early for any phrase following a number.
+    """
+    import audio_timing as at
+
+    words = [("the", 0.0, 1.0), ("two", 1.0, 2.0), ("hundred", 2.0, 3.0), ("species", 3.0, 4.0),
+             ("all", 4.0, 5.0), ("vanish", 5.0, 6.0), ("now", 6.0, 7.0)]
+    # Fuzzy: one substituted token, and the phrase sits after the folded number.
+    span = at._find_span(words, "species all vanishh")
+    assert span[:2] == (3.0, 6.0), span
+    # Exact, same region.
+    assert at._find_span(words, "species all vanish")[:2] == (3.0, 6.0)

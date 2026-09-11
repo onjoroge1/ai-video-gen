@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+import audio_timing
+
 
 RETENTION_ROLES = {
     "cold_consequence", "payoff", "prediction_gate", "rehook", "reversal",
@@ -81,6 +83,18 @@ def _abort_on_unalignable() -> bool:
 
 
 def _find_phrase_span(timed: list[tuple[str, float, float]], phrase: str) -> tuple[float, float] | None:
+    """Delegate to the audio matcher so a phrase cannot time here and fail there, or vice versa.
+
+    This module had its own tokenizer and its own search. audio_timing learned that a spoken
+    number and a transcribed digit are the same word -- "two hundred" against "200" -- and this
+    did not, so a run could clear the audio gate and then find no anchor when the shots were
+    planned. An unmatched anchor makes the planner space every state in that scene evenly, which
+    is a direct route to the low semantic-cut alignment the retention rubric then hard-fails on.
+    One matcher, one answer.
+    """
+    found = audio_timing._find_span(list(timed), phrase)
+    if found:
+        return (found[0], found[1])
     needle = [_clean_token(word) for word in str(phrase or "").split()]
     needle = [word for word in needle if word]
     haystack = [_clean_token(word) for word, _, _ in timed]
