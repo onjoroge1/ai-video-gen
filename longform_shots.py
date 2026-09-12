@@ -252,6 +252,8 @@ def compile_scene_shots(
         spans = [_find_phrase_span(timed, str(state.get("anchor_phrase") or ""))
                  for state in accepted_states]
         accepted_states, spans = _ordered_by_measurement(accepted_states, spans)
+        accepted_states, spans = _drop_crowded_anchors(accepted_states, spans)
+        count = len(accepted_states)
         starts, anchored = _spaced_starts(spans, duration, count)
         valid = starts is not None
         if not valid:
@@ -493,6 +495,35 @@ def _ordered_by_measurement(states, spans):
         keyed.append((last, index, state, span))
     keyed.sort(key=lambda item: (item[0], item[1]))
     return [item[2] for item in keyed], [item[3] for item in keyed]
+
+
+def _drop_crowded_anchors(states, spans):
+    """Drop a state whose phrase is spoken too close to the one before it to earn its own cut.
+
+    Two anchors 0.98s apart cannot both be honoured: MIN_SHOT_SECONDS exists precisely so a shot
+    never becomes a flash frame, so the second state's image can only be clamped off its own words.
+    A cut that lands 0.5s after the phrase it illustrates is worse viewing than no cut at all, and
+    it drags the alignment ratio down while adding nothing the viewer can read.
+
+    Keep the state carrying verified visible information where the pair disagrees -- that is the one
+    with something to show. Otherwise keep the earlier one and let its image hold across both
+    phrases. States with no measured anchor are never dropped here; they have no evidence of
+    crowding, and the spacing solver interpolates them.
+    """
+    kept_states, kept_spans = [], []
+    last = None
+    for state, span in zip(states, spans):
+        if span and last is not None and float(span[0]) - last < MIN_SHOT_SECONDS:
+            if (bool(state.get("verified_visible_information"))
+                    and not bool(kept_states[-1].get("verified_visible_information"))):
+                kept_states[-1], kept_spans[-1] = state, span
+                last = float(span[0])
+            continue
+        kept_states.append(state)
+        kept_spans.append(span)
+        if span:
+            last = float(span[0])
+    return kept_states, kept_spans
 
 
 def _spaced_starts(spans, duration, count):

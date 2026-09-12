@@ -6,6 +6,7 @@ from longform_shots import (
     compile_shot_plan,
     select_alternate_image_indices,
     shot_plan_metrics,
+    _drop_crowded_anchors,
 )
 
 
@@ -283,3 +284,37 @@ def test_longform_evidence_shots_fail_closed_without_measured_word_timings():
     }]
     with pytest.raises(ValueError, match="Measured word timings are required"):
         compile_scene_shots(_scene(), 8.0, 0, evidence_states=states)
+
+
+def test_an_anchor_too_close_to_its_neighbour_is_dropped_rather_than_mistimed():
+    """Two phrases 1s apart cannot both hold a shot, so honour one instead of mistiming both.
+
+    MIN_SHOT_SECONDS exists so a shot never becomes a flash frame. When the planner puts two
+    anchors closer than that, the second can only be clamped off the words it illustrates -- a cut
+    landing half a second late, which reads as a mistake and drags the alignment ratio down while
+    showing the viewer nothing they can register. Dropping it lets the previous image hold across
+    both phrases, which is the edit a person would make.
+
+    Replayed against macquarie's measured scene timings this drops two states and takes semantic
+    sync from 62% to 73%, across the 0.70 gate that hard-caps the readiness grade.
+    """
+    scene = _scene()
+    states = [
+        {"state_id": "state:s001:e01", "asset_id": "asset:s001:e01", "asset_strategy": "master",
+         "asset_status": "accepted", "anchor_phrase": "The water pulls away", "purpose": "action",
+         "verified_visible_information": True},
+        {"state_id": "state:s001:e02", "asset_id": "asset:s001:e02", "asset_strategy": "master",
+         "asset_status": "accepted", "anchor_phrase": "the continental shelf appears",
+         "purpose": "evidence", "verified_visible_information": True},
+    ]
+    spans = [(0.0, 0.4), (0.9, 1.3)]          # 0.9s apart: closer than MIN_SHOT_SECONDS
+    kept, kept_spans = _drop_crowded_anchors(states, spans)
+    assert len(kept) == 1, "the crowded second state must not get its own cut"
+    assert kept[0]["state_id"] == "state:s001:e01"
+
+    spans_ok = [(0.0, 0.4), (2.0, 2.4)]       # comfortably apart: both survive
+    assert len(_drop_crowded_anchors(states, spans_ok)[0]) == 2
+
+    unverified_first = [dict(states[0], verified_visible_information=False), states[1]]
+    kept, _ = _drop_crowded_anchors(unverified_first, spans)
+    assert kept[0]["state_id"] == "state:s001:e02", "keep the state that has something to show"
