@@ -2,7 +2,7 @@
  "format": "causal_story_v1",
  "reference_origin": "ai_authored_researched_candidate",
  "source": "AI-authored researched editorial candidate from fixtures/causal/synthetic_candidates/cane_toads.md; not a transcribed video and carries no measured audience data.",
- "note": "Promoted for STRUCTURE only. Voice fields (narrator_tone, humour_and_interrupts, narration_tense, sentence_length) are deliberately absent: a synthetic reference's voice is this generator's own voice, and feeding it back as corpus evidence would teach the model its own style as though it were a measurement of what works. Those fields stay sourced from measured real transcripts. blueprint() enforces this too.",
+ "note": "Promoted for STRUCTURE only. Voice fields (narrator_tone, humour_and_interrupts, narration_tense, sentence_length) are deliberately absent: a synthetic reference's voice is this generator's own voice, and feeding it back as corpus evidence would teach the model its own style as though it were a measurement of what works. Those fields stay sourced from measured real transcripts. blueprint() enforces this too. The mechanism clause was rewritten after two renders failed Boundary B on the mechanism beat: the original wording ('arrives as the answer to the second question') invited a punchy concrete declarative, and the generator wrote 'tussock' where its event said 'vegetation', and 'every cat that eats a rabbit spares the plants below' where the event asserted no such causal link. Placement was the useful instruction; diction was not.",
  "story": {
   "title": "Why Australia's Beetle Fix Became a Toad Problem",
   "engine": "removed_keystone",
@@ -70,7 +70,7 @@
  },
  "observed": {
   "hook_type": "Opens on the reversal already visible in the present -- researchers teaching freshwater crocodiles not to eat the animal that was imported as a fix -- then names the two questions that will explain it. The subject is concrete in the first sentence; no abstraction to decode.",
-  "story_pattern": "Opens on a present-day visible consequence, then poses the two questions the story will answer. Walks the intervention forward in dated, verifiable steps: the target problem, the deliberate release, the apparent early success, then the interaction nobody costed. The mechanism arrives as the answer to the second question, not as an aside. Closes by returning to the opening object with its second direction now legible.",
+  "story_pattern": "Opens on a present-day visible consequence, then poses the two questions the story will answer. Walks the intervention forward in dated, verifiable steps: the target problem, the deliberate release, the apparent early success, then the interaction nobody costed. The mechanism sits at that point in the sequence rather than near the top, and is stated at the level of detail its sources carry -- naming the general thing the evidence names, not a more vivid specific one. Closes by returning to the opening object, now read a second way.",
   "reveal_placement": "The hidden link lands at the mechanism beat as the answer to the pre-posed second question, after the apparent success has been shown and believed.",
   "ending_callback": "Returns to the opening feeding diagram, now read in the second direction: what eats the toad, not what the toad eats."
  },
