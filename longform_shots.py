@@ -251,11 +251,9 @@ def compile_scene_shots(
                 f"{count} evidence states cannot fit {duration:.2f}s without sub-minimum cuts")
         spans = [_find_phrase_span(timed, str(state.get("anchor_phrase") or ""))
                  for state in accepted_states]
-        starts = [0.0] + [span[0] if span else -1.0 for span in spans[1:]]
-        valid = all(
-            starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS
-            for index in range(1, len(starts))
-        ) and duration - starts[-1] >= MIN_SHOT_SECONDS
+        accepted_states, spans = _ordered_by_measurement(accepted_states, spans)
+        starts, anchored = _spaced_starts(spans, duration, count)
+        valid = starts is not None
         if not valid:
             # DEGRADE, do not abort. The even-spacing fallback below already existed and was
             # gated behind strict_timing, so a scene whose anchors landed slightly too close
@@ -272,6 +270,7 @@ def compile_scene_shots(
             timing_degraded = True
             step = duration / count
             starts = [index * step for index in range(count)]
+            anchored = [False] * count
         shots = []
         legacy_motion_index = next(
             (j for j, item in enumerate(accepted_states)
@@ -285,11 +284,7 @@ def compile_scene_shots(
             if state_id in motion_state_ids or (has_i2v and not motion_state_ids
                                                 and index == legacy_motion_index):
                 kind = "i2v"
-            phrase_aligned = bool(
-                spans[index]
-                and ((index == 0 and float(spans[index][0]) <= 1.0)
-                     or (index > 0 and valid and abs(float(spans[index][0]) - start) <= 0.05))
-            )
+            phrase_aligned = anchored[index]
             shot = _shot(
                 kind, str(state.get("asset_id") or ""), end - start, role,
                 start=start, purpose=str(state.get("purpose") or "evidence"),
@@ -309,7 +304,7 @@ def compile_scene_shots(
                 # Auditable: this scene's visuals are evenly spaced, not anchored to the words.
                 shot["timing_source"] = "even_fallback"
             shots.append(shot)
-        return shots
+        return _absorb_detail_reframes(shots)
 
     if has_i2v:
         anchor = _semantic_anchor(scene, timed, {"action", "consequence"})
@@ -441,6 +436,95 @@ def compile_shot_plan(
     ]
 
 
+def _absorb_detail_reframes(shots):
+    """Render a punch-in as one continuous move instead of a cut from an image back to itself.
+
+    A ``detail_reframe`` state is a deliberate push from a master image into a detail of it, and it
+    is the right editorial device. But ``_render_scene_shots`` gives every shot its own segment and
+    concatenates with ``-c copy``, so the pair renders as a hard cut from that picture to the same
+    picture at a different crop -- the visible jump ``same_source_hard_cut_count`` counts, and any
+    single occurrence hard-caps the readiness grade at 69.
+
+    Both finished renders show the count is entirely this device and not accidental image reuse
+    (nile_perch 9 same-source cuts against 10 reframes; macquarie 1 against 1), so suppressing the
+    device would be the wrong repair. Holding one segment across both shots is the right one: the
+    ``kenburns_in`` preset already ramps the zoom across whatever duration it is given, so the
+    camera simply keeps pushing into the detail and no cut is emitted. The reframe still happened
+    and is still counted -- it is now expressed as a move rather than a splice.
+    """
+    merged = []
+    for shot in shots:
+        previous = merged[-1] if merged else None
+        absorbable = (
+            previous is not None
+            and shot.get("kind") != "i2v"
+            and previous.get("kind") != "i2v"
+            and str(shot.get("asset_strategy") or "") == "detail_reframe"
+            and str(shot.get("source_asset_id") or "") == str(previous.get("source") or "")
+        )
+        if not absorbable:
+            merged.append(shot)
+            continue
+        previous["end_sec"] = shot["end_sec"]
+        previous["duration"] = round(float(shot["end_sec"]) - float(previous["start_sec"]), 3)
+        previous["motion"] = "kenburns_in"
+        previous["reframe_absorbed"] = int(previous.get("reframe_absorbed") or 0) + 1
+        for flag in ("new_information", "verified_visible_information"):
+            previous[flag] = bool(previous.get(flag)) or bool(shot.get(flag))
+    return merged
+
+
+def _ordered_by_measurement(states, spans):
+    """Order evidence states by when their own words are actually spoken.
+
+    The planner emits states in the order it reasoned about them, which is a guess about when each
+    one gets described. The word timings are the measurement. Where the two disagree the measurement
+    wins -- a visual belongs on the words that describe it, and showing state 3 before state 2
+    because that is the order the narration reaches them is the correct edit, not a compromise.
+
+    A state whose anchor was never found has nothing to sort on, so it holds its position directly
+    after the last state that did resolve.
+    """
+    keyed = []
+    last = 0.0
+    for index, (state, span) in enumerate(zip(states, spans)):
+        if span:
+            last = float(span[0])
+        keyed.append((last, index, state, span))
+    keyed.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in keyed], [item[3] for item in keyed]
+
+
+def _spaced_starts(spans, duration, count):
+    """Place every shot on its measured phrase, repairing only the shots that cannot sit there.
+
+    Returns ``(starts, anchored)``, or ``(None, None)`` when the scene genuinely cannot hold this
+    many shots. Previously one unplaceable anchor set a scene-wide ``valid = False`` and replaced
+    every measured start in the scene with even spacing -- discarding perfectly good measurements
+    (both finished renders anchored at confidence 1.0) because one of their neighbours was crowded.
+    A shot clamped away from its phrase reports ``anchored = False`` for itself and no longer drags
+    the rest of the scene down with it.
+    """
+    starts, anchored = [], []
+    previous = 0.0
+    for index in range(count):
+        span = spans[index]
+        low = 0.0 if index == 0 else previous + MIN_SHOT_SECONDS
+        high = duration - MIN_SHOT_SECONDS * (count - index)
+        if high < low - 1e-9:
+            return None, None
+        want = 0.0 if index == 0 else (float(span[0]) if span else low)
+        start = min(max(want, low), max(low, high))
+        if index == 0:
+            on_phrase = bool(span) and float(span[0]) <= 1.0
+        else:
+            on_phrase = bool(span) and abs(start - float(span[0])) <= 0.05
+        starts.append(start)
+        anchored.append(on_phrase)
+        previous = start
+    return starts, anchored
+
+
 def shot_plan_metrics(plan: list[list[dict]]) -> dict:
     shots = [shot for scene in plan for shot in scene]
     stills = [float(s["duration"]) for s in shots if s["kind"] == "still"]
@@ -462,6 +546,7 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         if s.get("source") and s.get("asset_strategy") in {"master", "distinct"}
     }
     reframes = [s for s in shots if s.get("asset_strategy") == "detail_reframe"]
+    absorbed = sum(int(s.get("reframe_absorbed") or 0) for s in shots)
     return {
         "shot_count": len(shots),
         "cut_count": len(cuts),
@@ -470,7 +555,7 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         "i2v_shot_count": len(motion),
         "alternate_shot_count": alternates,
         "distinct_source_count": len(distinct_sources),
-        "reframe_shot_count": len(reframes),
+        "reframe_shot_count": len(reframes) + absorbed,
         "verified_information_shot_count": sum(
             1 for shot in shots if shot.get("verified_visible_information")),
         "broll_clause_count": alternates,

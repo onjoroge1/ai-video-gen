@@ -208,7 +208,7 @@ def test_unverified_detail_reframe_does_not_count_as_new_information():
         },
         {
             "state_id": "state:s001:e02", "asset_id": "asset:s001:e02",
-            "source_asset_id": "asset:s001:e01", "asset_strategy": "detail_reframe",
+            "source_asset_id": "asset:s001:e00", "asset_strategy": "detail_reframe",
             "asset_status": "accepted", "anchor_phrase": "the continental shelf appears",
             "purpose": "evidence", "verified_visible_information": False,
         },
@@ -220,7 +220,45 @@ def test_unverified_detail_reframe_does_not_count_as_new_information():
     assert shots[1]["new_information"] is False
     assert metrics["reframe_shot_count"] == 1
     assert metrics["meaningful_cut_ratio"] == 0.0
-    assert metrics["same_source_hard_cut_count"] == 1
+
+
+def test_a_punch_in_holds_one_shot_instead_of_cutting_an_image_to_itself():
+    """A detail reframe of the shot before it is a camera move, not a splice.
+
+    `_render_scene_shots` renders each shot as its own segment and concatenates with `-c copy`, so
+    planning a master and a reframe of that master as two shots cut from the picture straight back
+    to itself at a different crop. Every same-source hard cut in both finished renders was this
+    device rather than accidental image reuse, and one occurrence is enough to hard-cap the
+    readiness grade at 69 -- so the device had to keep working while the cut had to go.
+
+    The pair is now held as a single shot whose `kenburns_in` ramp runs across the combined
+    duration, which is the push-in the reframe was asking for. The reframe is still counted; it is
+    expressed as a move instead of a cut.
+    """
+    states = [
+        {
+            "state_id": "state:s001:e01", "asset_id": "asset:s001:e01",
+            "asset_strategy": "master", "asset_status": "accepted",
+            "anchor_phrase": "The water pulls away", "purpose": "action",
+            "verified_visible_information": True,
+        },
+        {
+            "state_id": "state:s001:e02", "asset_id": "asset:s001:e02",
+            "source_asset_id": "asset:s001:e01", "asset_strategy": "detail_reframe",
+            "asset_status": "accepted", "anchor_phrase": "the continental shelf appears",
+            "purpose": "evidence", "verified_visible_information": True,
+        },
+    ]
+    scene = _scene()
+    shots = compile_scene_shots(
+        scene, 8.0, 0, evidence_states=states, word_times=_measured(scene, 8.0))
+    metrics = shot_plan_metrics([shots])
+
+    assert len(shots) == 1, "the punch-in must not be emitted as two concatenated segments"
+    assert shots[0]["motion"] == "kenburns_in"
+    assert shots[0]["end_sec"] == 8.0, "the held shot must cover both states' time"
+    assert metrics["same_source_hard_cut_count"] == 0
+    assert metrics["reframe_shot_count"] == 1, "the reframe still happened, as a move"
 
 
 def test_too_many_evidence_states_for_audio_duration_fail_instead_of_flash_frames():
