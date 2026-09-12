@@ -155,12 +155,19 @@ def _issue(code: str, message: str, step_id: str = "") -> dict:
 # cascade then reported a missing tool, a bad close and no chapters for a story that had all three.
 CONTEXT_ROLE = "context"
 
+# A cold open belongs here for the same reason. It carries no event of its own -- story_compiler
+# builds it as a presentation device anchored to the reversal, the way it already builds the hinge
+# and the tool -- so it is not a step of the causal chain and must not be validated as one. Letting
+# it through produced both UNKNOWN_ROLE (the pacing vocabulary has no such causal role) and
+# ORPHAN_STEP (a scene at position 0 has nothing before it to name), for a spine that was correct.
+NON_CHAIN_ROLES = frozenset({CONTEXT_ROLE, "cold_consequence"})
+
 
 def _normalize_steps(raw: Any) -> list[dict]:
     steps = []
     for index, item in enumerate(raw or []):
         item = item if isinstance(item, dict) else {}
-        if _text(item.get("role")).lower() == CONTEXT_ROLE:
+        if _text(item.get("role")).lower() in NON_CHAIN_ROLES:
             continue
         steps.append({
             "step_id": _text(item.get("step_id")) or f"step_{index + 1:02d}",

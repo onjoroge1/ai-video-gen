@@ -232,6 +232,9 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                 if not lo <= b["n"] <= hi:
                     continue
                 text = b["event"].get("text") or {
+                    # The cold open is a presentation device like the other two: it carries no
+                    # event of its own, so this stub supplies its prose the same way.
+                    "cold_consequence": "The city still has more rats than it started with.",
                     "hinge": "Except the reward could preserve the problem.",
                     "tool": "Look at that rat tail. What does your reward actually measure, and "
                             "could someone collect it while leaving the problem alive?"}[b["presentation_device"]]
@@ -273,15 +276,27 @@ def test_accepted_facts_reach_expansion_fidelity_and_storyboard(monkeypatch):
     script, dossier, judge, prompts, ledger = expanded_fixture(monkeypatch)
     assert script["_compiled_story"]
     scenes = script["scenes"]
-    assert [s["causal_role"] for s in scenes] == ["setup", "intervention", "false_resolution",
-                                                  "hinge", "mechanism", "escalation", "reversal", "tool"]
-    assert "1902" not in prompts[-1] and "1902" not in scenes[0]["event"]["text"]
-    assert {r["claim_id"] for r in scenes[4]["claim_refs"]} == {"c2", "c4", "c6", "c7"}
-    assert scenes[4]["derivation"]["source_ids"] == ["fact_2"]
-    assert scenes[4]["caused_by"] == scenes[1]["scene_id"]
-    assert scenes[3]["context_refs"] == [scenes[4]["beat_id"], scenes[5]["beat_id"]]
+    # The cold open leads. `expected_order` is the CAUSAL sequence and every engine starts it at
+    # `setup`, which meant scene 1 always explained a situation before the viewer had a reason to
+    # care -- the standing -5 on retention_readiness's opening contract. The consequence is now a
+    # presentation device at position 0, anchored to the reversal; the causal order behind it is
+    # unchanged, which is why every index below simply shifts by one.
+    assert [s["causal_role"] for s in scenes] == ["cold_consequence", "setup", "intervention",
+                                                  "false_resolution", "hinge", "mechanism",
+                                                  "escalation", "reversal", "tool"]
+    assert scenes[0]["caused_by"] == "", "a cold open precedes everything and has no antecedent"
+    assert "1902" not in prompts[-1] and "1902" not in scenes[1]["event"]["text"]
+    assert {r["claim_id"] for r in scenes[5]["claim_refs"]} == {"c2", "c4", "c6", "c7"}
+    assert scenes[5]["derivation"]["source_ids"] == ["fact_2"]
+    assert scenes[5]["caused_by"] == scenes[2]["scene_id"]
+    assert scenes[4]["context_refs"] == [scenes[5]["beat_id"], scenes[6]["beat_id"]]
+    # Every scene that DECLARES an antecedent must point backwards. Roots declare none: `setup`
+    # always has, and the cold open now does too -- it is the first scene, so there is nothing
+    # before it to have caused it. Keying on the empty string rather than on position says what
+    # the rule actually is, and stops the check breaking each time presentation order moves.
     assert all(s["caused_by"] in {b["scene_id"] for b in scenes[:i]}
-               for i, s in enumerate(scenes) if i)
+               for i, s in enumerate(scenes) if i and s["caused_by"])
+    assert not scenes[0]["caused_by"] and not scenes[1]["caused_by"], "both roots stay rootless"
     cascade = research.validate_story_fact_model(script, dossier, judge=judge,
                                                  cache=script["_entailment_cache"])
     assert cascade["passed"], cascade

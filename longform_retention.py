@@ -30,7 +30,8 @@ EXPOSITION_ROLES = {"rules", "mechanism"}
 # answers the question -- is counted as exposition to be penalised. The retention properties are
 # format-independent (a viewer needs a turn, an answer and a reversal at survivable intervals), so
 # map the engine's vocabulary onto the retention one instead.
-CAUSAL_ATTENTION_ROLES = {"false_resolution", "hinge", "mechanism", "escalation", "reversal"}
+CAUSAL_ATTENTION_ROLES = {"cold_consequence", "false_resolution", "hinge", "mechanism",
+                          "escalation", "reversal"}
 CAUSAL_ANSWER_ROLES = {"mechanism", "reversal"}
 CAUSAL_PREDICTION_ROLES = {"false_resolution", "hinge"}
 CAUSAL_EXPOSITION_ROLES = {"setup", "context"}
