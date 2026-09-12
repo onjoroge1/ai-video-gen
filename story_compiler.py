@@ -552,7 +552,21 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         }.get(engine_id,
               "Break the apparent success in one short sentence, using only the supported "
               "mechanism and exploit. No new historical detail.")
+        # A cold open. `expected_order` is the CAUSAL sequence and every engine starts it at
+        # `setup`, so sorting by it guarantees scene 1 explains a situation before the viewer has
+        # been given a reason to care. retention_readiness has scored that -5 on every render as
+        # "first beat is not a visible consequence", and no corpus guidance could ever move it: the
+        # references shape what the generator writes, and this sort runs afterwards.
+        #
+        # Presentation order is not causal order. This adds the consequence as a DEVICE anchored to
+        # the reversal -- the same mechanism the hinge and tool already use -- rather than moving
+        # the reversal itself, so the causal spine is untouched and the ending still lands where it
+        # was written. The role name is the one the rubric already looks for.
         for role, anchor, text in (
+            ("cold_consequence", reversal,
+             "Open on the visible state the place is in now, in one short sentence a viewer could "
+             "picture. No explanation, no dates, no cause -- that is what the rest answers. Assert "
+             "nothing the reversal does not already assert."),
             ("hinge", mechanism, hinge_text),
             ("tool", reversal, "Close with one useful question the viewer can reuse; no new facts."),
         ):
@@ -575,11 +589,20 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                       # removed_keystone the mechanism is the first beat the planner writes with
                       # no antecedent, so the hinge inherited an empty cause and ORPHAN_STEP
                       # refused a story whose spine had passed in full.
-                      "caused_by": ((anchor.get("caused_by") or anchor["beat_id"])
+                      # A cold open precedes everything, so it has no antecedent to point at.
+                      # Naming its anchor would be a forward edge into a beat the viewer has not
+                      # reached, which is what ORPHAN_STEP and the ordering checks are for.
+                      "caused_by": ("" if role == "cold_consequence"
+                                    else (anchor.get("caused_by") or anchor["beat_id"])
                                     if role == "hinge" else anchor["beat_id"]),
                       "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
-            out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
+            if role == "cold_consequence":
+                out.insert(0, device)
+            elif role == "hinge":
+                out.insert(out.index(anchor), device)
+            else:
+                out.append(device)
         for i, beat in enumerate(out):
             beat["n"] = i + 1
             beat["chapter"] = min(4, i * 4 // len(out) + 1)

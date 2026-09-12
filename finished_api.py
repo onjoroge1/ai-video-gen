@@ -155,16 +155,31 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
         # Same rule as _get: an empty database must not hide local renders. Falling back only
         # when the database returned nothing keeps Postgres authoritative wherever it is
         # populated, and keeps production fail-closed via durable_storage_required().
-        if not rows:
-            if artifact_store.durable_storage_required():
-                if not db.db_enabled():
-                    raise HTTPException(status_code=503, detail={
-                        "code": "FINISHED_STORAGE_UNAVAILABLE",
-                        "message": "DATABASE_URL is required for the finished library",
-                        "retryable": True,
-                    })
-            else:
-                rows = _local_rows(finished_dir, q, limit, offset)
+        if artifact_store.durable_storage_required():
+            if not rows and not db.db_enabled():
+                raise HTTPException(status_code=503, detail={
+                    "code": "FINISHED_STORAGE_UNAVAILABLE",
+                    "message": "DATABASE_URL is required for the finished library",
+                    "retryable": True,
+                })
+        else:
+            # `if not rows` was too coarse. _get reconciles the two stores per ID; this reconciled
+            # them globally, so the fallback fired only when Postgres held NOTHING. A Postgres row
+            # is written only when Blob upload is configured too, so with DATABASE_URL set and no
+            # blob token every local render was invisible here -- while the same video was
+            # retrievable by direct ID through _get. Fourteen database rows were enough to hide a
+            # hundred and seventy-seven local ones.
+            #
+            # Union instead. Postgres stays authoritative for the IDs it covers; local files fill
+            # in the IDs it does not. Deep paging is approximate because the database page is
+            # fetched before the merge, which is acceptable for a library the local store only
+            # populates in development -- production sets durable_storage_required() and never
+            # reaches this branch.
+            seen = {row.get("id") for row in rows}
+            merged = rows + [row for row in _local_rows(finished_dir, q, limit + offset, 0)
+                             if row.get("id") not in seen]
+            merged.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+            rows = merged[:max(1, min(limit, 200))]
         for row in rows:
             row.setdefault("storage", "blob" if row.get("video_url") else "local")
         return {"videos": rows, "count": len(rows), "limit": limit, "offset": offset}
