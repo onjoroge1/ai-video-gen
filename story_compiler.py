@@ -577,8 +577,15 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
             # recorded -- so its mechanism beat is planner-written and carries no derivation.
             # Subscripting raised KeyError('derivation') on the first hippo sheet whose spine
             # passed, one step after the gate it had just cleared.
-            refs = [mechanism["beat_id"]] + (
-                (mechanism.get("derivation") or {}).get("witness_ids") or [])
+            # These refs decide which claims the device inherits, and therefore which evidence
+            # states get planned for it. The hinge and tool both hang off the mechanism, so it was
+            # hardcoded -- but a cold open shows what the REVERSAL describes, and pointing it at
+            # the mechanism gave it the wrong claims and, downstream, no evidence states at all:
+            # `opening_state_count` then failed the whole plan because an opening beat must carry
+            # at least one. Showing the end state IS the cold open, so it inherits the reversal.
+            source = reversal if role == "cold_consequence" else mechanism
+            refs = [source["beat_id"]] + (
+                (source.get("derivation") or {}).get("witness_ids") or [])
             if role == "tool":
                 refs.append(reversal["beat_id"])
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
