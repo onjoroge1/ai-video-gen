@@ -1,0 +1,86 @@
+{
+ "format": "causal_story_v1",
+ "reference_origin": "ai_authored_researched_candidate",
+ "source": "AI-authored researched editorial candidate from fixtures/causal/synthetic_candidates/cane_toads.md; not a transcribed video and carries no measured audience data.",
+ "note": "Promoted for STRUCTURE only. Voice fields (narrator_tone, humour_and_interrupts, narration_tense, sentence_length) are deliberately absent: a synthetic reference's voice is this generator's own voice, and feeding it back as corpus evidence would teach the model its own style as though it were a measurement of what works. Those fields stay sourced from measured real transcripts. blueprint() enforces this too.",
+ "story": {
+  "title": "Why Australia's Beetle Fix Became a Toad Problem",
+  "engine": "removed_keystone",
+  "format_tag": "five_minute_candidate",
+  "runtime_sec": 300,
+  "opening_object": "beetle-toad-crocodile feeding diagram",
+  "steps": [
+   {
+    "step_id": "present_reversal",
+    "role": "setup",
+    "start_sec": 0.0,
+    "label": "Crocodiles taught not to eat the fix",
+    "situation": "Researchers are training freshwater crocodiles to avoid the animal Australia imported to protect a crop.",
+    "chapter": 1
+   },
+   {
+    "step_id": "target_problem",
+    "role": "setup",
+    "start_sec": 42.9,
+    "label": "The beetle in the cane",
+    "situation": "Beetle larvae damage sugar-cane roots in Queensland; a real agricultural cost, not a foolish premise.",
+    "chapter": 2
+   },
+   {
+    "step_id": "release",
+    "role": "intervention",
+    "start_sec": 85.7,
+    "label": "2,400 toads at Gordonvale",
+    "situation": "In 1935 Reginald Mungomery brings cane toads from Hawaii, breeds them, and releases the young around Gordonvale.",
+    "chapter": 3
+   },
+   {
+    "step_id": "supply_success",
+    "role": "false_resolution",
+    "start_sec": 128.6,
+    "label": "Breeding is not control",
+    "situation": "The team can transport and breed the animals, which looks like the plan working.",
+    "chapter": 4
+   },
+   {
+    "step_id": "hidden_link",
+    "role": "mechanism",
+    "start_sec": 171.4,
+    "label": "Nobody costed what would eat the toad",
+    "situation": "The toad is not only a predator of beetles but toxic prey for anything that tries to eat it.",
+    "chapter": 5
+   },
+   {
+    "step_id": "predator_harm",
+    "role": "escalation",
+    "start_sec": 214.3,
+    "label": "Native predators poisoned",
+    "situation": "Beetle control never materialises at scale while the toads establish and native predators are harmed.",
+    "chapter": 6
+   },
+   {
+    "step_id": "resettles",
+    "role": "reversal",
+    "start_sec": 257.1,
+    "label": "A permanent management problem",
+    "situation": "The introduced population persists and the problem becomes managing the fix, not the beetle.",
+    "chapter": 7
+   }
+  ]
+ },
+ "observed": {
+  "hook_type": "Opens on the reversal already visible in the present -- researchers teaching freshwater crocodiles not to eat the animal that was imported as a fix -- then names the two questions that will explain it. The subject is concrete in the first sentence; no abstraction to decode.",
+  "story_pattern": "Opens on a present-day visible consequence, then poses the two questions the story will answer. Walks the intervention forward in dated, verifiable steps: the target problem, the deliberate release, the apparent early success, then the interaction nobody costed. The mechanism arrives as the answer to the second question, not as an aside. Closes by returning to the opening object with its second direction now legible.",
+  "reveal_placement": "The hidden link lands at the mechanism beat as the answer to the pre-posed second question, after the apparent success has been shown and believed.",
+  "ending_callback": "Returns to the opening feeding diagram, now read in the second direction: what eats the toad, not what the toad eats."
+ },
+ "expect": {
+  "engine": "removed_keystone",
+  "first_payoff": "The introduced predator is also toxic prey"
+ },
+ "measured": {
+  "narration_word_count": 683,
+  "runtime_measured": false,
+  "retention_percent": null
+ }
+}

@@ -1,0 +1,86 @@
+{
+ "format": "causal_story_v1",
+ "reference_origin": "ai_authored_researched_candidate",
+ "source": "AI-authored researched editorial candidate from fixtures/causal/synthetic_candidates/mongooses.md; not a transcribed video and carries no measured audience data.",
+ "note": "Promoted for STRUCTURE only. Voice fields (narrator_tone, humour_and_interrupts, narration_tense, sentence_length) are deliberately absent: a synthetic reference's voice is this generator's own voice, and feeding it back as corpus evidence would teach the model its own style as though it were a measurement of what works. Those fields stay sourced from measured real transcripts. blueprint() enforces this too.",
+ "story": {
+  "title": "Why Hawaii's Rat Fix Became a Bird Problem",
+  "engine": "removed_keystone",
+  "format_tag": "five_minute_candidate",
+  "runtime_sec": 300,
+  "opening_object": "rat, cane field, mongoose and nest",
+  "steps": [
+   {
+    "step_id": "present_reversal",
+    "role": "setup",
+    "start_sec": 0.0,
+    "label": "Birds guarded from the rat fix",
+    "situation": "Ground-nesting birds are now protected from the animal brought in to control rats.",
+    "chapter": 1
+   },
+   {
+    "step_id": "target_problem",
+    "role": "setup",
+    "start_sec": 42.9,
+    "label": "Rats in the cane",
+    "situation": "Rats damage sugar cane in Hawaii and a living control agent looks promising.",
+    "chapter": 2
+   },
+   {
+    "step_id": "release",
+    "role": "intervention",
+    "start_sec": 85.7,
+    "label": "Mongooses introduced",
+    "situation": "Mongooses are deliberately introduced to the islands to control the rat population.",
+    "chapter": 3
+   },
+   {
+    "step_id": "clock_story",
+    "role": "false_resolution",
+    "start_sec": 128.6,
+    "label": "The explanation that stops at the clock",
+    "situation": "The familiar account -- mongooses by day, rats by night -- is the tidy version that gets repeated.",
+    "chapter": 4
+   },
+   {
+    "step_id": "hidden_link",
+    "role": "mechanism",
+    "start_sec": 171.4,
+    "label": "What else the mongoose eats",
+    "situation": "The mongoose takes ground-nesting birds and eggs, an interaction the plan never counted.",
+    "chapter": 5
+   },
+   {
+    "step_id": "habitat_spread",
+    "role": "escalation",
+    "start_sec": 214.3,
+    "label": "Harm that geography makes lasting",
+    "situation": "A mongoose lives across several habitats, so the harm spreads and persists.",
+    "chapter": 6
+   },
+   {
+    "step_id": "resettles",
+    "role": "reversal",
+    "start_sec": 257.1,
+    "label": "Kauai's first capture",
+    "situation": "In May 2012 the first live mongoose on Kauai is trapped near Lihue; the islands are now managing the fix.",
+    "chapter": 7
+   }
+  ]
+ },
+ "observed": {
+  "hook_type": "Opens on the present-day consequence -- ground-nesting birds protected from an animal brought in to protect the crop -- then poses the questions the story answers. Names its subject immediately.",
+  "story_pattern": "Opens on a present-day visible consequence, then poses the two questions the story will answer. Walks the intervention forward in dated, verifiable steps: the target problem, the deliberate release, the apparent early success, then the interaction nobody costed. The mechanism arrives as the answer to the second question, not as an aside. Closes by returning to the opening object with its second direction now legible.",
+  "reveal_placement": "The mismatch that makes the plan fail is withheld until the mechanism beat, where it answers the question posed in the opening rather than arriving unprompted.",
+  "ending_callback": "Returns to the opening object with the omitted interaction now visible in it."
+ },
+ "expect": {
+  "engine": "removed_keystone",
+  "first_payoff": "Eating the target does not make the total intervention beneficial"
+ },
+ "measured": {
+  "narration_word_count": 689,
+  "runtime_measured": false,
+  "retention_percent": null
+ }
+}

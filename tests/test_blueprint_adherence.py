@@ -159,13 +159,35 @@ def test_every_retrievable_reference_carries_the_voice_fields():
         payload = json.loads(path.read_text())
         engine = (payload.get("story") or {}).get("engine")
         if engine:
-            by_engine.setdefault(engine, []).append((path.stem, payload.get("observed") or {}))
+            synthetic = (str(payload.get("reference_origin") or "").strip().casefold()
+                         == "ai_authored_researched_candidate")
+            by_engine.setdefault(engine, []).append(
+                (path.stem, payload.get("observed") or {}, synthetic))
+    # Partition by origin. An AI-authored candidate is barred from supplying voice by policy
+    # (reference_corpus._VOICE_FIELDS), so it is not "thin" in the sense this guard means -- it is
+    # structure-only on purpose, the same way hippo_weed omits fields it never measured. The
+    # asymmetry that hurts is still real, though, and it lives entirely among the references that
+    # ARE allowed to supply voice: two measured siblings where retrieval can pick the poorer one.
     for engine, refs in by_engine.items():
-        if len(refs) < 2:
+        measured = [(name, observed) for name, observed, synthetic in refs if not synthetic]
+        if len(measured) < 2:
             continue
-        for name, observed in refs:
+        for name, observed in measured:
             assert "sentence_length" in observed, \
                 f"{name} cannot supply what loose sends, and a sibling can"
+
+    # The unguarded case: an engine holding BOTH a measured and a synthetic reference.
+    # `_retrieve_blueprint` picks by nearest runtime and knows nothing about origin, so it could
+    # hand the generator a structure-only candidate where a measured sibling would have carried
+    # voice -- exactly the asymmetry above, reintroduced through the back door. No engine mixes
+    # origins today. Fail here the moment one does, rather than in a render whose narration
+    # quietly lost its tense and sentence-length guidance.
+    for engine, refs in by_engine.items():
+        origins = {synthetic for _, _, synthetic in refs}
+        assert len(origins) < 2, (
+            f"{engine} mixes measured and synthetic references; retrieval picks by runtime and "
+            "would silently drop voice guidance. Teach _retrieve_blueprint to prefer a measured "
+            "reference before allowing this.")
 
     for engine, runtime in (("backfiring_solution", 90), ("backfiring_solution", 220),
                             ("accumulating_indictment", 170), ("power_reversal", 220)):

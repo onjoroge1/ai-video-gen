@@ -189,3 +189,32 @@ def test_prompt_keeps_runtime_evidence_advisory():
     assert "Zero support means timing fit is unknown" in block
     assert "factual causal fit first" in block
     assert "Do not extend the requested runtime or the validation deadline" in block
+
+
+def test_a_synthetic_reference_teaches_structure_but_never_voice():
+    """An AI-authored candidate may teach how a story is built, not how a narrator sounds.
+
+    `removed_keystone` had zero references and sat at loose, so every story this project shipped on
+    that engine -- including the 91/100 macquarie render -- was written without story_pattern,
+    reveal_placement or ending_callback. Two researched candidates fix that coverage.
+
+    But `loose` already carries narration_tense and sentence_length, and those exist only because
+    they were MEASURED off real transcripts. Letting a synthetic supply them closes a loop: the
+    generator imitating its own habits, with the corpus presenting that as evidence of what works.
+    Structure is checkable against the candidate's sources; voice is not.
+    """
+    import reference_corpus as rc
+
+    synthetic = [r for r in rc.by_engine("removed_keystone") if r.is_synthetic]
+    assert synthetic, "the removed_keystone candidates should be retrievable"
+    for reference in synthetic:
+        rules = rc.blueprint(reference, "balanced")["format_rules"]
+        assert "story_pattern" in rules, "structure is the reason to promote these at all"
+        leaked = sorted(set(rules) & rc._VOICE_FIELDS)
+        assert not leaked, f"{reference.name} leaked measured-only voice fields: {leaked}"
+
+    real = [r for r in rc.by_engine("backfiring_solution") if not r.is_synthetic]
+    assert real, "the real corpus must still exist"
+    assert set(rc.blueprint(real[0], "balanced")["format_rules"]) & rc._VOICE_FIELDS, (
+        "a measured transcript must still supply voice; the gate is about origin, not about "
+        "removing the fields")

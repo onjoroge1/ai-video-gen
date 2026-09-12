@@ -111,6 +111,9 @@ class Reference:
         self._payload = payload
         self.story: dict = payload.get("story") or {}
         self.engine_id: str = se.resolve_id(self.story.get("engine"))
+        self.is_synthetic: bool = (
+            str(payload.get("reference_origin") or "").strip().casefold()
+            == "ai_authored_researched_candidate")
         self._measured: dict = payload.get("measured") or {}
         self._observed: dict = payload.get("observed") or {}
 
@@ -316,6 +319,11 @@ def runtime_fit_block(duration_sec: float, corpus_dir: Path | None = None,
 ADHERENCE_LEVELS = ("loose", "balanced", "strong")
 DEFAULT_ADHERENCE = "loose"
 
+# Fields that describe how a narrator SOUNDS rather than how the story is BUILT. Only a measured
+# real transcript may supply these; see the gate in blueprint().
+_VOICE_FIELDS = frozenset({"narrator_tone", "humour_and_interrupts", "narration_tense",
+                           "sentence_length"})
+
 _ADHERENCE_FIELDS = {
     # Voice and posture only — the things that are true of the format regardless of subject.
     # Tense and sentence length sit at LOOSE deliberately. They are voice, they carry no subject,
@@ -390,7 +398,18 @@ def blueprint(reference: "Reference", adherence: str = DEFAULT_ADHERENCE) -> dic
     level = adherence if adherence in _ADHERENCE_FIELDS else DEFAULT_ADHERENCE
     observed = reference.creative_context()["observed"]
     rules, omitted = {}, {}
-    for field in _ADHERENCE_FIELDS[level]:
+    fields = _ADHERENCE_FIELDS[level]
+    if reference.is_synthetic:
+        # An AI-authored candidate can teach STRUCTURE -- the beat sequence it walks, where it puts
+        # the reveal, what it calls back to -- because that was researched and is checkable against
+        # its sources. It cannot teach VOICE. A synthetic reference's tense and sentence length are
+        # this generator's own habits, so retrieving them as corpus evidence would close a loop:
+        # the model imitating itself and the measurement confirming it succeeded.
+        #
+        # narration_tense and sentence_length were added to the corpus precisely because they were
+        # MEASURED off real transcripts, and that is the only thing that makes them worth sending.
+        fields = tuple(f for f in fields if f not in _VOICE_FIELDS)
+    for field in fields:
         value = str(observed.get(field, "")).strip()
         if not value:
             continue

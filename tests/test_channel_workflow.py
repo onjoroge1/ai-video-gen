@@ -112,9 +112,14 @@ def test_ecosystem_path_has_its_own_contract_and_no_borrowed_blueprint(monkeypat
     import story_engines as engines
     import story_compiler as compiler
     from test_story_compiler import MACQUARIE
-    assert corpus.coverage()['removed_keystone'] == 0
+    # Promoted from zero: two structure-only candidates now teach this engine. The point of
+    # this test is that the ecosystem path does not BORROW another engine's blueprint, and
+    # that still holds -- what it retrieves now is its own.
+    assert corpus.coverage()['removed_keystone'] == 2
     monkeypatch.setenv('BLUEPRINT_ADHERENCE', 'strong')
-    assert ep._retrieve_blueprint('removed_keystone', '', 90) == ''
+    borrowed = ep._retrieve_blueprint('removed_keystone', '', 90)
+    assert not borrowed or 'removed_keystone' in borrowed, \
+        'the ecosystem path must never be handed another engine\'s blueprint'
     compiled = compiler.compile_roles(MACQUARIE, 'removed_keystone')
     assert compiled['passed']
     assert compiled['derived'] == []  # no invented reward or bounty mechanism

@@ -260,7 +260,12 @@ def test_the_ui_fallback_chips_are_on_brand():
     assert 'Hanoi' in world['topics'][0]['question']
     assert 'Aral Sea' in history['topics'][0]['question']
     assert not any('sparrow' in t['question'].lower() for t in history['topics'])
-    assert world['topics'][1]['reference_count'] == 0
+    # Read the count from the corpus rather than pinning a literal: this asserts the chip's
+    # wiring reports real coverage, and stops the test failing every time an engine is
+    # promoted. It was pinned at 0 when removed_keystone had no references.
+    import reference_corpus as _rc
+    assert world['topics'][1]['reference_count'] == _rc.coverage().get(
+        world['topics'][1].get('engine') or 'removed_keystone', 0)
     assert '/api/explainer/channels' in page
     for retired in ('What is gravity?', 'Why do cats purr?', 'What is dark matter?'):
         assert retired not in page
