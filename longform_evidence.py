@@ -81,7 +81,20 @@ def build_continuity_pack(script: dict) -> dict:
     scenes = script.get("scenes") or []
     contract = _story_contract(script)
     opening_object = _text(contract.get("opening_object"))
-    callback_object = _text(contract.get("final_callback_object"))
+    # A callback returns to the opening object -- that is what makes it a callback, and
+    # validate_evidence_plan enforces the two labels as an equality. The story contract nonetheless
+    # asks for them as two independently authored fields, and the beat-sheet prompt says twice that
+    # final_callback_object "MUST exactly equal opening_object". A model returned a different noun
+    # anyway, and because the compiled causal lane returns from validate_longform_story before the
+    # contract-level check at longform_retention.py:344, nothing noticed until the evidence plan was
+    # compiled -- which is after the research and script were paid for. The run died on a field the
+    # pipeline could have filled in itself.
+    #
+    # So fill it in. A field that cannot disagree needs neither the instruction nor the check. The
+    # model's own answer is kept beside it when it differs, so contract drift stays visible in the
+    # artifact instead of becoming a late, expensive failure.
+    proposed_callback = _text(contract.get("final_callback_object"))
+    callback_object = opening_object
     first_anchor = next((_text(scene.get("continuity_anchor")) for scene in scenes
                          if _text(scene.get("continuity_anchor"))), "")
     location_label = _text(contract.get("recurring_location")) or first_anchor
@@ -126,6 +139,9 @@ def build_continuity_pack(script: dict) -> dict:
             "label": callback_object,
             "scene_index": callback_scene,
             "reuse_source_asset_id": opening_asset_id,
+            **({"model_proposed_label": proposed_callback}
+               if proposed_callback and proposed_callback.casefold() != opening_object.casefold()
+               else {}),
         },
         "opening_scene_count": _opening_scene_count(scenes),
     }

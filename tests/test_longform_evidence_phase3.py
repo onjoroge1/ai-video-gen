@@ -354,3 +354,33 @@ def test_phase_three_reports_are_exposed_in_ui_and_api():
         "/api/explainer/evidence-validation/{job_id}",
         "/api/explainer/continuity/{job_id}",
     }.issubset(paths)
+
+
+def test_the_callback_label_is_derived_so_it_cannot_disagree_with_the_opening():
+    """Two fields required to be equal are one field with a chance to fail.
+
+    `validate_evidence_plan` enforces callback.label == opening_object.label, and the beat-sheet
+    prompt states the requirement twice. A model still returned a different noun. The compiled
+    causal lane returns from `validate_longform_story` before the contract-level check that would
+    have caught it, so the mismatch surfaced only when the evidence plan was compiled -- after the
+    research and script had been bought -- and killed the run.
+
+    Deriving the label removes the failure mode entirely. The model's answer is preserved as
+    `model_proposed_label` so the drift is still auditable in the artifact.
+    """
+    script = {
+        "scenes": [{"story_role": "setup", "continuity_anchor": "the island slope"},
+                   {"story_role": "resonant_end"}],
+        "_story_contract": {"version": 2, "opening_object": "a rabbit-cropped hillside",
+                            "final_callback_object": "the seabird colony",
+                            "recurring_location": "Macquarie Island"},
+    }
+    pack = build_continuity_pack(script)
+    assert pack["callback"]["label"] == "a rabbit-cropped hillside"
+    assert pack["callback"]["model_proposed_label"] == "the seabird colony"
+    assert not [e for e in validate_evidence_plan({"version": 1, "continuity_pack": pack}).get(
+        "errors") or [] if e.get("code") == "callback_object_mismatch"]
+
+    agreed = dict(script["_story_contract"], final_callback_object="a rabbit-cropped hillside")
+    pack = build_continuity_pack(dict(script, _story_contract=agreed))
+    assert "model_proposed_label" not in pack["callback"], "only record drift when it happened"
