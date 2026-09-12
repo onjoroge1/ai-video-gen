@@ -1,0 +1,104 @@
+{
+  "schema": "bolt_synthetic_editorial_candidates_v1",
+  "created_on": "2026-09-12",
+  "channel": "Bolt Explains the World",
+  "niche": "Documented pest-control interventions that created additional problems",
+  "reference_origin": "ai_authored_researched_candidate",
+  "active_retrieval": false,
+  "production_dossier": false,
+  "human_approved": false,
+  "engine_validation": "not_run",
+  "source_entailment_validation": "not_run",
+  "audience_tested": false,
+  "measured_video_runtime_sec": null,
+  "retention_percent": null,
+  "engagement_score": null,
+  "quality_target": "Clear, evidence-supported, visually progressive storytelling; no guaranteed audience outcome",
+  "word_count_method": "Unicode word tokens, internal apostrophes retained, hyphenated words split; narration only, block headings excluded",
+  "timing_policy": {
+    "target_runtime_sec": 300,
+    "runtime_is": "planning_target_not_measurement",
+    "speech_speed_transform": "none",
+    "illustrative_wpm": 140,
+    "instruction": "Measure natural-speed narration; revise text or accept shorter duration rather than forcing delivery or padding. Nominal 30-second blocks are not shot holds.",
+    "visual_change_rule": "Change or develop the image on a new supported proposition; do not force a universal cut interval."
+  },
+  "clarity_review": {
+    "status": "pending_independent_review",
+    "questions": [
+      "Can a cold viewer identify the place, responsible actor and target problem?",
+      "Can the viewer explain the mechanism without repeating a slogan?",
+      "Does every return to an earlier idea add evidence, consequence or changed meaning?",
+      "Do the visuals establish the narrated relationship without adding an unsupported claim?",
+      "Does the ending answer the title while preserving the evidence limits?"
+    ],
+    "do_not_convert_to_gates": ["present tense everywhere", "fixed sentence length", "mandatory surprise", "mandatory five-minute runtime", "mandatory quiz-style prediction gate"]
+  },
+  "stories": [
+    {
+      "id": "synthetic_candidate_hanoi_v1",
+      "path": "hanoi.md",
+      "engine": "backfiring_solution",
+      "narration_word_count": 641,
+      "estimated_speech_sec_at_140_wpm": 274.7,
+      "illustrative_non_speech_allowance_sec": 25.3,
+      "target_runtime_sec": 300,
+      "first_payoff": "A tail is the payment evidence, not a verified death",
+      "opening_object": "payment desk, tail and coin",
+      "callback_change": "The desk is revealed as the buyer in a supply chain",
+      "required_function_evidence_map": {
+        "establishes_problem": {"blocks": ["B02", "B03"], "sources": ["H2", "H4"]},
+        "changes_incentive": {"blocks": ["B05"], "sources": ["H3"], "rewarded_measure": "rat tails submitted", "actual_goal": "reduce rats as a public-health threat"},
+        "apparent_success": {"blocks": ["B05"], "sources": ["H3"], "note": "Deliveries looking successful is a distinct assertion from the bounty being introduced; the sewer kill count is not substituted for this event."},
+        "exploit_behavior": {"blocks": ["B06"], "sources": ["H1", "H2"]},
+        "compounds_exploit": {"blocks": ["B07", "B08"], "sources": ["H1", "H2"]}
+      },
+      "mechanism_status": "editorial comparison derived from sourced goal, reward and behavior; not a quoted historical law",
+      "evidence_limits": ["No final rat census", "No bounty-caused plague death toll", "No universal participation", "Vann interviews are not independent archival replications", "Source-linked paraphrases require production entailment review"]
+    },
+    {
+      "id": "synthetic_candidate_cane_toads_v1",
+      "path": "cane_toads.md",
+      "engine": "removed_keystone",
+      "intervention_direction": "introduction",
+      "narration_word_count": 683,
+      "estimated_speech_sec_at_140_wpm": 292.7,
+      "illustrative_non_speech_allowance_sec": 7.3,
+      "target_runtime_sec": 300,
+      "first_payoff": "The introduced predator is also toxic prey",
+      "opening_object": "beetle-toad-crocodile feeding diagram",
+      "callback_change": "The second feeding direction explains costs outside the crop",
+      "required_function_evidence_map": {
+        "establishes_balance": {"blocks": ["B02"], "sources": ["C1"], "note": "Pre-introduction target problem, not a claim that toads previously balanced Australian ecosystems"},
+        "species_moved": {"blocks": ["B03"], "sources": ["C2"]},
+        "hidden_link": {"blocks": ["B06"], "sources": ["C1", "C3", "C5"]},
+        "population_responds": {"blocks": ["B06", "B07"], "sources": ["C1", "C3", "C5"], "note": "Predator harm and toad establishment; no inferred downstream food-web collapse"},
+        "system_resettles": {"blocks": ["B07"], "sources": ["C3"], "note": "Persistent introduced population and changed management problem, not a claim of stable equilibrium"}
+      },
+      "optional_context_blocks": ["B08", "B09"],
+      "evidence_limits": ["Breeding success is not beetle-control success", "Warnings existed", "Not all predators are equally susceptible", "Crocodile treatment outcomes are local and species-specific", "Coda is not a second mandatory engine"]
+    },
+    {
+      "id": "synthetic_candidate_mongooses_v1",
+      "path": "mongooses.md",
+      "engine": "removed_keystone",
+      "intervention_direction": "introduction",
+      "narration_word_count": 689,
+      "estimated_speech_sec_at_140_wpm": 295.3,
+      "illustrative_non_speech_allowance_sec": 4.7,
+      "target_runtime_sec": 300,
+      "first_payoff": "Eating the target does not make the total intervention beneficial",
+      "opening_object": "rat, cane field, mongoose and nest",
+      "callback_change": "Widen the farm's frame to the ecological and prevention costs",
+      "required_function_evidence_map": {
+        "establishes_balance": {"blocks": ["B02"], "sources": ["M1", "M2"], "note": "The rat-control objective before introduction"},
+        "species_moved": {"blocks": ["B02"], "sources": ["M1", "M2"]},
+        "hidden_link": {"blocks": ["B03", "B05"], "sources": ["M1", "M2"]},
+        "population_responds": {"blocks": ["B05", "B06"], "sources": ["M1", "M2"], "note": "Native-wildlife harm and mongoose establishment; no unsupported abundance curve"},
+        "system_resettles": {"blocks": ["B06"], "sources": ["M1", "M2"], "note": "Established additional predator, not an asserted ecological equilibrium"}
+      },
+      "optional_context_blocks": ["B07", "B08", "B09"],
+      "evidence_limits": ["Mongooses eat rodents", "No zero-overlap day/night claim", "Private industry is not modern scientific biocontrol", "A capture is not proof of establishment", "2023 is a dated event, not claimed latest news", "Full M4 article retrieval was incomplete"]
+    }
+  ]
+}
