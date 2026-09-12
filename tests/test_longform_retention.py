@@ -228,3 +228,36 @@ def test_pipeline_replans_a_failed_contract_before_subjective_grading(monkeypatc
     assert "DETERMINISTIC CONTRACT FAILURES" in calls[1]
     assert result["_retention_validation"]["passed"] is True
     assert result["_script_cost_usd"] == 2.75
+
+
+def test_the_compiled_lane_populates_every_check_the_readiness_rubric_scores():
+    """A check the lane never writes is scored as a check the video failed.
+
+    `validate_longform_story` returns early for the compiled causal lane, and every timing key it
+    skipped was read downstream by `retention_readiness.score_retention_readiness` -- which reads an
+    absent `max_attention_gap_sec` as the sentinel 999 and an absent `prediction_scenes` as "no
+    prediction gate". Two unrelated finished videos therefore scored an identical 65/100 with
+    identical component scores: the rubric was measuring which lane produced them, not how they
+    played. Eighteen of those points were vocabulary, not video.
+
+    This is the guard on the join, not on the numbers. It asserts only that the compiled lane emits
+    the keys the rubric consumes, so the two can never silently drift apart again.
+    """
+    import retention_readiness
+
+    script = copy.deepcopy(_passing_script())
+    script["_compiled_story"] = True
+    script["_story_engine"] = "removed_keystone"
+    for i, role in enumerate(["setup", "intervention", "false_resolution", "hinge",
+                              "mechanism", "escalation", "reversal", "tool"]):
+        if i < len(script["scenes"]):
+            script["scenes"][i]["story_role"] = role
+
+    checks = validate_longform_story(script, "why did it happen?")["checks"]
+    scored = {"max_attention_gap_sec", "max_exposition_block_sec",
+              "prediction_scenes", "answer_scenes"}
+    missing = sorted(scored - set(checks))
+    assert not missing, (
+        f"the compiled lane does not emit {missing}; retention_readiness scores each absent key as "
+        "a failure, so story work cannot move the grade")
+    assert checks["max_attention_gap_sec"] < 999, "the sentinel means the gap was never measured"

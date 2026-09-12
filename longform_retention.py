@@ -23,6 +23,34 @@ ATTENTION_ROLES = {
 ANSWER_ROLES = {"payoff", "reversal", "branch", "final_payoff"}
 EXPOSITION_ROLES = {"rules", "mechanism"}
 
+# The compiled causal lane names each beat after its factual function, not after the cinematic
+# grammar the version-2 checks were written against. Those two vocabularies share exactly one word
+# ("reversal"), so scoring this lane against the sets above measures the naming scheme rather than
+# the video: every timing check reads a key this lane never writes, and `mechanism` -- the beat that
+# answers the question -- is counted as exposition to be penalised. The retention properties are
+# format-independent (a viewer needs a turn, an answer and a reversal at survivable intervals), so
+# map the engine's vocabulary onto the retention one instead.
+CAUSAL_ATTENTION_ROLES = {"false_resolution", "hinge", "mechanism", "escalation", "reversal"}
+CAUSAL_ANSWER_ROLES = {"mechanism", "reversal"}
+CAUSAL_PREDICTION_ROLES = {"false_resolution", "hinge"}
+CAUSAL_EXPOSITION_ROLES = {"setup", "context"}
+
+
+def _attention_checks(roles, starts, durations, runtime, attention_roles, exposition_roles):
+    """Longest stretch with no story turn, and longest unbroken expository block."""
+    attention = [i for i, role in enumerate(roles) if role in attention_roles]
+    times = [0.0] + [starts[i] for i in attention] + [runtime]
+    max_gap = max((b - a for a, b in zip(times, times[1:])), default=runtime)
+    longest = 0.0
+    block_start = None
+    for i, role in enumerate(list(roles) + ["__end__"]):
+        if role in exposition_roles and block_start is None:
+            block_start = i
+        elif role not in exposition_roles and block_start is not None:
+            longest = max(longest, sum(durations[block_start:i]))
+            block_start = None
+    return round(max_gap, 1), round(longest, 1)
+
 
 class StoryFormatAcknowledgementRequired(RuntimeError):
     """An operator must accept a Mystery-to-Standard fallback before visual spending."""
@@ -289,6 +317,12 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
             errors.append(_issue("engine_story_contract", message))
         checks["contract"] = "compiled_factual"
         checks["engine"] = script.get("_story_engine")
+        gap, expo = _attention_checks(roles, starts, durations, runtime,
+                                      CAUSAL_ATTENTION_ROLES, CAUSAL_EXPOSITION_ROLES)
+        checks["max_attention_gap_sec"] = gap
+        checks["max_exposition_block_sec"] = expo
+        checks["prediction_scenes"] = [i + 1 for i, r in enumerate(roles) if r in CAUSAL_PREDICTION_ROLES]
+        checks["answer_scenes"] = [i + 1 for i, r in enumerate(roles) if r in CAUSAL_ANSWER_ROLES]
         return {"version": 2, "passed": not errors, "score": 100 if not errors else 0,
                 "errors": errors, "warnings": warnings, "checks": checks}
 
