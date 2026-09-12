@@ -1,0 +1,88 @@
+{
+ "version": 2,
+ "name": "Retention Readiness Score",
+ "disclaimer": "Editorial readiness score, not a prediction of actual YouTube retention.",
+ "score": 91,
+ "grade": "A",
+ "label": "Exceptional readiness",
+ "passed": true,
+ "hard_failures": [],
+ "components": [
+  {
+   "name": "Opening contract",
+   "score": 20,
+   "max": 25,
+   "notes": [
+    "first beat is not a visible consequence"
+   ]
+  },
+  {
+   "name": "Narrative propulsion",
+   "score": 25,
+   "max": 25,
+   "notes": []
+  },
+  {
+   "name": "Visual continuity & semantic sync",
+   "score": 18,
+   "max": 20,
+   "notes": [
+    "no clause-specific B-roll appears in this cut"
+   ]
+  },
+  {
+   "name": "Audio rhythm",
+   "score": 13,
+   "max": 15,
+   "notes": [
+    "audio cue palette lacks contrast"
+   ]
+  },
+  {
+   "name": "Packaging/payoff alignment",
+   "score": 10,
+   "max": 10,
+   "notes": []
+  },
+  {
+   "name": "Technical delivery",
+   "score": 5,
+   "max": 5,
+   "notes": []
+  }
+ ],
+ "shot_metrics": {
+  "shot_count": 17,
+  "cut_count": 10,
+  "hard_cut_count": 10,
+  "still_shot_count": 17,
+  "i2v_shot_count": 0,
+  "alternate_shot_count": 0,
+  "distinct_source_count": 17,
+  "reframe_shot_count": 2,
+  "verified_information_shot_count": 17,
+  "broll_clause_count": 0,
+  "avg_still_seconds": 4.47,
+  "min_shot_seconds": 1.5,
+  "max_still_seconds": 10.12,
+  "sub_min_shot_count": 0,
+  "semantic_sync_ratio": 0.9,
+  "meaningful_cut_ratio": 1.0,
+  "motion_sync_ratio": 1.0,
+  "same_source_hard_cut_count": 0,
+  "continuous_camera_paths": 1,
+  "i2v_seconds": 0
+ },
+ "audio_cues": [
+  {
+   "time_sec": 46.86,
+   "type": "impact",
+   "story_role": "reversal"
+  }
+ ],
+ "preview": {
+  "decodable": true,
+  "duration_sec": 46.7,
+  "target_sec": 45
+ }
+}

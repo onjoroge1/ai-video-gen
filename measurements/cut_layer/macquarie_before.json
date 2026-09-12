@@ -1,0 +1,97 @@
+{
+ "version": 2,
+ "name": "Retention Readiness Score",
+ "disclaimer": "Editorial readiness score, not a prediction of actual YouTube retention.",
+ "score": 65,
+ "grade": "D",
+ "label": "Weak; revise before full render",
+ "passed": false,
+ "hard_failures": [
+  "semantic_sync",
+  "same_source_jump_cuts"
+ ],
+ "components": [
+  {
+   "name": "Opening contract",
+   "score": 10,
+   "max": 25,
+   "notes": [
+    "first beat is not a visible consequence",
+    "prediction gate is missing or late",
+    "first useful payoff is missing or late"
+   ]
+  },
+  {
+   "name": "Narrative propulsion",
+   "score": 17,
+   "max": 25,
+   "notes": [
+    "longest attention gap is 999.0s"
+   ]
+  },
+  {
+   "name": "Visual continuity & semantic sync",
+   "score": 10,
+   "max": 20,
+   "notes": [
+    "semantic cut alignment is only 8%",
+    "meaningful-cut ratio is 92%; 1 same-source hard cut(s)",
+    "no clause-specific B-roll appears in this cut"
+   ]
+  },
+  {
+   "name": "Audio rhythm",
+   "score": 13,
+   "max": 15,
+   "notes": [
+    "audio cue palette lacks contrast"
+   ]
+  },
+  {
+   "name": "Packaging/payoff alignment",
+   "score": 10,
+   "max": 10,
+   "notes": []
+  },
+  {
+   "name": "Technical delivery",
+   "score": 5,
+   "max": 5,
+   "notes": []
+  }
+ ],
+ "shot_metrics": {
+  "shot_count": 20,
+  "cut_count": 13,
+  "hard_cut_count": 13,
+  "still_shot_count": 20,
+  "i2v_shot_count": 0,
+  "alternate_shot_count": 0,
+  "distinct_source_count": 18,
+  "reframe_shot_count": 1,
+  "verified_information_shot_count": 19,
+  "broll_clause_count": 0,
+  "avg_still_seconds": 3.74,
+  "min_shot_seconds": 1.61,
+  "max_still_seconds": 8.09,
+  "sub_min_shot_count": 0,
+  "semantic_sync_ratio": 0.077,
+  "meaningful_cut_ratio": 0.923,
+  "motion_sync_ratio": 1.0,
+  "same_source_hard_cut_count": 1,
+  "continuous_camera_paths": 1,
+  "i2v_seconds": 0
+ },
+ "audio_cues": [
+  {
+   "time_sec": 45.13,
+   "type": "impact",
+   "story_role": "reversal"
+  }
+ ],
+ "preview": {
+  "decodable": true,
+  "duration_sec": 61.3,
+  "target_sec": 45
+ }
+}
