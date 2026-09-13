@@ -76,9 +76,35 @@ def fetch_page_text(url: str, *, session: requests.Session | None = None) -> str
 
 _SENTENCE = re.compile(r"[^.!?]{25,400}[.!?]")
 
+# Words that reverse or hollow out a sentence's commitment. `_content_words` drops anything four
+# characters or shorter, so "not"/"no"/"nor" are invisible to the overlap score by construction —
+# and several of these ("never", "failed", "unable") survive the length filter but are then just
+# one more matching token, no different from "beetle". Overlap cannot see meaning; this set is how
+# the repair path is told that two sentences saying opposite things are not the same evidence.
+_POLARITY = frozenset("""
+no not nor none never neither nothing without cannot cant dont doesnt didnt
+isnt arent wasnt werent wont wouldnt couldnt shouldnt hasnt havent hadnt
+failed failure fail fails unsuccessful ineffective unable refuted disproved
+disproven debunked myth incorrectly wrongly falsely contrary despite however
+although whereas unlike rather instead little negligible minimal barely
+hardly scarcely rarely seldom unproven untested inconclusive disputed
+contested alleged supposedly reportedly claimed purported
+""".split())
+
 
 def _content_words(text: str) -> set:
     return {w for w in re.findall(r"[a-z0-9]+", normalise(text)) if len(w) > 3}
+
+
+def _is_negated(text: str) -> bool:
+    """Does this text carry a negation or hedge, read WITHOUT the content-word length filter?
+
+    Boolean, not a set. An earlier version compared marker SETS for equality, which rejected the
+    honest repair too: the model wrote "did not reduce" and the page said "never reduced", so
+    {not} != {never} and a correct recovery was thrown away. What matters is direction, and
+    direction is one bit.
+    """
+    return any(w in _POLARITY for w in re.findall(r"[a-z0-9]+", normalise(text)))
 
 
 def candidate_passages(query: str, page_text: str, *, limit: int = 3) -> list[str]:
@@ -122,12 +148,39 @@ def repair_quote(claim_text: str, quote: str, page_text: str, *, min_overlap: fl
 
     Requires real overlap with the CLAIM, not merely with the model's paraphrase, so this cannot
     quietly attach an unrelated sentence to a claim the page does not support.
+
+    Overlap alone was not enough, and the failure was not theoretical. Measured against this
+    function on a two-sentence page:
+
+        page   "Introduced to Australia in 1935, the cane toad was brought in to control the
+                greyback cane beetle in Queensland sugar plantations.
+                The beetle population was never reduced by the toads."
+        claim  "The 1935 introduction of cane toads to Queensland successfully controlled the
+                greyback cane beetle."
+
+    The page's STATEMENT OF INTENT scored 0.583 and was substituted; the page's own refutation
+    scored 0.167 and was discarded.
+
+    Polarity matching is a partial answer and it is worth being exact about what it does and does
+    not buy. It refuses a candidate that NEGATES a claim the page appears to make positively (and
+    vice versa), which is a real class of failure. It does NOT catch the case above, where the
+    substituted sentence states an INTENT and the claim asserts an OUTCOME: both are positive, so
+    both pass. No word-overlap rule can separate "was brought in to control" from "controlled".
+    That case is caught downstream instead, by giving the evidence judge the quote and URL to look
+    at (see `claim_entailment`), which is the only stage that can read for meaning. What this
+    function guarantees is narrower than it used to claim: the returned sentence appears verbatim
+    on the page and does not contradict the claim's direction.
     """
     wanted = _content_words(claim_text) | _content_words(quote)
     if not wanted or not page_text:
         return ""
+    # The claim's own hedges count: a claim that already says "failed" may legitimately match a
+    # sentence that says "failed". Only a mismatch in DIRECTION is disqualifying.
+    claim_negated = _is_negated(claim_text) or _is_negated(quote)
     best, best_score = "", 0.0
     for sentence in _SENTENCE.findall(page_text):
+        if _is_negated(sentence) != claim_negated:
+            continue
         score = len(wanted & _content_words(sentence)) / len(wanted)
         if score > best_score:
             best, best_score = sentence.strip(), score
@@ -172,6 +225,13 @@ def verify_claims(claims: list, *, max_workers: int = 6, repair: bool = True,
                 repaired += 1
         claim["quote_verified"] = ok
         claim["source_reachable"] = bool(raw_page)
+        # A recovered quote is weaker evidence than a verbatim one: it is a sentence from the right
+        # page that shares the claim's words and direction, not the sentence the model said it was
+        # quoting. Downstream judges are shown this, so "verified" can stop meaning one thing when
+        # it is two.
+        if ok:
+            claim["support_provenance"] = ("page_recovered"
+                                           if claim.get("support_quote_model") else "verbatim")
         verified += 1 if ok else 0
     if repaired:
         log(f"Claim verification: recovered {repaired} quote(s) from page text")

@@ -383,6 +383,75 @@ def _get_inprogress(job_id: str):
         return None
 
 
+# The Finished Videos library groups on one string. Quizzes have always had their own
+# ("short-quiz"); the illustrated lane borrowed "explainer" and disappeared into it. This is the
+# lane's label. One hand-imported legacy row in the library says "illustrated-causal-longform" —
+# static/finished.html folds that spelling into the same lane so the library is not split in two.
+ILLUSTRATED_FINISHED_FORMAT = "illustrated-story"
+
+
+def finished_library_format(*, visual_style: str, video_format: str, short_template: str,
+                            directed_spec: bool, directed_full_film: bool) -> str:
+    """The library lane label for one render. One expression, one caller, one test.
+
+    This used to be a ternary inlined in the archive call. A test can only pin an inlined
+    expression by copying it, and a copied expression is not a test — reordering the branches here
+    would leave both the copy and the suite green while every illustrated render silently went
+    back to being an "explainer".
+    """
+    if directed_full_film:
+        return "directed-v1-full"
+    if directed_spec:
+        return "directed-v1-pilot"
+    if video_format == "social":
+        return f"short-{short_template}"
+    if visual_style == "illustrated_story":
+        return ILLUSTRATED_FINISHED_FORMAT
+    return "explainer"
+
+
+def _read_json_file(path: str | None) -> dict:
+    """Best-effort read of a pipeline side-car. Never let a bad artifact block archival."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        return loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _illustrated_library_fields(result: dict, visual_style: str) -> dict:
+    """Lane facts the library needs to describe an illustrated render without opening the MP4.
+
+    These come from artifacts the run already wrote, so nothing here re-derives or re-judges
+    anything. Absent values stay absent rather than defaulting to something reassuring: a
+    storyboard that never validated must not read as validated because a key was missing.
+    """
+    if visual_style != "illustrated_story":
+        return {}
+    manifest = _read_json_file(result.get("generation_manifest_path"))
+    storyboard = _read_json_file(result.get("storyboard_path"))
+    lane = manifest.get("illustrated_story") if isinstance(
+        manifest.get("illustrated_story"), dict) else {}
+    music = manifest.get("music") if isinstance(manifest.get("music"), dict) else {}
+    validation = storyboard.get("validation") if isinstance(
+        storyboard.get("validation"), dict) else {}
+    fields = {
+        "creative_lane": manifest.get("creative_lane") or "illustrated_story_v1",
+        "creative_profile": manifest.get("creative_profile"),
+        "story_engine": storyboard.get("story_engine") or None,
+        "chapter_count": storyboard.get("chapter_count"),
+        "beat_count": lane.get("beat_count") or len(storyboard.get("beats") or []) or None,
+        "location_count": lane.get("location_count") or None,
+        "storyboard_validated": validation.get("passed"),
+        "music_status": music.get("status") or ("ready" if music.get("spec") else None),
+        "motion_mode": result.get("motion_mode") or manifest.get("motion_mode"),
+    }
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None = None) -> str:
     """Keep a local compatibility copy and upload the durable Blob/Postgres record when enabled."""
     dest = os.path.join(FINISHED_DIR, f"{job_id}.mp4")
@@ -1655,15 +1724,18 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "quiz_primary_variant": result.get("primary_variant"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
-        template = ("directed-v1" if request.directed_spec else
-                    request.short_template if request.video_format == "social" else "explainer")
+        effective_visual_style = result.get("visual_style") or request.visual_style
         await _archive_finished(job, job_id, result["output_path"], {
             "title": result["title"], "status": job["status"],
-            "format": ("directed-v1-full" if request.directed_full_film else
-                       "directed-v1-pilot" if request.directed_spec else
-                       f"short-{template}" if request.video_format == "social" else "explainer"),
+            "format": finished_library_format(
+                visual_style=effective_visual_style,
+                video_format=request.video_format,
+                short_template=request.short_template,
+                directed_spec=bool(request.directed_spec),
+                directed_full_film=bool(request.directed_full_film)),
             "question": request.question, "scene_count": result["scene_count"],
-            "visual_style": result.get("visual_style") or request.visual_style,
+            "visual_style": effective_visual_style,
+            **_illustrated_library_fields(result, effective_visual_style),
             "topic_channel": request.topic_channel,
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),

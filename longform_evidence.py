@@ -308,6 +308,57 @@ def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> 
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
 
+def _promote_opening_reframe(states: list, scene_index: int, opening: bool,
+                             capacity: int) -> list[dict]:
+    """Let an opening beat earn its own image instead of deadlocking on an unmeetable rule.
+
+    `insufficient_distinct_evidence_assets` requires an opening beat with room for two states to
+    carry two GENERATED assets, or a detail reframe whose crop has been pixel-verified. At plan
+    time no image exists, so `detail_verification_passed` cannot be true — it is only written after
+    generation. The strategy is the model's choice: the script prompt offers
+    master|distinct|detail_reframe per beat. So whenever the model picks `detail_reframe` for the
+    opening's second beat, the run aborts with no repair path, before any media spend but after
+    research, script, fact-check and claim repair are all paid for. Measured: one of four live
+    attempts on the same topic died exactly here.
+
+    Asking the model to choose differently is the pattern this file already rejects everywhere else
+    -- `collapse_locations` counts frequencies rather than asking for four locations, `repair_chain`
+    fixes role order rather than asking for it. Which strategy the opening's second state uses is
+    not a judgement: if the opening needs two distinct assets and has one, the reframe becomes
+    distinct and buys its own image. One extra generation, ~$0.045, against a ~$1.50 abort.
+
+    `source_asset_id` MUST be cleared on promotion. A distinct state that still declares a source
+    trips `missing_source_asset`'s sibling check and swaps one hard failure for another.
+
+    Returns the repairs made, so the caller records what it changed rather than silently differing
+    from the script.
+    """
+    if not opening or capacity < 2:
+        return []
+    generated = [state for state in states
+                 if _text(state.get("asset_strategy")) in {"master", "distinct"}]
+    if len(generated) >= 2:
+        return []
+    repairs = []
+    for state in states:
+        if len(generated) >= 2:
+            break
+        if _text(state.get("asset_strategy")) != "detail_reframe":
+            continue
+        state["asset_strategy"] = "distinct"
+        state["source_asset_id"] = ""
+        state["detail_target"] = ""
+        generated.append(state)
+        repairs.append({
+            "code": "opening_reframe_promoted",
+            "scene": scene_index + 1,
+            "state_id": _text(state.get("state_id")),
+            "message": ("Opening reframe promoted to a distinct generated asset so the opening "
+                        "carries two; a plan-time crop cannot be pixel-verified."),
+        })
+    return repairs
+
+
 def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> dict:
     """Compile narration beats into explicit visual states without pretending crops are evidence."""
     scenes = script.get("scenes") or []
@@ -315,6 +366,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     pack = build_continuity_pack(script)
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
+    repairs: list[dict] = []
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
@@ -324,6 +376,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             for state_index, beat in enumerate(
                 _states_that_fit(beats, scene, measured.get(scene_index)))
         ]
+        repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         scene_plans.append({
             "scene_index": scene_index,
             "story_role": _text(scene.get("story_role")),
@@ -368,7 +421,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "asset_status": "planned",
             "rejection_reasons": [],
         })
-    plan = {"version": 1, "continuity_pack": pack, "scenes": scene_plans}
+    plan = {"version": 1, "continuity_pack": pack, "scenes": scene_plans, "repairs": repairs}
     plan["validation"] = validate_evidence_plan(plan)
     return plan
 
