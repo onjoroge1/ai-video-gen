@@ -39,6 +39,49 @@ flowchart TD
 `stated_policy_goal` is the planner's field name; the compiler still reads legacy `actual_goal`
 in archived sheets. Engines without a factual function map retain their existing role assignment.
 
+## Retention readiness on this lane
+
+`retention_readiness.score_retention_readiness` reads six keys out of `validation["checks"]`, and
+the compiled-factual branch of `validate_longform_story` returned before computing any of them. The
+scorer's `or` defaults are not neutral:
+
+| key | absent read as | effect |
+|---|---|---|
+| `max_attention_gap_sec` | `999` | **-8** (a 999-second gap reported on a 75-second video) |
+| `prediction_scenes` | falsy | **-5** |
+| `answer_scenes` | falsy | **-5** |
+| `max_exposition_block_sec` | `0` | **+5**, unearned |
+| `unresolved_loops` | falsy | **+5**, unearned |
+
+Plus `scenes[0]["story_role"] == "cold_consequence"`, which no causal engine can satisfy: they all
+open on `setup`, and `cold_consequence` is not one of this lane's roles at all. A permanent -5.
+
+Measured: a **perfect** illustrated video scored **77/100 (C)**. An A was arithmetically
+unreachable, and the number was not measuring the video.
+
+Three changes. `longform_retention._causal_retention_checks` emits those keys in the causal role
+vocabulary, imported from `causal_story` rather than restated, so an engine change cannot leave the
+two files disagreeing about what a reversal is. It is measurement only — the causal contract already
+fail-closes on structure, and a second set of uncalibrated blocking thresholds is the habit this
+lane has too much of. `_measured()` replaces the `or` defaults so absent is distinguishable from a
+measured zero. And an unmeasured axis is subtracted from the **denominator** rather than counted as
+a loss: components carry `assessed_max`, the grade is the percentage of the assessed total, and
+`unmeasured` is listed in the report and the label.
+
+The causal opening is left explicitly unassessed rather than silently decided. Two contracts
+disagree about what an opening should be — the engine mandates `setup`, the retention rubric wants a
+visible consequence — and which one a causal story should follow is an editorial question, not a
+measurement. The mystery lane is untouched.
+
+Hard failures still cap the grade at 69 (`semantic_sync < 0.70`, any same-source hard cut, any
+sub-minimum shot). Widening the denominator does not let a real defect through.
+
+Re-scored against a recorded live run: the same video, same shots, moves from
+`65 (D) — Opening 10/25, Propulsion 17/25` to `raw 78/95 — Opening 20/20, Propulsion 20/25`, still
+capped to 69 by two genuine hard failures. The remaining points are all real: semantic cut alignment
+27%, four same-source hard cuts, no clause-specific B-roll, one audio cue type, and a 20.1-second
+exposition block.
+
 ## Validation and its limits
 
 The regression fixture starts with a wrong measure citation and an unsupported year. The production
