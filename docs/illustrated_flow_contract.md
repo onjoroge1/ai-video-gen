@@ -39,6 +39,44 @@ flowchart TD
 `stated_policy_goal` is the planner's field name; the compiler still reads legacy `actual_goal`
 in archived sheets. Engines without a factual function map retain their existing role assignment.
 
+## Shot timing: repair the scene, do not discard it
+
+`compile_scene_shots` resolved each evidence state's anchor against measured word timings and then
+applied a single **whole-scene** verdict: if any start was out of order or too close to its
+neighbour, every start in the scene was replaced with even spacing and every shot reported
+`semantic_aligned: False`.
+
+Measured on a real 75.1-second render, two of five scenes collapsed and took nine cuts with them:
+
+| scene | cause | margin |
+|---|---|---|
+| 3 | tail of 1.49 s against `MIN_SHOT_SECONDS = 1.5` | **0.01 s** |
+| 5 | the callback anchored to word 9 of 59, but it is the **last** shot | 16.5 s out of order |
+
+The matcher was not at fault — it resolved 15 of 16 phrases exactly and one by fuzzy match. The
+reported `semantic_sync_ratio` was 27%, under the 0.70 hard-failure line, for a cut whose timings
+were almost all correct.
+
+**The callback anchor is now derived from the closing clause.** It returns to the opening object
+after the answer lands, so it is always the last shot and its anchor has to resolve last. Both
+previous sources guaranteed the opposite: `motion_anchor_phrase` is chosen for motion, not
+position, and the fallback took the *preceding* state's anchor. When the final clause is already
+claimed by the last evidence state — which is common — a strict suffix of it is used, comparing on
+words rather than punctuation so `"…back"` and `"…back."` are not treated as different.
+
+**A scene that does not fit is repaired, not discarded.** A forward pass pushes each start to at
+least `MIN_SHOT_SECONDS` after its predecessor and a backward pass caps it so the remaining states
+still fit; feasibility is already guaranteed by the existing precheck, so no new constant appears.
+This cannot launder the metric: a state that had to be *moved* no longer sits within 0.05 s of its
+phrase, so the per-shot check reports it unaligned — which is true, its picture no longer lands on
+its words. `timing_source` records `measured`, `repaired` or `even_fallback` per shot, so a low
+ratio can be attributed instead of guessed at.
+
+Replaying the recorded render through the fixed compiler takes `semantic_sync_ratio` from **27% to
+73%**, above the hard-failure line, with 13 shots `measured` and 3 `repaired` and denied credit.
+The replay approximates within-scene word timings, so the exact figure needs a live run; the
+ordering it depends on is real.
+
 ## Validation and its limits
 
 The regression fixture starts with a wrong measure citation and an unsupported year. The production

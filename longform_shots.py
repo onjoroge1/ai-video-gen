@@ -242,7 +242,40 @@ def compile_scene_shots(
             starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS
             for index in range(1, len(starts))
         ) and duration - starts[-1] >= MIN_SHOT_SECONDS
+        # REPAIR THE ONES THAT DO NOT FIT, KEEP THE ONES THAT DO.
+        #
+        # `valid` is a whole-scene verdict, and failing it threw away every measured start in the
+        # scene. Measured on a real render: one scene missed by 0.01s -- its tail was 1.49s against
+        # a 1.5s minimum -- and four cuts that had resolved exactly were re-spaced evenly and
+        # reported unaligned. Another lost five to a single unresolvable anchor. Two scenes, nine
+        # cuts, and the semantic-sync ratio read 27% for a cut whose timings were almost all right.
+        #
+        # A forward pass pushes each start to at least MIN after its predecessor; a backward pass
+        # caps it so the remaining states still fit. Feasibility is already guaranteed by the
+        # precheck above (duration / count >= MIN_SHOT_SECONDS), so no new constant appears here.
+        #
+        # This cannot launder the metric. A state that had to be MOVED no longer sits within 0.05s
+        # of its phrase, so the per-shot check below reports it unaligned -- which is true, its
+        # picture no longer lands on its words. Only states the repair did not touch keep their
+        # credit, and they earned it. What changes is that one bad anchor stops costing its
+        # neighbours their alignment.
+        repaired_indexes = set()
         if not valid:
+            for index in range(1, count):
+                floor = starts[index - 1] + MIN_SHOT_SECONDS
+                if not spans[index] or starts[index] < floor:
+                    starts[index] = floor
+                    repaired_indexes.add(index)
+            for index in range(count - 1, 0, -1):
+                ceiling = duration - (count - index) * MIN_SHOT_SECONDS
+                if starts[index] > ceiling:
+                    starts[index] = ceiling
+                    repaired_indexes.add(index)
+        monotone = all(
+            starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS - 1e-9
+            for index in range(1, count)
+        ) and duration - starts[-1] >= MIN_SHOT_SECONDS - 1e-9
+        if not valid and not monotone:
             # DEGRADE, do not abort. The even-spacing fallback below already existed and was
             # gated behind strict_timing, so a scene whose anchors landed slightly too close
             # destroyed a run that had already bought every second of its narration.
@@ -256,6 +289,7 @@ def compile_scene_shots(
                 raise ValueError(
                     "Measured word timings cannot align every evidence state without invalid cuts.")
             timing_degraded = True
+            repaired_indexes = set(range(1, count))
             step = duration / count
             starts = [index * step for index in range(count)]
         shots = []
@@ -271,10 +305,15 @@ def compile_scene_shots(
             if state_id in motion_state_ids or (has_i2v and not motion_state_ids
                                                 and index == legacy_motion_index):
                 kind = "i2v"
+            # Per shot, not per scene. The 0.05s test is the honest gate: a shot counts as
+            # aligned when it actually begins where its phrase begins, whatever happened to its
+            # neighbours. Dropping the old `and valid` conjunct is what lets a repaired scene keep
+            # the cuts that were always right.
             phrase_aligned = bool(
                 spans[index]
+                and index not in repaired_indexes
                 and ((index == 0 and float(spans[index][0]) <= 1.0)
-                     or (index > 0 and valid and abs(float(spans[index][0]) - start) <= 0.05))
+                     or (index > 0 and abs(float(spans[index][0]) - start) <= 0.05))
             )
             shot = _shot(
                 kind, str(state.get("asset_id") or ""), end - start, role,
@@ -291,9 +330,13 @@ def compile_scene_shots(
                 "source_asset_id": state.get("source_asset_id") or "",
                 "verified_visible_information": bool(state.get("verified_visible_information")),
             })
-            if timing_degraded:
-                # Auditable: this scene's visuals are evenly spaced, not anchored to the words.
-                shot["timing_source"] = "even_fallback"
+            # Auditable per shot, so a low ratio can be attributed rather than guessed at:
+            # "even_fallback" means the repair could not fit and the whole scene was re-spaced,
+            # "repaired" means this one start was moved to keep the scene monotone, and
+            # "measured" means it sits on its own phrase.
+            shot["timing_source"] = ("even_fallback" if timing_degraded
+                                     else "repaired" if index in repaired_indexes
+                                     else "measured")
             shots.append(shot)
         return shots
 
