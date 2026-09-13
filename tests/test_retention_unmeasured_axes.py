@@ -184,3 +184,66 @@ def test_a_repeatable_role_is_never_cued():
     roles = ["setup", "escalation", "escalation", "escalation", "generalization", "reversal"]
     cues = build_audio_cues([{"story_role": r, "causal_role": r} for r in roles], [12] * 6)
     assert [c["story_role"] for c in cues] == ["reversal"]
+
+
+def _shot(**kw):
+    base = dict(kind="still", duration=4.0, transition="hard_cut", source="asset:x")
+    base.update(kw)
+    return base
+
+
+def test_clause_broll_is_counted_on_the_evidence_lane():
+    """`broll_clause_count` was structurally zero wherever evidence_states are used.
+
+    It counted only shots whose literal `source` is the string "alternate", which the two
+    pre-evidence paths emit and the evidence lane never does. A real illustrated render scored 0
+    with 17 planned states, 12 of them separately generated assets — not "no B-roll" but "this
+    metric cannot see this lane".
+    """
+    from longform_shots import shot_plan_metrics
+
+    plan = [[
+        _shot(source="a1", asset_strategy="master"),
+        _shot(source="a2", asset_strategy="distinct",
+              verified_visible_information=True, semantic_aligned=True),
+        _shot(source="a3", asset_strategy="distinct",
+              verified_visible_information=True, semantic_aligned=True),
+    ]]
+    assert shot_plan_metrics(plan)["broll_clause_count"] == 2
+
+
+def test_only_a_cut_that_earns_it_counts_as_clause_broll():
+    """All three conjuncts are load-bearing; each exclusion here is a different way to not earn it."""
+    from longform_shots import shot_plan_metrics
+
+    plan = [[
+        _shot(source="a1", asset_strategy="master"),
+        _shot(source="a2", asset_strategy="distinct",           # earns it
+              verified_visible_information=True, semantic_aligned=True),
+        _shot(source="a3", asset_strategy="distinct",           # missed its clause
+              verified_visible_information=True, semantic_aligned=False),
+        _shot(source="a1", asset_strategy="detail_reframe",     # a crop, not new picture
+              verified_visible_information=True, semantic_aligned=True),
+        _shot(source="a4", asset_strategy="distinct",           # verifier rejected the asset
+              verified_visible_information=False, semantic_aligned=True),
+    ]]
+    assert shot_plan_metrics(plan)["broll_clause_count"] == 1
+
+
+def test_an_all_even_spaced_cut_scores_zero_broll():
+    """The metric must degrade honestly rather than reward placement it did not achieve."""
+    from longform_shots import shot_plan_metrics
+
+    plan = [[_shot(source=f"a{i}", asset_strategy="distinct",
+                   verified_visible_information=True, semantic_aligned=False)
+             for i in range(5)]]
+    assert shot_plan_metrics(plan)["broll_clause_count"] == 0
+
+
+def test_the_legacy_alternate_source_still_counts():
+    """Widening the predicate must not drop the pre-evidence lanes it was written for."""
+    from longform_shots import shot_plan_metrics
+
+    plan = [[_shot(source="alternate"), _shot(source="alternate")]]
+    assert shot_plan_metrics(plan)["broll_clause_count"] == 2
+    assert shot_plan_metrics(plan)["alternate_shot_count"] == 2

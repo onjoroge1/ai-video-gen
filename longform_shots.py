@@ -443,6 +443,30 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         if float(s["duration"]) < MIN_SHOT_SECONDS
     ]
     alternates = sum(1 for s in shots if s.get("source") == "alternate")
+    # Clause B-roll on the evidence lane, which emits no shot whose literal source is "alternate".
+    #
+    # `alternates` counts a string set only by the two pre-evidence paths further down, so on any
+    # lane that supplies evidence_states this metric was structurally zero -- not "this cut has no
+    # B-roll", but "this metric cannot see this lane". Measured: a real illustrated render scored
+    # broll_clause_count 0 with 17 planned states, 12 of them distinct generated assets.
+    #
+    # What actually counts here is a cut that carries NEW picture on the clause it belongs to, so
+    # all three conjuncts are load-bearing and none is decorative:
+    #   asset_strategy "distinct"          a separately generated asset, not a crop of its master
+    #   verified_visible_information       the vision check confirmed it shows what it claims
+    #   semantic_aligned                   it lands ON its narration clause, not on an even split
+    # Dropping the third would count an evenly-spaced placement as clause B-roll, which is the
+    # opposite of what the name means; it scored 6 instead of 2 on the audited run, crediting four
+    # cuts that missed their clause. This version degrades honestly -- a future cut where every
+    # B-roll shot is even-spaced scores zero, and that is the correct reading.
+    evidence_broll = sum(
+        1
+        for scene in plan
+        for s in scene[1:]
+        if s.get("asset_strategy") == "distinct"
+        and s.get("verified_visible_information")
+        and s.get("semantic_aligned")
+    )
     distinct_sources = {
         s.get("source") for s in shots
         if s.get("source") and s.get("asset_strategy") in {"master", "distinct"}
@@ -459,7 +483,7 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         "reframe_shot_count": len(reframes),
         "verified_information_shot_count": sum(
             1 for shot in shots if shot.get("verified_visible_information")),
-        "broll_clause_count": alternates,
+        "broll_clause_count": alternates + evidence_broll,
         "avg_still_seconds": round(sum(stills) / len(stills), 2) if stills else 0.0,
         "min_shot_seconds": round(
             min((float(s["duration"]) for s in shots), default=0.0),

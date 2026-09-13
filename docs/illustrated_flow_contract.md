@@ -84,6 +84,16 @@ the function exists to avoid. Only the three cues the mixer can actually render 
 `mechanism`, `reversal` and a closing role are each required of every causal story, so a two-type
 palette is structural rather than lucky.
 
+`broll_clause_count` had the same shape of defect one file over. It counted only shots whose
+literal `source` is the string `"alternate"`, which the two pre-evidence paths emit and the evidence
+lane never does — structurally zero on every illustrated render, with 17 planned states and 12
+separately generated assets sitting unseen. It now also counts an evidence state that is
+`distinct` (a generated asset, not a crop), `verified_visible_information` (the vision check
+confirmed it shows what it claims) and `semantic_aligned` (it lands on its narration clause).
+All three conjuncts are load-bearing: without the third, an evenly-spaced placement counts as
+clause B-roll, which is the opposite of the name — 6 instead of 2 on the audited run, crediting
+four cuts that missed their clause.
+
 Hard failures still cap the grade at 69 (`semantic_sync < 0.70`, any same-source hard cut, any
 sub-minimum shot). Widening the denominator does not let a real defect through.
 
