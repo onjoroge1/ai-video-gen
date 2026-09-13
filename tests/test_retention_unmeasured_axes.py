@@ -138,3 +138,49 @@ def test_the_gap_can_never_exceed_the_runtime():
     fstarts, _fd, fruntime = lr._timeline(flat)
     assert lr._causal_retention_checks(flat, fstarts, fruntime
                                        )["max_attention_gap_sec"] <= fruntime + 0.05
+
+
+def test_audio_cues_speak_the_causal_vocabulary():
+    """The third instance of the lane-vocabulary bug, in the same file as the first two.
+
+    `build_audio_cues` matched story_role against prediction_gate / payoff / reversal /
+    final_payoff / false_relief / rehook. Those intersect causal_story.STEP_ROLES at exactly one
+    word — `reversal` — so a causal story produced one cue of one type, and the palette check
+    (which wants two) scored 2/4 on every illustrated video ever rendered. Measured on a real
+    render: a single `impact` at 53.05s, note "audio cue palette lacks contrast".
+    """
+    from retention_readiness import build_audio_cues
+
+    scenes = [{"story_role": r, "causal_role": r} for r in CAUSAL_ROLES]
+    durations = [7.0, 7.2, 19.9, 18.7, 22.2]          # the real run's scene lengths
+    cues = build_audio_cues(scenes, durations)
+
+    assert len({c["type"] for c in cues}) >= 2, cues
+    assert [c["story_role"] for c in cues] == ["intervention", "mechanism", "reversal"]
+
+    # Only cues the mixer can actually render. A fourth name would be counted by the palette
+    # check and then silently dropped by _make_audio_cue_track / music_mix_filter.
+    assert {c["type"] for c in cues} <= {"prediction_tick", "impact", "music_drop"}
+
+    # The scorer's own spacing rule still holds for non-music cues.
+    times = [c["time_sec"] for c in cues if c["type"] != "music_drop"]
+    assert all(b - a >= 6 for a, b in zip(times, times[1:])), times
+
+
+def test_the_mystery_lane_keeps_its_own_cue_table():
+    """Fixing one lane must not silently re-map the other."""
+    from retention_readiness import build_audio_cues
+
+    mystery = [{"story_role": r} for r in
+               ("cold_consequence", "prediction_gate", "rules", "payoff", "rehook")]
+    types = [c["type"] for c in build_audio_cues(mystery, [8, 8, 8, 8, 8])]
+    assert types == ["prediction_tick", "impact", "music_drop"]
+
+
+def test_a_repeatable_role_is_never_cued():
+    """escalation and generalization repeat by contract; cueing them is cue-on-every-cut."""
+    from retention_readiness import build_audio_cues
+
+    roles = ["setup", "escalation", "escalation", "escalation", "generalization", "reversal"]
+    cues = build_audio_cues([{"story_role": r, "causal_role": r} for r in roles], [12] * 6)
+    assert [c["story_role"] for c in cues] == ["reversal"]

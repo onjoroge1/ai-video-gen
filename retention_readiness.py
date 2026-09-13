@@ -16,18 +16,56 @@ ATTENTION_ROLES = {
 }
 
 
+# The three cues the mixer can actually play. Verified, not assumed:
+# `prediction_tick` and `impact` are synthesized in explainer_pipeline._make_audio_cue_track
+# (1040 Hz / 0.12s / 0.055 and 88 Hz / 0.42s / 0.10), and `music_drop` is handled separately by
+# illustrated_score.music_mix_filter as a one-second hole in the score bed. A fourth name would be
+# accepted here, counted by the palette check below, and silently never rendered.
+_MYSTERY_CUES = {
+    "prediction_gate": "prediction_tick",
+    "payoff": "impact", "reversal": "impact", "final_payoff": "impact",
+    "false_relief": "music_drop", "rehook": "music_drop",
+}
+# The same table in the causal lane's vocabulary, which is the one the illustrated lane speaks.
+#
+# The mystery names above intersect causal_story.STEP_ROLES at exactly one word -- `reversal` -- so
+# a causal story produced ONE cue of ONE type and the palette check (which wants two types) scored
+# 2/4 on every illustrated video. Measured on a real render: a single `impact` at 53.05s, and the
+# note "audio cue palette lacks contrast". This is the same lane-vocabulary defect as the retention
+# checks above it in this file; third instance found.
+#
+# Each mapping is argued from the role's own meaning in causal_story, not from the shape of the
+# mystery table:
+#   intervention      the fix is applied and the outcome is pending -- the wager, so the light tick
+#   mechanism         the principle stated once and then demonstrated -- a claim, not a landing
+#   false_resolution  "state plainly that it worked" -- an unearned calm, hollowed by a bed drop
+#   hinge             "ONE sentence ... that breaks it" -- the turn itself, so the heavy cue
+#   escalation        repeatable by contract; cueing it is the "cue on every cut" this forbids
+#   reversal          the end state, explicitly worse than the start -- the payoff lands
+#   tool / verdict    CLOSING_ROLES, "two ways to land the same beat" -- air under the closing line
+#   setup, generalization  baseline and argument-by-repetition; nothing has turned
+# `mechanism`, `reversal` and one CLOSING_ROLE are each required of every causal story, so a
+# two-type palette is structural here rather than lucky.
+_CAUSAL_CUES = {
+    "intervention": "prediction_tick",
+    "mechanism": "prediction_tick",
+    "false_resolution": "music_drop",
+    "hinge": "impact",
+    "reversal": "impact",
+    "tool": "music_drop", "verdict": "music_drop",
+}
+
+
 def build_audio_cues(scenes: list[dict], durations: list[float]) -> list[dict]:
     """Place restrained editorial cues at story turns, never on every cut."""
     cues, cursor, last_sound = [], 0.0, -99.0
+    # `causal_role` is written only on the causal lane, which makes it the lane marker; `story_role`
+    # carries the same value there, so read it for the role and use the marker only to choose a table.
+    causal = any(str(scene.get("causal_role") or "").strip() for scene in scenes)
+    table = _CAUSAL_CUES if causal else _MYSTERY_CUES
     for scene, duration in zip(scenes, durations):
-        role = str(scene.get("story_role") or "").lower()
-        cue = None
-        if role == "prediction_gate":
-            cue = "prediction_tick"
-        elif role in {"payoff", "reversal", "final_payoff"}:
-            cue = "impact"
-        elif role in {"false_relief", "rehook"}:
-            cue = "music_drop"
+        role = str(scene.get("story_role") or scene.get("causal_role") or "").lower()
+        cue = table.get(role)
         if cue and (cue == "music_drop" or cursor - last_sound >= 7.0):
             event = {"time_sec": round(cursor + min(0.25, duration * 0.1), 2),
                      "type": cue, "story_role": role}

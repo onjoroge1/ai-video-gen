@@ -73,6 +73,17 @@ disagree about what an opening should be — the engine mandates `setup`, the re
 visible consequence — and which one a causal story should follow is an editorial question, not a
 measurement. The mystery lane is untouched.
 
+`build_audio_cues` had the same defect and is fixed with it: it matched `story_role` against
+prediction_gate / payoff / reversal / final_payoff / false_relief / rehook, which intersect
+`causal_story.STEP_ROLES` at exactly one word. Every illustrated video produced one cue of one type
+and scored 2/4 on the palette check. The causal table maps `intervention` and `mechanism` to the
+light tick (a wager and a claim, not a landing), `hinge` and `reversal` to the impact (the turn and
+the payoff), and `false_resolution` plus the closing `tool`/`verdict` to a bed drop. `escalation`
+and `generalization` are repeatable by contract and are never cued — that is the "cue on every cut"
+the function exists to avoid. Only the three cues the mixer can actually render are used;
+`mechanism`, `reversal` and a closing role are each required of every causal story, so a two-type
+palette is structural rather than lucky.
+
 Hard failures still cap the grade at 69 (`semantic_sync < 0.70`, any same-source hard cut, any
 sub-minimum shot). Widening the denominator does not let a real defect through.
 
