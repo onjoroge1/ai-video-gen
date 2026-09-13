@@ -153,24 +153,88 @@ def test_zero_or_over_budget_compiled_bolt_states_fail_before_assets():
     assert "bolt_state_budget_exceeded" in _codes(validate_evidence_plan(plan))
 
 
-def test_opening_object_can_transform_and_reframe_uses_previous_evidence_state():
+def _opening_with_a_surviving_reframe():
+    """An opening that already carries two generated assets, so its reframe is not promoted.
+
+    These two tests used to set the OPENING'S SECOND beat to a reframe, which left the opening with
+    one generated asset. That configuration is now repaired rather than rejected (see
+    `test_an_opening_reframe_is_promoted_rather_than_deadlocking`), so the reframe's own properties
+    have to be asserted where a reframe legitimately survives: third state, after master+distinct.
+    """
     script = _script()
-    script["scenes"][0]["visual_beats"][1]["source"] = "reframe"
-    plan = compile_evidence_plan(script)
-    first, second = plan["scenes"][0]["states"]
+    script["scenes"][0]["visual_beats"].append(
+        _beat("the shell line above it", "fresh wet mud and shell line below the red mark",
+              "a close crop of the shell line above the red mark", source="reframe"))
+    return script
+
+
+def test_opening_object_can_transform_and_reframe_uses_previous_evidence_state():
+    plan = compile_evidence_plan(_opening_with_a_surviving_reframe())
+    first, second, third = plan["scenes"][0]["states"][:3]
     assert "Alex's red tide-gauge mark" in first["required_objects"]
     assert "Alex's red tide-gauge mark" not in second["required_objects"]
-    assert second["source_asset_id"] == first["asset_id"]
+    assert third["asset_strategy"] == "detail_reframe", "not promoted: the opening already has two"
+    # The PREVIOUS evidence state, which is what this test's name is about -- a reframe crops the
+    # state immediately before it, not always the scene's master.
+    assert third["source_asset_id"] == second["asset_id"]
 
 
 def test_reframe_never_claims_information_before_detail_verification():
+    plan = compile_evidence_plan(_opening_with_a_surviving_reframe())
+    state = plan["scenes"][0]["states"][2]
+    assert state["asset_strategy"] == "detail_reframe"
+    assert state["new_information"] is False
+
+
+def test_an_opening_reframe_is_promoted_rather_than_deadlocking():
+    """The gate this replaces was unsatisfiable at plan time, and it cost a live run.
+
+    `insufficient_distinct_evidence_assets` wants two generated opening assets OR a pixel-verified
+    reframe. `detail_verification_passed` is only written after generation, so at plan time the
+    second option can never be true. Whether the opening's second beat is a reframe is the model's
+    choice, so the abort was a coin flip on one token -- after research, script, fact-check and
+    claim repair were all paid for.
+    """
     script = _script()
     script["scenes"][0]["visual_beats"][1]["source"] = "reframe"
     plan = compile_evidence_plan(script)
-    state = plan["scenes"][0]["states"][1]
-    assert state["asset_strategy"] == "detail_reframe"
-    assert state["new_information"] is False
-    assert "insufficient_distinct_evidence_assets" in _codes(plan["validation"])
+
+    assert "insufficient_distinct_evidence_assets" not in _codes(plan["validation"])
+    assert plan["validation"]["passed"], plan["validation"]["errors"]
+
+    promoted = plan["scenes"][0]["states"][1]
+    assert promoted["asset_strategy"] == "distinct"
+    # Required, not cosmetic: a distinct state that still names a source trips missing_source_asset.
+    assert promoted["source_asset_id"] == ""
+    assert promoted["detail_target"] == ""
+    assert promoted["new_information"] is False, "a promoted state has still not been verified"
+
+    # The change is recorded, not silent -- the plan differs from the script the model wrote.
+    assert [r["code"] for r in plan["repairs"]] == ["opening_reframe_promoted"]
+    assert plan["repairs"][0]["state_id"] == promoted["state_id"]
+
+
+def test_promotion_touches_only_the_opening_and_only_when_it_is_short():
+    """A reframe outside the opening, or one the opening does not need, is left alone."""
+    script = _script()
+    # Past the opening tranche, not merely past scene zero: build_continuity_pack reports an
+    # opening_scene_count of 2 here, so scene 1 is still an opening scene. No non-opening scene in
+    # the fixture has a second beat, so give the last one a reframe to crop.
+    opening_count = int(build_continuity_pack(script)["opening_scene_count"])
+    later_index = next(index for index in range(len(script["scenes"]))
+                       if index >= opening_count)
+    script["scenes"][later_index]["visual_beats"].append(
+        _beat("a close crop of it", "the wider shot",
+              "a close crop of the same detail", source="reframe"))
+    plan = compile_evidence_plan(script)
+
+    assert plan["repairs"] == [], "a non-opening reframe is not the deadlock and is not touched"
+    assert any(state["asset_strategy"] == "detail_reframe"
+               for state in plan["scenes"][later_index]["states"]), "the reframe survived"
+
+    # And an opening that already carries two generated assets is left alone too.
+    untouched = compile_evidence_plan(_opening_with_a_surviving_reframe())
+    assert untouched["repairs"] == []
 
 
 def test_unverified_reframe_cannot_be_manually_marked_as_new_information():
