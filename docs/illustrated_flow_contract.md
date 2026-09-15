@@ -39,6 +39,79 @@ flowchart TD
 `stated_policy_goal` is the planner's field name; the compiler still reads legacy `actual_goal`
 in archived sheets. Engines without a factual function map retain their existing role assignment.
 
+## Shot timing: repair the scene, do not discard it
+
+`compile_scene_shots` resolved each evidence state's anchor against measured word timings and then
+applied a single **whole-scene** verdict: if any start was out of order or too close to its
+neighbour, every start in the scene was replaced with even spacing and every shot reported
+`semantic_aligned: False`.
+
+Measured on a real 75.1-second render, two of five scenes collapsed and took nine cuts with them:
+
+| scene | cause | margin |
+|---|---|---|
+| 3 | tail of 1.49 s against `MIN_SHOT_SECONDS = 1.5` | **0.01 s** |
+| 5 | the callback anchored to word 9 of 59, but it is the **last** shot | 16.5 s out of order |
+
+The matcher was not at fault — it resolved 15 of 16 phrases exactly and one by fuzzy match. The
+reported `semantic_sync_ratio` was 27%, under the 0.70 hard-failure line, for a cut whose timings
+were almost all correct.
+
+**The callback anchor is now derived from the closing clause.** It returns to the opening object
+after the answer lands, so it is always the last shot and its anchor has to resolve last. Both
+previous sources guaranteed the opposite: `motion_anchor_phrase` is chosen for motion, not
+position, and the fallback took the *preceding* state's anchor. When the final clause is already
+claimed by the last evidence state — which is common — a strict suffix of it is used, comparing on
+words rather than punctuation so `"…back"` and `"…back."` are not treated as different.
+
+**A scene that does not fit is repaired, not discarded.** A forward pass pushes each start to at
+least `MIN_SHOT_SECONDS` after its predecessor and a backward pass caps it so the remaining states
+still fit; feasibility is already guaranteed by the existing precheck, so no new constant appears.
+This cannot launder the metric: a state that had to be *moved* no longer sits within 0.05 s of its
+phrase, so the per-shot check reports it unaligned — which is true, its picture no longer lands on
+its words. `timing_source` records `measured`, `repaired` or `even_fallback` per shot, so a low
+ratio can be attributed instead of guessed at.
+
+Replaying the recorded render through the fixed compiler takes `semantic_sync_ratio` from **27% to
+73%**, above the hard-failure line, with 13 shots `measured` and 3 `repaired` and denied credit.
+The replay approximates within-scene word timings, so the exact figure needs a live run; the
+ordering it depends on is real.
+
+## A detail reframe is a push, not a cut
+
+A detail reframe crops the shot immediately before it, so cutting to it shows the same picture
+suddenly larger. Measured on the rendered gate's own before/after frames from a real render, two of
+these were near-identical across the cut (mean pixel difference **16/255**, against 24-67 for
+genuine cuts between different pictures).
+
+The renderer now performs the move instead. When a reframe crops its immediate predecessor,
+`_make_multishot_background` renders it **from the master** with the `push_to_detail` camera move:
+a `zoompan` from full frame to `1/DETAIL_REFRAME_CROP`, centred, so the last frame of the move is
+exactly the crop. Verified by rendering one: the final frame differs from the accepted crop by
+**1.50/255** while first-to-last differs by 11.25 — it lands on the crop, and it really moves.
+
+Nothing unverified reaches the screen. The end of the push is the reframe the inspector accepted;
+every frame before it is the master it also accepted.
+
+`DETAIL_REFRAME_CROP` is named once and used by both the cropper and the camera move. If they drift
+the push ends somewhere the verifier never looked.
+
+Only the crop of the **immediately preceding** shot becomes a push. A reframe of some earlier asset
+is a real change of picture and stays a cut — and is correctly not a same-source jump cut either,
+because the picture before it on screen is a different asset.
+
+### What this does to the metric, and why it is earned
+
+`same_source_hard_cut_count` counts a hard cut whose source matches the previous shot's. Those cuts
+no longer exist, so on the recorded render it goes **4 → 0** and the hard failure clears. The count
+drops because the edit changed, not because the rule did — the rule is untouched.
+
+Its one remaining live path is the fallback: when the master is not on disk the push cannot be
+performed, the shot is downgraded to `hard_cut` **on the caller's list** (not just on the local
+copy `_make_multishot_background` works from), and the metric counts it. A fallback nobody can
+measure is how a quality gate quietly stops measuring anything, so that write-back is load-bearing
+and has its own test.
+
 ## Validation and its limits
 
 The regression fixture starts with a wrong measure citation and an unsupported year. The production

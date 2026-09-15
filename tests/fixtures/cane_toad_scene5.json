@@ -1,0 +1,24 @@
+{
+ "scene": {
+  "narration": "With no natural predators to keep them in check, the toads marched, westward across the top of the continent, roughly forty to sixty kilometres a year. They reached Brisbane by 1945 and the tip of Cape York by 1994. Back in that first Gordonvale enclosure, a captive toad had promised a beetle fix. Now nothing could pull them back.",
+  "motion_anchor_phrase": "the toads marched"
+ },
+ "existing_states": [
+  {
+   "anchor_phrase": "With no natural predators to",
+   "state_id": "state:s005:e01"
+  },
+  {
+   "anchor_phrase": "They reached Brisbane by 1945 and the",
+   "state_id": "state:s005:e02"
+  },
+  {
+   "anchor_phrase": "Back in that first Gordonvale enclosure",
+   "state_id": "state:s005:e03"
+  },
+  {
+   "anchor_phrase": "Now nothing could pull them back",
+   "state_id": "state:s005:e04"
+  }
+ ]
+}
