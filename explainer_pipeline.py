@@ -8168,6 +8168,51 @@ def _illustrated_storyboard_hard() -> bool:
         not in ("0", "false", "no", "off")
 
 
+def _render_gates_advisory(stable_standard: bool, illustrated_story: bool) -> bool:
+    """May the rendered contract, human approval and opening freeze be demoted to advisory?
+
+    A named predicate rather than an inline conjunction, because the three call sites are 30-70
+    lines apart and the comment beside :10053 records what happens when sites that read this
+    profile get reclassified in bulk: "Classifying the ten sourcing sites by line number swept
+    this one up ... The count-based test passed because the count was still ten; it never checked
+    WHICH ten." One function, one meaning, one test.
+
+    THE DEFECT. Illustrated does not route by a distinct story_format --
+    `build_illustrated_payload` hardcodes `"video_format": "landscape"` and
+    `"story_format": "standard_explainer"`, which is exactly _stable_standard_longform's match
+    condition. So every illustrated commission inherited a demotion written for a different
+    product, with nobody choosing it and no flag set. Both delivered films carry
+    `"pipeline_profile": "stable_standard_longform"` in their manifest and a 59/100 REJECT logged
+    as advisory; the profile banner prints even with every diagnostic flag off, which is why six
+    "all gates live" runs never once reported a rendered failure.
+
+    WHY THIS STILL DEFAULTS TO ADVISORY, AND WHY THAT IS NOT A WAIVER. Arming these three today
+    does not make the lane stricter, it stops the lane delivering anything. The rejection is
+    `long_visual_hold` + `visual_state_cadence` -- the beat-count shortfall, where the planner is
+    asked for 57 factual events at 300s and returns 7. Those are exactly the two hard failures
+    both delivered films carry, and the illustrated delivery integration test reproduces them on
+    deployed defaults. A gate armed against a producer defect that is not fixed yet is not a
+    quality gate; it is an outage with a rationale.
+
+    The same reasoning already keeps the pre-spend retention contract (~:9773) and the
+    evidence-plan timing advisories (~:10057, ~:10932) demoted. Applying it to two gates and not
+    the third would be inconsistent, and the inconsistency would show up as an outage.
+
+    WHAT CHANGED INSTEAD. The verdict is no longer discarded. It is computed against the DELIVERED
+    film rather than a 53.8s preview, written to rendered_contract_full.json, and folded into
+    `degraded_reasons`, which is what app.py builds the operator-facing status from. The film that
+    would have been blocked is now unmistakably labelled instead of quietly shipping as "done".
+
+    ILLUSTRATED_RENDER_GATES=block arms all three. That is the one-line flip to make the day the
+    beat-count defect lands -- it is a deliberate stop-ship decision, so it is the operator's to
+    make, not a default to inherit the way the demotion was inherited.
+    """
+    armed = (os.environ.get("ILLUSTRATED_RENDER_GATES", "") or "").strip().lower() == "block"
+    if bool(illustrated_story) and armed:
+        return False
+    return bool(stable_standard)
+
+
 def _longform_retention_hard() -> bool:
     """Fail before image/TTS spend when objective story-contract checks still fail.
 
@@ -9219,6 +9264,36 @@ def run_explainer_pipeline(
     # approval — and wrong for sourcing. A causal story asserts that one event caused the next,
     # so on this lane the claim ledger, research dossier and evidence plan block again.
     sourcing_advisory = stable_standard_longform and not illustrated_story_on
+    # The same exclusion, for the RENDER gates: the rendered contract's REJECT, human editorial
+    # approval, and the opening freeze.
+    #
+    # Illustrated does not route by a distinct story_format -- build_illustrated_payload hardcodes
+    # `"video_format": "landscape"` and `"story_format": "standard_explainer"`, which is exactly
+    # _stable_standard_longform's match condition. So every illustrated commission entered the
+    # recovery profile with no flag set, and these three gates computed a verdict and discarded it.
+    # Measured: both delivered films carry `"pipeline_profile": "stable_standard_longform"` in their
+    # manifest and a 59/100 REJECT logged as advisory, and the profile banner prints even on a run
+    # with every diagnostic flag off -- which is why six "all gates live" runs never once reported
+    # a rendered failure. The lane's own promise is a sourced causal story; it cannot be the lane
+    # whose rendered verdict is a suggestion.
+    #
+    # DELIBERATELY NARROWER THAN THE PROFILE. Two other things the profile demotes stay demoted:
+    #
+    #   the pre-spend retention contract (~:9773) -- arming it stops this lane producing anything
+    #   at all today. Illustrated scripts take validate_longform_story's `compiled_factual` branch,
+    #   and on the recorded run that branch returned passed=false, score=0 with BAD_CLOSE,
+    #   MISSING_ROLE and UNKNOWN_ROLE: context. Those are TRUE findings -- presentation beats are
+    #   skipped whenever the spine fails, so the delivered films really have no closing beat -- so
+    #   the gate is right and arming it is correct once that is fixed. It is a one-line follow-on,
+    #   not a judgement call, and it is left out here only so this change does not turn the product
+    #   off while fixing what it measures.
+    #
+    #   the evidence-plan timing advisories (~:10057, ~:10932) -- these block on the beat-count
+    #   shortfall, where the planner is asked for 57 factual events at 300s and returns 7. Same
+    #   reasoning: the gate is right, the producer is wrong, and the producer is not fixed yet.
+    #
+    # Both are tracked; neither is waived on the merits.
+    render_gates_advisory = _render_gates_advisory(stable_standard_longform, illustrated_story_on)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     resolved_motion_mode = (
@@ -9366,6 +9441,13 @@ def run_explainer_pipeline(
     animatic_preview_path = None
     rendered_contract_path = None
     rendered_contact_sheet_path = None
+    # Assigned deep inside the first-minute preview block. Initialised here so the delivered-film
+    # inspection after _assemble can test for them instead of raising NameError on a run that
+    # never built a preview.
+    rendered_contract = None
+    checked_blind = {}
+    callback_exact = False
+    full_render_contract = None
     human_review_path = None
     story_format_review_path = None
     storyboard_path = None
@@ -10905,7 +10987,7 @@ def run_explainer_pipeline(
                 # DIAGNOSTIC_RENDER lets the run finish so the whole video can be watched and the
                 # gate's judgement checked against it. Its score and hard failures are still
                 # computed, still written to rendered_contract.json, and still logged.
-                if not _diagnostic_render() and not stable_standard_longform:
+                if not _diagnostic_render() and not render_gates_advisory:
                     raise RuntimeError(
                         f"Rendered opening was {rendered_grade_label}; "
                         f"hard failures: {', '.join(rendered_contract.get('hard_failures') or ['score floor'])}. "
@@ -10927,7 +11009,7 @@ def run_explainer_pipeline(
                 # every resume renders a new one, so an approval never matches what it approved.
                 # 116c878 fixed the checkpoint half of that; this removes the wait entirely for
                 # diagnostic runs, which is what makes a full video reachable at all.
-                if _diagnostic_render() or stable_standard_longform:
+                if _diagnostic_render() or render_gates_advisory:
                     log("  ⚠ [HUMAN REVIEW, advisory] skipping editorial approval — "
                         f"grade {rendered_grade_label} written to "
                         f"{os.path.basename(rendered_contract_path)}; continuing to full render")
@@ -10944,7 +11026,7 @@ def run_explainer_pipeline(
         # later, blocks on the same fact without reading the same flag.
         if (not frozen_opening_segments or not rendered_contract
                 or not rendered_contract.get("passed")):
-            if not _diagnostic_render() and not stable_standard_longform:
+            if not _diagnostic_render() and not render_gates_advisory:
                 raise RuntimeError(
                     "The rendered opening was not automatically and human approved/frozen; later "
                     "visual assets will not be purchased.")
@@ -11250,6 +11332,58 @@ def run_explainer_pipeline(
         with open(motion_report_path, "w") as handle:
             json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
 
+    # MEASURE THE FILM THAT SHIPS, NOT ONLY THE FIRST MINUTE OF IT.
+    #
+    # inspect_rendered_opening ran once, on first_minute_preview.mp4, and rendered_contract.json
+    # described that. On a recorded run that is 53.8s of a 252.5s delivery -- 21%. The other 79%
+    # was bought and shipped with no rendered measurement at all, including the film's longest
+    # hold: the preview's worst was 10.58s over 12 shots, the delivered film's was 64.36s over 25,
+    # against a 3.5s ceiling. It is also why two films of very different length and topic returned
+    # identical scores and identical hard failures -- what was scored was an opening built to the
+    # same template both times, not the films.
+    #
+    # The preview pass keeps its job as the gate BEFORE the spend. This is a second pass over the
+    # delivered artifact, in its own file, so neither overwrites the other and each says which
+    # video it describes.
+    #
+    # Reused deliberately: the blind story judge and the story/claim validations. Those read the
+    # opening and the script, they do not change when later scenes are appended, and re-running
+    # the judge would buy a second LLM call to re-answer an answered question. Only the
+    # DETERMINISTIC half -- durations, holds, cadence, cuts, sources, pixel deltas -- is
+    # remeasured, because only that half was wrong. The provenance keys below say so in the
+    # artifact rather than leaving a reader to assume a full second opinion.
+    #
+    # Timestamps: _flatten accumulates a cursor over planned durations while _assemble crossfades
+    # scene joins, so the cursor runs fractionally ahead of the encode -- 0.064s over the recorded
+    # preview. Midpoint sampling tolerates that; frame-exact work would not.
+    if (video_format != "social" and rendered_contract is not None
+            and rendered_shot_plan and threshold_profile):
+        full_inspection = inspect_rendered_opening(
+            output_path, rendered_shot_plan, output_dir, evidence_plan,
+            threshold_profile=threshold_profile,
+            frame_dir_name="rendered_gate_frames_full")
+        full_render_contract = score_rendered_contract(
+            deterministic=full_inspection.get("deterministic") or {},
+            blind=checked_blind,
+            story_validation=retention_validation or {},
+            claim_validation=claim_validation or {},
+            callback_exact=callback_exact)
+        full_render_contract.update({
+            "inspection": full_inspection,
+            "scored_video": os.path.basename(output_path),
+            "deterministic_source": "delivered film",
+            "blind_story_judge_source": "approved opening preview (not re-run)",
+            "preview_score": rendered_contract.get("score"),
+        })
+        with open(os.path.join(output_dir, "rendered_contract_full.json"), "w") as handle:
+            json.dump(full_render_contract, handle, indent=2, ensure_ascii=False)
+        _full_shots = (full_inspection.get("deterministic") or {}).get("shot_count") or 0
+        _prev_shots = ((rendered_contract.get("inspection") or {})
+                       .get("deterministic") or {}).get("shot_count") or 0
+        log(f"Delivered-film rendered contract: {full_render_contract.get('score')}/100 "
+            f"({full_render_contract.get('status')}) over {_full_shots} shots — "
+            f"preview scored {rendered_contract.get('score')}/100 over {_prev_shots}")
+
     if video_format != "social":
         readiness = score_retention_readiness(
             script, retention_validation or {}, shot_metrics, full_audio_cues,
@@ -11322,6 +11456,16 @@ def run_explainer_pipeline(
         final_dur = 0.0
     rendered = len(scene_videos)
     reasons = []
+    # The rendered gate's verdict reaches the caller here or nowhere. The controlled-pilot return
+    # already does this; the ordinary long-form return built `reasons` only from runtime, dropped
+    # scenes and filler, so a film carrying four rendered hard failures was reported to the
+    # operator as "ran 2.5s short". app.py builds the user-facing status from this list.
+    _verdict = full_render_contract or rendered_contract
+    if _verdict and _verdict.get("hard_failures"):
+        _scope = "delivered film" if full_render_contract else "opening preview"
+        reasons.append(
+            f"rendered contract {_verdict.get('score')}/100 {_verdict.get('status')} "
+            f"({_scope}): " + ", ".join(_verdict["hard_failures"]))
     # Was a raise, at the very last statement before the return — after the video was assembled,
     # captioned, described and its thumbnail bought. Three reasons it should not destroy that work:
     # the assembler adds FADE_DUR of crossfade per scene, so a run the measured audio gate approved
