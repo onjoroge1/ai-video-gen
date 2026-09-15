@@ -4886,6 +4886,23 @@ def _detail_reframe_earns_it(source_path: str, state_path: str, state: dict,
     if (verification or {}).get("passed"):
         _last_reframe_verification[0] = verification
         return True
+    # The crop did not earn it, so it must not be left on disk under the state's own path.
+    #
+    # Returning False means "generate a real image for this state instead", and the caller's
+    # fallthrough does exactly that -- unless a file is already sitting at state_path, because
+    # `cached` is `asset_resume_allowed and os.path.isfile(state_path) and size > 0`. On a fresh
+    # run asset_resume_allowed is False and the rejected crop is simply overwritten. On a RESUMED
+    # run it is True, so the crop this function just rejected makes `cached` true, generation is
+    # skipped entirely, and the verifier-refused crop is re-verified as though it had been bought.
+    # A second, non-deterministic verdict then decides whether it ships.
+    #
+    # Deleted here rather than defended against at the caller: the function that wrote the file is
+    # the one that knows it is worthless, and a guard at the call site would have to be repeated at
+    # every future caller.
+    try:
+        os.remove(state_path)
+    except OSError:
+        pass
     return False
 
 
