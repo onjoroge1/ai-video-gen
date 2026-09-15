@@ -592,15 +592,22 @@ def _pixel_delta(left: str, right: str) -> float:
 
 
 def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], output_dir: str,
-                             evidence_plan: dict, threshold_profile: dict | None = None) -> dict:
-    """Extract each cut midpoint plus boundary samples and measure encoded story states."""
+                             evidence_plan: dict, threshold_profile: dict | None = None,
+                             frame_dir_name: str = "rendered_gate_frames") -> dict:
+    """Extract each cut midpoint plus boundary samples and measure encoded story states.
+
+    `frame_dir_name` exists so the same inspection can run twice over one output directory --
+    once on the first-minute preview before the spend, once on the delivered film after it --
+    without the second pass overwriting the first pass's frames. Two inspections that quietly
+    share a frame directory produce one contact sheet and two contracts claiming to describe it.
+    """
     profile = threshold_profile or load_threshold_profile()
     profile_validation = validate_threshold_profile(profile)
     if not profile_validation["passed"]:
         raise _profile_error("; ".join(profile_validation["errors"]))
     pixel_threshold = float(profile["pixel_delta_threshold"])
     source_threshold = float(profile["source_change_ratio_threshold"])
-    frame_dir = Path(output_dir) / "rendered_gate_frames"
+    frame_dir = Path(output_dir) / frame_dir_name
     frame_dir.mkdir(parents=True, exist_ok=True)
     shots = _flatten(shot_plan)
     state_by_id = {
@@ -683,6 +690,10 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         "long_hold_count": sum(duration > OPENING_MAX_STATE_SECONDS for duration in durations),
         "bolt_shot_count": expected_bolt,
         "bolt_shot_ratio": round(expected_bolt / max(1, len(shots)), 3),
+        # Whether this lane HAS a mascot to count, carried so the scorer can tell "Bolt was
+        # required and is missing" from "there is no Bolt in this product". Read from the same
+        # continuity-pack field longform_evidence:677 already uses to suppress its own Bolt check.
+        "cast_mode": _text((evidence_plan.get("continuity_pack") or {}).get("cast")) or "recurring",
         "pure_evidence_bolt_violations": pure_bolt_violations,
         "continuity_failures": continuity_failures,
         "slideshow": (len(set(filter(None, sources))) <= max(1, math.ceil(len(shots) * 0.35))
@@ -818,7 +829,21 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         total = min(total, 49)
     if deterministic.get("bolt_shot_ratio", 0) >= 0.70:
         hard_failures.append("bolt_everywhere")
-    if int(deterministic.get("bolt_shot_count") or 0) <= 0:
+    # Only where the lane HAS a mascot -- the same condition, read from the same field, that
+    # longform_evidence:678 applies to missing_useful_bolt_state.
+    #
+    # The illustrated lane is cast-free by default: _illustrated_is_cast_free() writes
+    # human_present=False and mascot_present=False onto every scene, and the beat prompt says
+    # "Never write Alex, Bolt, or any invented stand-in". So bolt_shot_count is 0 by construction,
+    # this fired on every illustrated film ever rendered, and no amount of editorial work could
+    # clear it. Both delivered films carry it among exactly four hard failures. The escape at
+    # :927 needs a directed_spec AND no automated grade; this lane has neither, so there was no
+    # path out. A gate demanding what the producer is forbidden to make is not measuring quality.
+    #
+    # Absent a continuity pack the default stays "recurring", so every existing lane keeps the
+    # check. This narrows the rule to the lanes it was written for; it does not weaken it.
+    if (_text(deterministic.get("cast_mode")) or "recurring") != "none" \
+            and int(deterministic.get("bolt_shot_count") or 0) <= 0:
         hard_failures.append("bolt_absent")
     if deterministic.get("long_hold_count", 0):
         hard_failures.append("long_visual_hold")

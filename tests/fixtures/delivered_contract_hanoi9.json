@@ -1,0 +1,44 @@
+{
+  "source": "hanoi9 delivered film, 252.5s, run 9",
+  "cast_mode": "none",
+  "recorded_score": 59,
+  "recorded_hard_failures": [
+    "bolt_absent",
+    "long_visual_hold",
+    "unsupported_major_claim",
+    "visual_state_cadence"
+  ],
+  "deterministic": {
+    "decodable": true,
+    "shot_count": 12,
+    "extracted_midpoint_count": 12,
+    "distinct_source_count": 12,
+    "source_change_ratio": 1.0,
+    "pixel_boundary_change_ratio": 1.0,
+    "verified_information_ratio": 1.0,
+    "per_cut_verification_ratio": 1.0,
+    "unverified_cut_count": 0,
+    "average_visual_state_sec": 4.478,
+    "max_visual_state_sec": 10.58,
+    "long_hold_count": 5,
+    "bolt_shot_count": 0,
+    "bolt_shot_ratio": 0.0,
+    "pure_evidence_bolt_violations": 0,
+    "continuity_failures": [],
+    "slideshow": false,
+    "threshold_profile": {
+      "schema_version": 1,
+      "profile_id": "provisional-defaults-v1",
+      "status": "provisional_uncalibrated",
+      "pixel_delta_threshold": 0.035,
+      "source_change_ratio_threshold": 0.45,
+      "dataset_sha256": "",
+      "sample_counts": {
+        "meaningful_change": 0,
+        "not_meaningful_change": 0,
+        "not_slideshow": 0,
+        "slideshow": 0
+      }
+    }
+  }
+}
