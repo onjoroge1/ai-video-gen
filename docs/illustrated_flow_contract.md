@@ -77,6 +77,41 @@ Replaying the recorded render through the fixed compiler takes `semantic_sync_ra
 The replay approximates within-scene word timings, so the exact figure needs a live run; the
 ordering it depends on is real.
 
+## A detail reframe is a push, not a cut
+
+A detail reframe crops the shot immediately before it, so cutting to it shows the same picture
+suddenly larger. Measured on the rendered gate's own before/after frames from a real render, two of
+these were near-identical across the cut (mean pixel difference **16/255**, against 24-67 for
+genuine cuts between different pictures).
+
+The renderer now performs the move instead. When a reframe crops its immediate predecessor,
+`_make_multishot_background` renders it **from the master** with the `push_to_detail` camera move:
+a `zoompan` from full frame to `1/DETAIL_REFRAME_CROP`, centred, so the last frame of the move is
+exactly the crop. Verified by rendering one: the final frame differs from the accepted crop by
+**1.50/255** while first-to-last differs by 11.25 — it lands on the crop, and it really moves.
+
+Nothing unverified reaches the screen. The end of the push is the reframe the inspector accepted;
+every frame before it is the master it also accepted.
+
+`DETAIL_REFRAME_CROP` is named once and used by both the cropper and the camera move. If they drift
+the push ends somewhere the verifier never looked.
+
+Only the crop of the **immediately preceding** shot becomes a push. A reframe of some earlier asset
+is a real change of picture and stays a cut — and is correctly not a same-source jump cut either,
+because the picture before it on screen is a different asset.
+
+### What this does to the metric, and why it is earned
+
+`same_source_hard_cut_count` counts a hard cut whose source matches the previous shot's. Those cuts
+no longer exist, so on the recorded render it goes **4 → 0** and the hard failure clears. The count
+drops because the edit changed, not because the rule did — the rule is untouched.
+
+Its one remaining live path is the fallback: when the master is not on disk the push cannot be
+performed, the shot is downgraded to `hard_cut` **on the caller's list** (not just on the local
+copy `_make_multishot_background` works from), and the metric counts it. A fallback nobody can
+measure is how a quality gate quietly stops measuring anything, so that write-back is load-bearing
+and has its own test.
+
 ## Validation and its limits
 
 The regression fixture starts with a wrong measure citation and an unsupported year. The production

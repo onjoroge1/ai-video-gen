@@ -315,11 +315,29 @@ def compile_scene_shots(
                 and ((index == 0 and float(spans[index][0]) <= 1.0)
                      or (index > 0 and abs(float(spans[index][0]) - start) <= 0.05))
             )
+            # A detail reframe crops the shot immediately before it, so cutting to it shows the
+            # same picture suddenly larger -- a jump cut. Measured on a real render, two of these
+            # produced near-identical frames either side of the cut (mean pixel difference 16/255,
+            # against 24-67 for genuine cuts). Marked here and honoured in
+            # explainer_pipeline._make_multishot_background, which renders the move instead: the
+            # camera starts on the master's full frame and pushes in until the frame IS the crop.
+            #
+            # Only when it crops its immediate predecessor. A reframe of some earlier asset is a
+            # real change of picture and stays a cut; pushing from the wrong master would invent
+            # a move the story did not ask for.
+            follows_its_master = bool(
+                index > 0
+                and strategy == "detail_reframe"
+                and str(state.get("source_asset_id") or "").strip()
+                and str(state.get("source_asset_id") or "").strip()
+                == str(accepted_states[index - 1].get("asset_id") or "").strip()
+            )
             shot = _shot(
                 kind, str(state.get("asset_id") or ""), end - start, role,
                 start=start, purpose=str(state.get("purpose") or "evidence"),
                 anchor_phrase=str(state.get("anchor_phrase") or ""),
-                transition="continuous" if index == 0 else "hard_cut",
+                transition=("continuous" if index == 0 else
+                            "push_to_detail" if follows_its_master else "hard_cut"),
                 semantic_aligned=phrase_aligned,
                 new_information=bool(state.get("verified_visible_information")),
                 motion="generated_motion" if kind == "i2v" else "locked",
