@@ -7,10 +7,22 @@ import tempfile
 
 from durable_execution import current, canonical_hash, file_sha256, CooperativeYield
 
-# Pixel/timing contract from PR108. Storage-only changes must keep its existing
+# Pixel/timing contract. Storage-only changes must keep its existing
 # stage identities. Bump this when encoding, overlays or timing change; hashing
 # the entire pipeline made unrelated research/cleanup edits invalidate all video.
-ILLUSTRATED_RENDER_VERSION = "5db0f3871aabd7f27795d8151f0ecec55cb009a42e43902e841df5f560bb1201"
+#
+# Bumped for PR114, which changes BOTH halves this identity covers. Timing: the
+# per-shot monotone repair replaces the whole-scene even-spacing fallback, so the
+# same scene now cuts at different instants. Pixels: a detail reframe that crops its
+# immediate predecessor is rendered from the master with a push_to_detail zoompan
+# instead of being cut to, so those seconds are different frames.
+#
+# Without the bump, @durable_render serves MP4s encoded before the change while the
+# shot plan is recomputed by the code after it. shot_plan_metrics would then report
+# semantic_sync_ratio and same_source_hard_cut_count for pixels that are not in the
+# file -- a metric moving without the artifact it measures changing, which is the one
+# failure this whole branch exists to stop doing.
+ILLUSTRATED_RENDER_VERSION = "fd59f1d23a85d9cd599649040421b7c05bae4c1190836c4dd5dea731ed205c10"
 
 
 @lru_cache(maxsize=8)
