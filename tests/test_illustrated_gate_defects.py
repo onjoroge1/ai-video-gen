@@ -210,3 +210,73 @@ def test_the_recorded_delivery_loses_bolt_absent_and_keeps_the_rest():
     failures = _score(deterministic)["hard_failures"]
     assert "bolt_absent" not in failures
     assert "visual_state_cadence" in failures
+
+
+# ── research scales with runtime ─────────────────────────────────────────────────────────
+
+import longform_research as research
+
+
+def test_the_claim_target_scales_with_runtime():
+    """A 300s film and a 60s film commissioned identical research and got the same ~8 supportable
+    events. Seven scenes across 300s is ~43s each, and nothing downstream can illustrate a
+    43-second scene."""
+    assert research.research_claim_target(60) == (22, 28)
+    assert research.research_claim_target(90) == (22, 28)
+    assert research.research_claim_target(300) == (39, 45)
+    low90, _ = research.research_claim_target(90)
+    low300, _ = research.research_claim_target(300)
+    assert low300 > low90
+
+
+def test_the_target_never_drops_below_what_short_films_were_calibrated_on():
+    """22-28 is the tuned pair the 60-90s lane was validated against. Scaling must only go up."""
+    for seconds in (1, 15, 30, 60, 90, 120):
+        low, high = research.research_claim_target(seconds)
+        assert (low, high) == (research.MIN_CLAIM_REQUEST, research.MIN_CLAIM_REQUEST + 6)
+
+
+def test_the_target_is_monotonic_in_runtime():
+    lows = [research.research_claim_target(d)[0] for d in range(30, 601, 30)]
+    assert lows == sorted(lows), "a longer film must never ask for less research"
+
+
+def test_the_calibrated_request_stays_byte_identical():
+    """The durable ledger keys paid stages on this string and the research cache keys on it too.
+    At 60-120s the scaled target IS 22-28, so the request must be the same string as well as the
+    same numbers -- otherwise every in-flight job re-pays for research it already bought and
+    misses every cached dossier, for no benefit at all."""
+    import inspect
+    source = inspect.getsource(pipeline.generate_research_dossier)
+    assert '"This is a ' not in source.split("if scaled else")[1], "the extra sentence must be conditional"
+
+    at_floor = pipeline.research_claim_target(90)
+    assert at_floor == (research.MIN_CLAIM_REQUEST, research.MIN_CLAIM_REQUEST + 6)
+
+
+def test_the_event_ask_matches_what_the_research_was_commissioned_for():
+    """factual_plan_prompt asked for `scene_count_for(duration) - 3` -- 57 events at 300s, while
+    the dossier held 19 claims and the planner returned 8. An ask nobody can meet is noise: the
+    same 8 came back whether 15 or 57 was requested. Both halves derive from one number now."""
+    import story_compiler as compiler
+    for seconds in (90, 180, 300):
+        prompt = compiler.factual_plan_prompt("Q", seconds, 60, "backfiring_solution")
+        expected = research.events_for_runtime(seconds)
+        assert f"Return about {expected} distinct factual" in prompt or \
+               f"Return about {max(5, expected)} distinct factual" in prompt, \
+               f"{seconds}s: expected an ask of ~{expected}"
+    # And the ask is no longer driven by the scene-count literal that produced 57.
+    assert "Return about 57 distinct" not in \
+        compiler.factual_plan_prompt("Q", 300, 60, "backfiring_solution")
+
+
+def test_research_and_events_agree_on_the_same_runtime():
+    """The two halves must not drift: the research is commissioned to support exactly the number
+    of events the planner is asked for, at 2.4 verified claims each."""
+    for seconds in (90, 180, 240, 300):
+        events = research.events_for_runtime(seconds)
+        low, _ = research.research_claim_target(seconds)
+        supportable = low * research.VERIFIED_CLAIM_YIELD / research.CLAIMS_PER_EVENT
+        assert supportable >= events - 0.5, (
+            f"{seconds}s: asking for {low} claims supports {supportable:.1f} events, "
+            f"but the planner is asked for {events}")

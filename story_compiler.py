@@ -15,6 +15,7 @@ from copy import deepcopy
 import re
 import json
 import event_functions as ef
+from longform_research import events_for_runtime
 import story_fact_model as sfm
 
 COMPILER_VERSION = "story_compiler_v2"
@@ -49,7 +50,14 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         schema["beats"][0].pop("incentive", None)
     return (
         f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
-        f'Engine: {engine_id}. Return about {max(len(mapping.required), count - 3)} distinct factual '
+        # `count - 3` reads as "one event per scene", but `count` is scene_count_for(duration),
+        # which is 60 at 300s -- five-second scenes. So the ask was 57 events while the dossier
+        # held 19 claims and the planner returned 8. An ask nobody can meet is not a target, it is
+        # noise, and it trained nothing: the same 8 events came back whether 15 or 57 was asked
+        # for. events_for_runtime is the number the research was commissioned to support, from the
+        # scene length the writer can actually illustrate, so the two halves now agree.
+        f'Engine: {engine_id}. Return about '
+        f'{max(len(mapping.required), events_for_runtime(duration))} distinct factual '
         'events, including each required function exactly once; add only distinct supported '
         'consequences or optional context. Do not pad the list.\n'
         'Required functions: ' + ', '.join(mapping.required) + '.\n'
@@ -64,6 +72,17 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
            'matching definitions above all the way through. An introduced species cannot perform '
            'a setup function in that place before it arrived.\n'
            if engine_id == "removed_keystone" else "")
+        # The compiler rejects a sheet with two changes_incentive beats, and the prompt never said
+        # so -- the rule existed only in the error text, after the money was spent. It is a common
+        # and honest mistake to make: real policies often change twice (Hanoi paid for whole rats,
+        # then switched to tails), and both changes genuinely alter the incentive. Only the second
+        # one is the rule the story exploits. Measured: this killed one 300s run outright, and it
+        # gets MORE likely as the event count rises, so scaling the research made it the next wall.
+        + ('EXACTLY ONE beat may be changes_incentive: the rule the story goes on to EXPLOIT. If '
+           'the authorities changed the scheme more than once, the earlier attempt is context, not '
+           'a second changes_incentive -- pick the version whose loophole the rest of the story is '
+           'about and label the other one context.\n'
+           if "changes_incentive" in functions else "")
         + ('On changes_incentive only, supply incentive. rewarded_measure names what was '
            'accepted as proof, not what the policy was announced as. Bind it to the claim '
            'about accepted proof. stated_policy_goal needs separate evidence of the policy '

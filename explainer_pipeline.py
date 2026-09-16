@@ -50,7 +50,11 @@ from longform_shots import (
     select_alternate_image_indices,
     shot_plan_metrics,
 )
+import longform_research as research
 from longform_research import (
+    MIN_CLAIM_REQUEST,
+    events_for_runtime,
+    research_claim_target,
     parse_research_dossier_text,
     filter_disallowed_source_claims,
     quarantine_contradicted_claims,
@@ -3833,11 +3837,38 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
 
 
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
-                              log=lambda message: None, evidence_gaps: list | None = None) -> dict:
-    """Build a cited, pre-script claim ledger with server-side web search."""
+                              log=lambda message: None, evidence_gaps: list | None = None,
+                              duration_sec: float = 90.0) -> dict:
+    """Build a cited, pre-script claim ledger with server-side web search.
+
+    The claim target SCALES WITH RUNTIME. It was a flat 22-28 regardless, so a 300-second film
+    and a 60-second film commissioned identical research and got the same ~8 supportable events.
+    At 300s that is seven scenes of ~43 seconds, and nothing downstream can illustrate a
+    43-second scene: the state rule asks for 26 states and the writer returns 8, correctly,
+    because the scene does not contain 26 distinct visible changes.
+
+    research_claim_target returns (22, 28) at 60-120s -- byte-identical to the hand-tuned pair it
+    replaces, because the floor binds there -- and scales above: (27, 33) at 180s, (39, 45) at
+    300s. Research is the cheap end of the pipeline; on the recorded 252.5s film it was $0.0096
+    of $3.59, so doubling it is the least expensive lever available and the only one at the top
+    of the chain.
+    """
+    claims_low, claims_high = research_claim_target(duration_sec)
+    # BYTE-IDENTICAL WHERE THE FLOOR BINDS. At 60-120s the scaled target is exactly the 22-28 this
+    # prompt was calibrated on, so the request must be the same STRING as well as the same numbers:
+    # the durable ledger keys paid stages on it, and the research cache keys on it too. Emitting a
+    # differently-worded request that happens to ask for the same thing would make every in-flight
+    # job re-pay for research it already bought and miss every cached dossier, for no benefit.
+    # Above the floor there is nothing to preserve -- those runtimes have no correct cached
+    # research, which is the defect being fixed.
+    scaled = (claims_low, claims_high) != (MIN_CLAIM_REQUEST, MIN_CLAIM_REQUEST + 6)
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 22-28 material claims needed to answer it accurately. Ask for more than the video "
+        f"ledger of {claims_low}-{claims_high} material claims needed to answer it accurately. "
+        + (f"This is a {int(duration_sec)}-second film and the ledger has to carry "
+           f"{events_for_runtime(duration_sec)} distinct factual events without any one of them "
+           "resting on a single source. " if scaled else "")
+        + "Ask for more than the video "
         "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
         "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
         "that attrition rather than discovering it at the claim ledger. Every claim must use a URL "
@@ -9506,7 +9537,7 @@ def run_explainer_pipeline(
                 try:
                     screen_topic_fit(question, aux_costs, log, channel=topic_channel)
                     research_dossier = generate_research_dossier(
-                        question, cost_sink=aux_costs, log=log)
+                        question, cost_sink=aux_costs, log=log, duration_sec=duration_sec)
                 except Exception as exc:
                     if research_mode == "required":
                         raise

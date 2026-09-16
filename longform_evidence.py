@@ -266,6 +266,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
 SLOWEST_MEASURED_WORDS_PER_SECOND = 2.588
 
 
+
 def states_required_for_words(words: int) -> int:
     """The state count a scene of this many words NEEDS, from the constants the gate measures.
 
@@ -348,7 +349,8 @@ def state_count_rule() -> str:
         "twenty-odd states in one scene is normal and correct when the narration is long enough "
         "to require them. Under-producing here is the single most common way this lane fails. "
         "If a scene would need more states than you can find distinct visible changes for, the "
-        "scene is too long -- say less, rather than holding one picture for ten seconds. ")
+        "scene is too long -- say less in it. Never answer that by adding a scene: the batch "
+        "returns exactly one scene per assigned beat. ")
 
 
 # MEASURED AFTER THE FIX, on the same topic, engine and duration as the film that exposed it
@@ -377,6 +379,28 @@ def state_count_rule() -> str:
 # fixes the last link. Whoever takes the next one should start at the first: either research
 # deeper for long runtimes, or cap scene length and accept more scenes per event, or stop
 # offering 300s on a 19-claim dossier. Do not "fix" it by asking the model more loudly.
+
+
+# TRIED AND NOT SHIPPED: a per-scene word ceiling.
+#
+# After the research scaling landed, the remaining gap was distribution -- 11 scenes, 656 words,
+# split 14/20/20/18/24/23 then 113/98/99/103/124. The six short scenes each met the state
+# requirement; all five long ones did not. Spread evenly that is 60 words a scene, 7 states each,
+# and a ~3.3s hold: under the ceiling with nothing else changed. So a rule capping any scene at
+# 64 words (SECONDS_PER_SCENE_TARGET at the slowest narration rate) looked like the last step.
+#
+# It did not work. Measured with the rule in place, the long scenes got LONGER -- 145/121/135/156
+# against 113/98/99/103/124 without it -- and the average hold went 4.78s to 5.80s. One sample
+# each way, so this is not proof it hurts; it is an absence of any evidence that it helps, which
+# is the same reason the state rule's old "3-4 / 2-4" band had to go. Two prompt rules now ask the
+# writer to say less in a long scene and both are ignored on exactly the scenes that matter.
+#
+# The pattern points somewhere else. In both runs scenes 1-7 ran 15-34 words and scenes 8-11 ran
+# 121-156, and that split follows the CHUNK boundary: the ending batch is separately instructed to
+# carry a false-relief beat, the final escalation, the final payoff, the callback to the opening
+# object and a resonant close. It is long because it was asked for five things, not because the
+# writer forgot a word limit. Whoever picks this up should start at that instruction, not at
+# another ceiling.
 
 
 def state_capacity(scene: dict, seconds: float | None = None) -> int:
