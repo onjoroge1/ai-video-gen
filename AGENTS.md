@@ -130,7 +130,7 @@ Agents should report at minimum:
 
 If the user says they approved the pilot, first verify the production action/job state. Under the current flow the render should already have been queued and dispatched by that single approval.
 
-## Topic-based illustrated canary
+## Topic-based illustrated video
 
 `generic_illustrated` is a separate immutable spending scope from a directed 45-second pilot.
 Create it without credentials or provider calls through `POST /api/agent/actions`:
@@ -145,12 +145,21 @@ Create it without credentials or provider calls through `POST /api/agent/actions
 }
 ```
 
-This proposes one 60–90-second landscape illustrated video, including research, script attempts,
+This proposes one 60–300-second landscape illustrated video, including research, script attempts,
 TTS, still images, verification and rendering. The exact recipe and provider/model manifest are
 hash-bound to the ceiling. The approval card must show the complete scope. It does not authorize
 additional videos, automatic rerenders, continuation into a longer film, or publishing to YouTube.
 The same existing operator approval, execute, dispatch and status routes apply. Worker continuation
 reuses the same job and approval. Never approve on the operator's behalf.
+
+For a three-to-five-minute episode set `duration_sec` to 180–300 and supply an explicit ceiling.
+The 60–90-second v2 recipe remains compatible; longer videos use the v3 estimate with an image
+redraw allowance. `/api/agent/capabilities` reports the duration limits and actual deployment caps.
+`AGENT_ACTION_LONGFORM_MAX_COST_USD` defaults to $10 and is bounded by the deployment's durable
+job cap. Neither the API nor MCP silently increases the budget. See `docs/REELFORGE_MCP.md` for
+the six MCP tools, separate adapter environment, authentication and connection instructions.
+MCP has no approval tool and makes no provider calls itself. A scoped machine read token may
+inspect saved diagnostics and artifact manifests; it cannot approve, publish or modify jobs.
 
 Check `/api/production-readiness` before requesting paid execution. Its checks establish configuration
 only; model access, quota, story quality and successful live delivery remain unverified until measured.
