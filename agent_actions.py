@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import uuid
@@ -49,6 +50,17 @@ class AgentActionForbidden(AgentActionError):
 # 60-90s illustrated board. The pipeline's own cap still binds at runtime -- this only prices it.
 ILLUSTRATED_MOTION_ALLOWANCE_CLIPS = 4
 MOTION_CLIP_SECONDS = 5
+ILLUSTRATED_MIN_SECONDS = 60
+ILLUSTRATED_MAX_SECONDS = 300
+
+
+def illustrated_cost_cap(duration_sec: int) -> float:
+    """Same cap for discovery and proposal; deployment limits always win."""
+    key = ("AGENT_ACTION_LONGFORM_MAX_COST_USD" if duration_sec > 90
+           else "AGENT_ACTION_ILLUSTRATED_MAX_COST_USD")
+    return min(25.0, float(os.environ.get(key, "10.00" if duration_sec > 90 else "5.00")),
+               float(os.environ.get("DURABLE_JOB_MAX_COST_USD",
+                                    os.environ.get("MAX_VIDEO_COST_USD", "10.00"))))
 
 
 def _motion_rate_usd_per_sec() -> float:
@@ -83,12 +95,20 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
                               creative_direction: str, cost_ceiling_usd: float,
                               providers: dict) -> dict:
     """Freeze a bounded recipe, not a prewritten script; creation makes no provider call."""
-    if not topic.strip() or not 60 <= duration_sec <= 90:
-        raise AgentActionConflict("Illustrated topics require a 60–90 second target")
+    if (not topic.strip() or type(duration_sec) is not int
+            or not ILLUSTRATED_MIN_SECONDS <= duration_sec <= ILLUSTRATED_MAX_SECONDS):
+        raise AgentActionConflict("Illustrated topics require a 60–300 second integer target")
+    if not math.isfinite(cost_ceiling_usd) or cost_ceiling_usd <= 0:
+        raise AgentActionConflict("Cost ceiling must be finite and positive")
     # Research, script retries and editorial checks dominate this planning allowance.
     # It is deliberately distinct from the enforced ceiling; a gate/budget failure can
     # produce a useful failed artifact without producing a finished video.
     base = 3.5 + duration_sec / 5 * 0.055 + duration_sec * 0.00045
+    # Keep v2 canary payloads byte-compatible. Longer requests use an explicit v3
+    # allowance for 50% additional image attempts, not a promise of delivery.
+    longform = duration_sec > 90
+    if longform:
+        base += duration_sec / 5 * 0.055 * 0.5
     # Motion is bought with LEFTOVER budget, so price it the way the pipeline buys it. The render
     # derives its clip cap from whatever survives the base estimate
     # (motion_cap = (ceiling - base) // clip_cost), so a folded-in flat allowance would price
@@ -98,14 +118,14 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
     # clips that ceiling actually pays for.
     clip_cost = MOTION_CLIP_SECONDS * _motion_rate_usd_per_sec()
     affordable_clips = (
-        min(ILLUSTRATED_MOTION_ALLOWANCE_CLIPS,
+        min(ILLUSTRATED_MOTION_ALLOWANCE_CLIPS * (math.ceil(duration_sec / 90) if longform else 1),
             int(max(0.0, float(cost_ceiling_usd) - base) // clip_cost))
         if clip_cost > 0 else 0)
     estimated = round(base + affordable_clips * clip_cost, 4)
     from illustrated_story import CREATIVE_PROFILE
     from illustrated_score import SCORE_VERSION
     return {
-        "schema": "illustrated_topic_v2",
+        "schema": "illustrated_topic_v3" if longform else "illustrated_topic_v2",
         "creative_profile": {"visual": CREATIVE_PROFILE, "music": SCORE_VERSION},
         "scope": "single-illustrated-video",
         "request": {
@@ -120,7 +140,11 @@ def build_illustrated_payload(*, topic: str, duration_sec: int,
         },
         "providers": providers,
         "estimated_cost_usd": estimated,
-        "estimate_basis": "Planning allowance; story approval and video delivery are not guaranteed.",
+        "estimate_basis": (
+            "Planning allowance: research and script checks, one visual state per 5 seconds, "
+            "50% additional image attempts, narration and budget-limited motion. "
+            "Actual costs vary; story approval and video delivery are not guaranteed."
+            if longform else "Planning allowance; story approval and video delivery are not guaranteed."),
         "cost_ceiling_usd": cost_ceiling_usd,
     }
 
