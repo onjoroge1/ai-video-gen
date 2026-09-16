@@ -113,7 +113,14 @@ def _derived_visual_beats(scene: dict) -> list[dict]:
             if part.strip()
         ]
     beats = []
-    for i, clause in enumerate(clauses[:4]):
+    # Was a flat clauses[:4] for any scene length -- the fallback copy of the defect the state
+    # rule just lost. A scene long enough to need twenty states got four here too, and because
+    # this path runs when the model returned no usable visual_beats, it is exactly the scene
+    # least likely to have been planned densely in the first place. Take as many clauses as the
+    # hold ceiling requires; the slice caps itself at however many the narration actually has.
+    from longform_evidence import states_required_for_words
+    wanted = max(4, states_required_for_words(len(narration.split())))
+    for i, clause in enumerate(clauses[:wanted]):
         purpose = PURPOSES[min(i, len(PURPOSES) - 1)]
         beats.append({
             "anchor_phrase": " ".join(clause.split()[: min(7, len(clause.split()))]),

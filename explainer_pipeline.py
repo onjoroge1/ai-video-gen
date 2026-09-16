@@ -61,6 +61,8 @@ from longform_research import (
 )
 from longform_evidence import (
     compile_evidence_plan,
+    state_count_rule as _state_count_rule,
+    states_required_for_words,
     evidence_asset_counts,
     record_asset_verification,
     reuse_exact_asset,
@@ -1486,14 +1488,12 @@ _SCENE_FIELDS_RULES = (
     'title_color, accent_color, subtitle_color, card. '
     'EVIDENCE STATE MAP — "visual_beats" is an ARRAY OF JSON OBJECTS in narration order, never '
     'an array of strings. Each element is an object whose fields are listed below. A state is a '
-    'visible world change, not a camera angle. HOW MANY depends on how long the scene RUNS, because each state '
-    'is held for the scene duration divided by the state count, and any hold longer than 3.5 '
-    'SECONDS is rejected downstream. Narration runs at about 2.9 words per second, so a scene of '
-    'N words runs roughly N/2.9 seconds and needs AT LEAST N/9 states, rounded up: 18 words needs '
-    '2, 27 words needs 3, 36 words needs 4, 45 words needs 5. Count the words in the scene you are '
-    'writing and apply that. Within the first 30% of runtime use 3-4 states, later 2-4, '
-    'and always at least the '
-    'number the word count requires. '
+    'visible world change, not a camera angle. '
+    # Generated from MAX_VISUAL_STATE_SECONDS and the configured speech rate, so the count the
+    # writer is asked for is the count validate_evidence_timing and the rendered gate measure.
+    # The hand-written version stated this rule and then contradicted it with a fixed "3-4 / 2-4"
+    # band; the band won in every scene of a delivered film. See state_count_rule's docstring.
+    + _state_count_rule() +
     'Each object has: "anchor_phrase" (an EXACT consecutive 2-8 word phrase copied from narration '
     'where this visual should begin), "purpose" (setup|action|evidence|consequence), "visual" '
     '(the specific object/action this clause needs), "state_before" and "state_after" (the same '

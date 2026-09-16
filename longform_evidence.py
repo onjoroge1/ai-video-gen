@@ -251,6 +251,134 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     }
 
 
+# The SLOWEST narration rate measured across real renders, not the planning average.
+#
+# runtime_planner.DEFAULT_WORDS_PER_SECOND is 2.86 and is the right number for predicting how
+# long a script will run. It is the wrong number for sizing states. Holds are duration/count, so
+# a scene that speaks SLOWER than average runs longer and holds each state longer -- sizing on
+# the average leaves every slow scene over the ceiling. runtime_planner:41 records the spread
+# from identical word counts across runs: 2.588 and 2.733 w/s.
+#
+# 2.588 / 3.5 gives a divisor of 9.06, which is where the prompt's hand-written "N/9" came from
+# and why tests/test_state_count_matches_scene_duration pins 9 and records that N/10 "was tried
+# first and breaks at several real scene lengths". Deriving from 2.86 reproduces exactly that
+# rejected N/10.01. The literal was right; what was missing was the constant behind it.
+SLOWEST_MEASURED_WORDS_PER_SECOND = 2.588
+
+
+def states_required_for_words(words: int) -> int:
+    """The state count a scene of this many words NEEDS, from the constants the gate measures.
+
+    validate_evidence_timing computes `ceil(duration / MAX_VISUAL_STATE_SECONDS)` and the rendered
+    gate fails `long_visual_hold` on the same threshold. The script prompt carried its own prose
+    copy of that arithmetic -- "about 2.9 words per second ... AT LEAST N/9 states" -- with the
+    rate, the divisor and the ceiling all written out as literals. Three numbers free to drift
+    from the constants they restate.
+
+    One function now, called by the prompt builder and by the opening-beat ceiling, so the count
+    the writer is asked for is the count the gate measures. It reproduces the hand-tuned examples
+    exactly -- 18->2, 27->3, 36->4, 45->5 -- and keeps going where prose stopped: 198->22.
+    """
+    words = max(0, int(words or 0))
+    if not words:
+        return 1
+    seconds = words / SLOWEST_MEASURED_WORDS_PER_SECOND
+    return max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+
+
+def states_required_for_capacity(capacity: int) -> int:
+    """The hold-derived requirement, recovered from a scene's state_capacity.
+
+    validate_evidence_plan sees `state_capacity` -- `seconds // MIN_EVIDENCE_STATE_SECONDS` --
+    not the narration, so it cannot call states_required_for_words directly. Inverting gives
+    seconds within one 1.5s step, which is precise enough for a CEILING and errs upward, which is
+    the safe direction: a ceiling that is slightly too generous accepts a good plan, one that is
+    slightly too tight rejects a plan the writer was told to produce.
+    """
+    capacity = max(0, int(capacity or 0))
+    if not capacity:
+        return 1
+    seconds = capacity * MIN_EVIDENCE_STATE_SECONDS
+    return max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+
+
+def state_count_rule() -> str:
+    """The prompt sentence for how many evidence states a scene needs, generated not written.
+
+    WHY THIS IS GENERATED. The hand-written version stated the correct scaling rule and then
+    contradicted it in the next clause: "...needs AT LEAST N/9 states, rounded up: 18 words needs
+    2, 27 words needs 3, 36 words needs 4, 45 words needs 5. Count the words in the scene you are
+    writing and apply that. Within the first 30% of runtime use 3-4 states, later 2-4."
+
+    Measured on a delivered 252.5s film, the model obeyed the concrete range and ignored the
+    formula, in every scene:
+
+        scene  words  rule demands  produced
+            1     34             4         3
+            4     39             5         3
+            5    198            22         4
+            6    177            20         4
+            7    204            23         5
+
+    Producing 3,3,3,3,4,4,5 -- "first 30% use 3-4, later 2-4" almost exactly. 25 states across
+    252.5s is a 10.10s average hold against a 3.5s ceiling, which is `long_visual_hold` and
+    `visual_state_cadence`, both hard failures, on both delivered films.
+
+    Two things made the range win. It was concrete where the formula was arithmetic, and every
+    worked example was a short scene -- the longest was 45 words, while real long-form scenes in
+    this lane run to 204. A model given examples spanning 18-45 words has no anchor for 198 and
+    falls back on the range it was handed.
+
+    So: the range is gone, the examples are generated from the real distribution including the
+    long end, and the arithmetic comes from the constants rather than from prose.
+    """
+    examples = ", ".join(
+        f"{words} words needs {states_required_for_words(words)}"
+        for words in (30, 60, 120, 200))
+    return (
+        "HOW MANY is arithmetic, not taste. Each state is held for the scene duration divided by "
+        "the state count, and any hold longer than "
+        f"{MAX_VISUAL_STATE_SECONDS} SECONDS is rejected downstream as a hard failure. Narration "
+        f"can run as slow as {SLOWEST_MEASURED_WORDS_PER_SECOND} words per second, so a scene "
+        f"of N words can run N/{SLOWEST_MEASURED_WORDS_PER_SECOND} seconds and needs "
+        f"ceil(N / {SLOWEST_MEASURED_WORDS_PER_SECOND} / {MAX_VISUAL_STATE_SECONDS}) states, "
+        f"which is about N/9: {examples}. "
+        "COUNT THE WORDS IN THE SCENE YOU JUST WROTE AND RETURN THAT MANY STATES. There is no "
+        "upper band and no house style to fall back on: a long scene needs many states, and "
+        "twenty-odd states in one scene is normal and correct when the narration is long enough "
+        "to require them. Under-producing here is the single most common way this lane fails. "
+        "If a scene would need more states than you can find distinct visible changes for, the "
+        "scene is too long -- say less, rather than holding one picture for ten seconds. ")
+
+
+# MEASURED AFTER THE FIX, on the same topic, engine and duration as the film that exposed it
+# (script-only harness, 300s, backfiring_solution):
+#
+#   scene  words  required  before  after
+#       1     35         4       3      3
+#       4     30         4       3      3
+#       5    228        26       4      8
+#       6    210        24       4      6
+#       7    225        25       5      7
+#   totals: 25 -> 33 states, average hold 10.10s -> 9.39s, ceiling 3.5s
+#
+# The rule change is real -- long scenes gained ~65% more states -- and it is NOT SUFFICIENT.
+# Asked for 26 states in one scene the model returns 8, and it is not being stubborn: a 228-word
+# scene runs 88 seconds, and there are not 26 distinct visible changes in 88 seconds of one
+# argument. The instruction is now correct and the writer still cannot satisfy it.
+#
+# That makes SCENE LENGTH the binding constraint, not states per scene. Seven scenes across 300s
+# is 43s per scene, and no prompt makes a 43-second scene densely illustratable. Scene count comes
+# from the factual event count, and that is bounded further up: factual_plan_prompt asked for 57
+# events, the planner returned 8, and it cannot honestly return many more because the research
+# dossier held 19 verified claims. 19 claims cannot support 57 sourced events.
+#
+# So the chain is: claims -> events -> scenes -> scene length -> states -> holds. This function
+# fixes the last link. Whoever takes the next one should start at the first: either research
+# deeper for long runtimes, or cap scene length and accept more scenes per event, or stop
+# offering 300s on a 19-claim dossier. Do not "fix" it by asking the model more loudly.
+
+
 def state_capacity(scene: dict, seconds: float | None = None) -> int:
     """How many evidence states this scene's runtime can physically hold.
 
@@ -415,10 +543,17 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # better that is still an error. This exempts only the beats physics already decided for.
         capacity = int(scene_plan.get("state_capacity") or 0)
         floor = 2 if capacity >= 2 else 1
-        if opening and not floor <= len(states) <= 6:
+        # The ceiling has to move with the narration, or it contradicts the hold rule. Six was a
+        # flat literal: fine for a 40-word opening, which needs 4, and unsatisfiable for a
+        # 100-word one, which needs 10 to stay under MAX_VISUAL_STATE_SECONDS. A writer told to
+        # produce the hold-derived count and then failed for producing it has been handed two
+        # rules that cannot both hold -- the same shape as the 3-4/2-4 band this lane just lost.
+        # Six remains the floor of the ceiling, so nothing tightens for a short opening.
+        ceiling = max(6, states_required_for_capacity(capacity))
+        if opening and not floor <= len(states) <= ceiling:
             errors.append(_issue(
                 "opening_state_count",
-                f"Every opening beat requires {floor} to six evidence states."
+                f"Every opening beat requires {floor} to {ceiling} evidence states."
                 + ("" if floor == 2 else
                    " This beat is too short to hold two, so one is the whole budget."),
                 scene=scene_index + 1))
