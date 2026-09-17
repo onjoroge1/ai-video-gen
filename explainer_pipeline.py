@@ -3199,7 +3199,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # code fails closed instead of being sampled at until it passes.
         _correction = _compiler.compile_correction(_roles)
         if _correction:
-            log("Beat sheet did not compile — re-asking the planner once: "
+            print("Beat sheet did not compile — re-asking the planner once: "
                 + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
             _retry_plan, _retry_cost = _ask_planner(_correction)
             cost += _retry_cost
@@ -3212,9 +3212,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
                 style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
                 throughline = _s(plan.get("throughline")).strip() or throughline
-                log("  ✓ compile retry succeeded")
+                print("  ✓ compile retry succeeded")
             else:
-                log("  ✗ compile retry still does not compile — failing on the original")
+                print("  ✗ compile retry still does not compile — failing on the original")
         if _roles.get("compiled"):
             prepared = _planning.prepare(
                 beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
