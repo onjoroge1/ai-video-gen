@@ -4,9 +4,81 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from typing import Any
 from urllib.parse import urlparse
+
+
+# ── How much research a runtime needs ────────────────────────────────────────────────────────
+#
+# The chain that sets visual density runs: claims -> events -> scenes -> scene length -> states
+# -> holds. The last link was fixed by sizing states from the hold ceiling, and that turned out
+# not to be enough -- asked for 26 states in one scene the model returns 8, because a 228-word
+# scene does not contain 26 distinct visible changes. Scene LENGTH is the binding constraint,
+# and scene length is set here, at the top of the chain.
+#
+# MEASURED on the recorded 252.5s film: a 22-28 claim request returned 19 verified claims, which
+# supported 8 factual events, which became 7 scenes of ~43s each. Nothing downstream can rescue a
+# 43-second scene. The request was a flat literal regardless of runtime, so a 300s film and a 60s
+# film asked for exactly the same research and got the same ~8 events.
+#
+# The three ratios below are measured from that run, not chosen:
+
+# A scene the writer can actually illustrate. The model reliably produces 6-8 states per scene;
+# at MAX_VISUAL_STATE_SECONDS = 3.5 that buys 21-28 seconds. 25 sits inside what was observed
+# rather than at its limit, because the limit was observed once.
+SECONDS_PER_SCENE_TARGET = 25.0
+
+# 19 verified claims supported 8 events on the recorded run. Events need corroboration and some
+# claims are context that never becomes an event, so this is well above 1.
+CLAIMS_PER_EVENT = 2.4
+
+# 19 verified from a 22-28 ask. Claims die on paywalls, 403s and quotes that are not on the page,
+# and that attrition is already why the prompt asks for more than the video needs.
+VERIFIED_CLAIM_YIELD = 0.76
+
+# The tuned floor. 22-28 is what the 60-90s lane was calibrated on and it works there; this must
+# scale UP with runtime and never below the numbers short films were validated against.
+MIN_CLAIM_REQUEST = 22
+
+
+def events_for_runtime(duration_sec: float) -> int:
+    """How many factual events a runtime needs to keep scenes short enough to illustrate."""
+    return max(1, math.ceil(max(0.0, float(duration_sec or 0)) / SECONDS_PER_SCENE_TARGET))
+
+
+def illustratable_beat_words() -> int:
+    """The most spoken words one beat may carry and still be fillable with distinct visuals.
+
+    A beat becomes exactly one scene, and a scene is held together by its evidence states. At
+    MAX_VISUAL_STATE_SECONDS a SECONDS_PER_SCENE_TARGET scene needs ~8 states, which is inside
+    what the writer reliably produces. Past that the states stop being distinct visible changes
+    and the scene holds one picture instead.
+    """
+    from runtime_planner import DEFAULT_WORDS_PER_SECOND
+    return max(1, int(SECONDS_PER_SCENE_TARGET * DEFAULT_WORDS_PER_SECOND))
+
+
+def beats_required_for_words(total_words: int) -> int:
+    """How many beats a word budget needs so no single scene exceeds the illustratable cap."""
+    return max(1, math.ceil(max(0, int(total_words or 0)) / illustratable_beat_words()))
+
+
+def research_claim_target(duration_sec: float) -> tuple[int, int]:
+    """The (low, high) claim request for this runtime.
+
+    Returns (22, 28) at 90s -- exactly the hand-tuned pair it replaces, because the floor binds
+    there -- and scales above it: (27, 33) at 180s, (39, 45) at 300s.
+
+    Research is the cheap end of this pipeline. The recorded 252.5s film spent $3.59, of which
+    research was $0.0096; asking for twice the claims is the least expensive intervention
+    available and it is the only one at the top of the chain.
+    """
+    needed = math.ceil(events_for_runtime(duration_sec) * CLAIMS_PER_EVENT)
+    requested = math.ceil(needed / VERIFIED_CLAIM_YIELD)
+    low = max(MIN_CLAIM_REQUEST, requested)
+    return low, low + 6
 
 
 LEGACY_DOSSIER_JSON_ERROR = (
