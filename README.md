@@ -18,6 +18,10 @@ The former House of the Dragon / State Board workflow is now the general TV Revi
 
 ## Quick start
 
+AI assistants can propose 60–300-second illustrated videos through the shared agent API or
+the optional MCP adapter. See [MCP and long-form API setup](docs/REELFORGE_MCP.md).
+Both use the same operator approval, durable job, checkpoints and budget.
+
 Requirements: Python 3.10+, FFmpeg/ffprobe, and credentials for the providers you enable.
 
 ```bash

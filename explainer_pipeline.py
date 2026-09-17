@@ -4964,12 +4964,19 @@ def _detail_reframe_earns_it(source_path: str, state_path: str, state: dict,
     return False
 
 
+# The centre fraction a detail reframe keeps. Named once because two things depend on it being
+# the same number: the crop below, and the `push_to_detail` camera move that has to land exactly
+# on that crop's framing. If they drift, the push ends somewhere the verifier never inspected.
+DETAIL_REFRAME_CROP = 0.68
+
+
 def _make_detail_reframe(source_path: str, output_path: str) -> str:
     """Create a deterministic center detail; it earns information only after vision verification."""
     from PIL import ImageOps
     image = Image.open(source_path).convert("RGB")
     width, height = image.size
-    crop_width, crop_height = max(1, int(width * 0.68)), max(1, int(height * 0.68))
+    crop_width = max(1, int(width * DETAIL_REFRAME_CROP))
+    crop_height = max(1, int(height * DETAIL_REFRAME_CROP))
     left, top = (width - crop_width) // 2, (height - crop_height) // 2
     detail = image.crop((left, top, left + crop_width, top + crop_height))
     ImageOps.fit(detail, (width, height)).save(output_path, "JPEG", quality=92)
@@ -5847,6 +5854,9 @@ def align_caption_phrases(narration: str, whisper_words: list, audio_dur: float,
 
 _CENTER_X = "iw/2-(iw/zoom/2)"
 _CENTER_Y = "ih/2-(ih/zoom/2)"
+# Zoom that reproduces a detail reframe's framing exactly: the crop keeps the centre
+# DETAIL_REFRAME_CROP of the frame, so showing it full-screen is 1/DETAIL_REFRAME_CROP.
+_PUSH_TO_DETAIL_Z = 1.0 / DETAIL_REFRAME_CROP
 
 
 def _motion(preset: str, n: int) -> tuple[str, str, str]:
@@ -5865,6 +5875,12 @@ def _motion(preset: str, n: int) -> tuple[str, str, str]:
         "pan_down":     ("1.14", _CENTER_X, f"(ih-ih/zoom)*{ease}"),
         "zoom_tl":      (f"min(1.0+0.16*{ease}\\,1.16)", "0", "0"),
         "zoom_br":      (f"min(1.0+0.16*{ease}\\,1.16)", "iw-iw/zoom", "ih-ih/zoom"),
+        # A continuous push from the master's full frame onto the exact centre crop a detail
+        # reframe would have cut to. The end zoom is 1/DETAIL_REFRAME_CROP, so the last frame of
+        # the move IS the reframe -- same pixels the vision inspector accepted, arrived at by
+        # moving the camera instead of cutting.
+        "push_to_detail": (f"min(1.0+{_PUSH_TO_DETAIL_Z - 1.0:.4f}*{ease}\\,"
+                           f"{_PUSH_TO_DETAIL_Z:.4f})", _CENTER_X, _CENTER_Y),
     }
     return presets.get(preset, presets["kenburns_in"])
 
@@ -6439,9 +6455,31 @@ def _make_multishot_background(
             image = result.get("alt_img") if shot.get("source") == "alternate" else result["img"]
         if not image or not os.path.exists(image):
             image = result["img"]
+        motion = shot.get("motion") or "kenburns_in"
+        # A detail reframe is a crop of the shot before it. Cutting to that crop is a jump cut --
+        # the same picture, suddenly larger -- and measured on a real render two of these read as
+        # near-identical frames either side of a cut (mean pixel difference 16/255 against 24-67
+        # for genuine cuts). Rendering the move instead removes the cut: start on the MASTER at
+        # full frame and push in until the frame is the crop. The last frame is the reframe the
+        # inspector accepted, and every frame before it is the master it accepted too, so nothing
+        # unverified reaches the screen.
+        if shot.get("transition") == "push_to_detail" and j > 0:
+            master = evidence_assets.get(work[j - 1].get("source"))
+            if master and os.path.exists(master):
+                image, motion = master, "push_to_detail"
+            else:
+                # Without the master there is nothing to push from, so this really is a cut to a
+                # crop of the previous picture -- the jump cut the push exists to avoid. Record it
+                # on the CALLER's shot, not just on `work`, which is a copy: shot_plan_metrics runs
+                # over the original list, and a fallback nobody can see is how a quality metric
+                # quietly stops measuring anything. This is now the only way
+                # same_source_hard_cut_count can fire, and it means exactly "a push was intended
+                # and could not be performed".
+                shot["transition"] = "hard_cut"
+                shots[j]["transition"] = "hard_cut"
         _make_scene_segment(
             image, result["aud"], clip, "", "",
-            motion=shot.get("motion") or "kenburns_in", captions="none",
+            motion=motion, captions="none",
             vw=vw, vh=vh, duration_override=float(shot["duration"]),
             motion_video=((motion_videos or {}).get(_s(shot.get("state_id"))) or motion_video)
             if shot.get("kind") == "i2v" else None,
