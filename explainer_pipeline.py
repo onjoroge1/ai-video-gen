@@ -50,7 +50,11 @@ from longform_shots import (
     select_alternate_image_indices,
     shot_plan_metrics,
 )
+import longform_research as research
 from longform_research import (
+    MIN_CLAIM_REQUEST,
+    events_for_runtime,
+    research_claim_target,
     parse_research_dossier_text,
     filter_disallowed_source_claims,
     quarantine_contradicted_claims,
@@ -61,6 +65,8 @@ from longform_research import (
 )
 from longform_evidence import (
     compile_evidence_plan,
+    state_count_rule as _state_count_rule,
+    states_required_for_words,
     evidence_asset_counts,
     record_asset_verification,
     reuse_exact_asset,
@@ -1486,14 +1492,12 @@ _SCENE_FIELDS_RULES = (
     'title_color, accent_color, subtitle_color, card. '
     'EVIDENCE STATE MAP — "visual_beats" is an ARRAY OF JSON OBJECTS in narration order, never '
     'an array of strings. Each element is an object whose fields are listed below. A state is a '
-    'visible world change, not a camera angle. HOW MANY depends on how long the scene RUNS, because each state '
-    'is held for the scene duration divided by the state count, and any hold longer than 3.5 '
-    'SECONDS is rejected downstream. Narration runs at about 2.9 words per second, so a scene of '
-    'N words runs roughly N/2.9 seconds and needs AT LEAST N/9 states, rounded up: 18 words needs '
-    '2, 27 words needs 3, 36 words needs 4, 45 words needs 5. Count the words in the scene you are '
-    'writing and apply that. Within the first 30% of runtime use 3-4 states, later 2-4, '
-    'and always at least the '
-    'number the word count requires. '
+    'visible world change, not a camera angle. '
+    # Generated from MAX_VISUAL_STATE_SECONDS and the configured speech rate, so the count the
+    # writer is asked for is the count validate_evidence_timing and the rendered gate measure.
+    # The hand-written version stated this rule and then contradicted it with a fixed "3-4 / 2-4"
+    # band; the band won in every scene of a delivered film. See state_count_rule's docstring.
+    + _state_count_rule() +
     'Each object has: "anchor_phrase" (an EXACT consecutive 2-8 word phrase copied from narration '
     'where this visual should begin), "purpose" (setup|action|evidence|consequence), "visual" '
     '(the specific object/action this clause needs), "state_before" and "state_after" (the same '
@@ -2388,6 +2392,96 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
             value = words // (len(pending) - i)
             budgets[beat["n"]] = value
             words -= value
+        # Per GROUP, never across the boundary. Cascading surplus from the body into the opening
+        # would even the scenes out and move the mechanism from 17% of runtime to 52%, trading
+        # long_visual_hold for LATE_MECHANISM -- causal_story:450 fails any mechanism starting
+        # after runtime * pct, which is 60s here. The split exists to hold that position.
+        _cap_beat_budgets(budgets, group)
+    return budgets
+
+
+def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
+    """Stop any one beat being handed more words than a scene can be illustrated at.
+
+    THE SPLIT ABOVE IS A CLIFF, NOT A SLOPE. `opening` is a fraction of total RUNTIME --
+    mechanism_deadline_pct, 0.2 for backfiring_solution -- and it is then divided among however
+    many beats happen to precede the mechanism. Nothing couples the two numbers, so the more beats
+    the planner puts before the mechanism, the less each one gets, while everything after it
+    splits the remaining 80%.
+
+    Measured on the recorded 300s plan -- 11 beats with the mechanism at 7, an 833-word budget:
+
+        beats 1-6   24 words    8.4s   the whole opening on 20% of the words
+        beats 7-11 133 words   46.5s   needing 15 evidence states each
+
+    The delivered film's scenes ran 10.9s then 43.1, 40.1, 39.1, 39.5, 41.3 -- that allocation,
+    almost exactly. A 46-second scene cannot be rescued downstream: asked for 15 states the writer
+    returns 7, because 133 words do not contain 15 distinct visible changes, and the result is the
+    6-8s holds that fail `long_visual_hold` and `visual_state_cadence`.
+
+    So the cap is the scene length a writer can actually fill, and words over it cascade to
+    beats in THE SAME GROUP that have headroom, smallest first.
+
+    WHY NOT SIMPLY EVEN OUT THE WHOLE FILM. Because that is a metric swap, and it was measured:
+    letting the body's surplus reach the starved opening gives a flat ~76 words per beat and a
+    25.9s worst scene, which clears the hold checks -- and moves the mechanism from 17% of runtime
+    to 52%. causal_story:450 fails any mechanism starting later than `runtime_sec * pct`, 60s at
+    this runtime, so that trades `long_visual_hold` for `LATE_MECHANISM`. The two-group split
+    exists to hold the mechanism's position and this function must not dissolve it.
+
+    WHAT THAT LEAVES. On the recorded plan the body group has 5 beats and 666 words: 355 of
+    capacity at the cap, 311 words with nowhere legal to go. That plan is genuinely infeasible --
+    no allocation of 833 words over 11 beats satisfies both a 60s mechanism deadline and a 25s
+    scene ceiling, because the deadline permits only ~2 beats before the mechanism and the
+    remaining 9-10 must carry the rest. The fix is more POST-MECHANISM beats, which is a planner
+    ask, not an arithmetic one -- see `beats_required_for_words` and the event count in
+    `story_compiler.factual_plan_prompt`.
+
+    So when a group cannot hold its words at the cap, the words are still placed. Runtime is not
+    silently thrown away -- the audio gate has a floor and dropping 311 words reappears as a short
+    film, a worse failure than a long hold. The overflow is the honest signal that the beat plan is
+    too thin, and it stays visible instead of being smoothed into a passing number.
+    """
+    import causal_story as cs
+    from longform_research import illustratable_beat_words
+    ceiling = illustratable_beat_words()
+    caps = {
+        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling)
+                    if beat.get("causal_role") == cs.HINGE else ceiling)
+        for beat in beats if beat.get("n") in budgets
+    }
+    surplus = 0
+    for number, cap in caps.items():
+        if budgets[number] > cap:
+            surplus += budgets[number] - cap
+            budgets[number] = cap
+    # Smallest first: the beats the cliff starved fill before any already-comfortable beat.
+    while surplus > 0:
+        room = [number for number, cap in caps.items() if budgets[number] < cap]
+        if not room:
+            break
+        share = max(1, surplus // len(room))
+        for number in sorted(room, key=lambda key: budgets[key]):
+            if surplus <= 0:
+                break
+            give = min(share, caps[number] - budgets[number], surplus)
+            budgets[number] += give
+            surplus -= give
+    if surplus > 0:
+        # Every beat in THIS GROUP is at its ceiling. Keep the runtime rather than the cap -- but
+        # spread it over this group only. Spreading over `budgets` instead of `caps` is the bug
+        # this comment exists to prevent: it reaches into the other group, and on the recorded
+        # plan that moved the mechanism from 17% of runtime to 37% and raised LATE_MECHANISM while
+        # the holds were still failing. An overflow that escapes its group is the metric swap.
+        #
+        # And it skips the hinge. The scene ceiling is a target the overflow may exceed when the
+        # beat count leaves nowhere else to put the words; MAX_HINGE_WORDS is a content rule --
+        # "a long hinge is not a hinge" -- and overflow must not launder words into it. Caught by
+        # test_the_hinge_keeps_its_own_shorter_ceiling after an earlier version grew a 10-word
+        # hinge to 123.
+        order = sorted(number for number, cap in caps.items() if cap >= ceiling) or sorted(caps)
+        for index in range(surplus):
+            budgets[order[index % len(order)]] += 1
     return budgets
 
 
@@ -3908,11 +4002,38 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
 
 
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
-                              log=lambda message: None, evidence_gaps: list | None = None) -> dict:
-    """Build a cited, pre-script claim ledger with server-side web search."""
+                              log=lambda message: None, evidence_gaps: list | None = None,
+                              duration_sec: float = 90.0) -> dict:
+    """Build a cited, pre-script claim ledger with server-side web search.
+
+    The claim target SCALES WITH RUNTIME. It was a flat 22-28 regardless, so a 300-second film
+    and a 60-second film commissioned identical research and got the same ~8 supportable events.
+    At 300s that is seven scenes of ~43 seconds, and nothing downstream can illustrate a
+    43-second scene: the state rule asks for 26 states and the writer returns 8, correctly,
+    because the scene does not contain 26 distinct visible changes.
+
+    research_claim_target returns (22, 28) at 60-120s -- byte-identical to the hand-tuned pair it
+    replaces, because the floor binds there -- and scales above: (27, 33) at 180s, (39, 45) at
+    300s. Research is the cheap end of the pipeline; on the recorded 252.5s film it was $0.0096
+    of $3.59, so doubling it is the least expensive lever available and the only one at the top
+    of the chain.
+    """
+    claims_low, claims_high = research_claim_target(duration_sec)
+    # BYTE-IDENTICAL WHERE THE FLOOR BINDS. At 60-120s the scaled target is exactly the 22-28 this
+    # prompt was calibrated on, so the request must be the same STRING as well as the same numbers:
+    # the durable ledger keys paid stages on it, and the research cache keys on it too. Emitting a
+    # differently-worded request that happens to ask for the same thing would make every in-flight
+    # job re-pay for research it already bought and miss every cached dossier, for no benefit.
+    # Above the floor there is nothing to preserve -- those runtimes have no correct cached
+    # research, which is the defect being fixed.
+    scaled = (claims_low, claims_high) != (MIN_CLAIM_REQUEST, MIN_CLAIM_REQUEST + 6)
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
-        "ledger of 22-28 material claims needed to answer it accurately. Ask for more than the video "
+        f"ledger of {claims_low}-{claims_high} material claims needed to answer it accurately. "
+        + (f"This is a {int(duration_sec)}-second film and the ledger has to carry "
+           f"{events_for_runtime(duration_sec)} distinct factual events without any one of them "
+           "resting on a single source. " if scaled else "")
+        + "Ask for more than the video "
         "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
         "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
         "that attrition rather than discovering it at the claim ledger. Every claim must use a URL "
@@ -8260,6 +8381,51 @@ def _illustrated_storyboard_hard() -> bool:
         not in ("0", "false", "no", "off")
 
 
+def _render_gates_advisory(stable_standard: bool, illustrated_story: bool) -> bool:
+    """May the rendered contract, human approval and opening freeze be demoted to advisory?
+
+    A named predicate rather than an inline conjunction, because the three call sites are 30-70
+    lines apart and the comment beside :10053 records what happens when sites that read this
+    profile get reclassified in bulk: "Classifying the ten sourcing sites by line number swept
+    this one up ... The count-based test passed because the count was still ten; it never checked
+    WHICH ten." One function, one meaning, one test.
+
+    THE DEFECT. Illustrated does not route by a distinct story_format --
+    `build_illustrated_payload` hardcodes `"video_format": "landscape"` and
+    `"story_format": "standard_explainer"`, which is exactly _stable_standard_longform's match
+    condition. So every illustrated commission inherited a demotion written for a different
+    product, with nobody choosing it and no flag set. Both delivered films carry
+    `"pipeline_profile": "stable_standard_longform"` in their manifest and a 59/100 REJECT logged
+    as advisory; the profile banner prints even with every diagnostic flag off, which is why six
+    "all gates live" runs never once reported a rendered failure.
+
+    WHY THIS STILL DEFAULTS TO ADVISORY, AND WHY THAT IS NOT A WAIVER. Arming these three today
+    does not make the lane stricter, it stops the lane delivering anything. The rejection is
+    `long_visual_hold` + `visual_state_cadence` -- the beat-count shortfall, where the planner is
+    asked for 57 factual events at 300s and returns 7. Those are exactly the two hard failures
+    both delivered films carry, and the illustrated delivery integration test reproduces them on
+    deployed defaults. A gate armed against a producer defect that is not fixed yet is not a
+    quality gate; it is an outage with a rationale.
+
+    The same reasoning already keeps the pre-spend retention contract (~:9773) and the
+    evidence-plan timing advisories (~:10057, ~:10932) demoted. Applying it to two gates and not
+    the third would be inconsistent, and the inconsistency would show up as an outage.
+
+    WHAT CHANGED INSTEAD. The verdict is no longer discarded. It is computed against the DELIVERED
+    film rather than a 53.8s preview, written to rendered_contract_full.json, and folded into
+    `degraded_reasons`, which is what app.py builds the operator-facing status from. The film that
+    would have been blocked is now unmistakably labelled instead of quietly shipping as "done".
+
+    ILLUSTRATED_RENDER_GATES=block arms all three. That is the one-line flip to make the day the
+    beat-count defect lands -- it is a deliberate stop-ship decision, so it is the operator's to
+    make, not a default to inherit the way the demotion was inherited.
+    """
+    armed = (os.environ.get("ILLUSTRATED_RENDER_GATES", "") or "").strip().lower() == "block"
+    if bool(illustrated_story) and armed:
+        return False
+    return bool(stable_standard)
+
+
 def _longform_retention_hard() -> bool:
     """Fail before image/TTS spend when objective story-contract checks still fail.
 
@@ -9311,6 +9477,36 @@ def run_explainer_pipeline(
     # approval — and wrong for sourcing. A causal story asserts that one event caused the next,
     # so on this lane the claim ledger, research dossier and evidence plan block again.
     sourcing_advisory = stable_standard_longform and not illustrated_story_on
+    # The same exclusion, for the RENDER gates: the rendered contract's REJECT, human editorial
+    # approval, and the opening freeze.
+    #
+    # Illustrated does not route by a distinct story_format -- build_illustrated_payload hardcodes
+    # `"video_format": "landscape"` and `"story_format": "standard_explainer"`, which is exactly
+    # _stable_standard_longform's match condition. So every illustrated commission entered the
+    # recovery profile with no flag set, and these three gates computed a verdict and discarded it.
+    # Measured: both delivered films carry `"pipeline_profile": "stable_standard_longform"` in their
+    # manifest and a 59/100 REJECT logged as advisory, and the profile banner prints even on a run
+    # with every diagnostic flag off -- which is why six "all gates live" runs never once reported
+    # a rendered failure. The lane's own promise is a sourced causal story; it cannot be the lane
+    # whose rendered verdict is a suggestion.
+    #
+    # DELIBERATELY NARROWER THAN THE PROFILE. Two other things the profile demotes stay demoted:
+    #
+    #   the pre-spend retention contract (~:9773) -- arming it stops this lane producing anything
+    #   at all today. Illustrated scripts take validate_longform_story's `compiled_factual` branch,
+    #   and on the recorded run that branch returned passed=false, score=0 with BAD_CLOSE,
+    #   MISSING_ROLE and UNKNOWN_ROLE: context. Those are TRUE findings -- presentation beats are
+    #   skipped whenever the spine fails, so the delivered films really have no closing beat -- so
+    #   the gate is right and arming it is correct once that is fixed. It is a one-line follow-on,
+    #   not a judgement call, and it is left out here only so this change does not turn the product
+    #   off while fixing what it measures.
+    #
+    #   the evidence-plan timing advisories (~:10057, ~:10932) -- these block on the beat-count
+    #   shortfall, where the planner is asked for 57 factual events at 300s and returns 7. Same
+    #   reasoning: the gate is right, the producer is wrong, and the producer is not fixed yet.
+    #
+    # Both are tracked; neither is waived on the merits.
+    render_gates_advisory = _render_gates_advisory(stable_standard_longform, illustrated_story_on)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
     resolved_motion_mode = (
@@ -9458,6 +9654,13 @@ def run_explainer_pipeline(
     animatic_preview_path = None
     rendered_contract_path = None
     rendered_contact_sheet_path = None
+    # Assigned deep inside the first-minute preview block. Initialised here so the delivered-film
+    # inspection after _assemble can test for them instead of raising NameError on a run that
+    # never built a preview.
+    rendered_contract = None
+    checked_blind = {}
+    callback_exact = False
+    full_render_contract = None
     human_review_path = None
     story_format_review_path = None
     storyboard_path = None
@@ -9554,7 +9757,7 @@ def run_explainer_pipeline(
                 try:
                     screen_topic_fit(question, aux_costs, log, channel=topic_channel)
                     research_dossier = generate_research_dossier(
-                        question, cost_sink=aux_costs, log=log)
+                        question, cost_sink=aux_costs, log=log, duration_sec=duration_sec)
                 except Exception as exc:
                     if research_mode == "required":
                         raise
@@ -10997,7 +11200,7 @@ def run_explainer_pipeline(
                 # DIAGNOSTIC_RENDER lets the run finish so the whole video can be watched and the
                 # gate's judgement checked against it. Its score and hard failures are still
                 # computed, still written to rendered_contract.json, and still logged.
-                if not _diagnostic_render() and not stable_standard_longform:
+                if not _diagnostic_render() and not render_gates_advisory:
                     raise RuntimeError(
                         f"Rendered opening was {rendered_grade_label}; "
                         f"hard failures: {', '.join(rendered_contract.get('hard_failures') or ['score floor'])}. "
@@ -11019,7 +11222,7 @@ def run_explainer_pipeline(
                 # every resume renders a new one, so an approval never matches what it approved.
                 # 116c878 fixed the checkpoint half of that; this removes the wait entirely for
                 # diagnostic runs, which is what makes a full video reachable at all.
-                if _diagnostic_render() or stable_standard_longform:
+                if _diagnostic_render() or render_gates_advisory:
                     log("  ⚠ [HUMAN REVIEW, advisory] skipping editorial approval — "
                         f"grade {rendered_grade_label} written to "
                         f"{os.path.basename(rendered_contract_path)}; continuing to full render")
@@ -11036,7 +11239,7 @@ def run_explainer_pipeline(
         # later, blocks on the same fact without reading the same flag.
         if (not frozen_opening_segments or not rendered_contract
                 or not rendered_contract.get("passed")):
-            if not _diagnostic_render() and not stable_standard_longform:
+            if not _diagnostic_render() and not render_gates_advisory:
                 raise RuntimeError(
                     "The rendered opening was not automatically and human approved/frozen; later "
                     "visual assets will not be purchased.")
@@ -11342,6 +11545,58 @@ def run_explainer_pipeline(
         with open(motion_report_path, "w") as handle:
             json.dump(motion_plan, handle, indent=2, ensure_ascii=False)
 
+    # MEASURE THE FILM THAT SHIPS, NOT ONLY THE FIRST MINUTE OF IT.
+    #
+    # inspect_rendered_opening ran once, on first_minute_preview.mp4, and rendered_contract.json
+    # described that. On a recorded run that is 53.8s of a 252.5s delivery -- 21%. The other 79%
+    # was bought and shipped with no rendered measurement at all, including the film's longest
+    # hold: the preview's worst was 10.58s over 12 shots, the delivered film's was 64.36s over 25,
+    # against a 3.5s ceiling. It is also why two films of very different length and topic returned
+    # identical scores and identical hard failures -- what was scored was an opening built to the
+    # same template both times, not the films.
+    #
+    # The preview pass keeps its job as the gate BEFORE the spend. This is a second pass over the
+    # delivered artifact, in its own file, so neither overwrites the other and each says which
+    # video it describes.
+    #
+    # Reused deliberately: the blind story judge and the story/claim validations. Those read the
+    # opening and the script, they do not change when later scenes are appended, and re-running
+    # the judge would buy a second LLM call to re-answer an answered question. Only the
+    # DETERMINISTIC half -- durations, holds, cadence, cuts, sources, pixel deltas -- is
+    # remeasured, because only that half was wrong. The provenance keys below say so in the
+    # artifact rather than leaving a reader to assume a full second opinion.
+    #
+    # Timestamps: _flatten accumulates a cursor over planned durations while _assemble crossfades
+    # scene joins, so the cursor runs fractionally ahead of the encode -- 0.064s over the recorded
+    # preview. Midpoint sampling tolerates that; frame-exact work would not.
+    if (video_format != "social" and rendered_contract is not None
+            and rendered_shot_plan and threshold_profile):
+        full_inspection = inspect_rendered_opening(
+            output_path, rendered_shot_plan, output_dir, evidence_plan,
+            threshold_profile=threshold_profile,
+            frame_dir_name="rendered_gate_frames_full")
+        full_render_contract = score_rendered_contract(
+            deterministic=full_inspection.get("deterministic") or {},
+            blind=checked_blind,
+            story_validation=retention_validation or {},
+            claim_validation=claim_validation or {},
+            callback_exact=callback_exact)
+        full_render_contract.update({
+            "inspection": full_inspection,
+            "scored_video": os.path.basename(output_path),
+            "deterministic_source": "delivered film",
+            "blind_story_judge_source": "approved opening preview (not re-run)",
+            "preview_score": rendered_contract.get("score"),
+        })
+        with open(os.path.join(output_dir, "rendered_contract_full.json"), "w") as handle:
+            json.dump(full_render_contract, handle, indent=2, ensure_ascii=False)
+        _full_shots = (full_inspection.get("deterministic") or {}).get("shot_count") or 0
+        _prev_shots = ((rendered_contract.get("inspection") or {})
+                       .get("deterministic") or {}).get("shot_count") or 0
+        log(f"Delivered-film rendered contract: {full_render_contract.get('score')}/100 "
+            f"({full_render_contract.get('status')}) over {_full_shots} shots — "
+            f"preview scored {rendered_contract.get('score')}/100 over {_prev_shots}")
+
     if video_format != "social":
         readiness = score_retention_readiness(
             script, retention_validation or {}, shot_metrics, full_audio_cues,
@@ -11414,6 +11669,16 @@ def run_explainer_pipeline(
         final_dur = 0.0
     rendered = len(scene_videos)
     reasons = []
+    # The rendered gate's verdict reaches the caller here or nowhere. The controlled-pilot return
+    # already does this; the ordinary long-form return built `reasons` only from runtime, dropped
+    # scenes and filler, so a film carrying four rendered hard failures was reported to the
+    # operator as "ran 2.5s short". app.py builds the user-facing status from this list.
+    _verdict = full_render_contract or rendered_contract
+    if _verdict and _verdict.get("hard_failures"):
+        _scope = "delivered film" if full_render_contract else "opening preview"
+        reasons.append(
+            f"rendered contract {_verdict.get('score')}/100 {_verdict.get('status')} "
+            f"({_scope}): " + ", ".join(_verdict["hard_failures"]))
     # Was a raise, at the very last statement before the return — after the video was assembled,
     # captioned, described and its thumbnail bought. Three reasons it should not destroy that work:
     # the assembler adds FADE_DUR of crossfade per scene, so a run the measured audio gate approved

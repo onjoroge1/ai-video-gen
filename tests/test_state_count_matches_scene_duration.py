@@ -9,9 +9,14 @@ cuts", which is the same fact arriving as a consequence.
 """
 
 import math
+import re
 
 import explainer_pipeline as ep
-from longform_evidence import MAX_VISUAL_STATE_SECONDS
+from longform_evidence import (
+    MAX_VISUAL_STATE_SECONDS,
+    SLOWEST_MEASURED_WORDS_PER_SECOND,
+    states_required_for_words,
+)
 
 # The slowest words-per-second measured across real renders. The rule has to hold at the
 # slow end, not at the average, or a slow scene breaks the ceiling.
@@ -29,9 +34,51 @@ def _rule_text() -> str:
 def test_the_rule_reaches_the_prompt_and_ties_count_to_duration():
     rule = _rule_text()
 
-    assert f"N/{DIVISOR} states" in rule, "state count must be derived from scene length"
     assert str(MAX_VISUAL_STATE_SECONDS) in rule, "the ceiling it protects must be named"
     assert "2-4 states for EVERY scene" not in rule, "the fixed count must be gone"
+    # The rule is generated from the constants now, so assert the arithmetic it states rather
+    # than one phrasing of it. Still ~N/9, still derived from scene length.
+    assert f"N/{DIVISOR}" in rule, "state count must be derived from scene length"
+    assert str(SLOWEST_MEASURED_WORDS_PER_SECOND) in rule, "sized on the SLOW rate, not the mean"
+
+
+def test_the_prompts_worked_examples_are_true():
+    """The band was ignored partly because every worked example was a short scene -- the longest
+    was 45 words against real scenes of 204. Examples are generated now, so they cannot go stale,
+    but they must also be arithmetically correct and must reach the long end."""
+    rule = _rule_text()
+    pairs = [(int(w), int(n)) for w, n in
+             re.findall(r"(\d+) words needs (\d+)", rule)]
+
+    assert pairs, "the rule must show worked examples"
+    for words, stated in pairs:
+        assert stated == states_required_for_words(words), (
+            f"{words} words: prompt says {stated}, the code requires "
+            f"{states_required_for_words(words)}")
+        assert (words / SLOWEST_WPS) / stated <= MAX_VISUAL_STATE_SECONDS, (
+            f"{words} words at {stated} states still breaks the hold ceiling")
+    assert max(w for w, _ in pairs) >= 150, (
+        "examples must reach the long end; real scenes in this lane run past 200 words")
+
+
+def test_the_fixed_band_that_beat_the_formula_is_gone():
+    """Measured on a delivered 252.5s film: the model produced 3,3,3,3,4,4,5 states -- "first 30%
+    use 3-4, later 2-4" almost exactly -- while the formula in the same paragraph demanded
+    4,4,4,5,22,20,23. The band won in every scene. It must not come back."""
+    rule = _rule_text()
+    for banned in ("3-4 states", "later 2-4", "2-4 states"):
+        assert banned not in rule, f"the fixed band is back: {banned!r}"
+
+
+def test_the_requirement_matches_what_the_delivered_film_needed():
+    """The seven scene lengths of the recorded 252.5s film, against what it actually planned."""
+    produced = [3, 3, 3, 3, 4, 4, 5]
+    words = [34, 34, 36, 39, 198, 177, 204]
+    required = [states_required_for_words(w) for w in words]
+
+    assert required == [4, 4, 4, 5, 22, 20, 23]
+    assert all(got < need for got, need in zip(produced, required)), (
+        "every scene of the delivered film was under-planned")
 
 
 def test_the_divisor_keeps_every_realistic_scene_under_the_ceiling():
