@@ -1,5 +1,8 @@
 import pytest
 
+import tempfile
+from pathlib import Path
+
 from longform_shots import (
     MIN_SHOT_SECONDS,
     compile_scene_shots,
@@ -7,6 +10,9 @@ from longform_shots import (
     select_alternate_image_indices,
     shot_plan_metrics,
 )
+
+
+_TMP = Path(tempfile.mkdtemp(prefix='shot_bed_'))
 
 
 def _scene():
@@ -220,7 +226,73 @@ def test_unverified_detail_reframe_does_not_count_as_new_information():
     assert shots[1]["new_information"] is False
     assert metrics["reframe_shot_count"] == 1
     assert metrics["meaningful_cut_ratio"] == 0.0
-    assert metrics["same_source_hard_cut_count"] == 1
+    # No longer a cut at all. A reframe that crops the shot before it is rendered as a continuous
+    # push from the master onto the crop's framing (explainer_pipeline._make_multishot_background),
+    # so there is no same-source hard cut left to count. The count drops because the edit changed,
+    # not because the rule did -- see the non-adjacent case below, which still counts.
+    assert shots[1]["transition"] == "push_to_detail"
+    assert metrics["same_source_hard_cut_count"] == 0
+
+
+def test_a_reframe_of_a_non_adjacent_asset_stays_a_cut_and_is_not_a_jump_cut():
+    """Only the crop of the IMMEDIATELY preceding shot becomes a push.
+
+    Pushing from a master two shots back would invent a camera move the story never asked for.
+    It stays a hard cut -- and it is correctly NOT a same-source jump cut either, because the
+    picture on screen before it is a different asset.
+    """
+    states = [
+        {"state_id": "state:s001:e01", "asset_id": "asset:s001:e01",
+         "asset_strategy": "master", "asset_status": "accepted",
+         "anchor_phrase": "The water pulls away", "purpose": "action",
+         "verified_visible_information": True},
+        {"state_id": "state:s001:e02", "asset_id": "asset:s001:e02",
+         "asset_strategy": "distinct", "asset_status": "accepted",
+         "anchor_phrase": "the continental shelf appears", "purpose": "evidence",
+         "verified_visible_information": True},
+        {"state_id": "state:s001:e03", "asset_id": "asset:s001:e03",
+         "source_asset_id": "asset:s001:e01",          # crops the FIRST shot, not the previous one
+         "asset_strategy": "detail_reframe", "asset_status": "accepted",
+         "anchor_phrase": "a drowned riverbed", "purpose": "evidence",
+         "verified_visible_information": True},
+    ]
+    scene = _scene()
+    shots = compile_scene_shots(
+        scene, 12.0, 0, evidence_states=states, word_times=_measured(scene, 12.0))
+    assert shots[2]["transition"] == "hard_cut"
+    assert shot_plan_metrics([shots])["same_source_hard_cut_count"] == 0
+
+
+def test_a_push_that_cannot_be_rendered_is_reported_as_the_jump_cut_it_becomes():
+    """The metric's remaining live path, and it must stay live.
+
+    `_make_multishot_background` needs the master on disk to push from. Without it the edit really
+    is a cut to a crop of the previous picture, and the shot is downgraded to `hard_cut` on the
+    CALLER's list so `shot_plan_metrics` can still see it. A fallback nobody can measure is how a
+    quality gate quietly stops measuring anything.
+    """
+    import explainer_pipeline as ep
+
+    shots = [
+        {"kind": "still", "duration": 4.0, "source": "asset:e01", "transition": "continuous",
+         "asset_strategy": "master"},
+        {"kind": "still", "duration": 4.0, "source": "asset:e02", "transition": "push_to_detail",
+         "asset_strategy": "detail_reframe", "source_asset_id": "asset:e01"},
+    ]
+    output = str(_TMP / "bed.mp4")
+    original_segment, original_ffmpeg = ep._make_scene_segment, ep._run_ffmpeg
+    try:
+        # Write plausible bytes so the render cache and the concat both find their files.
+        ep._make_scene_segment = lambda *a, **k: open(a[2], "wb").write(b"\0" * 16)
+        ep._run_ffmpeg = lambda cmd, **k: open(cmd[-1], "wb").write(b"\0" * 16)
+        # No `evidence_assets`, so the master cannot be found and the push cannot be performed.
+        ep._make_multishot_background({"img": str(_TMP / "master.jpg"), "aud": str(_TMP / "a.wav")},
+                                      shots, output, 1920, 1080)
+    finally:
+        ep._make_scene_segment, ep._run_ffmpeg = original_segment, original_ffmpeg
+
+    assert shots[1]["transition"] == "hard_cut", "the caller's shot must record the downgrade"
+    assert shot_plan_metrics([shots])["same_source_hard_cut_count"] == 1
 
 
 def test_too_many_evidence_states_for_audio_duration_fail_instead_of_flash_frames():

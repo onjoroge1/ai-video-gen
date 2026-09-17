@@ -107,7 +107,8 @@ def _local_rows(finished_dir: str, query: str, limit: int, offset: int) -> list:
     if query:
         needle = query.lower()
         rows = [row for row in rows
-                if needle in row["title"].lower() or needle in row["id"].lower()]
+                if needle in row["title"].lower() or needle in row["id"].lower()
+                or needle in str(row.get("format") or "").lower()]
     # Newest first, and before the slice — sorting after paging would just reorder page one.
     rows.sort(key=lambda row: row.get("_sort_key") or 0.0, reverse=True)
     page = rows[offset:offset + max(1, min(limit, 200))]

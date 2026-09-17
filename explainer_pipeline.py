@@ -2041,6 +2041,20 @@ def _minimum_feasible_runtime(engine_id: str, duration_sec: float) -> int:
     return 0
 
 
+def _engine_support_note(engine_id: str) -> str:
+    """" — N reference(s), <adherence> adherence", or "" when the corpus cannot be read."""
+    try:
+        import reference_corpus as _rc
+        count = len(_rc.by_engine(engine_id))
+        adherence = _rc.adherence_for_engine(engine_id)
+    except Exception:
+        return ""
+    note = f" — {count} corpus reference{'' if count == 1 else 's'}, {adherence} adherence"
+    if not count:
+        note += " (no reference blueprint: its beat sequence is unvalidated against any real video)"
+    return note
+
+
 def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
                          research_dossier: dict | None = None) -> str:
     """Choose the narrative engine BEFORE the beat sheet is written.
@@ -2103,7 +2117,20 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
         parsed, _ = _parse_script_json(response.content[0].text)
         chosen = _s((parsed or {}).get("engine"))
         if chosen in feasible:
-            print(f"[engine] {chosen} chosen before the beat sheet")
+            # Say how much corpus support the chosen engine actually has.
+            #
+            # `adherence_for_engine` silently drops an engine with fewer than two references to
+            # loose, which withholds the reference blueprint entirely — pacing, hold times, how a
+            # real video of this shape walks its beats. The engine's own declared sequence IS still
+            # shown to the labeller (`_se.catalogue()` below), so the model is not judged against a
+            # rule it never saw; what it loses is every measured fact about how such a story is
+            # told. That downgrade happened invisibly, and an engine at zero references is one
+            # whose sequence nobody has ever checked against a real video — `story_engines` names
+            # removed_keystone's reference as "macquarie-island cat eradication", which is not in
+            # the corpus. Printing it does not gate anything; it stops the condition being
+            # discoverable only by reading two modules.
+            print(f"[engine] {chosen} chosen before the beat sheet"
+                  + _engine_support_note(chosen))
             return chosen
         if chosen in _se.ENGINES:
             print(f"[engine] {chosen} does not fit {duration_sec}s; it was not offered")
@@ -3711,15 +3738,43 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
         dossier["claim_verification"] = {k: v for k, v in summary.items() if k != "pages"}
         return dossier
     verified = [claim for claim in claims if claim.get("quote_verified")]
-    dropped = [claim for claim in claims if not claim.get("quote_verified")]
-    for claim in dropped[:4]:
-        reason = "source unreachable" if not claim.get("source_reachable") else "quote not on page"
-        log(f"  ✗ dropped {claim.get('claim_id') or '?'}: {reason} — "
+    # A page we could not open and a page that does not say it are not the same finding, and
+    # collapsing them was the single most expensive bug in this lane.
+    #
+    # Measured on the cane-toad topic: of 16 claims that failed the quote check, THIRTEEN were
+    # transport failures — nma.gov.au (403 to any non-browser client, homepage included),
+    # dcceew.gov.au (no connection), wiley (403) — and only three were pages we actually read that
+    # did not contain the quote. The thirteen included the 1935 Gordonvale release, the Hawaii
+    # provenance, the Bureau of Sugar Experiment Stations, the untested assumption that the toads
+    # would eat the beetles, and Froggatt's warning: the spine of the story. Dropping them silently
+    # left 11 claims, and three separate downstream gates then failed on the same hole, each
+    # reporting it in its own vocabulary.
+    #
+    # The distinction was already in the data — claim_verify writes `source_reachable` — and this
+    # function already read it, to choose a word in a log line.
+    #
+    # A transport-blocked claim is NOT promoted to verified. It is carried with its provenance
+    # stated, so the evidence judge can see both the claim and the fact that we could not open the
+    # page, and decide. That is a weaker guarantee than a fetched quotation and it is labelled as
+    # one; what it is not is a silent deletion of the most authoritative sources on the topic.
+    attested = [claim for claim in claims
+                if not claim.get("quote_verified") and not claim.get("source_reachable")]
+    refuted = [claim for claim in claims
+               if not claim.get("quote_verified") and claim.get("source_reachable")]
+    for claim in attested:
+        claim["support_provenance"] = "provider_attested_unfetchable"
+    for claim in refuted[:4]:
+        log(f"  ✗ dropped {claim.get('claim_id') or '?'}: quote not on page — "
             f"{_s(claim.get('source_url'))[:70]}")
-    dossier["claims"] = verified
-    # Retain rejected candidates for diagnosis; only verified claims enter writing prompts.
-    dossier["unverified_claims"] = dropped
-    # These now describe what WE read, so the ledger and its evidence cannot disagree.
+    for claim in attested[:4]:
+        log(f"  ⚠ attested {claim.get('claim_id') or '?'}: source unreachable, carried "
+            f"unverified — {_s(claim.get('source_url'))[:70]}")
+    dossier["claims"] = verified + attested
+    # Retain rejected candidates for diagnosis; only claims above enter writing prompts.
+    dossier["unverified_claims"] = refuted
+    dossier["attested_unfetchable_claims"] = attested
+    # These describe what WE read. An unfetchable source contributes no citation record: its quote
+    # is the model's, not the page's, and pretending otherwise is what this whole block is against.
     dossier["citation_records"] = [{"url": _s(claim.get("source_url")),
                                     "cited_text": _s(claim.get("support_quote"))}
                                    for claim in verified]
@@ -3727,7 +3782,9 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
     # Keep the original search URL set so model-only URLs still fail provenance.
     dossier["claim_verification"] = {k: v for k, v in summary.items() if k != "pages"}
     log(f"Claim verification: {len(verified)}/{len(claims)} claims verified against source pages"
-        + (f", {summary.get('repaired', 0)} quote(s) recovered" if summary.get("repaired") else ""))
+        + (f", {summary.get('repaired', 0)} quote(s) recovered" if summary.get("repaired") else "")
+        + (f"; {len(attested)} carried as provider-attested (source unreachable)"
+           if attested else ""))
     return dossier
 
 
@@ -3743,6 +3800,14 @@ def _research_cache_enabled() -> bool:
     return os.environ.get("RESEARCH_CACHE", "1") == "1"
 
 
+# Identifies the rule deciding which claims a verified dossier RETAINS, as opposed to the prompt
+# that asked for them. Part of the research cache key so a change here invalidates its own cache.
+#   v1  every claim whose quote was not found on its page is dropped
+#   v2  transport failure and content failure are separated; unfetchable sources are carried
+#       tagged `provider_attested_unfetchable` rather than deleted
+RESEARCH_RETENTION_CONTRACT = "retention_v2_attested_unfetchable"
+
+
 def _research_cache_path(question: str, request: str = "") -> str:
     """Cache key: model + question + the REQUEST that produced the dossier.
 
@@ -3751,11 +3816,21 @@ def _research_cache_path(question: str, request: str = "") -> str:
     fresh run produced 16 verified claims — and the next run silently reused an 8-claim dossier
     from before both changes and failed on six unbound scenes. Fingerprinting the request makes a
     prompt change invalidate its own cache, so nobody has to remember to bump a version.
+
+    The request fingerprint covers what we ASKED for. It does not cover what we then DO with the
+    answer, and the stored dossier is the post-verification ledger, not the provider's raw reply —
+    so a change to which claims survive verification leaves every cached topic on the old rule,
+    silently. That is not hypothetical: splitting transport failure from content failure takes one
+    measured topic from 11 retained claims to 23, and without this marker the next run of that
+    topic would have been served the 11-claim version and the change would have looked inert.
+    Bump RETENTION_CONTRACT whenever the set of claims a dossier keeps changes for the same
+    provider answer.
     """
     root = os.environ.get("RESEARCH_CACHE_DIR", "").strip() or os.path.join(
         tempfile.gettempdir(), "reelforge", "research")
     key = hashlib.sha256(
-        f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}|{_s(request)}".encode()).hexdigest()
+        f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}|{_s(request)}"
+        f"|{RESEARCH_RETENTION_CONTRACT}".encode()).hexdigest()
     return os.path.join(root, f"{key[:32]}.json")
 
 
@@ -4906,12 +4981,19 @@ def _detail_reframe_earns_it(source_path: str, state_path: str, state: dict,
     return False
 
 
+# The centre fraction a detail reframe keeps. Named once because two things depend on it being
+# the same number: the crop below, and the `push_to_detail` camera move that has to land exactly
+# on that crop's framing. If they drift, the push ends somewhere the verifier never inspected.
+DETAIL_REFRAME_CROP = 0.68
+
+
 def _make_detail_reframe(source_path: str, output_path: str) -> str:
     """Create a deterministic center detail; it earns information only after vision verification."""
     from PIL import ImageOps
     image = Image.open(source_path).convert("RGB")
     width, height = image.size
-    crop_width, crop_height = max(1, int(width * 0.68)), max(1, int(height * 0.68))
+    crop_width = max(1, int(width * DETAIL_REFRAME_CROP))
+    crop_height = max(1, int(height * DETAIL_REFRAME_CROP))
     left, top = (width - crop_width) // 2, (height - crop_height) // 2
     detail = image.crop((left, top, left + crop_width, top + crop_height))
     ImageOps.fit(detail, (width, height)).save(output_path, "JPEG", quality=92)
@@ -5789,6 +5871,9 @@ def align_caption_phrases(narration: str, whisper_words: list, audio_dur: float,
 
 _CENTER_X = "iw/2-(iw/zoom/2)"
 _CENTER_Y = "ih/2-(ih/zoom/2)"
+# Zoom that reproduces a detail reframe's framing exactly: the crop keeps the centre
+# DETAIL_REFRAME_CROP of the frame, so showing it full-screen is 1/DETAIL_REFRAME_CROP.
+_PUSH_TO_DETAIL_Z = 1.0 / DETAIL_REFRAME_CROP
 
 
 def _motion(preset: str, n: int) -> tuple[str, str, str]:
@@ -5807,6 +5892,12 @@ def _motion(preset: str, n: int) -> tuple[str, str, str]:
         "pan_down":     ("1.14", _CENTER_X, f"(ih-ih/zoom)*{ease}"),
         "zoom_tl":      (f"min(1.0+0.16*{ease}\\,1.16)", "0", "0"),
         "zoom_br":      (f"min(1.0+0.16*{ease}\\,1.16)", "iw-iw/zoom", "ih-ih/zoom"),
+        # A continuous push from the master's full frame onto the exact centre crop a detail
+        # reframe would have cut to. The end zoom is 1/DETAIL_REFRAME_CROP, so the last frame of
+        # the move IS the reframe -- same pixels the vision inspector accepted, arrived at by
+        # moving the camera instead of cutting.
+        "push_to_detail": (f"min(1.0+{_PUSH_TO_DETAIL_Z - 1.0:.4f}*{ease}\\,"
+                           f"{_PUSH_TO_DETAIL_Z:.4f})", _CENTER_X, _CENTER_Y),
     }
     return presets.get(preset, presets["kenburns_in"])
 
@@ -6381,9 +6472,31 @@ def _make_multishot_background(
             image = result.get("alt_img") if shot.get("source") == "alternate" else result["img"]
         if not image or not os.path.exists(image):
             image = result["img"]
+        motion = shot.get("motion") or "kenburns_in"
+        # A detail reframe is a crop of the shot before it. Cutting to that crop is a jump cut --
+        # the same picture, suddenly larger -- and measured on a real render two of these read as
+        # near-identical frames either side of a cut (mean pixel difference 16/255 against 24-67
+        # for genuine cuts). Rendering the move instead removes the cut: start on the MASTER at
+        # full frame and push in until the frame is the crop. The last frame is the reframe the
+        # inspector accepted, and every frame before it is the master it accepted too, so nothing
+        # unverified reaches the screen.
+        if shot.get("transition") == "push_to_detail" and j > 0:
+            master = evidence_assets.get(work[j - 1].get("source"))
+            if master and os.path.exists(master):
+                image, motion = master, "push_to_detail"
+            else:
+                # Without the master there is nothing to push from, so this really is a cut to a
+                # crop of the previous picture -- the jump cut the push exists to avoid. Record it
+                # on the CALLER's shot, not just on `work`, which is a copy: shot_plan_metrics runs
+                # over the original list, and a fallback nobody can see is how a quality metric
+                # quietly stops measuring anything. This is now the only way
+                # same_source_hard_cut_count can fire, and it means exactly "a push was intended
+                # and could not be performed".
+                shot["transition"] = "hard_cut"
+                shots[j]["transition"] = "hard_cut"
         _make_scene_segment(
             image, result["aud"], clip, "", "",
-            motion=shot.get("motion") or "kenburns_in", captions="none",
+            motion=motion, captions="none",
             vw=vw, vh=vh, duration_override=float(shot["duration"]),
             motion_video=((motion_videos or {}).get(_s(shot.get("state_id"))) or motion_video)
             if shot.get("kind") == "i2v" else None,

@@ -27,13 +27,29 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 COOKIE_NAME = "reelforge_session"
 PUBLIC_PATHS = frozenset(("/login", "/api/auth/login", "/api/auth/session", "/healthz"))
 _AGENT_ACTION_ID = re.compile(r"^/api/agent/actions/act_[0-9a-f]{32}(?:/(?:execute|dispatch|public-status))?$")
+_AGENT_READ_PATH = re.compile(r"^/api/agent/actions/act_[0-9a-f]{32}/(?:diagnostics|artifacts)$")
+
+
+def _agent_read_authorized(scope) -> bool:
+    """Optional machine credential grants only saved diagnostic/manifest reads.
+
+    It cannot approve, enqueue, edit jobs, read arbitrary studio files or retrieve secrets.
+    Configure it in the MCP server environment, never in model tool arguments.
+    """
+    if scope.get("method", "GET").upper() != "GET":
+        return False
+    if not _AGENT_READ_PATH.fullmatch(scope.get("path", "")):
+        return False
+    secret = os.environ.get("REELFORGE_AGENT_READ_TOKEN", "").strip()
+    supplied = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin1")
+    return bool(len(secret) >= 32 and hmac.compare_digest(supplied, f"Bearer {secret}"))
 
 
 def _public_agent_action(scope) -> bool:
     """Expose only the handshake surface; approval, rejection and listing require a session."""
     path = scope.get("path", "")
     method = scope.get("method", "GET").upper()
-    if path == "/agent/actions/request" and method == "GET":
+    if path in {"/agent/actions/request", "/api/agent/capabilities"} and method == "GET":
         return True
     if path == "/api/agent/actions" and method == "POST":
         return True
@@ -160,7 +176,7 @@ class PrivateAccessMiddleware:
 
         path = scope.get("path", "")
         if (path in PUBLIC_PATHS or _public_agent_action(scope)
-                or verify_session(_cookie_from_scope(scope))):
+                or verify_session(_cookie_from_scope(scope)) or _agent_read_authorized(scope)):
             await self.app(scope, receive, send)
             return
 
