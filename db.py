@@ -402,9 +402,10 @@ def finished_videos_list(limit: int = 100, offset: int = 0, query: str = "") -> 
         params: list = []
         where = ""
         if query.strip():
-            where = "WHERE title ILIKE %s OR id ILIKE %s"
+            # Same rule as the durable store: the lane label must be searchable.
+            where = "WHERE title ILIKE %s OR id ILIKE %s OR format ILIKE %s"
             needle = f"%{query.strip()}%"
-            params.extend((needle, needle))
+            params.extend((needle, needle, needle))
         params.extend((max(1, min(int(limit), 200)), max(0, int(offset))))
         cur.execute(
             f"SELECT {','.join(columns)} FROM finished_videos {where} "

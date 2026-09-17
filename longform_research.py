@@ -394,10 +394,26 @@ def validate_research_dossier(dossier: dict) -> dict:
                 claim_id=claim_id))
         support_quote = _text(claim.get("support_quote"))
         excerpts = citation_records.get(_canonical_url(source_url), [])
+        # A page nobody could open is a THIRD state, and conflating it with "the page does not say
+        # this" cost this lane its best sources. nma.gov.au, dcceew.gov.au, wiley and britannica all
+        # return 403 or refuse the connection to any non-browser client; measured on one topic, 13
+        # of 16 rejected claims were transport failures, and they were the spine of the story.
+        #
+        # Such a claim is carried, not promoted. It is exempt from the excerpt check ONLY because
+        # the check asks a question that cannot be answered for it — nobody, provider or client,
+        # read text at that URL. Every other guard still applies: the URL must still appear in the
+        # provider's own citations (`unverified_source` above), the domain must still not be weak,
+        # the quote must still exist, and negation must still agree. The exemption is granted by an
+        # explicit provenance tag that only `_verify_claims_against_sources` sets, never by an
+        # absent field, so a claim cannot acquire it by omission.
+        attested_unfetchable = (
+            _text(claim.get("support_provenance")) == "provider_attested_unfetchable")
         if not support_quote:
             errors.append(_issue(
                 "missing_support_quote", "The claim has no exact provider-observed support excerpt.",
                 claim_id=claim_id))
+        elif attested_unfetchable:
+            pass
         elif not any(support_quote.casefold() in excerpt.casefold() for excerpt in excerpts if excerpt):
             errors.append(_issue(
                 "unverified_support_quote",
@@ -430,11 +446,25 @@ def validate_research_dossier(dossier: dict) -> dict:
         if claim.get("material", True) and claim.get("allowed_exaggeration") is True:
             errors.append(_issue("material_exaggeration", "A material scientific claim cannot permit exaggeration.", claim_id=claim_id))
 
+    # The exemption above must not be able to carry a whole dossier. Zero is the only threshold
+    # here that is not arbitrary: if NOT ONE claim survived with text somebody actually read at its
+    # URL, this is a network outage wearing a ledger's clothes, and the exemption would launder it
+    # into a sourced story. A partial outage is reported, not blocked — this build already fails
+    # too much on uncalibrated thresholds, and picking a ratio out of the air would add another.
+    attested_only = [claim for claim in claims if isinstance(claim, dict)
+                     and _text(claim.get("support_provenance")) == "provider_attested_unfetchable"]
+    if attested_only and len(attested_only) == len([c for c in claims if isinstance(c, dict)]):
+        errors.append(_issue(
+            "no_fetched_evidence",
+            "Every claim rests on a source that could not be retrieved; nothing in this ledger "
+            "was read at its cited URL."))
+
     return {
         "version": 1,
         "passed": not errors,
         "claim_count": len(claims),
         "citation_count": len(citation_urls),
+        "attested_unfetchable_count": len(attested_only),
         "errors": errors,
     }
 
