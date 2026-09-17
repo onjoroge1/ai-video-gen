@@ -242,6 +242,72 @@ _MYSTERY_ONLY_ROLES = frozenset({
 })
 
 
+# The causal lane's own vocabulary, mapped onto the retention concepts the readiness score asks
+# about. Imported from causal_story's declared roles rather than restated here, so an engine change
+# cannot leave these two files disagreeing about what a reversal is.
+#
+# WHY THIS EXISTS. `retention_readiness.score_retention_readiness` reads six keys out of
+# `validation["checks"]` and the compiled-factual branch returned before any of them was computed.
+# The scorer then fell back to its defaults, which are not neutral: three penalise (-18, including
+# a 999-second "attention gap" reported on a 75-second video) and two reward (+10). Measured: a
+# PERFECT illustrated video scored 77/100 -- a C -- with Opening contract and Narrative propulsion
+# structurally capped. The score was not measuring the video.
+def _causal_role_sets():
+    import causal_story as cs
+    return {
+        # What re-earns attention on this lane.
+        "attention": frozenset({cs.FALSE_RESOLUTION, cs.HINGE, cs.ESCALATION, cs.REVERSAL,
+                                *cs.CLOSING_ROLES}),
+        # What repays the question -- the causal analogue of ANSWER_ROLES.
+        "answer": frozenset({cs.REVERSAL, *cs.CLOSING_ROLES}),
+        # Where a viewer is invited to predict: the plan is stated, or appears to have worked.
+        "prediction": frozenset({cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE}),
+        # Blocks of pure explanation, which is what an attention gap is made of.
+        "exposition": frozenset({cs.SETUP, cs.MECHANISM, cs.GENERALIZATION}),
+    }
+
+
+def _causal_retention_checks(scenes: list, starts: list, runtime: float) -> dict:
+    """Retention metrics for the compiled-factual lane, in its own role vocabulary.
+
+    Measurement only -- no errors are raised here. The causal contract already fail-closes on
+    structure, and adding a second set of uncalibrated blocking thresholds is exactly the habit
+    this lane has too much of. These numbers exist so the readiness SCORE stops reading absent
+    keys and inventing values for them.
+    """
+    sets = _causal_role_sets()
+    roles = [_text(scene.get("causal_role") or scene.get("story_role")).lower()
+             for scene in scenes]
+    predictions = [i for i, role in enumerate(roles) if role in sets["prediction"]]
+    answers = [i for i, role in enumerate(roles) if role in sets["answer"]]
+    attention = [i for i, role in enumerate(roles) if role in sets["attention"]]
+
+    # Gap from the open, between each attention beat, and out to the end.
+    marks = [0.0] + [starts[i] for i in attention] + [runtime]
+    max_gap = max((b - a for a, b in zip(marks, marks[1:])), default=runtime)
+
+    longest_exposition, block_start = 0.0, None
+    for index, role in enumerate(roles + ["__end__"]):
+        if role in sets["exposition"] and block_start is None:
+            block_start = index
+        elif role not in sets["exposition"] and block_start is not None:
+            end = starts[index] if index < len(starts) else runtime
+            longest_exposition = max(longest_exposition, end - starts[block_start])
+            block_start = None
+
+    return {
+        "prediction_scenes": [i + 1 for i in predictions],
+        "answer_scenes": [i + 1 for i in answers],
+        "attention_scenes": [i + 1 for i in attention],
+        "max_attention_gap_sec": round(max_gap, 1),
+        "max_exposition_block_sec": round(longest_exposition, 1),
+        # The causal contract's own closing check already fail-closes on an unrepaid opening
+        # object, so a compiled story that reached here has no dangling loop by construction.
+        "unresolved_loops": [],
+        "retention_role_vocabulary": "causal",
+    }
+
+
 def validate_longform_story(script: dict, question: str = "") -> dict:
     """Validate structural retention requirements using only persisted script metadata.
 
@@ -289,6 +355,7 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
             errors.append(_issue("engine_story_contract", message))
         checks["contract"] = "compiled_factual"
         checks["engine"] = script.get("_story_engine")
+        checks.update(_causal_retention_checks(scenes, starts, runtime))
         return {"version": 2, "passed": not errors, "score": 100 if not errors else 0,
                 "errors": errors, "warnings": warnings, "checks": checks}
 
