@@ -383,6 +383,75 @@ def _get_inprogress(job_id: str):
         return None
 
 
+# The Finished Videos library groups on one string. Quizzes have always had their own
+# ("short-quiz"); the illustrated lane borrowed "explainer" and disappeared into it. This is the
+# lane's label. One hand-imported legacy row in the library says "illustrated-causal-longform" —
+# static/finished.html folds that spelling into the same lane so the library is not split in two.
+ILLUSTRATED_FINISHED_FORMAT = "illustrated-story"
+
+
+def finished_library_format(*, visual_style: str, video_format: str, short_template: str,
+                            directed_spec: bool, directed_full_film: bool) -> str:
+    """The library lane label for one render. One expression, one caller, one test.
+
+    This used to be a ternary inlined in the archive call. A test can only pin an inlined
+    expression by copying it, and a copied expression is not a test — reordering the branches here
+    would leave both the copy and the suite green while every illustrated render silently went
+    back to being an "explainer".
+    """
+    if directed_full_film:
+        return "directed-v1-full"
+    if directed_spec:
+        return "directed-v1-pilot"
+    if video_format == "social":
+        return f"short-{short_template}"
+    if visual_style == "illustrated_story":
+        return ILLUSTRATED_FINISHED_FORMAT
+    return "explainer"
+
+
+def _read_json_file(path: str | None) -> dict:
+    """Best-effort read of a pipeline side-car. Never let a bad artifact block archival."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        return loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _illustrated_library_fields(result: dict, visual_style: str) -> dict:
+    """Lane facts the library needs to describe an illustrated render without opening the MP4.
+
+    These come from artifacts the run already wrote, so nothing here re-derives or re-judges
+    anything. Absent values stay absent rather than defaulting to something reassuring: a
+    storyboard that never validated must not read as validated because a key was missing.
+    """
+    if visual_style != "illustrated_story":
+        return {}
+    manifest = _read_json_file(result.get("generation_manifest_path"))
+    storyboard = _read_json_file(result.get("storyboard_path"))
+    lane = manifest.get("illustrated_story") if isinstance(
+        manifest.get("illustrated_story"), dict) else {}
+    music = manifest.get("music") if isinstance(manifest.get("music"), dict) else {}
+    validation = storyboard.get("validation") if isinstance(
+        storyboard.get("validation"), dict) else {}
+    fields = {
+        "creative_lane": manifest.get("creative_lane") or "illustrated_story_v1",
+        "creative_profile": manifest.get("creative_profile"),
+        "story_engine": storyboard.get("story_engine") or None,
+        "chapter_count": storyboard.get("chapter_count"),
+        "beat_count": lane.get("beat_count") or len(storyboard.get("beats") or []) or None,
+        "location_count": lane.get("location_count") or None,
+        "storyboard_validated": validation.get("passed"),
+        "music_status": music.get("status") or ("ready" if music.get("spec") else None),
+        "motion_mode": result.get("motion_mode") or manifest.get("motion_mode"),
+    }
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 def _persist_finished(job_id: str, src_path: str, meta: dict, extra: dict | None = None) -> str:
     """Keep a local compatibility copy and upload the durable Blob/Postgres record when enabled."""
     dest = os.path.join(FINISHED_DIR, f"{job_id}.mp4")
@@ -1192,7 +1261,8 @@ class AgentActionCreateRequest(BaseModel):
 
     operation: Literal["directed_pilot", "directed_full_film", "generic_illustrated"] = "directed_pilot"
     topic: str = Field(default="", max_length=500)
-    duration_sec: int = Field(default=90, ge=60, le=90)
+    duration_sec: int = Field(default=90, ge=agent_actions.ILLUSTRATED_MIN_SECONDS,
+                              le=agent_actions.ILLUSTRATED_MAX_SECONDS, strict=True)
     creative_direction: str = Field(default="", max_length=2000)
     spec: dict | None = None
     bundled_spec_id: Literal[
@@ -1655,15 +1725,18 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "quiz_primary_variant": result.get("primary_variant"),
         })
         # Persist to local compatibility storage plus Blob/Postgres on production.
-        template = ("directed-v1" if request.directed_spec else
-                    request.short_template if request.video_format == "social" else "explainer")
+        effective_visual_style = result.get("visual_style") or request.visual_style
         await _archive_finished(job, job_id, result["output_path"], {
             "title": result["title"], "status": job["status"],
-            "format": ("directed-v1-full" if request.directed_full_film else
-                       "directed-v1-pilot" if request.directed_spec else
-                       f"short-{template}" if request.video_format == "social" else "explainer"),
+            "format": finished_library_format(
+                visual_style=effective_visual_style,
+                video_format=request.video_format,
+                short_template=request.short_template,
+                directed_spec=bool(request.directed_spec),
+                directed_full_film=bool(request.directed_full_film)),
             "question": request.question, "scene_count": result["scene_count"],
-            "visual_style": result.get("visual_style") or request.visual_style,
+            "visual_style": effective_visual_style,
+            **_illustrated_library_fields(result, effective_visual_style),
             "topic_channel": request.topic_channel,
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
             "retention_readiness_score": (result.get("retention_readiness") or {}).get("score"),
@@ -2927,6 +3000,96 @@ async def explainer_research_handoff(job_id: str):
     return await asyncio.to_thread(_research_handoff_payload, job_id)
 
 
+@app.get("/api/agent/capabilities")
+async def agent_capabilities():
+    """Discover the actual shared contract without provider calls or credentials."""
+    return {
+        "schema": "reelforge_agent_capabilities_v1",
+        "operation": agent_actions.GENERIC_ILLUSTRATED_OPERATION,
+        "duration_sec": {"min": agent_actions.ILLUSTRATED_MIN_SECONDS,
+                         "max": agent_actions.ILLUSTRATED_MAX_SECONDS,
+                         "default": 90},
+        "cost_ceiling_usd": {"canary_max": agent_actions.illustrated_cost_cap(90),
+                             "longform_max": agent_actions.illustrated_cost_cap(300)},
+        "format": "landscape", "visual_style": "illustrated_story",
+        "approval": "Operator approval of exact spec hash and ceiling in the studio; one video only.",
+        "execution": "Asynchronous durable job; poll status, do not hold a render connection open.",
+        "readiness": "Capabilities are not provider readiness; check /api/production-readiness in the studio.",
+        "proposal_path": "/api/agent/actions",
+        "publishes_to_youtube": False,
+    }
+
+
+async def _agent_bound_job(action_id: str) -> str:
+    action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+    if not action:
+        raise HTTPException(status_code=404, detail="Agent action not found")
+    if not action.get("job_id"):
+        raise HTTPException(status_code=409, detail="Action has no bound job yet")
+    return str(action["job_id"])
+
+
+@app.get("/api/agent/actions/{action_id}/diagnostics")
+async def agent_diagnostics(action_id: str, artifact: Literal[
+        "research-handoff", "script", "grade", "rendered-contract", "evidence-validation"
+        ] = "research-handoff", offset: int = 0):
+    """Private, paginated saved evidence. Never rerun a provider to answer a read."""
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be nonnegative")
+    job_id = await _agent_bound_job(action_id)
+    def read():
+        if artifact == "research-handoff":
+            return json.dumps(_research_handoff_payload(job_id), ensure_ascii=False)
+        if _durable_execution_required():
+            store, blob = _durable_components()
+            job = store.get_job(job_id)
+            if not job or not job.get("checkpoint"):
+                raise HTTPException(status_code=404, detail="Saved checkpoint is not available")
+            names = {"script": "_state.json", "grade": "grade.txt",
+                     "rendered-contract": "rendered_contract.json",
+                     "evidence-validation": "evidence_validation.json"}
+            # Read exactly the current durable snapshot, never stale process-local files.
+            with tempfile.TemporaryDirectory(prefix="agent_diagnostics_") as output_dir:
+                runtime = durable_execution.DurableRuntime(
+                    job_id=job_id, worker_id="read-only", output_dir=output_dir,
+                    store=store, blob=blob)
+                runtime.restore_checkpoint(job["checkpoint"])
+                path = Path(output_dir) / names[artifact]
+                if not path.is_file():
+                    raise HTTPException(status_code=404, detail="Saved artifact is not available")
+                return path.read_text(encoding="utf-8")
+        path, _ = _explainer_text_artifact(job_id, artifact)
+        if not path:
+            raise HTTPException(status_code=404, detail="Saved artifact is not available")
+        return Path(path).read_text(encoding="utf-8")
+    try:
+        content = await asyncio.to_thread(read)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=409, detail="Saved artifact could not be read") from None
+    end = offset + 24000
+    return {"action_id": action_id, "job_id": job_id, "artifact": artifact,
+            "content": content[offset:end], "offset": offset,
+            "next_offset": end if end < len(content) else None,
+            "untrusted_content": True, "source": "saved_artifact"}
+
+
+@app.get("/api/agent/actions/{action_id}/artifacts")
+async def agent_artifacts(action_id: str):
+    """Private manifest of real finished artifacts using studio URLs, never Blob credentials."""
+    job_id = await _agent_bound_job(action_id)
+    import finished_api
+    try:
+        record = await asyncio.to_thread(finished_api._get, job_id, FINISHED_DIR) or {}
+    except durable_execution.StorageUnavailable:
+        raise HTTPException(status_code=503, detail="Finished artifact storage is unavailable") from None
+    allowed = {"video", "txt", "srt", "desc", "grade", "thumb", "script",
+               "rendered-contract", "research", "research-handoff"}
+    return {"action_id": action_id, "job_id": job_id,
+            "available": bool(record), "requires_studio_session": True,
+            "artifacts": [{"kind": kind, "path": f"/api/finished/{job_id}/artifact/{kind}"}
+                          for kind in sorted((record.get("artifacts") or {}).keys() & allowed)]}
+
+
 @app.post("/api/agent/actions")
 async def create_agent_action(request: AgentActionCreateRequest):
     """Create a non-spending proposal. The claim token is returned once and stored only hashed."""
@@ -2939,17 +3102,17 @@ async def create_agent_action(request: AgentActionCreateRequest):
                 or request.parent_action_id or request.parent_job_id):
             raise HTTPException(status_code=422, detail=(
                 "An illustrated topic proposal requires topic and cannot include a directed spec or parent"))
-        payload = agent_actions.build_illustrated_payload(
-            topic=request.topic, duration_sec=request.duration_sec,
-            creative_direction=request.creative_direction,
-            cost_ceiling_usd=float(request.cost_ceiling_usd),
-            providers=illustrated_provider_manifest())
+        try:
+            payload = agent_actions.build_illustrated_payload(
+                topic=request.topic, duration_sec=request.duration_sec,
+                creative_direction=request.creative_direction,
+                cost_ceiling_usd=float(request.cost_ceiling_usd),
+                providers=illustrated_provider_manifest())
+        except agent_actions.AgentActionError as exc:
+            raise _agent_action_http_error(exc) from exc
         authorization_hash = agent_actions.illustrated_payload_hash(payload)
         estimate = payload["estimated_cost_usd"]
-        deployment_cap = float(os.environ.get("AGENT_ACTION_ILLUSTRATED_MAX_COST_USD", "5.00"))
-        # The approval card must not offer a budget the queue silently tightens later.
-        deployment_cap = min(deployment_cap, float(os.environ.get(
-            "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00"))))
+        deployment_cap = agent_actions.illustrated_cost_cap(request.duration_sec)
         title = payload["request"]["question"]
     else:
         if request.topic or request.creative_direction or "duration_sec" in request.model_fields_set:

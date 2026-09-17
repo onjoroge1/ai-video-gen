@@ -308,6 +308,105 @@ def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> 
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
 
+def _promote_opening_reframe(states: list, scene_index: int, opening: bool,
+                             capacity: int) -> list[dict]:
+    """Let an opening beat earn its own image instead of deadlocking on an unmeetable rule.
+
+    `insufficient_distinct_evidence_assets` requires an opening beat with room for two states to
+    carry two GENERATED assets, or a detail reframe whose crop has been pixel-verified. At plan
+    time no image exists, so `detail_verification_passed` cannot be true — it is only written after
+    generation. The strategy is the model's choice: the script prompt offers
+    master|distinct|detail_reframe per beat. So whenever the model picks `detail_reframe` for the
+    opening's second beat, the run aborts with no repair path, before any media spend but after
+    research, script, fact-check and claim repair are all paid for. Measured: one of four live
+    attempts on the same topic died exactly here.
+
+    Asking the model to choose differently is the pattern this file already rejects everywhere else
+    -- `collapse_locations` counts frequencies rather than asking for four locations, `repair_chain`
+    fixes role order rather than asking for it. Which strategy the opening's second state uses is
+    not a judgement: if the opening needs two distinct assets and has one, the reframe becomes
+    distinct and buys its own image. One extra generation, ~$0.045, against a ~$1.50 abort.
+
+    `source_asset_id` MUST be cleared on promotion. A distinct state that still declares a source
+    trips `missing_source_asset`'s sibling check and swaps one hard failure for another.
+
+    Returns the repairs made, so the caller records what it changed rather than silently differing
+    from the script.
+    """
+    if not opening or capacity < 2:
+        return []
+    generated = [state for state in states
+                 if _text(state.get("asset_strategy")) in {"master", "distinct"}]
+    if len(generated) >= 2:
+        return []
+    repairs = []
+    for state in states:
+        if len(generated) >= 2:
+            break
+        if _text(state.get("asset_strategy")) != "detail_reframe":
+            continue
+        state["asset_strategy"] = "distinct"
+        state["source_asset_id"] = ""
+        state["detail_target"] = ""
+        generated.append(state)
+        repairs.append({
+            "code": "opening_reframe_promoted",
+            "scene": scene_index + 1,
+            "state_id": _text(state.get("state_id")),
+            "message": ("Opening reframe promoted to a distinct generated asset so the opening "
+                        "carries two; a plan-time crop cannot be pixel-verified."),
+        })
+    return repairs
+def _anchor_key(phrase: str) -> str:
+    """Compare anchors on words, not punctuation. "…back" and "…back." are the same span."""
+    return " ".join(re.findall(r"[a-z0-9]+", _text(phrase).casefold()))
+
+
+def _closing_anchor_phrase(scene: dict, existing_states: list) -> str:
+    """A phrase from the tail of the narration, so the closing shot can be timed where it plays.
+
+    The callback returns to the opening object after the answer has landed, so it is always the
+    last shot of its scene, and `compile_scene_shots` requires monotonically increasing starts.
+    Its anchor therefore has to resolve LATER than every anchor before it.
+
+    Two cases, and the second is the one that bites. Usually the final clause is unclaimed and is
+    exactly right. But the scene's last evidence state often already owns that clause -- measured
+    on a real render, state `e04` held "Now nothing could pull them back" and the whole clause was
+    the tail. Reusing it resolves to the same instant, the gap is zero, and the scene collapses
+    just as surely as an anchor from the beginning would. So when the tail is taken, fall back to
+    a strict SUFFIX of it: fewer words, starting later, still verbatim on the page.
+    """
+    narration = _text(scene.get("narration"))
+    if not narration:
+        # Nothing to derive a position from. Ordering is moot here too -- without narration there
+        # are no measured word timings, so `compile_scene_shots` never runs its monotonic check on
+        # this scene. Keep the historical sources so a script that predates narration on the final
+        # scene still carries an anchor for the caption and the audit trail.
+        return (_text(scene.get("motion_anchor_phrase"))
+                or _text((existing_states or [{}])[-1].get("anchor_phrase")))
+    taken = {_anchor_key(state.get("anchor_phrase"))
+             for state in existing_states or [] if _text(state.get("anchor_phrase"))}
+    words = narration.split()
+
+    clauses = [part.strip() for part in re.split(r"(?<=[.!?;:])\s+|,\s+", narration) if part.strip()]
+    if clauses:
+        tail = clauses[-1]
+        tail_words = tail.split()
+        candidate = " ".join(tail_words[-6:]) if len(tail_words) > 6 else tail
+        if _anchor_key(candidate) not in taken and len(candidate.split()) >= 2:
+            return candidate
+
+    # The tail is already anchored. Walk in from its end, shortest first, so the phrase we return
+    # starts as late as the narration allows while staying at least two words long.
+    for size in (2, 3, 4):
+        if size > len(words):
+            break
+        suffix = " ".join(words[-size:])
+        if _anchor_key(suffix) not in taken:
+            return suffix
+    return " ".join(words[-3:]) if len(words) >= 3 else narration
+
+
 def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> dict:
     """Compile narration beats into explicit visual states without pretending crops are evidence."""
     scenes = script.get("scenes") or []
@@ -315,6 +414,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     pack = build_continuity_pack(script)
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
+    repairs: list[dict] = []
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
@@ -324,6 +424,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             for state_index, beat in enumerate(
                 _states_that_fit(beats, scene, measured.get(scene_index)))
         ]
+        repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         scene_plans.append({
             "scene_index": scene_index,
             "story_role": _text(scene.get("story_role")),
@@ -337,9 +438,19 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     if scene_plans and 0 <= callback_index < len(scene_plans):
         callback_states = scene_plans[callback_index]["states"]
         callback_scene = scenes[callback_index]
-        callback_anchor = _text(callback_scene.get("motion_anchor_phrase"))
-        if not callback_anchor and callback_states:
-            callback_anchor = _text(callback_states[-1].get("anchor_phrase"))
+        # The callback is the LAST shot of the video by construction -- it returns to the opening
+        # object once the answer has landed -- so its anchor has to be at the END of the narration.
+        # Both previous sources guaranteed the opposite. `motion_anchor_phrase` is chosen for
+        # motion, not for position, and the fallback took the PRECEDING state's anchor, which by
+        # definition is not after it.
+        #
+        # Measured on a real render: the callback for a 22.2-second scene was anchored to
+        # "the toads marched" -- word 9 of 59, about 3.4s in -- while the state before it started
+        # at 19.9s. `compile_scene_shots` requires monotonically increasing starts, so the check
+        # failed and the ENTIRE five-state scene fell back to even spacing, losing alignment on
+        # four cuts that had resolved perfectly. One misplaced anchor, a whole scene of visuals
+        # detached from the words they describe.
+        callback_anchor = _closing_anchor_phrase(callback_scene, callback_states)
         callback_states.append({
             "state_id": f"state:s{callback_index + 1:03d}:callback",
             "asset_id": f"asset:s{callback_index + 1:03d}:callback",
@@ -368,7 +479,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "asset_status": "planned",
             "rejection_reasons": [],
         })
-    plan = {"version": 1, "continuity_pack": pack, "scenes": scene_plans}
+    plan = {"version": 1, "continuity_pack": pack, "scenes": scene_plans, "repairs": repairs}
     plan["validation"] = validate_evidence_plan(plan)
     return plan
 

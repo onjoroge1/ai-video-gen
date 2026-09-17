@@ -2,46 +2,173 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Finished videos · ReelForge</title>
 <style>
 :root{color-scheme:dark;--bg:#090b10;--card:#121720;--line:#27303d;--text:#f4f6f8;--dim:#94a0af;
---red:#e63946;--green:#52b788;--blue:#4a90d9}*{box-sizing:border-box}body{margin:0;background:var(--bg);
+--red:#e63946;--green:#52b788;--blue:#4a90d9;--amber:#e0a458;--ink:#2f4858;--terracotta:#c96f4a;
+--teal:#3f8f8b}*{box-sizing:border-box}body{margin:0;background:var(--bg);
 color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
 header{position:sticky;top:0;z-index:2;background:#090b10ee;backdrop-filter:blur(14px);border-bottom:1px solid var(--line);
 padding:17px clamp(18px,4vw,48px);display:flex;align-items:center;gap:16px;flex-wrap:wrap}h1{margin:0;font-size:19px}
 a{color:inherit;text-decoration:none}.back{color:var(--dim)}.back:hover{color:white}input{margin-left:auto;min-width:230px;
 background:#10141c;border:1px solid var(--line);border-radius:8px;padding:9px 11px;color:white}
-main{padding:24px clamp(18px,4vw,48px)}#status{color:var(--dim);margin-bottom:18px}.grid{display:grid;
-grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:17px}.card{background:var(--card);border:1px solid var(--line);
+main{padding:24px clamp(18px,4vw,48px)}#status{color:var(--dim);margin-bottom:14px}
+.lanes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.lane{background:#141a24;border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:6px 13px;
+font-size:12px;cursor:pointer;font:inherit;font-size:12px}
+.lane:hover{color:white}.lane[aria-pressed="true"]{background:#1f2a38;border-color:#4a5a6f;color:white}
+.lane .n{color:var(--dim);margin-left:6px;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:17px}.card{background:var(--card);border:1px solid var(--line);
 border-radius:13px;overflow:hidden;cursor:pointer;transition:.15s}.card:hover{border-color:#546174;transform:translateY(-1px)}
+.card.illustrated{border-left:3px solid var(--terracotta)}
 .thumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:linear-gradient(135deg,#171e29,#0c0f15);display:block}
 .meta{padding:12px 13px}.title{font-weight:700;line-height:1.35;margin-bottom:7px}.pills{display:flex;gap:6px;flex-wrap:wrap}
 .pill{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);background:#1c2430;padding:2px 7px;border-radius:4px}
-.pill.ok{color:var(--green)}dialog{width:min(920px,95vw);max-height:90vh;background:var(--card);color:var(--text);
+.pill.ok{color:var(--green)}.pill.warn{color:var(--amber)}.pill.bad{color:var(--red)}
+.pill.lane-illustrated{color:#f0b49a;background:#3a2119}
+.pill.lane-quiz{color:#9ec9f0;background:#16283a}
+.sub{color:var(--dim);font-size:11px;margin-top:7px}
+dialog{width:min(920px,95vw);max-height:90vh;background:var(--card);color:var(--text);
 border:1px solid var(--line);border-radius:15px;padding:0}dialog::backdrop{background:#000b}.dialog-head{display:flex;gap:12px;
 align-items:center;padding:14px 17px;border-bottom:1px solid var(--line)}.dialog-head strong{flex:1}.close{background:#202936;
 border:0;color:white;border-radius:7px;padding:7px 11px;cursor:pointer}.body{padding:17px;overflow:auto;max-height:80vh}
-video{display:block;width:100%;max-height:58vh;background:#000;border-radius:9px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+video{display:block;width:100%;max-height:58vh;background:#000;border-radius:9px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:15px}
+.fact{background:#0f141c;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+.fact dt{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin:0 0 3px}
+.fact dd{margin:0;font-weight:600;word-break:break-word}
+.fact dd.bad{color:var(--red)}.fact dd.ok{color:var(--green)}.fact dd.warn{color:var(--amber)}
+.group{margin-top:16px}.group h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
 .action{background:var(--red);padding:8px 12px;border-radius:7px;font-weight:700;font-size:12px}.action.secondary{background:#202936}
+.note{margin-top:14px;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5;
+background:#2a1a1a;border:1px solid #573434;color:#f0b4b4}
 .empty{color:var(--dim);padding:40px 0}@media(max-width:560px){input{order:3;width:100%;margin-left:0}}
 </style></head><body>
-<header><a class="back" href="/">← Studio</a><h1>Finished videos</h1><input id="search" placeholder="Search title or ID…"></header>
-<main><div id="status">Loading durable library…</div><div class="grid" id="grid"></div></main>
+<header><a class="back" href="/">← Studio</a><h1>Finished videos</h1><input id="search" placeholder="Search title, ID or lane…"></header>
+<main><div id="status">Loading durable library…</div><div class="lanes" id="lanes"></div><div class="grid" id="grid"></div></main>
 <dialog id="dialog"><div class="dialog-head"><strong id="dialog-title"></strong><button class="close" onclick="dialog.close()">Close</button></div>
 <div class="body" id="dialog-body"></div></dialog>
 <script>
-const grid=document.getElementById('grid'),statusEl=document.getElementById('status'),dialog=document.getElementById('dialog');
+const grid=document.getElementById('grid'),statusEl=document.getElementById('status'),dialog=document.getElementById('dialog'),
+      lanesEl=document.getElementById('lanes');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const size=n=>!n?'—':n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':Math.round(n/1e3)+' KB';
-async function load(){const q=document.getElementById('search').value.trim();const r=await fetch('/api/finished?q='+encodeURIComponent(q));
+let all=[],lane='all';
+
+// One place decides which lane a row belongs to. `format` is what the archiver writes; the
+// visual_style metadata is the fallback for rows archived before the illustrated lane had its
+// own label, and "illustrated-causal-longform" is the one hand-imported legacy row.
+function laneOf(v){
+  const f=String(v.format||'').toLowerCase(), style=String((v.metadata||{}).visual_style||'');
+  if(f==='illustrated-story'||f==='illustrated-causal-longform'||style==='illustrated_story') return 'illustrated';
+  if(f.includes('quiz')) return 'quiz';
+  if(f.startsWith('directed')) return 'directed';
+  if(f.startsWith('short-')||f==='social') return 'short';
+  if(f==='explainer') return 'explainer';
+  return 'other';
+}
+const LANE_LABEL={all:'All',illustrated:'Illustrated',quiz:'Quiz',short:'Shorts',explainer:'Explainer',
+                  directed:'Directed',other:'Other'};
+
+// 200 is the API's own ceiling (finished_api clamps limit). Ask for all of it: the lane counts
+// below are computed client-side, so a smaller page would report a slice as if it were the library.
+const PAGE=200;
+async function load(){const q=document.getElementById('search').value.trim();
+ const r=await fetch(`/api/finished?limit=${PAGE}&q=`+encodeURIComponent(q));
  if(r.status===401){location='/login?next=/finished';return}const d=await r.json();
- if(!r.ok){const detail=d.detail||{};statusEl.textContent=`Storage unavailable — ${detail.message||detail||'try again shortly'}`;grid.innerHTML='<div class="empty">The durable library could not be read. This is an outage, not an empty library.</div>';return}
- statusEl.textContent=`${d.count} finished video${d.count===1?'':'s'}`;
- grid.innerHTML=d.videos.length?d.videos.map(card).join(''):'<div class="empty">No finished videos found.</div>'}
-function card(v){const thumb=(v.thumbnail_url||(v.artifacts||{}).thumb)?`<img class="thumb" loading="lazy" src="/api/finished/${encodeURIComponent(v.id)}/artifact/thumb">`:'<div class="thumb"></div>';
- return `<article class="card" data-video-id="${esc(v.id)}">${thumb}<div class="meta"><div class="title">${esc(v.title)}</div>
- <div class="pills"><span class="pill">${esc(v.format||'video')}</span><span class="pill ok">${esc(v.status||'done')}</span>
- <span class="pill">${size(v.size_bytes)}</span><span class="pill">${esc(v.storage||'')}</span></div></div></article>`}
-async function openVideo(id){const r=await fetch('/api/finished/'+encodeURIComponent(id)),v=await r.json();document.getElementById('dialog-title').textContent=v.title||v.id;
- const kinds=Object.keys(v.artifacts||{});document.getElementById('dialog-body').innerHTML=`<video controls preload="metadata" src="/api/finished/${encodeURIComponent(id)}/artifact/video"></video>
- <div class="actions">${kinds.map(k=>`<a class="action ${k==='video'?'':'secondary'}" href="/api/finished/${encodeURIComponent(id)}/artifact/${encodeURIComponent(k)}?download=true">Download ${esc(k)}</a>`).join('')}</div>`;dialog.showModal()}
+ if(!r.ok){const detail=d.detail||{};statusEl.textContent=`Storage unavailable — ${detail.message||detail||'try again shortly'}`;
+  lanesEl.innerHTML='';grid.innerHTML='<div class="empty">The durable library could not be read. This is an outage, not an empty library.</div>';return}
+ all=d.videos||[];render()}
+
+function render(){
+ const counts={all:all.length};
+ for(const v of all){const k=laneOf(v);counts[k]=(counts[k]||0)+1}
+ const order=['all','illustrated','quiz','short','explainer','directed','other'].filter(k=>k==='all'||counts[k]);
+ if(!counts[lane]&&lane!=='all')lane='all';
+ lanesEl.innerHTML=order.map(k=>`<button class="lane" data-lane="${k}" aria-pressed="${k===lane}">${LANE_LABEL[k]}<span class="n">${counts[k]||0}</span></button>`).join('');
+ const rows=lane==='all'?all:all.filter(v=>laneOf(v)===lane);
+ // Say so when the library is larger than the page: counts below are of what was loaded, and
+ // presenting a page as a total is exactly the kind of reassuring-but-false number this audit found.
+ const capped=all.length>=PAGE;
+ statusEl.textContent=`${rows.length} of ${all.length}${capped?'+':''} finished video${all.length===1?'':'s'}`+
+   (lane==='all'?'':` · ${LANE_LABEL[lane]} lane`)+
+   (capped?` · showing the newest ${PAGE}; lane counts are of these only`:'');
+ grid.innerHTML=rows.length?rows.map(card).join(''):'<div class="empty">No finished videos in this lane.</div>'}
+
+function card(v){const m=v.metadata||{},l=laneOf(v);
+ const thumb=(v.thumbnail_url||(v.artifacts||{}).thumb)?`<img class="thumb" loading="lazy" src="/api/finished/${encodeURIComponent(v.id)}/artifact/thumb">`:'<div class="thumb"></div>';
+ // The rendered gate is advisory on this lane, so a REJECT still archives as status "done".
+ // Showing only "done" would launder that. Surface the grade next to it.
+ const gate=String(m.rendered_contract_status||'');
+ const gatePill=gate?`<span class="pill ${gate==='PASS'?'ok':gate==='REJECT'?'bad':'warn'}">gate ${esc(gate)}</span>`:'';
+ const bits=[];
+ if(l==='illustrated'){
+   if(m.story_engine)bits.push(esc(String(m.story_engine).replace(/_/g,' ')));
+   if(m.beat_count)bits.push(`${m.beat_count} beats`);
+   if(m.location_count)bits.push(`${m.location_count} locations`);
+   if(m.duration_sec)bits.push(`${Math.round(m.duration_sec)}s`);
+ }
+ return `<article class="card${l==='illustrated'?' illustrated':''}" data-video-id="${esc(v.id)}">${thumb}<div class="meta"><div class="title">${esc(v.title)}</div>
+ <div class="pills"><span class="pill lane-${l}">${esc(v.format||'video')}</span><span class="pill ${statusClass(v.status)}">${esc(v.status||'done')}</span>
+ ${gatePill}<span class="pill">${size(v.size_bytes)}</span><span class="pill">${esc(v.storage||'')}</span></div>
+ ${bits.length?`<div class="sub">${bits.map(esc).join(' · ')}</div>`:''}</div></article>`}
+
+// A "degraded" or "error" render must not wear the same green as a clean one — especially on a
+// card that also warns about an advisory quality gate. Only a genuinely finished row reads green.
+const statusClass=s=>{const v=String(s||'done').toLowerCase();
+ return v==='done'||v==='ready'?'ok':v==='degraded'||v.includes('await')||v.includes('review')?'warn':
+        v==='error'||v==='failed'||v==='rejected'?'bad':''};
+const money=n=>(n===0||n)?'$'+Number(n).toFixed(2):null;
+function fact(label,value,cls){return value===null||value===undefined||value===''?'':
+ `<div class="fact"><dt>${esc(label)}</dt><dd${cls?` class="${cls}"`:''}>${esc(value)}</dd></div>`}
+
+// Artifact kinds grouped so an illustrated record reads as a story record, not 25 buttons.
+const GROUPS=[
+ ['Video & text',['video','opening_preview','quiz-control','quiz-performer','thumb','srt','txt','desc','script']],
+ ['Story & evidence',['storyboard','research','claims','evidence-plan','evidence-validation','continuity','timing','generation-manifest','directed-spec','directed-validation']],
+ ['Grades & review',['grade','rendered-contract','rendered-contact-sheet','human-review','readiness','retention','story-format-review','full-delivery','animatic','animatic-preview','diagnostic-preview','motion','opening-freeze']],
+];
+
+async function openVideo(id){const r=await fetch('/api/finished/'+encodeURIComponent(id)),v=await r.json();
+ document.getElementById('dialog-title').textContent=v.title||v.id;
+ const m=v.metadata||{},kinds=Object.keys(v.artifacts||{}),l=laneOf(v);
+ const seen=new Set();
+ const groups=GROUPS.map(([name,order])=>{
+   const present=order.filter(k=>kinds.includes(k));present.forEach(k=>seen.add(k));
+   return present.length?`<div class="group"><h3>${esc(name)}</h3><div class="actions">${present.map(btn(id)).join('')}</div></div>`:''}).join('');
+ const rest=kinds.filter(k=>!seen.has(k));
+ const gate=String(m.rendered_contract_status||'');
+ const facts=[
+   fact('Lane',LANE_LABEL[l]),
+   fact('Duration',m.duration_sec?`${Math.round(m.duration_sec)}s`:null),
+   fact('Scenes',m.scene_count),
+   fact('Actual cost',money(m.actual_cost)),
+   fact('Story engine',m.story_engine?String(m.story_engine).replace(/_/g,' '):null),
+   fact('Beats',m.beat_count),fact('Locations',m.location_count),
+   fact('Storyboard',m.storyboard_validated===undefined?null:(m.storyboard_validated?'validated':'NOT validated'),
+        m.storyboard_validated===false?'bad':m.storyboard_validated?'ok':''),
+   fact('Music',m.music_status),
+   fact('Motion',m.motion_mode),
+   fact('Creative profile',m.creative_profile),
+   fact('Rendered gate',gate?`${gate}${m.rendered_contract_score!==undefined&&m.rendered_contract_score!==null?` · ${m.rendered_contract_score}`:''}`:null,
+        gate==='PASS'?'ok':gate?'bad':''),
+   fact('Retention score',m.retention_readiness_score),
+   fact('Technical',m.technical_status),
+   fact('Editorial',m.editorial_status),
+   fact('Promotion',m.promotion_status),
+   fact('Topic',m.question),
+ ].join('');
+ // Say the quiet part where the operator can see it: on this lane the editorial gate does not
+ // block delivery, so "done" is a delivery fact and not an approval.
+ const warn=(gate&&gate!=='PASS')?`<div class="note">This render was archived with an automated rendered-grade of
+   <strong>${esc(gate)}</strong>. On the illustrated/standard long-form lane that gate is advisory — it does not
+   block delivery — so <strong>status "done" means the MP4 exists, not that it passed editorial review.</strong></div>`:'';
+ document.getElementById('dialog-body').innerHTML=`<video controls preload="metadata" src="/api/finished/${encodeURIComponent(id)}/artifact/video"></video>
+ ${warn}<dl class="facts">${facts}</dl>${groups}
+ ${rest.length?`<div class="group"><h3>Other</h3><div class="actions">${rest.map(btn(id)).join('')}</div></div>`:''}`;
+ dialog.showModal()}
+
+const btn=id=>k=>`<a class="action ${k==='video'?'':'secondary'}" href="/api/finished/${encodeURIComponent(id)}/artifact/${encodeURIComponent(k)}?download=true">Download ${esc(k)}</a>`;
+
 grid.addEventListener('click',e=>{const card=e.target.closest('[data-video-id]');if(card)openVideo(card.dataset.videoId)});
+lanesEl.addEventListener('click',e=>{const b=e.target.closest('[data-lane]');if(b){lane=b.dataset.lane;render()}});
 let timer;document.getElementById('search').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,250)});load();
 </script></body></html>
