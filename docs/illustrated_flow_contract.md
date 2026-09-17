@@ -111,6 +111,80 @@ performed, the shot is downgraded to `hard_cut` **on the caller's list** (not ju
 copy `_make_multishot_background` works from), and the metric counts it. A fallback nobody can
 measure is how a quality gate quietly stops measuring anything, so that write-back is load-bearing
 and has its own test.
+## Finished Videos library
+
+A completed illustrated render is archived with `format: "illustrated-story"`, its own lane label,
+on the same terms as `short-quiz`. It previously borrowed `explainer`, which made the lane
+invisible in the library: same pill as a cinematic explainer, no filter, and `format` was not
+searchable in either SQL list path or the local fallback. All three now match on it.
+
+The archived metadata carries the lane facts the library needs without opening the MP4:
+`creative_lane`, `creative_profile`, `story_engine`, `chapter_count`, `beat_count`,
+`location_count`, `storyboard_validated`, `music_status`, `motion_mode`. They are read from the
+generation manifest and storyboard the run already wrote; nothing is re-derived or re-judged, and
+an absent fact stays absent rather than defaulting to a reassuring value.
+
+`static/finished.html` groups on that label, folds the one legacy `illustrated-causal-longform` row
+into the same lane, and states the delivery/approval distinction explicitly: the rendered gate is
+advisory on this lane, so a record can be `status: "done"` with
+`rendered_contract_status: "REJECT"`. The card shows the grade next to the status and the detail
+view says in words that "done" means the MP4 exists, not that it passed editorial review.
+
+`tests/test_finished_illustrated_lane.py` pins the label, the metadata round-trip, the searchable
+lane, and that a failed storyboard validation reaches the record as `false` rather than dropping out.
+
+## Evidence provenance: three states, not two
+
+A cited page has three possible outcomes, and collapsing the last two cost this lane its best
+sources. `claim_verify` fetches each page itself; the claim is then one of:
+
+| outcome | `support_provenance` | enters prompts? | excerpt check |
+|---|---|---|---|
+| quote found verbatim on the page | `verbatim` | yes | applies |
+| quote recovered from the page by overlap + matching polarity | `page_recovered` | yes | applies |
+| page could not be retrieved (403, refused connection) | `provider_attested_unfetchable` | yes, unpromoted | exempt |
+| page read, quote absent | — (dropped) | no | n/a |
+
+Measured on one topic: of 16 claims that failed the quote check, **13 were transport failures** —
+`nma.gov.au` returns 403 to any non-browser client including its homepage, `dcceew.gov.au` refuses
+the connection, Wiley and Britannica 403 — and only 3 were pages that were read and did not contain
+the quote. The 13 were the story's spine. Dropping them left 11 claims and three downstream gates
+then failed on the same hole in three different vocabularies. Carrying them takes the same dossier
+to 23 claims and `validate_research_dossier` passes.
+
+An attested claim is **carried, not promoted**: `quote_verified` stays false, it contributes no
+citation record, and it is exempt from `unverified_support_quote` only because that check asks a
+question nobody can answer for it. Every other guard still applies — the URL must appear in the
+provider's own citations, the domain must not be weak, the quote must exist, and negation must
+agree. `no_fetched_evidence` fails a dossier in which *nothing* was read at any URL; zero is the
+only threshold here that is not arbitrary, and a partial outage is reported rather than blocked.
+
+`repair_quote` will no longer substitute a page sentence whose negation direction differs from the
+claim's. It cannot separate a statement of intent from a statement of outcome — no word-overlap
+rule can — so the evidence judge is now shown each claim's `support_quote`, `source_url` and
+provenance and told that a passage describing what something was *intended* to do does not
+establish that it did.
+
+## Opening evidence assets
+
+`insufficient_distinct_evidence_assets` requires an opening beat with room for two states to carry
+two generated assets, or a detail reframe whose crop has been pixel-verified. At plan time no image
+exists, so the second option can never be true, and which strategy the opening's second beat uses is
+the model's choice. That made the abort a coin flip on one token, after research, script, fact-check
+and claim repair were all paid for. An opening `detail_reframe` is now promoted to `distinct` when
+the opening would otherwise carry fewer than two generated assets — one extra image, ~$0.045,
+against a ~$1.50 abort — and the change is recorded in the plan's `repairs` list rather than
+silently differing from the script. Reframes outside the opening, and reframes in an opening that
+already carries two generated assets, are untouched.
+
+## Story-engine corpus support
+
+Engine selection now states its corpus support in the run log
+(`removed_keystone — 0 corpus references, loose adherence`). This is reporting, not a gate: the
+corpus's authority split reserves gating for measured data, and reference *count* is neither
+measured nor judged. An engine at zero references still receives no reference blueprint, but its
+declared sequence and required roles are shown to the labeller through `story_engines.catalogue()`,
+so it is not judged against an order it was never given.
 
 ## Validation and its limits
 

@@ -645,9 +645,11 @@ class PostgresStore:
             params: list[Any] = []
             where = ""
             if query.strip():
-                where = "WHERE title ILIKE %s OR id ILIKE %s"
+                # Format is part of the searchable identity: the library's only lane label is
+                # `format`, so "illustrated" or "quiz" must find the lane, not zero rows.
+                where = "WHERE title ILIKE %s OR id ILIKE %s OR format ILIKE %s"
                 needle = f"%{query.strip()}%"
-                params.extend((needle, needle))
+                params.extend((needle, needle, needle))
             params.extend((max(1, min(int(limit), 200)), max(0, int(offset))))
             cur.execute(
                 f"SELECT {','.join(columns)} FROM finished_videos {where} "

@@ -152,6 +152,20 @@ _RETURN_SHAPE = (
 )
 
 
+def _claim_block(claim: dict) -> str:
+    """One claim rendered with the evidence it rests on, for the evidence judge."""
+    lines = [f"- [{claim.get('claim_id') or '?'}] {claim.get('claim')}"]
+    quote = str(claim.get("support_quote") or "").strip()
+    if quote:
+        provenance = str(claim.get("support_provenance") or "").strip()
+        label = f"source passage ({provenance})" if provenance else "source passage"
+        lines.append(f'    {label}: "{quote}"')
+    url = str(claim.get("source_url") or "").strip()
+    if url:
+        lines.append(f"    source: {url}")
+    return "\n".join(lines)
+
+
 def _default_judge(payload: dict) -> dict:
     """The real call. Imported lazily so the module is testable without a provider configured."""
     import explainer_pipeline as ep
@@ -181,11 +195,26 @@ def _default_judge(payload: dict) -> dict:
                 "Does the narration introduce any factual detail the event does not contain?\n"
                 + _RETURN_SHAPE)
     else:
-        claims = "\n".join(f"- [{c.get('claim_id') or '?'}] {c.get('claim')}"
-                           for c in payload["claims"])
+        # Show the SOURCE PASSAGE, not just the model's paraphrase of it.
+        #
+        # This prompt used to render `c.get('claim')` alone, so the only stage that reads for
+        # meaning never saw the evidence. The chain was: page -> quote (matched on word overlap)
+        # -> claim (model-authored, never checked against the quote) -> event -> narration, and
+        # nothing in it compared the quote to the claim. A quote that shares the claim's words and
+        # direction but says something different — a page stating what an intervention was INTENDED
+        # to do, attached to a claim asserting that it WORKED — passed every gate.
+        #
+        # `support_provenance` is included because a recovered quote is weaker than a verbatim one:
+        # it is the page's best word-overlap sentence, not the sentence the model cited.
+        claims = "\n".join(_claim_block(c) for c in payload["claims"])
         system = _EVIDENCE_SYSTEM
-        body = (f"CLAIMS:\n{claims}\n\nFACTUAL STATEMENT:\n{payload['event']}\n\n"
-                "Taken together, do the claims support the statement?\n" + _RETURN_SHAPE)
+        body = (f"CLAIMS AND THEIR SOURCE PASSAGES:\n{claims}\n\n"
+                f"FACTUAL STATEMENT:\n{payload['event']}\n\n"
+                "Taken together, do the claims support the statement? A claim counts only if its "
+                "own source passage actually states it. A passage describing what something was "
+                "intended, planned or expected to do does not establish that it did. Where a "
+                "passage is marked page_recovered it was matched by word overlap rather than "
+                "quoted by the researcher, so read it especially literally.\n" + _RETURN_SHAPE)
 
     response = ep._claude().messages.create(
         model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system,
