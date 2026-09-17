@@ -506,6 +506,58 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
             "passed": not issues}
 
 
+# The complete set of issue codes compile_roles can emit. All three are mechanical: the planner
+# omitted an event_function, declared one outside the engine's vocabulary, or declared the
+# single-slot incentive change on more than one beat. None is an editorial judgement and none
+# needs new research -- the model can satisfy all three from the same facts once it is told which
+# beat is wrong.
+#
+# Kept in sync with the compiler by test_compile_retry, which walks compile_roles' own AST for
+# _issue() codes rather than trusting this list. It was written with two entries because a
+# line-ranged grep missed MISSING_EVENT_FUNCTION, and that test is what caught it -- a code
+# missing from here is not a retry that misbehaves, it is a run that dies with no path forward.
+MECHANICAL_COMPILE_CODES = frozenset({
+    "MISSING_EVENT_FUNCTION", "UNKNOWN_EVENT_FUNCTION", "MULTIPLE_INCENTIVE_CHANGES"})
+
+
+def compile_correction(result: dict) -> str:
+    """A planner-facing correction for a compile failure the model can fix, or "" if it cannot.
+
+    WHY THIS EXISTS. compile_roles is pure arithmetic over the planner's declared event functions,
+    so when it fails the sheet is wrong in a way no amount of retrying the COMPILER can fix -- and
+    story_planning.prepare raised on it with no retry at all. Its `for attempt in range(2)` loop
+    covers the evidence cascade; the compile check raises above that, so the second attempt was
+    unreachable for exactly the failures a second attempt would fix.
+
+    Measured cost of that: two dead runs. `MULTIPLE_INCENTIVE_CHANGES` killed one at 59 seconds,
+    and `UNKNOWN_EVENT_FUNCTION` killed another at 464 seconds for ~$5.56 -- one invalid label on
+    one beat out of eight, same topic and same engine as a run that completed. A one-label dice
+    roll with a $5.50 downside and no second throw.
+
+    FAIL-SAFE BY DESIGN. Returns "" unless EVERY issue is in MECHANICAL_COMPILE_CODES. A code
+    added later is not retried until someone decides it should be, because retrying an editorial
+    failure by re-asking the same model is how a real objection gets sampled away.
+    """
+    if not result.get("compiled"):
+        return ""
+    issues = [issue for issue in (result.get("issues") or []) if isinstance(issue, dict)]
+    if not issues or any(sfm._text(issue.get("code")) not in MECHANICAL_COMPILE_CODES
+                         for issue in issues):
+        return ""
+    mapping = ef.map_for(sfm._text(result.get("engine")))
+    functions = ", ".join(mapping.to_role) if mapping is not None else ""
+    lines = "\n".join(f"  - {sfm._text(issue.get('message'))}" for issue in issues)
+    return (
+        "\nCORRECTION — your previous beat sheet could not be compiled. Fix ONLY these and return "
+        "the whole sheet again, keeping every other beat, its event text and its claim_refs "
+        "byte-identical:\n" + lines
+        + (f"\nEvery beat needs an event_function, and the only legal values for this engine are: "
+           f"{functions}.\n" if functions else "\n")
+        + "Exactly one beat may declare changes_incentive: the rule the story goes on to exploit. "
+        "An earlier attempt to solve the problem directly is context, not a second incentive "
+        "change. Do not add, remove or reorder beats, and do not change any narration.\n")
+
+
 def summary(result: dict) -> str:
     if not result.get("compiled"):
         return f"Roles not compiled: {result.get('reason', '')}"

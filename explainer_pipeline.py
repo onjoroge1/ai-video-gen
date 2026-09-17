@@ -3120,30 +3120,48 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if improve_note:
         beat_prompt += ("\nPRIORITY FIX — the previous draft scored weak here; fix this FIRST in the "
                         "beat sheet while keeping everything else: " + improve_note)
-    o = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
-                                  messages=[{"role": "user", "content": beat_prompt + _series_block(series)
-                                             + _operator_block(operator_direction)}])
-    cost += _charge(cost_sink, _ledger.BEAT_SHEET,
-                    o.usage.input_tokens * _RATE_SCRIPT_IN
-                    + o.usage.output_tokens * _RATE_SCRIPT_OUT, f"{n_scenes} beats")
-    plan, rc = _parse_script_json(o.content[0].text,
-                                 cost_sink=_ledger.StageCostSink(cost_sink, _ledger.BEAT_SHEET))
-    cost += rc
+    def _ask_planner(correction: str = ""):
+        """The beat-sheet call, as a function so a compile failure can re-ask it once.
+
+        Returns (plan, spend). Everything it closes over is already final at this point; only the
+        correction differs between the two calls, so the retry rewrites the sheet against the same
+        contract that just failed rather than a freshly sampled one.
+        """
+        reply = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=12000, system=_SCRIPT_SYSTEM,
+            messages=[{"role": "user", "content": beat_prompt + _series_block(series)
+                       + _operator_block(operator_direction) + correction}])
+        spend = _charge(cost_sink, _ledger.BEAT_SHEET,
+                        reply.usage.input_tokens * _RATE_SCRIPT_IN
+                        + reply.usage.output_tokens * _RATE_SCRIPT_OUT,
+                        f"{n_scenes} beats{' (compile retry)' if correction else ''}")
+        parsed, parse_cost = _parse_script_json(
+            reply.content[0].text,
+            cost_sink=_ledger.StageCostSink(cost_sink, _ledger.BEAT_SHEET))
+        return parsed, spend + parse_cost
+
+    def _beats_of(source: dict) -> list:
+        """Planner beats, clamped and renumbered. Re-derived on a retry, not patched in place."""
+        rows = [b for b in (source.get("beats") or [])
+                if isinstance(b, dict) and _s(b.get("beat")).strip()]
+        # Hold the planner to the count the runtime budget was derived from. Asked for 7 beats it
+        # returned 9, and nothing enforced the number — so every downstream word calculation was
+        # based on a scene count the script did not have, and the draft arrived over budget by
+        # exactly the ratio of the overrun. Trimming from the end keeps the opening intact; the
+        # story validator and the payoff checks then judge what actually survived.
+        if len(rows) > n_scenes and not causal_lane:
+            rows = rows[:n_scenes]
+        if not rows:
+            rows = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
+        for i, row in enumerate(rows):
+            row["n"] = i + 1                            # canonical renumber
+        return rows
+
+    plan, _plan_cost = _ask_planner()
+    cost += _plan_cost
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
-    beats = [b for b in (plan.get("beats") or []) if isinstance(b, dict) and _s(b.get("beat")).strip()]
-    # Hold the planner to the count the runtime budget was derived from. Asked for 7 beats it
-    # returned 9, and nothing enforced the number — so every downstream word calculation was based
-    # on a scene count the script did not have, and the draft arrived over budget by exactly the
-    # ratio of the overrun. Trimming from the end keeps the opening intact; the story validator and
-    # the payoff checks then judge what actually survived.
-    if len(beats) > n_scenes and not causal_lane:
-        beats = beats[:n_scenes]
-    if not beats:
-        beats = [{"n": i + 1, "beat": question, "role": "setup"} for i in range(n_scenes)]
-    for i, b in enumerate(beats):
-        b["n"] = i + 1                                  # canonical renumber
-
+    beats = _beats_of(plan)
     # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
@@ -3159,6 +3177,44 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _claims_for_roles = _spine_claims(research_dossier)
         _cache = {}
         _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+        # ONE RETRY, FOR MECHANICAL COMPILE FAILURES ONLY.
+        #
+        # compile_roles is arithmetic over the planner's declared event functions, and the two
+        # codes it can emit -- UNKNOWN_EVENT_FUNCTION and MULTIPLE_INCENTIVE_CHANGES -- are both
+        # the planner mislabelling a beat, not a shortage of evidence. Neither was retried
+        # anywhere: this call only tested `compiled`, so a sheet with `compiled=True,
+        # passed=False` went straight to _planning.prepare, which re-checked and raised. prepare's
+        # own `for attempt in range(2)` loop sits BELOW that raise, so the retry it advertises was
+        # unreachable for precisely these failures.
+        #
+        # Measured: MULTIPLE_INCENTIVE_CHANGES killed a run at 59s, and UNKNOWN_EVENT_FUNCTION
+        # killed another at 464s for ~$5.56 -- one bad label on one beat of eight, on the same
+        # topic and engine as a run that completed minutes earlier.
+        #
+        # This re-asks the PLANNER with the failure quoted back, which is the pattern this file
+        # uses everywhere else: repair_chain fixes role order rather than asking for it,
+        # collapse_locations counts frequencies rather than requesting four locations. The check
+        # is untouched -- the sheet has to actually compile on the second pass or the run still
+        # dies. compile_correction returns "" for any code outside the mechanical set, so a new
+        # code fails closed instead of being sampled at until it passes.
+        _correction = _compiler.compile_correction(_roles)
+        if _correction:
+            log("Beat sheet did not compile — re-asking the planner once: "
+                + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
+            _retry_plan, _retry_cost = _ask_planner(_correction)
+            cost += _retry_cost
+            _retry_beats = _beats_of(_retry_plan)
+            _retry_roles = _compiler.compile_roles(
+                _retry_beats, sheet_engine_id, _claims_for_roles)
+            # Keep the retry only if it actually compiled. A second sheet that fails differently
+            # is not progress, and the original at least has a failure report already persisted.
+            if _retry_roles.get("passed"):
+                plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                throughline = _s(plan.get("throughline")).strip() or throughline
+                log("  ✓ compile retry succeeded")
+            else:
+                log("  ✗ compile retry still does not compile — failing on the original")
         if _roles.get("compiled"):
             prepared = _planning.prepare(
                 beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
