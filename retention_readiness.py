@@ -16,18 +16,56 @@ ATTENTION_ROLES = {
 }
 
 
+# The three cues the mixer can actually play. Verified, not assumed:
+# `prediction_tick` and `impact` are synthesized in explainer_pipeline._make_audio_cue_track
+# (1040 Hz / 0.12s / 0.055 and 88 Hz / 0.42s / 0.10), and `music_drop` is handled separately by
+# illustrated_score.music_mix_filter as a one-second hole in the score bed. A fourth name would be
+# accepted here, counted by the palette check below, and silently never rendered.
+_MYSTERY_CUES = {
+    "prediction_gate": "prediction_tick",
+    "payoff": "impact", "reversal": "impact", "final_payoff": "impact",
+    "false_relief": "music_drop", "rehook": "music_drop",
+}
+# The same table in the causal lane's vocabulary, which is the one the illustrated lane speaks.
+#
+# The mystery names above intersect causal_story.STEP_ROLES at exactly one word -- `reversal` -- so
+# a causal story produced ONE cue of ONE type and the palette check (which wants two types) scored
+# 2/4 on every illustrated video. Measured on a real render: a single `impact` at 53.05s, and the
+# note "audio cue palette lacks contrast". This is the same lane-vocabulary defect as the retention
+# checks above it in this file; third instance found.
+#
+# Each mapping is argued from the role's own meaning in causal_story, not from the shape of the
+# mystery table:
+#   intervention      the fix is applied and the outcome is pending -- the wager, so the light tick
+#   mechanism         the principle stated once and then demonstrated -- a claim, not a landing
+#   false_resolution  "state plainly that it worked" -- an unearned calm, hollowed by a bed drop
+#   hinge             "ONE sentence ... that breaks it" -- the turn itself, so the heavy cue
+#   escalation        repeatable by contract; cueing it is the "cue on every cut" this forbids
+#   reversal          the end state, explicitly worse than the start -- the payoff lands
+#   tool / verdict    CLOSING_ROLES, "two ways to land the same beat" -- air under the closing line
+#   setup, generalization  baseline and argument-by-repetition; nothing has turned
+# `mechanism`, `reversal` and one CLOSING_ROLE are each required of every causal story, so a
+# two-type palette is structural here rather than lucky.
+_CAUSAL_CUES = {
+    "intervention": "prediction_tick",
+    "mechanism": "prediction_tick",
+    "false_resolution": "music_drop",
+    "hinge": "impact",
+    "reversal": "impact",
+    "tool": "music_drop", "verdict": "music_drop",
+}
+
+
 def build_audio_cues(scenes: list[dict], durations: list[float]) -> list[dict]:
     """Place restrained editorial cues at story turns, never on every cut."""
     cues, cursor, last_sound = [], 0.0, -99.0
+    # `causal_role` is written only on the causal lane, which makes it the lane marker; `story_role`
+    # carries the same value there, so read it for the role and use the marker only to choose a table.
+    causal = any(str(scene.get("causal_role") or "").strip() for scene in scenes)
+    table = _CAUSAL_CUES if causal else _MYSTERY_CUES
     for scene, duration in zip(scenes, durations):
-        role = str(scene.get("story_role") or "").lower()
-        cue = None
-        if role == "prediction_gate":
-            cue = "prediction_tick"
-        elif role in {"payoff", "reversal", "final_payoff"}:
-            cue = "impact"
-        elif role in {"false_relief", "rehook"}:
-            cue = "music_drop"
+        role = str(scene.get("story_role") or scene.get("causal_role") or "").lower()
+        cue = table.get(role)
         if cue and (cue == "music_drop" or cursor - last_sound >= 7.0):
             event = {"time_sec": round(cursor + min(0.25, duration * 0.1), 2),
                      "type": cue, "story_role": role}
@@ -38,8 +76,35 @@ def build_audio_cues(scenes: list[dict], durations: list[float]) -> list[dict]:
     return cues
 
 
-def _component(name: str, score: int, maximum: int, notes: list[str]) -> dict:
-    return {"name": name, "score": int(score), "max": maximum, "notes": notes}
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
+def _measured(checks: dict, key: str) -> float | None:
+    """A numeric check, or None when it was never computed.
+
+    `float(checks.get(key) or default)` cannot tell absent from zero, and both readings were
+    wrong in opposite directions: an absent attention gap became 999 seconds on a 75-second video,
+    while an absent exposition length became a flawless 0s. Absent is its own answer.
+    """
+    if key not in checks:
+        return None
+    value = checks.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _component(name: str, score: int, maximum: int, notes: list[str],
+               unmeasured_points: int = 0) -> dict:
+    # `assessed_max` is what this component could actually be scored out of. An axis nobody
+    # measured is subtracted from the denominator rather than counted as a loss, so an unwired
+    # validator cannot look like a bad video.
+    return {"name": name, "score": int(score), "max": maximum,
+            "assessed_max": max(0, maximum - unmeasured_points), "notes": notes}
 
 
 def score_retention_readiness(
@@ -57,13 +122,31 @@ def score_retention_readiness(
     warnings = {x.get("code") for x in validation.get("warnings") or []}
     components = []
 
+    # Metrics the validator for this lane never produced. They must not be scored: the old code
+    # read them with `or` defaults, so an absent attention gap became a 999-second reading (-8) and
+    # an absent exposition length became a perfect 0s (+5). Three defaults penalised and two
+    # rewarded, for a total of -18/+10 awarded to things nobody measured. An unmeasured axis earns
+    # nothing, costs nothing, and is named in the report.
+    unmeasured: list[str] = []
+
     opening = 0
     opening_notes = []
     if script.get("_story_contract"):
         opening += 5
     else:
         opening_notes.append("missing packaging/story contract")
-    if scenes and scenes[0].get("story_role") == "cold_consequence":
+    # The causal lane speaks a different grammar. Its engines all open on `setup` by contract and
+    # `cold_consequence` is not one of its roles at all, so this test could never pass there -- a
+    # permanent -5 on every illustrated video, awarded for obeying a different contract. Two
+    # contracts disagree about what an opening is; scoring one against the other is not a
+    # measurement. Which opening a causal story should have is an editorial question, so it is
+    # left unassessed rather than silently decided here.
+    causal_lane = _text(checks.get("retention_role_vocabulary")) == "causal"
+    if causal_lane:
+        unmeasured.append("opening_is_cold_consequence")
+        opening_notes.append(
+            "opening-beat shape not assessed: this lane opens on `setup` by engine contract")
+    elif scenes and scenes[0].get("story_role") == "cold_consequence":
         opening += 5
     else:
         opening_notes.append("first beat is not a visible consequence")
@@ -71,27 +154,48 @@ def score_retention_readiness(
         opening += 5
     else:
         opening_notes.append("subject may be unclear by five seconds")
-    if "late_first_prediction" not in errors and checks.get("prediction_scenes"):
+    if "prediction_scenes" not in checks:
+        unmeasured.append("prediction_scenes")
+        opening_notes.append("prediction gate was not measured on this lane")
+    elif "late_first_prediction" not in errors and checks.get("prediction_scenes"):
         opening += 5
     else:
         opening_notes.append("prediction gate is missing or late")
-    if "late_first_payoff" not in errors and checks.get("answer_scenes"):
+    if "answer_scenes" not in checks:
+        unmeasured.append("answer_scenes")
+        opening_notes.append("first payoff was not measured on this lane")
+    elif "late_first_payoff" not in errors and checks.get("answer_scenes"):
         opening += 5
     else:
         opening_notes.append("first useful payoff is missing or late")
-    components.append(_component("Opening contract", opening, 25, opening_notes))
+    components.append(_component("Opening contract", opening, 25, opening_notes,
+                                 unmeasured_points=5 * sum(
+                                     1 for key in ("opening_is_cold_consequence",
+                                                   "prediction_scenes", "answer_scenes")
+                                     if key in unmeasured)))
 
     narrative = 0
     narrative_notes = []
-    gap = float(checks.get("max_attention_gap_sec") or 999)
-    narrative += 8 if gap <= 45 else (4 if gap <= 55 else 0)
-    if gap > 45:
-        narrative_notes.append(f"longest attention gap is {gap:.1f}s")
-    expo = float(checks.get("max_exposition_block_sec") or 0)
-    narrative += 5 if expo <= 15 else (3 if expo <= 18 else 0)
-    if expo > 15:
-        narrative_notes.append(f"longest exposition block is {expo:.1f}s")
-    if not checks.get("unresolved_loops"):
+    gap = _measured(checks, "max_attention_gap_sec")
+    if gap is None:
+        unmeasured.append("max_attention_gap_sec")
+        narrative_notes.append("attention gap was not measured on this lane")
+    else:
+        narrative += 8 if gap <= 45 else (4 if gap <= 55 else 0)
+        if gap > 45:
+            narrative_notes.append(f"longest attention gap is {gap:.1f}s")
+    expo = _measured(checks, "max_exposition_block_sec")
+    if expo is None:
+        unmeasured.append("max_exposition_block_sec")
+        narrative_notes.append("exposition block length was not measured on this lane")
+    else:
+        narrative += 5 if expo <= 15 else (3 if expo <= 18 else 0)
+        if expo > 15:
+            narrative_notes.append(f"longest exposition block is {expo:.1f}s")
+    if "unresolved_loops" not in checks:
+        unmeasured.append("unresolved_loops")
+        narrative_notes.append("open-loop resolution was not measured on this lane")
+    elif not checks.get("unresolved_loops"):
         narrative += 5
     else:
         narrative_notes.append("one or more promised questions remain open")
@@ -103,7 +207,11 @@ def score_retention_readiness(
         narrative += 4
     else:
         narrative_notes.append("final title payoff is missing or early")
-    components.append(_component("Narrative propulsion", narrative, 25, narrative_notes))
+    components.append(_component(
+        "Narrative propulsion", narrative, 25, narrative_notes,
+        unmeasured_points=(8 if "max_attention_gap_sec" in unmeasured else 0)
+        + (5 if "max_exposition_block_sec" in unmeasured else 0)
+        + (5 if "unresolved_loops" in unmeasured else 0)))
 
     visual = 0
     visual_notes = []
@@ -205,6 +313,13 @@ def score_retention_readiness(
     components.append(_component("Technical delivery", technical, 5, technical_notes))
 
     total = sum(c["score"] for c in components)
+    # Grade on what could actually be assessed. Keeping a 100-point denominator while an axis was
+    # never measured is the same error as the 999-second sentinel, one step later: it turns a
+    # missing validator into a low grade for the video. `score` stays the raw sum so nothing is
+    # inflated; the grade is taken from the percentage of the assessed maximum.
+    assessed_max = sum(c["assessed_max"] for c in components)
+    nominal_max = sum(c["max"] for c in components)
+    graded = round(100.0 * total / assessed_max) if assessed_max else 0
     hard_failures = []
     if sub_min:
         hard_failures.append("sub_minimum_shots")
@@ -213,25 +328,32 @@ def score_retention_readiness(
     if same_source_hard:
         hard_failures.append("same_source_jump_cuts")
     if hard_failures:
-        total = min(total, 69)
-    if total >= 90:
+        graded = min(graded, 69)
+    if graded >= 90:
         grade, label = "A", "Exceptional readiness"
-    elif total >= 80:
+    elif graded >= 80:
         grade, label = "B", "Strong readiness"
-    elif total >= 70:
+    elif graded >= 70:
         grade, label = "C", "Shippable; improve weak axes"
-    elif total >= 60:
+    elif graded >= 60:
         grade, label = "D", "Weak; revise before full render"
     else:
         grade, label = "F", "Reject before full render"
+    if unmeasured:
+        label += f" (graded on {assessed_max}/{nominal_max} points; "
+        label += f"unmeasured: {', '.join(sorted(set(unmeasured)))})"
     return {
         "version": 2,
         "name": "Retention Readiness Score",
         "disclaimer": "Editorial readiness score, not a prediction of actual YouTube retention.",
-        "score": total,
+        "score": graded,
+        "raw_score": total,
+        "assessed_max": assessed_max,
+        "nominal_max": nominal_max,
+        "unmeasured": sorted(set(unmeasured)),
         "grade": grade,
         "label": label,
-        "passed": total >= 70 and not hard_failures,
+        "passed": graded >= 70 and not hard_failures,
         "hard_failures": hard_failures,
         "components": components,
         "shot_metrics": shot_metrics,
