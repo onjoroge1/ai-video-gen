@@ -48,6 +48,23 @@ def events_for_runtime(duration_sec: float) -> int:
     return max(1, math.ceil(max(0.0, float(duration_sec or 0)) / SECONDS_PER_SCENE_TARGET))
 
 
+def illustratable_beat_words() -> int:
+    """The most spoken words one beat may carry and still be fillable with distinct visuals.
+
+    A beat becomes exactly one scene, and a scene is held together by its evidence states. At
+    MAX_VISUAL_STATE_SECONDS a SECONDS_PER_SCENE_TARGET scene needs ~8 states, which is inside
+    what the writer reliably produces. Past that the states stop being distinct visible changes
+    and the scene holds one picture instead.
+    """
+    from runtime_planner import DEFAULT_WORDS_PER_SECOND
+    return max(1, int(SECONDS_PER_SCENE_TARGET * DEFAULT_WORDS_PER_SECOND))
+
+
+def beats_required_for_words(total_words: int) -> int:
+    """How many beats a word budget needs so no single scene exceeds the illustratable cap."""
+    return max(1, math.ceil(max(0, int(total_words or 0)) / illustratable_beat_words()))
+
+
 def research_claim_target(duration_sec: float) -> tuple[int, int]:
     """The (low, high) claim request for this runtime.
 

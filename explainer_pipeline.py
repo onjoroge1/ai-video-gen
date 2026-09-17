@@ -2365,6 +2365,96 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
             value = words // (len(pending) - i)
             budgets[beat["n"]] = value
             words -= value
+        # Per GROUP, never across the boundary. Cascading surplus from the body into the opening
+        # would even the scenes out and move the mechanism from 17% of runtime to 52%, trading
+        # long_visual_hold for LATE_MECHANISM -- causal_story:450 fails any mechanism starting
+        # after runtime * pct, which is 60s here. The split exists to hold that position.
+        _cap_beat_budgets(budgets, group)
+    return budgets
+
+
+def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
+    """Stop any one beat being handed more words than a scene can be illustrated at.
+
+    THE SPLIT ABOVE IS A CLIFF, NOT A SLOPE. `opening` is a fraction of total RUNTIME --
+    mechanism_deadline_pct, 0.2 for backfiring_solution -- and it is then divided among however
+    many beats happen to precede the mechanism. Nothing couples the two numbers, so the more beats
+    the planner puts before the mechanism, the less each one gets, while everything after it
+    splits the remaining 80%.
+
+    Measured on the recorded 300s plan -- 11 beats with the mechanism at 7, an 833-word budget:
+
+        beats 1-6   24 words    8.4s   the whole opening on 20% of the words
+        beats 7-11 133 words   46.5s   needing 15 evidence states each
+
+    The delivered film's scenes ran 10.9s then 43.1, 40.1, 39.1, 39.5, 41.3 -- that allocation,
+    almost exactly. A 46-second scene cannot be rescued downstream: asked for 15 states the writer
+    returns 7, because 133 words do not contain 15 distinct visible changes, and the result is the
+    6-8s holds that fail `long_visual_hold` and `visual_state_cadence`.
+
+    So the cap is the scene length a writer can actually fill, and words over it cascade to
+    beats in THE SAME GROUP that have headroom, smallest first.
+
+    WHY NOT SIMPLY EVEN OUT THE WHOLE FILM. Because that is a metric swap, and it was measured:
+    letting the body's surplus reach the starved opening gives a flat ~76 words per beat and a
+    25.9s worst scene, which clears the hold checks -- and moves the mechanism from 17% of runtime
+    to 52%. causal_story:450 fails any mechanism starting later than `runtime_sec * pct`, 60s at
+    this runtime, so that trades `long_visual_hold` for `LATE_MECHANISM`. The two-group split
+    exists to hold the mechanism's position and this function must not dissolve it.
+
+    WHAT THAT LEAVES. On the recorded plan the body group has 5 beats and 666 words: 355 of
+    capacity at the cap, 311 words with nowhere legal to go. That plan is genuinely infeasible --
+    no allocation of 833 words over 11 beats satisfies both a 60s mechanism deadline and a 25s
+    scene ceiling, because the deadline permits only ~2 beats before the mechanism and the
+    remaining 9-10 must carry the rest. The fix is more POST-MECHANISM beats, which is a planner
+    ask, not an arithmetic one -- see `beats_required_for_words` and the event count in
+    `story_compiler.factual_plan_prompt`.
+
+    So when a group cannot hold its words at the cap, the words are still placed. Runtime is not
+    silently thrown away -- the audio gate has a floor and dropping 311 words reappears as a short
+    film, a worse failure than a long hold. The overflow is the honest signal that the beat plan is
+    too thin, and it stays visible instead of being smoothed into a passing number.
+    """
+    import causal_story as cs
+    from longform_research import illustratable_beat_words
+    ceiling = illustratable_beat_words()
+    caps = {
+        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling)
+                    if beat.get("causal_role") == cs.HINGE else ceiling)
+        for beat in beats if beat.get("n") in budgets
+    }
+    surplus = 0
+    for number, cap in caps.items():
+        if budgets[number] > cap:
+            surplus += budgets[number] - cap
+            budgets[number] = cap
+    # Smallest first: the beats the cliff starved fill before any already-comfortable beat.
+    while surplus > 0:
+        room = [number for number, cap in caps.items() if budgets[number] < cap]
+        if not room:
+            break
+        share = max(1, surplus // len(room))
+        for number in sorted(room, key=lambda key: budgets[key]):
+            if surplus <= 0:
+                break
+            give = min(share, caps[number] - budgets[number], surplus)
+            budgets[number] += give
+            surplus -= give
+    if surplus > 0:
+        # Every beat in THIS GROUP is at its ceiling. Keep the runtime rather than the cap -- but
+        # spread it over this group only. Spreading over `budgets` instead of `caps` is the bug
+        # this comment exists to prevent: it reaches into the other group, and on the recorded
+        # plan that moved the mechanism from 17% of runtime to 37% and raised LATE_MECHANISM while
+        # the holds were still failing. An overflow that escapes its group is the metric swap.
+        #
+        # And it skips the hinge. The scene ceiling is a target the overflow may exceed when the
+        # beat count leaves nowhere else to put the words; MAX_HINGE_WORDS is a content rule --
+        # "a long hinge is not a hinge" -- and overflow must not launder words into it. Caught by
+        # test_the_hinge_keeps_its_own_shorter_ceiling after an earlier version grew a 10-word
+        # hinge to 123.
+        order = sorted(number for number, cap in caps.items() if cap >= ceiling) or sorted(caps)
+        for index in range(surplus):
+            budgets[order[index % len(order)]] += 1
     return budgets
 
 
