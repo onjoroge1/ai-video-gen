@@ -1150,22 +1150,24 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "")
         # Strip any lead this function applied on a previous pass, not just the marker. Stripping
         # the marker alone left the hook in the body and a second pass prepended another copy.
         body = _strip_lead(narration)
-        if opener.get(chapter) == index and chapter:
+        is_first_scene = index == 0
+        is_chapter_opener = bool(chapter) and opener.get(chapter) == index
+        if is_first_scene or is_chapter_opener:
             # The very first scene carries the spoken hook ahead of its marker, which is the
             # reference shape: promise, format tag, then the number. Every later chapter opener
             # gets the marker alone. With markers off, the hook still leads and the number does not
             # follow it -- and a marker the planner wrote itself is stripped by _strip_lead above,
             # so turning the flag off removes them wherever they came from.
             lead = ""
-            if index == 0:
+            if is_first_scene:
                 lead = " ".join(p for p in (_sentence(hook), _sentence(format_tag)) if p).strip()
-            marker = _spoken(chapter) if speaks_chapter_markers() else ""
+            marker = _spoken(chapter) if is_chapter_opener and speaks_chapter_markers() else ""
             wanted = " ".join(part for part in (lead, marker, body) if part).strip()
             if wanted != narration:
                 scene["narration"] = wanted
                 changes.append(
                     (f"chapter {chapter}: marker set to {_spoken(chapter)!r}" if marker
-                     else f"chapter {chapter}: opener left unmarked (spoken markers off)")
+                     else f"scene {index + 1}: opener left unmarked (spoken markers off)")
                     + (" after the spoken hook" if lead else ""))
         elif body != narration:
             scene["narration"] = body
