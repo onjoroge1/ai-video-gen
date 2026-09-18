@@ -22,9 +22,9 @@ def _fixture():
     }}
     metrics = {
         "shot_count": 24,
-        "avg_still_seconds": 3.8,
+        "avg_still_seconds": 2.8,
         "min_shot_seconds": 1.8,
-        "max_still_seconds": 6.0,
+        "max_still_seconds": 3.2,
         "sub_min_shot_count": 0,
         "alternate_shot_count": 5,
         "broll_clause_count": 5,
