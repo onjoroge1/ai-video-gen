@@ -18,30 +18,48 @@ import wave
 import numpy as np
 
 
-SCORE_VERSION = "chamber_v1"
+SCORE_VERSION = "chamber_v2"
 SAMPLE_RATE = 32000
 _MOODS = {
-    "backfiring_solution": ("wry", 96, "minor"),
-    "accumulating_indictment": ("reflective", 72, "minor"),
-    "almost_happened_plan": ("curious", 88, "major"),
-    "accidental_invention": ("discovery", 100, "major"),
-    "power_reversal": ("measured", 80, "minor"),
+    "backfiring_solution": ("wry", 106, "minor"),
+    "accumulating_indictment": ("reflective", 92, "minor"),
+    "almost_happened_plan": ("curious", 100, "major"),
+    "accidental_invention": ("discovery", 110, "major"),
+    "power_reversal": ("measured", 96, "minor"),
+}
+
+_ROLE_ENERGY = {
+    "setup": 0.72, "intervention": 0.86, "false_resolution": 0.68,
+    "hinge": 0.42, "mechanism": 0.82, "escalation": 0.98,
+    "reversal": 1.08, "generalization": 0.78, "tool": 0.64, "verdict": 0.64,
 }
 
 
-def score_spec(topic: str, engine: str, duration_sec: float) -> dict:
+def score_spec(topic: str, engine: str, duration_sec: float,
+               story_turns: list[dict] | None = None) -> dict:
     duration = float(duration_sec)
     if not math.isfinite(duration) or not 1 <= duration <= 3600:
         raise ValueError("Score duration must be 1–3600 seconds")
     identity = json.dumps([SCORE_VERSION, " ".join(topic.lower().split()), engine])
     theme = hashlib.sha256(identity.encode()).hexdigest()
     mood, tempo, mode = _MOODS.get(engine, ("curious", 88, "major"))
+    turns = []
+    for item in story_turns or []:
+        try:
+            position = min(1.0, max(0.0, float(item.get("position"))))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        turns.append({"position": round(position, 4), "role": role,
+                      "energy": _ROLE_ENERGY.get(role, 0.78)})
+    turns.sort(key=lambda item: item["position"])
     return {
         "version": SCORE_VERSION, "theme_id": theme[:16], "engine": engine,
         "mood": mood, "tempo_bpm": tempo + int(theme[16:18], 16) % 7 - 3,
         "tonic_midi": (48, 50, 53, 55, 57)[int(theme[18:20], 16) % 5],
         "mode": mode, "duration_sec": round(duration, 3), "sample_rate": SAMPLE_RATE,
-        "source": "locally_composed", "instruments": ["synthesized felt piano", "plucked strings", "soft strings"],
+        "story_turns": turns,
+        "source": "locally_composed", "instruments": ["synthesized felt piano", "plucked strings", "soft strings", "low pulse", "brushed percussion"],
         "provider_cost_usd": 0.0,
     }
 
@@ -93,6 +111,33 @@ def _compose(spec: dict) -> np.ndarray:
         samples[offset:end, 0] += note * math.sqrt(1 - pan)
         samples[offset:end, 1] += note * math.sqrt(pan)
 
+    def add_hit(start: float, kind: str, gain: float):
+        length = 0.18 if kind == "kick" else 0.09
+        count = max(1, round(length * rate))
+        offset = max(0, round(start * rate))
+        end = min(len(samples), offset + count)
+        if end <= offset:
+            return
+        t = np.arange(end - offset, dtype=np.float64) / rate
+        if kind == "kick":
+            phase = 2 * np.pi * (58 * t + 36 * (1 - np.exp(-t * 24)) / 24)
+            hit = np.sin(phase) * np.exp(-t * 28)
+        else:
+            hit = np.asarray([rng.uniform(-1, 1) for _ in range(len(t))])
+            hit *= np.exp(-t * 48)
+        samples[offset:end, 0] += hit * gain * 0.72
+        samples[offset:end, 1] += hit * gain * 0.72
+
+    turns = list(spec.get("story_turns") or [])
+
+    def story_energy(position: float) -> float:
+        energy = 0.76
+        for turn in turns:
+            if float(turn.get("position") or 0.0) > position:
+                break
+            energy = float(turn.get("energy") or energy)
+        return energy
+
     bars = math.ceil(duration / (4 * beat))
     for bar in range(bars):
         start = bar * 4 * beat
@@ -102,7 +147,8 @@ def _compose(spec: dict) -> np.ndarray:
         if closing:
             root = 0
         chord = (root, root + 2, root + 4)
-        energy = 0.65 if closing else (0.78 + 0.15 * math.sin(math.pi * start / duration))
+        arc = 0.78 + 0.15 * math.sin(math.pi * start / duration)
+        energy = 0.58 if closing else arc * story_energy(start / duration)
         add(start, pitch(root, -1), 3.8 * beat, "piano", 0.24 * energy, 0.48)
         for degree in chord:
             add(start, pitch(degree), 4.5 * beat, "strings", 0.09 * energy, 0.65)
@@ -116,6 +162,14 @@ def _compose(spec: dict) -> np.ndarray:
             for step, index in enumerate(motif):
                 add(start + step * beat + 0.025, pitch(chord[index], 1),
                     2.1 * beat, "piano", 0.22 * energy, 0.55)
+        # A quiet pulse makes the bed feel intentional and propulsive without competing with
+        # speech. The hinge deliberately drops it; escalation and reversal bring it back.
+        if not closing and energy >= 0.55:
+            add_hit(start, "kick", 0.12 * energy)
+            add_hit(start + 2 * beat, "kick", 0.09 * energy)
+            if energy >= 0.72:
+                for step in range(4):
+                    add_hit(start + (step + 0.5) * beat, "brush", 0.032 * energy)
 
     # Quiet early reflections, no external convolution/samples. Peak headroom is deterministic.
     delay = int(rate * 0.071)
@@ -131,9 +185,10 @@ def _compose(spec: dict) -> np.ndarray:
     return samples
 
 
-def render_score(output_dir: str, topic: str, engine: str, duration_sec: float) -> tuple[str, dict]:
+def render_score(output_dir: str, topic: str, engine: str, duration_sec: float,
+                 story_turns: list[dict] | None = None) -> tuple[str, dict]:
     """Cache a complete WAV plus its composition identity and audio checksum."""
-    spec = score_spec(topic, engine, duration_sec)
+    spec = score_spec(topic, engine, duration_sec, story_turns=story_turns)
     key = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:16]
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
