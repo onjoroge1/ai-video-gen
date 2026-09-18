@@ -287,13 +287,15 @@ def compile_scene_shots(
         # remaining scene to state three. The delivered failure was exactly [1.5, 1.5, 43.08].
         # Redistribute in that case: semantic placement is degraded honestly, but no surviving
         # neighbour inherits every rejected state's time.
-        if monotone:
+        if monotone and repaired_indexes:
             from longform_evidence import MAX_VISUAL_STATE_SECONDS
             ends = starts[1:] + [duration]
-            has_long_tail = any(
-                end - start > MAX_VISUAL_STATE_SECONDS + 1e-9
-                for start, end in zip(starts, ends)
-            )
+            holds = [end - start for start, end in zip(starts, ends)]
+            # Do not erase valid semantic timing merely because the PLAN was sparse; the rendered
+            # gate must report that separate defect. This fallback is only for the collapse shape:
+            # a repaired anchor leaves one neighbour holding more than twice the even share.
+            has_long_tail = bool(holds) and max(holds) > max(
+                MAX_VISUAL_STATE_SECONDS, 2.0 * duration / count) + 1e-9
             if has_long_tail:
                 timing_degraded = True
                 repaired_indexes = set(range(count))
