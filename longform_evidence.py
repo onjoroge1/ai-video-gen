@@ -264,6 +264,11 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
 # first and breaks at several real scene lengths". Deriving from 2.86 reproduces exactly that
 # rejected N/10.01. The literal was right; what was missing was the constant behind it.
 SLOWEST_MEASURED_WORDS_PER_SECOND = 2.588
+# The desired editorial rhythm is tighter than the rejection line. Planning directly against the
+# 3.5s maximum made every ordinary result sit on the cliff: a slightly slow TTS read or one failed
+# asset turned an otherwise valid scene into a hard failure. 2.75s is the centre of the requested
+# 2-3 second cadence and leaves real recovery room while 3.5s remains the rendered hard ceiling.
+TARGET_VISUAL_STATE_SECONDS = 2.75
 
 
 
@@ -284,7 +289,7 @@ def states_required_for_words(words: int) -> int:
     if not words:
         return 1
     seconds = words / SLOWEST_MEASURED_WORDS_PER_SECOND
-    return max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+    return max(1, math.ceil(seconds / TARGET_VISUAL_STATE_SECONDS))
 
 
 def states_required_for_capacity(capacity: int) -> int:
@@ -300,7 +305,7 @@ def states_required_for_capacity(capacity: int) -> int:
     if not capacity:
         return 1
     seconds = capacity * MIN_EVIDENCE_STATE_SECONDS
-    return max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
+    return max(1, math.ceil(seconds / TARGET_VISUAL_STATE_SECONDS))
 
 
 def state_count_rule() -> str:
@@ -339,11 +344,13 @@ def state_count_rule() -> str:
     return (
         "HOW MANY is arithmetic, not taste. Each state is held for the scene duration divided by "
         "the state count, and any hold longer than "
-        f"{MAX_VISUAL_STATE_SECONDS} SECONDS is rejected downstream as a hard failure. Narration "
+        f"{MAX_VISUAL_STATE_SECONDS} SECONDS is rejected downstream as a hard failure. Plan for "
+        f"about {TARGET_VISUAL_STATE_SECONDS} seconds per state so normal variation and one "
+        "recoverable asset miss do not put the edit on that cliff. Narration "
         f"can run as slow as {SLOWEST_MEASURED_WORDS_PER_SECOND} words per second, so a scene "
         f"of N words can run N/{SLOWEST_MEASURED_WORDS_PER_SECOND} seconds and needs "
-        f"ceil(N / {SLOWEST_MEASURED_WORDS_PER_SECOND} / {MAX_VISUAL_STATE_SECONDS}) states, "
-        f"which is about N/9: {examples}. "
+        f"ceil(N / {SLOWEST_MEASURED_WORDS_PER_SECOND} / {TARGET_VISUAL_STATE_SECONDS}) states, "
+        f"which is about N/7: {examples}. "
         "COUNT THE WORDS IN THE SCENE YOU JUST WROTE AND RETURN THAT MANY STATES. There is no "
         "upper band and no house style to fall back on: a long scene needs many states, and "
         "twenty-odd states in one scene is normal and correct when the narration is long enough "
