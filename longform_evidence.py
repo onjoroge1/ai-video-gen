@@ -190,6 +190,16 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
                     and bool(beat.get("bolt_visible", purpose == "action")))
     include_human = bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
+    # Cast-free means no recurring host, not an empty world. Decision and action frames need the
+    # period-coded people who perform the verb; otherwise a story about officials, farmers or
+    # workers turns into a slideshow of unattended desks and landscapes.
+    anonymous_people_required = bool(
+        not pure_evidence
+        and beat.get("anonymous_people_required", purpose in {
+            "action", "decision", "intervention", "reaction", "assistance",
+        })
+        and not include_human
+    )
     before = _text(beat.get("state_before"))
     after = _text(beat.get("state_after")) or _text(beat.get("visual"))
     required = _list(beat.get("required_objects"))
@@ -233,6 +243,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "pure_evidence": pure_evidence,
         "include_human": include_human,
         "include_bolt": include_bolt,
+        "anonymous_people_required": anonymous_people_required,
         # `after` already falls back to beat["visual"] where it exists; referencing a bare `visual`
         # here was a NameError waiting for the first Bolt beat with no state_after — it would crash
         # instead of producing the incomplete_object_state_spec error this validator is built to
