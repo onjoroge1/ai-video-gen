@@ -5013,13 +5013,21 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
     # figures marked by uniform hats, the ordinary population marked by regional dress" -- and only
     # a pure-evidence state is genuinely empty of them. Collapsing those two cases gave a cast-free
     # lane empty desks where the narration described officials and breeders.
-    cast = (
-        "No named or recurring characters. Populate the scene with the ANONYMOUS figures the "
-        "moment needs -- officials, workers, crowds -- drawn in the same round-headed style and "
-        "dressed for the story's own place and century, never in modern clothing. Identity is "
-        "carried by dress, headwear and posture, not by faces. No character recurs by name."
-        if not state.get("pure_evidence") else
-        "No characters. Show only physical evidence.")
+    if state.get("pure_evidence"):
+        cast = "No characters. Show only physical evidence."
+    elif state.get("anonymous_people_required"):
+        cast = (
+            "No named or recurring characters. AN ANONYMOUS, PERIOD-CORRECT PERSON MUST BE "
+            "CLEARLY VISIBLE PERFORMING THE DECLARED ACTION -- hands on the tool, document, crop, "
+            "machine, or affected object. Show a readable verb, not a portrait or a person posing. "
+            "Add other anonymous officials, workers, farmers, or crowds only when the moment needs "
+            "them. Use the same round-headed style; identity comes from era-correct dress, headwear "
+            "and posture, never a recurring face or modern clothing.")
+    else:
+        cast = (
+            "No named or recurring characters. Populate the scene with anonymous, period-correct "
+            "officials, workers, farmers, or crowds when they make the event clearer. Use the same "
+            "round-headed style; identity comes from dress, headwear and posture, not faces.")
     if state.get("include_human") and state.get("include_bolt"):
         cast = ("Alex performs the declared investigation action while Bolt materially assists. "
                 + HUMAN_REF_LINE)
@@ -10183,9 +10191,15 @@ def run_explainer_pipeline(
         if bg_music_path is None:
             try:
                 from illustrated_score import render_score
+                _score_turns = [
+                    {"position": index / max(1, len(scenes) - 1),
+                     "role": _s(scene.get("causal_role") or scene.get("story_role"))}
+                    for index, scene in enumerate(scenes)
+                ]
                 bg_music_path, score_metadata = render_score(
                     os.path.join(output_dir, "music"), question,
-                    _s(script.get("_story_engine")), min(3600, max(60, duration_sec * 1.4 + 15)))
+                    _s(script.get("_story_engine")), min(3600, max(60, duration_sec)),
+                    story_turns=_score_turns)
                 generation_manifest["music"] = score_metadata
                 log("Music: original %s chamber theme, %s BPM; voice ducking enabled"
                     % (score_metadata["spec"]["mood"], score_metadata["spec"]["tempo_bpm"]))
