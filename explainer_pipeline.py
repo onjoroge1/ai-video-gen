@@ -5302,7 +5302,28 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
             reasons = ["pixel verification did not satisfy every object-state and continuity check"]
         return {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
     except Exception as exc:
-        return {"passed": False, "visible_information": False,
+        # NO JUDGE IS NOT THE SAME ANSWER AS "NO".
+        #
+        # This returned a rejection-shaped dict for every exception -- transport, billing, parse --
+        # and nothing downstream could tell the two apart. Measured on a delivered 268.5s film: 5 of
+        # its 6 dropped states carry `evidence verifier unavailable: BadRequestError ... Your credit
+        # balance is too low`. The judge never looked at those images. They were treated as refused,
+        # which cost twice:
+        #
+        #   1. `reasons` was non-empty, so the redraw loop believed it had actionable feedback and
+        #      bought _EVIDENCE_REDRAWS more images per state -- 10 generations that could not be
+        #      judged either, at roughly $0.045 each.
+        #   2. record_asset_verification marked them `rejected`, compile_scene_shots drops rejected
+        #      states, and the scene's audio duration is already fixed -- so their seconds landed on
+        #      a surviving neighbour. That is where [1.5, 1.5, 43.08] came from.
+        #
+        # So an outage in the verifier bought wasted images and then damaged the edit, while the
+        # gate reported it as a visual-quality failure. The operator was sent to fix the artwork.
+        #
+        # `verifier_available: False` is the distinction. This function's docstring already promised
+        # "Invalid/unavailable judgment fails closed", and the caller is where closing happens --
+        # the flag is what lets it. The reason string is kept for the audit trail.
+        return {"passed": False, "visible_information": False, "verifier_available": False,
                 "reasons": [f"evidence verifier unavailable: {type(exc).__name__}: {str(exc)[:160]}"]}
 
 
@@ -10636,6 +10657,12 @@ def run_explainer_pipeline(
                     for _redraw in range(_EVIDENCE_REDRAWS):
                         if (verification or {}).get("passed"):
                             break
+                        # An unavailable judge gives no feedback to redraw against. Buying more
+                        # images cannot help: measured, this spent 10 extra generations on 5 states
+                        # whose verifier was returning a billing error, then dropped them anyway.
+                        # Stop immediately and let the fail-closed check below own the outcome.
+                        if (verification or {}).get("verifier_available") is False:
+                            break
                         reasons = "; ".join(
                             _s(item) for item in ((verification or {}).get("reasons") or [])
                         )[:400]
@@ -10655,6 +10682,22 @@ def run_explainer_pipeline(
             except Exception as exc:
                 generation_error = f"{type(exc).__name__}: {str(exc)[:160]}"
                 verification = None
+            # FAIL CLOSED ON AN UNAVAILABLE JUDGE, which is what verify_evidence_asset's docstring
+            # has always promised and what the lane's profile banner promises too: "quality gates
+            # report; technical/cost failures still block". A verifier outage is a technical
+            # failure. Letting it through as a rejection is the worst of the three options -- it
+            # neither ships the image nor stops the run, it silently deletes the state and hands its
+            # seconds to a neighbour, and then reports the damage as a visual-quality problem.
+            #
+            # Not a retry: the measured cause was `Your credit balance is too low`, which no number
+            # of retries fixes. Anything genuinely transient is already covered by the provider
+            # client's own retries. This raises with the provider's message intact so the operator
+            # reads the real cause instead of "3 states rejected".
+            if (verification or {}).get("verifier_available") is False:
+                raise RuntimeError(
+                    "Evidence verification is unavailable, so no image can be confirmed to show "
+                    f"what it claims: {'; '.join(_s(item) for item in (verification.get('reasons') or []))}"
+                )
             record_asset_verification(
                 state, asset_path=state_path, verification=verification,
                 generation_error=generation_error)
