@@ -282,6 +282,26 @@ def compile_scene_shots(
             starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS - 1e-9
             for index in range(1, count)
         ) and duration - starts[-1] >= MIN_SHOT_SECONDS - 1e-9
+        # A monotone repair can still be editorially catastrophic. If the last resolvable anchor
+        # lands near the start, the old code considered [0, 1.5, 3.0] valid and assigned the whole
+        # remaining scene to state three. The delivered failure was exactly [1.5, 1.5, 43.08].
+        # Redistribute in that case: semantic placement is degraded honestly, but no surviving
+        # neighbour inherits every rejected state's time.
+        if monotone:
+            from longform_evidence import MAX_VISUAL_STATE_SECONDS
+            ends = starts[1:] + [duration]
+            holds = [end - start for start, end in zip(starts, ends)]
+            # Do not erase valid semantic timing merely because the PLAN was sparse; the rendered
+            # gate must report that separate defect. This fallback is only for the collapse shape:
+            # one neighbour inherits more than twice the scene's even share. That can happen after
+            # states are dropped even when every surviving anchor is individually valid.
+            has_long_tail = bool(holds) and max(holds) > max(
+                MAX_VISUAL_STATE_SECONDS, 2.0 * duration / count) + 1e-9
+            if has_long_tail:
+                timing_degraded = True
+                repaired_indexes = set(range(count))
+                step = duration / count
+                starts = [index * step for index in range(count)]
         if not valid and not monotone:
             # DEGRADE, do not abort. The even-spacing fallback below already existed and was
             # gated behind strict_timing, so a scene whose anchors landed slightly too close

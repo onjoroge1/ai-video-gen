@@ -37,8 +37,8 @@ def test_scratch_is_reclaimed_without_deleting_inputs_or_prior_output(tmp_path, 
     assert output.read_bytes() == (b'prior output' if failure else b'paid source')
 
 
-def test_pr108_completed_render_reuses_its_original_key(tmp_path, monkeypatch):
-    store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
+def _saved_scene_segment(tmp_path, store, blob, *, version):
+    """Save a completed _make_scene_segment stage under `version` and return its call args."""
     worker = runtime(tmp_path, store, blob, 'worker')
     worker.cache_local_renders = True
     source = tmp_path / 'source.png'
@@ -50,9 +50,7 @@ def test_pr108_completed_render_reuses_its_original_key(tmp_path, monkeypatch):
     bound.apply_defaults()
     inputs = dict(bound.arguments)
     inputs.pop('output_path')
-    # This is PR108's exact request, including its whole-file source digest.
-    request = {'renderer': '_make_scene_segment',
-               'version': '5db0f3871aabd7f27795d8151f0ecec55cb009a42e43902e841df5f560bb1201',
+    request = {'renderer': '_make_scene_segment', 'version': version,
                'inputs': render_cache._content_identity(inputs)}
     key = 'render:' + durable.canonical_hash(request)[:32]
     def old_encode(_key):
@@ -60,6 +58,20 @@ def test_pr108_completed_render_reuses_its_original_key(tmp_path, monkeypatch):
         return {}, 0
     worker.paid_file(stage_key=key, provider='ffmpeg', request=request, estimated_cost=0,
                      output_path=str(output), operation=old_encode)
+    return worker, args, kwargs, output
+
+
+def test_completed_render_reuses_its_original_key(tmp_path, monkeypatch):
+    """A stage saved under the CURRENT renderer identity is replayed, never re-encoded.
+
+    This used to pin PR108's literal version hash. That made the test fail the moment
+    ILLUSTRATED_RENDER_VERSION was bumped -- which is the bump working, not a regression -- and it
+    asserted a historical constant rather than the property anyone cares about. Reading the live
+    constant keeps the guarantee and survives every legitimate bump.
+    """
+    store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
+    worker, args, kwargs, output = _saved_scene_segment(
+        tmp_path, store, blob, version=render_cache.ILLUSTRATED_RENDER_VERSION)
     before = copy.deepcopy(store.stages)
     output.unlink()
     monkeypatch.setattr(ep, '_run_ffmpeg', lambda *a, **k: pytest.fail('re-encoded saved stage'))
@@ -68,6 +80,33 @@ def test_pr108_completed_render_reuses_its_original_key(tmp_path, monkeypatch):
     assert output.read_bytes() == b'already encoded'
     assert store.stages == before
     assert store.job['spent_cost_usd'] == 0
+
+
+def test_render_saved_under_an_older_version_is_not_reused(tmp_path, monkeypatch):
+    """The other half, and the half that had no test: a bumped version must INVALIDATE old pixels.
+
+    This is the failure the bump exists to prevent. A job encodes under one renderer identity,
+    the renderer's timing or pixels change, the job resumes after deploy -- and if the key did not
+    move, @durable_render serves the stale MP4 while the shot plan is recomputed by the new code.
+    shot_plan_metrics reads the plan, not the file, so semantic_sync_ratio and
+    same_source_hard_cut_count would then describe cuts that are not in the video.
+
+    Nothing asserted this. The only render-key test pinned one literal hash, so a forgotten bump
+    and a correct bump were indistinguishable -- both just made that test fail.
+    """
+    store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
+    stale = 'f' * 64
+    assert stale != render_cache.ILLUSTRATED_RENDER_VERSION
+    worker, args, kwargs, output = _saved_scene_segment(
+        tmp_path, store, blob, version=stale)
+    output.unlink()
+    encoded = []
+    monkeypatch.setattr(ep, '_run_ffmpeg', lambda *a, **k: encoded.append(True))
+    with durable.activate(worker):
+        with pytest.raises(Exception):
+            # Re-encoding is what we want; the stub writes no file, so the move fails after it.
+            ep._make_scene_segment(*args, **kwargs)
+    assert encoded, 'a render saved under a superseded version was replayed as if current'
 
 
 @pytest.mark.parametrize('authorized,eligible', [(True, True), (False, True), (True, False)])
