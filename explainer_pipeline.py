@@ -11524,6 +11524,12 @@ def run_explainer_pipeline(
             len(scene_plan.get("states") or []) for scene_plan in (evidence_plan.get("scenes") or []))
         if _planned_states:
             _delivered = shot_metrics["shot_count"]
+            shot_metrics.update({
+                "planned_visual_state_count": _planned_states,
+                "delivered_visual_state_count": _delivered,
+                "dropped_visual_state_count": max(0, _planned_states - _delivered),
+                "visual_state_survival_ratio": round(_delivered / _planned_states, 3),
+            })
             log(f"Visual states: {_planned_states} planned -> {_delivered} rendered "
                 f"({_delivered / _planned_states:.0%} survived verification)")
             if _delivered < _planned_states * 0.75:

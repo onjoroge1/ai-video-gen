@@ -218,17 +218,30 @@ def score_retention_readiness(
     avg_still = float(shot_metrics.get("avg_still_seconds") or 0)
     min_shot = float(shot_metrics.get("min_shot_seconds") or 0)
     sub_min = int(shot_metrics.get("sub_min_shot_count") or 0)
-    semantic_sync = float(shot_metrics.get("semantic_sync_ratio", 0))
+    semantic_sync = float(shot_metrics.get(
+        "narration_aligned_cut_ratio", shot_metrics.get("semantic_sync_ratio", 0)))
     meaningful_cuts = float(shot_metrics.get("meaningful_cut_ratio", 0))
     motion_sync = float(shot_metrics.get("motion_sync_ratio", 0))
     same_source_hard = int(shot_metrics.get("same_source_hard_cut_count") or 0)
-    # A calm continuous camera path may legitimately run longer than the old 3.2s
-    # timer. Reward an intentional range without rewarding frantic over-cutting.
-    if 1.5 <= avg_still <= 7.5:
-        visual += 4
+    max_still = float(shot_metrics.get("max_still_seconds") or 0)
+    ceiling = float(shot_metrics.get("visual_state_ceiling_seconds") or 3.5)
+    over_ceiling = int(shot_metrics.get("over_ceiling_still_count") or 0)
+    survival = shot_metrics.get("visual_state_survival_ratio")
+    # The old rubric gave all four cadence points to a 7.5-second average while the rendered
+    # contract hard-rejected a single hold above 3.5 seconds. A readiness score must not praise
+    # the exact condition its delivery gate rejects.
+    if 1.5 <= avg_still <= 3.0:
+        visual += 2
+    elif 1.5 <= avg_still <= ceiling:
+        visual += 1
     else:
         visual_notes.append(
-            f"average continuous still is {avg_still:.2f}s; target is 1.5–7.5s")
+            f"average continuous still is {avg_still:.2f}s; target is 1.5–3.0s")
+    if max_still <= ceiling and over_ceiling == 0:
+        visual += 2
+    else:
+        visual_notes.append(
+            f"{over_ceiling} still(s) exceed the {ceiling:.2f}s ceiling; max is {max_still:.2f}s")
     if min_shot >= 1.5 and sub_min == 0:
         visual += 4
     else:
@@ -262,6 +275,9 @@ def score_retention_readiness(
     else:
         visual_notes.append(
             f"generated motion aligns to the spoken action only {motion_sync:.0%} of the time")
+    if survival is not None and float(survival) < 0.95:
+        visual_notes.append(
+            f"only {float(survival):.0%} of planned visual states reached the screen")
     components.append(_component("Visual continuity & semantic sync", visual, 20, visual_notes))
 
     cue_types = {c.get("type") for c in audio_cues}
@@ -325,6 +341,8 @@ def score_retention_readiness(
         hard_failures.append("sub_minimum_shots")
     if semantic_sync < 0.70:
         hard_failures.append("semantic_sync")
+    if over_ceiling > 0 or max_still > ceiling:
+        hard_failures.append("long_visual_hold")
     if same_source_hard:
         hard_failures.append("same_source_jump_cuts")
     if hard_failures:

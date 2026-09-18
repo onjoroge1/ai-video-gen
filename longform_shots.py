@@ -560,6 +560,10 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         if s.get("source") and s.get("asset_strategy") in {"master", "distinct"}
     }
     reframes = [s for s in shots if s.get("asset_strategy") == "detail_reframe"]
+    from longform_evidence import MAX_VISUAL_STATE_SECONDS
+    narration_aligned_cut_ratio = round(len(aligned) / len(cuts), 3) if cuts else 1.0
+    over_ceiling = [seconds for seconds in stills if seconds > MAX_VISUAL_STATE_SECONDS]
+    total_seconds = sum(float(shot.get("duration") or 0.0) for shot in shots)
     return {
         "shot_count": len(shots),
         "cut_count": len(cuts),
@@ -578,8 +582,18 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
             2,
         ),
         "max_still_seconds": round(max(stills), 2) if stills else 0.0,
+        "over_ceiling_still_count": len(over_ceiling),
+        "visual_state_ceiling_seconds": MAX_VISUAL_STATE_SECONDS,
+        "visual_changes_per_minute": round(
+            max(0, len(shots) - len(plan)) * 60 / total_seconds, 2
+        ) if total_seconds else 0.0,
+        "timing_fallback_shot_count": sum(
+            1 for shot in shots if shot.get("timing_source") == "even_fallback"),
         "sub_min_shot_count": len(sub_min),
-        "semantic_sync_ratio": round(len(aligned) / len(cuts), 3) if cuts else 1.0,
+        # Keep the old key for report compatibility. The new name states what is actually
+        # measured: cut placement against narration phrases, not semantic image understanding.
+        "narration_aligned_cut_ratio": narration_aligned_cut_ratio,
+        "semantic_sync_ratio": narration_aligned_cut_ratio,
         "meaningful_cut_ratio": round(len(meaningful) / len(cuts), 3) if cuts else 1.0,
         "motion_sync_ratio": round(
             len(aligned_motion) / len(anchored_motion),

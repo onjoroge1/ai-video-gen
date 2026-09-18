@@ -21,7 +21,9 @@ from retention_readiness import score_retention_readiness
 
 
 PERFECT_SHOTS = {
-    "avg_still_seconds": 4.0, "min_shot_seconds": 2.0, "sub_min_shot_count": 0,
+    "avg_still_seconds": 2.75, "min_shot_seconds": 2.0, "max_still_seconds": 3.0,
+    "over_ceiling_still_count": 0, "visual_state_ceiling_seconds": 3.5,
+    "sub_min_shot_count": 0,
     "semantic_sync_ratio": 1.0, "meaningful_cut_ratio": 1.0, "motion_sync_ratio": 1.0,
     "same_source_hard_cut_count": 0, "broll_clause_count": 5,
 }
