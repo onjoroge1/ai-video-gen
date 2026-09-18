@@ -125,6 +125,17 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
     return None
 
 
+# PUBLIC. longform_shots carried its own exact-token copy of this search, and the two diverged in
+# every way that matters: no joiner splitting on either side, no number-word normalisation, no
+# fuzzy fallback, no unique-subphrase fallback. Measured on a delivered 268s film, this function
+# resolved 20 of 21 scene anchors exactly (the 21st fuzzy at 0.966) while the copy failed enough of
+# them that 19 of 43 shots compiled as `timing_source: "repaired"` -- pinned to prev + 1.5s by the
+# monotone repair, which is what made the edit a row of floor-length shots with one long tail.
+#
+# Exported rather than duplicated. Two searches for one question is how the weaker one goes unfixed.
+find_phrase_span = _find_span
+
+
 def build_audio_timing_report(
     scenes: list[dict],
     audio_paths: list[str],

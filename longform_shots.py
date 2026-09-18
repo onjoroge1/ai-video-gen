@@ -81,15 +81,33 @@ def _abort_on_unalignable() -> bool:
 
 
 def _find_phrase_span(timed: list[tuple[str, float, float]], phrase: str) -> tuple[float, float] | None:
-    needle = [_clean_token(word) for word in str(phrase or "").split()]
-    needle = [word for word in needle if word]
-    haystack = [_clean_token(word) for word, _, _ in timed]
-    if not needle:
-        return None
-    for start in range(0, len(haystack) - len(needle) + 1):
-        if haystack[start:start + len(needle)] == needle:
-            return timed[start][1], timed[start + len(needle) - 1][2]
-    return None
+    """Locate an anchor phrase in measured word timings, using the SAME search audio_timing uses.
+
+    This was a second, weaker implementation of a question already answered next door, and the two
+    had drifted apart in every way that decides whether an anchor resolves:
+
+      * no joiner splitting. audio_timing splits BOTH needle and haystack on hyphens, dashes and
+        slashes, because a transcriber fuses "two-the" and a plain `[^a-z0-9']` strip turns it into
+        "twothe" -- a token in no anchor, matching nothing.
+      * no number-word normalisation. audio_timing's `_clean` maps "sixty" to "60"; this did not,
+        so any anchor whose number was spoken one way and written the other could never match.
+      * no fuzzy fallback. Whisper expands contractions and substitutes short tokens; audio_timing
+        permits a >=0.84 local alignment with rival disambiguation.
+      * no unique-subphrase or unique-token fallback.
+
+    MEASURED on a delivered 268.5s film: audio_timing resolved 20 of 21 scene anchors exactly and
+    the 21st fuzzily at 0.966, while this copy failed enough of them that 19 of 43 delivered shots
+    compiled as `timing_source: "repaired"`. A repaired shot is pinned to
+    `previous + MIN_SHOT_SECONDS`, so the failures became a row of 1.5-second floor shots with the
+    scene's whole remainder on the tail -- the [1.5, 1.5, 43.08] shape -- and every one of them
+    also counts against narration_aligned_cut_ratio, which sat at 42%.
+
+    Both callers need only the span, so the extra method and confidence are dropped here. They are
+    already recorded per state by audio_timing itself in phrase_timestamps.
+    """
+    from audio_timing import find_phrase_span as _shared_span
+    found = _shared_span(timed, phrase)
+    return (found[0], found[1]) if found else None
 
 
 def _derived_visual_beats(scene: dict) -> list[dict]:
