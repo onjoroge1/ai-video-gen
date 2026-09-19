@@ -170,6 +170,73 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         + cast_rules + '\nReturn ONLY JSON matching this shape:\n' + json.dumps(schema))
 
 
+# ── Two identities, because one was doing two jobs ───────────────────────────────────────────
+#
+# A beat is a factual/causal identity: it asserts a role, owns claims, and sits in the cause chain.
+# A scene is a unit of screen time. They were the same object because they were always 1:1, and
+# `scene_id` was minted arithmetically from the beat number -- f"scene_{n:03d}".
+#
+# That has to come apart before one beat can span several scenes, and the reason is not tidiness.
+# Traced through the validators on real fixtures, three scenes sharing one id produce: duplicate
+# keys collapsing in causal_story._check_chain (so a child edge silently retargets the LAST copy
+# and BACKWARD_CAUSE fires), and DUPLICATE_BEAT_ID in story_fact_model.validate_structure, which
+# marks the beat `structurally_blocked` -- its already-verified citations stop being judged at all.
+#
+# So every scene gets its own id, and the parts of one beat are related by an explicit field
+# rather than by sharing an identity. `continues` names the preceding part; it is "" on the part
+# that ASSERTS the beat. Every role-uniqueness rule counts asserting parts, so a continuation adds
+# screen time without claiming to be a second mechanism -- which is what those rules actually mean.
+#
+# Suffixes are letters, not ".1", because beat ids already flow into evidence ids and filenames.
+PART_SUFFIXES = "bcdefghijklmnopqrstuvwxyz"
+
+
+def part_identity(base: str, part_index: int) -> str:
+    """The id of part `part_index` of a beat or scene whose first part is `base`.
+
+    Part 0 returns `base` UNCHANGED. That is what makes the split inert until something actually
+    splits: an unsplit run mints exactly the ids it minted before, so this can land and be proved
+    harmless before any behaviour depends on it.
+    """
+    index = max(0, int(part_index or 0))
+    if not index:
+        return base
+    if index > len(PART_SUFFIXES):
+        raise ValueError(f"beat split into more parts than there are suffixes: {index}")
+    return f"{base}{PART_SUFFIXES[index - 1]}"
+
+
+def scene_identities(beat: dict, story_beat_n: int, part_index: int = 0,
+                     part_count: int = 1) -> dict:
+    """The identity fields for one scene of a beat, including which part of it this is.
+
+    Returns scene_id, beat_id, continues and the part bookkeeping. `continues` is the PRECEDING
+    part's beat_id, so the chain a validator walks is part-to-part and strictly forward -- which is
+    also the true causal statement: part two follows part one because part one just happened.
+    """
+    base_scene = f"scene_{int(story_beat_n):03d}"
+    base_beat = sfm._text(beat.get("beat_id")) or f"beat_{int(story_beat_n):02d}"
+    index = max(0, int(part_index or 0))
+    return {
+        "scene_id": part_identity(base_scene, index),
+        "beat_id": part_identity(base_beat, index),
+        "continues": part_identity(base_beat, index - 1) if index else "",
+        "beat_part": index + 1,
+        "beat_part_count": max(1, int(part_count or 1)),
+    }
+
+
+def asserting_steps(steps: list) -> list:
+    """The steps that ASSERT their role, i.e. one per beat rather than one per scene.
+
+    Every role-uniqueness rule wants these. causal_story's own docstring says the invariant is
+    "two hinges means the story broke its own false resolution twice, which reads as a structural
+    mistake" -- that is about how many beats claim the role, not how many scenes render it.
+    """
+    return [step for step in (steps or [])
+            if isinstance(step, dict) and not sfm._text(step.get("continues"))]
+
+
 def canonical_beats(beats: list[dict]) -> list[dict]:
     """Stable identities and parent references, independent of subsequent display order."""
     out = deepcopy(beats)

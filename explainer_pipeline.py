@@ -3585,8 +3585,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # The storyboard resolves the chain by scene id, while the planner reasons in beat
                 # numbers because that is what it can see on the sheet. Translate once, here, so a
                 # renumbering later cannot silently break every caused_by edge at the same time.
-                s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
-                s["beat_id"] = beat.get("beat_id") or f"beat_{s['story_beat_n']:02d}"
+                # Two identities. scene_id is screen time, beat_id is the factual/causal claim, and
+                # `continues` names the preceding part when one beat spans several scenes. Part 0
+                # mints exactly what the old arithmetic did, so this is inert until a beat splits.
+                s.update(_compiler.scene_identities(
+                    beat, s["story_beat_n"],
+                    part_index=int(s.get("beat_part", 1) or 1) - 1,
+                    part_count=int(s.get("beat_part_count", 1) or 1)))
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
                 # Carried from the plan rather than re-derived. The event is what the narration was
