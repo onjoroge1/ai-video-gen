@@ -53,6 +53,7 @@ from longform_shots import (
 import longform_research as research
 from longform_research import (
     MIN_CLAIM_REQUEST,
+    cadence_feasibility,
     events_for_runtime,
     research_claim_target,
     parse_research_dossier_text,
@@ -3361,6 +3362,21 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
         beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
+    if causal_lane:
+        # SAY IT BEFORE THE MONEY. beats x MAX_STATES_PER_SCENE x TARGET_VISUAL_STATE_SECONDS is the
+        # longest runtime this plan can cut to cadence, and it is decidable here -- the beat count
+        # and the runtime are both final. Measured: a 300s film came back with 8 beats, needing 98
+        # states against 56 available, and the only thing that ever said so was the rendered gate
+        # reporting long_visual_hold after the images were paid for.
+        _fit = cadence_feasibility(
+            len(beats), duration_sec, runtime_word_bounds(duration_sec, n_scenes)[0])
+        plan["_cadence_feasibility"] = _fit
+        if not _fit["feasible"]:
+            print(f"[cadence] {_fit['beat_count']} beats carry {_fit['cadence_feasible_seconds']}s "
+                  f"at target cadence, {_fit['shortfall_seconds']}s short of the {duration_sec}s "
+                  f"requested — needs {_fit['beats_needed_for_requested_runtime']} beats "
+                  f"({_fit['states_needed']} states wanted, {_fit['states_available']} available). "
+                  f"Holds past the ceiling from here are arithmetic, not a writing fault.")
     peak = int(plan.get("peak_scene") or plan.get("climax_scene") or 0) or round(n_scenes * 0.7)
     peak = min(max(1, peak), n_scenes)
     # Guard the "peak ~65-75%, NOT at the end" rule: the model sometimes labels the FINAL gut-punch as

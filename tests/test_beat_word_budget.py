@@ -39,6 +39,20 @@ SHAPED_ROLES = ["setup", "intervention", "mechanism", "false_resolution", "escal
                 "escalation", "reversal", "escalation", "generalization", "generalization",
                 "tool", "verdict"]
 
+# 300s needs 17 beats to hold its words under the illustratable cap, and SHAPED_ROLES has 12. That
+# is not a fixture defect -- it is the production condition, and it is why the cap overflows rather
+# than binding. The repeatable roles are the only legal way to add the difference, so the feasible
+# shape extends the escalations, exactly as factual_plan_prompt now instructs the planner to.
+#
+# It also follows REQUIRED_SPINE_ROLES order, which puts THREE beats before the mechanism. That
+# matters for the cap: the pre-mechanism group's word share is a fraction of runtime, not a share
+# per beat, so two beats there must each be long while three fit under the ceiling. SHAPED_ROLES
+# put the mechanism third and so could never satisfy the cap in its opening group. The prompt's own
+# pre-incentive budget agrees -- _max_events_before_incentive is 3 at 300s.
+FEASIBLE_ROLES = (["setup", "intervention", "false_resolution", "mechanism"]
+                  + ["escalation"] * 8
+                  + ["reversal", "generalization", "generalization", "tool", "verdict"])
+
 
 def _budgets(roles, duration=300):
     beats = [{"n": i + 1, "causal_role": role} for i, role in enumerate(roles)]
@@ -92,9 +106,15 @@ def test_an_infeasible_plan_is_reported_not_smoothed():
 
 
 def test_a_deadline_shaped_plan_satisfies_both_contracts():
-    """The shape the planner is now asked for clears the mechanism deadline AND the hold ceiling."""
-    beats, budgets = _budgets(SHAPED_ROLES)
-    start = _mechanism_start_sec(SHAPED_ROLES, beats, budgets)
+    """The shape the planner is now asked for clears the mechanism deadline AND the hold ceiling.
+
+    Uses the beat count 300s actually requires. With 12 beats this cannot pass and should not: 12
+    scenes carry 231s at target cadence, so the words overflow the cap by arithmetic and the worst
+    scene lands at 25.2s. The cap cannot invent beats -- see
+    test_too_few_beats_overflows_the_cap_and_is_reported.
+    """
+    beats, budgets = _budgets(FEASIBLE_ROLES)
+    start = _mechanism_start_sec(FEASIBLE_ROLES, beats, budgets)
     worst = max(budgets.values()) / WPS
     assert start <= _deadline_sec(), f"mechanism at {start:.0f}s"
     # One scene target of slack: the cap is words, and words divide unevenly.
@@ -102,13 +122,32 @@ def test_a_deadline_shaped_plan_satisfies_both_contracts():
 
 
 def test_the_cap_binds_wherever_the_group_can_hold_its_words():
-    """Small overshoot is expected and honest; a 2-beat opening group holding 145 words cannot
-    fit under a 71-word cap, and losing those words would shorten the film. What must not happen
-    is a beat running away to 2-3x the ceiling."""
-    beats, budgets = _budgets(SHAPED_ROLES)
+    """With enough beats the cap actually binds, not merely limits the overshoot."""
+    beats, budgets = _budgets(FEASIBLE_ROLES)
     ceiling = research.illustratable_beat_words()
     runaway = {n: w for n, w in budgets.items() if w > ceiling + 3}
     assert not runaway, f"beats far above the {ceiling}-word ceiling: {runaway}"
+
+
+def test_too_few_beats_overflows_the_cap_and_is_reported():
+    """The honest half. The cap keeps the runtime rather than the ceiling when beats run out.
+
+    _cap_beat_budgets says so in its own comment -- dropping words reappears as a short film, a
+    worse failure than a long hold. So with 12 beats at 300s the budgets sit ABOVE the 49-word cap,
+    and the thing that must be true is that nobody is surprised by it: cadence_feasibility says
+    infeasible at plan time, before an image is bought.
+
+    What must still never happen is a runaway to twice the ceiling, which is where a scene stops
+    being a scene and becomes a lecture over one picture.
+    """
+    beats, budgets = _budgets(SHAPED_ROLES)
+    ceiling = research.illustratable_beat_words()
+    total = runtime_word_bounds(300, len(SHAPED_ROLES))[0]
+    assert max(budgets.values()) > ceiling, "expected the documented overflow with too few beats"
+    assert max(budgets.values()) < 2 * ceiling, {n: w for n, w in budgets.items()}
+    fit = research.cadence_feasibility(len(SHAPED_ROLES), 300, total)
+    assert fit["feasible"] is False
+    assert fit["beats_needed_for_word_budget"] > len(SHAPED_ROLES)
 
 
 def test_the_hinge_keeps_its_own_shorter_ceiling():
@@ -140,7 +179,7 @@ def test_runtime_is_preserved_by_the_cap():
         assert sum(budgets.values()) >= total * 0.95
 
 
-@pytest.mark.parametrize("duration,expected", [(90, 1), (180, 1), (300, 2)])
+@pytest.mark.parametrize("duration,expected", [(90, 1), (180, 2), (300, 3)])
 def test_the_planner_is_given_a_pre_incentive_budget(duration, expected):
     """The rule that produced the bad plan was never stated to the planner."""
     assert sc._max_events_before_incentive(duration, ENGINE) == expected

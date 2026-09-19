@@ -25,10 +25,20 @@ from urllib.parse import urlparse
 #
 # The three ratios below are measured from that run, not chosen:
 
-# A scene the writer can actually illustrate. The model reliably produces 6-8 states per scene;
-# at MAX_VISUAL_STATE_SECONDS = 3.5 that buys 21-28 seconds. 25 sits inside what was observed
-# rather than at its limit, because the limit was observed once.
-SECONDS_PER_SCENE_TARGET = 25.0
+# A scene the writer can actually illustrate -- DERIVED, not chosen.
+#
+# This was 25.0, reasoned as "6-8 states per scene at the 3.5s ceiling buys 21-28 seconds". Both
+# halves of that were wrong in the same direction. The cadence TARGET is 2.75s, not the 3.5s
+# rejection line, and the state ceiling is a measured 7, so the real figure is 7 x 2.75 = 19.25s.
+# Planning 25-second scenes asked for ~9 states from a writer that returns 7, and the 5.75-second
+# shortfall per scene is what the rendered gate reports as long_visual_hold.
+#
+# longform_evidence owns both numbers because it owns the state contract. Importing them is what
+# keeps this from becoming a third independent copy of the same arithmetic -- there were already
+# two, disagreeing by 6 seconds a scene.
+from longform_evidence import illustratable_scene_seconds as _illustratable_scene_seconds
+
+SECONDS_PER_SCENE_TARGET = _illustratable_scene_seconds()
 
 # 19 verified claims supported 8 events on the recorded run. Events need corroboration and some
 # claims are context that never becomes an event, so this is well above 1.
@@ -51,18 +61,57 @@ def events_for_runtime(duration_sec: float) -> int:
 def illustratable_beat_words() -> int:
     """The most spoken words one beat may carry and still be fillable with distinct visuals.
 
-    A beat becomes exactly one scene, and a scene is held together by its evidence states. At
-    MAX_VISUAL_STATE_SECONDS a SECONDS_PER_SCENE_TARGET scene needs ~8 states, which is inside
-    what the writer reliably produces. Past that the states stop being distinct visible changes
-    and the scene holds one picture instead.
+    A beat becomes exactly one scene, and a scene is held together by its evidence states. Past
+    MAX_STATES_PER_SCENE the states stop being distinct visible changes and the scene holds one
+    picture instead -- which is the 45-second scene the delivered films kept producing.
+
+    The SLOWEST measured rate, not the average. A scene written to 2.86 w/s and then read at 2.588
+    overruns by 10%, and the overrun does not spread: it lands on whichever picture was already
+    holding longest. Budgeting at the slow end costs a few words and removes that failure.
     """
-    from runtime_planner import DEFAULT_WORDS_PER_SECOND
-    return max(1, int(SECONDS_PER_SCENE_TARGET * DEFAULT_WORDS_PER_SECOND))
+    from longform_evidence import SLOWEST_MEASURED_WORDS_PER_SECOND
+    return max(1, int(SECONDS_PER_SCENE_TARGET * SLOWEST_MEASURED_WORDS_PER_SECOND))
 
 
 def beats_required_for_words(total_words: int) -> int:
     """How many beats a word budget needs so no single scene exceeds the illustratable cap."""
     return max(1, math.ceil(max(0, int(total_words or 0)) / illustratable_beat_words()))
+
+
+def cadence_feasibility(beat_count: int, duration_sec: float, total_words: int) -> dict:
+    """Can this many beats carry this runtime at target cadence? Answered BEFORE any image spend.
+
+    Every number here already existed and nothing read them together. The result was that a run
+    learned its cadence was impossible only from the rendered gate, after the images were bought:
+    `long_visual_hold` on a 300s film built from 8 beats, about $5 in, when the arithmetic was
+    decidable at plan time.
+
+    A beat becomes one scene, a scene holds at most MAX_STATES_PER_SCENE distinct states, and each
+    state should hold TARGET_VISUAL_STATE_SECONDS. So `beats x 7 x 2.75` is the longest runtime the
+    plan can cut to cadence, and anything past it is a hold nobody can remove downstream.
+
+    Reported, not enforced. Whether to shorten the film, demand more beats, or accept the holds is
+    an editorial call, and the caller that has to make it is the only one that can. What this
+    removes is the surprise.
+    """
+    from longform_evidence import (MAX_STATES_PER_SCENE, TARGET_VISUAL_STATE_SECONDS,
+                                   cadence_feasible_seconds)
+    beats = max(0, int(beat_count or 0))
+    requested = max(0.0, float(duration_sec or 0))
+    feasible = cadence_feasible_seconds(beats)
+    needed = beats_required_for_words(total_words)
+    return {
+        "beat_count": beats,
+        "requested_seconds": round(requested, 1),
+        "cadence_feasible_seconds": round(feasible, 1),
+        "shortfall_seconds": round(max(0.0, requested - feasible), 1),
+        "beats_needed_for_requested_runtime": max(
+            beats, math.ceil(requested / (MAX_STATES_PER_SCENE * TARGET_VISUAL_STATE_SECONDS))),
+        "beats_needed_for_word_budget": needed,
+        "states_needed": math.ceil(requested / TARGET_VISUAL_STATE_SECONDS) if requested else 0,
+        "states_available": beats * MAX_STATES_PER_SCENE,
+        "feasible": feasible + 1e-9 >= requested,
+    }
 
 
 def research_claim_target(duration_sec: float) -> tuple[int, int]:
