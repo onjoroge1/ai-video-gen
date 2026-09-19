@@ -160,6 +160,11 @@ def _normalize_steps(raw: Any) -> list[dict]:
             "start_sec": float(item.get("start_sec") or 0.0),
             "situation": _text(item.get("situation")),
             "caused_by": _text(item.get("caused_by")),
+            # Which beat-part this is. "" means this step ASSERTS its role; anything else names the
+            # preceding part of the same beat. Whitelisted here because _normalize_steps drops
+            # every field it does not name, and a role rule that cannot see this would count screen
+            # time instead of story moves.
+            "continues": _text(item.get("continues")),
             "chapter": int(item.get("chapter") or 0),
             "narration_anchor": " ".join(_text(item.get("situation")).split()[:12]),
         })
@@ -222,7 +227,12 @@ def _check_roles(steps: list[dict], issues: list[dict], engine: dict | None = No
                 + ", ".join(STEP_ROLES),
                 step["step_id"]))
             continue
-        counts[step["role"]] = counts.get(step["role"], 0) + 1
+        # Continuations are more screen time for a move already asserted, so they do not count
+        # toward uniqueness. The invariant above is about STORY MOVES: "two hinges means the story
+        # broke its own false resolution twice, which reads as a structural mistake". Two different
+        # beats both calling themselves mechanism still fail, which is the case this protects.
+        if not step.get("continues"):
+            counts[step["role"]] = counts.get(step["role"], 0) + 1
 
     for role, count in counts.items():
         if count > 1 and role not in _REPEATABLE:
@@ -319,7 +329,12 @@ def _check_chain(steps: list[dict], issues: list[dict]) -> None:
     """
     known = {step["step_id"]: step for step in steps}
     for step in steps:
-        if step["role"] == SETUP:
+        # "the setup starts the chain" is about the STORY's first step, not about the role label.
+        # A continuation of the setup is not the start of anything -- it follows the part before it,
+        # and saying so is both true and required, because ORPHAN_STEP below demands every
+        # non-setup step name a cause. Scoped to the asserting part, the two rules stop being
+        # mutually unsatisfiable; unscoped, a split setup fails CAUSED_SETUP and ORPHAN_STEP at once.
+        if step["role"] == SETUP and not step.get("continues"):
             if step["caused_by"]:
                 issues.append(_issue("CAUSED_SETUP",
                                      "the setup starts the chain and cannot be caused by a step",
@@ -519,7 +534,11 @@ def _check_hinge(steps: list[dict], issues: list[dict]) -> None:
     question and an empty signpost are both mechanically detectable, so neither needs a judge.
     """
     for step in steps:
-        if step["role"] != HINGE:
+        # The asserting part only. MAX_HINGE_WORDS says "a long hinge is not a hinge" -- it is a
+        # budget for the TURN, and the turn happens once. Applied per scene it would charge each
+        # continuation the full ten words for narration that merely follows the turn already made,
+        # and a hinge carried across two scenes would fail for being exactly as long as intended.
+        if step["role"] != HINGE or step.get("continues"):
             continue
         turn = _MARKER.sub("", step["situation"]).strip()
         if turn.endswith("?"):

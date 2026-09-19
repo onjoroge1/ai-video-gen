@@ -728,6 +728,14 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
         event = event_of(beat)["text"]
         if not event or role not in CENTRAL_FUNCTIONS:
             continue
+        # A continuation is the SAME beat given more screen time, so of course it shares the event
+        # text and the state transition -- overlap is 1.0 by construction. This detector exists to
+        # catch two beats doing one causal job (the measured case is a sheet using one sentence for
+        # both its mechanism and its reversal); a beat continuing itself is not that, and collapsing
+        # it would delete screen time the film was planned around. Skipped before it is recorded in
+        # `seen`, so it can neither be flagged nor make a later beat look like a duplicate of it.
+        if _text(beat.get("continues")):
+            continue
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
         signature, words = _state_signature(beat), _content_words(event)
         for prior_id, prior_role, prior_sig, prior_words in seen:
