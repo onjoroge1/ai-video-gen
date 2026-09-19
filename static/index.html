@@ -2917,6 +2917,32 @@
   }
   function _oppClass(o) { return o >= 65 ? 'opp-hi' : o >= 45 ? 'opp-mid' : 'opp-lo'; }
 
+  function mergeEditorialTopics(data, profiles) {
+    // The live ROI cache is intentionally small and rotates. Keep the full curated queue visible
+    // beside it, without requiring a paid refresh or waiting for an older cache to expire.
+    const merged = data || {channels:[], questions:[]};
+    merged.channels = merged.channels || [];
+    (profiles || []).forEach(profile => {
+      let group = merged.channels.find(g => g.label === profile.name);
+      if (!group) {
+        group = {label:profile.name, niche:profile.promise, questions:[]};
+        merged.channels.push(group);
+      }
+      group.questions = group.questions || [];
+      const have = new Set(group.questions.map(t => (t.question || '').trim().toLowerCase()));
+      (profile.topics || []).forEach(topic => {
+        const key = (topic.question || '').trim().toLowerCase();
+        if (key && !have.has(key)) {
+          group.questions.push({...topic, editorial_candidate:true});
+          have.add(key);
+        }
+      });
+    });
+    merged.questions = merged.channels.flatMap(group => group.questions || []);
+    merged.total_topics = merged.questions.length;
+    return merged;
+  }
+
   async function initTopicsPage(force) {
     if (topicsLoaded && !force) return;
     const body = document.getElementById('topics-body');
@@ -2929,11 +2955,10 @@
         topicsLoaded = (topicsData.channels || []).length > 0;
       }
     } catch (e) { /* offline */ }
-    if (!topicsData || !(topicsData.channels || []).length) {
-      const profiles = await loadExplCatalogue();
-      const groups = profiles.map(p => ({label:p.name, niche:p.promise, questions:p.topics}));
-      topicsData = {channels:groups, questions:groups.flatMap(g => g.questions), editorial_queue:true};
-    }
+    const profiles = await loadExplCatalogue();
+    const hadLiveTopics = !!(topicsData && (topicsData.channels || []).length);
+    topicsData = mergeEditorialTopics(topicsData, profiles);
+    if (!hadLiveTopics) topicsData.editorial_queue = true;
     const gen = document.getElementById('topics-generated');
     if (topicsData) {
       const active = (topicsData.validation_active != null) ? topicsData.validation_active : topicsData.validated;
