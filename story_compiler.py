@@ -34,6 +34,36 @@ def _max_events_before_incentive(duration, engine_id) -> int:
     return max(1, int(pct * events_for_runtime(duration)))
 
 
+def _repeatable_functions(mapping) -> tuple:
+    """The engine's event functions whose story role may legitimately recur.
+
+    Derived from causal_story._REPEATABLE rather than listed, so an engine map or a change to which
+    roles repeat cannot leave this prompt asking for something the compiler then rejects.
+    """
+    import causal_story as cs
+    return tuple(name for name in mapping.to_role
+                 if mapping.role_for(name) in cs._REPEATABLE)
+
+
+def _repeat_to_reach_count(mapping, duration) -> str:
+    """Name the repeatable functions and how many extra events they have to carry."""
+    repeatable = _repeatable_functions(mapping)
+    if not repeatable:
+        return ""
+    wanted = max(len(mapping.required), events_for_runtime(duration))
+    extra = max(0, wanted - len(mapping.required))
+    if not extra:
+        return ""
+    return (
+        f'Every required function above appears EXACTLY ONCE, so {len(mapping.required)} of those '
+        f'{wanted} events are already spoken for and the remaining {extra} must come from the only '
+        f'functions that may recur: {", ".join(repeatable)}. Supply {extra} further '
+        f'{"event" if extra == 1 else "events"} using them, each a distinct sourced step in the '
+        'compounding -- a further reach, a further scale, a further cost -- in the order it '
+        'happened. Do not reach the count with `context` events: an unsupported context event is '
+        'pruned later, and the scenes that remain absorb its time.\n')
+
+
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     """The factual planner never receives the narration layer's competing role slots."""
     mapping = ef.map_for(engine_id)
@@ -74,6 +104,18 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'events, including each required function exactly once; add only distinct supported '
         'consequences or optional context. Do not pad the list.\n'
         'Required functions: ' + ', '.join(mapping.required) + '.\n'
+        # HOW to reach that count, which the ask never said. The required functions are singletons,
+        # so asking for 12 events from an engine with 6 required functions is asking for 6 more
+        # from somewhere -- and the only somewhere the compiler accepts is the repeatable roles.
+        # Measured: the planner returned 8 events against an ask of 12, three runs running, and
+        # filled the gap with `context` beats that were then PRUNED for lack of evidence, leaving
+        # eight 40-second scenes. It was never told that escalation may legitimately recur.
+        #
+        # This is not padding. A backfiring solution compounds by definition: kudzu was planted,
+        # then it spread, then it smothered forests, then it cost millions to fight. Those are four
+        # separate sourced events, each a real step, and the engine has exactly one function that
+        # can carry them in sequence.
+        + _repeat_to_reach_count(mapping, duration)
         # WHERE the incentive changes, not just that it does. The compiler DERIVES the mechanism
         # from the changes_incentive beat, and causal_story:450 fails any mechanism whose start_sec
         # is past `runtime_sec * pct` -- 60s of a 300s film. Every event before changes_incentive

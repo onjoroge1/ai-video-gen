@@ -53,6 +53,7 @@ from longform_shots import (
 import longform_research as research
 from longform_research import (
     MIN_CLAIM_REQUEST,
+    cadence_feasibility,
     events_for_runtime,
     research_claim_target,
     parse_research_dossier_text,
@@ -3361,6 +3362,21 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
         beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
+    if causal_lane:
+        # SAY IT BEFORE THE MONEY. beats x MAX_STATES_PER_SCENE x TARGET_VISUAL_STATE_SECONDS is the
+        # longest runtime this plan can cut to cadence, and it is decidable here -- the beat count
+        # and the runtime are both final. Measured: a 300s film came back with 8 beats, needing 98
+        # states against 56 available, and the only thing that ever said so was the rendered gate
+        # reporting long_visual_hold after the images were paid for.
+        _fit = cadence_feasibility(
+            len(beats), duration_sec, runtime_word_bounds(duration_sec, n_scenes)[0])
+        plan["_cadence_feasibility"] = _fit
+        if not _fit["feasible"]:
+            print(f"[cadence] {_fit['beat_count']} beats carry {_fit['cadence_feasible_seconds']}s "
+                  f"at target cadence, {_fit['shortfall_seconds']}s short of the {duration_sec}s "
+                  f"requested — needs {_fit['beats_needed_for_requested_runtime']} beats "
+                  f"({_fit['states_needed']} states wanted, {_fit['states_available']} available). "
+                  f"Holds past the ceiling from here are arithmetic, not a writing fault.")
     peak = int(plan.get("peak_scene") or plan.get("climax_scene") or 0) or round(n_scenes * 0.7)
     peak = min(max(1, peak), n_scenes)
     # Guard the "peak ~65-75%, NOT at the end" rule: the model sometimes labels the FINAL gut-punch as
@@ -4178,7 +4194,18 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=_RESEARCH_MAX_TOKENS,
+        # SIZED FROM THE ASK, because the two were free to disagree and did.
+        #
+        # _RESEARCH_MAX_TOKENS was a flat 20000 while the claim request scales with runtime. At 44
+        # claims the dossier fit; when the target rose to 52-58 the provider stopped mid-dossier on
+        # stop_reason=max_tokens and the run died with "partial source evidence cannot be repaired
+        # into verified claims" -- having spent the search budget to get there. The request asked
+        # for more than its own reply was allowed to contain.
+        #
+        # ~480 output tokens per claim is the observed rate (44 claims inside 20000, and 20691
+        # produced when 58 were asked for). The flat value stays the floor so no short film gets a
+        # smaller budget than it has today, and RESEARCH_MAX_TOKENS still overrides both.
+        max_tokens=_research_token_budget(claims_high),
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -8293,6 +8320,21 @@ _LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"
 # Budget helps a dossier that was nearly complete; it does not narrow a question that has no
 # single documented episode at its centre.
 _RESEARCH_MAX_TOKENS = max(4000, int(os.environ.get("RESEARCH_MAX_TOKENS", "20000")))
+# Output tokens one verified claim costs, measured: 44 claims completed inside a 20000 budget, and
+# a 58-claim request produced 20691 before stopping on max_tokens. 480 carries the observed rate
+# with a little headroom, which a reply that must close its JSON needs.
+_RESEARCH_TOKENS_PER_CLAIM = max(1, int(os.environ.get("RESEARCH_TOKENS_PER_CLAIM", "480")))
+
+
+def _research_token_budget(claims_high: int) -> int:
+    """Enough room to actually write the dossier that was requested.
+
+    The flat ceiling is the FLOOR here, never a cap: a short film keeps exactly the budget it has
+    today, and a longer one gets what its own claim target implies. An explicit RESEARCH_MAX_TOKENS
+    raises both, because an operator who sets it is answering a different question.
+    """
+    return max(_RESEARCH_MAX_TOKENS,
+               int(max(0, int(claims_high or 0)) * _RESEARCH_TOKENS_PER_CLAIM))
 # Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
 # the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
 _CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))

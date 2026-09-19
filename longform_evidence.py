@@ -281,6 +281,40 @@ SLOWEST_MEASURED_WORDS_PER_SECOND = 2.588
 # 2-3 second cadence and leaves real recovery room while 3.5s remains the rendered hard ceiling.
 TARGET_VISUAL_STATE_SECONDS = 2.75
 
+# WHAT THE WRITER ACTUALLY RETURNS FOR ONE SCENE, measured rather than hoped for.
+#
+# states_required_for_words asks a scene of 122 words for 18 states. Across four delivered films
+# the per-scene counts were:
+#
+#   [3, 3, 3, 3, 3, 7, 7, 7, 6, 7]   [4, 4, 3, 4, 9, 7, 7, 6, 8]
+#   [4, 4, 4, 7, 7, 7, 6, 7]         [3, 3, 3, 3, 4, 4, 5]
+#
+# Never above 9, and 7 is the mode of every long scene. The ask is uncorrelated with the answer
+# past that point: one 15.2s scene needing 6 returned 7, while scenes needing 14, 16 and 17
+# returned 7, 6 and 7. Asking a single scene for eighteen distinct visible changes does not
+# produce eighteen; it produces seven and a shortfall nobody priced.
+#
+# This is therefore a property of the producer, not a preference, and every downstream number has
+# to be derived from it instead of from the ask. A scene longer than this many states can cover at
+# the target cadence CANNOT be cut to cadence, however the prompt is worded.
+MAX_STATES_PER_SCENE = 7
+
+
+def illustratable_scene_seconds() -> float:
+    """The longest scene that can still be cut at target cadence: 7 states x 2.75s."""
+    return MAX_STATES_PER_SCENE * TARGET_VISUAL_STATE_SECONDS
+
+
+def cadence_feasible_seconds(scene_count: int) -> float:
+    """The longest runtime `scene_count` scenes can deliver at target cadence.
+
+    The arithmetic nobody was doing. A 300s film built from 8 beats needs 98 states to hold 2.75s
+    each; 8 scenes can supply 56. No prompt wording closes a 42-state gap -- the runtime was
+    infeasible before a single image was bought, and the rendered gate only said so afterwards,
+    as long_visual_hold, after about $5.
+    """
+    return max(0, int(scene_count or 0)) * illustratable_scene_seconds()
+
 
 
 def states_required_for_words(words: int) -> int:
