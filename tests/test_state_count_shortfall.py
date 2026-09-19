@@ -135,3 +135,40 @@ def test_cadence_feasibility_is_a_report_not_a_gate():
     """It must never raise. Whether to shorten, demand beats or accept holds is editorial."""
     for beats, duration in ((0, 0), (0, 300), (1, 1), (200, 30)):
         assert isinstance(lr.cadence_feasibility(beats, duration, 0), dict)
+
+
+def _claim(claim_id, **over):
+    base = {"claim_id": claim_id, "claim": "Kudzu was planted on 1.2 million acres.",
+            "material": True, "allowed_exaggeration": False,
+            "support_quote": "about 1.2 million acres were planted"}
+    base.update(over)
+    return base
+
+
+def test_a_self_contradictory_claim_is_quarantined_not_fatal():
+    """One bad row out of fifty must not cost the whole dossier.
+
+    `material: true` with `allowed_exaggeration: true` asserts "load-bearing scientific claim" and
+    "may overstate" at once. The writer was never going to be allowed to use it. Measured: exactly
+    one such claim out of fifty killed a 300s run after the research was paid for -- and it gets
+    likelier as the claim target scales, since one bad row in 22 is unlucky and one in 53 ordinary.
+    """
+    out = lr.quarantine_contradicted_claims(
+        {"claims": [_claim("c01"), _claim("c02", allowed_exaggeration=True), _claim("c03")]})
+    assert [c["claim_id"] for c in out["claims"]] == ["c01", "c03"]
+    assert [(e["claim"]["claim_id"], e["reason"]) for e in out["excluded_claims"]] == [
+        ("c02", "material_claim_permits_exaggeration")]
+    assert out["semantic_source_filter"]["excluded_count"] == 1
+
+
+def test_quarantining_does_not_weaken_the_rule_itself():
+    """The dossier gate still rejects the shape; it simply no longer sees a removed row."""
+    report = lr.validate_research_dossier({"claims": [_claim("c02", allowed_exaggeration=True)]})
+    assert any(issue["code"] == "material_exaggeration" for issue in report["errors"])
+
+
+def test_a_non_material_claim_may_permit_exaggeration():
+    """The rule is about MATERIAL claims. Colour may be flagged as loose without being dropped."""
+    out = lr.quarantine_contradicted_claims(
+        {"claims": [_claim("c01", material=False, allowed_exaggeration=True)]})
+    assert [c["claim_id"] for c in out["claims"]] == ["c01"]

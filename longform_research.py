@@ -360,15 +360,46 @@ def _support_contradicts_claim(claim_text: str, support_quote: str) -> bool:
     return False
 
 
+def _claim_contradicts_itself(claim: dict) -> str:
+    """A claim whose own flags cannot both be true, named by the rule it breaks.
+
+    `material: true` with `allowed_exaggeration: true` says "this is a load-bearing scientific
+    claim" and "this may overstate" at once. validate_research_dossier rejects it -- correctly --
+    but rejected the WHOLE DOSSIER for it, and the claim is one self-contradictory row the writer
+    was never going to be allowed to use.
+
+    Measured: one such claim out of fifty killed a 300s run after the research was paid for. It
+    gets likelier as the claim target scales -- one bad row in 22 is unlucky, one in 53 is
+    ordinary -- so the failure mode arrived with the larger ask rather than existing before it.
+    """
+    if claim.get("material", True) and claim.get("allowed_exaggeration") is True:
+        return "material_claim_permits_exaggeration"
+    return ""
+
+
 def quarantine_contradicted_claims(dossier: dict) -> dict:
-    """Keep directly contradicted candidates in audit data but out of writing context."""
+    """Keep directly contradicted candidates in audit data but out of writing context.
+
+    Two kinds of contradiction, both quarantined rather than fatal: a support quote that refutes
+    its own claim, and a claim whose flags contradict each other. Neither can license narration, so
+    dropping one costs a fact; failing the dossier costs the run and every claim in it.
+
+    THE GATE IS NOT WEAKENED. validate_research_dossier still rejects `material_exaggeration` -- it
+    simply no longer sees a row that was removed for exactly that reason. Everything downstream is
+    unchanged, including the count-based gates that decide whether enough evidence survived, so a
+    dossier gutted by quarantine still fails on the numbers.
+    """
     result = copy.deepcopy(dossier)
     retained, excluded = [], list(result.get("excluded_claims") or [])
     contradicted = 0
     for claim in result.get("claims") or []:
+        self_contradiction = _claim_contradicts_itself(claim)
         if _support_contradicts_claim(
                 _text(claim.get("claim")), _text(claim.get("support_quote"))):
             excluded.append({"claim": claim, "reason": "support_contradicts_claim"})
+            contradicted += 1
+        elif self_contradiction:
+            excluded.append({"claim": claim, "reason": self_contradiction})
             contradicted += 1
         else:
             retained.append(claim)
