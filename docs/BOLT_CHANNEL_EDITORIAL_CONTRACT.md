@@ -30,11 +30,19 @@ pacing; it is not evidence about this episode and does not decide channel eligib
 screen is advisory on provider failure. An UNKNOWN verdict is not evidence of fit. A positive
 wrong-channel result asks the operator to select the correct channel before research is bought.
 
-Initial research sequence:
+Initial launch sequence:
 - World: Hanoi, Four Pests sparrows, cane toads, Hawaiian mongooses.
 - History: Aral Sea irrigation diversions, Prohibition industrial-alcohol denaturing, Decree 770.
 
-All seven UI starters are research candidates, not pre-approved historical claims. Existing Hanoi
+The expanded UI research queue also includes American-history candidates. World receives only
+animal-targeted interventions (including Yellowstone wolves, European starlings, nutria,
+mosquitofish and Asian carp). History receives specifically named government laws, campaigns,
+projects or administrative decisions (including redlining, urban renewal, highways, the GI Bill,
+sentencing policy, COINTELPRO, Tuskegee, Flint and federal fire suppression). Broad subjects were
+narrowed to an identifiable intervention; company towns and other purely corporate stories remain
+outside the channel contract.
+
+All UI starters are research candidates, not pre-approved historical claims. Existing Hanoi
 material may be reused after its evidence and delivery records are inspected. Hoy No Circula
 remains pending evidence resolution. Dust Bowl requires a specific program before eligibility can
 be assessed. Keep the first six story uploads per channel within these boundaries; this is an
