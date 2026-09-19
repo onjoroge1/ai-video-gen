@@ -114,5 +114,15 @@ def test_the_research_output_budget_is_configurable_and_defaults_above_the_old_c
     assert ep._RESEARCH_MAX_TOKENS == 20000
     assert ep._RESEARCH_MAX_TOKENS >= 4000, "there is a floor; a tiny budget cannot write a ledger"
     source = open(ep.__file__, encoding="utf-8").read()
-    assert "max_tokens=_RESEARCH_MAX_TOKENS" in source, "the research call reads the constant"
     assert "does NOT fix" in source, "the limits of the fix are recorded next to it"
+
+    # Asserted through the function rather than by grepping for `max_tokens=_RESEARCH_MAX_TOKENS`.
+    # The call now sizes its budget from the claim target, because the two were free to disagree
+    # and did: a 52-58 claim request against a flat 20000 stopped mid-dossier on max_tokens. The
+    # constant is the FLOOR of that calculation, so the property this test cares about -- the
+    # research call honours the configured ceiling and never drops below it -- is unchanged, and
+    # checking it by behaviour survives the next refactor of the call site.
+    assert ep._research_token_budget(0) == ep._RESEARCH_MAX_TOKENS
+    assert ep._research_token_budget(28) == ep._RESEARCH_MAX_TOKENS, "short films keep their budget"
+    assert ep._research_token_budget(58) > ep._RESEARCH_MAX_TOKENS, "a bigger ask gets more room"
+    assert ep._research_token_budget(58) >= 58 * ep._RESEARCH_TOKENS_PER_CLAIM
