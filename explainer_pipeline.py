@@ -1513,7 +1513,17 @@ _SCENE_FIELDS_RULES = (
     '(array of objects/states that must be absent), '
     '"source" (master|distinct|detail_reframe), "asset_strategy" '
     '(master|distinct|detail_reframe), "detail_target" (required only for detail_reframe), '
-    '"pure_evidence" (true for evidence/mechanism/scale/location/record views), "human_visible" '
+    # THE CONTRAST CASE, which the bare list did not supply. Measured on a delivered film: the
+    # writer marked 30 of 34 `consequence` states pure_evidence, and pure_evidence sends
+    # "No characters. Show only physical evidence." to the image prompt -- so the frames showing
+    # what a policy DID to people had no people in them, and only 8 of 80 states asked for any.
+    # A list of five view-types reads as "is this a view of a thing?", and almost every frame is.
+    '"pure_evidence" (true ONLY when the frame is a thing examined on its own -- a document, a '
+    'diagram, a specimen, a measurement, a map. FALSE whenever the frame shows something being '
+    'done, or something that HAPPENED TO someone: a field being planted, a house being swallowed, '
+    'a payment being counted out. Those need the people it happened to, and marking them '
+    'pure_evidence empties the frame. If a human hand or figure would make the moment legible, '
+    'this is false), "human_visible" '
     '(true only when Alex is visually needed), "bolt_visible" (true only when this exact state '
     'shows Bolt performing the scene\'s permitted useful story work), "bolt_action" (the concrete '
     'measurement, test, warning, reaction, or assistance Bolt performs; empty when bolt_visible is '
@@ -7032,6 +7042,40 @@ def _render_first_minute_preview(
     return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
 
 
+def _preflight_verifier_credit(log=print) -> None:
+    """One cheap call to prove the evidence verifier can answer, BEFORE buying images.
+
+    Images come from OpenAI and the verifier that judges them comes from Anthropic, so the two
+    fail independently -- and the expensive half can keep succeeding long after the half that
+    decides whether its output is usable has stopped.
+
+    Measured three times. Once it cost 73 images bought against a judge that could not answer.
+    Once it killed a run at the last evidence state after 25 minutes. The images were real money
+    and none of them could be confirmed to show what they claimed.
+
+    This is a TECHNICAL precondition, not a quality gate, so it fails closed and says which
+    provider is out -- the same stance the profile banner states: "quality gates report;
+    technical/cost failures still block". One token, a fraction of a cent, against a run that
+    spends dollars on pictures nobody can check.
+    """
+    try:
+        _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=1,
+                                  messages=[{"role": "user", "content": "ok"}])
+    except Exception as exc:
+        detail = str(exc)
+        if "credit balance is too low" in detail or "insufficient" in detail.lower():
+            raise RuntimeError(
+                "Evidence verification is unavailable before any image was bought: the Anthropic "
+                "balance is too low. Images would be generated and none could be confirmed to "
+                "show what it claims. Top up and re-run; the research and script are cached."
+            ) from exc
+        # Any other failure here is not necessarily fatal -- a transient network blip should not
+        # stop a run that has already paid for its script. Report and continue; the per-asset
+        # verifier still fails closed if it really is gone.
+        log(f"  ⚠ verifier preflight did not answer ({type(exc).__name__}); continuing — "
+            "per-asset verification still blocks if it stays unavailable")
+
+
 def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[dict],
                                 cost_sink: list | None = None) -> dict:
     """Judge the chronological rendered opening without planner metadata or expected answers."""
@@ -10542,6 +10586,7 @@ def run_explainer_pipeline(
     #    Moderation   → one safe-prompt retry, else fallback frame.
     #    Audio fails  → scene is dropped (narration is the backbone).
     log("stage:Preparing narration and visual assets...")
+    _preflight_verifier_credit(log)
 
     img_dir = os.path.join(output_dir, "images")
     aud_dir = os.path.join(output_dir, "audio")
