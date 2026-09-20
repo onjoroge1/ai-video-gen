@@ -190,13 +190,25 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
                     and bool(beat.get("bolt_visible", purpose == "action")))
     include_human = bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
-    # Cast-free means no recurring host, not an empty world. Decision and action frames need the
-    # period-coded people who perform the verb; otherwise a story about officials, farmers or
-    # workers turns into a slideshow of unattended desks and landscapes.
+    # Cast-free means no recurring host, not an empty world. Frames where someone DOES something,
+    # or where something is done TO someone, need the period-coded people who perform or suffer the
+    # verb; otherwise a story about officials, farmers or workers becomes a slideshow of unattended
+    # desks and landscapes.
+    #
+    # The default set used to be {action, decision, intervention, reaction, assistance}, and only
+    # one of those five is a purpose the writer actually emits. Measured over 94 states of a
+    # delivered film: setup 26, evidence 21, consequence 31, action 15, callback 1 -- so the rule
+    # fired on 10 states, 11%, all of them `action`, and the other four names matched nothing.
+    #
+    # `consequence` is the one that matters and the one that was missing. It is the largest group
+    # and it is precisely where a human figure supplies scale and stakes: a vine over a forest is a
+    # texture, a vine over a forest with a farmer beneath it is a consequence. `setup` is left out
+    # deliberately -- the opening establishes a place before anyone acts in it -- and the
+    # pure-evidence purposes are excluded above, so a document or a diagram never grows a bystander.
     anonymous_people_required = bool(
         not pure_evidence
         and beat.get("anonymous_people_required", purpose in {
-            "action", "decision", "intervention", "reaction", "assistance",
+            "action", "consequence", "decision", "intervention", "reaction", "assistance",
         })
         and not include_human
     )

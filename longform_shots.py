@@ -286,9 +286,50 @@ def compile_scene_shots(
         # neighbours their alignment.
         repaired_indexes = set()
         if not valid:
+            # SPREAD A RUN OF UNRESOLVABLE ANCHORS, DO NOT STACK IT AT THE FLOOR.
+            #
+            # The forward pass below pins each unplaceable start to prev + MIN_SHOT_SECONDS. For a
+            # single stray anchor that is right. For a RUN of them it is not: they pile up at 1.5s
+            # each and every second they did not take lands on the next shot that did resolve.
+            #
+            # Measured on the 94-shot render: mean hold 3.25s, which clears the 3.5s ceiling, while
+            # 17 shots sat under 1.75s and 38 ran over 3.5s with a 7.19s worst -- stdev 1.45 around
+            # a passing mean. The pictures were there; they were unevenly spaced. long_visual_hold
+            # is a per-shot rule, so a good average cannot buy it off.
+            #
+            # A run between two known points has a known span, so share it out. Only indexes with
+            # no usable span move, the measured anchors either side stay exactly where the audio
+            # put them, and the result is still strictly increasing. Where there is no later
+            # anchor the scene's end closes the run, which is what the backward pass then caps.
+            index = 1
+            while index < count:
+                if spans[index] and starts[index] >= starts[index - 1] + MIN_SHOT_SECONDS:
+                    index += 1
+                    continue
+                run_end = index
+                while run_end < count and not spans[run_end]:
+                    run_end += 1
+                # The first placeable boundary after the run: a measured anchor, or the scene end.
+                anchor = (starts[run_end] if run_end < count and spans[run_end]
+                          else duration)
+                gap = anchor - starts[index - 1]
+                slots = run_end - index + 1
+                step = gap / slots if slots else 0.0
+                if step >= MIN_SHOT_SECONDS:
+                    for offset in range(index, run_end):
+                        starts[offset] = starts[index - 1] + step * (offset - index + 1)
+                        repaired_indexes.add(offset)
+                    index = run_end
+                    continue
+                index += 1
             for index in range(1, count):
                 floor = starts[index - 1] + MIN_SHOT_SECONDS
-                if not spans[index] or starts[index] < floor:
+                # `starts[index] < floor` ALONE. An unplaceable anchor already sits at -1.0,
+                # so it is caught by the comparison; testing `not spans[index]` as well
+                # re-pins the shots the spreading pass just placed -- their span is still
+                # absent, only their start changed -- and hands the scene straight back to
+                # the 1.5s pile-up this is meant to remove.
+                if starts[index] < floor:
                     starts[index] = floor
                     repaired_indexes.add(index)
             for index in range(count - 1, 0, -1):
