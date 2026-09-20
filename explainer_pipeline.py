@@ -3363,6 +3363,30 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
         beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
     if causal_lane:
+        # ONE BEAT, SEVERAL SCENES. A beat whose budget exceeds what one scene can be illustrated
+        # with becomes that many scene slots. Measured: the writer returns 4-6 visual states per
+        # SCENE almost regardless of its length, so one 89-word beat written as a single scene
+        # came back with 8.5 states and the same beat as three ~30-word scenes came back with 15.0.
+        # Scene count is the only lever that moves total states.
+        #
+        # AFTER the budgeter, not before: splitting needs a per-beat word count to know how many
+        # parts to make, and that count is what the budgeter produces. Dividing afterwards also
+        # keeps every beat where the mechanism deadline needs it, because parts inherit position.
+        #
+        # From here `beats` IS the slot list, so everything downstream -- batching, the
+        # scenes-per-batch guard, the budget subscript, the evidence-id fallback -- keeps working
+        # on a dense 1:1 list and needs no special case.
+        beats, causal_budgets = _compiler.split_beats_into_slots(beats, causal_budgets)
+        _parts = sum(1 for b in beats if int(b.get("beat_part") or 1) > 1)
+        if _parts:
+            n_scenes = len(beats)
+            print(f"[split] {len(beats) - _parts} beat(s) carried across {len(beats)} scenes "
+                  f"({_parts} continuation scene(s)); each part is a fresh ask for visual states.")
+        # A continuation must not re-mint its parent's evidence id, or the claim ledger joins two
+        # different narrations to one id. Cleared so the per-slot fallback makes a unique one.
+        for _slot in beats:
+            if int(_slot.get("beat_part") or 1) > 1:
+                _slot["evidence_id"] = ""
         # SAY IT BEFORE THE MONEY. beats x MAX_STATES_PER_SCENE x TARGET_VISUAL_STATE_SECONDS is the
         # longest runtime this plan can cut to cadence, and it is decidable here -- the beat count
         # and the runtime are both final. Measured: a 300s film came back with 8 beats, needing 98
@@ -3408,6 +3432,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "evidence_id": _s(beat.get("evidence_id")),
             # Present only on the causal lane; the storyboard reads these off the finished scene.
             **({"narration_words": causal_budgets[beat["n"]]} if causal_lane else {}),
+            # Which part of its beat this scene is. The writer still writes exactly one scene per
+            # row -- parts look like ordinary rows -- but a continuation must read as the next
+            # breath of the same thought, not a restatement of it. The measured difference between
+            # "carry it across three scenes" and three separate asks is the whole gain here.
+            **({"beat_part": int(beat.get("beat_part") or 1),
+                "beat_part_count": int(beat.get("beat_part_count") or 1),
+                "continues_previous": int(beat.get("beat_part") or 1) > 1}
+               if causal_lane and int(beat.get("beat_part_count") or 1) > 1 else {}),
             **({"causal_role": _s(beat.get("causal_role")),
                 "caused_by": beat.get("caused_by") or "",
                 "chapter": beat.get("chapter") or 0,
@@ -3492,9 +3524,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                f'{MASCOT_NAME} — {MASCOT_DESC}.')
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
-            + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned beat below into exactly ONE scene, '
-            'in order, dramatizing JUST that beat (one idea per scene; never restate a concept that '
-            'belongs to another beat). STATE-ONCE — repetition is the #1 score-killer: NO back-references '
+            + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned row below into exactly ONE scene, '
+            'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
+            'belongs to another row). '
+            # A row carrying continues_previous is the NEXT BREATH of the row before it, not a new
+            # idea and not a recap. Said plainly because the STATE-ONCE rule immediately below
+            # forbids back-references, and without this a continuation reads as an instruction to
+            # start something new -- which would waste the split and duplicate the beat.
+            'A row marked continues_previous carries straight on from the row before it in the same '
+            'breath: no recap, no restating what that row already said, no new claim -- just the next '
+            'stretch of the same thought, with its own fresh visual_beats. STATE-ONCE does not forbid '
+            'this, because it is one continuous passage broken into shots of screen time. STATE-ONCE — repetition is the #1 score-killer: NO back-references '
             '("as we saw", "as mentioned", "remember", "recall", "earlier", "this is why", "in other '
             'words"); do NOT restate the central answer or the hook premise in these scenes; a scene\'s '
             'opening words must NOT echo the previous scene\'s ending.'
@@ -3588,10 +3628,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # Two identities. scene_id is screen time, beat_id is the factual/causal claim, and
                 # `continues` names the preceding part when one beat spans several scenes. Part 0
                 # mints exactly what the old arithmetic did, so this is inert until a beat splits.
+                # Part bookkeeping comes from the SLOT, not from the scene the model returned --
+                # the model is never told it is writing a part and has no such field. Reading it
+                # off `s` left part_index at 0 for every scene, so `continues` was never set and
+                # every continuation still looked like a second assertion of its role.
                 s.update(_compiler.scene_identities(
                     beat, s["story_beat_n"],
-                    part_index=int(s.get("beat_part", 1) or 1) - 1,
-                    part_count=int(s.get("beat_part_count", 1) or 1)))
+                    part_index=int(beat.get("beat_part", 1) or 1) - 1,
+                    part_count=int(beat.get("beat_part_count", 1) or 1)))
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
                 # Carried from the plan rather than re-derived. The event is what the narration was
@@ -3607,16 +3651,35 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                             "_story_compiler_version", "presentation_device", "context_refs"):
                     if key in beat:
                         s[key] = copy.deepcopy(beat[key])
-                parent = beat.get("caused_by")
-                parent_ids = {b.get("beat_id"): b["n"] for b in beats if b.get("beat_id")}
-                if parent in parent_ids:
-                    parent = parent_ids[parent]
+                if s["continues"]:
+                    # A continuation follows the part before it. That is the true causal statement
+                    # and the only one that keeps the chain strictly forward: inheriting the
+                    # parent beat's caused_by would point every part at the same earlier scene,
+                    # and _check_chain would see a step caused by something that is not adjacent.
+                    # It also satisfies ORPHAN_STEP, which a setup continuation needs precisely
+                    # because CAUSED_SETUP no longer applies to it.
+                    # The preceding part shares this beat's base number and carries one fewer
+                    # suffix. Derived from the SLOT's part index, not the scene's, for the same
+                    # reason the identities are.
+                    _part = int(beat.get("beat_part", 1) or 1)
+                    s["caused_by"] = _compiler.part_identity(
+                        f"scene_{int(s['story_beat_n']) - _part + 1:03d}", _part - 2)
                 else:
-                    try:
-                        parent = int(parent)
-                    except (TypeError, ValueError):
-                        parent = 0
-                s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
+                    parent = beat.get("caused_by")
+                    # Resolve against ASSERTING slots only. Continuation slots carry their parent's
+                    # beat_id suffixed, but an inherited caused_by names the unsuffixed id, and a
+                    # dict built over every slot would let a later part overwrite the entry and
+                    # silently retarget every edge to the LAST part of that beat.
+                    parent_ids = {b.get("beat_id"): b["n"] for b in beats
+                                  if b.get("beat_id") and int(b.get("beat_part") or 1) == 1}
+                    if parent in parent_ids:
+                        parent = parent_ids[parent]
+                    else:
+                        try:
+                            parent = int(parent)
+                        except (TypeError, ValueError):
+                            parent = 0
+                    s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",

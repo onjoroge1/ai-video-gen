@@ -35,18 +35,34 @@ def test_the_legacy_beat_id_fallback_is_preserved():
     assert sc.scene_identities({}, 6)["beat_id"] == "beat_06"
 
 
+def _parts(first_n=6, count=3):
+    """Parts as the pipeline builds them: consecutive slot numbers, one call each.
+
+    Slots are renumbered densely before identities are minted, so part k of a beat starting at
+    slot 6 is slot 6+k. Passing the same n for every part -- as an earlier version of this file
+    did -- tests a call the pipeline never makes.
+    """
+    return [sc.scene_identities(BEAT, first_n + i, part_index=i, part_count=count)
+            for i in range(count)]
+
+
 def test_every_part_of_a_split_beat_gets_its_own_scene_and_beat_id():
     """Unique ids are what keep _check_chain from collapsing edges onto the last copy."""
-    ids = [sc.scene_identities(BEAT, 6, part_index=i, part_count=3) for i in range(3)]
+    ids = _parts()
     assert [x["scene_id"] for x in ids] == ["scene_006", "scene_006b", "scene_006c"]
     assert [x["beat_id"] for x in ids] == ["event_08", "event_08b", "event_08c"]
     assert len({x["scene_id"] for x in ids}) == 3
     assert len({x["beat_id"] for x in ids}) == 3
 
 
+def test_all_parts_of_one_beat_share_a_scene_number():
+    """scene_005 / 005b / 005c, not 005 / 006b / 007c -- the parts read as one beat."""
+    assert [x["scene_id"] for x in _parts()] == ["scene_006", "scene_006b", "scene_006c"]
+
+
 def test_continues_chains_each_part_to_the_one_before_it():
     """Part-to-part and strictly forward, which is also the true causal statement."""
-    ids = [sc.scene_identities(BEAT, 6, part_index=i, part_count=3) for i in range(3)]
+    ids = _parts()
     assert ids[0]["continues"] == ""
     assert ids[1]["continues"] == "event_08"
     assert ids[2]["continues"] == "event_08b"
@@ -54,7 +70,7 @@ def test_continues_chains_each_part_to_the_one_before_it():
 
 def test_exactly_one_part_asserts_the_beat():
     """The property every role-uniqueness rule needs: a continuation is not a second mechanism."""
-    steps = [sc.scene_identities(BEAT, 6, part_index=i, part_count=3) for i in range(3)]
+    steps = _parts()
     for step in steps:
         step["role"] = "mechanism"
     asserting = sc.asserting_steps(steps)

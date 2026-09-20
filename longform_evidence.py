@@ -471,7 +471,8 @@ def state_capacity(scene: dict, seconds: float | None = None) -> int:
     return max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
 
 
-def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> list:
+def _states_that_fit(beats: list, scene: dict, seconds: float | None = None,
+                     reserve: int = 0) -> list:
     """Trim a scene's beats to the number its RUNTIME can hold.
 
     Each state is held for scene_duration / state_count, and both ends are bounded: shorter than
@@ -507,7 +508,12 @@ def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> 
     # A scene too short for two states IS too short, and opening_state_count says so honestly.
     # The fixture was unrealistic -- real long-form scenes run 25-30 words -- and distorting
     # production arithmetic to satisfy it was the wrong way round.
-    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    # `reserve` is screen time already promised to a state this function never sees. The callback
+    # is appended to its scene AFTER this trim, so without the reservation the scene ends up at
+    # capacity+1 and compile_scene_shots raises "cannot fit without sub-minimum cuts". Measured on
+    # a 7.48s scene: capacity 4, plus the callback is 5, and 7.48/5 = 1.496 against a 1.5s floor.
+    # It never bit while scenes ran 40s; it bites as soon as a beat is split into short parts.
+    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS) - max(0, int(reserve or 0)))
     fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
@@ -619,6 +625,8 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
     repairs: list[dict] = []
+    # Known before the loop so the scene that will receive it can budget for it.
+    reserved_for_callback = int(pack.get("callback", {}).get("scene_index", -1))
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
@@ -626,7 +634,8 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
             for state_index, beat in enumerate(
-                _states_that_fit(beats, scene, measured.get(scene_index)))
+                _states_that_fit(beats, scene, measured.get(scene_index),
+                                 reserve=1 if scene_index == reserved_for_callback else 0))
         ]
         repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         scene_plans.append({

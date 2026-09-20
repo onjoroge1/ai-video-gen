@@ -12,6 +12,7 @@ reversal is a comparison between the world before and the world the exploit prod
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 import re
 import json
 import event_functions as ef
@@ -214,7 +215,11 @@ def scene_identities(beat: dict, story_beat_n: int, part_index: int = 0,
     part's beat_id, so the chain a validator walks is part-to-part and strictly forward -- which is
     also the true causal statement: part two follows part one because part one just happened.
     """
-    base_scene = f"scene_{int(story_beat_n):03d}"
+    # All parts of one beat share the FIRST part's number, so they read as scene_005 / 005b / 005c
+    # rather than 005 / 006b / 007c. Slots are dense and consecutive, so the first part's number is
+    # this slot's number less however many parts precede it. Part 0 subtracts nothing, which is
+    # what keeps an unsplit run minting exactly the ids it always did.
+    base_scene = f"scene_{int(story_beat_n) - max(0, int(part_index or 0)):03d}"
     base_beat = sfm._text(beat.get("beat_id")) or f"beat_{int(story_beat_n):02d}"
     index = max(0, int(part_index or 0))
     return {
@@ -224,6 +229,49 @@ def scene_identities(beat: dict, story_beat_n: int, part_index: int = 0,
         "beat_part": index + 1,
         "beat_part_count": max(1, int(part_count or 1)),
     }
+
+
+def split_beats_into_slots(beats: list, budgets: dict) -> tuple:
+    """Expand each beat into as many scene slots as its word budget needs, and re-key the budgets.
+
+    THE MEASUREMENT THIS EXISTS FOR. The writer returns 4-6 visual states per SCENE almost
+    regardless of how long the scene is. One 89-word beat written as a single scene came back with
+    8.5 states averaged over two samples; the same beat written as three ~30-word scenes came back
+    with 15.0 -- 1.76x, consistent across samples. Across four delivered films the per-scene counts
+    were never above 9 and uncorrelated with the ask past 7. So scene count is the only lever that
+    moves total states, and every other lever tried -- target cadence, scene length, event count,
+    repeatable roles, commissioned runtime -- moved the beat count around without moving states.
+
+    ORDER MATTERS. Budgets are computed on the ORIGINAL beats and then divided, rather than the
+    beats being split first and budgeted after. Splitting first needs a per-beat word count to know
+    how many parts to make, and that count is what the budgeter produces -- the circularity is why
+    this runs second. Dividing afterwards is also what keeps the mechanism where the deadline needs
+    it: parts inherit their parent's position, so no beat moves.
+
+    Each slot gets a whole share of the parent's words, with the remainder going to the first part
+    because that is the one carrying the beat's assertion. Slot `n` values are renumbered densely,
+    so the evidence-id fallback that mints from the beat number stays unique.
+    """
+    from longform_research import illustratable_beat_words
+    ceiling = max(1, illustratable_beat_words())
+    slots, out_budgets = [], {}
+    for beat in beats or []:
+        words = int(budgets.get(beat.get("n"), 0) or 0)
+        parts = max(1, math.ceil(words / ceiling)) if words else 1
+        if parts > len(PART_SUFFIXES) + 1:
+            parts = len(PART_SUFFIXES) + 1
+        base, extra = divmod(words, parts)
+        for index in range(parts):
+            slot = deepcopy(beat)
+            slot["n"] = len(slots) + 1
+            slot["beat_part"] = index + 1
+            slot["beat_part_count"] = parts
+            # The parent's identity, so scene_identities can suffix it consistently and every
+            # downstream reader can tell which scenes are one beat.
+            slot["_parent_beat_id"] = sfm._text(beat.get("beat_id"))
+            out_budgets[slot["n"]] = base + (extra if index == 0 else 0)
+            slots.append(slot)
+    return slots, out_budgets
 
 
 def asserting_steps(steps: list) -> list:
