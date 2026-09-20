@@ -83,3 +83,36 @@ def test_the_check_runs_before_the_image_loop():
     preflight = source.index("_preflight_verifier_credit(")
     images = source.index('img_dir = os.path.join(output_dir, "images")')
     assert preflight < images, "the preflight must precede the image directory being prepared"
+
+
+def test_the_check_runs_once_per_scene_not_only_once_per_run():
+    """A 95-state render spends for half an hour after the opening preflight passes.
+
+    Measured: a run cleared the preflight and exhausted the balance 1601 seconds later, partway
+    through its states. Checking per scene cannot PREDICT exhaustion -- the API exposes no balance,
+    only a 400 once it is gone -- but it changes the order of discovery, failing before a scene's
+    images are generated rather than after.
+    """
+    import inspect
+    source = inspect.getsource(ep.run_explainer_pipeline)
+    assert source.count("_preflight_verifier_credit(") >= 2, \
+        "expected an opening preflight AND a per-scene check"
+    assert "_preflight_verifier_credit(log, scene_index=i)" in source
+
+
+def test_an_exhausted_balance_mid_run_says_how_far_it_got(monkeypatch):
+    """The operator needs to know whether to top up a little or a lot, and what survived."""
+    _install(monkeypatch, _Boom(RuntimeError(
+        "Error code: 400 - {'message': 'Your credit balance is too low.'}")))
+    with pytest.raises(RuntimeError) as caught:
+        ep._preflight_verifier_credit(log=lambda *_: None, scene_index=14)
+    message = str(caught.value)
+    assert "after 14 scene(s)" in message
+    assert "cached" in message
+
+
+def test_the_opening_preflight_still_reads_as_before_any_spend(monkeypatch):
+    _install(monkeypatch, _Boom(RuntimeError("credit balance is too low")))
+    with pytest.raises(RuntimeError) as caught:
+        ep._preflight_verifier_credit(log=lambda *_: None)
+    assert "before any image was bought" in str(caught.value)

@@ -7042,7 +7042,7 @@ def _render_first_minute_preview(
     return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
 
 
-def _preflight_verifier_credit(log=print) -> None:
+def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> None:
     """One cheap call to prove the evidence verifier can answer, BEFORE buying images.
 
     Images come from OpenAI and the verifier that judges them comes from Anthropic, so the two
@@ -7064,10 +7064,12 @@ def _preflight_verifier_credit(log=print) -> None:
     except Exception as exc:
         detail = str(exc)
         if "credit balance is too low" in detail or "insufficient" in detail.lower():
+            where = ("before any image was bought" if scene_index is None else
+                     f"after {scene_index} scene(s) of images were bought and verified")
             raise RuntimeError(
-                "Evidence verification is unavailable before any image was bought: the Anthropic "
-                "balance is too low. Images would be generated and none could be confirmed to "
-                "show what it claims. Top up and re-run; the research and script are cached."
+                f"Evidence verification is unavailable {where}: the Anthropic balance is too low. "
+                "Further images would be generated and none could be confirmed to show what it "
+                "claims. Top up and re-run; the research and script are cached."
             ) from exc
         # Any other failure here is not necessarily fatal -- a transient network blip should not
         # stop a run that has already paid for its script. Report and continue; the per-asset
@@ -10777,6 +10779,15 @@ def run_explainer_pipeline(
 
     def _gen_evidence_assets(i: int, scene: dict, img_path: str, aud_path: str) -> dict:
         """Generate every declared state; failures stay rejected and cannot become a master crop."""
+        # Once per scene, not once per run. The single preflight proves the verifier can answer at
+        # the START, and a 95-state render then spends for half an hour -- measured, a run passed
+        # the preflight and exhausted the balance 1601 seconds later, partway through the states.
+        #
+        # This cannot PREDICT exhaustion: the API exposes no balance, only a 400 when it is gone.
+        # What it buys is the ORDER of discovery. Checking here fails before this scene's four or
+        # five images are generated, rather than after; per-state verification would otherwise find
+        # it one image later. A few images a run, and a message that says how far the run got.
+        _preflight_verifier_credit(log, scene_index=i)
         scene_plan = (evidence_plan.get("scenes") or [])[i]
         states = scene_plan.get("states") or []
         generated_paths: dict[str, str] = {}
