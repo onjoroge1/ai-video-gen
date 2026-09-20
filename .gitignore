@@ -38,3 +38,9 @@ static/music/
 # a committed draft beside it is a stale duplicate that reads as authoritative.
 references/*.draft.json
 references/transcripts/*.wav
+
+# Cloud-sync duplicates ("file 2.py"). Six were committed by a `git add -A` and shipped 723 lines
+# of exact copies into a PR; pytest also collected one and double-counted its failures.
+*\ [0-9].py
+*\ [0-9].md
+*\ [0-9].txt
