@@ -7051,7 +7051,35 @@ def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[d
         )
         if cost_sink is not None:
             cost_sink.append(_msg_cost(response.usage))
-        result, repair_cost = _parse_script_json(response.content[0].text)
+        # An empty content list is not a judgement, and `content[0]` turns it into a bare
+        # IndexError that costs the ENTIRE automated grade. Measured: one run came back UNSCORED
+        # with automated_grade_available False and blind_rendered_story_judge listed in
+        # unavailable_components -- from a 15-frame contact sheet of 0.4MB, so nothing about the
+        # image was unusual and nothing about the film was judged. Retry once, then say what
+        # happened instead of raising an index error from the middle of a response parser.
+        blocks = [block for block in (response.content or [])
+                  if getattr(block, "type", "text") == "text" and _s(getattr(block, "text", ""))]
+        if not blocks:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=1400,
+                system=("You are a blind sequential story editor. Judge only the supplied encoded "
+                        "frames and spoken narration. Never infer an intended story or reward "
+                        "production metadata. If a fact is not recoverable, mark it false."),
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": encoded}},
+                    {"type": "text", "text": blind_story_prompt(transcript_cues)},
+                ]}],
+            )
+            if cost_sink is not None:
+                cost_sink.append(_msg_cost(response.usage))
+            blocks = [block for block in (response.content or [])
+                      if getattr(block, "type", "text") == "text"
+                      and _s(getattr(block, "text", ""))]
+        if not blocks:
+            raise ValueError("blind rendered-story judge returned no content twice "
+                             f"(stop_reason={getattr(response, 'stop_reason', 'unknown')})")
+        result, repair_cost = _parse_script_json(blocks[0].text)
         if cost_sink is not None and repair_cost:
             cost_sink.append(repair_cost)
         if not isinstance(result, dict):

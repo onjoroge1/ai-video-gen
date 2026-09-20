@@ -666,8 +666,20 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
             expected_bolt += 1
         if state.get("pure_evidence") and verification.get("bolt_present") is True:
             pure_bolt_violations += 1
-        for field in ("human_identity_matches", "clothing_matches", "location_matches",
-                      "opening_object_matches"):
+        # human_identity_matches and clothing_matches compare the drawn figure against the
+        # continuity pack's recurring human. A cast-free lane HAS no recurring human -- the pack
+        # still carries Alex's block, but the prompt forbids drawing him and every scene is written
+        # with anonymous period figures. Asking whether an anonymous 1930s farmer "matches Alex"
+        # has no true answer, and a False there became broken_continuity, a hard failure, on a
+        # film whose entire cast is anonymous by contract. Same shape as bolt_absent.
+        #
+        # location and opening_object are NOT cast-dependent and still apply: a lane without a
+        # recurring human still has a recurring place and a callback object.
+        cast_free = _text((evidence_plan.get("continuity_pack") or {}).get("cast")) == "none"
+        fields = ("location_matches", "opening_object_matches") if cast_free else (
+            "human_identity_matches", "clothing_matches", "location_matches",
+            "opening_object_matches")
+        for field in fields:
             if verification.get(field) is False:
                 continuity_failures.append({"state_id": state.get("state_id"), "field": field})
     avg_state = sum(durations) / len(durations) if durations else 999.0
