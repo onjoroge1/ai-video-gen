@@ -10306,10 +10306,19 @@ def run_explainer_pipeline(
         storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
         with open(storyboard_path, "w", encoding="utf-8") as handle:
             json.dump(storyboard, handle, indent=2, ensure_ascii=False)
+        # A storyboard "beat" is one SCENE. Since a story beat can be carried across several
+        # scenes, these stopped being the same number: a delivered film had 13 story beats across
+        # 22 scenes and the library recorded beat_count 22, overstating the story by 69%.
+        # Both are worth knowing -- the story's size and the edit's size -- so both are recorded
+        # and neither is inferred from the other.
+        _scene_rows = storyboard.get("beats") or []
         generation_manifest["illustrated_story"] = {
             "schema_version": storyboard.get("schema_version"),
             "storyboard_file": os.path.basename(storyboard_path),
-            "beat_count": len(storyboard.get("beats") or []),
+            "scene_count": len(_scene_rows),
+            "beat_count": len({_s(row.get("beat_id") or row.get("scene_id"))
+                               for row in _scene_rows
+                               if not _s(row.get("continues"))}) or len(_scene_rows),
             "location_count": len((storyboard.get("visual_bible") or {}).get("locations") or []),
         }
         _write_generation_manifest(generation_manifest_path, generation_manifest)

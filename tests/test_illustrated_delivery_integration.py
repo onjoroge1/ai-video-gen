@@ -454,6 +454,22 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
             assert record['metadata']['actual_cost'] == pytest.approx(store.job['spent_cost_usd'])
             assert record['metadata']['scene_count'] == scene_count
             assert record['metadata']['visual_style'] == 'illustrated_story'
+            # THE LANE LABEL, which is what /finished groups and filters on. visual_style above is
+            # the pipeline's input; `format` is what finished_library_format decided, and only this
+            # one puts the row in the illustrated lane rather than the generic explainer bucket.
+            # The unit test pins the function; without this the END-TO-END path could stop routing
+            # through it and every delivered film would quietly land in "Other".
+            assert record['metadata']['format'] == 'illustrated-story'
+            # Lane facts the library shows without opening the MP4. Absent stays absent, so these
+            # are asserted as present-and-sane rather than equal to a fixture constant.
+            meta = record['metadata']
+            assert meta.get('creative_lane') == 'illustrated_story_v1'
+            assert meta.get('story_engine')
+            assert isinstance(meta.get('storyboard_validated'), bool)
+            # Story beats and rendered scenes are different numbers once a beat spans scenes, and
+            # the library must not report the edit's size as the story's.
+            if meta.get('scene_count_rendered'):
+                assert meta['beat_count'] <= meta['scene_count_rendered']
             assert {'video', 'storyboard', 'claims', 'research', 'timing',
                     'generation-manifest'} <= record['artifacts'].keys()
             delivered = await client.get(f'/api/finished/{job_id}/artifact/video?download=true')

@@ -443,7 +443,13 @@ def _illustrated_library_fields(result: dict, visual_style: str) -> dict:
         "creative_profile": manifest.get("creative_profile"),
         "story_engine": storyboard.get("story_engine") or None,
         "chapter_count": storyboard.get("chapter_count"),
-        "beat_count": lane.get("beat_count") or len(storyboard.get("beats") or []) or None,
+        # Story beats and rendered scenes are different numbers since a beat can span several
+        # scenes. The fallback counts asserting rows rather than all of them, so an older manifest
+        # without the split still reports the story's size and not the edit's.
+        "beat_count": lane.get("beat_count") or len([
+            row for row in (storyboard.get("beats") or [])
+            if not str(row.get("continues") or "").strip()]) or None,
+        "scene_count_rendered": lane.get("scene_count") or len(storyboard.get("beats") or []) or None,
         "location_count": lane.get("location_count") or None,
         "storyboard_validated": validation.get("passed"),
         "music_status": music.get("status") or ("ready" if music.get("spec") else None),
