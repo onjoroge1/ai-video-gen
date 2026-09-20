@@ -46,8 +46,41 @@ def _repeatable_functions(mapping) -> tuple:
                  if mapping.role_for(name) in cs._REPEATABLE)
 
 
+def _early_attention_functions(mapping) -> tuple:
+    """Optional functions whose role RE-EARNS ATTENTION, which the required set may not supply.
+
+    longform_retention counts {false_resolution, hinge, escalation, reversal, closing} as the beats
+    that re-earn a viewer's attention, and scores the longest gap between them. Some engines get one
+    early for free -- backfiring_solution REQUIRES apparent_success, a false_resolution in third
+    position. removed_keystone does not: its required five are setup, intervention, mechanism,
+    escalation, reversal, so the first attention beat it can possibly have is the escalation, fourth.
+    """
+    import causal_story as cs
+    attention = {cs.FALSE_RESOLUTION, cs.HINGE, cs.ESCALATION, cs.REVERSAL, *cs.CLOSING_ROLES}
+    return tuple(name for name in mapping.to_role
+                 if name not in mapping.required and mapping.role_for(name) in attention)
+
+
 def _repeat_to_reach_count(mapping, duration) -> str:
-    """Name the repeatable functions and how many extra events they have to carry."""
+    """How to reach the event count: variety first, then the functions that may recur.
+
+    THE OVERCORRECTION THIS FIXES. The first version of this clause named only the repeatable
+    functions, and the planner did exactly as told. Measured on a delivered 348s film, the spine
+    came back as
+
+        setup setup intervention intervention mechanism mechanism
+        escalation x16 reversal reversal generalization generalization
+
+    -- sixteen consecutive escalations, and `intended_effect` never used at all. Two costs. The
+    shape is monotonous: after the mechanism the story just gets worse sixteen times. And the film
+    ran 83.3 seconds before its first attention beat, because the one optional role that could have
+    supplied an earlier one was never asked for.
+
+    An engine's optional attention roles come first, one each, before the count is topped up with
+    repeats. For removed_keystone that is `intended_effect` -- the plan appearing to work before the
+    mechanism explains why it could not -- which is both the missing early attention beat and the
+    beat that makes the reversal land.
+    """
     repeatable = _repeatable_functions(mapping)
     if not repeatable:
         return ""
@@ -55,14 +88,24 @@ def _repeat_to_reach_count(mapping, duration) -> str:
     extra = max(0, wanted - len(mapping.required))
     if not extra:
         return ""
+    early = _early_attention_functions(mapping)[:extra]
+    variety = (
+        f'FIRST, spend {len(early)} of them on {", ".join(early)} -- once each, in engine order. '
+        'These are not optional decoration: they are the beats that re-earn attention, and without '
+        'them the film runs minutes on explanation before anything turns. '
+        if early else "")
+    remaining = extra - len(early)
+    repeats = (
+        f'{"THEN supply" if early else "Supply"} {remaining} further '
+        f'{"event" if remaining == 1 else "events"} using the only functions that may recur: '
+        f'{", ".join(repeatable)}. Each must be a distinct sourced step in the compounding -- a '
+        'further reach, a further scale, a further cost -- in the order it happened. '
+        if remaining > 0 else "")
     return (
         f'Every required function above appears EXACTLY ONCE, so {len(mapping.required)} of those '
-        f'{wanted} events are already spoken for and the remaining {extra} must come from the only '
-        f'functions that may recur: {", ".join(repeatable)}. Supply {extra} further '
-        f'{"event" if extra == 1 else "events"} using them, each a distinct sourced step in the '
-        'compounding -- a further reach, a further scale, a further cost -- in the order it '
-        'happened. Do not reach the count with `context` events: an unsupported context event is '
-        'pruned later, and the scenes that remain absorb its time.\n')
+        f'{wanted} events are already spoken for and {extra} remain. ' + variety + repeats +
+        'Do not reach the count with `context` events: an unsupported context event is pruned '
+        'later, and the scenes that remain absorb its time.\n')
 
 
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):

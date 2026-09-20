@@ -152,3 +152,47 @@ def test_the_designed_engines_are_unchanged():
         spec = sc.score_spec("t", engine, 120.0)
         assert spec["mood"] == mood and spec["mode"] == mode
         assert abs(spec["tempo_bpm"] - tempo) <= 3, "only the theme jitter may move the tempo"
+
+
+# ── the long-tail redistribution must not eat measured anchors ───────────────────────────────
+
+def _long_tail_fires(holds, spans, duration, count):
+    """The #118 collapse-shape test, with the discriminator this adds."""
+    from longform_evidence import MAX_VISUAL_STATE_SECONDS
+    long_index = holds.index(max(holds)) if holds else -1
+    unexplained = long_index >= 0 and (long_index == count - 1 or not spans[long_index])
+    return bool(holds) and unexplained and max(holds) > max(
+        MAX_VISUAL_STATE_SECONDS, 2.0 * duration / count) + 1e-9
+
+
+def test_a_long_first_clause_is_not_a_collapse():
+    """The measured mis-fire. vb1 sits at 0.0 and vb2 starts at the second clause, so the first
+    gap is long by construction -- scene 1 of a delivered film had 13.52s against a 8.24s
+    threshold, with every anchor resolved. Re-spacing it discarded correct timing and cost
+    narration alignment four points short of scoring."""
+    holds = [13.52, 1.20, 4.30, 1.58]
+    spans = [True, True, True, True]
+    assert not _long_tail_fires(holds, spans, 20.6, 5)
+
+
+def test_the_collapse_shape_still_redistributes():
+    """[1.5, 1.5, 43.08] -- the shape #118 exists for. The long shot has no anchor of its own; it
+    absorbed what the dropped states could not take."""
+    holds = [1.5, 1.5, 43.08]
+    spans = [True, False, False]
+    assert _long_tail_fires(holds, spans, 46.08, 3)
+
+
+def test_a_long_hold_between_two_measured_anchors_is_left_alone():
+    """Where the narration put the pictures is not a defect this pass may overrule."""
+    holds = [2.0, 9.0, 2.0]
+    spans = [True, True, True]
+    assert not _long_tail_fires(holds, spans, 13.0, 3)
+
+
+def test_a_long_FINAL_hold_is_a_collapse_even_with_a_resolved_anchor():
+    """Nothing measures where the last shot should stop. When the words run out 40 seconds before
+    the audio does, the tail is unexplained however well its own anchor resolved."""
+    holds = [2.0, 1.5, 42.58]
+    spans = [True, True, True]
+    assert _long_tail_fires(holds, spans, 46.08, 3)

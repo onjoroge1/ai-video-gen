@@ -354,7 +354,35 @@ def compile_scene_shots(
             # gate must report that separate defect. This fallback is only for the collapse shape:
             # one neighbour inherits more than twice the scene's even share. That can happen after
             # states are dropped even when every surviving anchor is individually valid.
-            has_long_tail = bool(holds) and max(holds) > max(
+            #
+            # AND ONLY WHERE THE LONG HOLD IS UNEXPLAINED. A hold is the collapse shape when the
+            # shot carrying it had no anchor of its own and simply absorbed what its neighbours
+            # could not take. A hold between two MEASURED anchors is not a collapse -- it is where
+            # the narration actually put the pictures, and re-spacing it discards correct timing.
+            #
+            # Measured on a delivered 348s film: four scenes were re-spaced and every one of them
+            # had resolved all its anchors. They tripped on their FIRST gap, which is long by
+            # construction -- the opening visual covers the opening sentence, so vb1 sits at 0.0
+            # and vb2 starts wherever the second clause does:
+            #
+            #   scene  1  first gap 13.52s vs threshold 8.24s
+            #   scene 13  first gap  7.92s vs threshold 7.10s
+            #   scene 16  first gap  6.14s vs threshold 6.00s
+            #
+            # audio_timing had resolved all 94 anchors in that film, 85 exactly. Seventeen shots
+            # still reported even_fallback, and narration alignment sat at 71% -- four points short
+            # of scoring -- because this discarded them.
+            # A hold is EXPLAINED when both its ends are measured. Two cases are not:
+            #   * the shot's own anchor never resolved, so it was pinned and absorbed the slack;
+            #   * it is the LAST shot, whose hold runs to the scene end with nothing measuring
+            #     where it should stop -- the [1.5, 1.5, 43.08] shape, where the words ran out
+            #     40 seconds before the audio did.
+            # An interior hold between two resolved anchors is where the narration put the
+            # pictures, and this pass may not overrule it.
+            long_index = holds.index(max(holds)) if holds else -1
+            unexplained = long_index >= 0 and (
+                long_index == count - 1 or not spans[long_index])
+            has_long_tail = bool(holds) and unexplained and max(holds) > max(
                 MAX_VISUAL_STATE_SECONDS, 2.0 * duration / count) + 1e-9
             if has_long_tail:
                 timing_degraded = True

@@ -172,3 +172,41 @@ def test_a_non_material_claim_may_permit_exaggeration():
     out = lr.quarantine_contradicted_claims(
         {"claims": [_claim("c01", material=False, allowed_exaggeration=True)]})
     assert [c["claim_id"] for c in out["claims"]] == ["c01"]
+
+
+def test_optional_attention_roles_are_spent_before_repeats():
+    """The overcorrection the first version of this clause caused.
+
+    Naming only the repeatable functions produced a delivered spine of
+    setup/setup/intervention/intervention/mechanism/mechanism + escalation x16 + reversal x2 +
+    generalization x2 -- sixteen consecutive escalations, `intended_effect` never used, and 83.3
+    seconds before the first attention beat. The one optional role that could have supplied an
+    earlier one was never asked for.
+    """
+    mapping = ef.map_for("removed_keystone")
+    assert sc._early_attention_functions(mapping) == ("intended_effect",)
+    clause = sc._repeat_to_reach_count(mapping, 300)
+    assert "FIRST" in clause and "intended_effect" in clause
+    # And the repeats still happen, for the remainder.
+    assert "THEN supply" in clause
+
+
+def test_an_engine_whose_required_set_already_turns_early_is_unchanged():
+    """backfiring_solution REQUIRES apparent_success, a false_resolution in third position, so it
+    never had this problem and must not be given busywork."""
+    mapping = ef.map_for("backfiring_solution")
+    assert sc._early_attention_functions(mapping) == ()
+    clause = sc._repeat_to_reach_count(mapping, 300)
+    assert "FIRST" not in clause
+    assert clause.startswith("Every required function")
+
+
+def test_early_attention_functions_are_derived_from_the_retention_vocabulary():
+    """Not a hand-written list: what re-earns attention is longform_retention's definition."""
+    import causal_story as cs
+    attention = {cs.FALSE_RESOLUTION, cs.HINGE, cs.ESCALATION, cs.REVERSAL, *cs.CLOSING_ROLES}
+    for engine_id in ("removed_keystone", "backfiring_solution"):
+        mapping = ef.map_for(engine_id)
+        for name in sc._early_attention_functions(mapping):
+            assert name not in mapping.required, "required roles are already guaranteed"
+            assert mapping.role_for(name) in attention
