@@ -35,7 +35,10 @@ class _Fine:
 
 
 def _install(monkeypatch, messages):
-    monkeypatch.setattr(ep, "_claude",
+    # The probe deliberately does NOT go through _claude(): a durable worker wraps that client and
+    # would replay an identical request from the ledger, so the check would pass forever off the
+    # first scene's cached answer. Patch the unwrapped seam it actually uses.
+    monkeypatch.setattr(ep, "_verifier_probe_client",
                         lambda: type("C", (), {"messages": messages})())
     return messages
 
@@ -116,3 +119,26 @@ def test_the_opening_preflight_still_reads_as_before_any_spend(monkeypatch):
     with pytest.raises(RuntimeError) as caught:
         ep._preflight_verifier_credit(log=lambda *_: None)
     assert "before any image was bought" in str(caught.value)
+
+
+def test_the_probe_does_not_use_the_durable_wrapped_client(monkeypatch):
+    """A wrapped client replays an identical request, so the probe would go stale after scene 1.
+
+    Measured shape of the bug: _claude() returns runtime.wrap_anthropic(client) inside a worker,
+    and every per-scene probe sends the same one-token request -- so scenes 2..N would all replay
+    the first scene's cached "ok" and never learn the balance had gone.
+    """
+    import ast, inspect, textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(ep._preflight_verifier_credit)))
+    # Executable calls only. The docstring names _claude() to explain why it is NOT used, so a
+    # substring search over the source matches the explanation and not the behaviour.
+    called = {node.func.id for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert "_verifier_probe_client" in called
+    assert "_claude" not in called, "the probe must not use the durable-wrapped client"
+    calls = []
+    monkeypatch.setattr(ep, "_claude", lambda: calls.append(1))
+    monkeypatch.setattr(ep, "_verifier_probe_client",
+                        lambda: type("C", (), {"messages": _Fine()})())
+    ep._preflight_verifier_credit(log=lambda *_: None, scene_index=3)
+    assert calls == [], "_claude was called; the probe would be memoized in a durable worker"

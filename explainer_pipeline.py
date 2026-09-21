@@ -7042,6 +7042,21 @@ def _render_first_minute_preview(
     return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
 
 
+def _verifier_probe_client():
+    """An UNWRAPPED Anthropic client, for liveness only.
+
+    _claude() returns a durable-wrapped client inside a worker, and the wrapper replays an
+    identical request from the ledger rather than calling the provider. That is right for a paid
+    stage and wrong for a probe: wrapped, every scene after the first would replay the first
+    scene's cached "ok" and the check would pass forever, including after the balance had gone.
+
+    Short timeout and no retries -- a probe that hangs or retries costs more than it saves, and a
+    slow answer is not the failure it is looking for.
+    """
+    return anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"], timeout=30.0, max_retries=0)
+
+
 def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> None:
     """One cheap call to prove the evidence verifier can answer, BEFORE buying images.
 
@@ -7059,8 +7074,14 @@ def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> Non
     spends dollars on pictures nobody can check.
     """
     try:
-        _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=1,
-                                  messages=[{"role": "user", "content": "ok"}])
+        # The RAW client, not _claude(). A durable worker wraps the client so an identical request
+        # replays from the ledger instead of hitting the provider -- which is exactly right for a
+        # paid stage and exactly wrong for a liveness probe. Wrapped, every scene after the first
+        # would replay the first scene's cached "ok" and the check would pass forever, including
+        # after the balance had gone. This is not a stage and must not be journalled.
+        _verifier_probe_client().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=1,
+            messages=[{"role": "user", "content": "ok"}])
     except Exception as exc:
         detail = str(exc)
         if "credit balance is too low" in detail or "insufficient" in detail.lower():
