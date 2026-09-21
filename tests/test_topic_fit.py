@@ -253,14 +253,20 @@ def test_the_ui_fallback_chips_are_on_brand():
     page = Path("static/index.html").read_text(encoding="utf-8")
     catalogue = tf.editorial_catalogue()
     world, history = catalogue['channels']
-    assert len(world['topics']) == 4 and len(history['topics']) == 3
+    assert len(world['topics']) == 10 and len(history['topics']) == 32
     assert all(t['topic_channel'] == 'world' for t in world['topics'])
     assert all(t['topic_channel'] == 'history' for t in history['topics'])
     assert all(t['status'] == 'research_candidate' for c in catalogue['channels'] for t in c['topics'])
     assert 'Hanoi' in world['topics'][0]['question']
     assert 'Aral Sea' in history['topics'][0]['question']
+    assert any('Yellowstone' in t['question'] for t in world['topics'])
+    assert any('starlings' in t['question'] for t in world['topics'])
+    assert any('redlining' in t['question'] for t in history['topics'])
+    assert any('Tuskegee' in t['question'] for t in history['topics'])
+    assert any('Flint' in t['question'] for t in history['topics'])
     assert not any('sparrow' in t['question'].lower() for t in history['topics'])
     assert world['topics'][1]['reference_count'] == 0
     assert '/api/explainer/channels' in page
+    assert 'mergeEditorialTopics(topicsData, profiles)' in page
     for retired in ('What is gravity?', 'Why do cats purr?', 'What is dark matter?'):
         assert retired not in page
