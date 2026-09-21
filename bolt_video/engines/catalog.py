@@ -1,0 +1,29 @@
+"""Production methods are not video formats; a scene feature is not a new pipeline."""
+from copy import deepcopy
+
+CATALOG = (
+    {"id": "stock_short", "label": "Stock / Hybrid Short", "kind": "flow", "engine": "moneyprinterturbo",
+     "best_for": "Approved narration with relevant real or licensed footage.",
+     "avoid": "Historical reconstructions needing exact characters or locations; silhouette quizzes.",
+     "entry": "New production", "production_enabled": False,
+     "next_step": "Install isolated runtime; review assets and narration; connect durable worker before studio rendering."},
+    {"id": "motion_scene", "label": "Animated Explanation", "kind": "scene_feature", "engine": "motion_canvas",
+     "best_for": "Cause and effect, comparisons and verified quantity changes inside any compatible story.",
+     "avoid": "Treating a template as an arbitrary-topic text-to-video model.",
+     "entry": "Storyboard shot treatment", "production_enabled": False,
+     "next_step": "Preview the authored template; export PNG frames; encode and inspect before assembly."},
+    {"id": "repurpose", "label": "Remix to Shorts", "kind": "flow", "engine": "openshorts",
+     "best_for": "Self-contained excerpts from owned or licensed finished videos.",
+     "avoid": "Face tracking on illustrated scenes; automatic publishing; interpreting a clip score as retention.",
+     "entry": "Finished video", "production_enabled": False,
+     "next_step": "Select a source and complete hook-to-payoff span; reuse transcript and review framing."},
+    {"id": "storyboard", "label": "Shared Storyboard", "kind": "planning_feature", "engine": "reelforge",
+     "best_for": "Before / change / after shot planning, continuity and ViMax shot-description imports.",
+     "avoid": "Importing ViMax audio descriptions as narration or treating imported plans as approvals.",
+     "entry": "Before any production flow", "production_enabled": False,
+     "next_step": "Edit locally, export JSON, validate with python -m bolt_video.engines validate."},
+)
+
+
+def list_capabilities() -> list[dict]:
+    return deepcopy(list(CATALOG))

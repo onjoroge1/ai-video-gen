@@ -5,6 +5,7 @@ on:
       - 'integrations/**'
       - 'bolt_video/engines/**'
       - 'tests/test_video_engines*'
+      - 'static/video-engine*'
       - '.github/workflows/video-engines.yml'
   workflow_dispatch:
 permissions:
@@ -47,6 +48,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0
       - name: Install pinned engine in its own environment
         run: python integrations/video_engines/install.py '${{ matrix.engine }}'
+      - name: Provider-free media boundary smoke
+        if: matrix.engine != 'motion_canvas'
+        run: python integrations/video_engines/smoke.py '${{ matrix.engine }}'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -54,7 +58,8 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
           path: |
-            integrations/video_engines/runtime/reports/*.json
+            integrations/video_engines/runtime/reports/**/*.json
+            integrations/video_engines/runtime/reports/**/result.mp4
             integrations/motion-canvas/package-lock.json
   source-contracts:
     name: Source compatibility snapshot
@@ -76,6 +81,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python -m pip install pydantic==2.9.2 pytest
+      - run: python -m pytest --noconftest tests/test_video_engines.py
       - run: python integrations/video_engines/install.py all --source-only
       - name: Archive inspectable code only, never configs or credentials
         run: |
