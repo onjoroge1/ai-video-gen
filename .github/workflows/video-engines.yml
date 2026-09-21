@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: true
           sparse-checkout: |
             integrations
             bolt_video
@@ -32,6 +32,8 @@ jobs:
             docs
             static
             .github
+      - name: Remove checkout credentials before running third-party code
+        run: git config --local --unset-all http.https://github.com/.extraheader || test $? -eq 5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -61,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: true
           sparse-checkout: |
             integrations
             bolt_video
@@ -69,6 +71,8 @@ jobs:
             docs
             static
             .github
+      - name: Remove checkout credentials before running third-party code
+        run: git config --local --unset-all http.https://github.com/.extraheader || test $? -eq 5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
