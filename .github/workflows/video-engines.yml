@@ -5,6 +5,7 @@ on:
       - 'integrations/**'
       - 'bolt_video/engines/**'
       - 'tests/test_video_engines*'
+      - 'tests/browser/video_engine_workbench.py'
       - 'static/video-engine*'
       - '.github/workflows/video-engines.yml'
   workflow_dispatch:
@@ -108,3 +109,32 @@ jobs:
           name: engine-source-contracts
           path: engine-source-contracts.zip
           retention-days: 3
+  workbench-browser:
+    name: Storyboard browser checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          sparse-checkout: |
+            static
+            tests
+      - name: Remove checkout credentials before running test dependencies
+        run: git config --local --unset-all http.https://github.com/.extraheader || test $? -eq 5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Verify storyboard editor, JSON export and mobile layout
+        run: python tests/browser/video_engine_workbench.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storyboard-browser-evidence
+          path: integrations/video_engines/runtime/reports/browser/
+          retention-days: 7
+          if-no-files-found: ignore

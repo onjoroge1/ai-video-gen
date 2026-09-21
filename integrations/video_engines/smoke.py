@@ -50,18 +50,25 @@ def worker(engine: str, target: Path, output: Path) -> None:
     if engine == 'moneyprinterturbo':
         from app.models.schema import MaterialInfo, VideoParams
         from app.services import task
+        from app.utils import utils
         task.config.app['upload_post_auto_upload'] = False
         task.config.app['upload_post_enabled'] = False
-        params = VideoParams(video_subject='Local installation fixture',
-            video_script='This is a local technical fixture, not a published story.',
-            video_source='local', video_materials=[MaterialInfo(provider='local', url=str(source), duration=4)],
-            custom_audio_file=str(audio), video_aspect='9:16', video_fit_mode='contain',
-            video_concat_mode='sequential', video_clip_duration=2, video_count=1,
-            bgm_type='', bgm_volume=0, subtitle_enabled=False, n_threads=2)
-        result = task.start('reelforge-smoke-' + uuid.uuid4().hex, params, allow_server_file_input=True)
-        if not result or not result.get('videos'):
-            raise RuntimeError(f'MoneyPrinterTurbo produced no final video: {result}')
-        shutil.copy2(result['videos'][0], result_path)
+        # Honor upstream's allowed-directory guard; never widen it for a test.
+        local_asset = Path(utils.storage_dir('local_videos', create=True)).resolve() / ('reelforge-smoke-' + uuid.uuid4().hex + '.mp4')
+        shutil.copy2(source, local_asset)
+        try:
+            params = VideoParams(video_subject='Local installation fixture',
+                video_script='This is a local technical fixture, not a published story.',
+                video_source='local', video_materials=[MaterialInfo(provider='local', url=str(local_asset), duration=4)],
+                custom_audio_file=str(audio), video_aspect='9:16', video_fit_mode='contain',
+                video_concat_mode='sequential', video_clip_duration=2, video_count=1,
+                bgm_type='', bgm_volume=0, subtitle_enabled=False, n_threads=2)
+            result = task.start('reelforge-smoke-' + uuid.uuid4().hex, params, allow_server_file_input=True)
+            if not result or not result.get('videos'):
+                raise RuntimeError(f'MoneyPrinterTurbo produced no final video: {result}')
+            shutil.copy2(result['videos'][0], result_path)
+        finally:
+            local_asset.unlink(missing_ok=True)
         scope = 'local-script/local-audio/local-materials assembly; no stock retrieval or TTS'
     else:
         from ffmpeg_utils import cut_clip
