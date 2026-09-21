@@ -190,13 +190,25 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
                     and bool(beat.get("bolt_visible", purpose == "action")))
     include_human = bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
-    # Cast-free means no recurring host, not an empty world. Decision and action frames need the
-    # period-coded people who perform the verb; otherwise a story about officials, farmers or
-    # workers turns into a slideshow of unattended desks and landscapes.
+    # Cast-free means no recurring host, not an empty world. Frames where someone DOES something,
+    # or where something is done TO someone, need the period-coded people who perform or suffer the
+    # verb; otherwise a story about officials, farmers or workers becomes a slideshow of unattended
+    # desks and landscapes.
+    #
+    # The default set used to be {action, decision, intervention, reaction, assistance}, and only
+    # one of those five is a purpose the writer actually emits. Measured over 94 states of a
+    # delivered film: setup 26, evidence 21, consequence 31, action 15, callback 1 -- so the rule
+    # fired on 10 states, 11%, all of them `action`, and the other four names matched nothing.
+    #
+    # `consequence` is the one that matters and the one that was missing. It is the largest group
+    # and it is precisely where a human figure supplies scale and stakes: a vine over a forest is a
+    # texture, a vine over a forest with a farmer beneath it is a consequence. `setup` is left out
+    # deliberately -- the opening establishes a place before anyone acts in it -- and the
+    # pure-evidence purposes are excluded above, so a document or a diagram never grows a bystander.
     anonymous_people_required = bool(
         not pure_evidence
         and beat.get("anonymous_people_required", purpose in {
-            "action", "decision", "intervention", "reaction", "assistance",
+            "action", "consequence", "decision", "intervention", "reaction", "assistance",
         })
         and not include_human
     )
@@ -280,6 +292,40 @@ SLOWEST_MEASURED_WORDS_PER_SECOND = 2.588
 # asset turned an otherwise valid scene into a hard failure. 2.75s is the centre of the requested
 # 2-3 second cadence and leaves real recovery room while 3.5s remains the rendered hard ceiling.
 TARGET_VISUAL_STATE_SECONDS = 2.75
+
+# WHAT THE WRITER ACTUALLY RETURNS FOR ONE SCENE, measured rather than hoped for.
+#
+# states_required_for_words asks a scene of 122 words for 18 states. Across four delivered films
+# the per-scene counts were:
+#
+#   [3, 3, 3, 3, 3, 7, 7, 7, 6, 7]   [4, 4, 3, 4, 9, 7, 7, 6, 8]
+#   [4, 4, 4, 7, 7, 7, 6, 7]         [3, 3, 3, 3, 4, 4, 5]
+#
+# Never above 9, and 7 is the mode of every long scene. The ask is uncorrelated with the answer
+# past that point: one 15.2s scene needing 6 returned 7, while scenes needing 14, 16 and 17
+# returned 7, 6 and 7. Asking a single scene for eighteen distinct visible changes does not
+# produce eighteen; it produces seven and a shortfall nobody priced.
+#
+# This is therefore a property of the producer, not a preference, and every downstream number has
+# to be derived from it instead of from the ask. A scene longer than this many states can cover at
+# the target cadence CANNOT be cut to cadence, however the prompt is worded.
+MAX_STATES_PER_SCENE = 7
+
+
+def illustratable_scene_seconds() -> float:
+    """The longest scene that can still be cut at target cadence: 7 states x 2.75s."""
+    return MAX_STATES_PER_SCENE * TARGET_VISUAL_STATE_SECONDS
+
+
+def cadence_feasible_seconds(scene_count: int) -> float:
+    """The longest runtime `scene_count` scenes can deliver at target cadence.
+
+    The arithmetic nobody was doing. A 300s film built from 8 beats needs 98 states to hold 2.75s
+    each; 8 scenes can supply 56. No prompt wording closes a 42-state gap -- the runtime was
+    infeasible before a single image was bought, and the rendered gate only said so afterwards,
+    as long_visual_hold, after about $5.
+    """
+    return max(0, int(scene_count or 0)) * illustratable_scene_seconds()
 
 
 
@@ -437,7 +483,8 @@ def state_capacity(scene: dict, seconds: float | None = None) -> int:
     return max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
 
 
-def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> list:
+def _states_that_fit(beats: list, scene: dict, seconds: float | None = None,
+                     reserve: int = 0) -> list:
     """Trim a scene's beats to the number its RUNTIME can hold.
 
     Each state is held for scene_duration / state_count, and both ends are bounded: shorter than
@@ -473,7 +520,12 @@ def _states_that_fit(beats: list, scene: dict, seconds: float | None = None) -> 
     # A scene too short for two states IS too short, and opening_state_count says so honestly.
     # The fixture was unrealistic -- real long-form scenes run 25-30 words -- and distorting
     # production arithmetic to satisfy it was the wrong way round.
-    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS))
+    # `reserve` is screen time already promised to a state this function never sees. The callback
+    # is appended to its scene AFTER this trim, so without the reservation the scene ends up at
+    # capacity+1 and compile_scene_shots raises "cannot fit without sub-minimum cuts". Measured on
+    # a 7.48s scene: capacity 4, plus the callback is 5, and 7.48/5 = 1.496 against a 1.5s floor.
+    # It never bit while scenes ran 40s; it bites as soon as a beat is split into short parts.
+    most = max(1, int(seconds // MIN_EVIDENCE_STATE_SECONDS) - max(0, int(reserve or 0)))
     fewest = max(1, math.ceil(seconds / MAX_VISUAL_STATE_SECONDS))
     return beats[:max(fewest, most)] if len(beats) > most else beats
 
@@ -585,6 +637,8 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     opening_count = int(pack["opening_scene_count"])
     scene_plans = []
     repairs: list[dict] = []
+    # Known before the loop so the scene that will receive it can budget for it.
+    reserved_for_callback = int(pack.get("callback", {}).get("scene_index", -1))
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
@@ -592,7 +646,8 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
             for state_index, beat in enumerate(
-                _states_that_fit(beats, scene, measured.get(scene_index)))
+                _states_that_fit(beats, scene, measured.get(scene_index),
+                                 reserve=1 if scene_index == reserved_for_callback else 0))
         ]
         repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         scene_plans.append({

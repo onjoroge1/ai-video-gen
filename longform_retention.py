@@ -335,8 +335,31 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
     checks["contract_beat_count"] = int(contract.get("beat_count") or 0)
     if contract and int(contract.get("scene_count") or 0) != len(scenes):
         errors.append(_issue("contract_scene_mismatch", "Contract and generated scene counts differ."))
-    if contract and int(contract.get("beat_count") or 0) != len(scenes):
-        errors.append(_issue("beat_expansion_mismatch", "One or more planned beats did not expand into a scene."))
+    # The message says what this means: a planned beat that produced NO scene. That is a set
+    # difference, not an arithmetic equality, and stating it as equality also asserted 1:1 -- so a
+    # beat deliberately carried across three scenes read as three beats gone missing. Every planned
+    # beat still has to appear; a beat appearing more than once is screen time, not a lost beat.
+    planned = {_text(beat.get("beat_id")) for beat in (contract.get("beats") or [])
+               if _text(beat.get("beat_id"))}
+    if planned:
+        # The ASSERTING scene of each beat carries the planned beat_id unchanged; continuations
+        # carry a suffixed id and a non-empty `continues`. Selecting on that field rather than
+        # stripping characters matters: rstrip() removes every trailing character in the suffix
+        # set, so a beat_id ending in a letter -- "event_setup" -- would be silently truncated and
+        # read as a different, missing beat.
+        rendered = {_text(scene.get("beat_id")) for scene in scenes
+                    if _text(scene.get("beat_id")) and not _text(scene.get("continues"))}
+        missing = sorted(planned - rendered)
+        if missing:
+            errors.append(_issue(
+                "beat_expansion_mismatch",
+                f"{len(missing)} planned beat(s) did not expand into a scene: "
+                + ", ".join(missing[:5])))
+    elif contract and int(contract.get("beat_count") or 0) != len(scenes):
+        # No beat_ids on the contract (older sheets). Fall back to the count, which is correct
+        # whenever nothing split -- and nothing can split on a sheet that predates split support.
+        errors.append(_issue("beat_expansion_mismatch",
+                             "One or more planned beats did not expand into a scene."))
 
     if script.get("_compiled_story"):
         # This lane's documented actors and engine-owned causal sequence replace the cinematic

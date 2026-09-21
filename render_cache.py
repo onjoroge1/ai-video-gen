@@ -11,7 +11,14 @@ from durable_execution import current, canonical_hash, file_sha256, CooperativeY
 # stage identities. Bump this when encoding, overlays or timing change; hashing
 # the entire pipeline made unrelated research/cleanup edits invalidate all video.
 #
-# Bumped for PR114, which changes BOTH halves this identity covers. Timing: the
+# Bumped again for PR122: the planner spends an optional attention role before repeats,
+# so the beat sequence and therefore every scene boundary differs (timing); and the
+# collapse-shape redistribution no longer re-spaces a scene whose anchors resolved, so
+# those scenes now cut on their measured phrases instead of evenly (timing).
+# Previously bumped for PR122: a beat now spans several scenes (timing), holds are spread across
+# a run of unplaceable anchors instead of stacked at the floor (timing), and
+# consequence frames now ask for anonymous people (pixels). Previously bumped for
+# PR114, which changed BOTH halves this identity covers. Timing: the
 # per-shot monotone repair replaces the whole-scene even-spacing fallback, so the
 # same scene now cuts at different instants. Pixels: a detail reframe that crops its
 # immediate predecessor is rendered from the master with a push_to_detail zoompan
@@ -22,7 +29,7 @@ from durable_execution import current, canonical_hash, file_sha256, CooperativeY
 # semantic_sync_ratio and same_source_hard_cut_count for pixels that are not in the
 # file -- a metric moving without the artifact it measures changing, which is the one
 # failure this whole branch exists to stop doing.
-ILLUSTRATED_RENDER_VERSION = "b176fcbba7dc5cb3e2bcc2316f87b1870b0b92519b2ecf18d3e98c1d58a52dcd"
+ILLUSTRATED_RENDER_VERSION = "736894ba16592d22e3d5856f7ade9440962920c2ca1a27db4fa752c447ef7b3d"
 
 
 @lru_cache(maxsize=8)

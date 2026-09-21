@@ -26,7 +26,23 @@ _MOODS = {
     "almost_happened_plan": ("curious", 100, "major"),
     "accidental_invention": ("discovery", 110, "major"),
     "power_reversal": ("measured", 96, "minor"),
+    # removed_keystone was missing and fell through to the generic ("curious", 88, "major").
+    # Measured: a five-minute film about kudzu smothering the American South was scored cheerful
+    # and major because its engine had no row here. This engine's stories are all the same shape --
+    # something is taken out and the system comes apart without it -- so the score should sit low
+    # and unresolved rather than inquisitive. Slower than the others on purpose: a collapse is
+    # gradual, and the energy curve in _ROLE_ENERGY already supplies the acceleration.
+    "removed_keystone": ("uneasy", 84, "minor"),
 }
+
+# Every engine the lane can pick must have a row, or it silently gets the generic default and a
+# story is scored by accident. Checked at import so a new engine cannot ship without one.
+def _engines_without_a_score() -> list:
+    try:
+        import story_engines
+    except Exception:                                   # pragma: no cover - import-order safety
+        return []
+    return sorted(set(story_engines.ENGINES) - set(_MOODS))
 
 _ROLE_ENERGY = {
     "setup": 0.72, "intervention": 0.86, "false_resolution": 0.68,

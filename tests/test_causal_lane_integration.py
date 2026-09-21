@@ -136,9 +136,16 @@ def test_beat_numbers_become_scene_ids_the_storyboard_can_resolve(monkeypatch):
     scenes = script["scenes"]
     assert scenes[0]["scene_id"] == "scene_001"
     assert scenes[0]["caused_by"] == "", "the setup starts the chain"
-    assert scenes[3]["caused_by"] == "scene_003"
     assert scenes[0]["causal_role"] == "setup"
-    assert scenes[3]["chapter"] == 1 and scenes[5]["chapter"] == 2
+    # Positional indices are no longer beat indices: a beat may be carried across several scenes,
+    # so scenes[3] is not necessarily the fourth beat. Assert the structure instead, which is what
+    # the storyboard actually resolves and what a drifting translation would break.
+    assert len({scene["scene_id"] for scene in scenes}) == len(scenes), "scene ids must be unique"
+    for scene in scenes:
+        if scene.get("continues"):
+            assert scene["caused_by"], "a continuation must say which part it follows"
+    chapters = [scene["chapter"] for scene in scenes]
+    assert chapters == sorted(chapters), "chapters must not go backwards"
 
     # Every declared parent must resolve to a scene that exists, which is what the chain check
     # in causal_story asserts and what a drifting translation would break.
@@ -183,10 +190,17 @@ def _route(prompt, n_beats):
         return _sheet(n_beats)
     if "Label the CAUSAL CHAIN" in prompt:
         return _spine(n_beats)
+    # Write the scenes the prompt ASKS FOR, not a fixed n_beats. The expansion runs in batches of
+    # ten and a beat may now be carried across several scenes, so the requested range is the only
+    # thing that says how many scenes this call wants. Returning n_beats regardless tripped the
+    # "refusing to shift the causal labels" guard on the second batch -- the mock's own 1:1
+    # assumption, not the pipeline's.
+    asked = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
+    count = (int(asked.group(2)) - int(asked.group(1)) + 1) if asked else n_beats
     return {"scenes": [{"narration": f"Line {i + 1} of the story here.", "image_prompt": "p",
                         "scene_type": "real_world_example", "environment_type": "city",
                         "text_overlay": "X", "text_sub": "", "shot_type": "medium"}
-                       for i in range(n_beats)]}
+                       for i in range(count)]}
 
 
 def _capture_expansion_prompt(monkeypatch, **kwargs):
@@ -651,7 +665,11 @@ def test_the_sheets_planned_mechanism_slot_is_pinned(monkeypatch):
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": _Messages()})())
     script = ep._generate_script_chunked("Why did the plan fail?", 200, "engaging", "", n_beats,
                                          causal_lane=True)
-    roles = [scene["causal_role"] for scene in script["scenes"]]
+    # Count ASSERTING scenes. A mechanism carried across two scenes is still one mechanism, which
+    # is the same distinction causal_story._check_roles now makes; counting raw scene roles would
+    # be counting screen time.
+    roles = [scene["causal_role"] for scene in script["scenes"]
+             if not scene.get("continues")]
     assert roles.count("mechanism") == 1, roles
     assert roles[5] == "mechanism", f"expected the planned beat 6 to be pinned, got {roles}"
 
@@ -983,8 +1001,22 @@ def test_truncated_expansion_splits_batch_without_losing_or_repeating_beats(monk
     monkeypatch.setattr(ep, "_msg_cost", lambda usage: .1)
     script = ep._generate_script_chunked("Why?", 200, "s", "", 10, causal_lane=True,
                                          pinned_engine="backfiring_solution")
-    assert expansions == [(1, 10), (1, 5), (6, 10)]
-    assert [s["story_beat_n"] for s in script["scenes"]] == list(range(1, 11))
+    # The first batch is truncated and retried as two halves; the rest follow in batches of ten.
+    # Asserted as coverage rather than as a literal range list, because the number of scenes is no
+    # longer the number of beats -- a beat may be carried across several -- so pinning the list
+    # pins the batch count as well, which is not what this test is about.
+    assert expansions[0] == (1, 10), expansions
+    assert (1, 5) in expansions and (6, 10) in expansions, "the truncated batch was halved"
+    covered = []
+    for lo, hi in expansions:
+        if (lo, hi) == (1, 10):
+            continue                      # the truncated attempt produced nothing
+        covered.extend(range(lo, hi + 1))
+    written = [s["story_beat_n"] for s in script["scenes"]]
+    assert covered == sorted(covered), "batches must be written in order"
+    assert len(covered) == len(set(covered)), "a scene was written twice"
+    assert written == list(range(1, len(written) + 1)), "scene numbering must be dense"
+    assert set(covered) == set(written), "every requested scene was written, and no others"
     assert script["_script_cost_usd"] >= .3
 
 

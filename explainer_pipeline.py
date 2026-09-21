@@ -53,6 +53,7 @@ from longform_shots import (
 import longform_research as research
 from longform_research import (
     MIN_CLAIM_REQUEST,
+    cadence_feasibility,
     events_for_runtime,
     research_claim_target,
     parse_research_dossier_text,
@@ -1512,7 +1513,17 @@ _SCENE_FIELDS_RULES = (
     '(array of objects/states that must be absent), '
     '"source" (master|distinct|detail_reframe), "asset_strategy" '
     '(master|distinct|detail_reframe), "detail_target" (required only for detail_reframe), '
-    '"pure_evidence" (true for evidence/mechanism/scale/location/record views), "human_visible" '
+    # THE CONTRAST CASE, which the bare list did not supply. Measured on a delivered film: the
+    # writer marked 30 of 34 `consequence` states pure_evidence, and pure_evidence sends
+    # "No characters. Show only physical evidence." to the image prompt -- so the frames showing
+    # what a policy DID to people had no people in them, and only 8 of 80 states asked for any.
+    # A list of five view-types reads as "is this a view of a thing?", and almost every frame is.
+    '"pure_evidence" (true ONLY when the frame is a thing examined on its own -- a document, a '
+    'diagram, a specimen, a measurement, a map. FALSE whenever the frame shows something being '
+    'done, or something that HAPPENED TO someone: a field being planted, a house being swallowed, '
+    'a payment being counted out. Those need the people it happened to, and marking them '
+    'pure_evidence empties the frame. If a human hand or figure would make the moment legible, '
+    'this is false), "human_visible" '
     '(true only when Alex is visually needed), "bolt_visible" (true only when this exact state '
     'shows Bolt performing the scene\'s permitted useful story work), "bolt_action" (the concrete '
     'measurement, test, warning, reaction, or assistance Bolt performs; empty when bolt_visible is '
@@ -3361,6 +3372,45 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
         beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
+    if causal_lane:
+        # ONE BEAT, SEVERAL SCENES. A beat whose budget exceeds what one scene can be illustrated
+        # with becomes that many scene slots. Measured: the writer returns 4-6 visual states per
+        # SCENE almost regardless of its length, so one 89-word beat written as a single scene
+        # came back with 8.5 states and the same beat as three ~30-word scenes came back with 15.0.
+        # Scene count is the only lever that moves total states.
+        #
+        # AFTER the budgeter, not before: splitting needs a per-beat word count to know how many
+        # parts to make, and that count is what the budgeter produces. Dividing afterwards also
+        # keeps every beat where the mechanism deadline needs it, because parts inherit position.
+        #
+        # From here `beats` IS the slot list, so everything downstream -- batching, the
+        # scenes-per-batch guard, the budget subscript, the evidence-id fallback -- keeps working
+        # on a dense 1:1 list and needs no special case.
+        beats, causal_budgets = _compiler.split_beats_into_slots(beats, causal_budgets)
+        _parts = sum(1 for b in beats if int(b.get("beat_part") or 1) > 1)
+        if _parts:
+            n_scenes = len(beats)
+            print(f"[split] {len(beats) - _parts} beat(s) carried across {len(beats)} scenes "
+                  f"({_parts} continuation scene(s)); each part is a fresh ask for visual states.")
+        # A continuation must not re-mint its parent's evidence id, or the claim ledger joins two
+        # different narrations to one id. Cleared so the per-slot fallback makes a unique one.
+        for _slot in beats:
+            if int(_slot.get("beat_part") or 1) > 1:
+                _slot["evidence_id"] = ""
+        # SAY IT BEFORE THE MONEY. beats x MAX_STATES_PER_SCENE x TARGET_VISUAL_STATE_SECONDS is the
+        # longest runtime this plan can cut to cadence, and it is decidable here -- the beat count
+        # and the runtime are both final. Measured: a 300s film came back with 8 beats, needing 98
+        # states against 56 available, and the only thing that ever said so was the rendered gate
+        # reporting long_visual_hold after the images were paid for.
+        _fit = cadence_feasibility(
+            len(beats), duration_sec, runtime_word_bounds(duration_sec, n_scenes)[0])
+        plan["_cadence_feasibility"] = _fit
+        if not _fit["feasible"]:
+            print(f"[cadence] {_fit['beat_count']} beats carry {_fit['cadence_feasible_seconds']}s "
+                  f"at target cadence, {_fit['shortfall_seconds']}s short of the {duration_sec}s "
+                  f"requested — needs {_fit['beats_needed_for_requested_runtime']} beats "
+                  f"({_fit['states_needed']} states wanted, {_fit['states_available']} available). "
+                  f"Holds past the ceiling from here are arithmetic, not a writing fault.")
     peak = int(plan.get("peak_scene") or plan.get("climax_scene") or 0) or round(n_scenes * 0.7)
     peak = min(max(1, peak), n_scenes)
     # Guard the "peak ~65-75%, NOT at the end" rule: the model sometimes labels the FINAL gut-punch as
@@ -3392,6 +3442,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "evidence_id": _s(beat.get("evidence_id")),
             # Present only on the causal lane; the storyboard reads these off the finished scene.
             **({"narration_words": causal_budgets[beat["n"]]} if causal_lane else {}),
+            # Which part of its beat this scene is. The writer still writes exactly one scene per
+            # row -- parts look like ordinary rows -- but a continuation must read as the next
+            # breath of the same thought, not a restatement of it. The measured difference between
+            # "carry it across three scenes" and three separate asks is the whole gain here.
+            **({"beat_part": int(beat.get("beat_part") or 1),
+                "beat_part_count": int(beat.get("beat_part_count") or 1),
+                "continues_previous": int(beat.get("beat_part") or 1) > 1}
+               if causal_lane and int(beat.get("beat_part_count") or 1) > 1 else {}),
             **({"causal_role": _s(beat.get("causal_role")),
                 "caused_by": beat.get("caused_by") or "",
                 "chapter": beat.get("chapter") or 0,
@@ -3476,9 +3534,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                f'{MASCOT_NAME} — {MASCOT_DESC}.')
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
-            + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned beat below into exactly ONE scene, '
-            'in order, dramatizing JUST that beat (one idea per scene; never restate a concept that '
-            'belongs to another beat). STATE-ONCE — repetition is the #1 score-killer: NO back-references '
+            + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned row below into exactly ONE scene, '
+            'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
+            'belongs to another row). '
+            # A row carrying continues_previous is the NEXT BREATH of the row before it, not a new
+            # idea and not a recap. Said plainly because the STATE-ONCE rule immediately below
+            # forbids back-references, and without this a continuation reads as an instruction to
+            # start something new -- which would waste the split and duplicate the beat.
+            'A row marked continues_previous carries straight on from the row before it in the same '
+            'breath: no recap, no restating what that row already said, no new claim -- just the next '
+            'stretch of the same thought, with its own fresh visual_beats. STATE-ONCE does not forbid '
+            'this, because it is one continuous passage broken into shots of screen time. STATE-ONCE — repetition is the #1 score-killer: NO back-references '
             '("as we saw", "as mentioned", "remember", "recall", "earlier", "this is why", "in other '
             'words"); do NOT restate the central answer or the hook premise in these scenes; a scene\'s '
             'opening words must NOT echo the previous scene\'s ending.'
@@ -3569,8 +3635,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # The storyboard resolves the chain by scene id, while the planner reasons in beat
                 # numbers because that is what it can see on the sheet. Translate once, here, so a
                 # renumbering later cannot silently break every caused_by edge at the same time.
-                s["scene_id"] = f"scene_{s['story_beat_n']:03d}"
-                s["beat_id"] = beat.get("beat_id") or f"beat_{s['story_beat_n']:02d}"
+                # Two identities. scene_id is screen time, beat_id is the factual/causal claim, and
+                # `continues` names the preceding part when one beat spans several scenes. Part 0
+                # mints exactly what the old arithmetic did, so this is inert until a beat splits.
+                # Part bookkeeping comes from the SLOT, not from the scene the model returned --
+                # the model is never told it is writing a part and has no such field. Reading it
+                # off `s` left part_index at 0 for every scene, so `continues` was never set and
+                # every continuation still looked like a second assertion of its role.
+                s.update(_compiler.scene_identities(
+                    beat, s["story_beat_n"],
+                    part_index=int(beat.get("beat_part", 1) or 1) - 1,
+                    part_count=int(beat.get("beat_part_count", 1) or 1)))
                 s["causal_role"] = _s(beat.get("causal_role"))
                 s["chapter"] = int(beat.get("chapter") or 0)
                 # Carried from the plan rather than re-derived. The event is what the narration was
@@ -3586,16 +3661,35 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                             "_story_compiler_version", "presentation_device", "context_refs"):
                     if key in beat:
                         s[key] = copy.deepcopy(beat[key])
-                parent = beat.get("caused_by")
-                parent_ids = {b.get("beat_id"): b["n"] for b in beats if b.get("beat_id")}
-                if parent in parent_ids:
-                    parent = parent_ids[parent]
+                if s["continues"]:
+                    # A continuation follows the part before it. That is the true causal statement
+                    # and the only one that keeps the chain strictly forward: inheriting the
+                    # parent beat's caused_by would point every part at the same earlier scene,
+                    # and _check_chain would see a step caused by something that is not adjacent.
+                    # It also satisfies ORPHAN_STEP, which a setup continuation needs precisely
+                    # because CAUSED_SETUP no longer applies to it.
+                    # The preceding part shares this beat's base number and carries one fewer
+                    # suffix. Derived from the SLOT's part index, not the scene's, for the same
+                    # reason the identities are.
+                    _part = int(beat.get("beat_part", 1) or 1)
+                    s["caused_by"] = _compiler.part_identity(
+                        f"scene_{int(s['story_beat_n']) - _part + 1:03d}", _part - 2)
                 else:
-                    try:
-                        parent = int(parent)
-                    except (TypeError, ValueError):
-                        parent = 0
-                s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
+                    parent = beat.get("caused_by")
+                    # Resolve against ASSERTING slots only. Continuation slots carry their parent's
+                    # beat_id suffixed, but an inherited caused_by names the unsuffixed id, and a
+                    # dict built over every slot would let a later part overwrite the entry and
+                    # silently retarget every edge to the LAST part of that beat.
+                    parent_ids = {b.get("beat_id"): b["n"] for b in beats
+                                  if b.get("beat_id") and int(b.get("beat_part") or 1) == 1}
+                    if parent in parent_ids:
+                        parent = parent_ids[parent]
+                    else:
+                        try:
+                            parent = int(parent)
+                        except (TypeError, ValueError):
+                            parent = 0
+                    s["caused_by"] = f"scene_{parent:03d}" if parent > 0 else ""
             for key in ("question_opened", "question_answered", "new_complication",
                         "visible_consequence", "opens_loop", "closes_loop", "human_intention",
                         "human_belief", "viewer_knows", "human_knows", "expected_outcome",
@@ -4178,7 +4272,18 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
-        max_tokens=_RESEARCH_MAX_TOKENS,
+        # SIZED FROM THE ASK, because the two were free to disagree and did.
+        #
+        # _RESEARCH_MAX_TOKENS was a flat 20000 while the claim request scales with runtime. At 44
+        # claims the dossier fit; when the target rose to 52-58 the provider stopped mid-dossier on
+        # stop_reason=max_tokens and the run died with "partial source evidence cannot be repaired
+        # into verified claims" -- having spent the search budget to get there. The request asked
+        # for more than its own reply was allowed to contain.
+        #
+        # ~480 output tokens per claim is the observed rate (44 claims inside 20000, and 20691
+        # produced when 58 were asked for). The flat value stays the floor so no short film gets a
+        # smaller budget than it has today, and RESEARCH_MAX_TOKENS still overrides both.
+        max_tokens=_research_token_budget(claims_high),
         system=_RESEARCH_SYSTEM,
         # Search only. web_fetch was tried here to obtain quotable evidence — a web_search_result
         # block carries just url, title, page_age and an opaque encrypted_content, and `citations`
@@ -6937,6 +7042,63 @@ def _render_first_minute_preview(
     return preview_path, shot_plan_metrics(plan), cues, frozen_segments, plan
 
 
+def _verifier_probe_client():
+    """An UNWRAPPED Anthropic client, for liveness only.
+
+    _claude() returns a durable-wrapped client inside a worker, and the wrapper replays an
+    identical request from the ledger rather than calling the provider. That is right for a paid
+    stage and wrong for a probe: wrapped, every scene after the first would replay the first
+    scene's cached "ok" and the check would pass forever, including after the balance had gone.
+
+    Short timeout and no retries -- a probe that hangs or retries costs more than it saves, and a
+    slow answer is not the failure it is looking for.
+    """
+    return anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"], timeout=30.0, max_retries=0)
+
+
+def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> None:
+    """One cheap call to prove the evidence verifier can answer, BEFORE buying images.
+
+    Images come from OpenAI and the verifier that judges them comes from Anthropic, so the two
+    fail independently -- and the expensive half can keep succeeding long after the half that
+    decides whether its output is usable has stopped.
+
+    Measured three times. Once it cost 73 images bought against a judge that could not answer.
+    Once it killed a run at the last evidence state after 25 minutes. The images were real money
+    and none of them could be confirmed to show what they claimed.
+
+    This is a TECHNICAL precondition, not a quality gate, so it fails closed and says which
+    provider is out -- the same stance the profile banner states: "quality gates report;
+    technical/cost failures still block". One token, a fraction of a cent, against a run that
+    spends dollars on pictures nobody can check.
+    """
+    try:
+        # The RAW client, not _claude(). A durable worker wraps the client so an identical request
+        # replays from the ledger instead of hitting the provider -- which is exactly right for a
+        # paid stage and exactly wrong for a liveness probe. Wrapped, every scene after the first
+        # would replay the first scene's cached "ok" and the check would pass forever, including
+        # after the balance had gone. This is not a stage and must not be journalled.
+        _verifier_probe_client().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=1,
+            messages=[{"role": "user", "content": "ok"}])
+    except Exception as exc:
+        detail = str(exc)
+        if "credit balance is too low" in detail or "insufficient" in detail.lower():
+            where = ("before any image was bought" if scene_index is None else
+                     f"after {scene_index} scene(s) of images were bought and verified")
+            raise RuntimeError(
+                f"Evidence verification is unavailable {where}: the Anthropic balance is too low. "
+                "Further images would be generated and none could be confirmed to show what it "
+                "claims. Top up and re-run; the research and script are cached."
+            ) from exc
+        # Any other failure here is not necessarily fatal -- a transient network blip should not
+        # stop a run that has already paid for its script. Report and continue; the per-asset
+        # verifier still fails closed if it really is gone.
+        log(f"  ⚠ verifier preflight did not answer ({type(exc).__name__}); continuing — "
+            "per-asset verification still blocks if it stays unavailable")
+
+
 def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[dict],
                                 cost_sink: list | None = None) -> dict:
     """Judge the chronological rendered opening without planner metadata or expected answers."""
@@ -6956,7 +7118,35 @@ def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[d
         )
         if cost_sink is not None:
             cost_sink.append(_msg_cost(response.usage))
-        result, repair_cost = _parse_script_json(response.content[0].text)
+        # An empty content list is not a judgement, and `content[0]` turns it into a bare
+        # IndexError that costs the ENTIRE automated grade. Measured: one run came back UNSCORED
+        # with automated_grade_available False and blind_rendered_story_judge listed in
+        # unavailable_components -- from a 15-frame contact sheet of 0.4MB, so nothing about the
+        # image was unusual and nothing about the film was judged. Retry once, then say what
+        # happened instead of raising an index error from the middle of a response parser.
+        blocks = [block for block in (response.content or [])
+                  if getattr(block, "type", "text") == "text" and _s(getattr(block, "text", ""))]
+        if not blocks:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=1400,
+                system=("You are a blind sequential story editor. Judge only the supplied encoded "
+                        "frames and spoken narration. Never infer an intended story or reward "
+                        "production metadata. If a fact is not recoverable, mark it false."),
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": encoded}},
+                    {"type": "text", "text": blind_story_prompt(transcript_cues)},
+                ]}],
+            )
+            if cost_sink is not None:
+                cost_sink.append(_msg_cost(response.usage))
+            blocks = [block for block in (response.content or [])
+                      if getattr(block, "type", "text") == "text"
+                      and _s(getattr(block, "text", ""))]
+        if not blocks:
+            raise ValueError("blind rendered-story judge returned no content twice "
+                             f"(stop_reason={getattr(response, 'stop_reason', 'unknown')})")
+        result, repair_cost = _parse_script_json(blocks[0].text)
         if cost_sink is not None and repair_cost:
             cost_sink.append(repair_cost)
         if not isinstance(result, dict):
@@ -8293,6 +8483,21 @@ _LONGFORM_CONTRACT_RETRIES = int(os.environ.get("LONGFORM_CONTRACT_RETRIES", "1"
 # Budget helps a dossier that was nearly complete; it does not narrow a question that has no
 # single documented episode at its centre.
 _RESEARCH_MAX_TOKENS = max(4000, int(os.environ.get("RESEARCH_MAX_TOKENS", "20000")))
+# Output tokens one verified claim costs, measured: 44 claims completed inside a 20000 budget, and
+# a 58-claim request produced 20691 before stopping on max_tokens. 480 carries the observed rate
+# with a little headroom, which a reply that must close its JSON needs.
+_RESEARCH_TOKENS_PER_CLAIM = max(1, int(os.environ.get("RESEARCH_TOKENS_PER_CLAIM", "480")))
+
+
+def _research_token_budget(claims_high: int) -> int:
+    """Enough room to actually write the dossier that was requested.
+
+    The flat ceiling is the FLOOR here, never a cap: a short film keeps exactly the budget it has
+    today, and a longer one gets what its own claim target implies. An explicit RESEARCH_MAX_TOKENS
+    raises both, because an operator who sets it is answering a different question.
+    """
+    return max(_RESEARCH_MAX_TOKENS,
+               int(max(0, int(claims_high or 0)) * _RESEARCH_TOKENS_PER_CLAIM))
 # Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
 # the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
 _CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
@@ -10122,10 +10327,19 @@ def run_explainer_pipeline(
         storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
         with open(storyboard_path, "w", encoding="utf-8") as handle:
             json.dump(storyboard, handle, indent=2, ensure_ascii=False)
+        # A storyboard "beat" is one SCENE. Since a story beat can be carried across several
+        # scenes, these stopped being the same number: a delivered film had 13 story beats across
+        # 22 scenes and the library recorded beat_count 22, overstating the story by 69%.
+        # Both are worth knowing -- the story's size and the edit's size -- so both are recorded
+        # and neither is inferred from the other.
+        _scene_rows = storyboard.get("beats") or []
         generation_manifest["illustrated_story"] = {
             "schema_version": storyboard.get("schema_version"),
             "storyboard_file": os.path.basename(storyboard_path),
-            "beat_count": len(storyboard.get("beats") or []),
+            "scene_count": len(_scene_rows),
+            "beat_count": len({_s(row.get("beat_id") or row.get("scene_id"))
+                               for row in _scene_rows
+                               if not _s(row.get("continues"))}) or len(_scene_rows),
             "location_count": len((storyboard.get("visual_bible") or {}).get("locations") or []),
         }
         _write_generation_manifest(generation_manifest_path, generation_manifest)
@@ -10404,6 +10618,7 @@ def run_explainer_pipeline(
     #    Moderation   → one safe-prompt retry, else fallback frame.
     #    Audio fails  → scene is dropped (narration is the backbone).
     log("stage:Preparing narration and visual assets...")
+    _preflight_verifier_credit(log)
 
     img_dir = os.path.join(output_dir, "images")
     aud_dir = os.path.join(output_dir, "audio")
@@ -10594,6 +10809,15 @@ def run_explainer_pipeline(
 
     def _gen_evidence_assets(i: int, scene: dict, img_path: str, aud_path: str) -> dict:
         """Generate every declared state; failures stay rejected and cannot become a master crop."""
+        # Once per scene, not once per run. The single preflight proves the verifier can answer at
+        # the START, and a 95-state render then spends for half an hour -- measured, a run passed
+        # the preflight and exhausted the balance 1601 seconds later, partway through the states.
+        #
+        # This cannot PREDICT exhaustion: the API exposes no balance, only a 400 when it is gone.
+        # What it buys is the ORDER of discovery. Checking here fails before this scene's four or
+        # five images are generated, rather than after; per-state verification would otherwise find
+        # it one image later. A few images a run, and a message that says how far the run got.
+        _preflight_verifier_credit(log, scene_index=i)
         scene_plan = (evidence_plan.get("scenes") or [])[i]
         states = scene_plan.get("states") or []
         generated_paths: dict[str, str] = {}

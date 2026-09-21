@@ -223,17 +223,32 @@ def test_the_claim_target_scales_with_runtime():
     43-second scene."""
     assert research.research_claim_target(60) == (22, 28)
     assert research.research_claim_target(90) == (22, 28)
-    assert research.research_claim_target(300) == (39, 45)
+    # 300s asks for 52-58, not the earlier 39-45. The event count it is derived from rose from 12
+    # to 16 when SECONDS_PER_SCENE_TARGET stopped being a hand-picked 25.0 and became the measured
+    # 7 states x 2.75s = 19.25s. A 300s film needs 16 scenes to be cuttable at all, and 16 scenes
+    # need more research than 12.
+    assert research.research_claim_target(300) == (52, 58)
     low90, _ = research.research_claim_target(90)
     low300, _ = research.research_claim_target(300)
     assert low300 > low90
 
 
 def test_the_target_never_drops_below_what_short_films_were_calibrated_on():
-    """22-28 is the tuned pair the 60-90s lane was validated against. Scaling must only go up."""
+    """22-28 is the tuned pair the 60-90s lane was validated against. Scaling must only go up.
+
+    Asserted as a FLOOR, not as equality. This used to demand the pair exactly, which made it a
+    test of where the floor happens to stop binding rather than of the invariant: at 120s the
+    derived requirement is now 23, one claim above the floor, and that is the scaling working. The
+    thing that must never happen is a film asking for LESS than the calibrated pair.
+    """
     for seconds in (1, 15, 30, 60, 90, 120):
         low, high = research.research_claim_target(seconds)
-        assert (low, high) == (research.MIN_CLAIM_REQUEST, research.MIN_CLAIM_REQUEST + 6)
+        assert low >= research.MIN_CLAIM_REQUEST
+        assert high == low + 6
+    # Where the 60-90s lane was actually calibrated, the pair is still exactly what it was.
+    for seconds in (60, 90):
+        assert research.research_claim_target(seconds) == (
+            research.MIN_CLAIM_REQUEST, research.MIN_CLAIM_REQUEST + 6)
 
 
 def test_the_target_is_monotonic_in_runtime():

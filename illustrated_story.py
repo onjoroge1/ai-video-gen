@@ -271,12 +271,25 @@ def build_storyboard(script: dict, question: str) -> dict:
             "start_sec": round(spoken, 1),
             "situation": narration,
             "caused_by": _text(scene.get("caused_by")),
+            # Which beat-part this scene is. causal_story's role rules count ASSERTING steps, and
+            # _normalize_steps drops every field it is not given -- so without this the whole
+            # re-scoping is inert here, which is the only place these steps are built for the
+            # illustrated lane. A split mechanism would read as two mechanisms, a split setup would
+            # fail CAUSED_SETUP and ORPHAN_STEP at once, and each part of a hinge would be charged
+            # the full ten words.
+            "continues": _text(scene.get("continues")),
             "label": _text(scene.get("text_overlay")),
         })
         spoken += len(narration.split()) / REFERENCE_WPM * 60.0
 
         beat = {
             "scene_index": index,
+            # The scene's two identities, carried so a reader of the storyboard can tell how many
+            # STORY beats it holds. Without them the manifest counted rows, which stopped being the
+            # beat count once a beat could span scenes.
+            "scene_id": _text(scene.get("scene_id")),
+            "beat_id": _text(scene.get("beat_id")),
+            "continues": _text(scene.get("continues")),
             "role": role,
             "chapter": scene.get("chapter") or 0,
             "caused_by": _text(scene.get("caused_by")),

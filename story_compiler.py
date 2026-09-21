@@ -12,6 +12,7 @@ reversal is a comparison between the world before and the world the exploit prod
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 import re
 import json
 import event_functions as ef
@@ -32,6 +33,79 @@ def _max_events_before_incentive(duration, engine_id) -> int:
     import causal_story as cs
     pct = se.mechanism_deadline_pct(se.get(engine_id), cs.MECHANISM_DEADLINE_PCT)
     return max(1, int(pct * events_for_runtime(duration)))
+
+
+def _repeatable_functions(mapping) -> tuple:
+    """The engine's event functions whose story role may legitimately recur.
+
+    Derived from causal_story._REPEATABLE rather than listed, so an engine map or a change to which
+    roles repeat cannot leave this prompt asking for something the compiler then rejects.
+    """
+    import causal_story as cs
+    return tuple(name for name in mapping.to_role
+                 if mapping.role_for(name) in cs._REPEATABLE)
+
+
+def _early_attention_functions(mapping) -> tuple:
+    """Optional functions whose role RE-EARNS ATTENTION, which the required set may not supply.
+
+    longform_retention counts {false_resolution, hinge, escalation, reversal, closing} as the beats
+    that re-earn a viewer's attention, and scores the longest gap between them. Some engines get one
+    early for free -- backfiring_solution REQUIRES apparent_success, a false_resolution in third
+    position. removed_keystone does not: its required five are setup, intervention, mechanism,
+    escalation, reversal, so the first attention beat it can possibly have is the escalation, fourth.
+    """
+    import causal_story as cs
+    attention = {cs.FALSE_RESOLUTION, cs.HINGE, cs.ESCALATION, cs.REVERSAL, *cs.CLOSING_ROLES}
+    return tuple(name for name in mapping.to_role
+                 if name not in mapping.required and mapping.role_for(name) in attention)
+
+
+def _repeat_to_reach_count(mapping, duration) -> str:
+    """How to reach the event count: variety first, then the functions that may recur.
+
+    THE OVERCORRECTION THIS FIXES. The first version of this clause named only the repeatable
+    functions, and the planner did exactly as told. Measured on a delivered 348s film, the spine
+    came back as
+
+        setup setup intervention intervention mechanism mechanism
+        escalation x16 reversal reversal generalization generalization
+
+    -- sixteen consecutive escalations, and `intended_effect` never used at all. Two costs. The
+    shape is monotonous: after the mechanism the story just gets worse sixteen times. And the film
+    ran 83.3 seconds before its first attention beat, because the one optional role that could have
+    supplied an earlier one was never asked for.
+
+    An engine's optional attention roles come first, one each, before the count is topped up with
+    repeats. For removed_keystone that is `intended_effect` -- the plan appearing to work before the
+    mechanism explains why it could not -- which is both the missing early attention beat and the
+    beat that makes the reversal land.
+    """
+    repeatable = _repeatable_functions(mapping)
+    if not repeatable:
+        return ""
+    wanted = max(len(mapping.required), events_for_runtime(duration))
+    extra = max(0, wanted - len(mapping.required))
+    if not extra:
+        return ""
+    early = _early_attention_functions(mapping)[:extra]
+    variety = (
+        f'FIRST, spend {len(early)} of them on {", ".join(early)} -- once each, in engine order. '
+        'These are not optional decoration: they are the beats that re-earn attention, and without '
+        'them the film runs minutes on explanation before anything turns. '
+        if early else "")
+    remaining = extra - len(early)
+    repeats = (
+        f'{"THEN supply" if early else "Supply"} {remaining} further '
+        f'{"event" if remaining == 1 else "events"} using the only functions that may recur: '
+        f'{", ".join(repeatable)}. Each must be a distinct sourced step in the compounding -- a '
+        'further reach, a further scale, a further cost -- in the order it happened. '
+        if remaining > 0 else "")
+    return (
+        f'Every required function above appears EXACTLY ONCE, so {len(mapping.required)} of those '
+        f'{wanted} events are already spoken for and {extra} remain. ' + variety + repeats +
+        'Do not reach the count with `context` events: an unsupported context event is pruned '
+        'later, and the scenes that remain absorb its time.\n')
 
 
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
@@ -74,6 +148,18 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'events, including each required function exactly once; add only distinct supported '
         'consequences or optional context. Do not pad the list.\n'
         'Required functions: ' + ', '.join(mapping.required) + '.\n'
+        # HOW to reach that count, which the ask never said. The required functions are singletons,
+        # so asking for 12 events from an engine with 6 required functions is asking for 6 more
+        # from somewhere -- and the only somewhere the compiler accepts is the repeatable roles.
+        # Measured: the planner returned 8 events against an ask of 12, three runs running, and
+        # filled the gap with `context` beats that were then PRUNED for lack of evidence, leaving
+        # eight 40-second scenes. It was never told that escalation may legitimately recur.
+        #
+        # This is not padding. A backfiring solution compounds by definition: kudzu was planted,
+        # then it spread, then it smothered forests, then it cost millions to fight. Those are four
+        # separate sourced events, each a real step, and the engine has exactly one function that
+        # can carry them in sequence.
+        + _repeat_to_reach_count(mapping, duration)
         # WHERE the incentive changes, not just that it does. The compiler DERIVES the mechanism
         # from the changes_incentive beat, and causal_story:450 fails any mechanism whose start_sec
         # is past `runtime_sec * pct` -- 60s of a 300s film. Every event before changes_incentive
@@ -126,6 +212,120 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'Preserve uncertainty and timescales. Use stable beat IDs for causal links. The opening '
         'and final callback refer to the same concrete object.\n'
         + cast_rules + '\nReturn ONLY JSON matching this shape:\n' + json.dumps(schema))
+
+
+# ── Two identities, because one was doing two jobs ───────────────────────────────────────────
+#
+# A beat is a factual/causal identity: it asserts a role, owns claims, and sits in the cause chain.
+# A scene is a unit of screen time. They were the same object because they were always 1:1, and
+# `scene_id` was minted arithmetically from the beat number -- f"scene_{n:03d}".
+#
+# That has to come apart before one beat can span several scenes, and the reason is not tidiness.
+# Traced through the validators on real fixtures, three scenes sharing one id produce: duplicate
+# keys collapsing in causal_story._check_chain (so a child edge silently retargets the LAST copy
+# and BACKWARD_CAUSE fires), and DUPLICATE_BEAT_ID in story_fact_model.validate_structure, which
+# marks the beat `structurally_blocked` -- its already-verified citations stop being judged at all.
+#
+# So every scene gets its own id, and the parts of one beat are related by an explicit field
+# rather than by sharing an identity. `continues` names the preceding part; it is "" on the part
+# that ASSERTS the beat. Every role-uniqueness rule counts asserting parts, so a continuation adds
+# screen time without claiming to be a second mechanism -- which is what those rules actually mean.
+#
+# Suffixes are letters, not ".1", because beat ids already flow into evidence ids and filenames.
+PART_SUFFIXES = "bcdefghijklmnopqrstuvwxyz"
+
+
+def part_identity(base: str, part_index: int) -> str:
+    """The id of part `part_index` of a beat or scene whose first part is `base`.
+
+    Part 0 returns `base` UNCHANGED. That is what makes the split inert until something actually
+    splits: an unsplit run mints exactly the ids it minted before, so this can land and be proved
+    harmless before any behaviour depends on it.
+    """
+    index = max(0, int(part_index or 0))
+    if not index:
+        return base
+    if index > len(PART_SUFFIXES):
+        raise ValueError(f"beat split into more parts than there are suffixes: {index}")
+    return f"{base}{PART_SUFFIXES[index - 1]}"
+
+
+def scene_identities(beat: dict, story_beat_n: int, part_index: int = 0,
+                     part_count: int = 1) -> dict:
+    """The identity fields for one scene of a beat, including which part of it this is.
+
+    Returns scene_id, beat_id, continues and the part bookkeeping. `continues` is the PRECEDING
+    part's beat_id, so the chain a validator walks is part-to-part and strictly forward -- which is
+    also the true causal statement: part two follows part one because part one just happened.
+    """
+    # All parts of one beat share the FIRST part's number, so they read as scene_005 / 005b / 005c
+    # rather than 005 / 006b / 007c. Slots are dense and consecutive, so the first part's number is
+    # this slot's number less however many parts precede it. Part 0 subtracts nothing, which is
+    # what keeps an unsplit run minting exactly the ids it always did.
+    base_scene = f"scene_{int(story_beat_n) - max(0, int(part_index or 0)):03d}"
+    base_beat = sfm._text(beat.get("beat_id")) or f"beat_{int(story_beat_n):02d}"
+    index = max(0, int(part_index or 0))
+    return {
+        "scene_id": part_identity(base_scene, index),
+        "beat_id": part_identity(base_beat, index),
+        "continues": part_identity(base_beat, index - 1) if index else "",
+        "beat_part": index + 1,
+        "beat_part_count": max(1, int(part_count or 1)),
+    }
+
+
+def split_beats_into_slots(beats: list, budgets: dict) -> tuple:
+    """Expand each beat into as many scene slots as its word budget needs, and re-key the budgets.
+
+    THE MEASUREMENT THIS EXISTS FOR. The writer returns 4-6 visual states per SCENE almost
+    regardless of how long the scene is. One 89-word beat written as a single scene came back with
+    8.5 states averaged over two samples; the same beat written as three ~30-word scenes came back
+    with 15.0 -- 1.76x, consistent across samples. Across four delivered films the per-scene counts
+    were never above 9 and uncorrelated with the ask past 7. So scene count is the only lever that
+    moves total states, and every other lever tried -- target cadence, scene length, event count,
+    repeatable roles, commissioned runtime -- moved the beat count around without moving states.
+
+    ORDER MATTERS. Budgets are computed on the ORIGINAL beats and then divided, rather than the
+    beats being split first and budgeted after. Splitting first needs a per-beat word count to know
+    how many parts to make, and that count is what the budgeter produces -- the circularity is why
+    this runs second. Dividing afterwards is also what keeps the mechanism where the deadline needs
+    it: parts inherit their parent's position, so no beat moves.
+
+    Each slot gets a whole share of the parent's words, with the remainder going to the first part
+    because that is the one carrying the beat's assertion. Slot `n` values are renumbered densely,
+    so the evidence-id fallback that mints from the beat number stays unique.
+    """
+    from longform_research import illustratable_beat_words
+    ceiling = max(1, illustratable_beat_words())
+    slots, out_budgets = [], {}
+    for beat in beats or []:
+        words = int(budgets.get(beat.get("n"), 0) or 0)
+        parts = max(1, math.ceil(words / ceiling)) if words else 1
+        if parts > len(PART_SUFFIXES) + 1:
+            parts = len(PART_SUFFIXES) + 1
+        base, extra = divmod(words, parts)
+        for index in range(parts):
+            slot = deepcopy(beat)
+            slot["n"] = len(slots) + 1
+            slot["beat_part"] = index + 1
+            slot["beat_part_count"] = parts
+            # The parent's identity, so scene_identities can suffix it consistently and every
+            # downstream reader can tell which scenes are one beat.
+            slot["_parent_beat_id"] = sfm._text(beat.get("beat_id"))
+            out_budgets[slot["n"]] = base + (extra if index == 0 else 0)
+            slots.append(slot)
+    return slots, out_budgets
+
+
+def asserting_steps(steps: list) -> list:
+    """The steps that ASSERT their role, i.e. one per beat rather than one per scene.
+
+    Every role-uniqueness rule wants these. causal_story's own docstring says the invariant is
+    "two hinges means the story broke its own false resolution twice, which reads as a structural
+    mistake" -- that is about how many beats claim the role, not how many scenes render it.
+    """
+    return [step for step in (steps or [])
+            if isinstance(step, dict) and not sfm._text(step.get("continues"))]
 
 
 def canonical_beats(beats: list[dict]) -> list[dict]:
