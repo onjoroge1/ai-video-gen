@@ -38,7 +38,7 @@ def checkout(engine: str, runtime: Path) -> Path:
     target = runtime / engine
     git = executable('git')
     if not target.exists():
-        run([git, 'clone', '--filter=blob:none', '--no-checkout', '--depth', '1',
+        run([git, 'clone', '--filter=blob:none', '--depth', '1',
              source['repository'], str(target)])
     if not (target / '.git').is_dir():
         raise RuntimeError(f'Refusing to overwrite non-repository directory: {target}')
@@ -57,6 +57,8 @@ def checkout(engine: str, runtime: Path) -> Path:
 
 
 def install(engine: str, runtime: Path, python: str, source_only: bool) -> dict:
+    if not source_only:
+        (runtime / 'reports' / f'{engine}.json').unlink(missing_ok=True)
     report: dict = {'engine': engine, 'provider_calls': 0, 'server_started': False,
                     'render_verified': False}
     if engine == 'motion_canvas':
