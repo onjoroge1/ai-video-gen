@@ -42,7 +42,8 @@ def worker(engine: str, target: Path, output: Path) -> None:
     os.environ['FFMPEG_ENCODER'] = 'x264'
     os.environ['AUDIO_NORMALIZE'] = '0'
     source, audio = output / 'source.mp4', output / 'narration.wav'
-    run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=360x640:r=24:d=4',
+    # MPT requires both source dimensions to be at least 480 pixels.
+    run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=540x960:r=24:d=4',
          '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-shortest', str(source)])
     run(['ffmpeg', '-v', 'error', '-y', '-i', str(source), '-vn', str(audio)])
