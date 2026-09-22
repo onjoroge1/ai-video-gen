@@ -40,6 +40,7 @@ try:
         page.locator('#queue').click();page.wait_for_function("document.querySelector('#queue').disabled === false")
         assert len(calls)==2 and calls[0]['request_id']==calls[1]['request_id']
         page.reload();page.wait_for_function("document.querySelector('#job-status').textContent.includes('queued')")
+        assert 'Queued for a dedicated' in page.locator('#message').inner_text()
         assert len(calls)==2 # reconnect is read-only
         page.locator('#engine').select_option('moneyprinterturbo')
         assert page.locator('#materials-label').is_visible() and not page.locator('#clip-options').is_visible()
