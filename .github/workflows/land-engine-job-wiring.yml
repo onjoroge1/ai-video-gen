@@ -1,0 +1,29 @@
+name: Apply reviewed engine wiring patch once
+on:
+  push:
+    branches: ['feat/video-engine-jobs']
+    paths: ['.github/engine-job-wiring.patch', '.github/workflows/land-engine-job-wiring.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'onjoroge1/ai-video-gen'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/video-engine-jobs
+          persist-credentials: true
+      - name: Apply only the reviewed source patch and remove this one-time workflow
+        run: |
+          set -eu
+          test -f .github/engine-job-wiring.patch
+          git apply --check .github/engine-job-wiring.patch
+          git apply .github/engine-job-wiring.patch
+          git rm .github/engine-job-wiring.patch .github/workflows/land-engine-job-wiring.yml
+          git add .github/workflows/video-engines.yml AGENTS.md _durable_execution_legacy.py app.py docs/VIDEO_ENGINE_WORKBENCH.md integrations/motion-canvas/.gitignore integrations/motion-canvas/package.json integrations/video_engines/install.py static/finished.html static/index.html
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(engines): connect studio routes, kind-isolated leases and engine provisioning'
+          git push origin HEAD:refs/heads/feat/video-engine-jobs

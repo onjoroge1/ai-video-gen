@@ -1,0 +1,69 @@
+name: Connected video engine jobs
+on:
+  pull_request:
+    paths:
+      - 'bolt_video/engines/**'
+      - 'integrations/**'
+      - 'tests/*engine*'
+      - 'static/video-engine*'
+      - '_durable_execution_legacy.py'
+      - 'app.py'
+      - '.github/workflows/video-engine-jobs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: connected-engines-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  integration:
+    name: Durable ${{ matrix.engine }} job
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [moneyprinterturbo, motion_canvas, openshorts]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: engine_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Remove checkout credentials before running any third-party code
+        run: git config --local --unset-all http.https://github.com/.extraheader || test $? -eq 5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test and media dependencies
+        run: |
+          python -m pip install uv pydantic==2.9.2 pytest requests python-dotenv psycopg2-binary fastapi==0.115.0 httpx playwright==1.57.0
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0
+      - name: Install Chromium system dependencies
+        if: matrix.engine == 'motion_canvas'
+        run: python -m playwright install-deps chromium
+      - run: python -m pytest --noconftest tests/test_video_engine_jobs.py
+      - name: Install the selected isolated runtime
+        run: python integrations/video_engines/install.py '${{ matrix.engine }}'
+      - name: Exercise real queue, engine, cached retry and finished artifacts
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engine_test
+        run: python tests/engine_job_smoke.py '${{ matrix.engine }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connected-engine-${{ matrix.engine }}
+          path: integrations/video_engines/runtime/reports/jobs/
+          if-no-files-found: ignore
+          retention-days: 7
