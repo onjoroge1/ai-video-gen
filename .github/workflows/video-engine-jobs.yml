@@ -5,6 +5,7 @@ on:
       - 'bolt_video/engines/**'
       - 'integrations/**'
       - 'tests/*engine*'
+      - 'tests/browser/video_engine_jobs.py'
       - 'static/video-engine*'
       - '_durable_execution_legacy.py'
       - 'app.py'
@@ -56,6 +57,9 @@ jobs:
       - run: python -m pytest --noconftest tests/test_video_engine_jobs.py
       - name: Install the selected isolated runtime
         run: python integrations/video_engines/install.py '${{ matrix.engine }}'
+      - name: Verify engine jobs UI in Chromium
+        if: matrix.engine == 'motion_canvas'
+        run: python tests/browser/video_engine_jobs.py
       - name: Exercise real queue, engine, cached retry and finished artifacts
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engine_test

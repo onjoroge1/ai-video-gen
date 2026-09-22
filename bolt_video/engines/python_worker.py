@@ -4,6 +4,7 @@ Use selected local-media functions, not upstream app/task startup, model loading
 script generation, footage search, galleries or social publishing.
 """
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -27,9 +28,15 @@ def main():
         from app.services.video import combine_videos, generate_video
         audio, bed = output.with_name("narration.wav"), output.with_name("bed.mp4")
         ffmpeg("-i", paths["source"], "-map", "0:a:0", "-vn", str(audio))
+        info = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", paths["source"]],
+            capture_output=True, text=True, check=True, timeout=30)
+        # Sequential mode takes one segment from each source. Preserve full
+        # ordered clips rather than recycling their first three seconds.
+        clip_limit = max(1, math.ceil(float(info.stdout.strip())))
         combine_videos(str(bed), [paths[f"material-{i}"] for i in range(len(request["material_video_ids"]))],
                        str(audio), VideoAspect.portrait, VideoConcatMode.sequential,
-                       max_clip_duration=3, threads=2, video_fit_mode=VideoFitMode.contain)
+                       max_clip_duration=clip_limit, threads=2, video_fit_mode=VideoFitMode.contain)
         generate_video(str(bed), str(audio), "", str(output), VideoParams(
             video_subject=request["title"], video_aspect="9:16", video_fit_mode="contain",
             bgm_type="", subtitle_enabled=False, video_count=1, n_threads=2))
