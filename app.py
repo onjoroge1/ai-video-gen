@@ -4760,6 +4760,10 @@ async def explainer_script(job_id: str):
 import finished_api
 finished_api.mount(app, FINISHED_DIR, STATIC_DIR)
 
+# Shared durable queue/artifacts; optional engines remain isolated from the web runtime.
+from bolt_video.engines.api import mount as mount_video_engines
+mount_video_engines(app)
+
 @app.get("/")
 def _serve_index():
     # Serve the SPA shell with no-cache so a browser never shows a stale UI after an

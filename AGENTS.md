@@ -238,3 +238,12 @@ renders or replace the approval rules above. Treat stock Shorts and repurposing
 as flows, Motion Canvas as a scene feature, and storyboard as shared planning.
 Do not confuse a CI install/build pass with a persistent deployed worker or a
 reviewed end-to-end pilot. The current integration has no new paid API route.
+
+## Connected local-media engine jobs
+
+Read `docs/VIDEO_ENGINE_JOBS.md` for the zero-provider-spend adapters and worker.
+They reuse the existing durable queue, stage cache and Finished Videos store.
+The job kind is `video_engine`; never feed it to the explainer worker. The new
+API requires the existing studio session. Keep arbitrary paths, external URLs,
+model-written code and all provider purchases out of this contract. The existing
+paid approval rules above remain unchanged. A queued job is not a deployed worker.

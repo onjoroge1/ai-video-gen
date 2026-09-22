@@ -70,6 +70,10 @@ def install(engine: str, runtime: Path, python: str, source_only: bool) -> dict:
         command = 'ci' if (project / 'package-lock.json').exists() else 'install'
         run([npm, command, '--no-audit', '--no-fund'], project)
         run([npm, 'run', 'build'], project)
+        browser_env = {**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': str(project / '.browsers')}
+        subprocess.run([npm, 'exec', '--', 'playwright', 'install', 'chromium'], cwd=project,
+                       env=browser_env, check=True, timeout=600)
+        run(['node', 'render-job.mjs', '--check'], project)
         report['status'] = 'installed_and_built'
     else:
         target = checkout(engine, runtime)
