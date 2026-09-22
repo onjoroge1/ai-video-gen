@@ -47,6 +47,11 @@ jobs:
           python -m pip install uv
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0
+      - name: Install browser system dependencies
+        if: matrix.engine == 'motion_canvas'
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install-deps chromium
       - name: Install pinned engine in its own environment
         run: python integrations/video_engines/install.py '${{ matrix.engine }}'
       - name: Provider-free media boundary smoke

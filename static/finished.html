@@ -162,6 +162,7 @@ async function openVideo(id){const r=await fetch('/api/finished/'+encodeURICompo
    <strong>${esc(gate)}</strong>. On the illustrated/standard long-form lane that gate is advisory — it does not
    block delivery — so <strong>status "done" means the MP4 exists, not that it passed editorial review.</strong></div>`:'';
  document.getElementById('dialog-body').innerHTML=`<video controls preload="metadata" src="/api/finished/${encodeURIComponent(id)}/artifact/video"></video>
+ <p><a class="action" href="/video-engine-jobs.html?source=${encodeURIComponent(id)}">Remix with video engines</a></p>
  ${warn}<dl class="facts">${facts}</dl>${groups}
  ${rest.length?`<div class="group"><h3>Other</h3><div class="actions">${rest.map(btn(id)).join('')}</div></div>`:''}`;
  dialog.showModal()}

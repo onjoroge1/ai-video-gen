@@ -1,5 +1,10 @@
 # Optional video engines and the shared storyboard
 
+> Follow-on: `VIDEO_ENGINE_JOBS.md` documents the connected zero-provider-spend
+> queue/artifact adapters and worker. The installation/planning baseline below
+> remains useful, but its native-integration pending list is superseded for that
+> explicitly bounded local-media scope. Paid/autonomous generation remains separate.
+
 Owner: ReelForge / Bolt. Added 2026-09-21. Start here before operating or extending
 MoneyPrinterTurbo, Motion Canvas, OpenShorts or the ViMax import feature.
 

@@ -284,7 +284,8 @@ class PostgresStore:
             return self._json_ready(self._row(cur, cur.fetchone()))
 
     def claim(self, *, job_id: str | None = None, worker_id: str | None = None,
-              lease_seconds: int = DEFAULT_LEASE_SECONDS) -> dict | None:
+              lease_seconds: int = DEFAULT_LEASE_SECONDS,
+              kind: str = "explainer") -> dict | None:
         self.ensure_schema()
         worker_id = worker_id or f"worker-{uuid.uuid4().hex}"
         exhausted: list[str] = []
@@ -292,15 +293,15 @@ class PostgresStore:
             cur.execute("""
                 UPDATE generation_jobs SET status='error',error='Maximum worker attempts exhausted',
                     lease_owner=NULL,lease_expires_at=NULL,updated_at=now(),finished_at=now()
-                WHERE attempts>=max_attempts
+                WHERE kind=%s AND attempts>=max_attempts
                   AND (status='retry' OR (status='processing' AND lease_expires_at < now()))
                 RETURNING id
-            """)
+            """, (kind,))
             exhausted = [row[0] for row in cur.fetchall()]
-            params: list[Any] = []
-            exact = ""
+            params: list[Any] = [kind]
+            exact = "AND kind=%s"
             if job_id:
-                exact = "AND id=%s"
+                exact += " AND id=%s"
                 params.append(job_id)
             params.extend((worker_id, int(lease_seconds)))
             cur.execute(f"""
