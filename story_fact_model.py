@@ -568,6 +568,20 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
             ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs])
         elif not outcomes.get(beat_id, {}).get("passed"):
             continue
+        # The ceiling is the event AND the verified claims it rests on, the same rule the hook
+        # already gets. An event is the planner's one-line summary of its claims; a beat whose
+        # claim says "a milky substance from a gland in his oesophagus" was being refused for
+        # naming the gland because the summary said "feeds it by regurgitation" (job 2e2c7498,
+        # 2026-09-25). Nothing the evidence boundary rejected can raise the ceiling: only beats
+        # whose event passed reach this pass, and only their own cited claims are added.
+        cited_texts = []
+        for ref in event["claim_refs"]:
+            claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
+            if claim_text and claim_text not in cited_texts:
+                cited_texts.append(claim_text)
+        if cited_texts:
+            ceiling = "\n".join([ceiling, "CLAIMS THIS EVENT RESTS ON (also part of the ceiling):"]
+                                + [f"- {text}" for text in cited_texts])
         told = ce.narration_fidelity(ceiling, narration, judge=judge, cache=cache,
                                      cost_sink=cost_sink)
         if ce.is_retryable(told):
@@ -783,19 +797,47 @@ def prune_unsupported_optional(beats: list[dict], failed_ids: set,
     import event_functions as ef
     mapping = ef.map_for(engine_id) if engine_id else None
     required = required_spine_roles(engine_id)
+    # A REPEATABLE required role is carried by whichever of its beats the evidence supports. The
+    # role is required; no particular repeat of it is. Measured twice: a 300s Four Pests run with
+    # eight escalation beats, six supported, died with every required function marked supported
+    # because two repeats failed CLAIM_KIND_MISMATCH; and the first Nature episode (emperor
+    # penguin, 2026-09-24) died at SUPPORTED_SPINE_COVERAGE because one of four escalations was
+    # narrowed past its function while the other three stood. "A required role is never pruned"
+    # was written for the singleton case (an unsupported reversal IS an untellable story); read
+    # literally for escalation it turned an expendable repeat into a stop. A failing repeat is
+    # pruned only while another beat of the same role still stands, so a role whose every holder
+    # fails is reported as missing exactly as before.
+    # The same holds for a SINGLETON role the planner filed twice. The fifth penguin sheet put
+    # the male's crop secretion under outcome_for_young beside the real outcome (her return
+    # with food), so the story had two reversals; the mislabelled one failed CLAIM_KIND_MISMATCH,
+    # could not be pruned because reversal is required, and the run died with the true reversal
+    # standing beside it. A failing copy of ANY role is expendable while another copy of that
+    # role stands; the singleton rule is then enforced downstream by DUPLICATE_ROLE on what
+    # remains, which is where a genuine second reversal is refused.
+    def _holder(beat):
+        return _text((beat or {}).get("role") or (beat or {}).get("causal_role")).lower()
+    standing_repeats = {}
+    for index, beat in enumerate(beats or []):
+        bid = _text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}"
+        role = _holder(beat)
+        if role and bid not in failed_ids and event_of(beat or {})["text"]:
+            standing_repeats[role] = standing_repeats.get(role, 0) + 1
     kept, pruned = [], []
     for index, beat in enumerate(beats or []):
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
-        role = _text(beat.get("role") or beat.get("causal_role")).lower()
+        role = _holder(beat)
         function = _text(beat.get("event_function"))
         mapped_optional = bool(mapping and role and mapping.role_for(function) == role
                                and function not in mapping.required and role not in required)
         optional = role in OPTIONAL_ROLES or scope_of(beat) == PARALLEL_CASE or mapped_optional
-        if beat_id in failed_ids and optional:
+        expendable_repeat = bool(role) and standing_repeats.get(role, 0) > 0
+        if beat_id in failed_ids and (optional or expendable_repeat):
             pruned.append({"beat_id": beat_id, "role": role,
                            "event": event_of(beat)["text"],
-                           "reason": "unsupported and not required by the causal chain"})
+                           "reason": ("unsupported repeat of a role another beat still carries"
+                                      if expendable_repeat and not optional else
+                                      "unsupported and not required by the causal chain")})
         else:
             kept.append(beat)
     return kept, pruned

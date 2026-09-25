@@ -5,7 +5,13 @@
     {
       "name": "FastAPI Dev Server",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["RELOAD=0", "python3", "app.py"],
+      "runtimeArgs": [
+        "PYTHONUNBUFFERED=1",
+        "RELOAD=0",
+        "SCRIPT_CACHE=1",
+        "python3",
+        "app.py"
+      ],
       "port": 8000,
       "autoPort": false
     }

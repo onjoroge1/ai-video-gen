@@ -28,6 +28,8 @@ import urllib.request
 from datetime import datetime, timezone
 
 import openai
+import fal_models
+import nature_channel
 from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_duration, \
     probe_dimensions as _probe_dimensions, probe_media as _probe_media
 import anthropic
@@ -439,7 +441,27 @@ _LITERAL_SCENE_DIRECTION = (
 # _motion_model_id, every job configured for wan died at manifest creation -- 175 lines before
 # research, hard-failed with no retry, for a provider it was never going to call on a stills
 # render. Naming the roster once makes that divergence a test rather than an outage.
-I2V_RATE_BY_PROVIDER = {"sora": 0.10, "veo": 0.15, "fal": 0.056, "wan": 0.002}
+# fal.ai i2v: the endpoint is configurable, so the rate follows the endpoint. fal_models.py is the
+# one table of endpoints, request families and prices; FAL_MODEL accepts a short label
+# ("seedance-2.0", "wan-2.6", "kling-3-pro") or a full endpoint id. An unregistered id still runs,
+# with the legacy Kling body and the legacy Kling standard rate. Verified working 2026-07-07 (Kling).
+def _fal_model_from_env(var: str, default: str) -> str:
+    """A bare `FAL_MODEL=` left in .env must mean the default, not an empty endpoint: the request
+    would otherwise go to `https://queue.fal.run/` and fail after the image was already fitted."""
+    return fal_models.resolve((os.environ.get(var) or "").strip() or default)
+
+
+_FAL_MODEL    = _fal_model_from_env("FAL_MODEL", "fal-ai/kling-video/v2.1/standard/image-to-video")
+# HYBRID: a pricier, more natural model on the HERO beats (hook + climax) where motion earns the
+# swipe/stay decision; the cheaper _FAL_MODEL on the rest. Social only.
+_FAL_MODEL_HERO = _fal_model_from_env("FAL_MODEL_HERO", "fal-ai/kling-video/v3/pro/image-to-video")
+_FAL_HYBRID   = os.environ.get("FAL_HYBRID", "1") == "1"
+# Output resolution asked of fal endpoints that take one (Seedance, Wan). Kling ignores it. The
+# rate table is keyed on the same value, so the estimate and the request cannot disagree.
+_FAL_I2V_RESOLUTION = (os.environ.get("FAL_I2V_RESOLUTION") or "").strip() or None
+I2V_RATE_BY_PROVIDER = {"sora": 0.10, "veo": 0.15,
+                        "fal": fal_models.rate_usd_per_sec(_FAL_MODEL, _FAL_I2V_RESOLUTION),
+                        "wan": 0.002}
 
 
 def _resolve_i2v_rate() -> float:
@@ -460,19 +482,14 @@ def _resolve_i2v_rate() -> float:
 
 
 _RATE_I2V_SEC = _resolve_i2v_rate()
-# Hero-beat i2v rate (the hybrid uses a pricier model on hook/climax). Kling v3 pro audio-off = $0.112/s
-# (2× standard, verified on fal.ai 2026-07). Only applied to the ~2 hero beats; see the animation loop.
-_RATE_I2V_HERO_SEC = float(os.environ.get("I2V_HERO_RATE_SEC", "0.112"))
+# Hero-beat i2v rate (the hybrid uses a pricier model on hook/climax). Follows FAL_MODEL_HERO's
+# registry rate unless I2V_HERO_RATE_SEC overrides. Only applied to the ~2 hero beats; see the
+# animation loop.
+_RATE_I2V_HERO_SEC = float(os.environ.get("I2V_HERO_RATE_SEC")
+                           or fal_models.rate_usd_per_sec(_FAL_MODEL_HERO, _FAL_I2V_RESOLUTION))
 _SORA_MODEL   = os.environ.get("SORA_MODEL", "sora-2")
 # veo-3.0-fast shuts down 2026-06-30 → default to the 3.1 fast tier (verified drop-in).
 _VEO_MODEL    = os.environ.get("VEO_MODEL", "veo-3.1-fast-generate-preview")
-# fal.ai i2v (Kling by default) — cheaper than Veo AND a SEPARATE quota, so it's the useful fallback
-# when the shared Gemini/Veo project caps out. Model + key configurable; verified working 2026-07-07.
-_FAL_MODEL    = os.environ.get("FAL_MODEL", "fal-ai/kling-video/v2.1/standard/image-to-video")
-# HYBRID: a pricier, more natural model on the HERO beats (hook + climax) where motion earns the
-# swipe/stay decision; the cheaper _FAL_MODEL on the rest. Social only. v3 pro ≈ 2× standard.
-_FAL_MODEL_HERO = os.environ.get("FAL_MODEL_HERO", "fal-ai/kling-video/v3/pro/image-to-video")
-_FAL_HYBRID   = os.environ.get("FAL_HYBRID", "1") == "1"
 
 
 def _fal_key() -> str:
@@ -1116,9 +1133,12 @@ def _operator_block(direction: str) -> str:
     model applies it ONLY where it doesn't conflict with the format, scene structure, JSON output schema,
     or the safety/accuracy rules stated above — those always win. Returns '' when empty."""
     d = (direction or "").strip()
+    # The Nature channel's standing writing contract rides with the per-episode direction so the
+    # writer, the spine planner and the scene expansion all see it; other channels see nothing.
+    rules = nature_channel.writing_rules_block(_TOPIC_CHANNEL.get())
     if not d:
-        return ""
-    return ("\n\nOPERATOR DIRECTION (optional creative guidance from the channel owner) — apply this "
+        return rules
+    return rules + ("\n\nOPERATOR DIRECTION (optional creative guidance from the channel owner) — apply this "
             "WHERE IT DOES NOT CONFLICT with the format, scene structure, JSON output schema, or the "
             "safety/accuracy rules above; those ALWAYS take priority. It may steer topic emphasis, tone, "
             "angle, pacing, audience or things to avoid. It must NOT change the required output format, "
@@ -1684,29 +1704,54 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     if not hook or len(hook.split()) <= _cs.MAX_HOOK_WORDS:
         return script, 0.0
     cost = 0.0
-    try:
-        response = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=300,
-            system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
-            messages=[{"role": "user", "content":
-                       f'This opening line is {len(hook.split())} words and must be at most '
-                       f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
-                       "Rewrite it shorter. It must still NAME THE ACTOR AND THE REVERSAL in "
-                       "plain words, keep the same subject, and read aloud as one clean sentence. "
-                       "Withhold only the payoff noun. Do not add a new claim, and do not make it "
-                       "cryptic: \"How the British Empire tried to solve a problem and "
-                       "accidentally made it much worse\" is the target register — plain, "
-                       'specific, and a promise rather than a riddle. Return {"hook":"..."}'}],
-        )
-        cost = _msg_cost(response.usage)
-        if cost_sink is not None:
-            cost_sink.append(cost)
-        parsed, repair_cost = _parse_script_json(response.content[0].text)
-        cost += repair_cost or 0.0
-        rewritten = _s((parsed or {}).get("hook"))
-    except Exception:
-        return script, cost
-    if not rewritten or len(rewritten.split()) > _cs.MAX_HOOK_WORDS:
+    rewritten = ""
+    # Up to three asks, each told exactly how far the last one missed. The single ask gave up
+    # silently on the first emperor penguin long-form (23 words, rewritten to 21, kept at 23) and
+    # the run died at the storyboard gate on the one line every other gate had passed.
+    previous = ""
+    for _attempt in range(3):
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=300,
+                system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
+                messages=[{"role": "user", "content":
+                           f'This opening line is {len(hook.split())} words and must be at most '
+                           f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
+                           "Rewrite it shorter. It must still NAME THE ACTOR AND THE REVERSAL in "
+                           "plain words, keep the same subject, and read aloud as one clean "
+                           "sentence. Withhold only the payoff noun. Do not add a new claim, and "
+                           "do not make it cryptic: \"How the British Empire tried to solve a "
+                           "problem and accidentally made it much worse\" is the target register "
+                           "— plain, specific, and a promise rather than a riddle. "
+                           + (f'Your previous rewrite was {len(previous.split())} words, still over '
+                              f'the budget of {_cs.MAX_HOOK_WORDS}: "{previous}". Count the words. '
+                              if previous else "")
+                           + 'Return {"hook":"..."}'}],
+            )
+            cost += _msg_cost(response.usage)
+            if cost_sink is not None:
+                cost_sink.append(_msg_cost(response.usage))
+            parsed, repair_cost = _parse_script_json(response.content[0].text)
+            cost += repair_cost or 0.0
+            candidate = _s((parsed or {}).get("hook"))
+        except Exception:
+            break
+        if candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS:
+            rewritten = candidate
+            break
+        previous = candidate or previous
+    if not rewritten:
+        # Deterministic fallback, and the one mechanical cut the docstring above allows: a hook
+        # that runs "the promise — and here is the payoff" is two sentences wearing one dash.
+        # Keeping the clause before the dash keeps the promise and withholds the payoff, which
+        # is what a hook is for. Only when that clause is a sentence's worth of words and still
+        # names the subject; otherwise the original stays and the gate says so.
+        head = re.split(r"\s+[—–]\s+|\s*:\s+|;\s+", hook, maxsplit=1)[0].strip().rstrip(",")
+        subject = [w.lower() for w in _subject_terms(_s(script.get("title")))]
+        if (6 <= len(head.split()) <= _cs.MAX_HOOK_WORDS and head != hook
+                and (not subject or any(w in head.lower() for w in subject))):
+            rewritten = head if head.endswith((".", "!", "?")) else head + "."
+    if not rewritten:
         return script, cost                       # still over: leave the original alone
 
     scenes = script.get("scenes") or []
@@ -1714,6 +1759,245 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
         scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
     script["hook"] = rewritten
     return script, cost
+
+
+class ScriptApprovalRequired(RuntimeError):
+    """The script passed every pre-spend gate and the operator asked to approve it before render.
+
+    Raised only when the request set stop_after_script. The graded script is already in the
+    script cache and the job checkpoint, so the approved rerun (same question, same direction,
+    SCRIPT_CACHE=1) reuses it and pays nothing for research, writing, fact-check or ledger.
+    """
+
+
+def _nature_subject_sheet(question: str, script: dict, cost_sink: list | None = None,
+                          log=lambda message: None) -> str:
+    """One model call that fixes the family's look for every frame of a Nature episode.
+
+    The illustrated lane carries a reference sheet for its recurring human and none for an
+    animal; the first penguin long-form drew rounded orange-chested adults in the opening and slim
+    yellow-marked adults later. Stored on the script (so the checkpoint and cache keep it) and
+    copied into the continuity pack, which every evidence prompt reads.
+    """
+    existing = _s(script.get("_subject_sheet")).strip()
+    if existing:
+        return existing
+    subject = _s(((script.get("_story_contract") or {}).get("subject")))
+    system, user = nature_channel.subject_sheet_request(question, subject)
+    try:
+        r = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=500, system=system,
+            messages=[{"role": "user", "content": user}])
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(r.usage))
+        sheet, _ = _parse_script_json(r.content[0].text)
+        text = nature_channel.subject_sheet_text(sheet)
+    except Exception as exc:
+        log(f"⚠ subject sheet unavailable ({type(exc).__name__}) — frames carry the no-people rule only")
+        text = ""
+    if text:
+        script["_subject_sheet"] = text
+        log(f"Subject sheet: {text[:160]}")
+    return text
+
+
+def _base_beat_id(beat_id: str) -> str:
+    """'event_01b' -> 'event_01'; 'event_10:verdictb' -> 'event_10:verdict'. Parts of one beat
+    share its event, so a revision may merge or re-split them freely."""
+    text = _s(beat_id)
+    return re.sub(r"(?<=\d)[a-z]$|(?<=:verdict)[a-z]$", "", text)
+
+
+def _rebuild_revised_scenes(script: dict, revised: list[dict], log=lambda message: None,
+                            valid_claim_ids: set | None = None) -> bool:
+    """Replace the script's scenes with the revision's, beat by beat. False leaves it untouched.
+
+    Every revised scene names a base beat of the original; every original beat keeps at least
+    one scene; order follows the original. The first original scene of each beat is the template
+    for every revised part, so the planning fields the storyboard reads survive, and claim
+    bindings are cleared for the ledger to re-derive against the new words.
+    """
+    import copy
+    originals = script.get("scenes") or []
+    order = []
+    template = {}
+    for scene in originals:
+        base = _base_beat_id(scene.get("beat_id"))
+        if base not in template:
+            template[base] = scene
+            order.append(base)
+    grouped: dict[str, list[str]] = {}
+    extra_refs: dict[str, list[str]] = {}
+    for item in revised or []:
+        if not isinstance(item, dict):
+            continue
+        base = _base_beat_id(item.get("beat_id"))
+        narration = " ".join(_s(item.get("narration")).split())
+        if base not in template or not narration:
+            log(f"  revision rejected: unknown or empty beat {item.get('beat_id')!r}")
+            return False
+        grouped.setdefault(base, []).append(narration)
+        # A ledger claim the editor's note leans on that the beat's event never cited (the
+        # planner cited "feeds it by regurgitation" and left "a milky substance from a gland in
+        # his oesophagus" unused, job 87b08528). Only ids present in the dossier are added; the
+        # evidence boundary re-judges the event with them and the ceiling widens by exactly them.
+        for cid in item.get("claim_ids") or []:
+            cid = _s(cid)
+            if cid and cid in (valid_claim_ids or set()) and cid not in extra_refs.setdefault(base, []):
+                extra_refs[base].append(cid)
+    missing = [base for base in order if base not in grouped]
+    if missing:
+        log(f"  revision rejected: beats dropped {missing}")
+        return False
+    contract = script.get("_story_contract") if isinstance(script.get("_story_contract"), dict) else {}
+    old_beats = contract.get("beats") if isinstance(contract.get("beats"), list) else []
+    first_index = {}
+    for position, scene in enumerate(originals):
+        first_index.setdefault(_base_beat_id(scene.get("beat_id")), position)
+    rebuilt, new_beats = [], []
+    for base in order:
+        parts = grouped[base]
+        for index, narration in enumerate(parts):
+            scene = copy.deepcopy(template[base])
+            scene["beat_id"] = base + ("" if index == 0 else "abcdefghij"[index])
+            scene["beat_part"] = index + 1
+            scene["beat_part_count"] = len(parts)
+            scene["continues"] = base if index else ""
+            scene["narration"] = narration
+            scene["claim_refs"] = []
+            if extra_refs.get(base) and isinstance(scene.get("event"), dict):
+                refs = list(scene["event"].get("claim_refs") or [])
+                scene["event"]["claim_refs"] = refs + [c for c in extra_refs[base] if c not in refs]
+            rebuilt.append(scene)
+            position = first_index.get(base)
+            if old_beats and position is not None and position < len(old_beats):
+                new_beats.append(copy.deepcopy(old_beats[position]))
+    script["scenes"] = rebuilt
+    if contract:
+        # The retention contract compares its own counts to the scenes; a revision that merged
+        # parts must say so or the contract fails on arithmetic (job 87b08528, 0/100).
+        contract["scene_count"] = len(rebuilt)
+        contract["beat_count"] = len(rebuilt)
+        if old_beats and len(new_beats) == len(rebuilt):
+            contract["beats"] = new_beats
+    return True
+
+
+def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
+                         log=lambda message: None) -> tuple[dict, float]:
+    """A TARGETED revision of a script that already passed the ledger, on the operator's note.
+
+    The writer only sees direction as advice, and eleven fresh drafts of one episode each fixed
+    some of the editor's points and reintroduced others. This edits the draft the editor read:
+    the model sees each beat's event and claims, its current narration, and the note, and returns
+    narration per beat. Beats may be merged or shortened, never dropped or reordered, so the spine
+    the ledger judged still holds; the ledger then re-judges every sentence. Best-effort: any
+    failure returns the script unchanged.
+    """
+    note = _s(note).strip()
+    if not note or not script.get("scenes"):
+        return script, 0.0
+    scenes_before = len(script.get("scenes") or [])
+    words_before = sum(len(_s(s.get("narration")).split()) for s in script.get("scenes") or [])
+    claims = {_s(c.get("claim_id")): _s(c.get("claim"))
+              for c in (script.get("_research_dossier") or {}).get("claims") or []
+              if isinstance(c, dict)}
+    blocks = []
+    seen = []
+    for scene in script.get("scenes") or []:
+        base = _base_beat_id(scene.get("beat_id"))
+        if base not in seen:
+            seen.append(base)
+            event = scene.get("event") if isinstance(scene.get("event"), dict) else {}
+            refs = []
+            for other in script.get("scenes") or []:
+                if _base_beat_id(other.get("beat_id")) != base:
+                    continue
+                for ref in other.get("claim_refs") or []:
+                    cid = _s((ref or {}).get("claim_id"))
+                    if cid and cid in claims and cid not in refs:
+                        refs.append(cid)
+            narration = " ".join(_s(other.get("narration")) for other in script.get("scenes") or []
+                                 if _base_beat_id(other.get("beat_id")) == base)
+            blocks.append(
+                f"BEAT {base} [{_s(scene.get('causal_role'))}]\n"
+                f"  EVENT (the sourced fact this beat may assert): {_s(event.get('text'))}\n"
+                + "".join(f"  CLAIM {cid}: {claims[cid]}\n" for cid in refs)
+                + f"  CURRENT NARRATION: {narration}\n")
+    other = [f"  {cid}: {text}" for cid, text in claims.items()
+             if text and cid not in {c for b in blocks for c in re.findall(r"CLAIM (c\d+):", b)}]
+    if other:
+        blocks.append("OTHER LEDGER CLAIMS (cite by id in claim_ids when a beat needs one):\n"
+                      + "\n".join(other) + "\n")
+    system = (
+        "You revise the narration of an illustrated explainer that has already passed a sourced "
+        "claim ledger. Return ONLY JSON: "
+        '{"hook":"the first spoken sentence","scenes":[{"beat_id":"...","narration":"...",'
+        '"claim_ids":["ids of OTHER LEDGER CLAIMS this scene now relies on, else []"]}]}. '
+        "RULES: use only the BEAT ids given, every beat at least once, in the given order; you may "
+        "give a beat one scene or several (each scene 15-45 words) and you may say less than the "
+        "current narration; each sentence must assert no more than that beat's EVENT and CLAIMS "
+        "state, in their words for any number or mechanism; add no fact that no claim states; "
+        "the hook is exactly the first sentence of the first scene; narration never gives visual "
+        "or editorial directions ('picture that', 'look again', 'here is the answer').")
+    system += nature_channel.writing_rules_block(_TOPIC_CHANNEL.get())
+    body = (f'TITLE: {_s(script.get("title"))}\nQUESTION: {question}\n\n'
+            + "".join(blocks) + "\nEDITOR'S REVISION NOTE (apply exactly this, nothing else):\n"
+            + note + "\n\nReturn the JSON.")
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=6000, system=system,
+            messages=[{"role": "user", "content": body}])
+        cost = _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(cost)
+        parsed, repair_cost = _parse_script_json(response.content[0].text)
+        cost += repair_cost or 0.0
+    except Exception as exc:
+        log(f"⚠ revision unavailable ({type(exc).__name__}) — keeping the cached draft")
+        return script, 0.0
+    revised = (parsed or {}).get("scenes") if isinstance(parsed, dict) else None
+    if not isinstance(revised, list) or not _rebuild_revised_scenes(
+            script, revised, log, valid_claim_ids=set(claims)):
+        return script, cost
+    hook = " ".join(_s((parsed or {}).get("hook")).split())
+    first = _s(script["scenes"][0].get("narration"))
+    if hook and first.lower().startswith(hook.lower()[:40]):
+        script["hook"] = hook
+    else:
+        script["hook"] = re.split(r"(?<=[.!?])\s+", first, maxsplit=1)[0]
+    script["_revision_note"] = note
+    script.pop("_claim_validation", None)
+    total = sum(len(_s(s.get("narration")).split()) for s in script["scenes"])
+    log(f"Revised on the editor's note: {len(script['scenes'])} scenes, {total} words "
+        f"(was {scenes_before} scenes, {words_before} words)")
+    return script, cost
+
+
+def _align_callback_object(script: dict, log=lambda message: None) -> bool:
+    """Make final_callback_object equal opening_object, which the planner is told it MUST be.
+
+    Free and deterministic. The beat-sheet prompt says `final_callback_object` "MUST exactly
+    equal opening_object", the continuity pack copies it into the closing state's label, and
+    `validate_evidence_plan` refuses the run when the two labels differ -- after research, script,
+    fact-check, ledger and storyboard were all bought. Measured 2026-09-22 on both surviving 300s
+    Four Pests drafts in the audit worktree, and again live on the first emperor penguin script to
+    pass the storyboard gate (2026-09-24). A rule asked for in a prompt and enforced by a gate,
+    with no step that makes it true, is the shape every stop on this lane has had.
+
+    The close REUSES the opening asset by design (exact_reuse on the callback state), so the
+    label carries no separate image and equality loses nothing. Returns whether it changed.
+    """
+    contract = script.get("_story_contract")
+    if not isinstance(contract, dict):
+        return False
+    opening = _s(contract.get("opening_object")).strip()
+    final = _s(contract.get("final_callback_object")).strip()
+    if not opening or opening.casefold() == final.casefold():
+        return False
+    contract["final_callback_object"] = opening
+    log(f"Callback object aligned to the opening object: {final!r} -> {opening!r}")
+    return True
 
 
 def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: None,
@@ -1795,6 +2079,23 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
                 break
     except Exception:
         return script, cost
+    if not rewritten:
+        # A two-sentence hinge whose FIRST sentence is the turn ("There is no nest. Nothing to
+        # build one from, and the egg must stay warm." -- job adb41d84, 15 words) keeps its
+        # leading sentences while they fit. This is not the mechanical word-cut the note above
+        # warns against: whole sentences survive, the turn is the first of them, and the
+        # binding check below still reverts it if the evidence lived in the dropped tail.
+        leading = []
+        for sentence in re.split(r"(?<=[.!?])\s+", original.strip()):
+            if not sentence:
+                continue
+            if len(" ".join(leading + [sentence]).split()) > _cs.MAX_HINGE_WORDS:
+                break
+            leading.append(sentence)
+        if leading and len(leading) < len([s for s in re.split(r"(?<=[.!?])\s+", original.strip()) if s]) \
+                and not leading[-1].rstrip().endswith("?"):
+            rewritten = " ".join(leading)
+            log(f"  hinge: no compliant rewrite; keeping its first sentence(s): {rewritten!r}")
     if not rewritten:
         return script, cost                       # still over: leave the original alone
 
@@ -2037,11 +2338,24 @@ def _engine_runtime_fit(engine_id: str, duration_sec: float) -> dict:
             "fits": demanded <= ceiling}
 
 
-def _feasible_engines(duration_sec: float) -> list[str]:
-    """Engine ids whose required beats fit the requested runtime. Provider-free and free."""
+# Set once per run by run_explainer_pipeline from its topic_channel; read by the engine selector.
+_TOPIC_CHANNEL: contextvars.ContextVar = contextvars.ContextVar("reelforge_topic_channel", default="")
+
+
+def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[str]:
+    """Engine ids whose required beats fit the requested runtime, narrowed to the channel's
+    admitted shapes when the channel restricts them. Provider-free and free.
+
+    Measured need: the Nature channel has exactly two shapes, and a selector choosing "by how the
+    story turns" among all eight engines can still hand a penguin a bounty engine. The channel
+    contract already says which engines an episode may be; the selector has to be told.
+    """
     import story_engines as _se
-    return [engine_id for engine_id in _se.ENGINES
+    import topic_fit
+    fits = [engine_id for engine_id in _se.ENGINES
             if _engine_runtime_fit(engine_id, duration_sec)["fits"]]
+    allowed = topic_fit.engines_for_channel(_TOPIC_CHANNEL.get() if channel is None else channel)
+    return [engine_id for engine_id in fits if engine_id in allowed] if allowed else fits
 
 
 def _minimum_feasible_runtime(engine_id: str, duration_sec: float) -> int:
@@ -2382,7 +2696,8 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     """
     import causal_story as cs
     import story_engines as se
-    prefix_words = len(hook.split()) + len(_CAUSAL_FORMAT_TAG.split())
+    prefix_words = len(hook.split()) + len(
+        nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG).split())
     available = max(0, total_words - prefix_words)
     mechanism = next((i for i, b in enumerate(beats) if b.get("causal_role") == cs.MECHANISM), 0)
     opening = max(0, int(total_words * se.mechanism_deadline_pct(
@@ -3248,6 +3563,43 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             cost += sum(_spine_cost)
             _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
+        if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled"):
+            # ONE RE-ASK WITH THE VERDICT QUOTED BACK, before buying more research. The failure
+            # this catches is a citation choice, not a shortage of evidence: the penguin run
+            # (2026-09-25) cited c04 ("no nest materials") for the egg-on-feet hinge while c06
+            # ("incubates on his feet under a brood pouch") sat unused in the same ledger, and
+            # the research repair below cannot fix a wrong citation by adding claims.
+            _spine_correction = (
+                "\n\nYOUR PREVIOUS BEAT SHEET FAILED THE EVIDENCE CHECK. The report:\n"
+                + _sfm.spine_summary(_sb, _spine)
+                + "\n\nRewrite the sheet so every REQUIRED step's event text asserts only what "
+                "the claim it cites states, and cite the claim that actually states each "
+                "detail -- the ledger may hold a better claim than the one you used. Keep the "
+                "same engine and the same story; change citations and narrow wording, and add "
+                "no new facts.")
+            print("Spine unsupported — re-asking the planner once with the report quoted back")
+            _retry_plan, _retry_cost = _ask_planner(_spine_correction)
+            cost += _retry_cost
+            _retry_beats = _beats_of(_retry_plan)
+            _retry_roles = _compiler.compile_roles(
+                _retry_beats, sheet_engine_id, _claims_for_roles)
+            if _retry_roles.get("passed"):
+                _retry_prepared = _planning.prepare(
+                    _retry_beats, sheet_engine_id, _claims_for_roles,
+                    _lr_claims_by_case(research_dossier), question=question,
+                    repair=_repair_incentive_citations, cost_sink=cost_sink, cache=_cache)
+                cost += _retry_prepared["cost_usd"]
+                if _retry_prepared["compiled"]["passed"]:
+                    plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                    _spine, _sb = _retry_prepared["compiled"], _retry_prepared["beats"]
+                    style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                    throughline = _s(plan.get("throughline")).strip() or throughline
+                    print("  ✓ spine retry succeeded")
+                    print(_sfm.spine_summary(_sb, _spine))
+                else:
+                    print("  ✗ spine retry still unsupported — trying research repair on the original")
+            else:
+                print("  ✗ spine retry did not compile — trying research repair on the original")
         if not _spine["passed"] and not _diagnostic_render():
             from durable_execution import current as _current_runtime
             import research_coverage
@@ -3496,6 +3848,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     per_batch = 10
     all_scenes = []
     bi = 0
+    # One retry per batch when the writer returns the wrong NUMBER of scenes. Measured on the
+    # first penguin script: a replanned 10-beat batch came back as 9 scenes because the writer
+    # folded the closing beat (a device that adds no fact) into the reversal, and the run died
+    # rather than relabel. Asking once more, with the count and the reason spelled out, is cheaper
+    # than a whole new draft; a second miss still refuses.
+    count_retry_at, count_note = None, ""
     while bi < n_scenes:
         batch = beats[bi:bi + per_batch]
         lo, hi = batch[0]["n"], batch[-1]["n"]
@@ -3588,6 +3946,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                'Do NOT re-summarize or restate any '
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
                if is_last and not causal_lane else "")
+            + count_note
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
@@ -3606,8 +3965,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                      cost_sink=_ledger.StageCostSink(cost_sink, _ledger.EXPANSION))
         cost += rc
         if causal_lane and len(part.get("scenes") or []) != len(batch):
-            raise ValueError(f"Scene expansion returned {len(part.get('scenes') or [])} scenes "
+            returned = len(part.get("scenes") or [])
+            if count_retry_at != bi:
+                count_retry_at = bi
+                count_note = (f" RETURN EXACTLY {len(batch)} SCENES for this batch, one per assigned "
+                              "beat in the assigned order. A closing beat that adds no new fact is "
+                              f"still its own scene. The previous reply returned {returned}.")
+                print(f"[script] expansion returned {returned} scenes for {len(batch)} beats "
+                      f"{lo}-{hi}; asking once more for the exact count")
+                continue
+            raise ValueError(f"Scene expansion returned {returned} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
+        count_note = ""
         for batch_index, s in enumerate(part.get("scenes") or []):
             beat = batch[batch_index] if batch_index < len(batch) else {}
             s["human_present"] = _plan_bool(beat.get("human_present"), True)
@@ -3774,7 +4143,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         for _scene in all_scenes:
             _scene.setdefault("chapter", 0)
         _narration_repairs = _cs.finalize_narration(
-            all_scenes, hook=_s(plan.get("hook")), format_tag=_CAUSAL_FORMAT_TAG)
+            all_scenes, hook=_s(plan.get("hook")),
+            format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG))
 
     if causal_lane and _roles.get("compiled"):
         _compiler.refresh_story_positions(all_scenes)
@@ -4177,12 +4547,39 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     # Above the floor there is nothing to preserve -- those runtimes have no correct cached
     # research, which is the defect being fixed.
     scaled = (claims_low, claims_high) != (MIN_CLAIM_REQUEST, MIN_CLAIM_REQUEST + 6)
+    # The Nature channel's engines need claims the generic brief never asks for. The first two
+    # emperor penguin runs (2026-09-24) researched the breeding cycle well and still died at the
+    # spine: nothing in 35 claims said what the mother's departure DOES for the chick (she returns
+    # with food and feeds it) or that the parents alternate afterwards, because "research the
+    # question" produced a timeline, not a function. A channel-shaped coverage paragraph is
+    # appended only for that channel, so every other channel's request string, cache key and
+    # ledger key stay byte-identical.
+    channel_coverage = ""
+    if _TOPIC_CHANNEL.get() == "nature":
+        channel_coverage = (
+            "This is an animal-behaviour episode about a parent and its young. Besides the "
+            "timeline, the ledger MUST carry separately sourced claims that establish each of "
+            "these, because the story is compiled from them and fails without any one: "
+            "(1) the behaviour as it is observed; (2) the constraint that makes it necessary or "
+            "makes it look like neglect; (3) what the behaviour DOES for the young, as documented "
+            "outcome — for example that the departing parent returns with food and feeds the "
+            "young, that the young's survival depends on it, or a measured survival rate; "
+            "(4) the cost the parent bears and any documented backup behaviour; (5) how care "
+            "proceeds afterwards — who feeds, who guards, whether the parents alternate and for "
+            "how long; (6) how a returning parent finds its mate or young (recognition by call, "
+            "scent or site), if documented; (7) the mechanics of any group behaviour the story "
+            "leans on — for a huddle, that it moves in small coordinated steps, and what the "
+            "parent can and cannot do while carrying the egg or young (it can shuffle with it; "
+            "it cannot forage). Prefer government science agencies, research institutes and open-access "
+            "papers on this species; a natural-history museum or zoo page counts as institutional. "
+            "Attribute no motive or feeling to the animal; state what was observed or measured. ")
     prompt = (
         f'Research the long-form explainer question: "{question}". Build the smallest sufficient '
         f"ledger of {claims_low}-{claims_high} material claims needed to answer it accurately. "
         + (f"This is a {int(duration_sec)}-second film and the ledger has to carry "
            f"{events_for_runtime(duration_sec)} distinct factual events without any one of them "
            "resting on a single source. " if scaled else "")
+        + channel_coverage
         + "Ask for more than the video "
         "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
         "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
@@ -4196,12 +4593,13 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         "open-access journals and museum or university pages. Publisher portals that usually "
         "show only an abstract behind a paywall cost the ledger a claim even when the paper is "
         "authoritative, because the checker cannot read the sentence you quoted. "
-        "Include 3-5 claims about COMPARABLE CASES in other places or domains that show the same "
-        "pattern as this topic — the video may generalise at the end, and a comparison it "
-        "cannot source is rejected before render. Give each comparable case the same "
-        "treatment as the rest: a real URL from your search results and a quote you expect "
-        "to find on that page. "
-        "For a hypothetical, separate the changed premise, "
+        + ("" if nature_channel.is_nature(_TOPIC_CHANNEL.get()) else
+           "Include 3-5 claims about COMPARABLE CASES in other places or domains that show the same "
+           "pattern as this topic — the video may generalise at the end, and a comparison it "
+           "cannot source is rejected before render. Give each comparable case the same "
+           "treatment as the rest: a real URL from your search results and a quote you expect "
+           "to find on that page. ")
+        + "For a hypothetical, separate the changed premise, "
         "direct calculations, established baseline facts, modeled consequences, and speculation. "
         "Return ONLY JSON with this schema: "
         '{"topic":"","research_summary":"","claims":[{"claim_id":"c01","claim":"",'
@@ -4416,6 +4814,27 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     # A directly contradicted candidate is unusable evidence, not a reason to discard the entire
     # independently verified ledger. Preserve it in the audit trail and keep it out of prompts.
     dossier = quarantine_contradicted_claims(dossier)
+    # A claim citing a URL the provider's web search never returned is unverifiable by
+    # construction: nobody read that page. It is dropped like a quote that is not on its page,
+    # not allowed to fail 27 verified claims with it. Measured on the emperor penguin research
+    # (2026-09-25): 22 claims verified, 2 cited unobserved URLs, whole dossier refused. A dossier
+    # whose EVERY claim is model-only still fails, under the same code as before.
+    observed = {_canonical_url(url) for url in dossier.get("citation_urls") or []}
+    unobserved = [claim for claim in dossier.get("claims") or []
+                  if isinstance(claim, dict)
+                  and _canonical_url(_s(claim.get("source_url"))) not in observed]
+    if unobserved:
+        for claim in unobserved[:4]:
+            log(f"  ✗ dropped {claim.get('claim_id') or '?'}: source URL never returned by web "
+                f"search — {_s(claim.get('source_url'))[:70]}")
+        dossier["unobserved_source_claims"] = unobserved
+        dossier["claims"] = [claim for claim in dossier.get("claims") or []
+                             if claim not in unobserved]
+        if not dossier["claims"]:
+            raise ValueError(
+                "Research dossier failed before scripting [unverified_source"
+                f"x{len(unobserved)}]: every claim cited a source URL that was not observed in "
+                "the provider's web-search citations.")
     validation = validate_research_dossier(dossier)
     dossier["validation"] = validation
     # Save accepted and excluded evidence before scripting can fail. This private
@@ -4597,6 +5016,135 @@ def unsupported_actors(event_text: str, narration: str) -> list[str]:
                 and not any(word in seen for seen in found)):
             found.append(word)
     return found
+
+
+def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: None) -> int:
+    """Delete, never rewrite: drop a sentence whose only job was an unsupported detail.
+
+    The model repair keeps a true-sounding overshoot because it IS true: the first emperor penguin
+    script to reach the ledger failed twice on "So he stands." against an event that says the male
+    incubates the egg in his brood pouch, and two rewrite passes kept the word because penguins do
+    stand. Boundary B is not asking whether it is true; it is asking whether the event says it.
+    The cheapest honest repair is to remove the sentence, and only when doing so costs nothing
+    the ledger relies on: the sentence carries no bound claim phrase, is not part of one, and is
+    not the scene's last sentence. Returns the number of sentences dropped; the caller re-binds
+    and re-validates, so this can only ever turn a failure into a judged pass, never assert one.
+    """
+    errors = [item for item in (report or {}).get("errors") or []
+              if isinstance(item, dict) and item.get("code") == "NARRATION_EXCEEDS_EVENT"]
+    scenes = script.get("scenes") or []
+    by_beat = {}
+    for position, scene in enumerate(scenes, 1):
+        for key in ("beat_id", "scene_id"):
+            if _s(scene.get(key)):
+                by_beat.setdefault(_s(scene.get(key)), position)
+    dropped = 0
+    for item in errors:
+        details = [_s(d) for d in (item.get("unsupported_details") or []) if _s(d)]
+        # The judge annotates its spans: "with Dad (that the male takes over the egg)". The words
+        # in the narration are the part before the parenthesis; try both forms.
+        details = [variant for detail in details
+                   for variant in (detail, re.sub(r"\s*\([^)]*\)", "", detail).strip())
+                   if variant] or details
+        marker = item.get("scene")
+        index = int(marker) if isinstance(marker, int) or (isinstance(marker, str) and marker.isdigit()) \
+            else by_beat.get(_s(marker), 0)
+        if not details or not 1 <= index <= len(scenes):
+            continue
+        scene = scenes[index - 1]
+        sentences = [s for s in re.split(r"(?<=[.!?])\s+", _s(scene.get("narration")).strip()) if s]
+        bound = [_s(ref.get("narration_phrase")) for ref in (scene.get("claim_refs") or [])
+                 if isinstance(ref, dict) and _s(ref.get("narration_phrase"))]
+        kept = []
+        matched_any = False
+        hook_key = re.sub(r"[^a-z0-9]+", " ", _s(script.get("hook")).lower()).strip()
+        for sentence in sentences:
+            offending = any(detail.lower() in sentence.lower() for detail in details)
+            in_binding = any(sentence in phrase or phrase in sentence for phrase in bound)
+            # The spoken hook is never a sentence to delete: it is the episode's promise, and
+            # job 218e75c5 lost "Why does this emperor penguin look like the worst mother?" to
+            # the unbound-sentence fallback below.
+            is_hook = bool(hook_key) and (
+                re.sub(r"[^a-z0-9]+", " ", sentence.lower()).strip() == hook_key)
+            if is_hook:
+                in_binding = True
+            if offending:
+                matched_any = True
+            # A clause, not a sentence: "To stretch that fuel, he joins the others in a huddle"
+            # overshoots by its purpose clause alone, and dropping the sentence would drop the
+            # huddle with it. Cut the quoted span when it is a proper part of the sentence and no
+            # bound phrase runs through it; the ledger re-judges what is left.
+            clipped = _clip_unsupported_clause(sentence, details, bound)
+            if offending and clipped and clipped != sentence:
+                dropped += 1
+                log(f"  ✂ scene {index}: clipped {sentence!r} -> {clipped!r}")
+                kept.append(clipped)
+                continue
+            if (offending and not in_binding and len(sentences) >= 2
+                    and len(kept) + (len(sentences) - len(kept) - 1) >= 1):
+                dropped += 1
+                log(f"  ✂ scene {index}: dropped {sentence!r} (unsupported: {', '.join(details)})")
+                continue
+            kept.append(sentence)
+        if not matched_any and len(sentences) >= 2 and bound:
+            # The judge paraphrased the overshoot ("the father was left guarding the egg") and
+            # no sentence contains its words. The bound sentences are the ones the ledger relies
+            # on; an unbound sentence in a scene the judge refused is the only thing that can be
+            # carrying the overshoot, so drop those and keep at least one sentence.
+            unbound = [s for s in sentences
+                       if not any(s in phrase or phrase in s for phrase in bound)
+                       and not (hook_key and re.sub(r"[^a-z0-9]+", " ", s.lower()).strip() == hook_key)]
+            if unbound and len(unbound) < len(sentences):
+                # One sentence per round, the one sharing most words with the judge's note; the
+                # caller re-judges and comes back if more must go. Dropping every unbound
+                # sentence at once gutted the early-hatch beat (job 2e2c7498).
+                note_words = set(re.findall(r"[a-z]{3,}", " ".join(details).lower()))
+                target = max(unbound, key=lambda s: len(
+                    note_words & set(re.findall(r"[a-z]{3,}", s.lower()))))
+                dropped += 1
+                log(f"  ✂ scene {index}: dropped unbound {target!r} (judge: {', '.join(details)})")
+                kept = [s for s in sentences if s is not target]
+        if kept and kept != sentences:
+            scene["narration"] = " ".join(kept)
+    return dropped
+
+
+def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]) -> str:
+    """Remove a quoted unsupported span from inside a sentence, or return it unchanged.
+
+    Only a proper substring is clipped (a whole-sentence match is the caller's to drop), only
+    when no bound claim phrase overlaps the span, and only when at least four words survive.
+    Leading clauses lose their trailing comma and the remainder is re-capitalised; trailing
+    clauses lose their leading comma and keep the full stop.
+    """
+    text = _s(sentence)
+    for detail in details:
+        span = _s(detail).strip().rstrip(".,;")
+        if not span or span.lower() == text.lower().rstrip(".!?"):
+            continue
+        position = text.lower().find(span.lower())
+        if position < 0:
+            continue
+        if any(phrase and (span.lower() in phrase.lower() and phrase.lower() in text.lower())
+               for phrase in bound):
+            continue
+        head, tail = text[:position], text[position + len(span):]
+        head = re.sub(r"[\s,;:]+$", "", head)
+        tail = re.sub(r"^[\s,;:]+", " ", tail)
+        if not head.strip():
+            remainder = tail.strip()
+            remainder = remainder[:1].upper() + remainder[1:] if remainder else remainder
+        elif not tail.strip().rstrip(".!?"):
+            remainder = head.strip() + (tail.strip() or ".")
+        else:
+            remainder = (head + " " + tail.strip()).strip()
+            remainder = re.sub(r"\s+", " ", remainder)
+        if len(re.findall(r"[A-Za-z0-9']+", remainder)) < 4:
+            continue
+        if not re.search(r"[.!?]$", remainder):
+            remainder += "."
+        return remainder
+    return sentence
 
 
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
@@ -5197,6 +5745,10 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
                 + HUMAN_REF_LINE)
     elif state.get("include_bolt"):
         cast = "Bolt performs the declared useful action; Alex is outside the frame."
+    if nature_channel.is_nature(continuity_pack.get("channel")):
+        # The animal is the actor. Every clause above describes people the history references
+        # put in frame; on this channel they drew researchers beside the penguins.
+        cast = nature_channel.cast_line(_s(continuity_pack.get("subject_sheet")))
     location = _s((continuity_pack.get("first_act_location") or {}).get("label"))
     absence = ""
     if state.get("forbidden_objects"):
@@ -6443,10 +6995,15 @@ def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
             if idempotency_key:
                 hdr["Idempotency-Key"] = idempotency_key
             uri = "data:image/jpeg;base64," + base64.b64encode(open(ref, "rb").read()).decode()
-            dur = "10" if seconds > 5 else "5"            # Kling supports only 5 or 10s
-            _model = fal_model or _FAL_MODEL              # hero beats pass a pricier model
-            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60,
-                           json={"prompt": motion, "image_url": uri, "duration": dur})
+            _model = fal_models.resolve(fal_model or _FAL_MODEL)   # hero beats pass a pricier model
+            # The body is built in the endpoint's own field names (Kling / Seedance / Wan families)
+            # and the duration is snapped to what that endpoint accepts. Audio is always off: the
+            # pipeline muxes its own narration and Seedance/Kling bill extra for generated audio.
+            body = fal_models.build_i2v_body(
+                _model, prompt=motion, image_url=uri, seconds=seconds,
+                resolution=_FAL_I2V_RESOLUTION, aspect_ratio=("9:16" if sh > sw else "16:9"),
+                audio=False)
+            sub = _rq.post(f"https://queue.fal.run/{_model}", headers=hdr, timeout=60, json=body)
             low = sub.text.lower()
             if sub.status_code == 429 or "exhaust" in low or "balance" in low or "quota" in low:
                 return (False, True, f"fal quota/balance: {sub.text[:120]}")
@@ -7599,12 +8156,46 @@ def _causal_topic_system(channel: str) -> str:
     import topic_fit
 
     spec = topic_fit.CHANNELS[channel]
-    return (
+    header = (
         f"You propose topics for {spec['name']}. Its promise to a viewer: {spec['promise']}\n"
         f"WHAT QUALIFIES: {spec['requires']}.\n"
         f"WHAT IT LOOKS LIKE: {spec['examples']}.\n"
         f"WHAT STAYS OUT: {spec['excludes']}.\n"
-        "HARD RULES, and a topic failing any one of them is worthless here:\n"
+        "HARD RULES, and a topic failing any one of them is worthless here:\n")
+    if channel == topic_fit.NATURE:
+        # No intervention rule here: nobody intervenes in a mistaken-verdict story. The load-bearing
+        # requirement is the RECORDED verdict, because "how the octopus guards her eggs" with no
+        # misreading to overturn is a nature fact the engine cannot turn into a story.
+        return header + (
+            "- ONE species and ONE documented behaviour toward its eggs or young. Not a survey of "
+            "how animals raise young; one animal, one behaviour.\n"
+            "- ONE OF TWO SHAPES, and say which. A RECORDED VERDICT: someone on the record "
+            "actually read the behaviour as neglect, cruelty, theft or abandonment (a scientific "
+            "name, a museum label, a textbook line, a naturalist's account), and CORRECTING "
+            "EVIDENCE, a specific documented finding with a year and a finder, changed the "
+            "reading. Or a STRANGE BEHAVIOUR: it LOOKS like neglect or abandonment, and the "
+            "constraint that makes it necessary and its function for the young are documented. "
+            "NEVER invent a reputation to make the first shape fit: 'the lists call her the worst "
+            "mother' when no list does is worse than no story. 'Scientists now believe' is not a "
+            "finding.\n"
+            "- SOURCEABLE: a literate person could name the species, the study or specimen, the "
+            "year and the corrected reading. No invented motives, feelings or dialogue.\n"
+            "- NAME THE RIGHT SPECIES. Not 'sharks' but the sand tiger shark; not 'the nesting "
+            "dinosaur' but the specimen and its genus. Where two related species carry the story "
+            "(Oviraptor was named, Citipati was found brooding) say so rather than merging them. "
+            "An omission costs a rewrite, a wrong attribution costs a video that is confidently "
+            "false.\n"
+            "- NO HUMAN PROGRAMME in the causal chain. A bounty, an eradication or a release "
+            "belongs to the World channel, not here.\n"
+            "- The question names the SUBJECT, not the shape. 'Why does the giant Pacific octopus "
+            "stop eating once she lays her eggs?' -- not 'Why do animals sacrifice themselves?'\n"
+            "Score 0-10 on curiosity_gap (a specific, irresistible contradiction between what the "
+            "behaviour looks like and what it does, real stakes for the young, and FRESH -- the "
+            "cuckoo alone is over-told). Be a harsh grader.\n"
+            'Return ONLY JSON: {"questions":[{"question":"...","curiosity_gap":int,'
+            '"episode":"the behaviour in a short phrase","intent":"the recorded verdict",'
+            '"aftermath":"the evidence that corrected it"}]}.')
+    return header + (
         "- ONE intervention, bounded in time and place. A standing condition with many parallel "
         "causes is not one. 'Why don't Americans eat hippo meat' cost this series $3.20 in "
         "research and produced nothing, because it names an absence rather than an event.\n"
@@ -8113,15 +8704,16 @@ _THUMB_STRATEGY_SYSTEM = (
 
 
 def _thumbnail_strategy(title: str, question: str, transcript: str = "",
-                        cost_sink: list | None = None) -> dict:
+                        cost_sink: list | None = None, steer: str = "") -> dict:
     """Derive the CONSEQUENCE-driven thumbnail strategy (title=cause -> thumbnail=consequence). Mines the
-    transcript for the single most surprising payoff. Best-effort: {} on failure (caller falls back)."""
+    transcript for the single most surprising payoff. Best-effort: {} on failure (caller falls back).
+    `steer` is a channel rule block appended to the system prompt; empty keeps the prompt unchanged."""
     try:
         usr = (f'VIDEO TITLE (the cause/premise): "{title}"\nTOPIC: {question}\n'
                + (f'\nTRANSCRIPT — mine the single most surprising, pictureable CONSEQUENCE from here '
                   f'(prefer a concrete number):\n{_s(transcript)[:4500]}' if transcript else ""))
         r = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=500,
-                                      system=_THUMB_STRATEGY_SYSTEM,
+                                      system=_THUMB_STRATEGY_SYSTEM + (("\n" + steer) if steer else ""),
                                       messages=[{"role": "user", "content": usr}])
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
@@ -8179,6 +8771,11 @@ def _flat_thumb_prompt(strat: dict, question: str, layout: str, variant: str,
     else:
         p.append(f"Do NOT include the {MASCOT_NAME} robot or any mascot — a clean consequence reads stronger here.")
     p.append(_THUMB_VARIANT_STEER.get(variant, ""))
+    if nature_channel.is_nature(_TOPIC_CHANNEL.get()):
+        p.append("NATURE CHANNEL: the animal is drawn with correct anatomy (flippers or wings, never "
+                 "arms) in its real habitat; the threat is weather, distance, darkness or hunger "
+                 "shown literally. NO skulls, monsters, demons, ghost faces, flames or fantasy "
+                 "creatures. No people.")
     p.append("Do NOT depict real, identifiable or recent real-world events, real public figures, or "
              "partisan symbols — use generic, timeless, symbolic imagery. Absolutely NO text, letters, "
              "words or numbers baked into the image.")
@@ -8369,8 +8966,12 @@ def generate_thumbnail(title, question, style_mode, video_format, out_dir, cost_
 
     valence = _topic_valence(title, question, cost_sink=cost_sink)
     bolt_emotion = _r.Random(hash((question, video_format)) & 0xffffffff).choice(_THUMB_EMOTION[valence])
-    strat = _thumbnail_strategy(title, question, transcript, cost_sink=cost_sink)
+    nature = nature_channel.is_nature(_TOPIC_CHANNEL.get())
+    strat = _thumbnail_strategy(title, question, transcript, cost_sink=cost_sink,
+                                steer=nature_channel.THUMBNAIL_STEER if nature else "")
     bolt = bool(strat.get("include_bolt", True)) if strat else True
+    if nature:
+        bolt = False
 
     # Headline: caller-supplied > strategy CONSEQUENCE > premise-caption fallback.
     if concept and _s(concept.get("text")):
@@ -8379,6 +8980,23 @@ def generate_thumbnail(title, question, style_mode, video_format, out_dir, cost_
         hook = _s(strat["consequence_text"]).upper()[:40]
     else:
         hook, _sub = _thumbnail_caption(title, question, cost_sink=cost_sink)
+    if nature and not nature_channel.headline_numbers_supported(hook, transcript):
+        # "DAD CAN'T MOVE 65 DAYS" over a narration that says "seven, eight weeks": a number the
+        # source gates never saw. One retry with the rule restated, then a number-free fallback.
+        _rep["headline_rejected"] = hook
+        retry = _thumbnail_strategy(
+            title, question, transcript, cost_sink=cost_sink,
+            steer=nature_channel.THUMBNAIL_STEER + f' The line "{hook}" was REJECTED because its '
+            "number is not spoken in the transcript. Use only numbers the transcript speaks, or none.")
+        candidate = _s(retry.get("consequence_text")).upper()[:40]
+        if candidate and nature_channel.headline_numbers_supported(candidate, transcript):
+            hook = candidate
+            strat = retry
+        else:
+            hook = " ".join(w for w in hook.split()
+                            if not nature_channel.numbers_in(w)).strip() or hook
+            if not nature_channel.headline_numbers_supported(hook, transcript):
+                hook, _sub = _thumbnail_caption(title, question, cost_sink=cost_sink)
     _rep["headline"] = hook
     if strat:
         _rep["strategy"] = {k: strat.get(k) for k in
@@ -8500,7 +9118,7 @@ def _research_token_budget(claims_high: int) -> int:
                int(max(0, int(claims_high or 0)) * _RESEARCH_TOKENS_PER_CLAIM))
 # Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
 # the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
-_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
+_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "3")))
 
 
 def _script_gate_hard() -> bool:
@@ -9090,12 +9708,17 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         # it (→ surfaced as degraded at the end) and, if SCRIPT_GATE_HARD=1, abort before spending.
         if best_g["overall"] < _SCRIPT_GATE_FLOOR:
             best["_grade"]["below_floor"] = True
+            floor_is_hard = _script_gate_hard() or nature_channel.script_floor_is_hard(
+                _TOPIC_CHANNEL.get())
             log(f"⚠ Best script graded {best_g['overall']}/100 — BELOW the {_SCRIPT_GATE_FLOOR} "
-                f"quality floor. Rendering anyway (set SCRIPT_GATE_HARD=1 to abort instead).")
-            if _script_gate_hard():
+                f"quality floor. " + ("Refusing to render." if floor_is_hard else
+                                      "Rendering anyway (set SCRIPT_GATE_HARD=1 to abort instead)."))
+            if floor_is_hard:
                 raise ValueError(
                     f"Script graded {best_g['overall']}/100, below the {_SCRIPT_GATE_FLOOR} floor "
-                    f"(SCRIPT_GATE_HARD=1) — aborted before any image/TTS/Veo spend.")
+                    f"({'Nature channel rule' if not _script_gate_hard() else 'SCRIPT_GATE_HARD=1'})"
+                    f" — aborted before any image/TTS/Veo spend. Component scores: "
+                    f"{json.dumps(best_g.get('scores') or {})}.")
         elif best_g["overall"] < _SCRIPT_GATE_PASS:
             log(f"Script graded {best_g['overall']}/100 — under the {_SCRIPT_GATE_PASS} target but "
                 f"above the {_SCRIPT_GATE_FLOOR} floor; shipping as-is.")
@@ -9740,12 +10363,19 @@ def run_explainer_pipeline(
     pilot_policy: dict | None = None,
     progress_cb=None,
     topic_channel: str = "",
+    stop_after_script: bool = False,
+    revision_note: str = "",
 ) -> dict:
 
     def log(msg: str):
         if progress_cb:
             progress_cb(msg)
 
+    # The channel restricts which narrative engines the selector may offer (topic_fit.CHANNEL_ENGINES).
+    # Carried as a context variable rather than threaded through three signatures: the selector sits
+    # under generate_graded_script -> _generate_script_chunked, and every caller of those would
+    # otherwise need a new positional-safe keyword for a value only the Nature channel sets.
+    _TOPIC_CHANNEL.set((topic_channel or "").strip().lower())
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
     stable_standard_longform = _stable_standard_longform(
@@ -10064,15 +10694,34 @@ def run_explainer_pipeline(
                 causal_lane=illustrated_story_on,
                 operator_direction=script_operator_direction,
                 research_dossier=research_dossier)
-            script = _cached_graded_script(question, script_fingerprint, log)
-            if script is None:
-                script = generate_graded_script(question, duration_sec, style, image_guidance,
-                                                video_format, series, cost_sink=aux_costs, log=log,
-                                                operator_direction=script_operator_direction,
-                                                story_format=story_format,
-                                                research_dossier=research_dossier,
-                                                causal_lane=illustrated_story_on)
-                # Deliberately NOT stored here: see the store after the claim ledger.
+            # An editor's targeted note revises the cached draft instead of writing a new one.
+            # The revised draft is cached under its own key (base + note), so an approved
+            # revision is reused verbatim and the un-revised draft stays available.
+            revision = _s(revision_note).strip()
+            revised_fingerprint = (hashlib.sha256(
+                f"{script_fingerprint}|revision|{revision}".encode()).hexdigest()
+                if revision else "")
+            script = (_cached_graded_script(question, revised_fingerprint, log)
+                      if revision else None)
+            if script is not None:
+                script_fingerprint = revised_fingerprint
+            else:
+                script = _cached_graded_script(question, script_fingerprint, log)
+                if script is None:
+                    script = generate_graded_script(
+                        question, duration_sec, style, image_guidance,
+                        video_format, series, cost_sink=aux_costs, log=log,
+                        operator_direction=script_operator_direction,
+                        story_format=story_format,
+                        research_dossier=research_dossier,
+                        causal_lane=illustrated_story_on)
+                    # Deliberately NOT stored here: see the store after the claim ledger.
+                if revision:
+                    log("stage:Revising the script on the editor's note...")
+                    script, _revision_cost = revise_cached_script(
+                        script, revision, question, cost_sink=aux_costs, log=log)
+                    if script.get("_revision_note"):
+                        script_fingerprint = revised_fingerprint
             research_dossier = script.get("_research_dossier") or research_dossier
         scenes = script.get("scenes", [])
         style_mode = (_s(script.get("style_mode")) or "educational").strip().lower()
@@ -10141,6 +10790,25 @@ def run_explainer_pipeline(
                        else f"{_before_count} -> {_after_count} failing"))
                 if _after_count >= _before_count:
                     break
+            if not claim_validation.get("passed"):
+                # Last resort before refusing: delete the sentence that carries only an
+                # unsupported detail, then judge the script again. See _trim_unsupported_sentences.
+                # Up to three rounds: a trim can surface a failure the judge had not yet reached
+                # (job 2e2c7498: one round left "with Dad" standing after three sentences fell).
+                for _trim_round in range(3):
+                    trimmed = _trim_unsupported_sentences(script, claim_validation, log)
+                    if not trimmed:
+                        break
+                    rederive_narration_bindings(script, log, research_dossier)
+                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                    script["_claim_validation"] = claim_validation
+                    scenes = script.get("scenes", [])
+                    log(f"Claim ledger trim {_trim_round + 1}: dropped {trimmed} unsupported "
+                        "sentence(s)/clause(s) -> "
+                        + ("PASS" if claim_validation.get("passed")
+                           else f"{len(claim_validation.get('errors') or [])} failing"))
+                    if claim_validation.get("passed"):
+                        break
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
@@ -10302,6 +10970,14 @@ def run_explainer_pipeline(
         # grading were already bought.
         script, _hinge_cost = _ensure_hinge_fits_budget(
             script, aux_costs, log, research_dossier)
+        # The evidence plan's callback state is labelled from the contract; equal labels are a
+        # rule the planner is asked for and the plan gate enforces. Made true here.
+        _align_callback_object(script, log)
+        # The continuity pack and every evidence prompt read the channel off the script, so a
+        # checkpoint or cached script on disk says which channel's rules it was drawn under.
+        script["_topic_channel"] = _TOPIC_CHANNEL.get()
+        if nature_channel.is_nature(_TOPIC_CHANNEL.get()):
+            _nature_subject_sheet(question, script, aux_costs, log)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
             storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []
@@ -10617,6 +11293,29 @@ def run_explainer_pipeline(
     #    Image fails  → local fallback frame (job continues).
     #    Moderation   → one safe-prompt retry, else fallback frame.
     #    Audio fails  → scene is dropped (narration is the backbone).
+    if stop_after_script:
+        # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the
+        # narration where an editor can read it and stop; the approved rerun reuses the cache.
+        approval_path = os.path.join(output_dir, "script_for_approval.md")
+        with open(approval_path, "w", encoding="utf-8") as handle:
+            handle.write(f"# {_s(script.get('title'))}\n\n")
+            handle.write(f"Hook: {_s(script.get('hook'))}\n\n")
+            total = 0
+            for index, scene in enumerate(script.get("scenes") or [], 1):
+                narration = _s(scene.get("narration"))
+                total += len(narration.split())
+                role = _s(scene.get("causal_role") or scene.get("role"))
+                handle.write(f"{index}. [{role}] ({len(narration.split())}w) {narration}\n\n")
+            handle.write(f"Total words: {total}\n")
+            grade = script.get("_grade") or {}
+            if grade:
+                handle.write(f"Script grade: {grade.get('overall')}/100 "
+                             f"{json.dumps(grade.get('scores') or {})}\n")
+        log(f"Script written for approval: {approval_path}")
+        raise ScriptApprovalRequired(
+            "Script passed every pre-spend gate and is awaiting operator approval "
+            "(stop_after_script). Rerun the same request without stop_after_script to render; "
+            "SCRIPT_CACHE=1 reuses this exact script.")
     log("stage:Preparing narration and visual assets...")
     _preflight_verifier_credit(log)
 
@@ -11683,8 +12382,8 @@ def run_explainer_pipeline(
             _hero = (_hero_i2v_indices(usable, sel)
                      if (video_format == "social" and _FAL_HYBRID and "fal" in _I2V_CHAIN) else set())
             if _hero:
-                log(f"i2v hybrid: {_FAL_MODEL_HERO.split('/')[2]}-pro on hero beats "
-                    f"{sorted(k + 1 for k in _hero)}, standard on the rest")
+                log(f"i2v hybrid: {fal_models.label(_FAL_MODEL_HERO)} on hero beats "
+                    f"{sorted(k + 1 for k in _hero)}, {fal_models.label(_FAL_MODEL)} on the rest")
 
             def _anim(k):
                 r = usable[k]

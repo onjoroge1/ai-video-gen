@@ -39,8 +39,8 @@ import re
 
 FITS, NEEDS_NARROWING, NO_STORY = "fits", "needs_narrowing", "no_story"
 
-WORLD, HISTORY = "world", "history"
-EDITORIAL_VERSION = "bolt_two_channels_v2_us_history"
+WORLD, HISTORY, NATURE = "world", "history", "nature"
+EDITORIAL_VERSION = "bolt_three_channels_v3_nature"
 CHANNELS = {
     WORLD: {
         "name": "Bolt Explains the World",
@@ -73,7 +73,46 @@ CHANNELS = {
         "excludes": "daily political news, general biographies, unrelated wars, celebrity "
                     "controversies and corporate scandals",
     },
+    NATURE: {
+        "name": "Bolt Explains Nature",
+        "banner": "TERRIBLE PARENTS. PERFECT STRATEGY.",
+        "promise": "Why [animal] is a terrible parent -- and why the young are the reason.",
+        "requires": "ONE species and ONE documented behaviour toward its eggs or young, in one of "
+                    "two shapes. MISTAKEN VERDICT: the behaviour was READ as neglect, cruelty, "
+                    "theft or abandonment by someone on the record -- a name, a label, a "
+                    "textbook, a naturalist -- and specific evidence corrected the reading. "
+                    "STRANGE BEHAVIOUR: the behaviour merely LOOKS like neglect or abandonment, "
+                    "and the constraint behind it and its function for the young are documented; "
+                    "no accusation is attributed to anyone, because none was recorded. NO human "
+                    "intervention drives either: the animal is doing what it always did",
+        "examples": "Oviraptor, named 'egg thief' in 1924 for a skeleton on a nest that was its "
+                    "own; the emperor penguin father who fasts through the Antarctic winter with "
+                    "the egg on his feet; the giant Pacific octopus that stops eating to guard her "
+                    "eggs; the Nile crocodile that carries hatchlings in the jaws it was accused "
+                    "of eating them with; sand tiger shark pups that eat their siblings before "
+                    "birth",
+        "excludes": "general animal facts, quizzes, 'how animals raise their young' surveys with "
+                    "no strange-looking behaviour at their centre, human programmes that harmed "
+                    "animals (those belong to WORLD), invented motives or feelings, INVENTED "
+                    "REPUTATIONS ('the lists call her the worst mother' when no list does), and "
+                    "any story whose function or corrected reading is not itself documented",
+    },
 }
+
+# Which narrative engines a channel's episodes may use. World and History are deliberately
+# unrestricted: their episodes have been selected freely among the six older engines and that
+# behaviour is measured. Nature is new and has exactly two shapes, so the selector is not offered
+# a bounty engine for a penguin: an engine chosen "by how the story turns" still has to be one
+# the channel contract admits.
+CHANNEL_ENGINES = {
+    NATURE: ("mistaken_verdict", "strange_behaviour"),
+}
+
+
+def engines_for_channel(channel: str) -> tuple[str, ...] | None:
+    """Allowed engine ids for a channel, or None when the channel does not restrict them."""
+    return CHANNEL_ENGINES.get((channel or "").strip().lower())
+
 
 # Editorial research queue, not approved claims or a promise of a finished video.
 # Engine hints describe a candidate shape; research still decides the supported structure.
@@ -236,6 +275,42 @@ TOPIC_CANDIDATES = {
          "why": "A long-running intervention has strong visual escalation and a classic unintended consequence.",
          "engine_hint": "backfiring_solution", "status": "research_candidate"},
     ],
+    # "Why [animal] is a terrible parent." Every candidate names the recorded verdict it overturns;
+    # a behaviour nobody ever misread is a nature fact, not an episode of this channel.
+    NATURE: [
+        {"question": "Why was Oviraptor named 'egg thief' for a nest that turned out to be its own?",
+         "suggested_title": "The Dinosaur Named After a Mistake",
+         "why": "The reference episode: a 1924 name, a 1994 embryo, a 1995 brooding cousin, and a name that never changed.",
+         "engine_hint": "mistaken_verdict", "status": "research_candidate"},
+        {"question": "Why does the emperor penguin leave her only egg for two months?",
+         "suggested_title": "Why This Penguin Leaves Her Only Egg",
+         "why": "No accusation on the record, so a strange_behaviour episode: the constraint (he cannot hunt with the egg), the function (she returns with food at hatching) and the backup (his oesophageal secretion) are all documented.",
+         "engine_hint": "strange_behaviour", "status": "research_candidate"},
+        {"question": "Why does the giant Pacific octopus stop eating once she lays her eggs?",
+         "suggested_title": "The Mother Who Starves on Purpose",
+         "why": "A documented months-long brood with a measured fast that looks like self-destruction and is the guarding itself. Research decides whether any account recorded it as such.",
+         "engine_hint": "strange_behaviour", "status": "research_candidate"},
+        {"question": "Why was the Nile crocodile believed to eat its own hatchlings?",
+         "suggested_title": "The Crocodile Accused of Eating Its Young",
+         "why": "The jaws that looked like the crime were the transport: hatchlings are carried to water and guarded for weeks.",
+         "engine_hint": "mistaken_verdict", "status": "research_candidate"},
+        {"question": "Why do sand tiger shark pups eat their siblings before they are born?",
+         "suggested_title": "Born Having Already Killed",
+         "why": "Intrauterine cannibalism documented since the 1940s, read as horror, that produces one large well-formed pup.",
+         "engine_hint": "mistaken_verdict", "status": "research_candidate"},
+        {"question": "Why does a kangaroo mother appear to abandon a joey in drought?",
+         "suggested_title": "The Joey the Kangaroo Lets Go",
+         "why": "Embryonic diapause: three young at three stages, and the pause that looks like abandonment is the reserve.",
+         "engine_hint": "strange_behaviour", "status": "research_candidate"},
+        {"question": "Why does the Surinam toad's back erupt with babies?",
+         "suggested_title": "The Toad That Grows Its Young in Its Skin",
+         "why": "A body-horror image with a documented mechanism: eggs embedded in the mother's back until they emerge as toadlets.",
+         "engine_hint": "strange_behaviour", "status": "research_candidate"},
+        {"question": "Why do Stegodyphus spiderlings eat their mother?",
+         "suggested_title": "The Spider Mother Who Is the Last Meal",
+         "why": "Matriphagy, documented and measured, looks like the young turning on the parent and is the final act of provisioning.",
+         "engine_hint": "strange_behaviour", "status": "research_candidate"},
+    ],
 }
 
 
@@ -270,8 +345,8 @@ def signals(question: str) -> dict:
 
 
 _SYSTEM = (
-    "You screen questions for two documentary channels that share a house style and nothing else. "
-    "Answer only about the question you are given. Return only JSON.\n\n"
+    "You screen questions for three documentary channels that share a house style and nothing "
+    "else. Answer only about the question you are given. Return only JSON.\n\n"
     + "\n\n".join(
         f"{key.upper()} — {spec['name']}\n"
         f"  promise:  {spec['promise']}\n"
@@ -281,34 +356,46 @@ _SYSTEM = (
         for key, spec in CHANNELS.items())
     + "\n\nANIMALS WIN TIES. A state-run campaign against an animal population belongs to WORLD, "
       "not HISTORY, even though a government ran it. Otherwise HISTORY absorbs almost everything "
-      "and the two channels collapse back into one.")
+      "and the channels collapse back into one.\n"
+      "NATURE TAKES ONLY WHAT ANIMALS DO. If a human programme is anywhere in the causal chain, "
+      "the question belongs to WORLD or HISTORY. NATURE needs either a RECORDED misreading of "
+      "the behaviour (a name, a label, a textbook line) or a behaviour that LOOKS like neglect "
+      "with a documented constraint and function behind it. Never attribute an accusation "
+      "nobody recorded. A behaviour that neither looks strange nor was misread is a nature "
+      "fact, not an episode.")
 
 
 def _prompt(question: str, found: dict, channel: str = "") -> str:
     asked = (f"The operator says this is for the {channel.upper()} channel; say so if it belongs "
-             "to the other one.\n" if channel else
+             "to one of the others.\n" if channel else
              "Decide which channel it belongs to, or neither.\n")
     return (
         f'QUESTION: "{question}"\n\n{asked}'
         f"Deterministic signals (advisory, may be wrong): asks about something that did NOT happen "
         f"= {found['absence_framing']}; names a date or period = {found['time_anchor']}.\n\n"
         "Answer in order:\n"
-        "1. INTERVENTION — does the question point at ONE documented intervention, bounded in "
-        "time and place? A standing condition with many parallel causes is not one, and neither "
-        "is something that never happened.\n"
-        "2. CHANNEL — world, history, or neither, by the definitions above.\n"
-        "3. AFTERMATH — what documented thing happened afterwards, to the animal population or to "
-        "the people subjected to the programme. This need NOT be the opposite of what was "
-        "intended: a programme that achieved its aim at enormous cost still qualifies for "
-        "HISTORY, and foreseen harm still counts.\n\n"
-        'Return ONLY JSON: {"episode":"the intervention in a short phrase, or empty",'
-        '"channel":"world|history|neither","intent":"what was being attempted",'
-        '"aftermath":"the documented consequence, or empty",'
+        "1. EPISODE — for WORLD or HISTORY: does the question point at ONE documented "
+        "intervention, bounded in time and place? A standing condition with many parallel causes "
+        "is not one, and neither is something that never happened. For NATURE: does it point at "
+        "ONE species and ONE documented behaviour toward its eggs or young that either has ONE "
+        "recorded reading as neglect, cruelty, theft or abandonment, or LOOKS like one and has a "
+        "documented constraint and function? Say which shape.\n"
+        "2. CHANNEL — world, history, nature, or neither, by the definitions above.\n"
+        "3. AFTERMATH — for WORLD or HISTORY: what documented thing happened afterwards, to the "
+        "animal population or to the people subjected to the programme. This need NOT be the "
+        "opposite of what was intended: a programme that achieved its aim at enormous cost still "
+        "qualifies for HISTORY, and foreseen harm still counts. For NATURE: the documented "
+        "evidence that corrected the reading, or the documented function of the behaviour for "
+        "the young.\n\n"
+        'Return ONLY JSON: {"episode":"the intervention or behaviour in a short phrase, or empty",'
+        '"channel":"world|history|nature|neither","intent":"what was being attempted, or for '
+        'NATURE the recorded verdict",'
+        '"aftermath":"the documented consequence or correcting evidence, or empty",'
         '"verdict":"fits|needs_narrowing|no_story",'
         '"reason":"one sentence a person can act on",'
-        '"narrower_question":"if needs_narrowing, the question that names the intervention; else empty"}\n'
-        "needs_narrowing when a real intervention is buried inside a broader question. no_story "
-        "when there is no single documented intervention, or it belongs to neither channel.")
+        '"narrower_question":"if needs_narrowing, the question that names the episode; else empty"}\n'
+        "needs_narrowing when a real episode is buried inside a broader question. no_story "
+        "when there is no single documented episode, or it belongs to no channel.")
 
 
 def screen(question: str, *, channel: str = "", judge=None, cost_sink=None) -> dict:
@@ -364,8 +451,8 @@ def report(question: str, result: dict) -> str:
     if result.get("aftermath"):
         lines.append(f"        aftermath:    {result['aftermath']}")
     elif result["verdict"] != FITS:
-        lines.append("        aftermath:    none found — both channels need one documented "
-                     "intervention and what documentably followed it")
+        lines.append("        aftermath:    none found — every channel needs one documented "
+                     "episode and what documentably followed or corrected it")
     if result.get("narrower_question"):
         lines.append(f'        try:       "{result["narrower_question"]}"')
     return "\n".join(lines)

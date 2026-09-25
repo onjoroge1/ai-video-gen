@@ -42,6 +42,8 @@ SameSite cookie; credentials are never stored in browser local storage.
 ```text
 app.py                    FastAPI routes, SSE job status, static UI
 explainer_pipeline.py     active Short, Explainer, and Simulation orchestration
+fal_models.py             fal.ai image-to-video endpoint registry: Kling, Seedance, Wan (families, rates)
+nature_channel.py         Bolt Explains Nature rules (no people, no lead tag, subject sheet, hard script floor, thumbnail numbers); other channels unchanged
 longform_retention.py     deterministic story contract, narrative-debt and timing validation
 longform_shots.py         narrative-scene to adaptive visual-shot compiler
 retention_readiness.py    first-minute gate, story-turn audio cues, and 100-point RRS rubric
@@ -236,6 +238,21 @@ of actor likenesses or show footage.
 
 Copy `.env.example` and fill only the credentials for enabled providers. Do not commit credentials,
 provider tokens, licensed music, or local absolute artifact paths.
+
+### fal.ai motion models
+
+`I2V_PROVIDER=fal` sends every image-to-video call to the endpoint named by `FAL_MODEL`
+(`FAL_MODEL_HERO` for the two hero beats of a social short). `fal_models.py` is the single
+registry: it maps a short label or full endpoint id to the request family the endpoint speaks,
+the durations it accepts, whether it can condition on an end frame, and its per-second rate at
+each resolution. Registered today: `kling-2.1-standard` (default), `kling-3-pro`, `seedance-2.0`,
+`seedance-2.0-fast`, `seedance-2.5`, `seedance-1-pro`, `wan-2.6`, and `wan-2.2-a14b`. Only Kling
+2.1 standard and Wan 2.6 lack end-frame conditioning. The body is built in the endpoint's own field
+names, generated audio is always off, the duration is snapped up to what the endpoint accepts, and
+the cost guard prices the clip from the same table, so a model change cannot leave the estimate on
+Kling's rate. The directed-motion toolchain (`bolt_seq/providers/directed_video.py`) reads the same
+registry through its `model` spec field and `budget_for()`. Rates were read from fal's pages on
+2026-09-22; `wan` as a *provider* name still means the self-hosted RunPod server.
 
 ```bash
 python -m compileall -q app.py bolt_video board_pipeline.py stateboard_pipeline.py explainer_pipeline.py

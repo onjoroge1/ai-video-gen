@@ -373,4 +373,7 @@ def test_production_rechecks_repaired_sheet_before_buying_expansion(monkeypatch)
     with pytest.raises(StopAtExpansion):
         ep._generate_script_chunked("Question", 90, "engaging", "", 7,
             causal_lane=True, pinned_engine="removed_keystone", research_dossier=data)
-    assert len(plan_calls) == len(expansions) == supplement.call_count == 1
+    # Two plan calls: the original sheet and the one re-ask with the spine report quoted back,
+    # which precedes the research repair. Expansion is still bought exactly once, after it.
+    assert len(plan_calls) == 2
+    assert len(expansions) == supplement.call_count == 1

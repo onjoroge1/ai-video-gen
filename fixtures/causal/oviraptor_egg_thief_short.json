@@ -1,0 +1,133 @@
+{
+  "format": "causal_story_v1",
+  "source": "Operator-approved Short produced 2026-09-23 through scripts/keyframe_short.py from spec/oviraptor_short.json. Narration measured with real TTS (onyx); beat start times are the assembled cut. Not a transcribed third-party video: this is the first reference for the mistaken_verdict engine and it was written to the engine, so it teaches the shape, not an independent observation of it.",
+  "note": "THE FIRST MISTAKEN-VERDICT REFERENCE, and the first one born as a Short. The story turns on nothing anybody did: a skeleton on a nest was read as a thief in 1924, an embryo of its own kind turned up in the same egg type in 1994, a brooding cousin in 1995, and the name never changed. false_resolution here is the verdict itself; the mechanism ('the eggs were its own') is the reveal and lands at 55%, inside the engine's 60% deadline and past the 35% short-form floor. The single escalation is the case building, not a spiral. Recorded so a second, filmed reference can correct whatever this one got wrong about the shape.",
+  "measured": {
+    "runtime_sec": 43.6,
+    "words": 114,
+    "words_per_minute": 156.9,
+    "beats": 8,
+    "words_per_beat": 14.25,
+    "spoken_chapter_markers": 0,
+    "step_markers": 0.0,
+    "hook_words": 10.0,
+    "hook_sentences": 2,
+    "median_sentence": 6.0,
+    "short_landing_pct": 0.5,
+    "mechanism_start_sec": 24.1,
+    "mechanism_pct_of_runtime": 0.553,
+    "parallel_cases": 0
+  },
+  "observed": {
+    "hook_type": "an image and an invited verdict: the evidence on screen, the viewer asked to convict",
+    "story_pattern": "case presented, verdict named, one finding breaks it, the principle lands, a second specimen confirms, the record corrects, the name persists",
+    "cadence": "one locked-camera before-and-after per beat, a new clue or reinterpretation every 3-7 seconds",
+    "mascot_use": "none; the animal and the evidence carry the frame",
+    "principle_delivery": "two short sentences at 55%, on the original evidence redrawn as the living animal",
+    "close": "the museum case: the old name on the plinth, the living animal reflected over the bones",
+    "generalization": "none; a Short has no room for a parallel case",
+    "narrator_tone": "conversational, curious, slightly playful; short sentences, one date per beat at most",
+    "humour_and_interrupts": "the narrator twice invites the viewer to reach the wrong verdict in a short aside, then corrects it; no jokes, the humour is the trap",
+    "reveal_placement": "the embryo at 38%, the principle at 55%, the reframe at 78%",
+    "ending_callback": "returns to the name and to the eggs; the picture dissolves into the opening frame"
+  },
+  "expect": {
+    "pass": true,
+    "note": "Passes under the mistaken_verdict engine at short-form runtime. The false_resolution is carried across two beats (the name, then the neighbour's eggs) as one asserting step and one continuation, which is how the validator counts story moves rather than screen time."
+  },
+  "story": {
+    "title": "The Dinosaur Named After a Mistake",
+    "runtime_sec": 43.6,
+    "format_tag": "",
+    "engine": "mistaken_verdict",
+    "opening_object": "the egg on the nest",
+    "start_state": "a skeleton lying on a clutch of eggs reads as a thief caught in the act",
+    "hook": {
+      "line": "A skeleton, lying on a nest of eggs. Guilty, right?",
+      "withheld_subject": ""
+    },
+    "steps": [
+      {
+        "step_id": "skeleton_on_nest",
+        "role": "setup",
+        "event_function": "behaviour_observed",
+        "start_sec": 0.0,
+        "label": "the evidence: bones on eggs",
+        "situation": "A skeleton lies on top of a nest of eggs in the red sandstone of the Flaming Cliffs.",
+        "chapter": 1
+      },
+      {
+        "step_id": "named_egg_thief",
+        "role": "false_resolution",
+        "event_function": "verdict_recorded",
+        "start_sec": 3.5,
+        "label": "1924: the verdict in the name",
+        "situation": "In 1923, fossil hunters in Mongolia found exactly that, and named the dinosaur Oviraptor. Egg thief.",
+        "caused_by": "skeleton_on_nest",
+        "chapter": 1
+      },
+      {
+        "step_id": "neighbours_eggs",
+        "role": "false_resolution",
+        "continues": "named_egg_thief",
+        "event_function": "verdict_recorded",
+        "start_sec": 10.9,
+        "label": "the eggs assigned to Protoceratops",
+        "situation": "The eggs, they assumed, belonged to a neighbour. A frilled dinosaur that nested nearby.",
+        "caused_by": "named_egg_thief",
+        "chapter": 2
+      },
+      {
+        "step_id": "embryo_in_egg",
+        "role": "hinge",
+        "event_function": "anomaly_found",
+        "start_sec": 16.6,
+        "label": "1994: the same egg type, with a baby inside",
+        "situation": "Inside the same kind of egg was a baby oviraptor.",
+        "caused_by": "neighbours_eggs",
+        "chapter": 2
+      },
+      {
+        "step_id": "its_own_eggs",
+        "role": "mechanism",
+        "event_function": "function_shown",
+        "start_sec": 24.1,
+        "label": "the eggs were its own",
+        "situation": "The eggs were never stolen. They were its own; the skeleton was on its own clutch.",
+        "caused_by": "embryo_in_egg",
+        "chapter": 3
+      },
+      {
+        "step_id": "brooding_cousin",
+        "role": "escalation",
+        "event_function": "evidence_mounts",
+        "start_sec": 27.4,
+        "label": "1995: a cousin found brooding",
+        "situation": "A year later, a close cousin turned up crouched over a clutch, arms spread like a brooding bird.",
+        "caused_by": "its_own_eggs",
+        "chapter": 3
+      },
+      {
+        "step_id": "nursery_not_crime_scene",
+        "role": "reversal",
+        "event_function": "reading_corrected",
+        "start_sec": 33.9,
+        "label": "the record corrects itself",
+        "situation": "We had mistaken a nursery for a crime scene; the skeleton was a parent, not a predator.",
+        "caused_by": "brooding_cousin",
+        "chapter": 4
+      },
+      {
+        "step_id": "name_persists",
+        "role": "verdict",
+        "event_function": "verdict_persists",
+        "start_sec": 37.1,
+        "label": "still 'egg thief'",
+        "situation": "The man who named it had warned the name might mislead. Seventy years later, it still says egg thief.",
+        "caused_by": "nursery_not_crime_scene",
+        "chapter": 4
+      }
+    ],
+    "parallel_cases": []
+  }
+}

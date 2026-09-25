@@ -170,3 +170,24 @@ def test_durable_native_client_disables_sdk_retries(tmp_path, monkeypatch):
     assert calls[0]["max_retries"] == 0
     assert pipeline._anthropic_native() is provider
     assert calls[1]["max_retries"] == 6
+
+
+def test_one_model_only_source_is_dropped_not_fatal(tmp_path, monkeypatch):
+    """Two claims, one on an observed URL and one on an invented one: the ledger keeps the first.
+
+    Measured on the emperor penguin research (2026-09-25): 22 verified claims were refused
+    because 2 cited URLs the web search never returned.
+    """
+    _mock_sources(monkeypatch)
+    store, blob = MemoryStore(cap=20), MemoryBlob(tmp_path / "blob")
+    ledger = _dossier()
+    invented = dict(ledger["claims"][0], claim_id="c02",
+                    source_url="https://invented.example.edu/fake")
+    ledger["claims"].append(invented)
+    provider = Provider(_paused(), _completed(json.dumps(ledger)))
+    worker = runtime(tmp_path, store, blob, "worker")
+    monkeypatch.setattr(pipeline, "_anthropic_native", lambda: worker.wrap_anthropic(provider))
+    dossier = pipeline.generate_research_dossier("Question")
+    assert [c["claim_id"] for c in dossier["claims"]] == ["c01"]
+    assert [c["claim_id"] for c in dossier["unobserved_source_claims"]] == ["c02"]
+    assert dossier["validation"]["passed"] is True

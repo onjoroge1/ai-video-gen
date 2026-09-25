@@ -738,6 +738,18 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
             # are five..." behind, and a narration opening on a bare full stop is both a worse
             # sentence for the judge to read and a worse one for the narrator to say.
             beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+        # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
+        # opening ends on the problem the video resolves ("But if the chick hatches before she
+        # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
+        # beats. Judged against beat one alone it was refused every time (job 2e2c7498). Questions
+        # in the opening scene are lifted out and judged with the hook against the whole story.
+        opening_sentences = [s for s in re.split(r"(?<=[.!?])\s+", _text(beats[0].get("narration")))
+                             if s]
+        questions = [s for s in opening_sentences if s.rstrip().endswith("?")]
+        if questions:
+            beats[0] = dict(beats[0], narration=" ".join(
+                s for s in opening_sentences if not s.rstrip().endswith("?")))
+            hook = " ".join([hook] + questions).strip()
     # The engine travels with the script, and it has to reach the cascade here as well as at the
     # spine gate. Without it this path fell back to backfiring_solution's contract and raised
     # CLAIM_KIND_MISMATCH on a removed_keystone mechanism citing a context claim -- which is what

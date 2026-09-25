@@ -1,0 +1,88 @@
+{
+  "format": "causal_story_v1",
+  "note": "Story payload for the Nature channel's first Short, revised 2026-09-24 to the strange_behaviour engine after review: the earlier draft claimed a recorded accusation ('the lists call her the worst mother') that the lists, once read, did not make. No verdict is attributed to anyone here; the only misreading is the viewer's. Validated offline with causal_story.validate_causal_story before any spend. Start times are the measured narration cut.",
+  "story": {
+    "title": "Why This Penguin Leaves Her Only Egg",
+    "runtime_sec": 37.7,
+    "format_tag": "",
+    "engine": "strange_behaviour",
+    "opening_object": "the family she leaves",
+    "start_state": "a mother leaving her only egg for two months looks like abandonment",
+    "hook": {
+      "line": "An emperor penguin hands over her only egg, and leaves for about two months.",
+      "withheld_subject": ""
+    },
+    "steps": [
+      {
+        "step_id": "hands_over_and_leaves",
+        "role": "setup",
+        "event_function": "behaviour_observed",
+        "start_sec": 0.0,
+        "label": "one egg, handed over, and she leaves",
+        "chapter": 1,
+        "situation": "The female transfers her single egg to the male and leaves for about two months."
+      },
+      {
+        "step_id": "cannot_hunt_with_it",
+        "role": "hinge",
+        "event_function": "constraint_found",
+        "start_sec": 5.25,
+        "label": "he cannot hunt with the egg",
+        "chapter": 1,
+        "caused_by": "hands_over_and_leaves",
+        "situation": "He cannot go hunting with the egg on his feet."
+      },
+      {
+        "step_id": "she_feeds_at_sea",
+        "role": "mechanism",
+        "event_function": "function_shown",
+        "start_sec": 9.64,
+        "label": "the departure is the feeding run",
+        "chapter": 2,
+        "caused_by": "cannot_hunt_with_it",
+        "situation": "She feeds at sea so that food reaches the chick: the parent holding the egg cannot fetch it."
+      },
+      {
+        "step_id": "his_fast",
+        "role": "escalation",
+        "event_function": "evidence_mounts",
+        "start_sec": 11.84,
+        "label": "months without food",
+        "chapter": 2,
+        "caused_by": "she_feeds_at_sea",
+        "situation": "The male has not eaten for months by the time the egg hatches."
+      },
+      {
+        "step_id": "hatches_first",
+        "role": "escalation",
+        "event_function": "evidence_mounts",
+        "start_sec": 14.66,
+        "label": "if the chick hatches before she returns",
+        "chapter": 3,
+        "caused_by": "his_fast",
+        "situation": "If the chick hatches before she returns, he can briefly feed it a milk-like secretion from his oesophagus."
+      },
+      {
+        "step_id": "she_returns",
+        "role": "reversal",
+        "event_function": "outcome_for_young",
+        "start_sec": 22.33,
+        "label": "she returns with food; he goes to eat",
+        "chapter": 4,
+        "caused_by": "hatches_first",
+        "situation": "She returns with food and takes over the chick; the male goes to sea to eat, and for the chick's first weeks they take turns."
+      },
+      {
+        "step_id": "back_with_dinner",
+        "role": "verdict",
+        "event_function": "",
+        "start_sec": 34.01,
+        "label": "she came back with dinner",
+        "chapter": 4,
+        "caused_by": "she_returns",
+        "situation": "She did not abandon the family; she came back with dinner."
+      }
+    ],
+    "parallel_cases": []
+  }
+}

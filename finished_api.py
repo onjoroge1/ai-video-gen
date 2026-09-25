@@ -166,6 +166,18 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
                     })
             else:
                 rows = _local_rows(finished_dir, q, limit, offset)
+        elif not artifact_store.durable_storage_required() and offset == 0:
+            # A populated database must not hide local renders either. With DATABASE_URL set
+            # and no Blob token, every laptop render is indexed locally and never reaches
+            # Postgres, so the library showed 14 production rows and none of the illustrated
+            # episodes rendered here (2026-09-25). Local rows the database lacks are merged on
+            # the first page, newest first; production stays fail-closed above.
+            known = {str(row.get("id")) for row in rows}
+            extra = [row for row in _local_rows(finished_dir, q, 200, 0)
+                     if str(row.get("id")) not in known]
+            if extra:
+                rows = sorted(rows + extra, key=lambda row: str(row.get("created_at") or ""),
+                              reverse=True)[:max(1, min(limit, 200))]
         for row in rows:
             row.setdefault("storage", "blob" if row.get("video_url") else "local")
         return {"videos": rows, "count": len(rows), "limit": limit, "offset": offset}
