@@ -196,7 +196,7 @@ def test_the_channel_can_be_asserted_and_still_challenged():
     judge, seen = _judge({"verdict": "fits", "channel": "history", "episode": "e", "intent": "i",
                           "aftermath": "a", "reason": "r", "narrower_question": ""})
     tf.screen("Why did Decree 770 fill Romania's orphanages?", channel=tf.HISTORY, judge=judge)
-    assert "HISTORY channel" in seen["prompt"] and "belongs to the other one" in seen["prompt"]
+    assert "HISTORY channel" in seen["prompt"] and "belongs to one of the others" in seen["prompt"]
 
 
 def test_the_ui_channels_and_the_screen_share_one_definition():
@@ -209,10 +209,12 @@ def test_the_ui_channels_and_the_screen_share_one_definition():
     import app
 
     labels = [c["label"] for c in app.CHANNELS]
-    assert labels == ["Bolt Explains the World", "Bolt Explains History"]
-    assert [c["topic_channel"] for c in app.CHANNELS] == [tf.WORLD, tf.HISTORY]
+    assert labels == ["Bolt Explains the World", "Bolt Explains History", "Bolt Explains Nature"]
+    assert [c["topic_channel"] for c in app.CHANNELS] == [tf.WORLD, tf.HISTORY, tf.NATURE]
 
-    world, history = (c["niche"] for c in app.CHANNELS)
+    world, history, nature = (c["niche"] for c in app.CHANNELS)
+    assert "READ as neglect, cruelty, theft or abandonment" in nature, \
+        "the Nature channel's boundary: a recorded misreading, not a nature fact"
     assert "TARGET the animals" in world, "the World/History boundary, stated to the operator"
     assert "TARGET the animals" in tf.CHANNELS[tf.WORLD]["requires"]
     assert "ANIMALS WIN TIES" in tf._SYSTEM
@@ -252,10 +254,11 @@ def test_the_ui_fallback_chips_are_on_brand():
 
     page = Path("static/index.html").read_text(encoding="utf-8")
     catalogue = tf.editorial_catalogue()
-    world, history = catalogue['channels']
-    assert len(world['topics']) == 10 and len(history['topics']) == 32
+    world, history, nature = catalogue['channels']
+    assert len(world['topics']) == 10 and len(history['topics']) == 32 and len(nature['topics']) == 8
     assert all(t['topic_channel'] == 'world' for t in world['topics'])
     assert all(t['topic_channel'] == 'history' for t in history['topics'])
+    assert all(t['topic_channel'] == 'nature' for t in nature['topics'])
     assert all(t['status'] == 'research_candidate' for c in catalogue['channels'] for t in c['topics'])
     assert 'Hanoi' in world['topics'][0]['question']
     assert 'Aral Sea' in history['topics'][0]['question']

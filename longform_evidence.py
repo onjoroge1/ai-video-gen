@@ -22,6 +22,8 @@ MIN_EVIDENCE_STATE_SECONDS = 1.5
 # contract ended up 34% wrong while agreeing with itself.
 from runtime_planner import DEFAULT_WORDS_PER_SECOND as WORDS_PER_SECOND
 
+import nature_channel
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -91,6 +93,10 @@ def build_continuity_pack(script: dict) -> dict:
     opening_asset_id = "asset:s001:e01"
     return {
         "version": 1,
+        # Which channel's rules the plan was drawn under, and the fixed look of the animal family
+        # on a Nature episode. Empty for every other channel; nothing else here changes.
+        "channel": _text(script.get("_topic_channel")),
+        "subject_sheet": _text(script.get("_subject_sheet")),
         "human": {
             "identity_id": "character:alex:v1",
             "name": "Alex",
@@ -212,6 +218,13 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         })
         and not include_human
     )
+    people_allowed = nature_channel.people_allowed(pack.get("channel"))
+    if not people_allowed:
+        # Nature: the animal performs the verb. The rule above drew researchers beside the
+        # penguins and people assembling the huddle (job 59d6106d).
+        include_human = False
+        include_bolt = False
+        anonymous_people_required = False
     before = _text(beat.get("state_before"))
     after = _text(beat.get("state_after")) or _text(beat.get("visual"))
     required = _list(beat.get("required_objects"))
@@ -225,6 +238,9 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     forbidden = _list(beat.get("forbidden_objects"))
     if pure_evidence and "Bolt" not in forbidden:
         forbidden.append("Bolt")
+    if not people_allowed and nature_channel.FORBIDDEN_PEOPLE not in forbidden:
+        # Forbidden objects reach the verifier, so a frame with a person is redrawn, not tolerated.
+        forbidden.append(nature_channel.FORBIDDEN_PEOPLE)
     asset_id = f"asset:s{scene_index + 1:03d}:e{state_index + 1:02d}"
     source_asset_id = ""
     if strategy == "detail_reframe":
@@ -650,6 +666,42 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
                                  reserve=1 if scene_index == reserved_for_callback else 0))
         ]
         repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
+        seconds = measured.get(scene_index)
+        previous_states = scene_plans[-1]["states"] if scene_plans else []
+        if (seconds is not None and 0 < float(seconds) < MIN_EVIDENCE_STATE_SECONDS
+                and previous_states and states):
+            # A scene too short to hold one image ("There is no nest." at 1.10s, job c96cb9dc)
+            # keeps the previous scene's last image on screen instead of cutting to a flash
+            # frame. One exact-reuse state, anchored at the scene's first words, so the shot
+            # compiler has a state and the viewer sees no cut.
+            held = previous_states[-1]
+            first_words = " ".join(_text(scene.get("narration")).split()[:4])
+            states = [dict(
+                held,
+                state_id=f"state:s{scene_index + 1:03d}:e01",
+                asset_id=f"asset:s{scene_index + 1:03d}:e01",
+                scene_index=scene_index,
+                opening=opening,
+                anchor_phrase=first_words or _text(held.get("anchor_phrase")),
+                purpose="continuation",
+                visual=f"Hold the previous image: {_text(held.get('state_after'))}",
+                state_before=_text(held.get("state_after")),
+                state_after=f"{_text(held.get('state_after'))} (held while the line lands)",
+                asset_strategy="exact_reuse",
+                source_asset_id=_text(held.get("asset_id")),
+                detail_target="",
+                new_information=False,
+                verified_visible_information=False,
+                asset_status="planned",
+                rejection_reasons=[],
+            )]
+            repairs.append({
+                "code": "short_scene_holds_previous_image",
+                "state_id": states[0]["state_id"],
+                "message": f"scene {scene_index + 1} measures {float(seconds):.2f}s, under the "
+                           f"{MIN_EVIDENCE_STATE_SECONDS}s state minimum; it reuses "
+                           f"{states[0]['source_asset_id']}",
+            })
         scene_plans.append({
             "scene_index": scene_index,
             "story_role": _text(scene.get("story_role")),
@@ -676,7 +728,21 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         # four cuts that had resolved perfectly. One misplaced anchor, a whole scene of visuals
         # detached from the words they describe.
         callback_anchor = _closing_anchor_phrase(callback_scene, callback_states)
-        callback_states.append({
+        ends_on_young = (not nature_channel.people_allowed(pack.get("channel"))
+                         and len(callback_states) >= 2)
+        if ends_on_young:
+            # Nature ends on the young being fed, not on the egg. The callback still returns to
+            # the exact opening asset, but at the HEAD of the closing scene ("look again at that
+            # single egg"), in place of its first planned state, and the scene's last planned
+            # state stays the final shot. The first penguin long-form closed on the egg while
+            # the narration said the chick was fed.
+            replaced = callback_states[0]
+            callback_anchor = _text(replaced.get("anchor_phrase")) or callback_anchor
+            for later in callback_states[1:]:
+                if _text(later.get("source_asset_id")) == _text(replaced.get("asset_id")):
+                    later["source_asset_id"] = ""
+                    later["asset_strategy"] = "distinct"
+        callback_state = {
             "state_id": f"state:s{callback_index + 1:03d}:callback",
             "asset_id": f"asset:s{callback_index + 1:03d}:callback",
             "scene_index": callback_index,
@@ -703,7 +769,61 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "verified_visible_information": False,
             "asset_status": "planned",
             "rejection_reasons": [],
-        })
+        }
+        if ends_on_young:
+            callback_states[0] = callback_state
+        else:
+            callback_states.append(callback_state)
+    # A planned state whose before equals its after is a MASTER that establishes something, not
+    # a change; the planner wrote "whole intact ice sheet" on both sides of an establishing shot
+    # and the validator refused the whole plan after research, script, ledger and storyboard were
+    # bought (job 60b97bcf, 2026-09-25). The visible change of an establishing shot is from the
+    # previous shot, so the before is the previous state's after; with no previous state, or an
+    # identical one, the before is marked as not yet shown. Recorded as a repair, never silent.
+    previous_after = ""
+    for scene_plan in scene_plans:
+        for state in scene_plan.get("states") or []:
+            # A state cannot require an object AND forbid it exposed: "warm-coral egg" required,
+            # "exposed egg" forbidden, "pouch clearly covering egg" after. Two redraws and a
+            # rejection later the render refused (job 45711ddf). The covering object is the
+            # proof; the bare object is dropped from the requirement so a covered egg can pass.
+            hidden = [f for f in (state.get("forbidden_objects") or [])
+                      if re.match(r"^(exposed|visible|uncovered|bare|open)\b", _text(f).lower())]
+            if hidden:
+                nouns = {w for f in hidden for w in re.findall(r"[a-z]{3,}", _text(f).lower())
+                         if w not in ("exposed", "visible", "uncovered", "bare", "open")}
+                kept, dropped = [], []
+                for required_object in state.get("required_objects") or []:
+                    words = set(re.findall(r"[a-z]{3,}", _text(required_object).lower()))
+                    covering = re.search(r"\b(over|covering|under|beneath|inside|tucked)\b",
+                                         _text(required_object).lower())
+                    if words & nouns and not covering:
+                        dropped.append(required_object)
+                    else:
+                        kept.append(required_object)
+                if dropped and kept:
+                    state["required_objects"] = kept
+                    repairs.append({
+                        "code": "required_object_conflicts_with_forbidden",
+                        "state_id": _text(state.get("state_id")),
+                        "message": f"dropped required {dropped} because {hidden} is forbidden; "
+                                   f"kept {kept}",
+                    })
+            before = _text(state.get("state_before"))
+            after = _text(state.get("state_after"))
+            if after and before.casefold() == after.casefold():
+                if previous_after and previous_after.casefold() != after.casefold():
+                    state["state_before"] = previous_after
+                else:
+                    state["state_before"] = f"not yet shown: {after}"
+                repairs.append({
+                    "code": "unchanged_evidence_state_repaired",
+                    "state_id": _text(state.get("state_id")),
+                    "message": f"before equalled after ({after!r}); before is now the "
+                               f"previous shot ({state['state_before']!r})",
+                })
+            if after:
+                previous_after = after
     plan = {"version": 1, "continuity_pack": pack, "scenes": scene_plans, "repairs": repairs}
     plan["validation"] = validate_evidence_plan(plan)
     return plan

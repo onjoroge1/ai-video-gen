@@ -257,7 +257,10 @@ def compile_scene_shots(
     timing_degraded = False
     if accepted_states:
         count = len(accepted_states)
-        if duration / count < MIN_SHOT_SECONDS:
+        # A single state is the whole scene; there is no cut inside it to be sub-minimum. A
+        # four-word hinge ("There is no nest.", 1.10s) is planned as an exact reuse of the
+        # previous scene's last image, so the boundary is not a visible cut either.
+        if count > 1 and duration / count < MIN_SHOT_SECONDS:
             raise ValueError(
                 f"{count} evidence states cannot fit {duration:.2f}s without sub-minimum cuts")
         spans = [_find_phrase_span(timed, str(state.get("anchor_phrase") or ""))

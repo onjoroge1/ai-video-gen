@@ -1,0 +1,61 @@
+{
+  "name": "dino_parents",
+  "title": "Dinosaurs Fed Their Babies. We Found the Nursery.",
+  "voice": "onyx",
+  "music_mood": "nostalgic",
+  "model": "kling-v3-pro",
+  "hard_cap_usd": 10.0,
+  "style": "Painterly natural-history illustration, vertical 9:16 composition, Late Cretaceous, muted greens, ochres and dusty blues, soft directional light, fine texture, no text, no lettering, no logos, no humans, no modern objects. ",
+  "end_rule": " Keep the exact same camera position, framing, lens, lighting, palette and placement of every animal and object as the reference image; change only what is described.",
+  "negative": "text, letters, numbers, watermark, logo, cartoon, anime, humans, people, modern objects, extra limbs, extra heads, deformed anatomy, duplicate animals, camera shake, flicker, cuts",
+  "beats": [
+    {
+      "id": "b1",
+      "caption": "MONTANA · LATE CRETACEOUS",
+      "vo": "Seventy-six million years ago, a mother came back to the nest.",
+      "start": "A wide low view across a dry floodplain at dawn. A nesting colony: several shallow bowl-shaped earth nests spaced apart, each holding a ring of pale oval eggs. In the nearest nest the eggs are intact. Beside it stands an adult Maiasaura, a large duck-billed hadrosaur on four legs, mottled olive and tan, lowering its broad head toward the eggs.",
+      "end": "The same nest, same adult Maiasaura in the same position with its head lowered. Several eggs have cracked open and small wet hatchlings with oversized heads are pushing out of the shells.",
+      "motion": "Locked camera, no camera movement. The adult Maiasaura lowers its head further and nudges the eggs with its snout. The eggshells burst open one after another, pieces of shell falling away, and small wet hatchlings scramble out and raise their heads toward the adult, which lifts its head slightly in response. Two pterosaurs glide across the dawn sky in the background. Clear visible action, continuous, no cuts. Painterly natural-history illustration look."
+    },
+    {
+      "id": "b2",
+      "caption": "HATCHED HELPLESS",
+      "vo": "Dinosaurs laid eggs. And in this nest, the babies hatched helpless.",
+      "start": "Close-up inside an earth nest. One pale oval dinosaur egg in sharp focus with a fresh crack across its top, other eggs soft in the background, dawn light raking across.",
+      "end": "The same egg in the same position, now split open. A wet Maiasaura hatchling with a large head, big dark eye and a soft duck-like snout has pushed its head and one small forelimb out of the shell.",
+      "motion": "Locked macro camera, no camera movement. The crack in the egg widens, the shell splits, and a wet hatchling with a big dark eye pushes its head and one forelimb out and blinks. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b3",
+      "caption": "THE FOOD CAME TO THEM",
+      "vo": "Maiasaura hatchlings had worn teeth but legs too weak to leave the nest. So the food came to them. The mother carried in plants, and the nest became a nursery.",
+      "start": "Medium shot of a bowl-shaped earth nest holding six small Maiasaura hatchlings, mottled olive, sitting low with their heads raised and mouths open. Above the nest edge, the adult Maiasaura's broad duck-billed head enters from the left holding a bundle of green ferns and leaves.",
+      "end": "The same nest, same six hatchlings in the same places, now with their heads down chewing on the green ferns and leaves scattered across the nest floor. The adult's head has pulled back to the left edge of the frame.",
+      "motion": "Locked camera, no camera movement. The adult Maiasaura lowers the bundle of ferns and leaves into the nest and drops it among the hatchlings, then draws its head back to the left. The hatchlings lean in and begin chewing the leaves. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b4",
+      "caption": "NOT A THIEF · A PARENT",
+      "vo": "In the Gobi Desert, a feathered oviraptor was found sitting on its eggs, arms spread over them like a bird. Scientists had named it the egg thief. It was the parent.",
+      "start": "A feathered oviraptorid dinosaur, the size of a large dog, with a short crested beaked head and long feathered arms, crouches beside a ring of elongated eggs half buried in orange desert sand. Its arms are folded at its sides. Wind lifts a little sand.",
+      "end": "The same oviraptorid, same camera, now settled down onto the ring of eggs with its feathered arms spread wide over the clutch like a brooding bird, head turned slightly toward the camera. Sand still drifting.",
+      "motion": "Locked camera, no camera movement. The feathered oviraptorid steps onto the ring of eggs, lowers its body over them and spreads its long feathered arms wide to cover the clutch, then turns its crested head toward the camera. Sand drifts in the wind. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b5",
+      "caption": "NOT EVERY PARENT STAYED",
+      "vo": "Not every dinosaur stayed. In Argentina, giant sauropods laid eggs by the thousand and walked away.",
+      "start": "Very wide view of a flat riverside plain in Argentina under a hazy sky. The ground is covered with hundreds of round dinosaur eggs in shallow scrapes stretching to the horizon. In the foreground stands the enormous body of a titanosaur, a long-necked sauropod, facing away.",
+      "end": "The same plain and the same field of eggs from the same camera. The titanosaur is now small in the far distance, walking away toward the horizon, leaving the eggs behind.",
+      "motion": "Locked camera, no camera movement. The enormous titanosaur walks slowly away from the camera across the plain of eggs until it is small against the horizon, leaving the eggs behind. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b6",
+      "caption": "THE OLDEST NURSERY",
+      "vo": "Birds are their living descendants. Watch a hen settle on her chicks, and you are watching a habit older than the birds themselves.",
+      "start": "Medium shot of a bowl-shaped earth nest at dusk. Six Maiasaura hatchlings sit in the nest, awake and alert, heads up. The adult Maiasaura's flank and lowered head fill the right side of the frame beside the nest.",
+      "end": "The same nest and the same adult in the same position at dusk. The six hatchlings are now curled asleep against each other and against the adult's flank, eyes closed. The light is a little dimmer.",
+      "motion": "Locked camera, no camera movement. The hatchlings settle down one by one, curling against each other and against the adult's flank until all are asleep, while the adult lowers its head slightly and the dusk light dims a little. Slow and gentle. Painterly natural-history illustration look, no cuts."
+    }
+  ]
+}

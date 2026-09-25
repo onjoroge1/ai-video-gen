@@ -339,3 +339,23 @@ def test_the_repair_instruction_preserves_the_core_and_names_the_inventions():
     assert "Do not add any new factual detail" in text
     # The instruction that stops a sourcing repair from drifting back to ledger voice.
     assert "own vocabulary" in text
+
+
+def test_a_malformed_judge_reply_is_asked_once_more_before_failing_closed():
+    """Job 7cb4c47b (2026-09-25): one unreadable verdict on the reversal killed the spine."""
+    import claim_entailment as ce
+    replies = iter([{}, {"verdict": "entailed", "supported_core": "x", "reason": "ok"}])
+    cache = {}
+    result = ce._judged({"kind": "evidence", "claims": [], "event": "e"}, "k",
+                        lambda payload: next(replies), cache, "")
+    assert result["verdict"] == "entailed" and result["passed"] is True
+    assert cache["k"]["verdict"] == "entailed"
+
+
+def test_two_malformed_judge_replies_still_fail_closed_and_are_not_cached():
+    import claim_entailment as ce
+    cache = {}
+    result = ce._judged({"kind": "evidence", "claims": [], "event": "e"}, "k",
+                        lambda payload: {"verdict": "maybe"}, cache, "")
+    assert result["passed"] is False and result["verdict"] == "invalid_response"
+    assert "k" not in cache

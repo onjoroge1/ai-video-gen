@@ -184,7 +184,8 @@ def test_a_paid_json_repair_is_recorded_even_when_its_reply_is_unusable(monkeypa
 
 
 def test_an_invalid_judge_response_is_not_cached(monkeypatch):
-    replies = iter([{}, {"verdict": "entailed"}])
+    # One unreadable reply is retried once (job 7cb4c47b); two in a row fail closed, uncached.
+    replies = iter([{}, {}, {"verdict": "entailed"}])
     cache = {}
     _, claims = factual_fixture()
     judge = lambda payload: next(replies)

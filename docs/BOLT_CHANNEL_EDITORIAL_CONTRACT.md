@@ -1,12 +1,64 @@
 # Bolt illustrated channels
 
-One production system, two editorial profiles. `topic_fit.py` owns their definitions and the
+One production system, three editorial profiles. `topic_fit.py` owns their definitions and the
 free research queue exposed at `/api/explainer/channels`.
 
 | Channel | Episode promise | Boundary |
 |---|---|---|
 | Bolt Explains the World | What humans did to animal populations, and what happened next | One implemented bounty, eradication, introduction or predator-removal intervention, with documented aftermath |
 | Bolt Explains History | One historical government program: its goal, operation and human cost | One identifiable law, decree, campaign or state project with documented harm; success at its stated goal does not disqualify it |
+| Bolt Explains Nature | Why [animal] is a terrible parent, and why the young are the reason | One species, one documented behaviour toward its eggs or young that someone on the record read as neglect, cruelty, theft or abandonment, and the evidence that corrected the reading. No human intervention in the chain |
+
+Nature is the series "Why [animal] is a terrible parent" (banner: **TERRIBLE PARENTS. PERFECT
+STRATEGY.**). It admits two story shapes, and an episode must say which it is:
+
+- `mistaken_verdict` (added 2026-09-23 from the Oviraptor Short): someone on the record read the
+  behaviour as theft, neglect or cruelty, the reading hardened into a name or a label, and
+  evidence overturned it. The load-bearing requirement is the RECORDED verdict.
+- `strange_behaviour` (added 2026-09-24 from the emperor penguin draft): the behaviour merely
+  LOOKS like abandonment or cruelty; the constraint that makes it necessary and its documented
+  function for the young are shown. No accusation is attributed to anyone.
+
+The second shape exists because the penguin draft tried to satisfy the first with "the lists call
+her the worst mother", and when the lists were actually read they made no such accusation. An
+invented reputation is worse than no story. Human programmes that harmed animals stay on World.
+
+The channel also restricts the engine selector: a Nature run (`topic_channel=nature`) is offered
+only these two engines (`topic_fit.CHANNEL_ENGINES`), so a selector choosing "by how the story
+turns" cannot hand a penguin a bounty engine. World and History stay unrestricted, as measured.
+
+**Three source gates, kept separate.** Finding a source is not reading it, and reading it is not
+confirming that it supports the exact claim. Every claim ledger in a Nature brief carries a
+status of `found`, `read`, or `confirms exact claim`, and a claim the narration depends on must
+reach the third before a clip is bought. The penguin draft passed offline story validation while
+its verdict claim sat at `found`; validation checks shape, not truth, and the two must not be
+confused.
+
+**Nature render rules (`nature_channel.py`).** The illustrated lane's defaults were written for
+history references and leaked into the first penguin long-form (job 59d6106d, 2026-09-24). On
+`topic_channel=nature`, and only there, the pipeline now: speaks no "explained like you are
+five" lead tag; puts no people in any image state (the animal performs the verb; the state's
+forbidden objects name humans and human equipment, so the verifier redraws a frame with a
+person in it); carries a subject sheet, one model call fixing the adult, egg and young's look,
+into every evidence prompt; refuses to render a script under the 70 quality floor instead of
+logging it as degraded; and rejects a thumbnail headline whose number the narration never
+speaks, with a threat drawn as weather, distance or hunger rather than a skull. World and
+History read none of these rules. A request may also set `stop_after_script`, which halts after
+the last pre-spend gate with the narration written to `script_for_approval.md`; the approved
+rerun reuses the cached script.
+
+**Nature writing contract (`nature_channel.WRITING_RULES`).** The flow is the illustrated causal
+long-form lane (Illustrated Story v1) run under the Nature channel's engines; an episode is a
+"Terrible Parents" episode. Its standing rules, injected beside the operator direction on this
+channel only: one opening hook of three sentences (the episode question, the specific behaviour,
+the problem the video resolves); the titled animal and behaviour stay central and a side
+mechanism gets one compact explanation; every beat adds a new action, constraint, consequence,
+mechanism or interpretation, and a rephrased fact is not a beat; an escalation changes the
+problem and a reversal changes the interpretation; explain the behaviour early enough to be
+honest and never show an unprotected egg to correct it later; narration is not visual direction;
+claims are qualified and precise measurements that do not advance the parent's story are
+omitted; one verdict, on the image of the young being fed, and the evidence decides it. Not
+every episode acquits the parent.
 
 Animal interventions take priority even when governments organized them. The sparrow campaign
 belongs only on World. A program that incidentally damages a fishery, such as the Aral Sea
@@ -64,6 +116,8 @@ not yet include PR #87's channel and ecosystem-engine changes.
 | almost_happened_plan | 1, operator-written | Yes | Engineering capability, outside launch niches |
 | power_reversal | 2 | No | Capability does not imply editorial eligibility |
 | accidental_invention | 0 | No | Unproven and outside the current launch queue |
+| mistaken_verdict | 1 (operator-produced Short, 2026-09-23) | Yes | Nature channel; the reference was written to the engine, so it teaches the shape rather than observing it. No long-form live run yet; a filmed second reference is the next correction |
+| strange_behaviour | 1 (operator-produced Short, 2026-09-24) | Yes | Nature channel's second shape; the emperor penguin Short is its reference, written to the engine after review. Loose adherence until a second reference exists |
 
 “Outside the corpus” needs a precise measurement:
 1. A new topic using a referenced structure tests topic generalization.

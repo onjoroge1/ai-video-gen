@@ -854,11 +854,24 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         }.get(engine_id,
               "Break the apparent success in one short sentence, using only the supported "
               "mechanism and exploit. No new historical detail.")
+        # The close device takes the ENGINE's closing role. Every mapped engine used to get a
+        # `tool` close because the two mapped engines both closed on one; the Nature engines
+        # close on a verdict, which for strange_behaviour is a restatement the planner is never
+        # asked to source (see event_functions.STRANGE_BEHAVIOUR).
+        closing = story_engines.closing_role(engine_id)
+        close_text = {
+            "verdict": ("Close by restating the opening behaviour or claim in one sentence now "
+                        "that the story has shown what it does; return to the opening object; "
+                        "attribute no verdict to anyone; no new facts."),
+        }.get(closing, "Close with one useful question the viewer can reuse; no new facts.")
         for role, anchor, text in (
             ("hinge", mechanism, hinge_text),
-            ("tool", reversal, "Close with one useful question the viewer can reuse; no new facts."),
+            (closing, reversal, close_text),
         ):
-            if any(b.get("causal_role") == role for b in out):
+            # A planner-written beat already holding the role (a mistaken_verdict's cited
+            # verdict, a strange_behaviour's constraint-as-hinge) is the beat; adding a device
+            # beside it would be a second hinge or a second close, which DUPLICATE_ROLE refuses.
+            if any(b.get("causal_role") == role or b.get("role") == role for b in out):
                 continue
             # `.get`, because a mechanism is not always derived. almost_happened_plan maps
             # collapse_cause straight onto the role -- what killed the plan is an event somebody
@@ -867,7 +880,7 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
             # passed, one step after the gate it had just cleared.
             refs = [mechanism["beat_id"]] + (
                 (mechanism.get("derivation") or {}).get("witness_ids") or [])
-            if role == "tool":
+            if role == closing:
                 refs.append(reversal["beat_id"])
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
                       "causal_role": role, "presentation_device": role, "context_refs": refs,
@@ -913,7 +926,12 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                         "escalation": ("mechanism", "false_resolution", "intervention"),
                         "reversal": ("escalation", "mechanism", "intervention"),
                         "generalization": ("reversal", "escalation"),
-                        "tool": ("reversal", "escalation", "mechanism")}
+                        "tool": ("reversal", "escalation", "mechanism"),
+                        # A verdict close has the same ancestry as a tool close. It was absent
+                        # here because no mapped engine closed on a verdict until the Nature
+                        # engines; the first penguin script to reach narration failed
+                        # ORPHAN_STEP on a verdict whose cause this table had blanked.
+                        "verdict": ("reversal", "escalation", "mechanism")}
         for beat in out:
             role = beat["causal_role"]
             inherited = previous.get(role) if role in ("escalation", "generalization") else None

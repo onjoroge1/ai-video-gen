@@ -14,7 +14,12 @@ The gate (evaluate_candidate) combines, in order:
   4. boundary match          (candidate first/last vs deterministic start/end frames)
   5. VLM semantic gate       (identity + per-frame identity consistency, start_end, slop, scoped prohibitions)"""
 from __future__ import annotations
-import os, subprocess, base64, json, tempfile
+import os, subprocess, base64, json, tempfile, sys
+try:
+    import fal_models                      # repo-root module: the shared fal endpoint registry
+except ImportError:                        # a pilot script run from inside bolt_seq/
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+    import fal_models
 
 ALLOW_PAID = False   # the user authorizes paid rendering explicitly before this flips
 
@@ -2287,50 +2292,78 @@ class Adapter:
         raise NotImplementedError
 
 
+# Directed-spec short names -> fal endpoint ids. Field names, durations, prices and end-frame
+# support live in the shared registry (fal_models.py); this table only fixes the vocabulary a
+# directed spec's `model` field may use. Kling names keep their historical spelling.
 _FAL_ENDPOINTS = {
-    "kling-v3-pro": "fal-ai/kling-video/v3/pro/image-to-video",           # start_image_url+end_image_url+elements+negative_prompt+cfg; $0.112/s audio-off (schema-verified 2026-07-28)
-    "kling-v2.5-turbo-pro": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",  # image_url+tail_image_url+negative_prompt
-    "kling-v2.1-pro": "fal-ai/kling-video/v2.1/pro/image-to-video",       # image_url+tail_image_url+negative_prompt
-    "kling-v1.6-pro": "fal-ai/kling-video/v1.6/pro/image-to-video",       # image_url+tail_image_url+negative_prompt
+    "kling-v3-pro": "fal-ai/kling-video/v3/pro/image-to-video",           # start+end frame, elements, cfg; $0.112/s audio-off
+    "kling-v2.5-turbo-pro": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",  # image_url+tail_image_url
+    "kling-v2.1-pro": "fal-ai/kling-video/v2.1/pro/image-to-video",       # image_url+tail_image_url
+    "kling-v1.6-pro": "fal-ai/kling-video/v1.6/pro/image-to-video",       # image_url+tail_image_url
     "kling-v2.1-standard": "fal-ai/kling-video/v2.1/standard/image-to-video",  # NO end-frame conditioning
+    "seedance-2.0": "bytedance/seedance-2.0/image-to-video",              # start+end frame, 4-15 s, 480p-4k
+    "seedance-2.0-fast": "bytedance/seedance-2.0/fast/image-to-video",    # start+end frame, 4-15 s, 480p/720p
+    "seedance-2.5": "bytedance/seedance-2.5/image-to-video",              # start+end frame, 4-30 s, aspect follows image
+    "seedance-1-pro": "fal-ai/bytedance/seedance/v1/pro/image-to-video",  # start+end frame, 2-12 s, camera_fixed
+    "wan-2.6": "wan/v2.6/image-to-video",                                 # start frame ONLY, 5/10/15 s
+    "wan-2.2-a14b": "fal-ai/wan/v2.2-a14b/image-to-video",                # start+end frame, 17-161 frames @16 fps
 }
+assert all(fal_models.is_registered(v) for v in _FAL_ENDPOINTS.values()), \
+    "every directed short name must resolve to a registered fal endpoint"
 
 
 def build_fal_payload(spec, model_id, uri):
-    """Build the fal request body for a Kling i2v endpoint from the authoritative schema. Field names depend
-    on the endpoint family: v3 uses start_image_url/end_image_url/elements; v2.x & v1.6 use image_url/
-    tail_image_url. `uri(path)->str` maps a local image path to a data-URI (live request) or to a filename
-    placeholder (sanitized package). Elements/reference conditioning is OPTIONAL (spec['use_elements']) and
-    off by default: the start frame already carries Bolt's identity, and the schema does not confirm that
-    elements composes with start+end conditioning — verify before enabling."""
-    is_v3 = "/v3/" in model_id
+    """Build the fal request body for one directed clip in the endpoint's own field names.
+
+    The shared registry maps the spec's start frame, optional end frame, duration, negative prompt
+    and resolution onto the endpoint family (Kling v3, Kling v2.x, Seedance, Wan 2.6, Wan 2.2).
+    `uri(path)->str` maps a local image path to a data-URI (live request) or to a filename
+    placeholder (sanitized package).
+
+    An end frame on a model that cannot take one (wan-2.6, kling-v2.1-standard) is DROPPED, not
+    substituted: the required END state is then enforced by the gate alone. The adapter records
+    that drop in the sanitized payload so the provenance dossier shows what was conditioned on.
+
+    Kling v3 extras stay v3-only: cfg_scale is schema-confirmed on v3-pro alone, and elements /
+    reference conditioning is OPTIONAL (spec['use_elements']) and off by default because the start
+    frame already carries Bolt's identity and the schema does not confirm that elements composes
+    with start+end conditioning."""
     start = spec.get("seed_image") or (spec.get("boundary") or {}).get("start_frame")
     end = spec.get("end_image"); ident = spec.get("identity_reference")
-    body = {"prompt": spec["prompt"], "duration": str(spec.get("duration", "5"))}
-    if spec.get("negative_prompt"):      # negative_prompt schema-confirmed across the Kling family
-        body["negative_prompt"] = spec["negative_prompt"]
-    if is_v3:
-        body["start_image_url"] = uri(start)
-        if end:
-            body["end_image_url"] = uri(end)
-        body["generate_audio"] = bool(spec.get("generate_audio", False))   # schema default is True — force off
-        if spec.get("cfg_scale") is not None:   # cfg_scale schema-confirmed only on v3-pro; don't send elsewhere
+    body = fal_models.build_i2v_body(
+        model_id, prompt=spec["prompt"], image_url=uri(start),
+        seconds=float(spec.get("duration", 5)),
+        end_image_url=(uri(end) if end and fal_models.supports_end_frame(model_id) else None),
+        negative_prompt=spec.get("negative_prompt"), resolution=spec.get("resolution"),
+        aspect_ratio=spec.get("aspect_ratio", "9:16"),
+        audio=bool(spec.get("generate_audio", False)))
+    if fal_models.spec(model_id)["family"] == fal_models.KLING_V3:
+        if spec.get("cfg_scale") is not None:
             body["cfg_scale"] = spec["cfg_scale"]
         if spec.get("use_elements") and ident:
             body["elements"] = [{"frontal_image_url": uri(ident)}]
-    else:
-        body["image_url"] = uri(start)
-        if end:
-            body["tail_image_url"] = uri(end)
     return body
 
 
+def budget_for(model="kling-v3-pro", seconds=5, resolution=None, **overrides):
+    """DEFAULT_BUDGET with candidate_cost_usd priced from the registry for the chosen model, so a
+    spec author cannot carry Kling's $0.56-per-candidate figure onto a Seedance run by habit."""
+    endpoint = _FAL_ENDPOINTS.get(model, model)
+    b = dict(DEFAULT_BUDGET)
+    b["candidate_cost_usd"] = fal_models.estimate_clip_usd(endpoint, seconds, resolution)
+    b.update(overrides)
+    return b
+
+
 class FalKlingAdapter(Adapter):
-    """fal.ai Kling image→video adapter. Uses the same proven REST flow as the repo's `_animate_one`
-    (queue.fal.run + `Authorization: Key`, data-URI image_url, poll status → download). The seed image
-    is the deterministic ENTRY boundary frame (full composed scene); the required END state is enforced
-    by the gate, not by end-frame conditioning. Refuses without ALLOW_PAID + FAL_KEY."""
-    name = "fal-kling-v3-pro"
+    """fal.ai image→video adapter for every endpoint in `_FAL_ENDPOINTS` (Kling, Seedance, Wan). The
+    class keeps its historical name because the pilot scripts construct it by that name. Uses the same
+    proven REST flow as the repo's `_animate_one` (queue.fal.run + `Authorization: Key`, data-URI
+    image_url, poll status → download); every registered endpoint returns the clip at `video.url`.
+    The seed image is the deterministic ENTRY boundary frame (full composed scene); the required END
+    state is enforced by the gate, whether or not the model also took an end frame. Refuses without
+    ALLOW_PAID + FAL_KEY."""
+    name = "fal-i2v"
 
     def _guard(self):
         if not ALLOW_PAID:
@@ -2365,9 +2398,12 @@ class FalKlingAdapter(Adapter):
         # persist provider request id + a key-free copy of the submitted payload for the ledger
         payload_no_media = {k: (v[:48] + "…<data-uri>" if isinstance(v, str) and v.startswith("data:") else v)
                             for k, v in payload.items()}
+        if spec.get("end_image") and not fal_models.supports_end_frame(model):
+            payload_no_media["end_frame_dropped"] = True      # provenance: the gate alone held the END state
         return {"status_url": j.get("status_url"), "response_url": j.get("response_url"), "key": key,
                 "request_id": j.get("request_id") or j.get("requestId"), "submit_status": sub.status_code,
-                "endpoint": model, "submitted_payload_sanitized": payload_no_media}
+                "endpoint": model, "model_label": fal_models.label(model),
+                "submitted_payload_sanitized": payload_no_media}
 
     def poll_and_download(self, job, out_path, timeout):
         self._guard()

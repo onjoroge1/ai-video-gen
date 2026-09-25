@@ -33,6 +33,14 @@ _MOODS = {
     # and unresolved rather than inquisitive. Slower than the others on purpose: a collapse is
     # gradual, and the energy curve in _ROLE_ENERGY already supplies the acceleration.
     "removed_keystone": ("uneasy", 84, "minor"),
+    # A verdict overturned: the story opens as an accusation and ends as care. Tense and minor
+    # while the case stands, so the reversal's energy (already the peak in _ROLE_ENERGY) reads as
+    # relief rather than more tension. Slightly quicker than the indictment engine, because a
+    # Short-born shape should not be scored like a five-minute famine.
+    "mistaken_verdict": ("wary", 94, "minor"),
+    # A behaviour that looks like abandonment and is care. No accusation to overturn, so no need
+    # for the wary minor of the verdict engine: curious and warm, resolving upward.
+    "strange_behaviour": ("tender", 96, "major"),
 }
 
 # Every engine the lane can pick must have a row, or it silently gets the generic default and a

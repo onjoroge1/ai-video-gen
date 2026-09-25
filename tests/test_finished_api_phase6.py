@@ -151,3 +151,37 @@ def test_finished_library_serves_local_renders_when_the_database_has_no_row(
                     assert len(artifact.content) == expected
 
     anyio.run(run)
+
+
+def test_finished_library_merges_local_renders_into_a_populated_database_page(
+        monkeypatch, tmp_path):
+    """DATABASE_URL set, no Blob token, and production rows already in Postgres (2026-09-25):
+    the library showed the 14 database rows and none of the illustrated episodes rendered on the
+    laptop. Local rows the database lacks join the first page, newest first."""
+    video_id = _seed_local_render(tmp_path)
+    app = FastAPI()
+    finished_api.mount(app, str(tmp_path), Path("static"))
+    monkeypatch.setattr(finished_api.db, "db_enabled", lambda: True)
+
+    class _PopulatedStore:
+        def __init__(self, *a, **k):
+            pass
+
+        def finished_list(self, **_kwargs):
+            return [{"id": "prod-1", "title": "Production row", "format": "landscape",
+                     "status": "done", "created_at": "2000-01-01T00:00:00+00:00",
+                     "video_url": "https://blob.example/prod-1.mp4", "artifacts": {}}]
+    monkeypatch.setattr(finished_api, "PostgresStore", _PopulatedStore)
+    monkeypatch.setattr(finished_api.artifact_store, "durable_storage_required", lambda: False)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            listing = await client.get("/api/finished")
+            rows = listing.json()["videos"]
+            assert [row["id"] for row in rows] == [video_id, "prod-1"]
+            assert rows[0]["storage"] == "local" and rows[1]["storage"] == "blob"
+            page_two = await client.get("/api/finished?offset=1")
+            assert [row["id"] for row in page_two.json()["videos"]] == ["prod-1"]
+    import asyncio
+    asyncio.run(run())

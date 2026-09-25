@@ -29,6 +29,8 @@ ALMOST_HAPPENED_PLAN = "almost_happened_plan"
 ACCIDENTAL_INVENTION = "accidental_invention"
 POWER_REVERSAL = "power_reversal"
 REMOVED_KEYSTONE = "removed_keystone"
+MISTAKEN_VERDICT = "mistaken_verdict"
+STRANGE_BEHAVIOUR = "strange_behaviour"
 
 
 # REVEAL_DEADLINE_PCT: engines whose principle IS the reveal cannot state it in the first fifth.
@@ -146,6 +148,75 @@ ENGINES: dict[str, dict[str, Any]] = {
         "closing": cs.VERDICT,
         "audience_before": "the outcome looks settled",
         "audience_after": "the weaker side held the real advantage",
+    },
+    MISTAKEN_VERDICT: {
+        "name": "The Mistaken Verdict",
+        # NOBODY intervenes. Every other engine turns on something people did; this one turns on
+        # something people CONCLUDED. An animal is doing what it always did to its eggs or young,
+        # the behaviour is read as theft, neglect or cruelty, the reading hardens into a name or a
+        # textbook line, and evidence about what the behaviour actually does for the young
+        # overturns it. Built from the Oviraptor "egg thief" Short: a skeleton on a nest was a
+        # thief for seventy years until an embryo of its own kind turned up in the same egg type.
+        "premise": ("An animal's behaviour toward its eggs or young is read as theft, neglect or "
+                    "cruelty, the reading hardens into a VERDICT, and evidence about what the "
+                    "behaviour does for the young overturns it. NOBODY intervenes: what changes "
+                    "is what we understood, not what the animal did."),
+        "reference": "Oviraptor 'egg thief' Short",
+        # false_resolution IS the verdict: the obvious reading that seemed to settle the case.
+        # The hinge is the anomaly that does not fit it; the mechanism is what the behaviour
+        # actually accomplishes; the escalation is the case building (a second specimen, a
+        # measured outcome, the cost the parent pays); the reversal is the record correcting
+        # itself; the verdict close is the old reading outliving the correction, or the reframe
+        # stated plainly.
+        "sequence": (cs.SETUP, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM, cs.ESCALATION,
+                     cs.REVERSAL, cs.VERDICT),
+        "required": (cs.SETUP, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM, cs.ESCALATION,
+                     cs.REVERSAL, cs.VERDICT),
+        "closing": cs.VERDICT,
+        # One correction, told once. A second escalation would ask the story for a second
+        # overturning, and the evidence contains one.
+        "min_escalations": 1,
+        # The principle is the reveal. "The eggs were its own" cannot be stated in the first fifth
+        # without spending the verdict the story exists to overturn.
+        "mechanism_deadline_pct": REVEAL_DEADLINE_PCT,
+        "audience_before": "the behaviour is exactly what it looks like",
+        "audience_after": "the verdict was ours, and the young were the reason",
+    },
+    STRANGE_BEHAVIOUR: {
+        "name": "The Strange Behaviour",
+        # The sibling of mistaken_verdict, split off on the emperor penguin draft. That draft
+        # needed a recorded accusation ("the lists call her the worst mother") and, when the lists
+        # were actually read, they made no such accusation. Inventing a reputation to satisfy an
+        # engine is exactly the failure the fidelity boundary exists to refuse, so this shape
+        # carries NO recorded verdict: the behaviour merely LOOKS like neglect or cruelty, the
+        # constraint that makes it necessary is shown, and its function for the young is
+        # documented. The only "verdict" is the viewer's own first reading, never attributed to
+        # anyone on the record.
+        "premise": ("An animal's behaviour toward its eggs or young LOOKS like neglect, cruelty "
+                    "or abandonment until the constraint behind it and its documented function "
+                    "for the young are shown. No recorded accusation exists and none is "
+                    "invented; NOBODY intervenes."),
+        "reference": "emperor penguin 'leaves her only egg' Short",
+        # No false resolution: nothing on the record ever settled the case. The hinge is the
+        # constraint (the other parent cannot hunt while holding the egg); the mechanism is the
+        # function (she feeds at sea to return with food); the escalation is the complication
+        # (he has not eaten for months; the chick may hatch first) and the documented backup;
+        # the reversal is the outcome for the young (return, exchange, alternating care); the
+        # verdict close restates the behaviour under its function.
+        "sequence": (cs.SETUP, cs.HINGE, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL,
+                     cs.VERDICT),
+        "required": (cs.SETUP, cs.HINGE, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL, cs.VERDICT),
+        "closing": cs.VERDICT,
+        "min_escalations": 1,
+        # The function is stated early and the rest of the story earns it, but two beats have to
+        # land before it: the behaviour and the constraint that makes it necessary. Measured on
+        # the first 180 s penguin script: the mechanism landed at 35 s against the 20% default's
+        # 33 s and the run replanned. The Short put it at 26%. Thirty percent keeps "early"
+        # honest without asking the writer to state the function before the constraint exists;
+        # this is still half the reveal engines' 60%.
+        "mechanism_deadline_pct": 0.30,
+        "audience_before": "the behaviour looks like abandonment",
+        "audience_after": "the behaviour is how the young get fed",
     },
 }
 

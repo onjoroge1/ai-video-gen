@@ -1,0 +1,78 @@
+{
+  "name": "oviraptor",
+  "title": "The Dinosaur Named After a Mistake",
+  "voice": "onyx",
+  "music_mood": "tense",
+  "model": "kling-v3-pro",
+  "hard_cap_usd": 10.0,
+  "_status": "APPROVED 2026-09-23 by the operator in chat (script + beat table in spec/oviraptor_short_brief.md). Every image is a reconstruction; nothing here may be presented as a photograph of a specimen.",
+  "style": "Painterly natural-history illustration, vertical 9:16 composition, Late Cretaceous Mongolia, red-orange sandstone of the Flaming Cliffs, dusty warm palette with one cool accent, soft directional light, fine texture, no text, no lettering, no logos, no modern objects. ",
+  "end_rule": " Keep the exact same camera position, framing, lens, lighting, palette and placement of every animal and object as the reference image; change only what is described.",
+  "negative": "text, letters, numbers, watermark, logo, cartoon, anime, extra limbs, extra heads, deformed anatomy, duplicate animals, camera shake, flicker, cuts",
+  "beats": [
+    {
+      "id": "b1",
+      "caption": "GUILTY?",
+      "vo": "A skeleton, lying on a nest of eggs. Guilty, right?",
+      "start": "Top-down view of a fossil in red sandstone: the articulated skeleton of a small beaked theropod dinosaur lying directly on top of a ring of about a dozen elongated fossil eggs. Sand half covers the bones. A soft brush and a small pick rest at the edge of the frame.",
+      "end": "The same fossil from the same camera. The sand has been brushed away so the skeleton and the full ring of eggs beneath it are completely exposed and sharp. The brush lies where it stopped.",
+      "motion": "Locked camera, no camera movement. Wind and a brush sweep sand off the fossil, gradually exposing the skeleton lying on the ring of eggs. Nothing else moves. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b2",
+      "caption": "OVIRAPTOR: EGG THIEF",
+      "vo": "In 1923, fossil hunters in Mongolia found exactly that, and named the dinosaur Oviraptor. Egg thief.",
+      "start": "Wide view of the Flaming Cliffs at late afternoon: red sandstone bluffs, 1920s expedition camp with canvas tents and a boxy vintage motor car in the middle distance. In the foreground two figures in period field clothes kneel over a shallow excavation.",
+      "end": "The same cliffs and camp from the same camera. The two figures have lifted a wooden crate lid; between them the exposed fossil skeleton on its eggs is visible in the excavation, and one figure is writing in a notebook.",
+      "motion": "Locked camera, no camera movement. The two figures brush and dig, then lift a crate lid aside, revealing the skeleton on the eggs in the excavation; one begins writing in a notebook. Dust drifts in the wind. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b3",
+      "caption": "THE NEIGHBOUR'S EGGS?",
+      "vo": "The eggs, they assumed, belonged to a neighbour. A frilled dinosaur that nested nearby.",
+      "start": "Medium shot beside the nest of elongated eggs in red sand. Standing over it, sniffing the eggs, is a Protoceratops: a sheep-sized four-legged dinosaur with a parrot-like beak and a broad bony neck frill. The oviraptorid skeleton is out of frame.",
+      "end": "The same nest and the same camera. The Protoceratops has turned and is walking away to the left, its frill in profile, leaving the eggs untouched.",
+      "motion": "Locked camera, no camera movement. The Protoceratops lowers its beak toward the eggs, sniffs, then turns and walks away to the left, leaving the eggs untouched. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b4",
+      "caption": "1994: A BABY INSIDE",
+      "vo": "Then, in 1994, the same kind of egg turned up with a baby inside. Not the neighbour's. An oviraptor's.",
+      "start": "Close-up of a single elongated fossil egg lying in red sandstone, its shell partly weathered. Beside it a small metal scale bar and a soft brush. Reconstruction illustration, not a photograph.",
+      "end": "The same egg from the same camera, now shown as a cutaway reconstruction: inside the shell a tiny curled embryo with a short beaked oviraptorid skull, drawn in a slightly lighter, diagrammatic tone so it reads as an illustration.",
+      "motion": "Locked macro camera, no camera movement. The weathered shell surface gently fades to a cutaway view revealing the small curled embryo inside, its short beaked skull becoming clear. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b5",
+      "caption": "ITS OWN EGGS",
+      "vo": "The eggs were never stolen. They were its own.",
+      "start": "Top-down view of the same fossil skeleton lying on its ring of eggs in red sandstone, fully exposed, as in the opening.",
+      "end": "The same top-down framing, but the fossil has become the living animal: a feathered, beaked oviraptorid crouched on the same ring of eggs in red sand, alive, feathers catching the light, in exactly the same position the bones were in.",
+      "motion": "Locked camera, no camera movement. The fossil bones gradually become the living feathered animal in the same pose, crouched over the same ring of eggs, as if the stone is coming back to life. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b6",
+      "caption": "1995: A COUSIN, BROODING",
+      "vo": "A year later, a close cousin turned up crouched over a clutch, arms spread like a brooding bird.",
+      "start": "A feathered oviraptorid the size of a large dog, with a tall crested beaked head and long feathered arms, stands beside a ring of elongated eggs half buried in orange desert sand, arms folded at its sides.",
+      "end": "The same animal from the same camera, now settled onto the ring of eggs with its feathered arms spread wide over the clutch like a brooding bird, neck arched back.",
+      "motion": "Locked camera, no camera movement. The feathered oviraptorid steps onto the ring of eggs, lowers its body and spreads its long feathered arms wide over the clutch, then arches its neck back. Sand drifts in the wind. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b7",
+      "caption": "A NURSERY, NOT A CRIME SCENE",
+      "vo": "We had mistaken a nursery for a crime scene.",
+      "start": "Medium shot of the brooding oviraptorid on its nest in red sand, arms spread over the eggs, from a low angle. The eggs beneath it are intact.",
+      "end": "The same animal and camera. Two eggs beneath its spread arm have hatched and two small hatchlings with oversized beaked heads peer out from under the feathers.",
+      "motion": "Locked camera, no camera movement. Two eggs under the spread feathered arm burst open with clearly visible movement: shell pieces fall away and two hatchlings with big beaked heads push up and out, lifting their heads high above the eggs and opening their beaks. The adult turns and lowers its head right down to them and the feathers of its arm shift. Clear, visible action. Painterly natural-history illustration look, no cuts."
+    },
+    {
+      "id": "b8",
+      "caption": "NAMED 1924. STILL 'EGG THIEF'.",
+      "vo": "The man who named it had warned the name might mislead. Seventy years later, it still says egg thief.",
+      "start": "A museum display case: the fossil skeleton on its ring of eggs mounted in red sandstone under warm gallery light, a blank brass name plate on the plinth in front of it, reflections in the glass.",
+      "end": "The same case and camera. The gallery light has dimmed slightly and the reflection in the glass now faintly shows the living feathered animal crouched over the eggs, superimposed over the bones.",
+      "motion": "Locked camera, no camera movement. The gallery light dims a little and a faint reflection of the living feathered animal crouched over its eggs appears in the glass over the mounted bones, then holds. Slow and continuous. Painterly natural-history illustration look, no cuts."
+    }
+  ]
+}

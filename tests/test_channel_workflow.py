@@ -31,7 +31,7 @@ def test_catalogue_and_request_validation_are_free(monkeypatch):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app.app), base_url='http://test') as client:
             catalogue = await client.get('/api/explainer/channels')
             assert catalogue.status_code == 200
-            assert [c['id'] for c in catalogue.json()['channels']] == ['world', 'history']
+            assert [c['id'] for c in catalogue.json()['channels']] == ['world', 'history', 'nature']
             for style, fmt in [('cinematic', 'landscape'), ('illustrated_story', 'social')]:
                 result = await client.post('/api/explainer/generate', json={
                     'question': 'Hanoi rat bounty', 'topic_channel': 'world',
@@ -77,9 +77,9 @@ def test_refresh_keeps_supported_format_and_channel_metadata(monkeypatch, tmp_pa
     monkeypatch.setattr(ep, 'suggest_titles', lambda topics: topics)
     monkeypatch.setattr(ep, 'youtube_validation_active', lambda: False)
     data = app._refresh_trending()
-    assert calls == ['world', 'history']
-    assert len(data['questions']) == 2
-    assert {t['topic_channel'] for t in data['questions']} == {'world', 'history'}
+    assert calls == ['world', 'history', 'nature']
+    assert len(data['questions']) == 3
+    assert {t['topic_channel'] for t in data['questions']} == {'world', 'history', 'nature'}
     assert all(t['visual_style'] == 'illustrated_story' and t['content_format'] == 'long'
                for t in data['questions'])
     assert app._load_trending() == data

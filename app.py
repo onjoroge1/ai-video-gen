@@ -1202,7 +1202,13 @@ async def charts_metadata(job_id: str):
 
 class ExplainerRequest(BaseModel):
     question: str
-    topic_channel: Literal["", "world", "history"] = ""
+    topic_channel: Literal["", "world", "history", "nature"] = ""
+    # Stop after the script passes every pre-spend gate and write it for editorial approval;
+    # nothing beyond text is bought. The approved rerun reuses the cached script.
+    stop_after_script: bool = False
+    # An editor's targeted note: revise the cached script beat by beat instead of writing a
+    # fresh draft. Beats may merge or shorten, never drop; the ledger re-judges every sentence.
+    revision_note: str = Field(default="", max_length=6000)
     duration_sec: int = 90
     voice: str = "echo"
     style: str = "engaging and scientific"
@@ -1594,6 +1600,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     story_format=request.story_format,
                     visual_style=request.visual_style,
                     topic_channel=request.topic_channel,
+                    stop_after_script=request.stop_after_script,
+                    revision_note=request.revision_note,
                     controlled_pilot=request.controlled_pilot,
                     pilot_batch_id=request.pilot_batch_id,
                     pilot_kind=request.pilot_kind,
@@ -1814,8 +1822,10 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         from longform_retention import StoryFormatAcknowledgementRequired
         awaiting_review = isinstance(exc, HumanReviewRequired)
         awaiting_format = isinstance(exc, StoryFormatAcknowledgementRequired)
+        awaiting_script = isinstance(exc, ep.ScriptApprovalRequired)
         job["status"] = ("awaiting_review" if awaiting_review else
-                         "format_acknowledgement_required" if awaiting_format else "error")
+                         "format_acknowledgement_required" if awaiting_format else
+                         "awaiting_script_approval" if awaiting_script else "error")
         job["error"] = str(exc)
         # A rejected PR5 opening is still an auditable diagnostic result. Expose only the
         # explicitly non-publishable gate artifacts; never archive it as a finished video.
@@ -1920,6 +1930,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             job["events"].append({"type": "review_required", "data": str(exc)})
         elif awaiting_format:
             job["events"].append({"type": "format_acknowledgement_required", "data": str(exc)})
+        elif awaiting_script:
+            job["events"].append({"type": "script_approval_required", "data": str(exc)})
         else:
             job["events"].append({"type": "error", "data": f"Failed: {exc}"})
             job["events"].append({"type": "error", "data": traceback.format_exc()})
@@ -4025,6 +4037,32 @@ async def render_recovery_cron():
         }) from exc
 
 
+def _pending_review_blocks_resume(output_dir: str) -> bool:
+    """Does a PENDING rendered-opening review stop this checkpoint from resuming?
+
+    The run writes human_review.json whenever the rendered opening fails automation, then either
+    waits on it (gate live) or logs "[HUMAN REVIEW, advisory] skipping editorial approval" and
+    buys the remaining scenes anyway (stable_standard_longform profile, or DIAGNOSTIC_RENDER).
+    The resume endpoint used to read only the record, so a run the gate had already waved
+    through could die mid-render on a provider outage and then refuse to resume for want of an
+    approval the run itself never asked for. Measured on the emperor penguin long-form
+    (2026-09-24): 31 of 45 images bought, Anthropic balance exhausted at image 11.2, resume 409.
+
+    The manifest records the profile the run actually used; a pending record blocks only when
+    that profile kept the gate live. A rejected record blocks regardless (the caller checks it
+    first)."""
+    import explainer_pipeline as ep
+    if ep._diagnostic_render():
+        return False
+    manifest_path = os.path.join(output_dir, "generation_manifest.json")
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return True
+    return manifest.get("pipeline_profile") != "stable_standard_longform"
+
+
 @app.post("/api/explainer/resume/{job_id}")
 async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     """Resume a job that died mid-render — reuses the on-disk script + already-paid scene
@@ -4073,7 +4111,7 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=409, detail="Human review record is invalid.") from exc
         if review.get("decision") == "reject":
             raise HTTPException(status_code=409, detail="Human editor rejected this opening.")
-        if review.get("decision") != "approve":
+        if review.get("decision") != "approve" and _pending_review_blocks_resume(rec["output_dir"]):
             raise HTTPException(
                 status_code=409,
                 detail="Complete and approve the rendered-opening checklist before resuming.")

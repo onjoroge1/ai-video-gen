@@ -246,6 +246,16 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
         # later resume reads as a decided result.
         return result
     result = _normalise(reply, fallback_reason)
+    if is_retryable(result):
+        # An unreadable reply is an operational fault, and one such fault killed a whole spine
+        # ("[no verdict recorded]" on the reversal, job 7cb4c47b, 2026-09-25) after research and
+        # planning were bought. Ask the judge once more before failing closed.
+        try:
+            result = _normalise((judge or _default_judge)(payload), fallback_reason)
+        except Exception as exc:                   # noqa: BLE001 - second failure fails closed
+            result = {"verdict": "unavailable", "passed": False, "supported_core": "",
+                      "unsupported_details": [],
+                      "reason": f"provider_unavailable: {type(exc).__name__}: {str(exc)[:120]}"}
     if cache is not None and not is_retryable(result):
         cache[key] = dict(result)
     return result

@@ -43,7 +43,9 @@ W, H, FPS = 1080, 1920, 30
 # kept deliberately as the A/B control rather than deleted.
 HABITAT = os.environ.get("QUIZ_HABITAT", "1") == "1"
 FAL_OPENER = os.environ.get("QUIZ_FAL_OPENER", "0") == "1"
-FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC", "0.056"))
+# The opener clip goes through ep._animate_one("fal", ...) on FAL_MODEL, so its estimate follows
+# that model's registry rate unless QUIZ_FAL_RATE_SEC pins a different figure.
+FAL_OPENER_RATE_SEC = float(os.environ.get("QUIZ_FAL_RATE_SEC") or ep.I2V_RATE_BY_PROVIDER["fal"])
 NAVY=(14,20,40); WHITE=(255,255,255); CYAN=(120,230,255); YEL=(255,210,70); RED=(255,90,80)
 _COLORS = {"gold":(245,190,40),"teal":(30,150,150),"lavender":(160,140,210),"coral":(235,120,110),
            "sky":(120,180,230),"mint":(150,210,180),"amber":(240,170,60),"rose":(225,130,160)}

@@ -1,0 +1,234 @@
+{
+  "name": "emperor_penguin",
+  "title": "Why This Penguin Leaves Her Only Egg",
+  "channel": "nature",
+  "engine": "strange_behaviour",
+  "story": "spec/emperor_penguin_story.json",
+  "voice": "onyx",
+  "music_mood": "nostalgic",
+  "model": "kling-v3-pro",
+  "hard_cap_usd": 12.0,
+  "_status": "APPROVED 2026-09-24 by the operator in chat, cap $12 (revision 2: strange_behaviour engine, shots cut at natural speed). Every image is a reconstruction.",
+  "style": "Painterly natural-history illustration, vertical 9:16 composition, Antarctic sea ice in winter, palette of blue-grey ice, slate sky and one warm accent of low sun, soft directional light, fine texture, no text, no lettering, no logos. Emperor penguins drawn accurately: black head, white front, pale yellow ear patches, orange-pink stripe on the lower bill; chicks silver-grey down with a black-and-white face. ",
+  "end_rule": " Keep the exact same camera position, framing, lens, lighting, palette and placement of every bird and object as the reference image; change only what is described.",
+  "negative": "text, letters, numbers, watermark, logo, cartoon, anime, extra limbs, extra heads, deformed anatomy, duplicate birds, wrong penguin species, loose egg rolling on open ice, bottle, milk stream, camera shake, flicker, cuts",
+  "beats": [
+    {
+      "id": "b1",
+      "caption": "HER ONLY EGG",
+      "vo": "An emperor penguin hands over her only egg, and leaves for about two months.",
+      "shots": [
+        {
+          "id": "b1a",
+          "duration": 5,
+          "use": [
+            0.5,
+            3.2
+          ],
+          "start": "Close, low angle on the feet and lower belly of a male emperor penguin standing on sea ice. A single large pale egg rests on top of his feet, and the loose fold of feathered skin at his belly is lifted just above it. The female's feet and lower body stand close beside him.",
+          "end": "The same camera and birds. The male's belly fold has settled down over the egg so that only the lower curve of the egg shows between his feet and the fold. The female's feet have turned away.",
+          "motion": "Locked camera, no camera movement. The male lowers his belly fold over the egg until only its lower curve shows above his feet. Beside him the female's feet turn away. Nothing else moves. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b1b",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.2
+          ],
+          "start": "It is incubation season: there are NO chicks anywhere in the frame, only adults. Medium shot on flat sea ice at dusk. A male emperor penguin stands with the egg hidden under his belly fold. The female stands beside him, turned toward the left edge of frame. Far behind them, the dark line of the colony.",
+          "end": "It is incubation season: there are NO chicks anywhere in the frame, only adults. The same camera. The male has not moved. The female is several steps away toward the left edge of frame, walking, seen from behind.",
+          "motion": "Locked camera, no camera movement. The female walks away from the male toward the left of frame with the rolling emperor penguin gait; he stands still with the egg under his fold. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b2",
+      "caption": "HE CAN'T HUNT WITH IT",
+      "vo": "Dad keeps it warm on his feet. But he can't go hunting with it.",
+      "shots": [
+        {
+          "id": "b2a",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.2
+          ],
+          "start": "Tight close-up on the belly fold and feet of a male emperor penguin from the front, at chick height. The egg sits on his feet with the feathered fold draped over its top half, the lower curve of the shell visible and warm-lit.",
+          "end": "The same camera. The male has shifted his weight slightly and the fold has settled lower, covering more of the egg; a little snow has drifted against his feet.",
+          "motion": "Locked camera, no camera movement. The male shifts his weight from one foot to the other, careful, and his belly fold settles lower over the egg. A little snow drifts against his feet. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b2b",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.2
+          ],
+          "start": "It is incubation season: the huddle is adult males only, NO chicks anywhere. Medium-wide shot of a tight huddle of male emperor penguins on the ice under a slate sky, backs to the wind, shoulders pressed together. Snow blowing low across the ice.",
+          "end": "It is incubation season: the huddle is adult males only, NO chicks anywhere. The same huddle and camera. The birds on the windward edge have shuffled a step along the huddle's flank and the snow blows harder.",
+          "motion": "Locked camera, no camera movement. The huddle shuffles slowly, birds on the windward edge working their way along its flank, as snow blows harder across the ice. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b3",
+      "caption": "SHE FEEDS AT SEA",
+      "vo": "So she heads to sea to feed.",
+      "shots": [
+        {
+          "id": "b3a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.0
+          ],
+          "start": "Nothing stands on the ice above; the frame is entirely underwater looking up at the pale underside of the ice, NO penguins or chicks on top. Underwater, looking up toward the pale underside of sea ice. A female emperor penguin flies through the dark water with wings swept back, a trail of bubbles behind her, a scattered shoal of small silver fish ahead.",
+          "end": "Nothing stands on the ice above; the frame is entirely underwater looking up at the pale underside of the ice, NO penguins or chicks on top. The same camera. The penguin has surged forward into the shoal, the fish scattering around her, the bubble trail longer behind her.",
+          "motion": "Locked camera, no camera movement. The penguin surges forward through the water into the shoal of small silver fish, which scatter around her, a long trail of bubbles streaming behind. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b4",
+      "caption": "MONTHS WITHOUT FOOD",
+      "vo": "Meanwhile, he hasn't eaten for months.",
+      "shots": [
+        {
+          "id": "b4a",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.6
+          ],
+          "start": "It is incubation season: the huddle behind him is adult males only, NO chicks anywhere. Night. A male emperor penguin in profile at the edge of a huddle, lit by a faint aurora, snow streaming past him, head tucked low, the egg hidden under his fold.",
+          "end": "It is incubation season: the huddle behind him is adult males only, NO chicks anywhere. The same camera and bird. The snow has thickened and he has tucked his head lower against his chest; the aurora has shifted.",
+          "motion": "Locked camera, no camera movement. Snow streams past the huddled male; he tucks his head lower against his chest; the faint aurora drifts overhead. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "caption": "IF IT HATCHES FIRST?",
+      "vo": "And if the chick hatches before she gets back?",
+      "shots": [
+        {
+          "id": "b5a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.2
+          ],
+          "start": "Tight close-up from the front on the belly fold and feet of a male emperor penguin. Under the fold, a fragment of pale eggshell lies on his feet and a small silver-grey chick with a black-and-white face is half emerged, eyes closed.",
+          "end": "The same camera. The chick has pushed its head fully out from under the fold and opened its beak upward, eyes open; the eggshell fragment lies beside its feet.",
+          "motion": "Locked camera, no camera movement. The small chick pushes its head out from under the father's belly fold, opens its eyes, and opens its beak upward. The eggshell fragment stays on his feet. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b6",
+      "caption": "A MILK-LIKE SUBSTANCE",
+      "vo": "He can briefly feed it a milk-like substance made in his throat.",
+      "shots": [
+        {
+          "id": "b6a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.6
+          ],
+          "start": "Close-up from the side. A male emperor penguin bends his head down toward a small grey chick standing on his feet under his belly fold. The chick's beak is closed, tilted up toward him.",
+          "end": "The same camera. The father's beak is lowered to the chick and the chick's open beak is inside the tip of his, being fed; nothing visible passes between them.",
+          "motion": "Locked camera, no camera movement. The father lowers his head until his beak meets the chick's; the chick opens its beak into the tip of his and is fed. Restrained and slow; nothing visible passes between them. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b7",
+      "caption": "SHE'S BACK",
+      "vo": "Then she returns with food and takes over keeping the chick warm. Dad finally gets to eat.",
+      "shots": [
+        {
+          "id": "b7a",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.0
+          ],
+          "start": "Medium shot on the ice in low warm sun. A plump female emperor penguin walks toward the camera from the middle distance; in the foreground the thinner male stands with the chick on his feet, turned toward her.",
+          "end": "The same camera. The female has arrived and stands facing the male, bill to bill, the chick on his feet between them.",
+          "motion": "Locked camera, no camera movement. The female walks up to the male with the rolling gait and stops facing him, bill to bill, the chick between them on his feet. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b7b",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.0
+          ],
+          "start": "Close-up from the side. The chick stands on the female's feet under her belly fold, beak tilted up. The male's feet are visible at the edge of frame.",
+          "end": "The same camera. The female has bent her head to the chick and its open beak is inside the tip of hers, being fed.",
+          "motion": "Locked camera, no camera movement. The female bends her head down and the chick raises its open beak into the tip of hers and is fed. Slow and restrained. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b7c",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.0
+          ],
+          "start": "Medium-wide shot. The female stands with the chick under her fold. The thin male stands beside her, turned toward the right edge of frame where the ice runs toward a dark line of open water.",
+          "end": "The same camera. The male is several steps away toward the right, walking toward the open water, seen from behind. The female and chick have not moved.",
+          "motion": "Locked camera, no camera movement. The thin male turns and walks away to the right toward the open water with the rolling gait; the female stays with the chick under her fold. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b8",
+      "caption": "THEY TAKE TURNS",
+      "vo": "For the chick's first weeks, they take turns. One keeps it warm; the other finds food.",
+      "shots": [
+        {
+          "id": "b8a",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.0
+          ],
+          "start": "Medium shot in pale daylight. One adult emperor penguin stands with a larger grey chick on its feet under its fold. A second adult walks toward them from the left, sleek and plump.",
+          "end": "The same camera. The second adult has arrived beside the first, and the chick has shuffled onto the newcomer's feet.",
+          "motion": "Locked camera, no camera movement. The plump adult walks up and stops beside the first; the chick shuffles across from one pair of feet to the other and is tucked under the newcomer's fold. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b8b",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.6
+          ],
+          "start": "Wide shot of the ice edge. Two adult emperor penguins stand together with a grey chick; open water beyond them.",
+          "end": "The same camera. One adult is now walking away toward the open water; the other stays with the chick.",
+          "motion": "Locked camera, no camera movement. One adult turns and walks toward the open water; the other stays with the chick. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b9",
+      "caption": "BACK WITH DINNER",
+      "vo": "She didn't abandon the family. She came back with dinner.",
+      "shots": [
+        {
+          "id": "b9a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.5
+          ],
+          "start": "Medium close shot in warm spring light. The female emperor penguin stands with the grey chick on her feet under her fold, the chick looking up at her, beak closed.",
+          "end": "The same camera. She has bent her head to the chick and its open beak is inside the tip of hers, being fed.",
+          "motion": "Locked camera, no camera movement. The female bends her head to the chick on her feet; the chick raises its open beak into hers and is fed. Slow and gentle. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    }
+  ]
+}

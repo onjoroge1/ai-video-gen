@@ -86,12 +86,38 @@ HIDDEN_LINK = "hidden_link"
 POPULATION_RESPONDS = "population_responds"
 SYSTEM_RESETTLES = "system_resettles"
 
+# --- the mistaken_verdict family ----------------------------------------------------------------
+# Nobody intervenes here either, and nothing is moved: the animal does what it always did. What
+# the record holds is an OBSERVATION, a READING of it, and the evidence that changed the reading.
+# Measured on the Oviraptor Short: the 1923 skeleton on a nest is the observation, "egg thief" is
+# the recorded verdict, the 1994 embryo is the anomaly, the brooding posture is what the behaviour
+# does, and the name that never changed is how the verdict persists. Each is a fact somebody can
+# cite; none is a relationship the compiler has to compute, so there are no derived roles.
+BEHAVIOUR_OBSERVED = "behaviour_observed"
+VERDICT_RECORDED = "verdict_recorded"
+ANOMALY_FOUND = "anomaly_found"
+FUNCTION_SHOWN = "function_shown"
+EVIDENCE_MOUNTS = "evidence_mounts"
+READING_CORRECTED = "reading_corrected"
+VERDICT_PERSISTS = "verdict_persists"
+
+# --- the strange_behaviour family --------------------------------------------------------------
+# Split from mistaken_verdict when the emperor penguin draft could not honestly cite an accusation
+# (see story_engines.STRANGE_BEHAVIOUR). Shares BEHAVIOUR_OBSERVED, FUNCTION_SHOWN and
+# EVIDENCE_MOUNTS; the three below replace the verdict-shaped functions, because here nobody ever
+# recorded a verdict and the story must not pretend one exists.
+CONSTRAINT_FOUND = "constraint_found"
+OUTCOME_FOR_YOUNG = "outcome_for_young"
+
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
                    COMPOUNDS_EXPLOIT, OUTCOME_STATE,
                    PLAN_PROPOSED, GAINS_BACKING, OPPOSITION_MOUNTS, COLLAPSE_CAUSE,
                    WORLD_WITHOUT_IT,
                    ESTABLISHES_BALANCE, SPECIES_MOVED, INTENDED_EFFECT, HIDDEN_LINK,
                    POPULATION_RESPONDS, SYSTEM_RESETTLES,
+                   BEHAVIOUR_OBSERVED, VERDICT_RECORDED, ANOMALY_FOUND, FUNCTION_SHOWN,
+                   EVIDENCE_MOUNTS, READING_CORRECTED, VERDICT_PERSISTS,
+                   CONSTRAINT_FOUND, OUTCOME_FOR_YOUNG,
                    CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
@@ -138,6 +164,44 @@ WHAT_EACH_FUNCTION_IS = {
                          "removed or created — measured, with numbers where the record has them",
     SYSTEM_RESETTLES: "what the place became. Not 'the programme failed' but the new state: what "
                       "now grows there, what no longer does, what it costs to keep",
+    BEHAVIOUR_OBSERVED: "the behaviour toward eggs or young as it was first seen or preserved: a "
+                        "skeleton on a clutch, a chick pushed from a nest, a parent that stops "
+                        "eating. What the record directly holds, before anyone read it",
+    VERDICT_RECORDED: "the reading that hardened into the record: a scientific name, a museum "
+                      "label, a textbook line, a naturalist's account, a folk belief with a "
+                      "citation. Someone on the record concluded theft, neglect or cruelty",
+    ANOMALY_FOUND: "the specific documented finding that did not fit the verdict: an embryo in "
+                   "the egg, a tracked survival rate, a parent seen returning. An event with a "
+                   "date and a finder, never 'scientists began to doubt'",
+    FUNCTION_SHOWN: "what the behaviour actually does for the young, stated as a RECORDED OUTCOME: "
+                    "'she returns from the sea with food in her stomach and feeds the chick', "
+                    "'the brooding parent keeps the eggs at incubation temperature'. Never a "
+                    "purpose clause -- 'so that', 'in order to', 'to bring food back' -- because a "
+                    "timeline entails what happened, not why; the first penguin sheet lost its "
+                    "mechanism on exactly that clause. Sourced like any other event; if the "
+                    "function is only inferred, say so in the assertion",
+    EVIDENCE_MOUNTS: "a further documented fact that builds the case: a second specimen, a "
+                     "related species doing the same, the cost the parent bears (fasting, weight "
+                     "loss, death), or the parent's documented BACKUP when the plan runs late (a "
+                     "male feeding a hatchling a secretion before the female returns). May "
+                     "repeat. Never the final outcome for the young; that is outcome_for_young",
+    READING_CORRECTED: "the moment the record itself changed: a paper stating the parent was a "
+                       "parent, a label rewritten, a reinterpretation published. As record, "
+                       "with the year",
+    VERDICT_PERSISTS: "how the old reading survives the correction: the name still in use, the "
+                      "belief still taught, the label still on the case. Or, where it did not "
+                      "survive, what replaced it",
+    CONSTRAINT_FOUND: "the documented condition that makes the behaviour necessary or makes it "
+                      "look like a problem: the other parent cannot hunt while holding the egg, "
+                      "the nest site has no food, the young cannot yet keep warm. A fact about "
+                      "the animal's situation, never a motive",
+    OUTCOME_FOR_YOUNG: "EXACTLY ONE beat: what the young get once the behaviour completes — the "
+                       "absent parent returns with food and feeds them, the parents exchange "
+                       "roles, care alternates, a survival rate is measured. A recorded event or "
+                       "measurement, with a source. A stopgap that bridges a late return (a "
+                       "secretion, a substitute feeding) is evidence_mounts, not this: the first "
+                       "penguin sheet filed the male's crop secretion here and produced two "
+                       "outcomes, one of them citing a mechanism claim",
 }
 
 
@@ -243,8 +307,87 @@ REMOVED_KEYSTONE = EngineFunctionMap(
         "reversal": "what the place became",
         "tool": "hands back a reusable lens"})
 
+# No derived roles: every beat of a mistaken verdict is something a person can cite. The reversal
+# is the record correcting itself (a paper, a relabelling), not a state the compiler infers from
+# two halves, and inventing a derivation would manufacture exactly the unsourced sentence the
+# fidelity boundary exists to refuse.
+MISTAKEN_VERDICT = EngineFunctionMap(
+    "mistaken_verdict",
+    required=(BEHAVIOUR_OBSERVED, VERDICT_RECORDED, ANOMALY_FOUND, FUNCTION_SHOWN,
+              EVIDENCE_MOUNTS, READING_CORRECTED, VERDICT_PERSISTS),
+    to_role={BEHAVIOUR_OBSERVED: "setup",
+             VERDICT_RECORDED: "false_resolution",
+             ANOMALY_FOUND: "hinge",
+             FUNCTION_SHOWN: "mechanism",
+             EVIDENCE_MOUNTS: "escalation",
+             READING_CORRECTED: "reversal",
+             VERDICT_PERSISTS: "verdict",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    # An observation of a fossil or a nest is often filed as context or mechanism by a source
+    # rather than as an event; the setup may draw on any of them. Boundary A still has to show
+    # that the particular observation follows from the source. The verdict here IS a recorded
+    # fact ("the genus is still named Oviraptor"), unlike every other engine's close, so it is
+    # allowed to cite the record; the default for a verdict is to cite nothing.
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism"),
+                 # Same reason as strange_behaviour: a brooding posture or a fasting cost is
+                 # filed as mechanism by the classifier, and it is what the case is built from.
+                 "escalation": ("event", "context", "outcome", "mechanism"),
+                 "reversal": ("event", "context", "outcome", "mechanism"),
+                 "verdict": ("event", "context", "outcome")},
+    role_meanings={
+        "setup": "the behaviour as first seen: what the record holds before anyone read it",
+        "false_resolution": "the verdict that seemed to settle it — the name, the label, the line",
+        "hinge": "the one finding that did not fit the verdict",
+        "mechanism": "what the behaviour actually does for the young",
+        "escalation": "the corrected case building: another specimen, a measured outcome, the "
+                      "cost the parent pays",
+        "reversal": "the record correcting itself",
+        "verdict": "the old reading outliving the correction, or the reframe stated plainly, "
+                   "returning to the opening"})
+
+# The close is NOT a function here. The first live episode (emperor penguin, 2026-09-24) had the
+# planner write "hatching in winter gives the chick the summer to grow" as a cited verdict beat,
+# and the fact model refused it: a verdict may cite nothing (`_ROLE_ACCEPTS["verdict"] == ()`),
+# because a close restates, it does not assert. So the verdict is a presentation device the
+# compiler appends, exactly as backfiring_solution's `tool` is, and the planner is never shown a
+# function that would invite it to source a sentence that only summarises.
+STRANGE_BEHAVIOUR = EngineFunctionMap(
+    "strange_behaviour",
+    required=(BEHAVIOUR_OBSERVED, CONSTRAINT_FOUND, FUNCTION_SHOWN, EVIDENCE_MOUNTS,
+              OUTCOME_FOR_YOUNG),
+    to_role={BEHAVIOUR_OBSERVED: "setup",
+             CONSTRAINT_FOUND: "hinge",
+             FUNCTION_SHOWN: "mechanism",
+             EVIDENCE_MOUNTS: "escalation",
+             OUTCOME_FOR_YOUNG: "reversal",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    # A behaviour story is described by its sources as HOW an animal lives, and the research
+    # classifier files most of that as `mechanism`: "having exhausted her reserves the female
+    # goes to sea to feed" came back mechanism-kind and, cited by the reversal, failed
+    # CLAIM_KIND_MISMATCH on a spine whose every other beat stood (2026-09-24). The historical
+    # default excludes mechanism from escalation and reversal because a bounty's exploit and
+    # inversion are events; here the cost the parent bears and the outcome for the young are
+    # routinely recorded as mechanism, and refusing them refuses the channel.
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism"),
+                 "escalation": ("event", "context", "outcome", "mechanism"),
+                 "reversal": ("event", "context", "outcome", "mechanism")},
+    role_meanings={
+        "setup": "the behaviour as observed, which looks like neglect or abandonment",
+        "hinge": "the documented constraint that makes it necessary",
+        "mechanism": "what the behaviour does for the young, stated early as a recorded outcome "
+                     "(she returns with food and feeds the chick), never as a motive or a purpose",
+        "escalation": "the complication and the documented backup: the fast, the chick hatching "
+                      "before the return, the secretion that bridges it",
+        "reversal": "the outcome for the young: return, exchange, alternating care",
+        "verdict": "a narration device, not a fact: the opening behaviour restated under its "
+                   "function, returning to the opening; no verdict attributed to anyone and no "
+                   "new facts"})
+
 MAPS = {engine.engine_id: engine
-        for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN, REMOVED_KEYSTONE)}
+        for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN, REMOVED_KEYSTONE,
+                       MISTAKEN_VERDICT, STRANGE_BEHAVIOUR)}
 
 
 def map_for(engine_id: str) -> EngineFunctionMap | None:
