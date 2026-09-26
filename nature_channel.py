@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 
+from nature_story_flow import NATURE_WRITING_CONTRACT
+
 NATURE = "nature"
 
 # Forbidden in every Nature image state. Handed to the evidence verifier as forbidden objects, so
@@ -36,35 +38,9 @@ THUMBNAIL_STEER = (
     "transcript; if the transcript has no such number, use none. Draw the animal with correct "
     "anatomy: wings/flippers, not arms.")
 
-# The channel owner's writing contract for every Nature script (2026-09-25 review of the first
-# emperor penguin long-form). Appended to the writer, spine-planner and scene-expansion prompts
-# on this channel only, beside the per-episode operator direction.
-WRITING_RULES = (
-    "Open with the episode question, immediately followed by the specific behaviour that makes "
-    "it interesting. Treat this as ONE hook: the question is the first spoken sentence, the "
-    "behaviour the second, and the problem the rest of the video resolves the third.\n"
-    "Keep the animal and the parental behaviour named in the title central to the story. Do not "
-    "let an interesting side mechanism take over; a survival mechanism gets one compact "
-    "explanation and then the story moves to a need it cannot meet.\n"
-    "Every beat must add a new action, constraint, consequence, mechanism, or interpretation. A "
-    "rephrased fact is not a new beat. Establish the departure once; explain a danger once; "
-    "deliver the conclusion once.\n"
-    "A fact is something else that is true. An ESCALATION must change or intensify the problem "
-    "the family faces. A REVERSAL must change the interpretation of earlier behaviour. These "
-    "labels are not interchangeable.\n"
-    "Explain the behaviour early enough to be honest, then sustain interest through the "
-    "practical problems that follow: the egg needs warmth, the incubating parent needs to "
-    "conserve energy, the hatched young needs food, the returning parent must find its family. "
-    "Do not withhold basic facts solely to manufacture a twist, and do not make a parent look "
-    "worse than the record by showing an unprotected egg and correcting the image later.\n"
-    "Separate narration from visual direction: never narrate 'the last thing you see' or 'look "
-    "again'; show it. Qualify factual claims ('can', 'about', 'roughly'); never assert a "
-    "universal ('never touches', 'costs nothing') that a source states as a tendency. Do not "
-    "invent a reputation, emergency, or guaranteed outcome. Omit precise measurements that do "
-    "not advance the parent's story.\n"
-    "End with one brief verdict demonstrated by the final action, on the image of the young "
-    "being fed. The evidence decides the verdict: a misunderstood behaviour, a hard trade-off, "
-    "or a strategy that costs some offspring. Not every episode acquits the parent.")
+# Shared by both the authored Short and model-authored Long profiles. Keeping the string in
+# nature_story_flow makes the two outputs follow one editorial contract instead of drifting.
+WRITING_RULES = NATURE_WRITING_CONTRACT
 
 
 def writing_rules_block(channel: str | None) -> str:
