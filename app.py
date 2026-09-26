@@ -2741,7 +2741,8 @@ _AGENT_PUBLIC_EVENT_TYPES = {
     "queued", "stage", "log", "done", "error", "finalized", "review_required",
     "format_acknowledgement_required", "pilot_awaiting_editorial", "pilot_passed",
     "pilot_failed", "storage_error", "infrastructure_rearmed",
-    "directed_audio_fit_rearmed", "pilot_artifacts_persisted",
+    "directed_audio_fit_rearmed", "portrait_audio_boundary_rearmed",
+    "pilot_artifacts_persisted",
     "retry", "continuation",
     "provider_blocked", "provider_resumed",
 }
@@ -2764,6 +2765,7 @@ _AGENT_PUBLIC_EVENT_MESSAGES = {
     "storage_error": "Artifact storage needs recovery",
     "infrastructure_rearmed": "Infrastructure recovery started",
     "directed_audio_fit_rearmed": "Narration timing recovery started",
+    "portrait_audio_boundary_rearmed": "Short narration boundary recovery started",
     "pilot_artifacts_persisted": "Pilot artifacts persisted",
 }
 
@@ -4015,7 +4017,9 @@ async def internal_render_worker():
 async def render_recovery_cron():
     try:
         store, blob = _durable_components()
-        audio_salvage = await asyncio.to_thread(store.rearm_next_directed_audio_runtime_failure)
+        audio_salvage = await asyncio.to_thread(store.rearm_next_portrait_audio_boundary_failure)
+        if not audio_salvage:
+            audio_salvage = await asyncio.to_thread(store.rearm_next_directed_audio_runtime_failure)
         parent_blob_salvage = None
         parent_archive_salvage = None
         remainder_salvage = None

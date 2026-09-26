@@ -751,6 +751,34 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # but stops visual spending, exactly as the directed production contract requires.
     if require_validation:
         is_pilot = abs(win_start) <= 0.05 and abs(win_end - spec.target.pilot_end_sec) <= 0.05
+        # MP3 frame rounding can put a portrait Short a few hundredths below its
+        # approved minimum. Add only a tiny silence tail to the final scene and
+        # remeasure it; the unchanged 35-39s acceptance gate still decides whether
+        # visuals may be purchased. Do not retime speech or alter landscape pilots.
+        shortfall = spec.acceptance.pilot_runtime_min_sec - spoken
+        if (is_pilot and spec.target.format == "portrait"
+                and 0 < shortfall <= 0.10):
+            last_audio = audio_paths[-1]
+            before = ep._audio_dur(last_audio)
+            tmp_path = last_audio + ".tail-pad.mp3"
+            ep._run_ffmpeg([
+                ep._ffmpeg_bin(), "-nostdin", "-y", "-i", last_audio,
+                "-filter:a", "apad=pad_dur=0.2",
+                "-c:a", "libmp3lame", "-q:a", "2", tmp_path,
+            ], timeout=120.0)
+            os.replace(tmp_path, last_audio)
+            after = ep._audio_dur(last_audio)
+            audio_transformations.append({
+                "scene_id": indexed_scenes[-1][1].scene_id,
+                "type": "silence_tail",
+                "reason": "portrait_pilot_mp3_frame_boundary",
+                "original_runtime_sec": round(before, 3),
+                "final_runtime_sec": round(after, 3),
+            })
+            spoken = sum(ep._audio_dur(path) for path in audio_paths)
+            drift = spoken - budget
+            log(f"Portrait pilot frame-boundary tail: {before:.2f}s → {after:.2f}s; "
+                f"total narration track {spoken:.2f}s (gate unchanged)")
         # A small natural-TTS overrun is an audio-layout problem, not a reason to regenerate
         # the approved narration or weaken the runtime gate.  Fit the already-paid audio with
         # ffmpeg atempo, preserve pitch, then remeasure and enforce the exact same 43-47s gate.
@@ -1130,7 +1158,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "window": {"start_sec": win_start, "end_sec": win_end},
         "providers": [
             {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
-             "voice": voice, "transformation": "atempo" if audio_transformations else "none"},
+             "voice": voice, "transformation": ",".join(sorted({
+                 item["type"] for item in audio_transformations})) or "none"},
             {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
         ] + ([{
             "purpose": "blind_rendered_story_grade", "provider": "anthropic",
