@@ -26,8 +26,8 @@ def narrate(text, output_path, voice, direction, ep):
     """Reuse only the same text, voice, model and acting direction."""
     from durable_execution import current, canonical_hash
     request = narration_identity(text, voice, direction)
-    # Conservative reservation. Reconciled using measured audio duration; the
-    # provider invoice remains authoritative for exact token-based billing.
+    # Conservative reservation retained as the allowance in the local ledger;
+    # the provider invoice remains authoritative for exact token-based billing.
     estimate = max(0.02, len(text) * 0.00003 + len(direction.voice_instructions) * 0.000001)
 
     def call(key=None):

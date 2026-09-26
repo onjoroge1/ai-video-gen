@@ -88,6 +88,8 @@ These are planning times. Exact TTS is generated and aligned before visuals; eac
 
 Before rendering: canonical narration/bundle equality, shared storyboard validity, old-hash stability, measured beat alignment, portrait provider dimensions, voice-cache invalidation and caption-control escaping are covered by focused tests. The actual FFmpeg caption and sound-mix path was exercised on a synthetic two-second fixture and visually inspected for safe text placement.
 
+The installable wheel includes the Nature runtime, compiler and presentation modules. An isolated wheel smoke check imports them and compiles the bundled episode away from the repository checkout, so missing package files cannot be hidden by the source tree.
+
 After rendering: inspect actual departure and nursing action; caption readability throughout; correct age transitions; no body distortions; source-to-mechanism clarity; music/voice balance; and one complete ending. Do not substitute a shot-count target or a higher automatic score for this review. Audience retention remains UNKNOWN until publication data exists.
 
 Sources rechecked September 26, 2026:
