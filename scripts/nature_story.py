@@ -78,15 +78,11 @@ def main() -> int:
         return 0
 
     if args.stage == "long-request":
-        if str(episode.get("profile") or "").lower() != ns.PROFILE_LONG:
-            raise SystemExit("long-request requires profile=long")
         out = _write(work / "nature_story_long_request.json", ns.longform_pipeline_kwargs(episode))
         print(out)
         return 0
 
     if args.stage == "render-short":
-        if str(episode.get("profile") or "").lower() != ns.PROFILE_SHORT:
-            raise SystemExit("render-short requires profile=short")
         if not args.authorize_paid:
             raise SystemExit("render-short can spend provider funds; re-run with --authorize-paid")
         spec = ns.compile_keyframe_spec(episode)
