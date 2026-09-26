@@ -2521,12 +2521,29 @@ async def _enqueue_explainer_request(request: ExplainerRequest,
     return {"job_id": job_id}
 
 
+def _validate_directed_pilot_window(target) -> float:
+    """Keep landscape long-form pilots fixed at 45s; allow bounded portrait Shorts.
+
+    Portrait directed pilots are complete vertical deliverables rather than previews of a longer
+    film. Their runtime follows measured narration, but remains bounded so this does not become a
+    general escape hatch around the existing long-form pilot contract.
+    """
+    pilot_end = float(target.pilot_end_sec)
+    duration = float(target.duration_sec)
+    if target.format == "portrait":
+        if abs(pilot_end - duration) > 0.001 or not 15.0 <= pilot_end <= 45.0:
+            raise ValueError(
+                "A portrait directed pilot must cover its full 15-45 second runtime")
+    elif abs(pilot_end - 45.0) > 0.001:
+        raise ValueError("A landscape directed pilot authorizes exactly the first 45 seconds")
+    return pilot_end
+
+
 def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
-    if abs(float(spec.target.pilot_end_sec) - 45.0) > 0.001:
-        raise ValueError("A directed pilot approval authorizes exactly the first 45 seconds")
+    pilot_end = _validate_directed_pilot_window(spec.target)
     return ExplainerRequest(
         question=spec.title,
-        duration_sec=int(round(spec.target.pilot_end_sec)),
+        duration_sec=int(round(pilot_end)),
         voice=spec.target.voice,
         video_format=("social" if spec.target.format == "portrait" else "landscape"),
         motion_mode="standard",
@@ -3178,9 +3195,11 @@ async def create_agent_action(request: AgentActionCreateRequest):
                 "code": "DIRECTED_SPEC_INVALID", "issues": report.get("issues") or [],
             })
         payload = report["normalized_spec"]
-        if abs(float(payload["target"]["pilot_end_sec"]) - 45.0) > 0.001:
-            raise HTTPException(status_code=409, detail=(
-                "A directed pilot approval authorizes exactly the first 45 seconds; use a separate continuation"))
+        try:
+            _validate_directed_pilot_window(
+                dl.DirectedTarget.model_validate(payload["target"]))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         authorization_hash = report["spec_sha256"]
         estimate = float(
             (report.get("pilot_cost_estimate") or {}).get("estimated_total_usd") or 0)
