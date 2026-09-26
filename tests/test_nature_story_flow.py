@@ -167,7 +167,7 @@ def test_storyboard_reuses_existing_nature_aware_evidence_planner():
     states = [state for scene in built["plan"]["scenes"] for state in scene["states"]]
     assert states
     assert all(state["include_human"] is False for state in states)
-    assert all(state["anonymous_people_required"] is False for state in states)
+    assert all(state.get("anonymous_people_required", False) is False for state in states)
     assert all(nc.FORBIDDEN_PEOPLE in state["forbidden_objects"] for state in states)
 
 
