@@ -498,7 +498,7 @@ def compile_directed_short(episode: dict) -> dict:
         cursor=round(cursor+seconds,3)
     evidence = [dict(claim_id=c["id"], claim=c["passage"], source_uri=c["source_url"],
                      qualification=c.get("qualifiers") or "General species account; retain conditional wording.",
-                     license="Publicly accessible government factual source; summarized, not quoted")
+                     license=c.get("license") or "Publicly accessible government factual source; summarized, not quoted")
                 for c in episode["claims"] if c["id"] in used_claims]
     maximum = episode["presentation"].get("max_shot_sec",3.4)
     tolerance = float(episode.get("runtime_tolerance_sec",6.8))
@@ -513,9 +513,10 @@ def compile_directed_short(episode: dict) -> dict:
         nature_short=deepcopy(episode["presentation"]),
         worlds=[dict(world_id=world_id,start_sec=0,end_sec=duration,base_prompt=visual.get("style_prefix","")+" "+visual.get("subject_sheet",""))],
         narration=scenes,shots=shots,evidence=evidence,
-        prohibited_claims=["Do not imply that the mother intends cruelty, returns after weaning, or guarantees survival.",
-                           "A conditional ice-risk illustration is not the observed death of this individual.",
-                           "Lunchbox is a metaphor for stored body fat, not a literal human object."])
+        prohibited_claims=list(episode.get("prohibited_claims") or [
+            "Do not invent intentions, emotions, outcomes, or human intervention.",
+            "Do not turn a species-level account into a guaranteed outcome for the illustrated individual.",
+        ]))
     report = dl.validate_directed_spec(payload)
     if not report["valid"]:
         raise ValueError(f"Nature directed compiler: {report['issues']}")
