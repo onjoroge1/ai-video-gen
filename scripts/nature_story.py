@@ -88,7 +88,26 @@ def main() -> int:
         spec = ns.compile_keyframe_spec(episode)
         spec_path = _write(work / "nature_story_keyframe_spec.json", spec)
         runner = ROOT / "scripts" / "keyframe_short.py"
-        for stage in ("stills", "narrate", "clips", "regate", "assemble"):
+
+        # Measure the exact voice before buying any still or motion clip. keyframe_short is
+        # idempotent, so an already-measured narration is reused without a second TTS purchase.
+        subprocess.run([sys.executable, str(runner), str(spec_path), "narrate"], cwd=str(ROOT), check=True)
+        audio_dir = work / "audio"
+        measured = 0.0
+        for beat in spec["beats"]:
+            meta = json.loads((audio_dir / f"{beat['id']}.json").read_text(encoding="utf-8"))
+            measured += float(meta["duration"]) + 0.45
+        measured_episode = json.loads(json.dumps(episode))
+        measured_episode["measured_timing"] = {"duration_sec": measured}
+        measured_report = ns.validate_episode(measured_episode, profile=ns.PROFILE_SHORT)
+        _write(work / "nature_story_qa.json", measured_report)
+        timing = next(check for check in measured_report["checks"]
+                      if check["check_id"] == "TIMING_MEASURED")
+        if timing["status"] != "PASS":
+            print(json.dumps(measured_report, indent=2))
+            raise SystemExit("Measured narration missed the Short runtime contract; visuals were not purchased.")
+
+        for stage in ("stills", "clips", "regate", "assemble"):
             subprocess.run([sys.executable, str(runner), str(spec_path), stage], cwd=str(ROOT), check=True)
         final = work / f"{spec['name']}_short.mp4"
         print(final)
