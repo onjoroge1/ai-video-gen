@@ -1,0 +1,471 @@
+{
+  "schema_version": "directed_longform_v1",
+  "project_id": "harp-seal-nature-short-v1",
+  "title": "Why Is This Harp Seal the Worst Mother?",
+  "negative_prompt": "people, human hands, researchers, boats, buildings, text baked into artwork, letters, logos, watermark, cartoon, anime, tears, human-like expressions, duplicate seals, extra limbs, deformed anatomy, adult saddle markings on a white-coated pup, newborn white coat on the older juvenile, fabricated rescue, mother returning after weaning, graphic drowning",
+  "target": {
+    "duration_sec": 45,
+    "pilot_end_sec": 45,
+    "format": "portrait",
+    "voice": "onyx",
+    "max_cost_usd": 12
+  },
+  "acceptance": {
+    "runtime_tolerance_sec": 2,
+    "pilot_runtime_min_sec": 43,
+    "pilot_runtime_max_sec": 47,
+    "pilot_min_visual_states": 15,
+    "pilot_min_unique_master_assets": 15,
+    "min_shot_sec": 1.25,
+    "max_unchanged_hold_sec": 3,
+    "max_consecutive_still_asset_sec": 3,
+    "full_motion_duration_sec": 5,
+    "full_motion_duration_tolerance_sec": 0.25,
+    "frontloaded_motion_count": 2,
+    "frontloaded_motion_window_sec": 15,
+    "max_unique_master_assets": 15,
+    "min_useful_bolt_appearances": 0,
+    "max_bolt_appearances": 0,
+    "planned_bolt_appearances": 0,
+    "evidence_coverage_pct": 100,
+    "automatic_grade_min": 90,
+    "editorial_grade_min": 85
+  },
+  "worlds": [
+    {
+      "world_id": "harp_seal_pack_ice",
+      "start_sec": 0,
+      "end_sec": 45,
+      "base_prompt": "Premium painterly natural-history illustration in vertical 9:16 composition. North Atlantic pack ice, slate-blue water, soft overcast light, cinematic depth, anatomically accurate harp seals, no people or equipment. Preserve developmental continuity: nursing pup has a white lanugo coat; later post-weaning juvenile has a gray-spotted coat. Every shot should visibly prove the narration with a materially distinct composition.",
+      "on_screen_label": ""
+    }
+  ],
+  "narration": [
+    {
+      "scene_id": "s1_departure",
+      "start_sec": 0,
+      "end_sec": 7,
+      "narration": "Why is this harp seal the worst mother? She nurses her pup for about twelve days. Then she leaves.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "question and observed behavior",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "s2_gap",
+      "start_sec": 7,
+      "end_sec": 13,
+      "narration": "No more meals from Mom. And it is not ready to feed itself. So what keeps it alive?",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "practical food gap",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "s3_reserves",
+      "start_sec": 13,
+      "end_sec": 19,
+      "narration": "Before leaving, her milk helps it gain about five pounds a day and build fat reserves.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "mechanism origin",
+      "claim_ids": [
+        "c_growth"
+      ]
+    },
+    {
+      "scene_id": "s4_use",
+      "start_sec": 19,
+      "end_sec": 22,
+      "narration": "That fat becomes its food supply for weeks.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "mechanism use",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "s5_ice",
+      "start_sec": 22,
+      "end_sec": 31,
+      "narration": "But there is a catch. The pup still needs ice while its diving ability develops. If storms break it up too early, young pups can drown.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "supported limitation",
+      "claim_ids": [
+        "c_ice"
+      ]
+    },
+    {
+      "scene_id": "s6_independence",
+      "start_sec": 31,
+      "end_sec": 34,
+      "narration": "Surviving pups begin feeding for themselves.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "possible outcome",
+      "claim_ids": [
+        "c_independent"
+      ]
+    },
+    {
+      "scene_id": "s7_verdict",
+      "start_sec": 34,
+      "end_sec": 45,
+      "narration": "She left it with fuel, not a guarantee. Her milk buys time. The ice has to last.",
+      "world_id": "harp_seal_pack_ice",
+      "story_role": "one evidence-supported interpretation",
+      "claim_ids": [
+        "c_nursing",
+        "c_ice"
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "hs01",
+      "start_sec": 0,
+      "end_sec": 3,
+      "visual": "Mother and white-coated pup nursing together before departure",
+      "mode": "Full motion",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s1_departure",
+      "asset_key": "hs_nursing_open",
+      "asset_prompt": "Close low-angle natural-history view of an adult female harp seal lying beside her white-coated nursing pup on stable pack ice, the mother-pup relationship immediately readable, soft overcast light, no other seals.",
+      "transformation": "Five-second restrained nursing movement: the pup shifts into contact while the mother remains calm; no morphing or size change.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "WHY THE WORST MOTHER?",
+      "labels": [
+        "frontloaded_motion",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs02",
+      "start_sec": 3,
+      "end_sec": 6,
+      "visual": "Mother leaves after the short nursing period while the pup remains on the ice",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s1_departure",
+      "asset_key": "hs_departure",
+      "asset_prompt": "Medium vertical composition: same adult female harp seal moving toward open water while the white-coated pup remains clearly visible on the pack ice behind her; no tears, no human emotion cues.",
+      "transformation": "Natural short lateral drift emphasizing increasing distance.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "~12 DAYS, THEN GONE",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs03",
+      "start_sec": 6,
+      "end_sec": 9,
+      "visual": "Recently weaned pup alone with no feeding adult present",
+      "mode": "Full motion",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s2_gap",
+      "asset_key": "hs_food_gap",
+      "asset_prompt": "White-coated recently weaned harp seal pup alone on stable pack ice near dark water, mother absent, no fish and no feeding adult, strong foreground relationship to empty ice around it.",
+      "transformation": "Five-second locked-camera move: pup raises its head, looks toward water, then settles; no adult enters.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "NO MORE MILK",
+      "labels": [
+        "frontloaded_motion",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs04",
+      "start_sec": 9,
+      "end_sec": 12,
+      "visual": "Pup watches the water but is not shown catching prey",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s2_gap",
+      "asset_key": "hs_not_feeding",
+      "asset_prompt": "Vertical side view of the same recently weaned white-coated pup at a safe distance from the ice edge, watching the water below, no prey in its mouth and no adult present.",
+      "transformation": "Slow downward push toward the waterline.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "NOT FEEDING FOR ITSELF YET",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs05",
+      "start_sec": 12,
+      "end_sec": 15,
+      "visual": "Clearly labeled visual flashback to nursing before departure",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s3_reserves",
+      "asset_key": "hs_flashback_nursing",
+      "asset_prompt": "Distinct close profile flashback composition of mother and younger white-coated pup during nursing on intact pack ice, intimate but biologically restrained, no body inflation.",
+      "transformation": "Gentle close push; treat as an editorial flashback, not a maternal return.",
+      "claim_ids": [
+        "c_growth"
+      ],
+      "reference_ids": [],
+      "overlay_text": "BEFORE SHE LEFT",
+      "labels": [
+        "flashback",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs06",
+      "start_sec": 15,
+      "end_sec": 18,
+      "visual": "Subtle explanatory graphic shows stored energy and blubber without morphing the pup",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s3_reserves",
+      "asset_key": "hs_reserve_diagram",
+      "asset_prompt": "Natural-history explanatory cutaway of a harp seal pup after nursing, normal external body shape with a subtle translucent layer beneath the skin indicating blubber and stored energy; no text inside artwork.",
+      "transformation": "Small diagrammatic reveal of the reserve layer; exterior silhouette stays fixed.",
+      "claim_ids": [
+        "c_growth"
+      ],
+      "reference_ids": [],
+      "overlay_text": "~5 LB / DAY",
+      "labels": [
+        "mechanism",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs07",
+      "start_sec": 18,
+      "end_sec": 21,
+      "visual": "After weaning, stored reserves bridge the food gap",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s4_use",
+      "asset_key": "hs_reserve_use",
+      "asset_prompt": "Recently weaned harp seal pup resting alone on pack ice, mother absent, subtle natural-history energy-reserve motif carried from the previous explanatory frame, no feeding event shown.",
+      "transformation": "Very gentle breathing and push; time passage implied by the edit, not shrinking.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "LIVING ON RESERVES",
+      "labels": [
+        "mechanism",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs08",
+      "start_sec": 21,
+      "end_sec": 24,
+      "visual": "Older juvenile remains dependent on a stable resting platform of ice",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s5_ice",
+      "asset_key": "hs_stable_ice",
+      "asset_prompt": "Correctly older gray-spotted juvenile harp seal resting on a broad stable ice pan beside dark water, juvenile proportions, no adult present.",
+      "transformation": "Slow pull back revealing the size of the ice platform.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "THE ICE STILL MATTERS",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs09",
+      "start_sec": 24,
+      "end_sec": 27,
+      "visual": "Distant cracks and separated ice pans show the environmental limitation",
+      "mode": "Full motion",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s5_ice",
+      "asset_key": "hs_ice_shift",
+      "asset_prompt": "Same-age gray-spotted juvenile on intact foreground ice while cracks and separate pans are visible farther away, wind building over slate water.",
+      "transformation": "Five-second locked camera: distant ice shifts and cracks open away from the pup; its immediate platform stays intact.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "IF THE ICE BREAKS EARLY...",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs10",
+      "start_sec": 27,
+      "end_sec": 30,
+      "visual": "Conditional storm reduces resting space without depicting a guaranteed death",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s5_ice",
+      "asset_key": "hs_storm_limit",
+      "asset_prompt": "Conditional storm scene: juvenile harp seal on a smaller ice pan, rough dark water, broken ice nearby, the pup alive and visible, no graphic drowning.",
+      "transformation": "Short storm push with rough water and drifting ice; no death shown.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "YOUNG PUPS CAN DROWN",
+      "labels": [
+        "conditional",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs11",
+      "start_sec": 30,
+      "end_sec": 33,
+      "visual": "Surviving older juvenile begins an underwater foraging attempt",
+      "mode": "Full motion",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s6_independence",
+      "asset_key": "hs_foraging",
+      "asset_prompt": "Underwater vertical composition just beneath pack ice: correctly aged gray-spotted juvenile harp seal pursuing a small fish, no adult nearby, natural anatomy and motion.",
+      "transformation": "Five-second underwater tracking move as the juvenile swims toward a small fish and begins a natural foraging attempt.",
+      "claim_ids": [
+        "c_independent"
+      ],
+      "reference_ids": [],
+      "overlay_text": "FEEDING FOR ITSELF",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs12",
+      "start_sec": 33,
+      "end_sec": 36,
+      "visual": "Older juvenile returns to the ice after the foraging scene",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s7_verdict",
+      "asset_key": "hs_return_ice",
+      "asset_prompt": "Same gray-spotted juvenile pulling onto a stable ice platform after the underwater sequence, open water behind, mother absent.",
+      "transformation": "Short upward push as the juvenile settles fully onto the ice.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "FUEL, NOT A GUARANTEE",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs13",
+      "start_sec": 36,
+      "end_sec": 39,
+      "visual": "The juvenile rests while the milk-provided reserves are reinterpreted as time bought",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s7_verdict",
+      "asset_key": "hs_buys_time",
+      "asset_prompt": "Medium close vertical portrait of the same gray-spotted juvenile resting on ice with soft water behind, calm natural-history mood, no mother returning.",
+      "transformation": "Subtle closing push.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "HER MILK BUYS TIME",
+      "labels": [
+        "reinterpretation",
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs14",
+      "start_sec": 39,
+      "end_sec": 42,
+      "visual": "Wide final dependency view shows stable ice and open water together",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s7_verdict",
+      "asset_key": "hs_dependency_wide",
+      "asset_prompt": "Wide vertical final-dependency composition: same older juvenile secure on a stable ice pan, neighboring ice and open water visible, environment clearly part of the outcome.",
+      "transformation": "Slow pull back to include the ice platform and surrounding water.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "THE ICE HAS TO LAST",
+      "labels": [
+        "visual_proof"
+      ]
+    },
+    {
+      "shot_id": "hs15",
+      "start_sec": 42,
+      "end_sec": 45,
+      "visual": "Hold on the older juvenile and stable ice; do not loop back to a newborn",
+      "mode": "Still",
+      "world_id": "harp_seal_pack_ice",
+      "scene_id": "s7_verdict",
+      "asset_key": "hs_final_hold",
+      "asset_prompt": "Distinct low-angle closing portrait of the same older gray-spotted juvenile resting securely on stable pack ice, dark water and drifting distant pans behind, no adult, no newborn appearance.",
+      "transformation": "Gentle final hold with distant ice drift only.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "TIME — NOT A GUARANTEE",
+      "labels": [
+        "final_payoff",
+        "visual_proof"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "claim_id": "c_nursing",
+      "claim": "Harp seal pups are nursed for about 12 days; after weaning they fast on the ice before independent feeding.",
+      "source_uri": "https://www.fisheries.noaa.gov/species/harp-seal",
+      "qualification": "Use about; do not imply every pup follows an identical schedule or that every immersion is fatal.",
+      "license": "publicly accessible U.S. government source"
+    },
+    {
+      "claim_id": "c_growth",
+      "claim": "During nursing harp seal pups gain roughly 2.2 kg, about five pounds, per day and build substantial energy reserves/blubber.",
+      "source_uri": "https://www.dfo-mpo.gc.ca/species-especes/profiles-profils/harpseal-phoquegroenland-eng.html",
+      "qualification": "Do not imply all gained mass is pure fat; the narration says milk helps build fat reserves.",
+      "license": "publicly accessible Canadian government source"
+    },
+    {
+      "claim_id": "c_ice",
+      "claim": "Stable ice supports nursing and post-weaning resting; poor ice can break in storms and young pups can drown.",
+      "source_uri": "https://www.dfo-mpo.gc.ca/species-especes/publications/mammals-mammiferes/cemam/2012-2014/10-eng.html",
+      "qualification": "Say can, not that every pup inevitably drowns or that the illustrated pup is guaranteed to die.",
+      "license": "publicly accessible Canadian government source"
+    },
+    {
+      "claim_id": "c_independent",
+      "claim": "Surviving pups eventually enter the water and begin feeding independently.",
+      "source_uri": "https://www.fisheries.noaa.gov/species/harp-seal",
+      "qualification": "Use surviving pups and begin; do not guarantee the outcome for a particular individual.",
+      "license": "publicly accessible U.S. government source"
+    }
+  ],
+  "references": [],
+  "prohibited_claims": [
+    "Do not present 'worst mother' as an objective scientific ranking or attributed public verdict.",
+    "Do not show the mother returning after weaning.",
+    "Do not imply that every young harp seal is incapable of swimming.",
+    "Do not guarantee survival or death for the illustrated pup.",
+    "Do not return the ending juvenile to newborn white-coat appearance."
+  ]
+}
