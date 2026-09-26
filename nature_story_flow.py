@@ -330,6 +330,10 @@ def to_storyboard_script(episode: dict) -> dict:
         "hook": _text(episode.get("central_question")),
         "_topic_channel": CHANNEL,
         "_subject_sheet": _text((episode.get("visual") or {}).get("subject_sheet")),
+        # Nature episodes may end at a later developmental state. The generic illustrated lane
+        # keeps its opening callback by default; Nature Story opts in only when the episode
+        # explicitly says that return is chronologically safe.
+        "_allow_opening_callback": bool((episode.get("visual") or {}).get("opening_callback_safe", False)),
         "_story_contract": {
             "opening_object": _text((episode.get("visual") or {}).get("opening_object")),
             "final_callback_object": _text((episode.get("visual") or {}).get("final_object")),
