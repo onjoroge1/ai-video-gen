@@ -673,6 +673,32 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
     }
 
 
+def _measured_runtime_error(*, spoken: float, drift: float, is_pilot: bool,
+                            nature_directed: bool,
+                            acceptance: dl.DirectedAcceptance) -> str | None:
+    """Return a blocking runtime error for legacy directed work only.
+
+    Nature Short v2 deliberately lets measured narration own final picture time. Its authored
+    timeline is a planning/allocation document, not a reason to reject complete speech or stretch
+    it toward an estimate. Shot-level pacing, media duration, budget and final grading remain
+    independently enforced.
+    """
+    if nature_directed:
+        return None
+    if is_pilot and not (
+            acceptance.pilot_runtime_min_sec <= spoken
+            <= acceptance.pilot_runtime_max_sec):
+        return (
+            f"measured pilot narration {spoken:.2f}s is outside "
+            f"{acceptance.pilot_runtime_min_sec:.2f}-"
+            f"{acceptance.pilot_runtime_max_sec:.2f}s; visual spending stopped")
+    if not is_pilot and abs(drift) > acceptance.runtime_tolerance_sec:
+        return (
+            f"measured narration differs from the window by {drift:+.2f}s; "
+            "visual spending stopped")
+    return None
+
+
 def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "echo",
                  window: tuple = (0.0, PILOT_SECONDS), use_i2v: bool = False,
                  validated_sha256: str = "", authorize_paid: bool = False,
@@ -854,17 +880,14 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             drift = spoken - budget
             log(f"Directed pilot audio runtime fit: {original_spoken:.2f}s → {spoken:.2f}s "
                 f"(atempo ×{speed_factor:.4f}; gate unchanged)")
-        if is_pilot and not (
-                spec.acceptance.pilot_runtime_min_sec <= spoken
-                <= spec.acceptance.pilot_runtime_max_sec):
-            raise RuntimeError(
-                f"measured pilot narration {spoken:.2f}s is outside "
-                f"{spec.acceptance.pilot_runtime_min_sec:.2f}-"
-                f"{spec.acceptance.pilot_runtime_max_sec:.2f}s; visual spending stopped")
-        if not is_pilot and abs(drift) > spec.acceptance.runtime_tolerance_sec:
-            raise RuntimeError(
-                f"measured narration differs from the window by {drift:+.2f}s; "
-                "visual spending stopped")
+        runtime_error = _measured_runtime_error(
+            spoken=spoken, drift=drift, is_pilot=is_pilot,
+            nature_directed=bool(nature), acceptance=spec.acceptance)
+        if runtime_error:
+            raise RuntimeError(runtime_error)
+        if nature and is_pilot:
+            log(f"Nature measured-speech timing accepted at {spoken:.2f}s; "
+                "the authored runtime band is planning metadata, not a render gate")
 
     # ONE IMAGE PER SHOT, not per scene. The spec's section 9 lists 15 shots across the first
     # 45 seconds at 1.8-2.8s each, and that cadence IS the retention contract. Generating one

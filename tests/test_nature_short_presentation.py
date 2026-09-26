@@ -99,3 +99,14 @@ def test_optin_cannot_modify_landscape_or_partial_longform():
     assert not dl.validate_directed_spec(data)['valid']
     data=payload();data['target']['duration_sec']=300
     assert not dl.validate_directed_spec(data)['valid']
+
+
+def test_nature_measured_speech_is_not_rejected_by_planning_runtime_band():
+    spec = dl.DirectedLongformSpec.model_validate(octopus_payload())
+    assert spec_pilot._measured_runtime_error(
+        spoken=44.96, drift=10.76, is_pilot=True, nature_directed=True,
+        acceptance=spec.acceptance) is None
+    legacy_error = spec_pilot._measured_runtime_error(
+        spoken=44.96, drift=10.76, is_pilot=True, nature_directed=False,
+        acceptance=spec.acceptance)
+    assert "outside 27.40-41.00s" in legacy_error
