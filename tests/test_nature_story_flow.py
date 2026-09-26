@@ -4,10 +4,9 @@ import nature_channel as nc
 import nature_story_flow as ns
 
 
-def _episode(profile="short"):
+def _episode():
     return {
         "flow_id": ns.FLOW_ID,
-        "profile": profile,
         "channel": "nature",
         "series_id": "terrible_parents",
         "episode_id": "harp_seal_mother",
@@ -171,24 +170,23 @@ def test_storyboard_reuses_existing_nature_aware_evidence_planner():
 
 
 def test_short_and_long_share_identity_but_keep_profile_specific_rendering():
-    short = _episode("short")
-    short_spec = ns.compile_keyframe_spec(short)
+    episode = _episode()
+    short_spec = ns.compile_keyframe_spec(episode)
     assert short_spec["flow_id"] == ns.FLOW_ID
     assert short_spec["channel"] == "nature"
-    assert short_spec["engine"] == short["engine"]
+    assert short_spec["engine"] == episode["engine"]
     assert short_spec["loop"] is False
-    assert short_spec["beats"][0]["vo"].startswith(short["central_question"])
+    assert short_spec["beats"][0]["vo"].startswith(episode["central_question"])
 
-    long = _episode("long")
-    long["target_duration_sec"] = 180
-    long["word_cap"] = 800
-    kwargs = ns.longform_pipeline_kwargs(long)
+    episode["target_duration_sec"] = 180
+    episode["word_cap"] = 800
+    kwargs = ns.longform_pipeline_kwargs(episode)
     assert kwargs["topic_channel"] == "nature"
     assert kwargs["visual_style"] == "illustrated_story"
     assert kwargs["video_format"] == "landscape"
     assert kwargs["motion_mode"] == "standard"
     assert ns.FLOW_ID in kwargs["operator_direction"]
-    assert long["central_question"] == kwargs["question"]
+    assert episode["central_question"] == kwargs["question"]
 
 
 def test_shared_writing_contract_is_nature_only():
