@@ -1,0 +1,40 @@
+name: Propose Harp Seal Nature Short via ReelForge MCP
+
+on:
+  push:
+    branches: [ops/harp-seal-mcp-proposal]
+    paths:
+      - '.github/workflows/propose-harp-seal-mcp.yml'
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MCP adapter dependencies
+        run: pip install -r requirements-mcp.txt
+      - name: Call ReelForge MCP propose_directed_pilot
+        env:
+          REELFORGE_BASE_URL: https://ai-video-gen-nine.vercel.app
+        run: |
+          python - <<'PY'
+          import anyio
+          from mcp.shared.memory import create_connected_server_and_client_session
+          from reelforge_mcp import ReelForgeClient, create_server
+
+          async def main():
+              server = create_server(ReelForgeClient("https://ai-video-gen-nine.vercel.app"))
+              async with create_connected_server_and_client_session(server) as session:
+                  result = await session.call_tool("propose_directed_pilot", {
+                      "bundled_spec_id": "harp_seal_nature_short_v1",
+                      "cost_ceiling_usd": 5.0,
+                  })
+                  if result.isError:
+                      raise SystemExit(result.model_dump_json())
+                  print("MCP_RESULT=" + result.model_dump_json())
+
+          anyio.run(main)
+          PY
