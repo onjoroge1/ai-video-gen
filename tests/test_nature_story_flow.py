@@ -204,6 +204,8 @@ def test_harp_seal_pilot_spec_passes_shared_pre_render_gate():
     report = ns.validate_episode(episode, profile=ns.PROFILE_SHORT)
     assert report["passed_pre_render"] is True
     assert report["metrics"]["word_count"] == 110
+    storyboard = ns.compile_storyboard(episode)
+    assert storyboard["validation"]["passed"] is True
     keyframe = ns.compile_keyframe_spec(episode)
     assert keyframe["loop"] is False
     assert keyframe["beats"][-1]["caption"] == "HER MILK BUYS TIME"
