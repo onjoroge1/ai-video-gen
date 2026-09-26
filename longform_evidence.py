@@ -129,6 +129,11 @@ def build_continuity_pack(script: dict) -> dict:
             "opening_source_asset_id": opening_asset_id,
         },
         "callback": {
+            # Existing illustrated flows keep the exact-opening callback by default. A specialized
+            # flow may explicitly disable it when returning to frame one would reverse age,
+            # chronology, or another one-way state change. Nature Story uses this for episodes
+            # such as the harp seal; no legacy caller changes behavior without opting out.
+            "enabled": bool(script.get("_allow_opening_callback", True)),
             "label": callback_object,
             "scene_index": callback_scene,
             "reuse_source_asset_id": opening_asset_id,
@@ -654,7 +659,9 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
     scene_plans = []
     repairs: list[dict] = []
     # Known before the loop so the scene that will receive it can budget for it.
-    reserved_for_callback = int(pack.get("callback", {}).get("scene_index", -1))
+    callback_enabled = bool(pack.get("callback", {}).get("enabled", True))
+    reserved_for_callback = (int(pack.get("callback", {}).get("scene_index", -1))
+                             if callback_enabled else -1)
     for scene_index, scene in enumerate(scenes):
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
@@ -712,7 +719,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         })
 
     callback_index = int(pack["callback"]["scene_index"])
-    if scene_plans and 0 <= callback_index < len(scene_plans):
+    if callback_enabled and scene_plans and 0 <= callback_index < len(scene_plans):
         callback_states = scene_plans[callback_index]["states"]
         callback_scene = scenes[callback_index]
         # The callback is the LAST shot of the video by construction -- it returns to the opening
@@ -1011,10 +1018,11 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
     callback = (pack.get("callback") if isinstance(pack, dict) else {}) or {}
     if not _text(opening_object.get("object_id")) or not _text(opening_object.get("label")):
         errors.append(_issue("missing_opening_object_identity", "Opening object identity is incomplete."))
-    if _text(callback.get("reuse_source_asset_id")) != _text(opening_object.get("opening_source_asset_id")):
-        errors.append(_issue("callback_asset_mismatch", "Ending does not reuse the exact opening source asset."))
-    if _text(callback.get("label")).casefold() != _text(opening_object.get("label")).casefold():
-        errors.append(_issue("callback_object_mismatch", "Ending callback object differs from the opening object."))
+    if bool(callback.get("enabled", True)):
+        if _text(callback.get("reuse_source_asset_id")) != _text(opening_object.get("opening_source_asset_id")):
+            errors.append(_issue("callback_asset_mismatch", "Ending does not reuse the exact opening source asset."))
+        if _text(callback.get("label")).casefold() != _text(opening_object.get("label")).casefold():
+            errors.append(_issue("callback_object_mismatch", "Ending callback object differs from the opening object."))
     human = (pack.get("human") if isinstance(pack, dict) else {}) or {}
     location = (pack.get("first_act_location") if isinstance(pack, dict) else {}) or {}
     if not _text(human.get("identity_id")) or not _text(human.get("clothing_id")):
