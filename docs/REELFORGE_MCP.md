@@ -41,11 +41,17 @@ effective cost caps. Configuration discovery is not a live provider/readiness te
 | Tool | Existing/shared API | Effect |
 | --- | --- | --- |
 | `get_video_capabilities` | GET `/api/agent/capabilities` | Read contract and caps |
-| `propose_video` | POST `/api/agent/actions` | Non-spending proposal and approval URL |
+| `propose_video` | POST `/api/agent/actions` | Non-spending generic illustrated proposal and approval URL |
+| `propose_directed_pilot` | POST `/api/agent/actions` | Non-spending exact bundled directed-pilot proposal and approval URL; currently exposes the harp-seal Nature Short bundle |
 | `get_video_status` | GET `/api/agent/actions/{id}/public-status?after=N` | Sanitized progress, spend, errors, events |
 | `get_video_diagnostics` | GET `/api/agent/actions/{id}/diagnostics` | Private saved research, script or grade |
 | `resume_video` | POST `/api/agent/actions/{id}/dispatch` | Existing eligible job recovery; may resume spending |
 | `get_video_artifacts` | GET `/api/agent/actions/{id}/artifacts` | Private manifest of finished artifact links |
+
+Directed pilot proposals use the same operator approval boundary as the studio. The MCP adapter can
+select only explicitly bundled specs exposed by its typed tool contract; it cannot submit an
+arbitrary path or approve the spend. The current Nature Short bundle is
+`harp_seal_nature_short_v1`, a 45-second portrait directed pilot.
 
 Rendering is asynchronous. Save the action ID, poll status with `next_event_seq`, and reconnect
 after a chat restart. A missing artifact means it is not available, not permission to regenerate

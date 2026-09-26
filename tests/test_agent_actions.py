@@ -667,3 +667,19 @@ def test_agent_action_pages_describe_the_narrow_confirmation_boundary():
     assert "/public-status?after=" in approval_html
     assert "player_path" in approval_html
     assert "history.replaceState" in approval_html
+
+
+def test_harp_seal_bundled_directed_pilot_is_valid_portrait_nature_short():
+    import directed_longform as dl
+    payload = studio._bundled_directed_spec("harp_seal_nature_short_v1")
+    report = dl.validate_directed_spec(payload)
+    assert report["valid"] is True, report["issues"]
+    spec = dl.DirectedLongformSpec.model_validate(report["normalized_spec"])
+    assert spec.target.format == "portrait"
+    assert spec.target.duration_sec == 45.0
+    assert spec.target.pilot_end_sec == 45.0
+    assert spec.acceptance.max_bolt_appearances == 0
+    req = studio._directed_pilot_request(spec, report)
+    assert req.video_format == "social"
+    assert req.duration_sec == 45
+    assert req.directed_paid_authorized is True

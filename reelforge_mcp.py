@@ -102,6 +102,27 @@ def create_server(client: ReelForgeClient | None = None) -> FastMCP:
         result["approval_url"] = f"{client.base_url}/agent/actions?action={action_id}"
         return result
 
+    @server.tool(annotations=write)
+    async def propose_directed_pilot(
+            bundled_spec_id: Literal["harp_seal_nature_short_v1"],
+            cost_ceiling_usd: float) -> dict:
+        """Prepare one exact bundled directed pilot without spending and return its approval URL.
+
+        This uses ReelForge's existing directed-pilot approval boundary. The adapter does not
+        approve or render on the operator's behalf; the authenticated studio must approve the
+        exact immutable spec hash and ceiling before execution can spend.
+        """
+        result = await client.request("POST", "/api/agent/actions", body={
+            "operation": "directed_pilot",
+            "bundled_spec_id": bundled_spec_id,
+            "cost_ceiling_usd": cost_ceiling_usd,
+        })
+        result.pop("claim_token", None)
+        action_id = result["action_id"]
+        client.action_path(action_id)
+        result["approval_url"] = f"{client.base_url}/agent/actions?action={action_id}"
+        return result
+
     @server.tool(annotations=read)
     async def get_video_status(action_id: str, after: int = 0) -> dict:
         """Read sanitized stage, progress, spend, blocker and events; use next_event_seq for the next poll."""
