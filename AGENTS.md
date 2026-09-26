@@ -227,3 +227,14 @@ One `render_disk_recovery_v1` continuation may resume an exact checkpoint after 
 in `error` or `storage_error`, subject to the same no-lease, no-reservation, remaining-budget and
 only-unfinished-zero-cost-FFmpeg checks. A consumed disk marker blocks another requeue. This is
 infrastructure recovery under the existing approval, not a new video or a relaxed quality gate.
+
+
+## Optional engines and shared storyboard (PR124)
+
+Before working with MoneyPrinterTurbo, Motion Canvas, OpenShorts or ViMax-derived
+shot plans, read `docs/VIDEO_ENGINE_WORKBENCH.md` and `integrations/AGENTS.md`.
+Their installation and provider-free planning tools do not enable production
+renders or replace the approval rules above. Treat stock Shorts and repurposing
+as flows, Motion Canvas as a scene feature, and storyboard as shared planning.
+Do not confuse a CI install/build pass with a persistent deployed worker or a
+reviewed end-to-end pilot. The current integration has no new paid API route.
