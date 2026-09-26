@@ -182,6 +182,14 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
     operation = str(action.get("operation") or DIRECTED_PILOT_OPERATION)
     payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
     promotion = payload.get("promotion") if isinstance(payload.get("promotion"), dict) else {}
+    target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+    pilot_end = float(target.get("pilot_end_sec") or 45.0)
+    pilot_label = str(int(pilot_end)) if pilot_end.is_integer() else f"{pilot_end:g}"
+    scope = (
+        promotion.get("scope") or "remaining-45-to-300"
+        if operation == DIRECTED_FULL_FILM_OPERATION
+        else f"first-{pilot_label}-pilot"
+    )
     out = {
         "action_id": action.get("action_id"),
         "operation": action.get("operation"),
@@ -190,8 +198,7 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
         "spec_sha256": action.get("spec_sha256"),
         "estimated_cost_usd": float(action.get("estimated_cost_usd") or 0),
         "cost_ceiling_usd": float(action.get("cost_ceiling_usd") or 0),
-        "scope": (promotion.get("scope") or "remaining-45-to-300"
-                  if operation == DIRECTED_FULL_FILM_OPERATION else "first-45-pilot"),
+        "scope": scope,
         "created_at": _iso(action.get("created_at")),
         "expires_at": _iso(action.get("expires_at")),
         "approved_at": _iso(action.get("approved_at")),
