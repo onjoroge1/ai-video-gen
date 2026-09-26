@@ -115,7 +115,6 @@ def validate_episode(episode: dict, *, profile: str | None = None) -> dict:
 
     required = {
         "flow_id": episode.get("flow_id"),
-        "profile": profile,
         "series_id": episode.get("series_id"),
         "species": episode.get("species"),
         "parent_role": episode.get("parent_role"),
@@ -131,8 +130,10 @@ def validate_episode(episode: dict, *, profile: str | None = None) -> dict:
     structural = []
     if episode.get("flow_id") != FLOW_ID:
         structural.append(f"flow_id must be {FLOW_ID}")
-    if profile not in PROFILES:
-        structural.append("profile must be short or long")
+    if profile and profile not in PROFILES:
+        structural.append("profile must be short or long when supplied")
+    if not profile:
+        profile = PROFILE_SHORT
     if _text(episode.get("channel") or CHANNEL).lower() != CHANNEL:
         structural.append("channel must be nature")
     if _text(episode.get("engine")).lower() not in ALLOWED_ENGINES:
@@ -358,8 +359,6 @@ def compile_storyboard(episode: dict) -> dict:
 
 def compile_keyframe_spec(episode: dict) -> dict:
     """Compile the shared episode storyboard into the existing keyframe Short renderer format."""
-    if _text(episode.get("profile")).lower() != PROFILE_SHORT:
-        raise ValueError("compile_keyframe_spec requires profile=short")
     visual = episode.get("visual") or {}
     beats_out = []
     for beat in episode.get("beats") or []:
@@ -414,8 +413,6 @@ def compile_keyframe_spec(episode: dict) -> dict:
 
 def longform_pipeline_kwargs(episode: dict) -> dict:
     """Arguments for the existing explainer pipeline, scoped only to this Nature episode."""
-    if _text(episode.get("profile")).lower() != PROFILE_LONG:
-        raise ValueError("longform_pipeline_kwargs requires profile=long")
     mechanism = episode.get("mechanism") or {}
     canonical = {
         "flow": FLOW_ID,
