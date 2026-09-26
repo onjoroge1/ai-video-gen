@@ -1,4 +1,6 @@
 import copy
+import json
+from pathlib import Path
 
 import nature_channel as nc
 import nature_story_flow as ns
@@ -194,3 +196,14 @@ def test_shared_writing_contract_is_nature_only():
     assert "Do not force every species into a feeding" in nc.WRITING_RULES
     assert nc.writing_rules_block("history") == ""
     assert "NATURE CHANNEL WRITING CONTRACT" in nc.writing_rules_block("nature")
+
+
+def test_harp_seal_pilot_spec_passes_shared_pre_render_gate():
+    path = Path(__file__).resolve().parents[1] / "spec" / "harp_seal_nature_story.json"
+    episode = json.loads(path.read_text(encoding="utf-8"))
+    report = ns.validate_episode(episode, profile=ns.PROFILE_SHORT)
+    assert report["passed_pre_render"] is True
+    assert report["metrics"]["word_count"] == 110
+    keyframe = ns.compile_keyframe_spec(episode)
+    assert keyframe["loop"] is False
+    assert keyframe["beats"][-1]["caption"] == "HER MILK BUYS TIME"
