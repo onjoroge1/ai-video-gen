@@ -20,7 +20,15 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
         if path == "/api/agent/capabilities":
             result = {"duration_sec": {"max": 300}}
         elif path == "/api/agent/actions":
-            assert json.loads(request.content)["duration_sec"] == 300
+            body = json.loads(request.content)
+            if body.get("operation") == "generic_illustrated":
+                assert body["duration_sec"] == 300
+            else:
+                assert body == {
+                    "operation": "directed_pilot",
+                    "bundled_spec_id": "harp_seal_nature_short_v1",
+                    "cost_ceiling_usd": 5,
+                }
             result = {"action_id": ACTION, "claim_token": "never-send-to-model", "status": "pending"}
         elif path.endswith("/artifacts"):
             result = {"artifacts": [{"kind": "video", "path": "/api/finished/job/artifact/video"}]}
@@ -53,7 +61,7 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
                 response = await session.call_tool(name, args)
                 assert not response.isError, response
                 assert "never-send-to-model" not in response.model_dump_json()
-                if name == "propose_video":
+                if name in {"propose_video", "propose_directed_pilot"}:
                     assert "approval_url" in response.model_dump_json()
             for args in [{"action_id": "../approve"}, {"action_id": ACTION, "after": -1}]:
                 assert (await session.call_tool("get_video_status", args)).isError
