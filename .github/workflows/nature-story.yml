@@ -44,7 +44,7 @@ jobs:
           assert report["valid"], report["issues"]
           normalized=report["normalized_spec"]
           assert normalized["target"]["format"] == "portrait"
-          assert normalized["target"]["pilot_end_sec"] == 45.0
+          assert normalized["target"]["pilot_end_sec"] == 37.0
           print("directed portrait spec valid", report["spec_sha256"])
           PY
       - run: python scripts/nature_story.py spec/harp_seal_nature_story.json validate
