@@ -16,6 +16,10 @@ def payload():
     return json.loads((ROOT/'spec/harp_seal_nature_short_v2.json').read_text())
 
 
+def octopus_payload():
+    return json.loads((ROOT/'spec/giant_pacific_octopus_nature_short_v1.json').read_text())
+
+
 def test_existing_approved_harp_spec_hash_is_unchanged():
     old = json.loads((ROOT/'spec/harp_seal_nature_short_v1.json').read_text())
     assert dl.validate_directed_spec(old)['spec_sha256'] == '4d4f1c7370786862a625fd686f9b58b4251dcbc1cce48fb2a5411b6ad36032d6'
@@ -26,6 +30,16 @@ def test_canonical_episode_compiles_exact_production_bundle():
     assert ns.compile_directed_short(episode) == payload()
     assert ns.narration_text(episode) == ' '.join(s['narration'] for s in payload()['narration'])
     assert dl.validate_directed_spec(payload())['valid']
+
+
+def test_octopus_episode_compiles_exact_production_bundle_without_harp_rules():
+    episode = json.loads((ROOT/'spec/giant_pacific_octopus_nature_story_v1.json').read_text())
+    compiled = ns.compile_directed_short(episode)
+    assert compiled == octopus_payload()
+    assert dl.validate_directed_spec(compiled)['valid']
+    prohibited = ' '.join(compiled['prohibited_claims']).casefold()
+    assert 'pack ice' not in prohibited and 'lunchbox' not in prohibited
+    assert 'four-and-a-half-year' in prohibited
 
 
 def test_measured_scene_timing_does_not_drift_when_beats_change_speed():

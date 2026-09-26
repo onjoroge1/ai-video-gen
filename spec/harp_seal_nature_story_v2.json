@@ -16,6 +16,11 @@
     "offspring_benefit": "The reserves bridge the food gap while the pup develops toward independent feeding."
   },
   "supported_limitation": "The reserves do not replace stable pack ice needed for resting during the post-weaning period; poor ice can create additional risk.",
+  "prohibited_claims": [
+    "Do not imply that the mother intends cruelty, returns after weaning, or guarantees survival.",
+    "A conditional ice-risk illustration is not the observed death of this individual.",
+    "Lunchbox is a metaphor for stored body fat, not a literal human object."
+  ],
   "ending": "A mother can provision stored energy; the pup still depends on ice. Finish once on the older juvenile and its supporting ice, with no invented reunion or guaranteed hunt.",
   "word_cap": 115,
   "target_duration_sec": 33.8,
