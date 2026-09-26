@@ -1,0 +1,95 @@
+name: Render Harp Seal Nature Story PR127 Once
+
+on:
+  push:
+    branches: [feat/nature-story-unified-flow]
+    paths:
+      - '.github/workflows/render-harp-seal-pr127-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      FAL_KEY: ${{ secrets.FAL_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install media runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install -r requirements.txt
+
+      - name: Verify bounded provider configuration
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo "OPENAI_API_KEY GitHub Actions secret is missing"; exit 2; }
+          test -n "$FAL_KEY" || { echo "FAL_KEY GitHub Actions secret is missing"; exit 2; }
+          python - <<'PY'
+          import json
+          p=json.load(open("spec/harp_seal_nature_story.json"))
+          assert float(p["hard_cap_usd"]) <= 12.0
+          assert p["flow_id"] == "nature_story_v1"
+          print("flow", p["flow_id"], "hard_cap_usd", p["hard_cap_usd"])
+          PY
+
+      - name: Re-run zero-cost Nature gates
+        run: |
+          python scripts/nature_story.py spec/harp_seal_nature_story.json validate
+          python scripts/nature_story.py spec/harp_seal_nature_story.json storyboard
+          python scripts/nature_story.py spec/harp_seal_nature_story.json compile-short
+
+      - name: Render exact approved Nature Short
+        run: |
+          python scripts/nature_story.py spec/harp_seal_nature_story.json render-short --authorize-paid
+
+      - name: Probe and sample delivered MP4
+        if: always()
+        run: |
+          ROOT="renders/harp_seal_mother_v1"
+          VIDEO="$ROOT/harp_seal_mother_v1_short.mp4"
+          mkdir -p "$ROOT/contact"
+          if test -s "$VIDEO"; then
+            ffprobe -v error -show_format -show_streams -of json "$VIDEO" > "$ROOT/ffprobe.json"
+            ffmpeg -y -loglevel error -ss 0 -i "$VIDEO" -frames:v 1 "$ROOT/contact/00.png"
+            ffmpeg -y -loglevel error -ss 10 -i "$VIDEO" -frames:v 1 "$ROOT/contact/10.png"
+            ffmpeg -y -loglevel error -ss 20 -i "$VIDEO" -frames:v 1 "$ROOT/contact/20.png"
+            ffmpeg -y -loglevel error -ss 30 -i "$VIDEO" -frames:v 1 "$ROOT/contact/30.png"
+            ffmpeg -y -loglevel error -sseof -0.2 -i "$VIDEO" -frames:v 1 "$ROOT/contact/final.png"
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("renders/harp_seal_mother_v1")
+          probe=json.loads((root/"ffprobe.json").read_text())
+          fmt=probe["format"]
+          ledger=json.loads((root/"ledger.json").read_text()) if (root/"ledger.json").exists() else {}
+          print("DELIVERED_DURATION_SEC", fmt.get("duration"))
+          print("DELIVERED_SIZE_BYTES", fmt.get("size"))
+          print("SPEND_LEDGER", json.dumps(ledger.get("usd", {}), sort_keys=True))
+          print("TOTAL_RECORDED_USD", round(sum(float(v) for v in ledger.get("usd", {}).values()), 4))
+          PY
+          else
+            echo "No delivered MP4 exists; preserving stage evidence."
+          fi
+
+      - name: Upload render evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harp-seal-nature-story-pr127
+          path: |
+            renders/harp_seal_mother_v1/
+            spec/harp_seal_nature_story.json
+          if-no-files-found: error
+          retention-days: 14
