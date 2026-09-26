@@ -35,11 +35,16 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
         async with create_connected_server_and_client_session(server) as session:
             discovered = await session.list_tools()
             assert {tool.name for tool in discovered.tools} == {
-                "get_video_capabilities", "propose_video", "get_video_status",
-                "get_video_diagnostics", "resume_video", "get_video_artifacts"}
+                "get_video_capabilities", "propose_video", "propose_directed_pilot",
+                "get_video_status", "get_video_diagnostics", "resume_video",
+                "get_video_artifacts"}
             for name, args in [
                 ("get_video_capabilities", {}),
                 ("propose_video", {"topic": "Stoats", "duration_sec": 300, "cost_ceiling_usd": 10}),
+                ("propose_directed_pilot", {
+                    "bundled_spec_id": "harp_seal_nature_short_v1",
+                    "cost_ceiling_usd": 5
+                }),
                 ("get_video_status", {"action_id": ACTION, "after": 17}),
                 ("get_video_diagnostics", {"action_id": ACTION, "artifact": "script", "offset": 24000}),
                 ("resume_video", {"action_id": ACTION}),
@@ -55,11 +60,16 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
             assert (await session.call_tool("get_video_diagnostics", {
                 "action_id": ACTION, "artifact": "../../.env"})).isError
     anyio.run(run)
-    assert len(calls) == 6
-    assert calls[2].url.params["after"] == "17"
-    assert calls[3].url.params["offset"] == "24000"
-    assert calls[3].headers["authorization"] == "Bearer " + "r" * 48
-    assert calls[4].headers["authorization"] == "Bearer " + ACTION
+    assert len(calls) == 7
+    assert json.loads(calls[2].content) == {
+        "operation": "directed_pilot",
+        "bundled_spec_id": "harp_seal_nature_short_v1",
+        "cost_ceiling_usd": 5
+    }
+    assert calls[3].url.params["after"] == "17"
+    assert calls[4].url.params["offset"] == "24000"
+    assert calls[4].headers["authorization"] == "Bearer " + "r" * 48
+    assert calls[5].headers["authorization"] == "Bearer " + ACTION
     assert not calls[0].headers.get("authorization")
     assert all(not call.url.path.endswith(("/approve", "/execute")) for call in calls)
 
