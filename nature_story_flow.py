@@ -455,3 +455,68 @@ def longform_pipeline_kwargs(episode: dict) -> dict:
         "visual_style": "illustrated_story",
         "topic_channel": CHANNEL,
     }
+
+
+def compile_directed_short(episode: dict) -> dict:
+    """Compile the SAME canonical episode into the durable, approved Nature Short path.
+
+    This is an execution adapter, not another editorial contract. Both the shared
+    storyboard and the real directed validator must pass before creating an action.
+    """
+    import directed_longform as dl
+    qa = validate_episode(episode, profile=PROFILE_SHORT)
+    if not qa["passed_pre_render"]:
+        raise ValueError("Nature episode failed its pre-render contract")
+    board = compile_storyboard(episode)
+    if not board["validation"].get("passed"):
+        raise ValueError("Nature episode failed its shared storyboard validation")
+    if not episode.get("presentation"):
+        raise ValueError("A directed Nature Short requires an explicit presentation contract")
+    visual = episode["visual"]
+    duration = round(sum(float(b["duration_sec"]) for b in episode["beats"]), 3)
+    world_id = "nature_episode"
+    scenes, shots, cursor = [], [], 0.0
+    used_claims = set()
+    for beat in episode["beats"]:
+        seconds = float(beat["duration_sec"])
+        states = beat["visual_beats"]
+        scene_id = beat["id"]
+        claims = list(beat.get("claim_ids") or [])
+        used_claims.update(claims)
+        scenes.append(dict(scene_id=scene_id, start_sec=cursor, end_sec=round(cursor+seconds,3),
+                           narration=beat["vo"], world_id=world_id,
+                           story_role=beat["development"], claim_ids=claims))
+        for i, state in enumerate(states):
+            shots.append(dict(shot_id=state["id"],
+                start_sec=round(cursor+i*seconds/len(states),3),
+                end_sec=round(cursor+(i+1)*seconds/len(states),3),
+                visual=state["state_before"], asset_prompt=state["state_before"],
+                transformation=state["state_after"], mode=state.get("render_mode","Still"),
+                world_id=world_id, scene_id=scene_id, asset_key=state["id"],
+                claim_ids=claims, overlay_text=state.get("caption",beat.get("caption","")),
+                labels=state.get("labels",[])))
+        cursor=round(cursor+seconds,3)
+    evidence = [dict(claim_id=c["id"], claim=c["passage"], source_uri=c["source_url"],
+                     qualification=c.get("qualifiers") or "General species account; retain conditional wording.",
+                     license="Publicly accessible government factual source; summarized, not quoted")
+                for c in episode["claims"] if c["id"] in used_claims]
+    maximum = episode["presentation"].get("max_shot_sec",3.4)
+    tolerance = float(episode.get("runtime_tolerance_sec",6.8))
+    payload = dict(schema_version=dl.SCHEMA_VERSION, project_id=episode["episode_id"],
+        title=episode["title"], negative_prompt=visual.get("negative_prompt") or visual.get("negative") or "No people, text, logos, extra limbs, invented rescue or caregiver return.",
+        target=dict(duration_sec=duration,pilot_end_sec=duration,format="portrait",voice=episode["voice"],max_cost_usd=episode["hard_cap_usd"]),
+        acceptance=dict(runtime_tolerance_sec=tolerance,pilot_runtime_min_sec=round(duration-tolerance,2),pilot_runtime_max_sec=round(duration+tolerance,2),
+            pilot_min_visual_states=len(shots),pilot_min_unique_master_assets=len(shots),max_unique_master_assets=len(shots),
+            min_shot_sec=.75,max_unchanged_hold_sec=maximum,max_consecutive_still_asset_sec=maximum,
+            frontloaded_motion_count=2,frontloaded_motion_window_sec=7,
+            min_useful_bolt_appearances=0,max_bolt_appearances=0,planned_bolt_appearances=0),
+        nature_short=deepcopy(episode["presentation"]),
+        worlds=[dict(world_id=world_id,start_sec=0,end_sec=duration,base_prompt=visual.get("style_prefix","")+" "+visual.get("subject_sheet",""))],
+        narration=scenes,shots=shots,evidence=evidence,
+        prohibited_claims=["Do not imply that the mother intends cruelty, returns after weaning, or guarantees survival.",
+                           "A conditional ice-risk illustration is not the observed death of this individual.",
+                           "Lunchbox is a metaphor for stored body fat, not a literal human object."])
+    report = dl.validate_directed_spec(payload)
+    if not report["valid"]:
+        raise ValueError(f"Nature directed compiler: {report['issues']}")
+    return report["normalized_spec"]

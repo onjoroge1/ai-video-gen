@@ -1544,7 +1544,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     "hook": directed.narration[0].narration,
                     "scene_count": pilot["shots"],
                     "duration_sec": pilot["measured_seconds"],
-                    "video_format": "landscape",
+                    "video_format": directed.target.format,
                     "actual_cost": pilot["total_cost_usd"],
                     "est_cost": pilot["total_cost_usd"],
                     "generation_manifest_path": pilot["generation_manifest_path"],
@@ -2670,6 +2670,7 @@ def _bundled_directed_spec(spec_id: str) -> dict:
         "hippo_illustrated_story_v4_recovery_opening":
             "hippo_illustrated_story_v4_recovery_opening.json",
         "harp_seal_nature_short_v1": "harp_seal_nature_short_v1.json",
+        "harp_seal_nature_short_v2": "harp_seal_nature_short_v2.json",
     }
     if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")

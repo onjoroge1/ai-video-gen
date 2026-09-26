@@ -211,3 +211,11 @@ python scripts/nature_story.py spec/my_episode.json render-short --authorize-pai
 
 The Short renderer still enforces the episode's hard USD cap. A failed pre-render hard check stops
 before media generation.
+
+## Durable Nature Short presentation v2
+
+Use `compile-directed-short` with an episode that explicitly declares `presentation.version=nature_short_v2`. This validates the same episode and shared storyboard, then produces a directed spec for the existing durable action/job/approval infrastructure. The bundled `harp_seal_nature_short_v2` is generated from `harp_seal_nature_story_v2.json`; an equality regression test prevents script/storyboard drift.
+
+The opt-in renderer uses instructed speech, per-scene measured timing, portrait evidence-action motion, a consistent image reference, screen-space word captions, and original sound design. Source clip duration is distinct from the shorter edited hold. Existing generic, Quiz, Simulation, TV, landscape and older directed behavior remains the default. The v1 approved harp-seal hash is unchanged.
+
+See `HARP_SEAL_RETENTION_AUDIT_2026-09-26.md` for the observed failures, source-backed rewrite, production defects and review criteria. A changed narration or voice requires a new immutable action. Do not resume the archived v1 job to buy v2 assets.

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import (
-    BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator,
+    BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator, model_serializer,
 )
 
 
@@ -148,6 +148,14 @@ class DirectedShot(_StrictModel):
     labels: list[str] = Field(default_factory=list)
 
 
+class NatureShortPresentation(_StrictModel):
+    version: Literal["nature_short_v2"] = "nature_short_v2"
+    tts_model: Literal["gpt-4o-mini-tts-2025-12-15"] = "gpt-4o-mini-tts-2025-12-15"
+    voice_instructions: str = Field(min_length=20, max_length=1500)
+    max_shot_sec: float = Field(default=3.4, ge=2, le=4)
+    sound_bed: Literal["playful_pulse", "none"] = "playful_pulse"
+
+
 class DirectedLongformSpec(_StrictModel):
     schema_version: Literal[SCHEMA_VERSION]
     project_id: str = Field(min_length=1)
@@ -161,6 +169,21 @@ class DirectedLongformSpec(_StrictModel):
     evidence: list[DirectedEvidence] = Field(default_factory=list)
     references: list[DirectedReference] = Field(default_factory=list)
     prohibited_claims: list[str] = Field(default_factory=list)
+    nature_short: NatureShortPresentation | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_hash(self, handler):
+        data = handler(self)
+        if self.nature_short is None:
+            data.pop("nature_short", None)
+        return data
+
+    @model_validator(mode="after")
+    def nature_short_scope(self):
+        if self.nature_short and (self.target.format != "portrait"
+                or self.target.duration_sec != self.target.pilot_end_sec):
+            raise ValueError("Nature Short presentation requires a complete portrait Short")
+        return self
 
 
 class DirectedValidationError(RuntimeError):
@@ -224,6 +247,11 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         if shot.mode.strip().casefold() == "full motion"
     }
     tts = narration_chars * TTS_COST_PER_CHARACTER
+    alignment = 0.0
+    if spec.nature_short:
+        tts = sum(max(0.02, len(s.narration) * 0.00003
+                      + len(spec.nature_short.voice_instructions) * 0.000001) for s in scenes)
+        alignment = len(scenes) * 0.006
     referenced_master_keys = {
         shot.asset_key.strip() or shot.shot_id for shot in shots if shot.reference_ids
     }
@@ -231,6 +259,8 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         (len(master_keys) - len(referenced_master_keys)) * IMAGE_COST_USD
         + len(referenced_master_keys) * IMAGE_EDIT_COST_USD
     )
+    if spec.nature_short:
+        images = len(master_keys) * IMAGE_EDIT_COST_USD
     i2v = len(motion_keys) * I2V_COST_USD
     return {
         "narration_characters": narration_chars,
@@ -239,9 +269,10 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         "unique_master_assets": len(master_keys),
         "full_motion_assets": len(motion_keys),
         "tts_usd": round(tts, 4),
+        **({"alignment_usd": round(alignment, 4)} if spec.nature_short else {}),
         "images_usd": round(images, 4),
         "i2v_usd": round(i2v, 4),
-        "estimated_total_usd": round(tts + images + i2v, 4),
+        "estimated_total_usd": round(tts + images + i2v + alignment, 4),
     }
 
 
@@ -513,7 +544,9 @@ def validate_directed_spec(payload: dict) -> dict:
                 f"{shot.shot_id} holds a still for {hold:.2f}s; "
                 f"maximum is {spec.acceptance.max_unchanged_hold_sec:.2f}s",
                 f"shots.{shot.shot_id}"))
-        if shot.mode.strip().casefold() == "full motion":
+        if spec.nature_short and hold > spec.nature_short.max_shot_sec:
+            issues.append(_issue("nature_shot_too_long", shot.shot_id, "shots"))
+        if shot.mode.strip().casefold() == "full motion" and not spec.nature_short:
             expected = spec.acceptance.full_motion_duration_sec
             tolerance = spec.acceptance.full_motion_duration_tolerance_sec
             if abs(hold - expected) > tolerance + 1e-6:
