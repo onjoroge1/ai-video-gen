@@ -1279,7 +1279,8 @@ class AgentActionCreateRequest(BaseModel):
     spec: dict | None = None
     bundled_spec_id: Literal[
         "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m",
-        "hippo_illustrated_story_v4_recovery_opening", ""
+        "hippo_illustrated_story_v4_recovery_opening",
+        "harp_seal_nature_short_v1", ""
     ] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
     parent_action_id: str = ""
@@ -2527,7 +2528,7 @@ def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
         question=spec.title,
         duration_sec=int(round(spec.target.pilot_end_sec)),
         voice=spec.target.voice,
-        video_format="landscape",
+        video_format=("social" if spec.target.format == "portrait" else "landscape"),
         motion_mode="standard",
         story_format="evidence_led_mystery",
         directed_spec=report["normalized_spec"],
@@ -2651,6 +2652,7 @@ def _bundled_directed_spec(spec_id: str) -> dict:
         "hippo_illustrated_story_v4_full_5m": "hippo_illustrated_story_v4_full_5m.json",
         "hippo_illustrated_story_v4_recovery_opening":
             "hippo_illustrated_story_v4_recovery_opening.json",
+        "harp_seal_nature_short_v1": "harp_seal_nature_short_v1.json",
     }
     if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
