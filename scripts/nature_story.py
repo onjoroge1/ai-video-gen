@@ -85,6 +85,17 @@ def main() -> int:
     if args.stage == "render-short":
         if not args.authorize_paid:
             raise SystemExit("render-short can spend provider funds; re-run with --authorize-paid")
+
+        # Storyboard is a required zero-cost checkpoint for Nature Story. It uses the same
+        # Nature-aware evidence-state planner as long-form, so the Short cannot bypass continuity,
+        # no-people, before/change/after, or critical visual-proof planning merely because it uses
+        # the keyframe renderer downstream.
+        storyboard = ns.compile_storyboard(episode)
+        _write(work / "nature_story_storyboard.json", storyboard)
+        if not storyboard["validation"].get("passed"):
+            print(json.dumps(storyboard["validation"], indent=2))
+            raise SystemExit("Nature storyboard validation failed; no narration or visuals were purchased.")
+
         spec = ns.compile_keyframe_spec(episode)
         spec_path = _write(work / "nature_story_keyframe_spec.json", spec)
         runner = ROOT / "scripts" / "keyframe_short.py"
