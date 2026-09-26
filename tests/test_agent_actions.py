@@ -676,10 +676,38 @@ def test_harp_seal_bundled_directed_pilot_is_valid_portrait_nature_short():
     assert report["valid"] is True, report["issues"]
     spec = dl.DirectedLongformSpec.model_validate(report["normalized_spec"])
     assert spec.target.format == "portrait"
-    assert spec.target.duration_sec == 45.0
-    assert spec.target.pilot_end_sec == 45.0
+    assert spec.target.duration_sec == 37.0
+    assert spec.target.pilot_end_sec == 37.0
     assert spec.acceptance.max_bolt_appearances == 0
     req = studio._directed_pilot_request(spec, report)
     assert req.video_format == "social"
-    assert req.duration_sec == 45
+    assert req.duration_sec == 37
     assert req.directed_paid_authorized is True
+    assert agent_actions.public_action({
+        "action_id": ACTION_ID,
+        "operation": "directed_pilot",
+        "status": "pending",
+        "title": spec.title,
+        "spec_sha256": report["spec_sha256"],
+        "estimated_cost_usd": 1.0,
+        "cost_ceiling_usd": 5.0,
+        "created_at": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "payload": report["normalized_spec"],
+    })["scope"] == "first-37-pilot"
+
+
+def test_portrait_pilot_window_does_not_loosen_landscape_contract():
+    import directed_longform as dl
+    portrait = dl.DirectedTarget(
+        duration_sec=37, pilot_end_sec=37, format="portrait", voice="onyx", max_cost_usd=5)
+    assert studio._validate_directed_pilot_window(portrait) == 37
+    with pytest.raises(ValueError):
+        studio._validate_directed_pilot_window(dl.DirectedTarget(
+            duration_sec=37, pilot_end_sec=36, format="portrait", max_cost_usd=5))
+    with pytest.raises(ValueError):
+        studio._validate_directed_pilot_window(dl.DirectedTarget(
+            duration_sec=60, pilot_end_sec=37, format="landscape", max_cost_usd=5))
+    landscape = dl.DirectedTarget(
+        duration_sec=60, pilot_end_sec=45, format="landscape", max_cost_usd=5)
+    assert studio._validate_directed_pilot_window(landscape) == 45
