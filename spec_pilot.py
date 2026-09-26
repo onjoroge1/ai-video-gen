@@ -311,17 +311,21 @@ def _compose_directed_overlays(source_path: str, output_path: str, *, overlay_te
     return output_path
 
 
-def _motion_cache_path(image_path: str, shot: dict, seconds: float, out_path: str) -> Path:
+def _motion_cache_path(image_path: str, shot: dict, seconds: float, out_path: str,
+                       nature_frame: dict | None = None) -> Path:
     """Bind paid footage reuse to the image bytes and the complete motion request."""
     identity = _content_key(
         _sha256_file(image_path), shot.get("visual"), shot.get("mode"), round(seconds, 3),
         getattr(ep, "_FAL_MODEL", "fal-image-to-video"), 1920, 1080)
+    if nature_frame:
+        identity = _content_key(identity, "nature_short_v2", nature_frame,
+                                shot.get("transformation"))
     return Path(out_path).with_name(f"motion.{identity[:24]}.src.mp4")
 
 
 def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: str,
                         cost_sink: list, log, provider_sink: list | None = None,
-                        frame: dict | None = None) -> bool:
+                        frame: dict | None = None, nature_directed: bool = False) -> bool:
     """Generate true footage for one shot, trimmed to its hold. False if the provider declined.
 
     `frame` is the delivery size. It defaults to landscape so existing callers are unchanged.
@@ -331,12 +335,24 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
     entire stills pass. animate_scene never raises -- it returns None when every provider in the
     chain fails -- so a decline falls back to the camera path rather than losing the shot.
     """
-    cached = _motion_cache_path(image_path, shot, seconds, out_path)
+    frame = frame or FRAME["landscape"]
+    cached = _motion_cache_path(image_path, shot, seconds, out_path,
+                                nature_frame=frame if nature_directed else None)
     metadata_path = Path(str(cached) + ".json")
     motion_event = None
     if not (cached.exists() and cached.stat().st_size > 0):
         attempts: list[str] = []
-        clip = ep.animate_scene(image_path, shot["visual"], str(cached), 1920, 1080,
+        prompt = shot["visual"]
+        if nature_directed:
+            # Reuse the existing evidence-action provider lane, which intentionally
+            # omits the legacy gentle-blink/parallax prefix. Put action first so the
+            # provider prompt limit cannot truncate the causal change.
+            prompt = ("narration-aligned evidence change: " + shot.get("transformation", "")
+                      + ". Start immediately; complete the key action in the first two seconds. "
+                      "Preserve anatomy and identity. No text or camera zoom. Scene: " + shot["visual"])
+        clip = ep.animate_scene(image_path, prompt, str(cached),
+                                frame["w"] if nature_directed else 1920,
+                                frame["h"] if nature_directed else 1080,
                                 cost_sink=cost_sink, err_sink=attempts)
         if not clip or not Path(cached).exists():
             if provider_sink is not None:
@@ -536,6 +552,8 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
         cursor += hold
 
     evidence_plan = {"scenes": [{"states": states}]}
+    if spec.nature_short:
+        evidence_plan["continuity_pack"] = {"cast": "none"}
     inspection = inspect_rendered_opening(
         preview, [gate_shots], str(out), evidence_plan)
     # The directed contract owns its cadence bounds. The shared gate's 3.5-second legacy hold
@@ -602,7 +620,7 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
         for start in cadence["motion_starts_sec"])
     if actual_frontloaded_motion < spec.acceptance.frontloaded_motion_count:
         rendered.setdefault("hard_failures", []).append("directed_motion_not_frontloaded")
-    if any(
+    if not spec.nature_short and any(
             abs(duration - spec.acceptance.full_motion_duration_sec)
             > spec.acceptance.full_motion_duration_tolerance_sec
             for duration in cadence["motion_durations_sec"]):
@@ -634,6 +652,10 @@ def _grade_directed_pilot(*, spec: dl.DirectedLongformSpec, preview: str, out: P
         "contact_sheet_path": contact_sheet_path,
         "promotion_rule": "A failed automatic or editorial grade cannot be promoted in place.",
     })
+    if spec.nature_short:
+        rendered["name"] = "Nature Story Short Rendered Contract"
+        rendered["nature_visual_proof_review"] = "pending_human_action_and_continuity_review"
+        rendered["audience_retention"] = "unmeasured"
     rendered["grade_summary"] = rendered_grade_summary(rendered)
     report_path = str(out / "rendered_contract.json")
     Path(report_path).write_text(
@@ -684,6 +706,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     # One frame decision for the whole render: the stills, the motion trims and the final encode
     # all read it, so a portrait spec cannot end up with landscape images or a letterboxed clip.
     _frame = frame_for(spec.target.format)
+    nature = spec.nature_short
+    nature_report = None
+    nature_captions = None
+    nature_scene_starts = []
 
     indexed_scenes = [
         (index, scene) for index, scene in enumerate(spec.narration)
@@ -721,12 +747,23 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         cached = (Path(audio_path).exists() and Path(audio_path).stat().st_size > 0
                   and sidecar.exists()
                   and sidecar.read_text(encoding="utf-8") == scene.narration)
+        if nature:
+            import nature_short_presentation as nsp
+            identity_path = Path(audio_path).with_suffix(".identity.json")
+            identity = nsp.narration_identity(scene.narration, voice, nature)
+            cached = cached and identity_path.exists() and json.loads(
+                identity_path.read_text()) == identity
         if cached:
             log(f"  scene {index + 1:>2} [{scene.world_id}] reusing narration on disk")
         else:
-            ep.generate_tts(scene.narration, audio_path, voice=voice)
+            if nature:
+                cost = nsp.narrate(scene.narration, audio_path, voice, nature, ep)
+                identity_path.write_text(json.dumps(identity, sort_keys=True))
+            else:
+                ep.generate_tts(scene.narration, audio_path, voice=voice)
+                cost = len(scene.narration) * ep._RATE_TTS_CHAR
             sidecar.write_text(scene.narration, encoding="utf-8")
-            audio_costs.append(len(scene.narration) * ep._RATE_TTS_CHAR)
+            audio_costs.append(cost)
         audio_paths.append(audio_path)
         measured = ep._audio_dur(audio_path)
         log(f"  scene {index + 1:>2} [{scene.world_id}] {measured:5.2f}s  "
@@ -756,7 +793,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         # remeasure it; the unchanged 35-39s acceptance gate still decides whether
         # visuals may be purchased. Do not retime speech or alter landscape pilots.
         shortfall = spec.acceptance.pilot_runtime_min_sec - spoken
-        if (is_pilot and spec.target.format == "portrait"
+        if (not nature and is_pilot and spec.target.format == "portrait"
                 and 0 < shortfall <= 0.10):
             last_audio = audio_paths[-1]
             before = ep._audio_dur(last_audio)
@@ -783,7 +820,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         # the approved narration or weaken the runtime gate.  Fit the already-paid audio with
         # ffmpeg atempo, preserve pitch, then remeasure and enforce the exact same 43-47s gate.
         # The 12% ceiling is deliberately narrow; larger misses still fail closed before images.
-        if (is_pilot and spoken > spec.acceptance.pilot_runtime_max_sec
+        if (not nature and is_pilot and spoken > spec.acceptance.pilot_runtime_max_sec
                 and spoken <= spec.acceptance.pilot_runtime_max_sec * 1.12):
             target_spoken = max(
                 spec.acceptance.pilot_runtime_min_sec + 0.5,
@@ -851,6 +888,15 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     planned_holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale)
                      for shot in shots]
     planned_holds[-1] += spoken - sum(planned_holds)
+    if nature:
+        planned_holds = nsp.measured_holds(
+            shots, indexed_scenes, audio_paths, ep, nature.max_shot_sec,
+            spec.acceptance.min_shot_sec)
+        nature_captions = nsp.prepare_captions(indexed_scenes, audio_paths, ep, out)
+        cursor = 0.0
+        for path in audio_paths:
+            nature_scene_starts.append(cursor)
+            cursor += ep._audio_dur(path)
     (out / "tmp").mkdir(parents=True, exist_ok=True)
     clips: list[str] = []
     stream_segments: list[str] = []
@@ -968,11 +1014,15 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
             log(f"  shot {order + 1:>2} reusing image on disk")
         elif _generate_shot_image(
                 prompt, master_path, image_costs, log,
-                [reference_files[item] for item in shot.get("reference_ids") or []] or None,
+                ([str(out / "nature_identity.jpg")] if nature
+                 and (out / "nature_identity.jpg").exists() else
+                 [reference_files[item] for item in shot.get("reference_ids") or []] or None),
                 image_size=_frame["image_size"]):
             sidecar.write_text(prompt, encoding="utf-8")
         else:
             blocked.append(order)
+            if nature:
+                raise RuntimeError(f"Nature proof shot {shot['shot_id']} unavailable; no substitute hold")
             image_paths.append(None)
             if streaming_render:
                 hole = planned_holds[order]
@@ -982,8 +1032,12 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
                     leading_blocked_seconds += hole
             log(f"  shot {order + 1:>2} BLOCKED — {shot['visual'][:50]}")
             continue
-        overlay = shot.get("overlay_text") or ""
+        if nature and not (out / "nature_identity.jpg").exists():
+            shutil.copyfile(master_path, out / "nature_identity.jpg")
+        overlay = "" if nature else shot.get("overlay_text") or ""
         world_label = world_labels.get(world, "")
+        if nature:
+            world_label = ""
         if overlay or world_label:
             overlay_key = _content_key(prompt_key, overlay, world_label)
             image_path = str(
@@ -1070,6 +1124,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         holds = [max(1.2, (shot["end_sec"] - shot["start_sec"]) * scale)
                  for shot in shots]
         holds[-1] += spoken - sum(holds)
+        if nature:
+            holds = planned_holds
     log(f"Shot table rescaled {planned:.1f}s → {spoken:.1f}s (×{scale:.3f}); "
         f"holds {min(holds):.1f}-{max(holds):.1f}s")
 
@@ -1078,11 +1134,14 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         if (use_i2v and shot["mode"].strip().casefold() == "full motion"
                 and _render_motion_shot(
                     image_paths[order], shot, hold, clip, i2v_costs, log,
-                    motion_events, frame=_frame)):
+                    motion_events, frame=_frame,
+                    **({"nature_directed": True} if nature else {}))):
             animated += 1
             log(f"  shot {order + 1:>2} {hold:4.1f}s  I2V")
         else:
             motion = _motion_for(shot, order)
+            if nature and shot["mode"].strip().casefold() == "full motion":
+                raise RuntimeError(f"Nature action {shot['shot_id']} motion generation failed")
             _render_shot(image_paths[order], hold, motion, clip,
                          width=_frame["w"], height=_frame["h"])
             log(f"  shot {order + 1:>2} {hold:4.1f}s  {motion}")
@@ -1122,6 +1181,9 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     for clip in clips:
         if not str(clip).startswith(("https://", "http://")):
             Path(clip).unlink(missing_ok=True)
+    if nature:
+        nature_report = nsp.final_treatment(preview, out, spec, shots, holds,
+                                             nature_captions, nature_scene_starts, ep)
     if runtime is not None:
         for artifact in stream_segment_artifacts:
             runtime.blob.delete(str(artifact["url"]))
@@ -1157,7 +1219,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "status": "pilot_rendered" if win_end <= spec.target.pilot_end_sec else "segment_rendered",
         "window": {"start_sec": win_start, "end_sec": win_end},
         "providers": [
-            {"purpose": "narration", "provider": "openai", "model_id": ep.TTS_MODEL,
+            {"purpose": "narration", "provider": "openai", "model_id": nature.tts_model if nature else ep.TTS_MODEL,
              "voice": voice, "transformation": ",".join(sorted({
                  item["type"] for item in audio_transformations})) or "none"},
             {"purpose": "images", "provider": "openai", "model_id": ep.IMAGE_MODEL},
@@ -1190,6 +1252,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "actual_audio_transformations": audio_transformations,
         "blocked_shots": blocked,
     }
+    if nature:
+        manifest["nature_presentation"] = nature_report
+        manifest["providers"].append({"purpose": "caption_alignment", "provider": "openai",
+                                      "model_id": ep.TRANSCRIPTION_MODEL})
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     report = {
@@ -1203,9 +1269,11 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "image_cost_usd": round(sum(image_costs), 4),
         "i2v_cost_usd": round(sum(i2v_costs), 4),
         "judge_cost_usd": round(sum(judge_costs), 4),
+        **({"alignment_cost_usd": nature_captions["estimated_cost_usd"]} if nature else {}),
         "animated_shots": animated,
         "total_cost_usd": round(
-            sum(audio_costs) + sum(image_costs) + sum(i2v_costs) + sum(judge_costs), 4),
+            sum(audio_costs) + sum(image_costs) + sum(i2v_costs) + sum(judge_costs)
+            + (nature_captions["estimated_cost_usd"] if nature else 0), 4),
         "shots": len(shots),
         "preview_path": preview,
         "spec_sha256": validation["spec_sha256"],

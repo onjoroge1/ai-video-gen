@@ -47,7 +47,7 @@ def _work_dir(episode: dict) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("episode")
-    parser.add_argument("stage", choices=("validate", "storyboard", "compile-short", "long-request", "render-short"))
+    parser.add_argument("stage", choices=("validate", "storyboard", "compile-short", "compile-directed-short", "long-request", "render-short"))
     parser.add_argument("--authorize-paid", action="store_true")
     args = parser.parse_args()
 
@@ -79,6 +79,11 @@ def main() -> int:
 
     if args.stage == "long-request":
         out = _write(work / "nature_story_long_request.json", ns.longform_pipeline_kwargs(episode))
+        print(out)
+        return 0
+
+    if args.stage == "compile-directed-short":
+        out = _write(work / "nature_story_directed_spec.json", ns.compile_directed_short(episode))
         print(out)
         return 0
 

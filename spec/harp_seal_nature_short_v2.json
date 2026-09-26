@@ -1,0 +1,448 @@
+{
+  "schema_version": "directed_longform_v1",
+  "project_id": "harp_seal_mother_v2",
+  "title": "Why Is This Harp Seal the Worst Mother?",
+  "negative_prompt": "people, human equipment, text, letters, numbers, watermark, logo, cartoon, anime, tears, duplicate seals, extra limbs, deformed anatomy, adult markings on a white pup, newborn coat after the juvenile moult, fabricated rescue",
+  "target": {
+    "duration_sec": 33.8,
+    "pilot_end_sec": 33.8,
+    "format": "portrait",
+    "voice": "coral",
+    "max_cost_usd": 5.0
+  },
+  "acceptance": {
+    "runtime_tolerance_sec": 6.8,
+    "pilot_runtime_min_sec": 27.0,
+    "pilot_runtime_max_sec": 40.6,
+    "pilot_min_visual_states": 16,
+    "pilot_min_unique_master_assets": 16,
+    "min_shot_sec": 0.75,
+    "max_unchanged_hold_sec": 3.4,
+    "max_consecutive_still_asset_sec": 3.4,
+    "full_motion_duration_sec": 5.0,
+    "full_motion_duration_tolerance_sec": 0.25,
+    "frontloaded_motion_count": 2,
+    "frontloaded_motion_window_sec": 7.0,
+    "max_unique_master_assets": 16,
+    "min_useful_bolt_appearances": 0,
+    "max_bolt_appearances": 0,
+    "planned_bolt_appearances": 0,
+    "evidence_coverage_pct": 100.0,
+    "automatic_grade_min": 90.0,
+    "editorial_grade_min": 85.0
+  },
+  "worlds": [
+    {
+      "world_id": "nature_episode",
+      "start_sec": 0.0,
+      "end_sec": 33.8,
+      "base_prompt": "Warm, lively painterly natural-history illustration with expressive composition but anatomically accurate true seals; crisp subject silhouettes, bright ivory ice and teal water, gold reserved for explanatory energy graphics. The same mother and pup across shots. Adult mother: silver-gray coat, dark face and characteristic curved saddle marking; no harbor-seal look. Young pup: white lanugo, short flippers, no external ears. Later juvenile: gray-spotted coat, explicitly later chronology. Center all critical action inside the middle 70 percent of a 9:16 composition. No text, no logos, no humans or props, no open wounds. Use a reference image for identity and palette, not to copy its pose or developmental age. Adult harp seal: streamlined silver-gray body with natural dark markings and short foreflippers. Newborn/young pup: compact body in a white lanugo coat during nursing. Older juvenile after moulting: gray-spotted coat, still juvenile proportions. Never draw human-like limbs, hands, tears, clothing, collars, or adult saddle markings on a young pup.",
+      "on_screen_label": ""
+    }
+  ],
+  "narration": [
+    {
+      "scene_id": "b1",
+      "start_sec": 0.0,
+      "end_sec": 6.8,
+      "narration": "Why is this harp seal the worst mother? After about twelve days, she leaves. Her pup cannot feed itself yet.",
+      "world_id": "nature_episode",
+      "story_role": "action",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "b2",
+      "start_sec": 6.8,
+      "end_sec": 10.8,
+      "narration": "Dinner service: closed. But there is food hidden in this pup.",
+      "world_id": "nature_episode",
+      "story_role": "constraint",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "b3",
+      "start_sec": 10.8,
+      "end_sec": 16.8,
+      "narration": "Before she left, Mom's rich milk built a thick layer of fat. A built-in lunchbox.",
+      "world_id": "nature_episode",
+      "story_role": "mechanism",
+      "claim_ids": [
+        "c_weaning"
+      ]
+    },
+    {
+      "scene_id": "b4",
+      "start_sec": 16.8,
+      "end_sec": 21.2,
+      "narration": "After weaning, that stored energy fuels the pup for weeks without meals.",
+      "world_id": "nature_episode",
+      "story_role": "mechanism",
+      "claim_ids": [
+        "c_nursing"
+      ]
+    },
+    {
+      "scene_id": "b5",
+      "start_sec": 21.2,
+      "end_sec": 29.8,
+      "narration": "But there is a catch. It still needs ice to rest on as it develops. Break that up too soon, and young pups can drown.",
+      "world_id": "nature_episode",
+      "story_role": "limitation",
+      "claim_ids": [
+        "c_ice"
+      ]
+    },
+    {
+      "scene_id": "b6",
+      "start_sec": 29.8,
+      "end_sec": 33.8,
+      "narration": "Mom leaves the fuel. The ice has to last.",
+      "world_id": "nature_episode",
+      "story_role": "reinterpretation",
+      "claim_ids": [
+        "c_ice",
+        "c_nursing"
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "hs2_11",
+      "start_sec": 0.0,
+      "end_sec": 2.267,
+      "visual": "Wide low angle. Adult silver-gray harp seal mother with a dark face and curved saddle marking, already halfway over the ice edge. Her white-coated pup remains behind her in the upper-left safe area. Both animals fully readable. The water and the widening gap are the subject.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b1",
+      "asset_key": "hs2_11",
+      "asset_prompt": "Wide low angle. Adult silver-gray harp seal mother with a dark face and curved saddle marking, already halfway over the ice edge. Her white-coated pup remains behind her in the upper-left safe area. Both animals fully readable. The water and the widening gap are the subject.",
+      "transformation": "Mother immediately slides off the edge into water by second 1.8, leaving the pup on solid ice. Locked wide camera; no return and no extra seals.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "MOM LEAVES",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_12",
+      "start_sec": 2.267,
+      "end_sec": 4.533,
+      "visual": "Match the previous wide frame from the pup side. The mother is now in the water moving out of frame; pup stays on ice. No nursing.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b1",
+      "asset_key": "hs2_12",
+      "asset_prompt": "Match the previous wide frame from the pup side. The mother is now in the water moving out of frame; pup stays on ice. No nursing.",
+      "transformation": "Mother swims away and exits frame within 1.8 seconds; empty space remains where she stood. Keep pup visible throughout.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "ABOUT 12 DAYS",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_13",
+      "start_sec": 4.533,
+      "end_sec": 6.8,
+      "visual": "Overhead view of the same white pup on pack ice with the empty mother-sized space clearly visible beside it. No adult, no fish and no human props.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b1",
+      "asset_key": "hs2_13",
+      "asset_prompt": "Overhead view of the same white pup on pack ice with the empty mother-sized space clearly visible beside it. No adult, no fish and no human props.",
+      "transformation": "Pup lifts its head toward the departing wake. The food source is visibly absent.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "NOT FEEDING YET",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_21",
+      "start_sec": 6.8,
+      "end_sec": 8.8,
+      "visual": "Low close view of the white pup and the empty ice beside it. Composition deliberately echoes the mother-and-pup relationship from the opening, with mother absent.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b2",
+      "asset_key": "hs2_21",
+      "asset_prompt": "Low close view of the white pup and the empty ice beside it. Composition deliberately echoes the mother-and-pup relationship from the opening, with mother absent.",
+      "transformation": "Hold for the brief dinner-service joke; a small purposeful push toward the empty space.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "DINNER: CLOSED",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_22",
+      "start_sec": 8.8,
+      "end_sec": 10.8,
+      "visual": "Full side profile of the white pup, healthy and round, centered entirely inside the portrait frame. This is an explanatory transition to stored fuel, not a new animal.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b2",
+      "asset_key": "hs2_22",
+      "asset_prompt": "Full side profile of the white pup, healthy and round, centered entirely inside the portrait frame. This is an explanatory transition to stored fuel, not a new animal.",
+      "transformation": "Move focus to the pup body for the coming fat-store explanation; no swelling or growth morph.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "FOOD, ALREADY STORED",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_31",
+      "start_sec": 10.8,
+      "end_sec": 12.8,
+      "visual": "Explicit earlier nursing scene. Same adult mother on her side; younger white pup actually latched at an anatomically plausible mammary area beneath the abdomen, not her cheek. Wide enough to read nursing contact.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b3",
+      "asset_key": "hs2_31",
+      "asset_prompt": "Explicit earlier nursing scene. Same adult mother on her side; younger white pup actually latched at an anatomically plausible mammary area beneath the abdomen, not her cheek. Wide enough to read nursing contact.",
+      "transformation": "FLASHBACK: natural visible suckling movement while mother rests. Action begins immediately, no tongues or anthropomorphic faces.",
+      "claim_ids": [
+        "c_weaning"
+      ],
+      "reference_ids": [],
+      "overlay_text": "BEFORE SHE LEFT",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_32",
+      "start_sec": 12.8,
+      "end_sec": 14.8,
+      "visual": "Clean natural-history explanatory side-profile silhouette of the same white pup. A restrained translucent gold band beneath skin represents blubber, with no open wound or sliced flesh. Milk droplets as small abstract educational symbols at left. No drawn text.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b3",
+      "asset_key": "hs2_32",
+      "asset_prompt": "Clean natural-history explanatory side-profile silhouette of the same white pup. A restrained translucent gold band beneath skin represents blubber, with no open wound or sliced flesh. Milk droplets as small abstract educational symbols at left. No drawn text.",
+      "transformation": "Educational diagram: an added gold energy indicator fills while the narration explains milk becoming stored fat. No animal-body morph.",
+      "claim_ids": [
+        "c_weaning"
+      ],
+      "reference_ids": [],
+      "overlay_text": "MILK BUILDS FAT",
+      "labels": [
+        "energy_fill"
+      ]
+    },
+    {
+      "shot_id": "hs2_33",
+      "start_sec": 14.8,
+      "end_sec": 16.8,
+      "visual": "Same clean profile and gold blubber layer as the previous diagram, but show the energy stored within the pup rather than a literal human lunchbox. A balanced wide diagram composition.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b3",
+      "asset_key": "hs2_33",
+      "asset_prompt": "Same clean profile and gold blubber layer as the previous diagram, but show the energy stored within the pup rather than a literal human lunchbox. A balanced wide diagram composition.",
+      "transformation": "Gold stored-energy indicator remains full as the lunchbox metaphor lands. No bags or human objects.",
+      "claim_ids": [
+        "c_weaning"
+      ],
+      "reference_ids": [],
+      "overlay_text": "BUILT-IN LUNCHBOX",
+      "labels": [
+        "energy_full"
+      ]
+    },
+    {
+      "shot_id": "hs2_41",
+      "start_sec": 16.8,
+      "end_sec": 19.0,
+      "visual": "Back after weaning: the white pup rests alone on stable ice, mother absent. Include sky and a long ice horizon. Bright gold accent is reserved for a separate editorial energy indicator.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b4",
+      "asset_key": "hs2_41",
+      "asset_prompt": "Back after weaning: the white pup rests alone on stable ice, mother absent. Include sky and a long ice horizon. Bright gold accent is reserved for a separate editorial energy indicator.",
+      "transformation": "Locked camera; pup breathes and gently moves its head. Educational stored-energy indicator slowly falls, no numerical percentages.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "AFTER WEANING",
+      "labels": [
+        "energy_use"
+      ]
+    },
+    {
+      "shot_id": "hs2_42",
+      "start_sec": 19.0,
+      "end_sec": 21.2,
+      "visual": "Clearly later: same species now a gray-spotted juvenile after molting, with matching proportions and habitat. Resting on intact ice, no adult caregiver and no eating.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b4",
+      "asset_key": "hs2_42",
+      "asset_prompt": "Clearly later: same species now a gray-spotted juvenile after molting, with matching proportions and habitat. Resting on intact ice, no adult caregiver and no eating.",
+      "transformation": "A clean time jump, not a body morph. Energy indicator is lower to show reserves are finite.",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "WEEKS WITHOUT MEALS",
+      "labels": [
+        "energy_low"
+      ]
+    },
+    {
+      "shot_id": "hs2_51",
+      "start_sec": 21.2,
+      "end_sec": 23.35,
+      "visual": "Side cross-section composition of a stable ice floe above water. Small white pup on top, ocean underneath. Clear spatial contrast between stored fat inside the pup and the supporting ice under it.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b5",
+      "asset_key": "hs2_51",
+      "asset_prompt": "Side cross-section composition of a stable ice floe above water. Small white pup on top, ocean underneath. Clear spatial contrast between stored fat inside the pup and the supporting ice under it.",
+      "transformation": "Shift attention from the pup body to the physical ice platform, visually changing the dependency.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "FUEL IS NOT SHELTER",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_52",
+      "start_sec": 23.35,
+      "end_sec": 25.5,
+      "visual": "Wide shot of a white pup safely resting on an intact floe; visible water beneath ice edge. No panic, no imminent individual rescue story.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b5",
+      "asset_key": "hs2_52",
+      "asset_prompt": "Wide shot of a white pup safely resting on an intact floe; visible water beneath ice edge. No panic, no imminent individual rescue story.",
+      "transformation": "Camera looks across ice surface to show why a resting platform matters.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "ICE TO REST ON",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_53",
+      "start_sec": 25.5,
+      "end_sec": 27.65,
+      "visual": "Conditional scientific illustration: generic pack ice under rough weather with a clear crack widening; small young white pup on a distant solid part. No adult, no rescue, no drowning depiction.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b5",
+      "asset_key": "hs2_53",
+      "asset_prompt": "Conditional scientific illustration: generic pack ice under rough weather with a clear crack widening; small young white pup on a distant solid part. No adult, no rescue, no drowning depiction.",
+      "transformation": "Waves physically widen a crack in the foreground by second two. Conditional example, not a claim that the focal pup died.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "IF ICE BREAKS EARLY",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_54",
+      "start_sec": 27.65,
+      "end_sec": 29.8,
+      "visual": "Wider conditional ice-breakup composition: fragmented floes and water gaps make the missing resting platform immediately legible. A distant young pup remains on intact ice; no graphic harm.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b5",
+      "asset_key": "hs2_54",
+      "asset_prompt": "Wider conditional ice-breakup composition: fragmented floes and water gaps make the missing resting platform immediately legible. A distant young pup remains on intact ice; no graphic harm.",
+      "transformation": "Waves separate two floes visibly. Stop before any invented fall or drowning event.",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "reference_ids": [],
+      "overlay_text": "YOUNG PUPS AT RISK",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_61",
+      "start_sec": 29.8,
+      "end_sec": 31.8,
+      "visual": "Return to the later gray-spotted juvenile from the time-jump, on stable ice. Side profile with faint gold educational blubber outline, not a new adult animal.",
+      "mode": "Still",
+      "world_id": "nature_episode",
+      "scene_id": "b6",
+      "asset_key": "hs2_61",
+      "asset_prompt": "Return to the later gray-spotted juvenile from the time-jump, on stable ice. Side profile with faint gold educational blubber outline, not a new adult animal.",
+      "transformation": "Brief contrast of stored energy inside and intact supporting ice below.",
+      "claim_ids": [
+        "c_ice",
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "FUEL BUYS TIME",
+      "labels": []
+    },
+    {
+      "shot_id": "hs2_62",
+      "start_sec": 31.8,
+      "end_sec": 33.8,
+      "visual": "Final low wide portrait frame: the same older juvenile on stable ice, facing the open water with the ice shelf clearly visible under its body. No mother returns. No hunt or guaranteed survival.",
+      "mode": "Full Motion",
+      "world_id": "nature_episode",
+      "scene_id": "b6",
+      "asset_key": "hs2_62",
+      "asset_prompt": "Final low wide portrait frame: the same older juvenile on stable ice, facing the open water with the ice shelf clearly visible under its body. No mother returns. No hunt or guaranteed survival.",
+      "transformation": "Juvenile lifts its head and looks toward water while the supporting ice stays visible. End decisively; do not loop to the newborn.",
+      "claim_ids": [
+        "c_ice",
+        "c_nursing"
+      ],
+      "reference_ids": [],
+      "overlay_text": "THE ICE MUST LAST",
+      "labels": []
+    }
+  ],
+  "evidence": [
+    {
+      "claim_id": "c_nursing",
+      "claim": "NOAA reports about 12 days of high-fat nursing, rapid daily weight gain, blubber development, then a post-weaning period on the ice without eating before independent feeding.",
+      "source_uri": "https://www.fisheries.noaa.gov/species/harp-seal",
+      "qualification": "Use about; do not imply every gram of growth is fat.",
+      "license": "Publicly accessible government factual source; summarized, not quoted"
+    },
+    {
+      "claim_id": "c_weaning",
+      "claim": "DFO reports pups are nursed for about 12 days, gain more than 2.2 kg per day, and females leave the ice after the pups are weaned.",
+      "source_uri": "https://www.dfo-mpo.gc.ca/species-especes/profiles-profils/harpseal-phoquegroenland-eng.html",
+      "qualification": "Female mating after departure is factual but omitted because it does not answer the pup food-gap question.",
+      "license": "Publicly accessible government factual source; summarized, not quoted"
+    },
+    {
+      "claim_id": "c_ice",
+      "claim": "DFO reports young harp seals need stable ice for nursing and post-weaning resting; storms can break poor ice and force young seals into water where they can drown.",
+      "source_uri": "https://www.dfo-mpo.gc.ca/species-especes/publications/mammals-mammiferes/cemam/2012-2014/10-eng.html",
+      "qualification": "Say can, not that every pup drowns or that entering water itself is always fatal.",
+      "license": "Publicly accessible government factual source; summarized, not quoted"
+    }
+  ],
+  "references": [],
+  "prohibited_claims": [
+    "Do not imply that the mother intends cruelty, returns after weaning, or guarantees survival.",
+    "A conditional ice-risk illustration is not the observed death of this individual.",
+    "Lunchbox is a metaphor for stored body fat, not a literal human object."
+  ],
+  "nature_short": {
+    "version": "nature_short_v2",
+    "tts_model": "gpt-4o-mini-tts-2025-12-15",
+    "voice_instructions": "A bright, curious, playful science storyteller speaking to one friend. Natural American English, forward momentum around 175-185 words per minute, clear consonants and a smile on the dinner-service and lunchbox lines. Start immediately. Make the opening question skeptical rather than angry. Punch LEAVES, FOOD, FAT and ICE once, without shouting. Give the hidden-food reveal a tiny anticipatory pause. Turn serious for the conditional ice risk, then land the final line decisively. No announcer voice, no sleepy documentary cadence, no dramatic gasp, no extra words. Do not read these directions aloud.",
+    "max_shot_sec": 3.4,
+    "sound_bed": "playful_pulse"
+  }
+}

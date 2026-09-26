@@ -211,6 +211,16 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
         out["start_sec"] = float(promotion.get("start_sec") or 45.0)
         out["end_sec"] = float(promotion.get("end_sec") or 300.0)
         out["pilot_reused"] = True
+    elif operation == DIRECTED_PILOT_OPERATION:
+        out.update(duration_sec=pilot_end, video_format=target.get("format", "landscape"),
+                   voice=target.get("voice", "echo"))
+        nature = payload.get("nature_short")
+        if nature:
+            out.update(production_flow="nature_story_v1", presentation=nature["version"],
+                       voice_direction=nature["voice_instructions"],
+                       providers={"narration": {"provider": "openai", "model": nature["tts_model"]},
+                                  "caption_alignment": {"provider": "openai", "model": "whisper-1"}},
+                       estimate_basis="Includes directed voice, word timing, the approved storyboard images and motion shots. Final duration follows measured narration; provider reservations are estimates.")
     elif operation == GENERIC_ILLUSTRATED_OPERATION:
         recipe = payload.get("request") or {}
         out.update(scope=payload.get("scope"), duration_sec=recipe.get("duration_sec"),
