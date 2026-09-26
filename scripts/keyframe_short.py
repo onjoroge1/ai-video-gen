@@ -321,13 +321,20 @@ class Short:
         open(lst, "w").write("".join(f"file '{s}'\n" for s in segs))
         body = os.path.join(self.build, "body.mp4")
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", body], check=True)
-        first = os.path.join(self.build, "first_frame.png")
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", segs[0], "-frames:v", "1", first], check=True)
         video = os.path.join(self.build, "video.mp4")
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", body, "-loop", "1", "-t", f"{LOOP_XFADE:.2f}", "-i", first,
-                        "-filter_complex", f"[0:v]settb=AVTB,fps={FPS}[a];[1:v]settb=AVTB,fps={FPS},format=yuv420p[f];"
-                                           f"[a][f]xfade=transition=fade:duration={LOOP_XFADE}:offset={total - LOOP_XFADE:.3f}[o]",
-                        "-map", "[o]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", video], check=True)
+        # A loop is an editorial choice, not a Shorts law. Nature Story sets loop=false when
+        # dissolving the ending back to frame one would reverse offspring age, chronology, or a
+        # one-way state change. Legacy specs retain the old behavior because the default is True.
+        if self.spec.get("loop", True):
+            first = os.path.join(self.build, "first_frame.png")
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", segs[0], "-frames:v", "1", first], check=True)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", body, "-loop", "1", "-t", f"{LOOP_XFADE:.2f}", "-i", first,
+                            "-filter_complex", f"[0:v]settb=AVTB,fps={FPS}[a];[1:v]settb=AVTB,fps={FPS},format=yuv420p[f];"
+                                               f"[a][f]xfade=transition=fade:duration={LOOP_XFADE}:offset={total - LOOP_XFADE:.3f}[o]",
+                            "-map", "[o]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", video], check=True)
+        else:
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", body, "-c:v", "copy",
+                            "-movflags", "+faststart", video], check=True)
         inputs, filt, mixes = [], [], []
         for i, (mp3, start) in enumerate(audio_parts):
             inputs += ["-i", mp3]
