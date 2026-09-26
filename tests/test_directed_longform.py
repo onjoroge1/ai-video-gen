@@ -344,6 +344,44 @@ def test_renderer_measures_audio_before_any_visual_generation():
     assert "for clip in clips" in source
 
 
+def test_portrait_pilot_frame_boundary_reuses_audio_and_keeps_strict_gate(tmp_path, monkeypatch):
+    payload = studio._bundled_directed_spec("harp_seal_nature_short_v1")
+    report = dl.validate_directed_spec(payload)
+    assert report["valid"] is True
+    calls = []
+
+    def measured(path):
+        # Seven saved TTS scenes total 34.96s before a tiny tail is added.
+        return (5.16 if Path(path).read_bytes() == b"padded" else
+                4.96 if Path(path).stem == "scene_06" else 5.0)
+
+    def ffmpeg(args, **kwargs):
+        assert "apad=pad_dur=0.2" in args
+        Path(args[-1]).write_bytes(b"padded")
+        calls.append("tail_pad")
+
+    def no_paid_image(*args, **kwargs):
+        calls.append("image")
+        raise RuntimeError("visual stage reached")
+
+    monkeypatch.setattr(spec_pilot.ep, "_audio_dur", measured)
+    monkeypatch.setattr(spec_pilot.ep, "_run_ffmpeg", ffmpeg)
+    monkeypatch.setattr(spec_pilot, "_generate_shot_image", no_paid_image)
+    for index, scene in enumerate(payload["narration"]):
+        path = tmp_path / "audio" / f"scene_{index:02d}.mp3"
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"saved-tts")
+        path.with_suffix(".txt").write_text(scene["narration"])
+
+    with pytest.raises(RuntimeError, match="visual stage reached"):
+        spec_pilot.render_pilot(
+            payload, str(tmp_path), voice="onyx", window=(0, 37),
+            validated_sha256=report["spec_sha256"], authorize_paid=True,
+            require_validation=True, log=lambda _: None)
+    assert calls == ["tail_pad", "image"]
+    assert (tmp_path / "audio" / "scene_06.mp3").read_bytes() == b"padded"
+
+
 def test_remaining_film_streams_and_releases_source_images():
     source = inspect.getsource(spec_pilot.render_pilot)
 

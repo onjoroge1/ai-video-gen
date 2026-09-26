@@ -654,6 +654,56 @@ class PostgresStore(_legacy.PostgresStore):
             })))
             return row
 
+    def rearm_next_portrait_audio_boundary_failure(self) -> dict | None:
+        """Resume one approved portrait pilot after a sub-0.1s narration shortfall.
+
+        This second recovery is only for a job that already consumed the normal
+        audio-fit retry. It preserves the spec, completed TTS, and cost ceiling.
+        """
+        self.ensure_schema()
+        with self._tx() as (_, cur):
+            cur.execute("""
+                SELECT j.* FROM generation_jobs j
+                JOIN agent_actions a ON a.job_id=j.id
+                WHERE j.status='error' AND a.operation='directed_pilot'
+                  AND a.payload #>> '{target,format}' = 'portrait'
+                  AND j.error ~ '^measured pilot narration [0-9]+[.][0-9]+s is outside '
+                  AND j.reserved_cost_usd=0
+                  AND j.spent_cost_usd < j.max_cost_usd
+                  AND j.checkpoint <> '{}'::jsonb
+                  AND ((a.payload #>> '{acceptance,pilot_runtime_min_sec}')::numeric
+                       - substring(j.error from
+                           '^measured pilot narration ([0-9]+[.][0-9]+)s')::numeric)
+                      BETWEEN 0 AND 0.10
+                  AND EXISTS (SELECT 1 FROM generation_events e WHERE e.job_id=j.id
+                              AND e.event_type='directed_audio_fit_rearmed')
+                  AND NOT EXISTS (SELECT 1 FROM generation_events e WHERE e.job_id=j.id
+                                  AND e.event_type='portrait_audio_boundary_rearmed')
+                ORDER BY j.updated_at ASC
+                FOR UPDATE OF j SKIP LOCKED LIMIT 1
+            """)
+            current = self._json_ready(self._row(cur, cur.fetchone()))
+            if not current:
+                return None
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+2),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (current["id"],))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            cur.execute("""
+                INSERT INTO generation_events(job_id,event_type,data,details)
+                VALUES (%s,'portrait_audio_boundary_rearmed',
+                        'Approved portrait pilot rearmed after a frame-boundary audio miss',
+                        %s::jsonb)
+            """, (row["id"], json.dumps({
+                "prior_error": current.get("error"),
+                "spent_cost_usd": row.get("spent_cost_usd"),
+                "max_cost_usd": row.get("max_cost_usd"),
+            })))
+            return row
+
     def ensure_pilot_schema(self) -> None:
         self.ensure_schema()
         if self._pilot_schema_ready:
