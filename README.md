@@ -12,6 +12,7 @@ ReelForge turns a topic or narration script into a packaged YouTube video. It cu
   the authoritative
   [`docs/USER_DIRECTED_LONGFORM_AI_RUNBOOK.md`](docs/USER_DIRECTED_LONGFORM_AI_RUNBOOK.md).
 - **TV Review** — spoiler-scoped reviews with original location art and an evolving story board.
+- **Nature Story** — Nature-only shared episode contract for matched Short / long-form storytelling; one evidence, hook, mechanism, KPI and storyboard contract with profile-specific rendering. See [`docs/NATURE_STORY_FLOW.md`](docs/NATURE_STORY_FLOW.md).
 
 The former House of the Dragon / State Board workflow is now the general TV Review format. Legacy
 `/api/stateboard/*` routes remain as deprecated aliases; new clients use `/api/tv-review/*`.

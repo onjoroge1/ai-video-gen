@@ -1,0 +1,373 @@
+{
+  "flow_id": "nature_story_v1",
+  "channel": "nature",
+  "series_id": "terrible_parents",
+  "episode_id": "harp_seal_mother_v1",
+  "species": "harp seal",
+  "parent_role": "mother",
+  "title": "Why Is This Harp Seal the Worst Mother?",
+  "central_question": "Why is this harp seal the worst mother?",
+  "observed_behavior": "The mother nurses for about twelve days, then weans the pup and leaves the ice.",
+  "practical_problem": "Maternal milk stops before the pup begins feeding independently.",
+  "engine": "strange_behaviour",
+  "mechanism": {
+    "resource_or_origin": "Energy and blubber accumulated during the short, high-fat nursing period.",
+    "process": "After weaning, the pup fasts and draws on those stored reserves.",
+    "offspring_benefit": "The reserves bridge the food gap while the pup develops toward independent feeding."
+  },
+  "supported_limitation": "The reserves do not replace stable pack ice needed for resting during the post-weaning period; poor ice can create additional risk.",
+  "ending": "Provisioning bought time, not a guarantee: finish on the older pup and the ice it still depends on.",
+  "word_cap": 110,
+  "target_duration_sec": 40,
+  "runtime_tolerance_sec": 4,
+  "estimated_words_per_sec": 3,
+  "voice": "onyx",
+  "motion_model": "kling-v3-pro",
+  "music_mood": "nostalgic",
+  "hard_cap_usd": 12,
+  "promises": [
+    {
+      "id": "food_gap",
+      "question": "What keeps the weaned pup alive before it feeds independently?",
+      "answer_beat_id": "b3"
+    }
+  ],
+  "review": {
+    "contradictions_reviewed": true,
+    "contradictions": []
+  },
+  "claims": [
+    {
+      "id": "c_nursing",
+      "status": "verified",
+      "source": "NOAA Fisheries — Harp Seal",
+      "source_url": "https://www.fisheries.noaa.gov/species/harp-seal",
+      "passage": "NOAA reports about 12 days of high-fat nursing, rapid daily weight gain, blubber development, then a post-weaning period on the ice without eating before independent feeding.",
+      "qualifiers": "Use about; do not imply every gram of growth is fat."
+    },
+    {
+      "id": "c_weaning",
+      "status": "verified",
+      "source": "Fisheries and Oceans Canada — Harp seal profile",
+      "source_url": "https://www.dfo-mpo.gc.ca/species-especes/profiles-profils/harpseal-phoquegroenland-eng.html",
+      "passage": "DFO reports pups are nursed for about 12 days, gain more than 2.2 kg per day, and females leave the ice after the pups are weaned.",
+      "qualifiers": "Female mating after departure is factual but omitted because it does not answer the pup food-gap question."
+    },
+    {
+      "id": "c_ice",
+      "status": "verified",
+      "source": "Fisheries and Oceans Canada — CEMAM 2012–2014",
+      "source_url": "https://www.dfo-mpo.gc.ca/species-especes/publications/mammals-mammiferes/cemam/2012-2014/10-eng.html",
+      "passage": "DFO reports young harp seals need stable ice for nursing and post-weaning resting; storms can break poor ice and force young seals into water where they can drown.",
+      "qualifiers": "Say can, not that every pup drowns or that entering water itself is always fatal."
+    },
+    {
+      "id": "c_independent",
+      "status": "verified",
+      "source": "NOAA Fisheries — Harp Seal",
+      "source_url": "https://www.fisheries.noaa.gov/species/harp-seal",
+      "passage": "NOAA reports that after the post-weaning fast pups eventually enter the water and begin feeding on their own.",
+      "qualifiers": "Use surviving pups / begin; do not guarantee the outcome for a particular illustrated pup."
+    }
+  ],
+  "visual": {
+    "location": "North Atlantic pack ice and nearby open water",
+    "opening_object": "mother harp seal and white-coated pup on pack ice",
+    "final_object": "older spotted juvenile resting at the ice edge",
+    "subject_sheet": "Adult harp seal: streamlined silver-gray body with natural dark markings and short foreflippers. Newborn/young pup: compact body in a white lanugo coat during nursing. Older juvenile after moulting: gray-spotted coat, still juvenile proportions. Never draw human-like limbs, hands, tears, clothing, collars, or adult saddle markings on a young pup.",
+    "continuity_loop_safe": false,
+    "style": "Painterly natural-history illustration, cinematic but anatomically grounded, vertical 9:16 for the Short, North Atlantic pack ice, slate-blue water and soft overcast light, consistent mother and pup identity, no text, no lettering, no logos, no humans or equipment. ",
+    "end_rule": " Keep the same camera position, framing, lighting, animal identity and developmental stage within a shot; change only the declared action.",
+    "negative": "people, human equipment, text, letters, numbers, watermark, logo, cartoon, anime, tears, duplicate seals, extra limbs, deformed anatomy, adult markings on a white pup, newborn coat after the juvenile moult, fabricated rescue"
+  },
+  "beats": [
+    {
+      "id": "b1",
+      "role": "setup",
+      "development": "action",
+      "new_information": "The mother provides a short nursing period and then leaves after weaning.",
+      "critical_visual": true,
+      "caption": "ABOUT 12 DAYS, THEN GONE",
+      "claim_ids": [
+        "c_nursing",
+        "c_weaning"
+      ],
+      "duration_sec": 6.7,
+      "vo": "Why is this harp seal the worst mother? She nurses her pup for about twelve days. Then she leaves.",
+      "visual_beats": [
+        {
+          "id": "b1s1",
+          "anchor_phrase": "nurses her pup",
+          "purpose": "action",
+          "chronology": "present before departure",
+          "state_before": "mother harp seal lying beside her white-coated pup on stable pack ice, pup close against her belly",
+          "state_after": "same mother and white-coated pup in clear nursing contact on stable pack ice",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            2.7
+          ],
+          "motion": "Locked camera. The white-coated pup shifts into nursing contact with the mother; she remains calm and still. No morphing, no size change."
+        },
+        {
+          "id": "b1s2",
+          "anchor_phrase": "Then she leaves",
+          "purpose": "consequence",
+          "chronology": "departure after weaning",
+          "state_before": "same mother and white-coated pup together on pack ice near open water",
+          "state_after": "mother moving toward the water while the pup remains clearly visible on the ice behind her",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            4
+          ],
+          "motion": "Locked camera. The mother moves away toward open water while the pup stays on the ice. Do not add emotion or a rescue."
+        }
+      ]
+    },
+    {
+      "id": "b2",
+      "role": "hinge",
+      "development": "constraint",
+      "new_information": "Milk meals stop before independent feeding begins.",
+      "critical_visual": true,
+      "caption": "NO MORE MILK",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "duration_sec": 6.2,
+      "vo": "No more meals from Mom. And it is not ready to feed itself. So what keeps it alive?",
+      "visual_beats": [
+        {
+          "id": "b2s1",
+          "anchor_phrase": "No more meals from Mom",
+          "purpose": "consequence",
+          "chronology": "after weaning",
+          "state_before": "white-coated recently weaned pup alone on stable pack ice, mother absent from the frame",
+          "state_after": "same pup resting alone on the ice, mother still absent, no fish or feeding adult present",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3
+          ],
+          "motion": "Locked camera. The pup raises its head and settles again; the mother does not re-enter the frame."
+        },
+        {
+          "id": "b2s2",
+          "anchor_phrase": "not ready to feed itself",
+          "purpose": "constraint",
+          "chronology": "after weaning",
+          "state_before": "same recently weaned pup at a safe distance from the ice edge",
+          "state_after": "same pup watching the water from the ice without catching or eating prey",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3.2
+          ],
+          "motion": "Locked camera. The pup shuffles slightly toward the ice edge and looks at the water; it does not catch a fish."
+        }
+      ]
+    },
+    {
+      "id": "b3",
+      "role": "mechanism",
+      "development": "mechanism",
+      "new_information": "Before departure, high-fat milk rapidly built energy reserves and blubber.",
+      "critical_visual": true,
+      "caption": "~5 LB / DAY",
+      "claim_ids": [
+        "c_nursing",
+        "c_weaning"
+      ],
+      "duration_sec": 5.8,
+      "vo": "Before leaving, her milk helps it gain about five pounds a day and build fat reserves.",
+      "visual_beats": [
+        {
+          "id": "b3s1",
+          "anchor_phrase": "Before leaving",
+          "purpose": "mechanism",
+          "chronology": "FLASHBACK before departure",
+          "state_before": "clearly signposted flashback: mother and younger white-coated pup together during the nursing period on stable ice",
+          "state_after": "same nursing pair in close contact, pup visibly healthy but not artificially inflated or morphed",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3
+          ],
+          "motion": "Locked camera. Restrained nursing movement only. Do not inflate the pup or imply all gained mass is fat."
+        },
+        {
+          "id": "b3s2",
+          "anchor_phrase": "build fat reserves",
+          "purpose": "evidence",
+          "chronology": "FLASHBACK before departure",
+          "state_before": "close natural-history cutaway concept of the same pup after nursing, normal external body shape",
+          "state_after": "same pup with a subtle non-text visual cue indicating a thicker insulating energy-reserve layer beneath the skin",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            2.8
+          ],
+          "motion": "Locked camera. Use a restrained explanatory overlay/cutaway to indicate stored energy beneath the skin; do not change the animal's overall size in the shot."
+        }
+      ]
+    },
+    {
+      "id": "b4",
+      "role": "mechanism",
+      "development": "mechanism",
+      "new_information": "After weaning, the pup uses those stored reserves during the fasting period.",
+      "critical_visual": true,
+      "caption": "LIVING ON RESERVES",
+      "claim_ids": [
+        "c_nursing"
+      ],
+      "duration_sec": 3,
+      "vo": "That fat becomes its food supply for weeks.",
+      "visual_beats": [
+        {
+          "id": "b4s1",
+          "anchor_phrase": "food supply for weeks",
+          "purpose": "mechanism",
+          "chronology": "return to after weaning",
+          "state_before": "recently weaned pup resting on pack ice after the flashback, mother absent",
+          "state_after": "same pup resting on the ice, slightly later in the post-weaning period, with no feeding event shown",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3
+          ],
+          "motion": "Locked camera. Gentle breathing and a small head movement; time passage is implied by the cut, not by shrinking or rapid morphing."
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "role": "escalation",
+      "development": "limitation",
+      "new_information": "Stored energy does not remove the pup's dependence on sufficiently stable ice.",
+      "critical_visual": true,
+      "caption": "THE ICE MUST HOLD",
+      "claim_ids": [
+        "c_ice"
+      ],
+      "duration_sec": 8.9,
+      "vo": "But there is a catch. The pup still needs ice while its diving ability develops. If storms break it up too early, young pups can drown.",
+      "visual_beats": [
+        {
+          "id": "b5s1",
+          "anchor_phrase": "still needs ice",
+          "purpose": "consequence",
+          "chronology": "post-weaning",
+          "state_before": "older juvenile-stage harp seal resting on a broad stable ice pan beside dark water",
+          "state_after": "same juvenile still resting while cracks and separated ice pans become visible farther away, its immediate platform still intact",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            4.3
+          ],
+          "motion": "Locked camera. Distant ice shifts and small cracks open away from the pup; keep the pup's resting platform intact."
+        },
+        {
+          "id": "b5s2",
+          "anchor_phrase": "storms break it up too early",
+          "purpose": "limitation",
+          "chronology": "conditional scenario",
+          "state_before": "conditional weather view: juvenile on a smaller ice pan as wind roughens the surrounding water",
+          "state_after": "same scene with the resting space reduced by broken ice around the pan; the pup remains visible and alive",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            4.6
+          ],
+          "motion": "Locked camera. Wind and waves move broken ice around the pup's platform. Show loss of resting space, not a graphic drowning or guaranteed death."
+        }
+      ]
+    },
+    {
+      "id": "b6",
+      "role": "reversal",
+      "development": "consequence",
+      "new_information": "Surviving pups eventually begin feeding independently.",
+      "critical_visual": true,
+      "caption": "FEEDING FOR ITSELF",
+      "claim_ids": [
+        "c_independent"
+      ],
+      "duration_sec": 2.4,
+      "vo": "Surviving pups begin feeding for themselves.",
+      "visual_beats": [
+        {
+          "id": "b6s1",
+          "anchor_phrase": "feeding for themselves",
+          "purpose": "consequence",
+          "chronology": "later juvenile outcome",
+          "state_before": "correctly aged gray-spotted juvenile harp seal just below the water surface near pack ice, no adult present",
+          "state_after": "same gray-spotted juvenile pursuing a small fish underwater, still juvenile in appearance",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            2.4
+          ],
+          "motion": "Locked underwater camera. The juvenile swims toward a small fish and begins a natural foraging attempt; no adult appears."
+        }
+      ]
+    },
+    {
+      "id": "b7",
+      "role": "verdict",
+      "development": "reinterpretation",
+      "new_information": "The mother's milk bought time, but the outcome still depends on the pup and its environment.",
+      "critical_visual": true,
+      "caption": "HER MILK BUYS TIME",
+      "claim_ids": [
+        "c_nursing",
+        "c_ice"
+      ],
+      "duration_sec": 7,
+      "vo": "She left it with fuel, not a guarantee. Her milk buys time. The ice has to last.",
+      "visual_beats": [
+        {
+          "id": "b7s1",
+          "anchor_phrase": "fuel, not a guarantee",
+          "purpose": "consequence",
+          "chronology": "later juvenile",
+          "state_before": "same gray-spotted juvenile back on a stable ice platform after the foraging scene, mother absent",
+          "state_after": "same juvenile resting at the edge of stable ice with open water nearby",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3.2
+          ],
+          "motion": "Locked camera. The juvenile climbs fully onto the ice and settles; no mother returns."
+        },
+        {
+          "id": "b7s2",
+          "anchor_phrase": "ice has to last",
+          "purpose": "callback",
+          "chronology": "final state",
+          "state_before": "same older juvenile resting on stable ice, open water and neighboring ice pans visible",
+          "state_after": "same final composition with a gentle swell and drifting ice, juvenile still secure on its resting platform",
+          "visual_proof": true,
+          "duration": 5,
+          "use": [
+            0,
+            3.8
+          ],
+          "motion": "Locked camera. Only water and distant ice drift subtly while the juvenile rests. Hold on the dependency; do not dissolve back to a newborn."
+        }
+      ]
+    }
+  ]
+}

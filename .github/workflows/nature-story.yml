@@ -1,0 +1,38 @@
+name: Nature Story
+
+on:
+  push:
+    branches: [feat/nature-story-unified-flow]
+    paths:
+      - 'nature_story_flow.py'
+      - 'nature_channel.py'
+      - 'longform_evidence.py'
+      - 'scripts/nature_story.py'
+      - 'scripts/keyframe_short.py'
+      - 'spec/*nature_story.json'
+      - 'tests/test_nature_story_flow.py'
+      - '.github/workflows/nature-story.yml'
+  pull_request:
+    paths:
+      - 'nature_story_flow.py'
+      - 'nature_channel.py'
+      - 'longform_evidence.py'
+      - 'scripts/nature_story.py'
+      - 'scripts/keyframe_short.py'
+      - 'spec/*nature_story.json'
+      - 'tests/test_nature_story_flow.py'
+      - '.github/workflows/nature-story.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall -q nature_story_flow.py nature_channel.py scripts/nature_story.py
+      - run: python scripts/nature_story.py spec/harp_seal_nature_story.json validate
+      - run: python scripts/nature_story.py spec/harp_seal_nature_story.json storyboard
+      - run: python scripts/nature_story.py spec/harp_seal_nature_story.json compile-short
+      - run: python scripts/nature_story.py spec/harp_seal_nature_story.json long-request
