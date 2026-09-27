@@ -71,6 +71,7 @@ py-modules = [
     "music_assets",
     "nature_channel",
     "nature_retention_storyboard",
+    "nature_render_quality",
     "nature_short_presentation",
     "nature_story_flow",
     "overlays",

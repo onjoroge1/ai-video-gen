@@ -106,7 +106,7 @@ def create_server(client: ReelForgeClient | None = None) -> FastMCP:
     async def propose_directed_pilot(
             bundled_spec_id: Literal[
                 "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
-                "giant_pacific_octopus_nature_short_v2"],
+                "giant_pacific_octopus_nature_short_v2", "giant_pacific_octopus_nature_short_v3"],
             cost_ceiling_usd: float) -> dict:
         """Prepare one exact bundled directed pilot without spending and return its approval URL.
 

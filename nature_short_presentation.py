@@ -22,7 +22,9 @@ V3_VERSION = "nature_short_presentation_v3"
 
 
 def _presentation_version(direction):
-    return V3_VERSION if getattr(direction, "version", "") == "nature_short_v3" else VERSION
+    if getattr(direction, "version", "") == "nature_short_v4":
+        return "nature_short_presentation_v4"
+    return V3_VERSION if getattr(direction, "version", "") in {"nature_short_v3", "nature_short_v4"} else VERSION
 
 
 def narration_identity(text, voice, direction):
@@ -90,13 +92,26 @@ def measured_holds(shots, indexed_scenes, audio_paths, ep, maximum, minimum,
 def caption_cues(text, words, duration):
     """Keep authored words; align matching tokens to measured speech, interpolate gaps."""
     tokens = text.split()
-    norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
-    reference = [norm(w) for w in tokens]
-    observed = [norm(str(w[0])) for w in words]
-    aligned = {}
+    def pieces(value):
+        return re.findall(r"[a-z0-9]+", value.lower())
+    reference, owners = [], []
+    for i, token in enumerate(tokens):
+        parts = pieces(token)
+        reference.extend(parts); owners.extend([i] * len(parts))
+    observed, observed_times = [], []
+    for word, start, end in words:
+        parts = pieces(str(word))
+        observed.extend(parts); observed_times.extend([(start, end)] * len(parts))
+    matches = {}
     for a, b, size in difflib.SequenceMatcher(None, reference, observed, autojunk=False).get_matching_blocks():
         for n in range(size):
-            aligned[a+n] = (max(0., float(words[b+n][1])), min(duration, float(words[b+n][2])))
+            matches[a+n] = observed_times[b+n]
+    aligned = {}
+    for i in range(len(tokens)):
+        indices = [j for j, owner in enumerate(owners) if owner == i]
+        if indices and all(j in matches for j in indices):
+            aligned[i] = (max(0., float(matches[indices[0]][0])),
+                          min(duration, float(matches[indices[-1]][1])))
     quality = len(aligned) / max(1, len(tokens))
     cues = []
     for start in range(0, len(tokens), 3):
@@ -128,6 +143,8 @@ def prepare_captions(indexed_scenes, audio_paths, ep, out, direction=None):
               "estimated_cost_usd": len(indexed_scenes) * .006,
               "human_timing_review_required": any(q["matched_token_fraction"] < .9 for q in quality)}
     (Path(out) / "nature_captions.json").write_text(json.dumps(result, indent=2))
+    if getattr(direction, "version", "") == "nature_short_v4" and result["human_timing_review_required"]:
+        raise ValueError("Nature caption alignment needs repair before image spending; see nature_captions.json")
     return result
 
 
@@ -329,7 +346,7 @@ def _caption_text(text):
     return re.sub(r"[{}\\\r\n]", " ", text).strip()
 
 
-def write_ass(path, cues, tags, width, height):
+def write_ass(path, cues, tags, width, height, font_name="DejaVu Sans"):
     # Captions are rendered after all crop/zoom operations at delivery dimensions.
     # 84px is 4.4% of 1920; three words wrap inside a deliberately narrow safe box.
     size = round(height * .040)
@@ -341,8 +358,8 @@ PlayResY: {height}
 WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Speech,DejaVu Sans,{size},&H00FFFFFF,&H0000D9FF,&H00101018,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,{margin_l},{margin_r},{round(height*.23)},1
-Style: Tag,DejaVu Sans,{round(size*.72)},&H0000D9FF,&H0000D9FF,&H00101018,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,8,{margin_l},{margin_r},{round(height*.10)},1
+Style: Speech,{font_name},{size},&H00FFFFFF,&H0000D9FF,&H00101018,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,{margin_l},{margin_r},{round(height*.23)},1
+Style: Tag,{font_name},{round(size*.72)},&H0000D9FF,&H0000D9FF,&H00101018,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,8,{margin_l},{margin_r},{round(height*.10)},1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
@@ -405,7 +422,9 @@ def final_treatment(preview, out, spec, shots, holds, captions, scene_starts, ep
                          "labels":shot.get("labels",[])})
         cursor += hold
     ass = Path(out)/"nature_captions.ass"
-    write_ass(ass, captions["cues"], tags, width, height)
+    from nature_render_quality import prepare_font, ass_filter, verify_captions
+    fonts, font_name = prepare_font(out)
+    write_ass(ass, captions["cues"], tags, width, height, font_name=font_name)
     bed = Path(out)/"nature_pulse.wav"
     temp = str(preview)+".treated.mp4"
     args = [ep._ffmpeg_bin(),"-nostdin","-y","-i",preview]
@@ -413,7 +432,7 @@ def final_treatment(preview, out, spec, shots, holds, captions, scene_starts, ep
         ends = scene_starts[1:]+[cursor]
         quiet_spans = [(a,b) for scene,a,b in zip(spec.narration,scene_starts,ends)
                        if scene.story_role == "limitation"]
-        if spec.nature_short.version == "nature_short_v3":
+        if spec.nature_short.version in {"nature_short_v3", "nature_short_v4"}:
             # V3 uses structural sound changes: a short breath before the hatch/climax and a
             # quieter final reinterpretation. Constant pulse through the emotional turn was one
             # of the octopus v1 retention failures.
@@ -432,14 +451,16 @@ def final_treatment(preview, out, spec, shots, holds, captions, scene_starts, ep
                  "-map","0:v","-map","[a]"]
     else:
         args += ["-map","0:v","-map","0:a","-af","loudnorm=I=-16:TP=-2:LRA=8"]
-    # Escape characters significant in ffmpeg's subtitles filter path parser.
-    escaped = str(ass).replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\''")
-    args += ["-vf",f"ass=filename='{escaped}'","-c:v","libx264","-preset","veryfast","-crf","20",
+    args += ["-vf",ass_filter(ass, fonts),"-c:v","libx264","-preset","veryfast","-crf","20",
              "-c:a","aac","-b:a","160k","-movflags","+faststart",temp]
     ep._run_ffmpeg(args)
+    visibility = verify_captions(preview, temp, ass, fonts, captions["cues"], scene_starts, ep, out)
+    if not visibility["passed"]:
+        raise RuntimeError("Nature captions are absent from encoded pixels; caption visibility report saved")
     Path(temp).replace(preview)
     bed.unlink(missing_ok=True)
     return {"version":_presentation_version(spec.nature_short), "captions":"post-composition ASS",
             "sound_bed":spec.nature_short.sound_bed, "tts_model":spec.nature_short.tts_model,
             "caption_alignment":captions["alignment"],
-            "human_timing_review_required":captions["human_timing_review_required"]}
+            "human_timing_review_required":captions["human_timing_review_required"],
+            "caption_visibility":visibility}

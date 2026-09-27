@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
-RENDERED_GATE_VERSION = 1
+RENDERED_GATE_VERSION = 2
 RELEASE_SCORE = 85
 OPENING_AVG_STATE_RANGE = (1.8, 3.2)
 OPENING_MAX_STATE_SECONDS = 3.5
@@ -727,15 +727,18 @@ def build_contact_sheet(inspection: dict, output_path: str) -> str:
     frames = inspection.get("frames") or []
     if not frames:
         raise ValueError("No chronological frames are available for the contact sheet.")
-    thumb_w, thumb_h, label_h, columns = 320, 180, 42, 3
+    with Image.open(frames[0]["frame_path"]) as first:
+        portrait = first.height > first.width
+    thumb_w, thumb_h, label_h, columns = (270, 480, 42, 3) if portrait else (320, 180, 42, 3)
     rows = math.ceil(len(frames) / columns)
     sheet = Image.new("RGB", (columns * thumb_w, rows * (thumb_h + label_h)), "#101216")
     draw = ImageDraw.Draw(sheet)
     font = ImageFont.load_default()
     for index, frame in enumerate(frames):
         x, y = (index % columns) * thumb_w, (index // columns) * (thumb_h + label_h)
-        image = Image.open(frame["frame_path"]).convert("RGB").resize((thumb_w, thumb_h))
-        sheet.paste(image, (x, y))
+        image = Image.open(frame["frame_path"]).convert("RGB")
+        image.thumbnail((thumb_w, thumb_h))
+        sheet.paste(image, (x + (thumb_w-image.width)//2, y + (thumb_h-image.height)//2))
         label = f"{index + 1:02d}  {float(frame.get('midpoint_sec') or 0):05.1f}s"
         draw.text((x + 8, y + thumb_h + 8), label, fill="white", font=font)
     sheet.save(output_path, "JPEG", quality=90)
@@ -797,7 +800,8 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     add("Opening promise and anomaly", _fraction_score(15, [
         blind.get("subject_readable"), blind.get("anomaly_readable"),
         bool(_text(blind.get("reason_to_continue")))]), 15)
-    add("Human objective and developing investigation", _fraction_score(15, [
+    add("Subject and developing story" if deterministic.get("rubric_lane") == "nature_short"
+        else "Human objective and developing investigation", _fraction_score(15, [
         blind.get("subject_readable"), blind.get("objective_readable"),
         blind.get("investigation_develops"), blind.get("belief_change_earned"),
         bool(_text(blind.get("observed_objective")))]), 15)
@@ -813,8 +817,10 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         not deterministic.get("slideshow"),
         deterministic.get("source_change_ratio", 0) >= source_threshold,
         deterministic.get("pixel_boundary_change_ratio", 0) >= 0.45]), 15)
-    add("Bolt discipline and usefulness", _fraction_score(10, [
-        deterministic.get("bolt_shot_ratio", 0) <= 0.35,
+    cast_free = deterministic.get("cast_mode") == "none"
+    add("Cast discipline" if cast_free else "Bolt discipline and usefulness",
+        (10 if deterministic.get("bolt_shot_count", 0) == 0 else 0) if cast_free else
+        _fraction_score(10, [deterministic.get("bolt_shot_ratio", 0) <= 0.35,
         deterministic.get("pure_evidence_bolt_violations", 0) == 0,
         blind.get("bolt_useful") and deterministic.get("bolt_shot_ratio", 0) > 0]), 10)
     checks = story_validation.get("checks") if isinstance(story_validation, dict) else {}
@@ -824,14 +830,16 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     lo, hi = OPENING_AVG_STATE_RANGE
     add("Visual pacing measured from the MP4", _fraction_score(5, [
         lo <= float(deterministic.get("average_visual_state_sec") or 999) <= hi,
-        float(deterministic.get("max_visual_state_sec") or 999) <= OPENING_MAX_STATE_SECONDS]), 5)
+        float(deterministic.get("max_unchanged_state_sec", deterministic.get("max_visual_state_sec", 999)))
+        <= float(deterministic.get("unchanged_state_limit_sec") or OPENING_MAX_STATE_SECONDS)]), 5)
     add("Scientific accuracy and claim support", 5 if claim_validation.get("passed") else 0, 5)
     add("Audio, captions, and comprehension", _fraction_score(3, [
         blind.get("comprehensible_audio_story"), not blind.get("captions_obscure_evidence")]), 3)
     add("Runtime and technical delivery", _fraction_score(2, [
         deterministic.get("decodable"), deterministic.get("shot_count", 0) > 0]), 2)
 
-    total = sum(item["score"] for item in components)
+    raw_total = sum(item["score"] for item in components)
+    total = raw_total
     hard_failures = []
     story_codes = {item.get("code") for item in story_validation.get("errors") or []}
     if not deterministic.get("decodable"):
@@ -857,6 +865,8 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
     if (_text(deterministic.get("cast_mode")) or "recurring") != "none" \
             and int(deterministic.get("bolt_shot_count") or 0) <= 0:
         hard_failures.append("bolt_absent")
+    if deterministic.get("action_review_failures"):
+        hard_failures.append("nature_action_not_verified")
     if deterministic.get("long_hold_count", 0):
         hard_failures.append("long_visual_hold")
     average_state = float(deterministic.get("average_visual_state_sec") or 999)
@@ -920,6 +930,12 @@ def score_rendered_contract(*, deterministic: dict, blind: dict, story_validatio
         "name": "Bolt Long-Form Rendered Contract",
         "score": automated_score,
         "percent": automated_score,
+        "raw_score": raw_total if judge_available else None,
+        "score_cap": (49 if "slideshow_behavior" in hard_failures else
+                      59 if "unsupported_major_claim" in hard_failures else
+                      69 if hard_failures else None),
+        "hold_failures": deterministic.get("hold_failures", []),
+        "action_review_failures": deterministic.get("action_review_failures", []),
         "grade": ("UNSCORED" if automated_score is None else
                   "A" if total >= 90 else "B" if total >= 85 else
                   "C" if total >= 70 else "D" if total >= 60 else "F"),
@@ -1031,7 +1047,7 @@ def rendered_grade_summary(contract: dict | None, directed_spec: dict | None = N
 
 HUMAN_REVIEW_CHECKLIST = [
     "The title/thumbnail promise is visible in the opening.",
-    "The human subject, objective, and anomaly are immediately readable.",
+    "The subject, objective, and anomaly are immediately readable.",
     "Each cut adds evidence or advances the investigation.",
     "Bolt appears only when performing useful story work.",
     "Captions do not obscure evidence.",

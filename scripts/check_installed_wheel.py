@@ -18,11 +18,11 @@ sys.path.insert(0, str(root))
 import app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus
 import claim_entailment, cost_ledger, event_functions, prompt_contract
 import story_compiler, story_fact_model, story_planning, research_handoff, topic_fit
-import nature_retention_storyboard, nature_short_presentation, nature_story_flow
+import nature_retention_storyboard, nature_short_presentation, nature_story_flow, nature_render_quality
 for module in (app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus,
                claim_entailment, cost_ledger, event_functions, prompt_contract,
                story_compiler, story_fact_model, story_planning, research_handoff, topic_fit,
-               nature_retention_storyboard, nature_short_presentation, nature_story_flow):
+               nature_retention_storyboard, nature_short_presentation, nature_story_flow, nature_render_quality):
     assert pathlib.Path(module.__file__).resolve().is_relative_to(root), module.__file__
 assert len(reference_corpus.load()) == 7
 assert reference_corpus.coverage()['backfiring_solution'] == 2
@@ -38,6 +38,10 @@ octopus_episode = json.loads((root / 'spec' / 'giant_pacific_octopus_nature_stor
 octopus_bundle = json.loads((root / 'spec' / 'giant_pacific_octopus_nature_short_v2.json').read_text())
 assert nature_story_flow.compile_directed_short(octopus_episode) == octopus_bundle
 assert nature_retention_storyboard.score_directed_spec(octopus_bundle)['score'] == 100
+new_episode = json.loads((root / 'spec' / 'giant_pacific_octopus_nature_story_v3.json').read_text())
+new_bundle = json.loads((root / 'spec' / 'giant_pacific_octopus_nature_short_v3.json').read_text())
+assert nature_story_flow.compile_directed_short(new_episode) == new_bundle
+assert app._bundled_directed_spec('giant_pacific_octopus_nature_short_v3') == new_bundle
 assert 'stated_policy_goal' in story_compiler.factual_plan_prompt('test', 90, 8, 'backfiring_solution')
 print('Installed wheel: imports, seven references, channel profiles, approval page, bundled pilots and Nature compiler passed')
 '''

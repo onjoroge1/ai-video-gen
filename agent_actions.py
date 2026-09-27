@@ -221,7 +221,7 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
                        providers={"narration": {"provider": "openai", "model": nature["tts_model"]},
                                   "caption_alignment": {"provider": "openai", "model": "whisper-1"}},
                        estimate_basis="Includes directed voice, word timing, the approved storyboard images and motion shots. Final duration follows measured narration; provider reservations are estimates.")
-            if nature.get("version") == "nature_short_v3":
+            if nature.get("version") in {"nature_short_v3", "nature_short_v4"}:
                 import nature_retention_storyboard as nrs
                 retention = nrs.score_directed_spec(payload)
                 out.update(
@@ -232,6 +232,12 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
                         "measured voice animatic -> still contact sheet -> "
                         "generated-image diversity gate -> motion"),
                 )
+            if nature.get("version") == "nature_short_v4":
+                out["pre_spend_flow"] = ("independent script review -> measured voice and captions -> "
+                    "source-image review -> motion action review -> encoded caption check")
+                out["estimate_basis"] = ("Includes voice, word timing, images, motion, and independent script, "
+                    "image and action reviews. Measured pacing may accelerate speech by at most 15%. "
+                    "Provider reservations are estimates; the approved ceiling remains binding.")
     elif operation == GENERIC_ILLUSTRATED_OPERATION:
         recipe = payload.get("request") or {}
         out.update(scope=payload.get("scope"), duration_sec=recipe.get("duration_sec"),
