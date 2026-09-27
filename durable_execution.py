@@ -61,11 +61,73 @@ def normalize_durable_job_max_cost_env() -> float:
 normalize_durable_job_max_cost_env()
 
 
+RESEARCH_BUDGET_RECOVERY = "research_search_budget_recovery_v1"
+_RESERVATION_FAILURE = re.compile(
+    r"Stage (anthropic:[0-9a-f]{32}) reserves \$([0-9]+\.[0-9]{4}); "
+    r"the single-call ceiling is \$([0-9]+\.[0-9]{4})")
+
+
+def research_budget_recovery(job: dict) -> dict:
+    """Recognize an unspent search-sized overflow, without changing any job state.
+
+    Dispatch additionally locks and reconciles the stage ledger. This intentionally excludes
+    settlement overruns, total-budget exhaustion and all content/quality failures.
+    """
+    match = _RESERVATION_FAILURE.fullmatch(str(job.get("error") or ""))
+    if not match or job.get("status") != "error":
+        return {}
+    stage_key, reserve, ceiling = match.group(1), float(match.group(2)), float(match.group(3))
+    if (not 0 < reserve - ceiling <= .0601 or ceiling <= 0
+            or abs(float(job.get("max_inflight_call_usd") or 0) - ceiling) > .000051
+            or job.get("lease_owner") or job.get("lease_expires_at")
+            or float(job.get("reserved_cost_usd") or 0) != 0
+            or float(job.get("spent_cost_usd") or 0) + ceiling
+            > float(job.get("max_cost_usd") or 0) + 1e-9
+            or not re.fullmatch(r"[0-9a-f]{64}", str((job.get("checkpoint") or {}).get("sha256") or ""))
+            or (job.get("result") or {}).get(RESEARCH_BUDGET_RECOVERY)):
+        return {}
+    return {"stage_key": stage_key, "reserve": reserve, "ceiling": ceiling}
+
+
 class PostgresStore(_legacy.PostgresStore):
     """PR7/PR8 additions to the durable job store without weakening the PR6 engine."""
 
     _pilot_schema_ready = False
     _production_schema_ready = False
+
+    def resume_research_budget_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
+        """One explicit recovery of a rejected, unpurchased call under unchanged limits."""
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_checkpoint_sha256):
+            raise DurableExecutionError("Budget recovery requires the saved checkpoint hash")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if job.get("status") in {"queued", "processing"}:
+                return job
+            block = research_budget_recovery(job)
+            if (not block or (job.get("checkpoint") or {}).get("sha256")
+                    != expected_checkpoint_sha256):
+                raise DurableExecutionError("Job is not eligible for research-budget recovery")
+            cur.execute("""
+                SELECT stage_key,status FROM generation_stages WHERE job_id=%s
+                AND (stage_key=%s OR status NOT IN ('completed','incomplete')) FOR UPDATE
+            """, (job_id, block["stage_key"]))
+            if cur.fetchall():
+                raise DurableExecutionError("Research recovery has an existing or unresolved provider stage")
+            patch = {RESEARCH_BUDGET_RECOVERY: {
+                "checkpoint_sha256": expected_checkpoint_sha256,
+                "stage_key": block["stage_key"], "prior_error": job["error"],
+            }}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (json.dumps(patch), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed",
+                          "Research resumed within the existing spending limits")
+        return row
 
     def resume_provider_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
         """One explicit resume of a provider account block, for any topic or stage.

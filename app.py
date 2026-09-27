@@ -3337,6 +3337,27 @@ async def get_agent_action(action_id: str, request: Request):
     return agent_actions.public_action(action, include_private=True)
 
 
+def _agent_restart_state(action: dict, job: dict) -> dict:
+    """Expose a bounded recovery choice; dispatch remains the authoritative check."""
+    import provider_blocks
+    if action.get("status") != "queued" or action.get("job_id") != job.get("id"):
+        return {"eligible": False, "message": "No approved job is available to restart."}
+    if provider_blocks.for_job(job):
+        return {"eligible": True, "kind": "provider_access",
+                "message": "Restore provider access, then resume this job using saved work and the original budget."}
+    if (action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+            and durable_execution.research_budget_recovery(job)):
+        return {"eligible": True, "kind": "research_budget",
+                "message": "Research can resume with fewer permitted searches. Completed work and both spending limits are preserved."}
+    if (job.get("status") in {"queued", "retry"}
+            and not job.get("lease_owner") and not job.get("lease_expires_at")
+            and int(job.get("attempts") or 0) < int(job.get("max_attempts") or 0)):
+        return {"eligible": True, "kind": "dispatch",
+                "message": "Continue this approved job from its saved progress."}
+    return {"eligible": False,
+            "message": "This failure needs repair before it can be restarted. Completed work is retained."}
+
+
 @app.get("/api/agent/actions/{action_id}/public-status")
 async def get_agent_action_public_status(action_id: str, after: int = 0):
     """Read-only, non-sensitive status for an opaque approved action id.
@@ -3380,6 +3401,7 @@ async def get_agent_action_public_status(action_id: str, after: int = 0):
                     "status": job_status,
                     "error": provider_block.get("message") or _public_agent_text(row.get("error")),
                     "provider_block": provider_block,
+                    "restart": _agent_restart_state(action, row),
                     "spent_cost_usd": float(row.get("spent_cost_usd") or 0),
                     "reserved_cost_usd": float(row.get("reserved_cost_usd") or 0),
                     "max_cost_usd": float(row.get("max_cost_usd") or 0),
@@ -3641,7 +3663,15 @@ async def dispatch_agent_action(action_id: str, request: Request):
         store, blob = _durable_components()
         job = await asyncio.to_thread(store.get_job, str(action["job_id"]))
         import provider_blocks
-        if job and provider_blocks.for_job(job):
+        if (job and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and durable_execution.research_budget_recovery(job)):
+            try:
+                await asyncio.to_thread(
+                    store.resume_research_budget_block, str(action["job_id"]),
+                    expected_checkpoint_sha256=job["checkpoint"]["sha256"])
+            except durable_execution.DurableExecutionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+        elif job and provider_blocks.for_job(job):
             await asyncio.to_thread(
                 store.resume_provider_block, str(action["job_id"]),
                 expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))

@@ -4708,9 +4708,23 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     messages = [{"role": "user", "content": prompt}]
     responses = []
     search_requests = 0
+    import durable_execution
     max_continuations = 1 if evidence_gaps else 3
     for continuation in range(max_continuations + 1):
-        response = client.messages.create(**request, messages=messages)
+        try:
+            response = client.messages.create(**request, messages=messages)
+        except durable_execution.SingleCallReservationExceeded as exc:
+            # Nothing reached the provider. Preserve the output needed for the full dossier;
+            # reduce real search permissions instead of under-reserving or raising a ceiling.
+            fitted = durable_execution.fit_anthropic_search_request(
+                {**request, "messages": messages}, exc.ceiling)
+            if fitted is None or fitted["tools"] == request["tools"]:
+                raise
+            request = {**request, "tools": fitted["tools"]}
+            log(f"Research search allowance fitted to the existing ${exc.ceiling:.2f} "
+                f"single-call limit: {request['tools'][0]['max_uses']} searches; "
+                "output allowance unchanged")
+            response = client.messages.create(**request, messages=messages)
         responses.append(response)
         server_usage = getattr(response.usage, "server_tool_use", None)
         turn_searches = int(getattr(server_usage, "web_search_requests", 0) or 0)
