@@ -100,6 +100,28 @@ def test_upstream_failure_is_tool_error_without_retry_or_credential_leak():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize('artifact', ['nature-visual-review', 'nature-semantic-review'])
+def test_nature_reviews_are_scoped_saved_reads_over_real_protocol(artifact):
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        assert request.method == 'GET'
+        assert request.url.path == f'/api/agent/actions/{ACTION}/diagnostics'
+        assert request.url.params['artifact'] == artifact
+        assert request.headers['authorization'] == 'Bearer ' + 'r' * 48
+        return httpx.Response(200, json={'content': '{"passed": false}', 'source': 'saved_artifact'})
+    server = create_server(ReelForgeClient('https://studio.example', 'r' * 48,
+                                           httpx.MockTransport(upstream)))
+    async def run():
+        async with create_connected_server_and_client_session(server) as session:
+            result = await session.call_tool('get_video_diagnostics', {
+                'action_id': ACTION, 'artifact': artifact})
+            assert not result.isError
+            assert 'saved_artifact' in result.model_dump_json()
+    anyio.run(run)
+    assert len(calls) == 1
+
+
 def test_streamable_http_auth_and_protocol():
     token = "m" * 48
     server = create_server(ReelForgeClient("https://studio.example", transport=httpx.MockTransport(
