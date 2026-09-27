@@ -218,4 +218,12 @@ Use `compile-directed-short` with an episode that explicitly declares `presentat
 
 The opt-in renderer uses instructed speech, per-scene measured timing, portrait evidence-action motion, a consistent image reference, screen-space word captions, and original sound design. Source clip duration is distinct from the shorter edited hold. Existing generic, Quiz, Simulation, TV, landscape and older directed behavior remains the default. The v1 approved harp-seal hash is unchanged.
 
+For this durable v2 profile, measured speech defines both final runtime and each beat's shot holds.
+After TTS, duration outside the authored runtime or shot-cadence bands does not stop rendering,
+retime speech, or require another approval. Shot deviations are logged and saved as
+`nature_presentation.shot_timing_advisories` in the generation manifest. The rendered grade still
+uses actual holds; delivery is not a pacing pass. Missing or invalid media, approval and budget
+checks remain enforced. The cron may recover an already-approved job stopped by the old
+measured-shot error once, using its existing checkpoint and spend ledger.
+
 See `HARP_SEAL_RETENTION_AUDIT_2026-09-26.md` for the observed failures, source-backed rewrite, production defects and review criteria. A changed narration or voice requires a new immutable action. Do not resume the archived v1 job to buy v2 assets.
