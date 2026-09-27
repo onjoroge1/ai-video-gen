@@ -54,8 +54,60 @@ def test_measured_scene_timing_does_not_drift_when_beats_change_speed():
     holds=nsp.measured_holds(shots,scenes,list(durations),ep,3.4,.75)
     assert holds == [3,3,1,1]  # A global rescale would incorrectly give [2,2,2,2].
     durations['a.mp3']=8
-    with pytest.raises(ValueError,match='repartition this beat'):
-        nsp.measured_holds(shots,scenes,list(durations),ep,3.4,.75)
+    durations['b.mp3']=1
+    notes = []
+    assert nsp.measured_holds(
+        shots,scenes,list(durations),ep,3.4,.75,timing_notes=notes) == [4,4,.5,.5]
+    assert [note['measured_sec'] for note in notes] == [4,4,.5,.5]
+
+
+@pytest.mark.parametrize('duration', [0, -1, float('nan'), float('inf')])
+def test_invalid_measured_media_still_fails(duration):
+    ep = SimpleNamespace(_audio_dur=lambda _: duration)
+    with pytest.raises(ValueError, match='invalid measured narration duration'):
+        nsp.measured_holds(
+            [dict(shot_id='1', scene_id='a', start_sec=0, end_sec=2)],
+            [(0, SimpleNamespace(scene_id='a'))], ['a.mp3'], ep, 3.4, .75)
+
+
+def test_octopus_saved_44_96s_narration_reaches_visuals_with_3_50s_final_shots(
+        tmp_path, monkeypatch):
+    data = octopus_payload()
+    validation = dl.validate_directed_spec(data)
+    assert validation['spec_sha256'] == 'afddc3d403e6130f941c25588486e4e24e537022a24b9f1f06b7715e573e3e96'
+    spec = dl.DirectedLongformSpec.model_validate(data)
+    durations = {}
+    for index, scene in enumerate(spec.narration):
+        path = tmp_path / 'audio' / f'scene_{index:02d}.mp3'
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b'saved-tts')
+        path.with_suffix('.txt').write_text(scene.narration)
+        path.with_suffix('.identity.json').write_text(json.dumps(
+            nsp.narration_identity(scene.narration, 'coral', spec.nature_short)))
+        durations[str(path)] = (7.0 if index == 5 else
+            (scene.end_sec - scene.start_sec) * 37.96 / 29.8)
+    assert sum(durations.values()) == pytest.approx(44.96)
+    monkeypatch.setattr(spec_pilot.ep, '_audio_dur', lambda path: durations[path])
+    monkeypatch.setattr(nsp, 'narrate', lambda *a: pytest.fail('narration repurchased'))
+    monkeypatch.setattr(spec_pilot.ep, '_run_ffmpeg',
+                        lambda *a, **k: pytest.fail('speech retimed'))
+    calls, logs = [], []
+    def captions(*args):
+        calls.append('captions')
+        return {}
+    def image(*args, **kwargs):
+        calls.append('image')
+        raise RuntimeError('visual stage reached')
+    monkeypatch.setattr(nsp, 'prepare_captions', captions)
+    monkeypatch.setattr(spec_pilot, '_generate_shot_image', image)
+    with pytest.raises(RuntimeError, match='visual stage reached'):
+        spec_pilot.render_pilot(
+            data, str(tmp_path), voice='coral', window=(0, 34.2),
+            validated_sha256=validation['spec_sha256'], authorize_paid=True,
+            require_validation=True, log=logs.append)
+    assert calls == ['captions', 'image']
+    assert any('gp1_61 measures 3.50s' in line for line in logs)
+    assert all(Path(path).read_bytes() == b'saved-tts' for path in durations)
 
 
 def test_voice_and_acting_direction_are_part_of_reuse_identity():

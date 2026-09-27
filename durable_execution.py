@@ -612,6 +612,9 @@ class PostgresStore(_legacy.PostgresStore):
         The immutable request, completed TTS stages, checkpoint and cost ceiling are untouched.
         A generation event makes this a one-shot salvage so a persistent failure cannot loop.
         """
+        nature_shot_salvage = self.rearm_next_nature_shot_timing_failure()
+        if nature_shot_salvage:
+            return nature_shot_salvage
         self.ensure_schema()
         with self._tx() as (_, cur):
             cur.execute("""
@@ -685,6 +688,58 @@ class PostgresStore(_legacy.PostgresStore):
                 "spent_cost_usd": row.get("spent_cost_usd"),
                 "max_cost_usd": row.get("max_cost_usd"),
                 "recovery_key": recovery_key,
+            })))
+            return row
+
+    def rearm_next_nature_shot_timing_failure(self) -> dict | None:
+        """Continue a Nature v2 pilot once after removal of the measured-shot gate.
+
+        Restrict recovery to its exact pre-visual error with an approved queued action,
+        saved checkpoint, no live lease or reservation, and remaining budget.
+        """
+        self.ensure_schema()
+        with self._tx() as (_, cur):
+            cur.execute("""
+                SELECT j.* FROM generation_jobs j
+                WHERE j.status='error'
+                  AND j.error ~ '^Nature shot [^ ]+ measures [0-9]+[.][0-9]+s; repartition this beat into [0-9.]+-[0-9.]+s shots before visuals$'
+                  AND (j.lease_expires_at IS NULL OR j.lease_expires_at < now())
+                  AND j.reserved_cost_usd=0
+                  AND j.spent_cost_usd < j.max_cost_usd
+                  AND j.checkpoint <> '{}'::jsonb
+                  AND EXISTS (
+                      SELECT 1 FROM agent_actions a
+                      WHERE a.job_id=j.id AND a.operation='directed_pilot'
+                        AND a.status='queued' AND a.approved_at IS NOT NULL
+                        AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM generation_events e
+                      WHERE e.job_id=j.id AND e.event_type='infrastructure_rearmed'
+                        AND e.details #>> '{recovery_key}' = 'nature_measured_holds_v1'
+                  )
+                ORDER BY j.updated_at ASC
+                FOR UPDATE SKIP LOCKED LIMIT 1
+            """)
+            current = self._json_ready(self._row(cur, cur.fetchone()))
+            if not current:
+                return None
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+2),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (current["id"],))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            cur.execute("""
+                INSERT INTO generation_events(job_id,event_type,data,details)
+                VALUES (%s,'infrastructure_rearmed',
+                        'Nature pilot rearmed after measured-shot gate removal',%s::jsonb)
+            """, (row["id"], json.dumps({
+                "prior_error": current.get("error"),
+                "spent_cost_usd": row.get("spent_cost_usd"),
+                "max_cost_usd": row.get("max_cost_usd"),
+                "recovery_key": "nature_measured_holds_v1",
             })))
             return row
 

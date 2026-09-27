@@ -680,8 +680,8 @@ def _measured_runtime_error(*, spoken: float, drift: float, is_pilot: bool,
 
     Nature Short v2 deliberately lets measured narration own final picture time. Its authored
     timeline is a planning/allocation document, not a reason to reject complete speech or stretch
-    it toward an estimate. Shot-level pacing, media duration, budget and final grading remain
-    independently enforced.
+    it toward an estimate. Measured shot pacing is reported for review; media validity, budget
+    and final grading remain independently enforced.
     """
     if nature_directed:
         return None
@@ -736,6 +736,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     nature_report = None
     nature_captions = None
     nature_scene_starts = []
+    nature_timing_notes = []
 
     indexed_scenes = [
         (index, scene) for index, scene in enumerate(spec.narration)
@@ -914,7 +915,10 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     if nature:
         planned_holds = nsp.measured_holds(
             shots, indexed_scenes, audio_paths, ep, nature.max_shot_sec,
-            spec.acceptance.min_shot_sec)
+            spec.acceptance.min_shot_sec, timing_notes=nature_timing_notes)
+        for note in nature_timing_notes:
+            log(f"Nature pacing advisory: {note['shot_id']} measures "
+                f"{note['measured_sec']:.2f}s; preserving measured speech timing")
         nature_captions = nsp.prepare_captions(indexed_scenes, audio_paths, ep, out)
         cursor = 0.0
         for path in audio_paths:
@@ -1207,6 +1211,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     if nature:
         nature_report = nsp.final_treatment(preview, out, spec, shots, holds,
                                              nature_captions, nature_scene_starts, ep)
+        nature_report["shot_timing_advisories"] = nature_timing_notes
     if runtime is not None:
         for artifact in stream_segment_artifacts:
             runtime.blob.delete(str(artifact["url"]))

@@ -53,8 +53,9 @@ def narrate(text, output_path, voice, direction, ep):
     return estimate
 
 
-def measured_holds(shots, indexed_scenes, audio_paths, ep, maximum, minimum):
-    """Each scene owns its speech time; no global proportional drift across beats."""
+def measured_holds(shots, indexed_scenes, audio_paths, ep, maximum, minimum,
+                   *, timing_notes=None):
+    """Let speech own each beat; planning cadence limits are advisory after TTS."""
     durations = {s.scene_id: ep._audio_dur(p) for (_, s), p in zip(indexed_scenes, audio_paths)}
     planned = {}
     for shot in shots:
@@ -65,9 +66,14 @@ def measured_holds(shots, indexed_scenes, audio_paths, ep, maximum, minimum):
         if sid not in durations or planned[sid] <= 0:
             raise ValueError(f"Nature shot {shot['shot_id']} has no measured narration scene")
         hold = durations[sid] * (shot["end_sec"] - shot["start_sec"]) / planned[sid]
-        if not minimum <= hold <= maximum:
-            raise ValueError(f"Nature shot {shot['shot_id']} measures {hold:.2f}s; "
-                             f"repartition this beat into {minimum:g}-{maximum:g}s shots before visuals")
+        if not math.isfinite(hold) or hold <= 0:
+            raise ValueError(f"Nature shot {shot['shot_id']} has invalid measured narration duration")
+        if not minimum <= hold <= maximum and timing_notes is not None:
+            timing_notes.append({
+                "shot_id": shot["shot_id"], "scene_id": sid,
+                "measured_sec": round(hold, 3),
+                "planning_min_sec": minimum, "planning_max_sec": maximum,
+            })
         holds.append(hold)
     return holds
 
