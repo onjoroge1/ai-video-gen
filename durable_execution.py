@@ -422,7 +422,17 @@ class PostgresStore(_legacy.PostgresStore):
         self.ensure_schema()
         with self._tx() as (_, cur):
             cur.execute("""
-                SELECT j.* FROM generation_jobs j
+                SELECT j.*, (
+                    EXISTS (
+                        SELECT 1 FROM agent_actions a
+                        WHERE a.job_id=j.id AND a.operation='directed_pilot'
+                          AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
+                    ) AND EXISTS (
+                        SELECT 1 FROM generation_events e
+                        WHERE e.job_id=j.id AND e.event_type='directed_audio_fit_rearmed'
+                    )
+                ) AS _nature_runtime_migration
+                FROM generation_jobs j
                 WHERE j.status='storage_error'
                   AND j.error ILIKE '%No space left on device%'
                   AND j.request->>'directed_full_film'='true'
@@ -625,9 +635,28 @@ class PostgresStore(_legacy.PostgresStore):
                       SELECT 1 FROM agent_actions a
                       WHERE a.job_id=j.id AND a.operation='directed_pilot'
                   )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM generation_events e
-                      WHERE e.job_id=j.id AND e.event_type='directed_audio_fit_rearmed'
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1 FROM generation_events e
+                          WHERE e.job_id=j.id AND e.event_type='directed_audio_fit_rearmed'
+                      ) OR (
+                          EXISTS (
+                              SELECT 1 FROM agent_actions a
+                              WHERE a.job_id=j.id AND a.operation='directed_pilot'
+                                AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
+                          )
+                          AND EXISTS (
+                              SELECT 1 FROM generation_events e
+                              WHERE e.job_id=j.id
+                                AND e.event_type='directed_audio_fit_rearmed'
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1 FROM generation_events e
+                              WHERE e.job_id=j.id AND e.event_type='infrastructure_rearmed'
+                                AND e.details #>> '{recovery_key}' =
+                                    'nature_measured_runtime_v1'
+                          )
+                      )
                   )
                 ORDER BY j.updated_at ASC
                 FOR UPDATE SKIP LOCKED LIMIT 1
@@ -635,6 +664,7 @@ class PostgresStore(_legacy.PostgresStore):
             current = self._json_ready(self._row(cur, cur.fetchone()))
             if not current:
                 return None
+            nature_migration = bool(current.pop("_nature_runtime_migration", False))
             cur.execute("""
                 UPDATE generation_jobs SET status='queued',error=NULL,
                     max_attempts=GREATEST(max_attempts,attempts+2),
@@ -642,15 +672,19 @@ class PostgresStore(_legacy.PostgresStore):
                 WHERE id=%s RETURNING *
             """, (current["id"],))
             row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            recovery_key = "nature_measured_runtime_v1" if nature_migration else ""
+            event_type = "infrastructure_rearmed" if nature_migration else "directed_audio_fit_rearmed"
+            event_data = (
+                "Nature pilot rearmed after measured-runtime gate removal" if nature_migration
+                else "Approved directed pilot rearmed for bounded audio runtime fit")
             cur.execute("""
                 INSERT INTO generation_events(job_id,event_type,data,details)
-                VALUES (%s,'directed_audio_fit_rearmed',
-                        'Approved directed pilot rearmed for bounded audio runtime fit',
-                        %s::jsonb)
-            """, (row["id"], json.dumps({
+                VALUES (%s,%s,%s,%s::jsonb)
+            """, (row["id"], event_type, event_data, json.dumps({
                 "prior_error": current.get("error"),
                 "spent_cost_usd": row.get("spent_cost_usd"),
                 "max_cost_usd": row.get("max_cost_usd"),
+                "recovery_key": recovery_key,
             })))
             return row
 

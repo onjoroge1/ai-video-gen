@@ -1,4 +1,5 @@
 import json
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,3 +111,16 @@ def test_nature_measured_speech_is_not_rejected_by_planning_runtime_band():
         spoken=44.96, drift=10.76, is_pilot=True, nature_directed=False,
         acceptance=spec.acceptance)
     assert "outside 27.40-41.00s" in legacy_error
+
+
+def test_nature_runtime_migration_rearm_is_bounded_inside_existing_salvage():
+    import durable_execution
+    source = inspect.getsource(
+        durable_execution.PostgresStore.rearm_next_directed_audio_runtime_failure)
+    assert "nature_short,version" in source
+    assert "nature_short_v2" in source
+    assert "directed_audio_fit_rearmed" in source
+    assert "nature_measured_runtime_v1" in source
+    assert "infrastructure_rearmed" in source
+    assert "j.reserved_cost_usd=0" in source
+    assert "j.spent_cost_usd < j.max_cost_usd" in source
