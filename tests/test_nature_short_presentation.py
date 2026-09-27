@@ -117,6 +117,8 @@ def test_nature_runtime_migration_rearm_is_bounded_inside_existing_salvage():
     import durable_execution
     source = inspect.getsource(
         durable_execution.PostgresStore.rearm_next_directed_audio_runtime_failure)
+    assert "SELECT j.*, (" in source
+    assert "AS _nature_runtime_migration" in source
     assert "nature_short,version" in source
     assert "nature_short_v2" in source
     assert "directed_audio_fit_rearmed" in source

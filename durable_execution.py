@@ -422,17 +422,7 @@ class PostgresStore(_legacy.PostgresStore):
         self.ensure_schema()
         with self._tx() as (_, cur):
             cur.execute("""
-                SELECT j.*, (
-                    EXISTS (
-                        SELECT 1 FROM agent_actions a
-                        WHERE a.job_id=j.id AND a.operation='directed_pilot'
-                          AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
-                    ) AND EXISTS (
-                        SELECT 1 FROM generation_events e
-                        WHERE e.job_id=j.id AND e.event_type='directed_audio_fit_rearmed'
-                    )
-                ) AS _nature_runtime_migration
-                FROM generation_jobs j
+                SELECT j.* FROM generation_jobs j
                 WHERE j.status='storage_error'
                   AND j.error ILIKE '%No space left on device%'
                   AND j.request->>'directed_full_film'='true'
@@ -625,7 +615,17 @@ class PostgresStore(_legacy.PostgresStore):
         self.ensure_schema()
         with self._tx() as (_, cur):
             cur.execute("""
-                SELECT j.* FROM generation_jobs j
+                SELECT j.*, (
+                    EXISTS (
+                        SELECT 1 FROM agent_actions a
+                        WHERE a.job_id=j.id AND a.operation='directed_pilot'
+                          AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
+                    ) AND EXISTS (
+                        SELECT 1 FROM generation_events e
+                        WHERE e.job_id=j.id AND e.event_type='directed_audio_fit_rearmed'
+                    )
+                ) AS _nature_runtime_migration
+                FROM generation_jobs j
                 WHERE j.status='error'
                   AND j.error ILIKE '%measured pilot narration %visual spending stopped%'
                   AND j.reserved_cost_usd=0
