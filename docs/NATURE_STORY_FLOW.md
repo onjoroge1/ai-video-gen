@@ -226,4 +226,10 @@ uses actual holds; delivery is not a pacing pass. Missing or invalid media, appr
 checks remain enforced. The cron may recover an already-approved job stopped by the old
 measured-shot error once, using its existing checkpoint and spend ledger.
 
+Durable motion sources are released from local scratch immediately after their edited shot clips
+exist. Their completed provider-stage Blobs remain the recovery source, so a later worker can restore
+the same bytes without another purchase. A Nature v2 pilot interrupted by local disk exhaustion may
+resume once when exactly one motion reservation reconciles to its retry stage; the idempotency key,
+checkpoint, accumulated spend and approved ceiling stay unchanged.
+
 See `HARP_SEAL_RETENTION_AUDIT_2026-09-26.md` for the observed failures, source-backed rewrite, production defects and review criteria. A changed narration or voice requires a new immutable action. Do not resume the archived v1 job to buy v2 assets.

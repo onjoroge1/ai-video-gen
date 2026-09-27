@@ -137,6 +137,28 @@ def test_nature_motion_uses_portrait_and_evidence_action_lane(tmp_path,monkeypat
     assert shot['transformation'] in captured['prompt']
 
 
+def test_durable_motion_releases_large_source_after_trim(tmp_path, monkeypatch):
+    source = tmp_path/'source.jpg'; Image.new('RGB',(64,96),'blue').save(source)
+    output = tmp_path/'shot.mp4'
+    shot = payload()['shots'][0]
+    cached = spec_pilot._motion_cache_path(
+        str(source), shot, 2, str(output), nature_frame=spec_pilot.FRAME['portrait'])
+    cached.write_bytes(b'large-provider-source')
+    Path(str(cached)+'.json').write_text(json.dumps({
+        'provider':'fal', 'model_id':'test', 'generation_status':'generated'}))
+    monkeypatch.setattr(spec_pilot.durable_execution, 'current', lambda: object())
+    def trim(args, **kwargs):
+        output.write_bytes(b'trimmed-shot')
+    monkeypatch.setattr(spec_pilot.ep, '_run_ffmpeg', trim)
+    events = []
+    assert spec_pilot._render_motion_shot(
+        str(source), shot, 2, str(output), [], lambda _: None, events,
+        frame=spec_pilot.FRAME['portrait'], nature_directed=True)
+    assert output.read_bytes() == b'trimmed-shot'
+    assert not cached.exists()
+    assert events[0]['source_cache_released'] is True
+
+
 def test_caption_words_are_authored_and_override_safe(tmp_path):
     cues,quality=nsp.caption_cues('Dinner service: closed.', [('Dinner',0,.3),('service',.3,.6),('closed',.65,1)],1.2)
     assert quality==1 and cues[0]['text']=='Dinner service: closed.'

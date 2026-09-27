@@ -386,9 +386,6 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
                 "provider_attempts": [],
             }
         motion_event["reused"] = True
-    if provider_sink is not None and motion_event is not None:
-        provider_sink.append({**motion_event, "shot_id": shot.get("shot_id")})
-
     frame = frame or FRAME["landscape"]
     # Trim to the hold. The provider returns ~5s regardless of what was asked, and the cut
     # length is set by the narration, not by the clip.
@@ -400,6 +397,16 @@ def _render_motion_shot(image_path: str, shot: dict, seconds: float, out_path: s
                f"crop={frame['w']}:{frame['h']},setsar=1,format=yuv420p,fps=30",
         "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "19", out_path,
     ])
+    # The provider source is already an immutable durable-stage Blob. Retaining each large
+    # ~5-second source beside every trimmed portrait shot exhausts Vercel /tmp late in the pilot.
+    # Release it only after the edited clip exists; a continuation restores it from the same
+    # completed stage without another provider call.
+    if durable_execution.current() is not None:
+        Path(cached).unlink(missing_ok=True)
+        if motion_event is not None:
+            motion_event["source_cache_released"] = True
+    if provider_sink is not None and motion_event is not None:
+        provider_sink.append({**motion_event, "shot_id": shot.get("shot_id")})
     return True
 
 

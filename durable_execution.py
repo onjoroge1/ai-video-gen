@@ -465,6 +465,72 @@ class PostgresStore(_legacy.PostgresStore):
             })))
             return row
 
+    def rearm_next_nature_motion_disk_failure(self) -> dict | None:
+        """Resume one Nature v2 pilot after /tmp filled during an idempotent motion stage."""
+        self.ensure_schema()
+        with self._tx() as (_, cur):
+            cur.execute("""
+                SELECT j.* FROM generation_jobs j
+                WHERE j.status='storage_error'
+                  AND j.error ILIKE '%No space left on device%'
+                  AND (j.lease_expires_at IS NULL OR j.lease_expires_at < now())
+                  AND j.reserved_cost_usd > 0
+                  AND j.spent_cost_usd < j.max_cost_usd
+                  AND j.checkpoint <> '{}'::jsonb
+                  AND EXISTS (
+                      SELECT 1 FROM agent_actions a
+                      WHERE a.job_id=j.id AND a.operation='directed_pilot'
+                        AND a.status='queued' AND a.approved_at IS NOT NULL
+                        AND a.payload #>> '{nature_short,version}' = 'nature_short_v2'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM generation_events e
+                      WHERE e.job_id=j.id AND e.event_type='infrastructure_rearmed'
+                        AND e.details #>> '{recovery_key}' = 'nature_motion_disk_v1'
+                  )
+                ORDER BY j.updated_at ASC
+                FOR UPDATE SKIP LOCKED LIMIT 1
+            """)
+            current = self._json_ready(self._row(cur, cur.fetchone()))
+            if not current:
+                return None
+            cur.execute("""
+                SELECT stage_key,status,provider,reserved_cost_usd
+                FROM generation_stages
+                WHERE job_id=%s AND status IN ('running','retry') FOR UPDATE
+            """, (current["id"],))
+            open_stages = [self._json_ready(self._row(cur, raw)) or {}
+                           for raw in cur.fetchall()]
+            stage = open_stages[0] if len(open_stages) == 1 else {}
+            reserved = float(current.get("reserved_cost_usd") or 0)
+            if (len(open_stages) != 1
+                    or stage.get("status") not in {"running", "retry"}
+                    or not str(stage.get("stage_key") or "").startswith("motion:")
+                    or abs(float(stage.get("reserved_cost_usd") or 0) - reserved) > 0.0001
+                    or reserved > float(current.get("max_inflight_call_usd") or 0)):
+                raise DurableExecutionError(
+                    f"Job {current['id']} has an ambiguous motion reservation; recovery stopped")
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+2),
+                    lease_owner=NULL,lease_expires_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (current["id"],))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            cur.execute("""
+                INSERT INTO generation_events(job_id,event_type,data,details)
+                VALUES (%s,'infrastructure_rearmed',
+                        'Nature motion resumed after bounded local-disk cleanup',%s::jsonb)
+            """, (row["id"], json.dumps({
+                "prior_error": current.get("error"),
+                "recovery_key": "nature_motion_disk_v1",
+                "preserved_stage_key": stage.get("stage_key"),
+                "preserved_reserved_cost_usd": reserved,
+                "spent_cost_usd": row.get("spent_cost_usd"),
+                "max_cost_usd": row.get("max_cost_usd"),
+            })))
+            return row
+
     def rearm_next_directed_parent_blob_failure(self) -> dict | None:
         """Rearm one checkpointed full film after its accepted-pilot pointer returns 404."""
         self.ensure_schema()
@@ -612,6 +678,9 @@ class PostgresStore(_legacy.PostgresStore):
         The immutable request, completed TTS stages, checkpoint and cost ceiling are untouched.
         A generation event makes this a one-shot salvage so a persistent failure cannot loop.
         """
+        nature_disk_salvage = self.rearm_next_nature_motion_disk_failure()
+        if nature_disk_salvage:
+            return nature_disk_salvage
         nature_shot_salvage = self.rearm_next_nature_shot_timing_failure()
         if nature_shot_salvage:
             return nature_shot_salvage
