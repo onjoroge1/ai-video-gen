@@ -43,11 +43,20 @@ def _review_json(ep, prompt, cost_sink, sheet=None):
     text = ''.join(getattr(block, 'text', '') for block in response.content
                    if getattr(block, 'type', 'text') == 'text').strip()
     text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text)
+    # Persist bounded response metadata, not raw provider text, so an unavailable
+    # judge can be distinguished from a content rejection after worker cleanup.
+    response_meta = {'stop_reason': getattr(response, 'stop_reason', None),
+                     'output_tokens': getattr(response.usage, 'output_tokens', None)}
     try:
         value = json.loads(text)
     except (ValueError, TypeError):
-        return {'available': False, 'error': 'invalid_review_json'}
-    return value if isinstance(value, dict) else {'available': False, 'error': 'invalid_review_object'}
+        return {'available': False, 'error': 'invalid_review_json', 'response': response_meta}
+    if not isinstance(value, dict):
+        return {'available': False, 'error': 'invalid_review_object', 'response': response_meta}
+    value['response'] = response_meta
+    if response_meta['stop_reason'] == 'max_tokens':
+        return {'available': False, 'error': 'review_output_truncated', 'response': response_meta}
+    return value
 
 
 def review_story(spec, out, ep, costs):
@@ -249,18 +258,35 @@ def review_visuals(shots, paths, sheet, out, ep, costs):
         'Every listed shot must be assessed; uncertainty is a failure. DATA:\n'
         + json.dumps([{'shot_id': s['shot_id'], 'mode': s['mode'], 'visual': s['visual'],
                        'result': s['transformation']} for s in shots]), costs, sheet)
-    rows = report.get('shots') or []
-    mapped = {r.get('shot_id'): r for r in rows if isinstance(r, dict)}
-    valid = (len(rows) == len(mapped) == len(shots)
-             and set(mapped) == {s['shot_id'] for s in shots})
+    rows = report.get('shots')
+    expected = {s['shot_id'] for s in shots}
+    well_formed = isinstance(rows, list) and all(
+        isinstance(r, dict) and isinstance(r.get('shot_id'), str) for r in rows)
+    mapped = {r['shot_id']: r for r in rows} if well_formed else {}
+    errors = []
+    if report.get('available') is False or report.get('error'):
+        errors.append('review_response_unavailable')
+    if not well_formed:
+        errors.append('invalid_shot_rows')
+    elif len(rows) != len(mapped):
+        errors.append('duplicate_shot_rows')
+    if set(mapped) != expected:
+        errors.append('incomplete_shot_coverage')
+    if any(type(r.get('passed')) is not bool or not isinstance(r.get('evidence'), str)
+           or not r['evidence'].strip() for r in mapped.values()):
+        errors.append('invalid_shot_assessment')
+    failed = [s['shot_id'] for s in shots
+              if mapped.get(s['shot_id'], {}).get('passed') is False]
     report.update(version=VERSION, kind='generated_source_pixel_review',
                   image_sha256={s['shot_id']: _sha(p) for s, p in zip(shots, paths)},
-                  passed=valid and all(r.get('passed') is True
-                                      and isinstance(r.get('evidence'), str)
-                                      and r['evidence'].strip() for r in mapped.values()))
+                  review_errors=errors, failed_shot_ids=failed,
+                  status=('review_unavailable' if errors else 'images_rejected' if failed else 'passed'),
+                  passed=not errors and not failed)
     Path(out, 'nature_visual_review.json').write_text(json.dumps(report, indent=2))
     if not report['passed']:
-        raise ValueError('Nature source-image review needs repair before motion spending; see nature_visual_review.json')
+        reason = ('could not assess every shot' if errors else 'rejected shots: ' + ', '.join(failed))
+        raise ValueError('Nature source-image review ' + reason
+                         + '; motion spending blocked; see nature_visual_review.json')
     return report
 
 

@@ -148,3 +148,60 @@ def test_durable_diagnostics_restore_current_checkpoint_and_cleanup(monkeypatch)
         assert exc.value.status_code == 404
     anyio.run(run)
     assert all(not root.exists() for root in roots)
+
+
+def test_nature_failure_diagnostics_read_original_checkpoint_privately_without_retry(monkeypatch):
+    _secure_environment(monkeypatch)
+    token = "r" * 48
+    monkeypatch.setenv("REELFORGE_AGENT_READ_TOKEN", token)
+    repo = FakeActionRepository()
+    repo.action = {"action_id": ACTION_ID, "job_id": "saved-job"}
+    monkeypatch.setattr(agent_actions, "repository", lambda: repo)
+    monkeypatch.setattr(studio, "_durable_execution_required", lambda: True)
+    saved = json.dumps({"available": False, "error": "invalid_review_json",
+                        "evidence": "<script>alert(1)</script>"})
+    job = {"status": "error", "spent_cost_usd": .9184, "checkpoint": {"sha256": "latest"}}
+    original = copy.deepcopy(job)
+    class Store:
+        def get_job(self, job_id):
+            assert job_id == "saved-job"
+            return job
+    monkeypatch.setattr(studio, "_durable_components", lambda: (Store(), object()))
+    roots = []
+    class Runtime:
+        def __init__(self, **kwargs):
+            assert kwargs["worker_id"] == "read-only"
+            self.root = Path(kwargs["output_dir"])
+            roots.append(self.root)
+        def restore_checkpoint(self, checkpoint):
+            assert checkpoint == original["checkpoint"]
+            (self.root / "nature_visual_review.json").write_text(saved)
+            (self.root / "nature_semantic_review.json").write_text('{"passed": true}')
+    monkeypatch.setattr(studio.durable_execution, "DurableRuntime", Runtime)
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app), base_url="http://test") as c:
+            api = f"/api/agent/actions/{ACTION_ID}/diagnostics"
+            page = f"/agent/actions/{ACTION_ID}/nature-review"
+            assert (await c.get(api + "?artifact=nature-visual-review")).status_code == 401
+            assert (await c.get(page)).status_code != 200
+            assert not roots
+            headers = {"Authorization": "Bearer " + token}
+            result = await c.get(api + "?artifact=nature-visual-review", headers=headers)
+            assert result.status_code == 200
+            assert result.json()["content"] == saved
+            assert result.json()["source"] == "saved_artifact"
+            result = await c.get(api + "?artifact=nature-semantic-review", headers=headers)
+            assert json.loads(result.json()["content"])["passed"] is True
+            assert (await c.get(page, headers=headers)).status_code != 200
+            c.cookies.set(private_access.COOKIE_NAME, private_access.create_session("owner"))
+            result = await c.get(page)
+            assert result.status_code == 200
+            assert "&lt;script&gt;" in result.text and "<script>" not in result.text
+            assert "Download nature_visual_review.json" in result.text
+            result = await c.get(page + "?download=true")
+            assert result.text == saved
+            assert result.headers["content-disposition"] == 'attachment; filename="nature_visual_review.json"'
+            assert result.headers["cache-control"] == "no-store"
+    anyio.run(run)
+    assert job == original
+    assert len(roots) == 4 and all(not root.exists() for root in roots)

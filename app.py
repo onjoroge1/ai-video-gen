@@ -1844,6 +1844,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             "first_minute_preview_path": "first_minute_preview.mp4",
             "story_format_review_path": "story_format_review.json",
             "generation_manifest_path": "generation_manifest.json",
+            "nature_visual_review_path": "nature_visual_review.json",
+            "nature_semantic_review_path": "nature_semantic_review.json",
         }
         for key, filename in rejected_artifacts.items():
             path = os.path.join(output_dir, filename)
@@ -3086,41 +3088,52 @@ async def _agent_bound_job(action_id: str) -> str:
     return str(action["job_id"])
 
 
+_AGENT_DIAGNOSTIC_FILES = {
+    "script": "_state.json", "grade": "grade.txt",
+    "rendered-contract": "rendered_contract.json",
+    "evidence-validation": "evidence_validation.json",
+    "nature-visual-review": "nature_visual_review.json",
+    "nature-semantic-review": "nature_semantic_review.json",
+}
+
+
+def _read_agent_diagnostic(job_id: str, artifact: str) -> str:
+    """Read an allowlisted saved snapshot without providers or job mutation."""
+    if artifact == "research-handoff":
+        return json.dumps(_research_handoff_payload(job_id), ensure_ascii=False)
+    if artifact not in _AGENT_DIAGNOSTIC_FILES:
+        raise HTTPException(status_code=422, detail="Unsupported saved artifact")
+    if _durable_execution_required():
+        store, blob = _durable_components()
+        job = store.get_job(job_id)
+        if not job or not job.get("checkpoint"):
+            raise HTTPException(status_code=404, detail="Saved checkpoint is not available")
+        with tempfile.TemporaryDirectory(prefix="agent_diagnostics_") as output_dir:
+            runtime = durable_execution.DurableRuntime(
+                job_id=job_id, worker_id="read-only", output_dir=output_dir,
+                store=store, blob=blob)
+            runtime.restore_checkpoint(job["checkpoint"])
+            path = Path(output_dir) / _AGENT_DIAGNOSTIC_FILES[artifact]
+            if not path.is_file():
+                raise HTTPException(status_code=404, detail="Saved artifact is not available")
+            return path.read_text(encoding="utf-8")
+    path, _ = _explainer_text_artifact(job_id, artifact)
+    if not path:
+        raise HTTPException(status_code=404, detail="Saved artifact is not available")
+    return Path(path).read_text(encoding="utf-8")
+
+
 @app.get("/api/agent/actions/{action_id}/diagnostics")
 async def agent_diagnostics(action_id: str, artifact: Literal[
-        "research-handoff", "script", "grade", "rendered-contract", "evidence-validation"
+        "research-handoff", "script", "grade", "rendered-contract", "evidence-validation",
+        "nature-visual-review", "nature-semantic-review"
         ] = "research-handoff", offset: int = 0):
     """Private, paginated saved evidence. Never rerun a provider to answer a read."""
     if offset < 0:
         raise HTTPException(status_code=422, detail="offset must be nonnegative")
     job_id = await _agent_bound_job(action_id)
-    def read():
-        if artifact == "research-handoff":
-            return json.dumps(_research_handoff_payload(job_id), ensure_ascii=False)
-        if _durable_execution_required():
-            store, blob = _durable_components()
-            job = store.get_job(job_id)
-            if not job or not job.get("checkpoint"):
-                raise HTTPException(status_code=404, detail="Saved checkpoint is not available")
-            names = {"script": "_state.json", "grade": "grade.txt",
-                     "rendered-contract": "rendered_contract.json",
-                     "evidence-validation": "evidence_validation.json"}
-            # Read exactly the current durable snapshot, never stale process-local files.
-            with tempfile.TemporaryDirectory(prefix="agent_diagnostics_") as output_dir:
-                runtime = durable_execution.DurableRuntime(
-                    job_id=job_id, worker_id="read-only", output_dir=output_dir,
-                    store=store, blob=blob)
-                runtime.restore_checkpoint(job["checkpoint"])
-                path = Path(output_dir) / names[artifact]
-                if not path.is_file():
-                    raise HTTPException(status_code=404, detail="Saved artifact is not available")
-                return path.read_text(encoding="utf-8")
-        path, _ = _explainer_text_artifact(job_id, artifact)
-        if not path:
-            raise HTTPException(status_code=404, detail="Saved artifact is not available")
-        return Path(path).read_text(encoding="utf-8")
     try:
-        content = await asyncio.to_thread(read)
+        content = await asyncio.to_thread(_read_agent_diagnostic, job_id, artifact)
     except (OSError, ValueError):
         raise HTTPException(status_code=409, detail="Saved artifact could not be read") from None
     end = offset + 24000
@@ -3128,6 +3141,35 @@ async def agent_diagnostics(action_id: str, artifact: Literal[
             "content": content[offset:end], "offset": offset,
             "next_offset": end if end < len(content) else None,
             "untrusted_content": True, "source": "saved_artifact"}
+
+
+@app.get("/agent/actions/{action_id}/nature-review")
+async def agent_nature_review_page(action_id: str, download: bool = False):
+    """Authenticated view/download of the original failure, including legacy reports."""
+    job_id = await _agent_bound_job(action_id)
+    try:
+        content = await asyncio.to_thread(_read_agent_diagnostic, job_id, "nature-visual-review")
+    except (OSError, ValueError):
+        raise HTTPException(status_code=409, detail="Saved artifact could not be read") from None
+    if download:
+        return Response(content, media_type="application/json", headers={
+            "Content-Disposition": 'attachment; filename="nature_visual_review.json"',
+            "Cache-Control": "no-store"})
+    return HTMLResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Nature source-image review · ReelForge</title>"
+        "<style>body{max-width:1100px;margin:32px auto;padding:0 20px;"
+        "font:16px/1.5 system-ui;background:#090b10;color:#f5f7fa}"
+        "a{color:#5aa9ff}pre{white-space:pre-wrap;overflow-wrap:anywhere;"
+        "padding:20px;background:#11151d;border-radius:12px}</style></head><body>"
+        "<h1>Saved source-image review</h1>"
+        f"<p>Job: <code>{html.escape(job_id)}</code></p>"
+        "<p>This is the original review saved before motion generation. "
+        "Reading it does not retry or change the video.</p>"
+        "<p><a href='?download=true'>Download nature_visual_review.json</a></p>"
+        f"<pre>{html.escape(content)}</pre></body></html>",
+        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/agent/actions/{action_id}/artifacts")
@@ -3980,6 +4022,8 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "story_format_review_path": "story_format_review.json",
         "storyboard_path": "illustrated_storyboard.json",
         "generation_manifest_path": "generation_manifest.json",
+        "nature_visual_review_path": "nature_visual_review.json",
+        "nature_semantic_review_path": "nature_semantic_review.json",
         "pilot_control_path": "pilot_control.json",
         "pilot_script_path": "pilot_script.json",
         "pilot_cost_report_path": "pilot_cost_report.json",
@@ -4425,6 +4469,8 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "human-review": "human_review_path",
         "story-format-review": "story_format_review_path",
         "generation-manifest": "generation_manifest_path",
+        "nature-visual-review": "nature_visual_review_path",
+        "nature-semantic-review": "nature_semantic_review_path",
         "diagnostic-preview": "diagnostic_preview_path",
         "opening-preview": "first_minute_preview_path", "thumb": "thumbnail_path",
     }[kind]

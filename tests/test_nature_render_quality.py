@@ -115,7 +115,53 @@ def test_source_review_does_not_treat_file_presence_as_visible_evidence(tmp_path
     monkeypatch.setattr(nrq,'_review_json',lambda *a,**k:{'shots':[dict(shot_id='hatch',passed=False,evidence='Egg is already open')]})
     with pytest.raises(ValueError,match='source-image'):
         nrq.review_visuals([shot],[source],source,tmp_path,None,[])
-    assert not json.loads((tmp_path/'nature_visual_review.json').read_text())['passed']
+    report = json.loads((tmp_path/'nature_visual_review.json').read_text())
+    assert not report['passed']
+    assert report['status'] == 'images_rejected'
+    assert report['failed_shot_ids'] == ['hatch']
+
+
+@pytest.mark.parametrize('response', [
+    {'available': False, 'error': 'invalid_review_json'},
+    {'shots': 'not a list'},
+    {'shots': [{'shot_id': []}]},
+    {'shots': []},
+    {'shots': [{'shot_id': 'other', 'passed': True, 'evidence': 'visible'}]},
+    {'shots': [{'shot_id': 'hatch', 'passed': True, 'evidence': 'visible'}] * 2},
+    {'shots': [{'shot_id': 'hatch', 'passed': 'true', 'evidence': 'visible'}]},
+    {'shots': [{'shot_id': 'hatch', 'passed': True, 'evidence': ''}]},
+    {'available': False, 'shots': [{'shot_id': 'hatch', 'passed': True, 'evidence': 'visible'}]},
+])
+def test_incomplete_source_assessment_is_saved_and_never_becomes_an_image_pass(tmp_path, monkeypatch, response):
+    source = tmp_path/'image.jpg'; Image.new('RGB', (30, 50)).save(source)
+    shot = dict(shot_id='hatch', mode='Full Motion', visual='closed egg', transformation='exit')
+    monkeypatch.setattr(nrq, '_review_json', lambda *a, **k: response)
+    with pytest.raises(ValueError, match='could not assess every shot'):
+        nrq.review_visuals([shot], [source], source, tmp_path, None, [])
+    report = json.loads((tmp_path/'nature_visual_review.json').read_text())
+    assert report['status'] == 'review_unavailable' and not report['passed']
+    assert report['review_errors']
+    assert report['image_sha256']['hatch'] == nrq._sha(source)
+
+
+@pytest.mark.parametrize('text,reason', [('{"shots": [', 'max_tokens'), ('[]', 'end_turn'),
+                                         ('{"shots": []}', 'max_tokens')])
+def test_review_response_metadata_survives_unusable_output_without_raw_text(text, reason):
+    calls = []
+    usage = SimpleNamespace(output_tokens=1600)
+    response = SimpleNamespace(content=[SimpleNamespace(type='text', text=text)],
+                               usage=usage, stop_reason=reason)
+    def create(**kwargs):
+        calls.append(kwargs)
+        return response
+    ep = SimpleNamespace(_claude=lambda: SimpleNamespace(messages=SimpleNamespace(create=create)),
+                         ANTHROPIC_MODEL='test', _msg_cost=lambda u: .01)
+    costs = []
+    report = nrq._review_json(ep, 'fixture', costs)
+    assert report['available'] is False
+    assert report['response'] == {'stop_reason': reason, 'output_tokens': 1600}
+    assert len(calls) == 1 and costs == [.01]
+    assert text not in json.dumps(report)
 
 
 def test_portrait_contact_sheet_preserves_aspect_ratio(tmp_path):
