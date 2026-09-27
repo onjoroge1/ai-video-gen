@@ -45,6 +45,16 @@ class BudgetExceeded(DurableExecutionError):
     pass
 
 
+class SingleCallReservationExceeded(BudgetExceeded):
+    """Pre-provider rejection: no stage or reservation was created for this request."""
+
+    def __init__(self, stage_key: str, reserve: float, ceiling: float):
+        self.stage_key, self.reserve, self.ceiling = stage_key, reserve, ceiling
+        super().__init__(
+            f"Stage {stage_key} reserves ${reserve:.4f}; the single-call ceiling is "
+            f"${ceiling:.4f}")
+
+
 class AmbiguousProviderOutcome(BaseException):
     """A prior provider attempt may have been accepted and must be reconciled before replay."""
 
@@ -88,9 +98,7 @@ def enforce_budget(job: dict, reserve: float, stage_key: str) -> None:
     cap = float(job["max_cost_usd"])
     inflight_cap = float(job["max_inflight_call_usd"])
     if reserve > inflight_cap + 1e-9:
-        raise BudgetExceeded(
-            f"Stage {stage_key} reserves ${reserve:.4f}; the single-call ceiling is "
-            f"${inflight_cap:.4f}")
+        raise SingleCallReservationExceeded(stage_key, reserve, inflight_cap)
     if committed + already_reserved + reserve > cap + 1e-9:
         raise BudgetExceeded(
             f"Stage {stage_key} would spend ${committed + already_reserved + reserve:.4f} "
@@ -1149,6 +1157,26 @@ def _anthropic_reserved_cost(request: dict) -> float:
     cache_multiplier = 2 if '"cache_control"' in text else 1
     return max(0.01, (len(text) / 3 + 10000 * searches) * 5 * cache_multiplier / 1_000_000
                + max_tokens * 25 / 1_000_000 + searches * 0.01)
+
+
+def fit_anthropic_search_request(request: dict, ceiling: float) -> dict | None:
+    """Reduce actual server-search permissions, never the estimate or output allowance.
+
+    Used only after a typed pre-reservation rejection. Existing paid requests are tried first
+    and replay unchanged. Keep at least one search; if output/input alone cannot fit, stop.
+    """
+    revised = _plain(request)
+    if not isinstance(ceiling, (int, float)) or not 0 < ceiling < float("inf"):
+        return None
+    while _anthropic_reserved_cost(revised) > ceiling + 1e-9:
+        tools = [tool for tool in revised.get("tools") or []
+                 if str(tool.get("type") or "").startswith("web_search")
+                 and isinstance(tool.get("max_uses"), int)
+                 and not isinstance(tool["max_uses"], bool) and tool["max_uses"] > 1]
+        if not tools:
+            return None
+        max(tools, key=lambda tool: tool["max_uses"])["max_uses"] -= 1
+    return revised
 
 
 class _AnthropicMessagesProxy:
