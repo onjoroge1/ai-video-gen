@@ -47,7 +47,9 @@ def _work_dir(episode: dict) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("episode")
-    parser.add_argument("stage", choices=("validate", "storyboard", "compile-short", "compile-directed-short", "long-request", "render-short"))
+    parser.add_argument("stage", choices=(
+        "validate", "storyboard", "retention-storyboard", "compile-short",
+        "compile-directed-short", "long-request", "render-short"))
     parser.add_argument("--authorize-paid", action="store_true")
     args = parser.parse_args()
 
@@ -68,6 +70,12 @@ def main() -> int:
     if args.stage == "storyboard":
         result = ns.compile_storyboard(episode)
         out = _write(work / "nature_story_storyboard.json", result)
+        print(out)
+        return 0 if result["validation"].get("passed") else 3
+
+    if args.stage == "retention-storyboard":
+        result = ns.compile_retention_storyboard(episode)
+        out = _write(work / "nature_retention_storyboard.json", result)
         print(out)
         return 0 if result["validation"].get("passed") else 3
 
@@ -100,6 +108,13 @@ def main() -> int:
         if not storyboard["validation"].get("passed"):
             print(json.dumps(storyboard["validation"], indent=2))
             raise SystemExit("Nature storyboard validation failed; no narration or visuals were purchased.")
+        if (episode.get("presentation") or {}).get("version") == "nature_short_v3":
+            retention = ns.compile_retention_storyboard(episode)
+            _write(work / "nature_retention_storyboard.json", retention)
+            if not retention["validation"].get("passed"):
+                print(json.dumps(retention["validation"], indent=2))
+                raise SystemExit(
+                    "Nature retention storyboard failed; no narration or visuals were purchased.")
 
         spec = ns.compile_keyframe_spec(episode)
         spec_path = _write(work / "nature_story_keyframe_spec.json", spec)

@@ -1280,7 +1280,8 @@ class AgentActionCreateRequest(BaseModel):
     bundled_spec_id: Literal[
         "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m",
         "hippo_illustrated_story_v4_recovery_opening",
-        "harp_seal_nature_short_v1", ""
+        "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
+        "giant_pacific_octopus_nature_short_v2", ""
     ] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
     parent_action_id: str = ""
@@ -1550,6 +1551,9 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     "generation_manifest_path": pilot["generation_manifest_path"],
                     "directed_spec_path": pilot["directed_spec_path"],
                     "validation_report_path": pilot["validation_report_path"],
+                    "storyboard_path": pilot.get("nature_storyboard_report_path"),
+                    "animatic_report_path": pilot.get("nature_storyboard_report_path"),
+                    "animatic_preview_path": pilot.get("nature_animatic_preview_path"),
                     "rendered_contract": pilot.get("rendered_contract") or {},
                     "rendered_contract_path": pilot.get("rendered_contract_path"),
                     "rendered_contact_sheet_path": pilot.get("rendered_contact_sheet_path"),
@@ -2671,6 +2675,8 @@ def _bundled_directed_spec(spec_id: str) -> dict:
             "hippo_illustrated_story_v4_recovery_opening.json",
         "harp_seal_nature_short_v1": "harp_seal_nature_short_v1.json",
         "harp_seal_nature_short_v2": "harp_seal_nature_short_v2.json",
+        "giant_pacific_octopus_nature_short_v2":
+            "giant_pacific_octopus_nature_short_v2.json",
     }
     if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
@@ -3056,6 +3062,14 @@ async def agent_capabilities():
         "execution": "Asynchronous durable job; poll status, do not hold a render connection open.",
         "readiness": "Capabilities are not provider readiness; check /api/production-readiness in the studio.",
         "proposal_path": "/api/agent/actions",
+        "directed_pilot": {
+            "bundled_spec_ids": [
+                "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
+                "giant_pacific_octopus_nature_short_v2",
+            ],
+            "latest_nature_contract": "nature_short_v3",
+            "retention_storyboard_minimum": 82,
+        },
         "publishes_to_youtube": False,
     }
 

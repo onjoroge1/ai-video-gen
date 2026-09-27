@@ -199,7 +199,9 @@ All non-spending:
 ```bash
 python scripts/nature_story.py spec/my_episode.json validate
 python scripts/nature_story.py spec/my_episode.json storyboard
+python scripts/nature_story.py spec/my_episode.json retention-storyboard
 python scripts/nature_story.py spec/my_episode.json compile-short
+python scripts/nature_story.py spec/my_episode.json compile-directed-short
 python scripts/nature_story.py spec/my_episode.json long-request
 ```
 
@@ -233,3 +235,27 @@ resume once when exactly one motion reservation reconciles to its retry stage; t
 checkpoint, accumulated spend and approved ceiling stay unchanged.
 
 See `HARP_SEAL_RETENTION_AUDIT_2026-09-26.md` for the observed failures, source-backed rewrite, production defects and review criteria. A changed narration or voice requires a new immutable action. Do not resume the archived v1 job to buy v2 assets.
+
+## High-retention storyboard and animatic v3
+
+`presentation.version=nature_short_v3` makes the toolkit storyboard authoritative rather than an
+optional planning attachment. The episode must carry `retention_storyboard` rows matching every
+narration scene and render shot in exact order. The no-spend gate scores the hook variants, selected
+hook, word budget, mini-payoffs, open loops, visible action, consequence variety, visual modes, shot
+scales, locations, composition changes, muted story and final payoff. A score below 82 or an automatic
+rejection stops compilation before an action can authorize media.
+
+The immutable directed spec contains that same storyboard and is rescored at the approval boundary.
+After final TTS and word alignment, the worker renders `nature_animatic_preview.mp4` from local cards
+and the measured voice before requesting images. Once still generation finishes, it creates
+`nature_preflight_contact_sheet.jpg` and rejects adjacent near-duplicate compositions before any
+motion purchase. The immutable estimate includes up to three targeted still redraws: only a failed
+composition is reprompted, then the contact-sheet gate runs again; unresolved similarity stops the
+job before motion. V3 also removes the implicit global first-frame reference: a new composition gets
+no prior frame, while an intentional before/after may opt into a named two-shot continuity group.
+
+The first production example is `giant_pacific_octopus_nature_story_v2.json`, compiled exactly into
+`giant_pacific_octopus_nature_short_v2.json`. Its script is 83 words, its toolkit storyboard scores
+100/100 deterministically, and its 15 shots span grounded action, macro evidence, scientific cutaway,
+time transition, scale comparison and open-water payoff. V2 bundles remain hash-stable and render
+under their original reference behavior.

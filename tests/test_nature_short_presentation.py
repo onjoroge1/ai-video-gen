@@ -21,6 +21,10 @@ def octopus_payload():
     return json.loads((ROOT/'spec/giant_pacific_octopus_nature_short_v1.json').read_text())
 
 
+def octopus_v2_payload():
+    return json.loads((ROOT/'spec/giant_pacific_octopus_nature_short_v2.json').read_text())
+
+
 def test_existing_approved_harp_spec_hash_is_unchanged():
     old = json.loads((ROOT/'spec/harp_seal_nature_short_v1.json').read_text())
     assert dl.validate_directed_spec(old)['spec_sha256'] == '4d4f1c7370786862a625fd686f9b58b4251dcbc1cce48fb2a5411b6ad36032d6'
@@ -41,6 +45,28 @@ def test_octopus_episode_compiles_exact_production_bundle_without_harp_rules():
     prohibited = ' '.join(compiled['prohibited_claims']).casefold()
     assert 'pack ice' not in prohibited and 'lunchbox' not in prohibited
     assert 'four-and-a-half-year' in prohibited
+
+
+def test_octopus_v2_compiles_exact_storyboard_gated_bundle():
+    episode = json.loads((ROOT/'spec/giant_pacific_octopus_nature_story_v2.json').read_text())
+    compiled = ns.compile_directed_short(episode)
+    assert compiled == octopus_v2_payload()
+    report = dl.validate_directed_spec(compiled)
+    assert report['valid'] is True, report['issues']
+    assert report['spec_sha256'] == '5b6b9dc2b3a24b3c101858d7bf77583024f50a86134eb3fee09a2f01b2e78024'
+    assert report['nature_retention_storyboard']['score'] == 100
+    assert report['nature_retention_storyboard']['passed'] is True
+    assert compiled['nature_short']['identity_reference_mode'] == 'storyboard_groups'
+    assert 'keep the same mother, den opening' not in compiled['worlds'][0]['base_prompt'].casefold()
+
+
+def test_directed_v3_rejects_storyboard_that_does_not_match_exact_shots():
+    data = octopus_v2_payload()
+    data['nature_short']['retention_storyboard']['shots'][0]['shot_id'] = 'wrong-shot'
+    report = dl.validate_directed_spec(data)
+    assert report['valid'] is False
+    assert any(issue['code'] == 'nature_retention_shot_coverage'
+               for issue in report['issues'])
 
 
 def test_measured_scene_timing_does_not_drift_when_beats_change_speed():
@@ -200,3 +226,23 @@ def test_nature_runtime_migration_rearm_is_bounded_inside_existing_salvage():
     assert "infrastructure_rearmed" in source
     assert "j.reserved_cost_usd=0" in source
     assert "j.spent_cost_usd < j.max_cost_usd" in source
+
+
+def test_generated_still_diversity_gate_blocks_duplicate_compositions_before_motion(tmp_path):
+    images = []
+    for index, color in enumerate(('navy', 'navy', 'orange')):
+        path = tmp_path/f'{index}.jpg'
+        Image.new('RGB', (108, 192), color).save(path)
+        images.append(path)
+    shots = [{'shot_id': f's{index}'} for index in range(3)]
+    report = nsp.preflight_visual_diversity(images, shots, tmp_path, .965)
+    assert report['passed'] is False
+    assert report['failed_adjacent_pairs'][0]['left'] == 's0'
+    assert Path(report['contact_sheet_path']).is_file()
+    assert Path(report['report_path']).is_file()
+    intentional = [
+        {'shot_id': 's0', 'labels': ['continuity_group:before_after']},
+        {'shot_id': 's1', 'labels': ['continuity_group:before_after']},
+        {'shot_id': 's2', 'labels': []},
+    ]
+    assert nsp.preflight_visual_diversity(images, intentional, tmp_path, .965)['passed'] is True
