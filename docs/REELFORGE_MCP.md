@@ -177,6 +177,22 @@ adapter or install a connector in a chat client.
 
 ## Verification
 
+Illustrated jobs that stop only on `LATE_MECHANISM` and/or `NO_CALLBACK` can receive one
+targeted narration edit before media spend. The opening budget is calculated from the actual
+word counts, including the shorter runtime after compression. The closing narration explicitly
+returns to the opening object. Scene order, events, mechanism, research and approval are retained;
+the revised narration must pass the original storyboard and source gates. An unsuccessful edit
+remains a failure. The private `illustrated_storyboard_repair_v1.json` records the input and result,
+and durable provider replay prevents another purchase after worker continuation.
+
+For an older terminal failure, **Restart from saved progress** / `resume_video` first restores
+and reproduces `semantic_failure_illustrated-storyboard.json` on the server, checks its research
+and approved direction, and rejects snapshots with media or an existing repair attempt. A single
+checkpoint-bound `illustrated_storyboard_recovery_v1` continuation requires no live lease, no
+reserved or unresolved provider call, and remaining budget. It preserves the same action/job,
+paid stages and both spending limits. Public restart eligibility is provisional until this
+private checkpoint check succeeds. Merging the code alone does not restart or validate a video.
+
 ```sh
 # Render app environment
 python -m pytest tests/test_longform_agent_contract.py tests/test_illustrated_approval_boundary.py tests/test_agent_actions.py

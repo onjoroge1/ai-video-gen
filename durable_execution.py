@@ -62,6 +62,7 @@ normalize_durable_job_max_cost_env()
 
 
 RESEARCH_BUDGET_RECOVERY = "research_search_budget_recovery_v1"
+STORYBOARD_RECOVERY = "illustrated_storyboard_recovery_v1"
 _RESERVATION_FAILURE = re.compile(
     r"Stage (anthropic:[0-9a-f]{32}) reserves \$([0-9]+\.[0-9]{4}); "
     r"the single-call ceiling is \$([0-9]+\.[0-9]{4})")
@@ -89,11 +90,56 @@ def research_budget_recovery(job: dict) -> dict:
     return {"stage_key": stage_key, "reserve": reserve, "ceiling": ceiling}
 
 
+def storyboard_recovery(job: dict) -> bool:
+    """Candidate for a single repair; dispatch must also reproduce the saved failure."""
+    from storyboard_repair import repairable_failure
+    return bool(job.get("status") == "error" and repairable_failure(job.get("error"))
+                and not job.get("lease_owner") and not job.get("lease_expires_at")
+                and float(job.get("reserved_cost_usd") or 0) == 0
+                and float(job.get("spent_cost_usd") or 0) < float(job.get("max_cost_usd") or 0)
+                and re.fullmatch(r"[0-9a-f]{64}", str((job.get("checkpoint") or {}).get("sha256") or ""))
+                and not (job.get("result") or {}).get(STORYBOARD_RECOVERY))
+
+
 class PostgresStore(_legacy.PostgresStore):
     """PR7/PR8 additions to the durable job store without weakening the PR6 engine."""
 
     _pilot_schema_ready = False
     _production_schema_ready = False
+
+    def resume_storyboard_failure(self, job_id: str, *, expected_checkpoint_sha256: str,
+                                  expected_error: str, failure_sha256: str) -> dict:
+        """Queue the exact reproduced pre-media failure once, preserving every paid stage."""
+        if not all(re.fullmatch(r"[0-9a-f]{64}", h)
+                   for h in (expected_checkpoint_sha256, failure_sha256)):
+            raise DurableExecutionError("Storyboard recovery requires exact saved hashes")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if job.get("status") in {"queued", "processing"}:
+                return job
+            if (not storyboard_recovery(job) or job.get("error") != expected_error
+                    or (job.get("checkpoint") or {}).get("sha256") != expected_checkpoint_sha256):
+                raise DurableExecutionError("Job is not eligible for storyboard recovery")
+            cur.execute("""
+                SELECT stage_key,status FROM generation_stages WHERE job_id=%s
+                AND status NOT IN ('completed','incomplete') FOR UPDATE
+            """, (job_id,))
+            if cur.fetchall():
+                raise DurableExecutionError("Storyboard recovery has an unresolved provider stage")
+            marker = {STORYBOARD_RECOVERY: {"checkpoint_sha256": expected_checkpoint_sha256,
+                                          "failure_sha256": failure_sha256,
+                                          "prior_error": expected_error}}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (json.dumps(marker), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed",
+                          "Saved storyboard queued for one bounded narration repair")
+        return row
 
     def resume_research_budget_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
         """One explicit recovery of a rejected, unpurchased call under unchanged limits."""
