@@ -330,7 +330,9 @@ def score_plan(*, narration: str, scenes: list[dict], shots: list[dict],
                domain="contract", repair="Apply the category-specific repairs and rescore the same immutable plan.")
     return {
         "version": VERSION,
-        "name": "Nature high-retention storyboard and animatic gate",
+        "name": "Nature storyboard structural compliance",
+        "assessment_type": "structural_compliance_not_editorial_quality",
+        "semantic_review": "separate_review_required",
         "passed": passed,
         "score": score,
         "minimum_score": MINIMUM_SCORE,

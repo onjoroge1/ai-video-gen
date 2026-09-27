@@ -197,7 +197,7 @@ class NatureRetentionStoryboard(_StrictModel):
 class NatureShortPresentation(_StrictModel):
     # V2 stays parseable and hash-stable for already approved actions. V3 opts into the toolkit
     # storyboard, grouped references and pre-motion visual-diversity gate.
-    version: Literal["nature_short_v2", "nature_short_v3"] = "nature_short_v2"
+    version: Literal["nature_short_v2", "nature_short_v3", "nature_short_v4"] = "nature_short_v2"
     tts_model: Literal["gpt-4o-mini-tts-2025-12-15"] = "gpt-4o-mini-tts-2025-12-15"
     voice_instructions: str = Field(min_length=20, max_length=1500)
     max_shot_sec: float = Field(default=3.4, ge=2, le=4)
@@ -206,10 +206,13 @@ class NatureShortPresentation(_StrictModel):
     preflight_similarity_threshold: float = Field(default=0.965, ge=0.90, le=0.999)
     preflight_max_regenerations: int = Field(default=3, ge=0, le=5)
     retention_storyboard: NatureRetentionStoryboard | None = None
+    min_narration_wpm: float = Field(default=140, ge=100, le=175)
+    max_narration_speedup: float = Field(default=1.15, ge=1, le=1.15)
+    max_still_sequence_sec: float = Field(default=5.0, ge=3.4, le=6.0)
 
     @model_validator(mode="after")
     def v3_requires_authoritative_storyboard(self):
-        if self.version == "nature_short_v3":
+        if self.version in {"nature_short_v3", "nature_short_v4"}:
             if self.identity_reference_mode != "storyboard_groups":
                 raise ValueError("Nature Short v3 requires storyboard_groups identity references")
             if self.retention_storyboard is None:
@@ -219,6 +222,9 @@ class NatureShortPresentation(_StrictModel):
     @model_serializer(mode="wrap")
     def preserve_v2_hash(self, handler):
         data = handler(self)
+        if self.version != "nature_short_v4":
+            for key in ("min_narration_wpm", "max_narration_speedup", "max_still_sequence_sec"):
+                data.pop(key, None)
         if self.version == "nature_short_v2":
             # These fields did not exist when the approved V2 bundles were hashed. Keeping their
             # normalized JSON byte-for-byte stable is part of the immutable approval boundary.
@@ -335,10 +341,12 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
     preflight_redraws = 0
     if spec.nature_short:
         images = len(master_keys) * IMAGE_EDIT_COST_USD
-        if spec.nature_short.version == "nature_short_v3":
+        if spec.nature_short.version in {"nature_short_v3", "nature_short_v4"}:
             preflight_redraws = spec.nature_short.preflight_max_regenerations
             images += preflight_redraws * IMAGE_EDIT_COST_USD
     i2v = len(motion_keys) * I2V_COST_USD
+    quality_review = (0.25 + 0.08 * len(motion_keys)
+                      if spec.nature_short and spec.nature_short.version == "nature_short_v4" else 0.0)
     return {
         "narration_characters": narration_chars,
         "scene_count": len(scenes),
@@ -350,7 +358,8 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         **({"alignment_usd": round(alignment, 4)} if spec.nature_short else {}),
         "images_usd": round(images, 4),
         "i2v_usd": round(i2v, 4),
-        "estimated_total_usd": round(tts + images + i2v + alignment, 4),
+        **({"quality_review_usd": round(quality_review, 4)} if quality_review else {}),
+        "estimated_total_usd": round(tts + images + i2v + alignment + quality_review, 4),
     }
 
 
@@ -661,7 +670,7 @@ def validate_directed_spec(payload: dict) -> dict:
             "shots"))
 
     nature_retention = None
-    if spec.nature_short and spec.nature_short.version == "nature_short_v3":
+    if spec.nature_short and spec.nature_short.version in {"nature_short_v3", "nature_short_v4"}:
         # The V3 storyboard is part of the immutable directed spec and is rescored at the same
         # boundary that authorizes spend. A report copied from some other script/shot plan cannot
         # pass because scene and shot IDs/order must match this exact payload.

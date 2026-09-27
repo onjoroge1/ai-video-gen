@@ -257,7 +257,7 @@ def validate_episode(episode: dict, *, profile: str | None = None) -> dict:
     presentation = episode.get("presentation") \
         if isinstance(episode.get("presentation"), dict) else {}
     retention_report = None
-    if profile == PROFILE_SHORT and presentation.get("version") == "nature_short_v3":
+    if profile == PROFILE_SHORT and presentation.get("version") in {"nature_short_v3", "nature_short_v4"}:
         import nature_retention_storyboard as nrs
         retention_report = nrs.score_episode(episode)
         script_status = "PASS" if retention_report.get("script_passed") else "FAIL"
@@ -524,7 +524,7 @@ def compile_directed_short(episode: dict) -> dict:
         raise ValueError("A directed Nature Short requires an explicit presentation contract")
     presentation = deepcopy(episode["presentation"])
     retention_rows: dict[str, dict] = {}
-    if presentation.get("version") == "nature_short_v3":
+    if presentation.get("version") in {"nature_short_v3", "nature_short_v4"}:
         retention = compile_retention_storyboard(episode)
         if not retention["validation"].get("passed"):
             failures = [item.get("code") for item in retention["validation"].get("issues") or []]

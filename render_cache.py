@@ -29,7 +29,7 @@ from durable_execution import current, canonical_hash, file_sha256, CooperativeY
 # semantic_sync_ratio and same_source_hard_cut_count for pixels that are not in the
 # file -- a metric moving without the artifact it measures changing, which is the one
 # failure this whole branch exists to stop doing.
-ILLUSTRATED_RENDER_VERSION = "736894ba16592d22e3d5856f7ade9440962920c2ca1a27db4fa752c447ef7b3d"
+ILLUSTRATED_RENDER_VERSION = "nature-quality-2026-09-27-v1"
 
 
 @lru_cache(maxsize=8)

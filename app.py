@@ -1281,7 +1281,7 @@ class AgentActionCreateRequest(BaseModel):
         "hippo_illustrated_story_v4", "hippo_illustrated_story_v4_full_5m",
         "hippo_illustrated_story_v4_recovery_opening",
         "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
-        "giant_pacific_octopus_nature_short_v2", ""
+        "giant_pacific_octopus_nature_short_v2", "giant_pacific_octopus_nature_short_v3", ""
     ] = ""
     cost_ceiling_usd: float = Field(gt=0, le=25)
     parent_action_id: str = ""
@@ -2677,6 +2677,8 @@ def _bundled_directed_spec(spec_id: str) -> dict:
         "harp_seal_nature_short_v2": "harp_seal_nature_short_v2.json",
         "giant_pacific_octopus_nature_short_v2":
             "giant_pacific_octopus_nature_short_v2.json",
+        "giant_pacific_octopus_nature_short_v3":
+            "giant_pacific_octopus_nature_short_v3.json",
     }
     if spec_id not in names:
         raise HTTPException(status_code=422, detail="A spec or supported bundled_spec_id is required")
@@ -2919,7 +2921,8 @@ def _public_agent_result(result: dict) -> dict:
     if isinstance(rendered, dict) and rendered:
         from longform_rendered_gate import rendered_grade_summary
         safe["rendered_contract"] = {key: rendered.get(key) for key in (
-            "score", "status", "automated_pass", "automated_grade_available", "hard_failures",
+            "score", "raw_score", "score_cap", "status", "automated_pass",
+            "automated_grade_available", "hard_failures",
         ) if rendered.get(key) is not None}
         safe["grading"] = rendered_grade_summary(rendered)
     return safe
@@ -3065,9 +3068,9 @@ async def agent_capabilities():
         "directed_pilot": {
             "bundled_spec_ids": [
                 "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
-                "giant_pacific_octopus_nature_short_v2",
+                "giant_pacific_octopus_nature_short_v2", "giant_pacific_octopus_nature_short_v3",
             ],
-            "latest_nature_contract": "nature_short_v3",
+            "latest_nature_contract": "nature_short_v4",
             "retention_storyboard_minimum": 82,
         },
         "publishes_to_youtube": False,

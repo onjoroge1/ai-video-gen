@@ -617,3 +617,66 @@ def ImageSize(path):
     from PIL import Image
     with Image.open(path) as image:
         return image.size
+
+
+def test_nature_cast_and_motion_pacing_do_not_lose_irrelevant_points():
+    facts=_facts(cast_mode='none',bolt_shot_count=0,bolt_shot_ratio=0,
+                 rubric_lane='nature_short',max_visual_state_sec=4.2,
+                 max_unchanged_state_sec=0,unchanged_state_limit_sec=3.4)
+    result=_score(facts=facts,blind=_blind(bolt_useful=False))
+    assert result['score']==100
+    assert result['raw_score']==100 and result['score_cap'] is None
+    assert next(c for c in result['components'] if c['name']=='Cast discipline')['score']==10
+
+
+def test_raw_grade_and_actual_cap_preserve_failed_shot_evidence():
+    holds=[{'shot_ids':['gp2_61'],'duration_sec':3.78,'limit_sec':3.4}]
+    result=_score(facts=_facts(long_hold_count=1,hold_failures=holds))
+    assert result['raw_score']==100
+    assert result['score']==69 and result['score_cap']==69
+    assert result['hold_failures']==holds
+    assert result['automated_pass'] is False
+    action=_score(facts=_facts(action_review_failures=['gp3_51']))
+    assert action['score']==69
+    assert 'nature_action_not_verified' in action['hard_failures']
+
+
+def test_saved_octopus_hold_is_counted_once_and_missing_v4_action_review_fails(
+        tmp_path,monkeypatch):
+    import spec_pilot
+    import directed_longform as dl
+    import nature_render_quality as nrq
+    root=Path(__file__).resolve().parents[1]
+    data=json.loads((root/'spec/giant_pacific_octopus_nature_short_v2.json').read_text())
+    spec=dl.DirectedLongformSpec.model_validate(data)
+    shots=[s.model_dump(mode='json') for s in spec.shots]
+    holds=[2.416,2.417,2.416,2.28,2.28,2.486,2.487,2.486,2.83,2.83,2.617,2.617,2.617,3.78,3.78]
+    image=tmp_path/'still.jpg';image.write_bytes(b'saved source')
+    video=tmp_path/'video.mp4';video.write_bytes(b'saved video')
+    captured={}
+    def inspect(*args):
+        captured['facts']=_facts(cast_mode='none',bolt_shot_count=0,bolt_shot_ratio=0)
+        return {'deterministic':captured['facts']}
+    monkeypatch.setattr(spec_pilot,'inspect_rendered_opening',inspect)
+    monkeypatch.setattr(spec_pilot,'build_contact_sheet',lambda *a:None)
+    monkeypatch.setattr(spec_pilot.ep,'_blind_rendered_story_judge',lambda *a,**k:_blind(bolt_useful=False))
+    monkeypatch.setattr(spec_pilot.ep,'_audio_dur',lambda p:6)
+    kwargs=dict(preview=str(video),out=tmp_path,image_paths=[str(image)]*15,
+                audio_paths=['audio']*6,motion_events=[],cost_sink=[],log=lambda x:None)
+    result=spec_pilot._grade_directed_pilot(spec=spec,shots=shots,holds=holds,
+                    indexed_scenes=list(enumerate(spec.narration)),**kwargs)['rendered_contract']
+    assert captured['facts']['long_hold_count']==1
+    assert result['hold_failures'][0]['shot_ids']==['gp2_61']
+    assert result['hold_failures'][0]['duration_sec']==3.78
+    assert result['score']==69
+    # Missing observations must not pass simply because the list is empty.
+    new=dl.DirectedLongformSpec.model_validate(json.loads((root/'spec/giant_pacific_octopus_nature_short_v3.json').read_text()))
+    new_shots=[s.model_dump(mode='json') for s in new.shots]
+    report={'passed':True,'shots':[{'shot_id':s['shot_id'],'passed':True} for s in new_shots],
+            'image_sha256':{s['shot_id']:nrq._sha(image) for s in new_shots}}
+    (tmp_path/'nature_visual_review.json').write_text(json.dumps(report))
+    result=spec_pilot._grade_directed_pilot(spec=new,shots=new_shots,holds=[2.4]*15,
+                    indexed_scenes=list(enumerate(new.narration)),**kwargs)['rendered_contract']
+    assert len(result['action_review_failures'])==9
+    assert 'gp3_51' in result['action_review_failures']
+    assert 'nature_action_not_verified' in result['hard_failures']

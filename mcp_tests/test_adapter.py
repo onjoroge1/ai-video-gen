@@ -12,7 +12,9 @@ from reelforge_mcp import BearerAuth, ReelForgeClient, create_server
 ACTION = "act_" + "a" * 32
 
 
-def test_protocol_discovery_and_all_tools_use_existing_api():
+@pytest.mark.parametrize("bundle_id", ["harp_seal_nature_short_v1",
+    "giant_pacific_octopus_nature_short_v2", "giant_pacific_octopus_nature_short_v3"])
+def test_protocol_discovery_and_all_tools_use_existing_api(bundle_id):
     calls = []
     def upstream(request):
         calls.append(request)
@@ -26,7 +28,7 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
             else:
                 assert body == {
                     "operation": "directed_pilot",
-                    "bundled_spec_id": "harp_seal_nature_short_v1",
+                    "bundled_spec_id": bundle_id,
                     "cost_ceiling_usd": 5,
                 }
             result = {"action_id": ACTION, "claim_token": "never-send-to-model", "status": "pending"}
@@ -50,7 +52,7 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
                 ("get_video_capabilities", {}),
                 ("propose_video", {"topic": "Stoats", "duration_sec": 300, "cost_ceiling_usd": 10}),
                 ("propose_directed_pilot", {
-                    "bundled_spec_id": "harp_seal_nature_short_v1",
+                    "bundled_spec_id": bundle_id,
                     "cost_ceiling_usd": 5
                 }),
                 ("get_video_status", {"action_id": ACTION, "after": 17}),
@@ -71,7 +73,7 @@ def test_protocol_discovery_and_all_tools_use_existing_api():
     assert len(calls) == 7
     assert json.loads(calls[2].content) == {
         "operation": "directed_pilot",
-        "bundled_spec_id": "harp_seal_nature_short_v1",
+        "bundled_spec_id": bundle_id,
         "cost_ceiling_usd": 5
     }
     assert calls[3].url.params["after"] == "17"

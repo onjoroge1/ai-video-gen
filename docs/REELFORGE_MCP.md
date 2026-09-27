@@ -51,12 +51,28 @@ effective cost caps. Configuration discovery is not a live provider/readiness te
 Directed pilot proposals use the same operator approval boundary as the studio. The MCP adapter can
 select only explicitly bundled specs exposed by its typed tool contract; it cannot submit an
 arbitrary path or approve the spend. The typed Nature bundles are
-`harp_seal_nature_short_v1`, `harp_seal_nature_short_v2`, and
-`giant_pacific_octopus_nature_short_v2`. The octopus bundle uses Nature Short v3: its immutable
-spec contains the high-retention storyboard, requires an 82/100 pre-spend score, renders a measured
-voice animatic, and checks generated-still diversity before purchasing motion.
-The studio shortcut `/agent/actions?pilot=octopus-v2` creates or reconnects to that exact
-non-spending proposal; approval still binds the displayed SHA-256 and $5 ceiling once.
+`harp_seal_nature_short_v1`, `harp_seal_nature_short_v2`,
+`giant_pacific_octopus_nature_short_v2`, and `giant_pacific_octopus_nature_short_v3`.
+The octopus V3 bundle opts into the Nature Short v4 contract. It adds independent semantic
+script and generated-image reviews, bounded pitch-preserving narration pacing, per-scene hold
+repair, whole-source motion samples to select completed actions, portable caption fonts, and
+checks of actual encoded caption pixels. Structural storyboard compliance is reported separately
+from editorial quality. Motion sampling is not full-video verification; final editorial review
+and audience retention remain unmeasured until independently assessed.
+
+Use `/agent/actions?pilot=octopus-v3` for the new non-spending proposal. It contains 79 spoken
+words, 15 shots and 9 motion assets, with a $4.636 planning estimate and a $5 approval ceiling.
+Approval binds the exact displayed SHA-256 once. The V2 shortcut and previous bundle bytes stay
+unchanged; no failed job is regraded, promoted or automatically requeued by this change.
+The V3 script removes repeated setup, keeps the hatchling fully inside a closed egg at the
+start of the hatch shot, requests the complete exit, gives time passage actual motion, keeps
+still-image promises static, and ends with small hatchlings leaving the den.
+
+New rendered contracts preserve `raw_score`, `score_cap`, distinct `hold_failures` (shot IDs,
+seconds and limits), and missing/failed `action_review_failures`. Private generation manifests
+include semantic, source-image, measured pacing, action and encoded-caption evidence. Cast-free
+lanes receive cast-discipline credit when no mascot is required; portrait review sheets keep
+the source aspect ratio. Existing release thresholds and the human publication gate stay in force.
 
 Rendering is asynchronous. Save the action ID, poll status with `next_event_seq`, and reconnect
 after a chat restart. A missing artifact means it is not available, not permission to regenerate
