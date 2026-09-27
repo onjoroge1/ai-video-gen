@@ -33,7 +33,7 @@ DEVELOPMENTS = {
 HARD_CHECKS = {
     "INPUTS_READY", "WORD_CAP", "HOOK_ONCE", "CLAIM_SUPPORT", "PROMISE_CLOSED",
     "MECHANISM_COMPLETE", "PARENT_SUBJECT_MATCH", "NO_CONTRADICTION",
-    "VISUAL_PROOF",
+    "VISUAL_PROOF", "SCRIPT_RETENTION", "STORYBOARD_DIVERSITY",
 }
 
 # Shared writing doctrine. nature_channel imports this exact string for the model-authored long form;
@@ -49,6 +49,10 @@ NATURE_WRITING_CONTRACT = (
     "Every beat must add a new action, constraint, mechanism, consequence, limitation, or changed "
     "interpretation. Different wording, another statistic, or another camera angle is not a new beat. "
     "If removing a beat changes neither the explanation nor the unresolved question, merge or cut it.\n"
+    "For a Short, compare three materially different opening strategies before selecting the spoken "
+    "hook. Give every beat one concrete mini-payoff, then open the next specific question until the "
+    "final beat. Add a supported hinge or reinterpretation so the remaining structure is not fully "
+    "predictable in the first third. The climax must be the strongest visible event, not a summary.\n"
     "A mechanism must explain the resource or origin, the process/action, and the benefit or effect "
     "for the young. Do not answer 'how' by merely restating the outcome.\n"
     "Keep the parent named by the title central. Do not hide a known caregiver, protected egg, actual "
@@ -250,6 +254,42 @@ def validate_episode(episode: dict, *, profile: str | None = None) -> dict:
         {"critical_beats": [b.get("id") for b in critical], "missing": visual_fail},
         "Give every critical explanatory beat at least one storyboard state explicitly marked visual_proof."))
 
+    presentation = episode.get("presentation") \
+        if isinstance(episode.get("presentation"), dict) else {}
+    retention_report = None
+    if profile == PROFILE_SHORT and presentation.get("version") == "nature_short_v3":
+        import nature_retention_storyboard as nrs
+        retention_report = nrs.score_episode(episode)
+        script_status = "PASS" if retention_report.get("script_passed") else "FAIL"
+        visual_status = "PASS" if (retention_report.get("visual_passed")
+                                     and retention_report.get("passed")) else "FAIL"
+        checks.append(_check(
+            "SCRIPT_RETENTION", script_status,
+            {"score": retention_report.get("score"),
+             "word_count": (retention_report.get("metrics") or {}).get("word_count"),
+             "issues": [item for item in retention_report.get("issues") or []
+                        if item.get("domain") in {"script", "contract"}]},
+            "Repair the hook, word budget, mini-payoffs, open loops and final reversal before rendering."))
+        checks.append(_check(
+            "STORYBOARD_DIVERSITY", visual_status,
+            {"score": retention_report.get("score"),
+             "minimum_score": retention_report.get("minimum_score"),
+             "metrics": retention_report.get("metrics"),
+             "issues": [item for item in retention_report.get("issues") or []
+                        if item.get("domain") in {"visual", "contract"}]},
+            "Vary visual language, scale, location, composition, consequence and reference scope before rendering."))
+    elif profile == PROFILE_SHORT:
+        checks.append(_check(
+            "SCRIPT_RETENTION", "UNKNOWN",
+            {"presentation_version": presentation.get("version") or "legacy"},
+            "Author the next Nature Short with presentation.version=nature_short_v3.",
+            severity="production"))
+        checks.append(_check(
+            "STORYBOARD_DIVERSITY", "UNKNOWN",
+            {"presentation_version": presentation.get("version") or "legacy"},
+            "Author the next Nature Short with the high-retention storyboard contract.",
+            severity="production"))
+
     timing = episode.get("measured_timing") if isinstance(episode.get("measured_timing"), dict) else {}
     measured = timing.get("duration_sec")
     target = episode.get("target_duration_sec")
@@ -304,6 +344,8 @@ def validate_episode(episode: dict, *, profile: str | None = None) -> dict:
             "promise_coverage": 1.0 if promises and not promise_failures else 0.0,
             "redundant_word_ratio": round(redundant_ratio, 3),
             "beat_count": len(beats),
+            **({"retention_storyboard_score": retention_report.get("score")}
+               if retention_report else {}),
         },
         "checks": checks,
     }
@@ -359,6 +401,14 @@ def compile_storyboard(episode: dict) -> dict:
     plan = evidence.compile_evidence_plan(script, seconds)
     validation = evidence.validate_evidence_plan(plan)
     return {"script": script, "plan": plan, "validation": validation}
+
+
+def compile_retention_storyboard(episode: dict) -> dict:
+    """Compile and score the toolkit storyboard that owns script rhythm and visual diversity."""
+    import nature_retention_storyboard as nrs
+    storyboard = deepcopy(episode.get("retention_storyboard") or {})
+    validation = nrs.score_episode(episode)
+    return {"storyboard": storyboard, "validation": validation}
 
 
 def compile_keyframe_spec(episode: dict) -> dict:
@@ -472,6 +522,18 @@ def compile_directed_short(episode: dict) -> dict:
         raise ValueError("Nature episode failed its shared storyboard validation")
     if not episode.get("presentation"):
         raise ValueError("A directed Nature Short requires an explicit presentation contract")
+    presentation = deepcopy(episode["presentation"])
+    retention_rows: dict[str, dict] = {}
+    if presentation.get("version") == "nature_short_v3":
+        retention = compile_retention_storyboard(episode)
+        if not retention["validation"].get("passed"):
+            failures = [item.get("code") for item in retention["validation"].get("issues") or []]
+            raise ValueError("Nature retention storyboard failed: " + ", ".join(failures))
+        presentation["retention_storyboard"] = retention["storyboard"]
+        retention_rows = {
+            str(row.get("shot_id")): row
+            for row in retention["storyboard"].get("shots") or [] if isinstance(row, dict)
+        }
     visual = episode["visual"]
     duration = round(sum(float(b["duration_sec"]) for b in episode["beats"]), 3)
     world_id = "nature_episode"
@@ -487,14 +549,47 @@ def compile_directed_short(episode: dict) -> dict:
                            narration=beat["vo"], world_id=world_id,
                            story_role=beat["development"], claim_ids=claims))
         for i, state in enumerate(states):
+            row = retention_rows.get(str(state["id"])) or {}
+            mode = state.get("render_mode", "Still")
+            if row:
+                directing = (
+                    f"INSTANT READ. Visual mode: {row['visual_mode']}. "
+                    f"Location: {row['location_id']}. Composition: {row['composition_id']} "
+                    f"at {row['shot_scale']} scale. Dominant visible action: "
+                    f"{row['dominant_action']}. "
+                )
+                if _norm(mode) == "full motion":
+                    asset_prompt = (
+                        directing + f"Begin before the payoff: {state['state_before']} "
+                        f"The generated motion must create this change: {row['state_change']}. "
+                        "Do not show the completed result in the opening frame."
+                    )
+                    visible = state["state_before"]
+                else:
+                    asset_prompt = (
+                        directing + f"Show the completed proof state: {state['state_after']} "
+                        f"This frame pays off: {row['mini_payoff']}. Do not merely repeat the setup."
+                    )
+                    visible = state["state_after"]
+                labels = list(state.get("labels", [])) + [
+                    f"visual_mode:{row['visual_mode']}",
+                    f"composition:{row['composition_id']}",
+                    f"location:{row['location_id']}",
+                    f"reference_scope:{row['reference_scope']}",
+                    f"continuity_group:{row.get('continuity_group') or ''}",
+                ]
+            else:
+                asset_prompt = state["state_before"]
+                visible = state["state_before"]
+                labels = state.get("labels", [])
             shots.append(dict(shot_id=state["id"],
                 start_sec=round(cursor+i*seconds/len(states),3),
                 end_sec=round(cursor+(i+1)*seconds/len(states),3),
-                visual=state["state_before"], asset_prompt=state["state_before"],
-                transformation=state["state_after"], mode=state.get("render_mode","Still"),
+                visual=visible, asset_prompt=asset_prompt,
+                transformation=state["state_after"], mode=mode,
                 world_id=world_id, scene_id=scene_id, asset_key=state["id"],
                 claim_ids=claims, overlay_text=state.get("caption",beat.get("caption","")),
-                labels=state.get("labels",[])))
+                labels=labels))
         cursor=round(cursor+seconds,3)
     evidence = [dict(claim_id=c["id"], claim=c["passage"], source_uri=c["source_url"],
                      qualification=c.get("qualifiers") or "General species account; retain conditional wording.",
@@ -510,7 +605,7 @@ def compile_directed_short(episode: dict) -> dict:
             min_shot_sec=.75,max_unchanged_hold_sec=maximum,max_consecutive_still_asset_sec=maximum,
             frontloaded_motion_count=2,frontloaded_motion_window_sec=7,
             min_useful_bolt_appearances=0,max_bolt_appearances=0,planned_bolt_appearances=0),
-        nature_short=deepcopy(episode["presentation"]),
+        nature_short=presentation,
         worlds=[dict(world_id=world_id,start_sec=0,end_sec=duration,base_prompt=visual.get("style_prefix","")+" "+visual.get("subject_sheet",""))],
         narration=scenes,shots=shots,evidence=evidence,
         prohibited_claims=list(episode.get("prohibited_claims") or [

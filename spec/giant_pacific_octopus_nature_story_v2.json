@@ -1,0 +1,666 @@
+{
+  "flow_id": "nature_story_v1",
+  "channel": "nature",
+  "series_id": "terrible_parents",
+  "episode_id": "giant_pacific_octopus_mother_v2",
+  "species": "giant Pacific octopus",
+  "parent_role": "mother",
+  "title": "Why Is This Giant Pacific Octopus the Worst Mother?",
+  "central_question": "Why is this giant Pacific octopus the worst mother?",
+  "observed_behavior": "After laying tens of thousands of eggs, the mother stays in her den and stops eating while they develop.",
+  "practical_problem": "The eggs require months of continuous care while the mother consumes no new food.",
+  "engine": "strange_behaviour",
+  "mechanism": {
+    "resource_or_origin": "Oxygen-rich seawater surrounding the den.",
+    "process": "She stays with the egg strands, fanning them with her arms and shooting oxygen-rich water across them with her siphon.",
+    "offspring_benefit": "The developing eggs remain ventilated and cared for until the hatchlings emerge."
+  },
+  "supported_limitation": "The mother usually dies shortly after the eggs hatch; do not portray death as guaranteed at a precise moment or show a graphic corpse.",
+  "prohibited_claims": [
+    "Do not imply that the mother is choosing death, feels heroic, or understands a future sacrifice.",
+    "Do not guarantee that every egg survives or that this illustrated mother dies on screen.",
+    "Do not mix the giant Pacific octopus's roughly six-month brood with the four-and-a-half-year record of a different deep-sea species."
+  ],
+  "ending": "End on hatchlings moving into open water while the living mother remains behind in the emptied den. Do not add a rescue, reunion, corpse, CTA, or second conclusion.",
+  "word_cap": 86,
+  "target_duration_sec": 38.5,
+  "runtime_tolerance_sec": 7,
+  "estimated_words_per_sec": 2.16,
+  "voice": "coral",
+  "motion_model": "kling-v3-pro",
+  "music_mood": "playful_pulse",
+  "hard_cap_usd": 5,
+  "promises": [
+    {
+      "id": "what_are_her_arms_doing",
+      "question": "What does the mother do instead of eating?",
+      "answer_beat_id": "b3"
+    },
+    {
+      "id": "does_the_work_pay_off",
+      "question": "What emerges after months of care?",
+      "answer_beat_id": "b5"
+    }
+  ],
+  "review": {
+    "contradictions_reviewed": true,
+    "contradictions": []
+  },
+  "claims": [
+    {
+      "id": "c_brood",
+      "status": "verified",
+      "source": "Monterey Bay Aquarium — Giant Pacific octopus",
+      "source_url": "https://www.montereybayaquarium.org/animals-the-ocean/animals-a-to-z/giant-pacific-octopus",
+      "passage": "The aquarium reports that a female hangs 18,000 to 74,000 eggs from her den roof, lives in the cave for up to six months, fans the eggs or shoots oxygen- and nutrient-rich water over them, does not eat during this time, and usually dies shortly after hatching.",
+      "qualifiers": "Use tens of thousands and months; do not combine these measurements with another octopus species.",
+      "reviewed_at": "2026-09-26",
+      "passage_type": "source_summary_not_verbatim_quote",
+      "license": "Publicly accessible nonprofit aquarium factual source; summarized, not quoted"
+    },
+    {
+      "id": "c_hatchlings",
+      "status": "verified",
+      "source": "Monterey Bay Aquarium — Giant Pacific octopus",
+      "source_url": "https://www.montereybayaquarium.org/animals-the-ocean/animals-a-to-z/giant-pacific-octopus",
+      "passage": "The aquarium reports that a giant Pacific octopus hatches from a rice-grain-sized egg; the tiny hatchling has eight arms with about 14 suckers each and initially drifts in surface waters.",
+      "qualifiers": "Rice-grain-sized describes the egg. Do not depict miniature adult proportions or claim every hatchling survives.",
+      "reviewed_at": "2026-09-26",
+      "passage_type": "source_summary_not_verbatim_quote",
+      "license": "Publicly accessible nonprofit aquarium factual source; summarized, not quoted"
+    }
+  ],
+  "visual": {
+    "location": "North Pacific reef den, its entrance, scientific cutaway space, and nearby open water",
+    "opening_object": "female giant Pacific octopus actively attaching a dense egg strand",
+    "final_object": "tiny hatchlings moving through open water with the emptied den behind them",
+    "subject_sheet": "Adult female giant Pacific octopus: one anatomically coherent reddish-orange mantle, two clear eyes, eight continuous muscular arms with pale undersides and orderly suction cups. Egg strands: thousands implied through dense curtains of small translucent white teardrop eggs attached to rock, never loose bird-like eggs. Hatchlings: rice-grain scale, translucent orange, eight tiny arms, not miniature adults. Preserve species anatomy and the mother's coral-orange palette through written identity details; do not copy a prior camera, pose, den wall, or background into a new composition.",
+    "continuity_loop_safe": false,
+    "style": "Lively cinematic natural-history illustration with crisp phone-size silhouettes, saturated deep-teal water, coral-orange skin, pearl-white eggs, and turquoise oxygen currents. Alternate grounded action, extreme macro evidence, explanatory cutaway, time passage, scale comparison, and open-water payoff. Each shot follows its authored location and composition. No text, people, aquarium glass, equipment, gore, human facial expressions, split screens, grids, or reused camera setup.",
+    "end_rule": " Preserve anatomy and declared object placement within each generated motion shot; change only the authored action. A new storyboard composition must not inherit the previous camera or background.",
+    "negative": "people, divers, human equipment, aquarium glass, text, letters, numbers, watermark, logo, cartoon, anime, smiling mouth, tears, duplicate mother, more or fewer than eight arms, detached arms, fused anatomy, loose bird eggs, miniature adult hatchlings, graphic death, corpse, rescue, split screen, comic panels, repeated camera, copied background",
+    "style_prefix": "Lively cinematic natural-history illustration with anatomically accurate giant Pacific octopus anatomy, crisp phone-size silhouettes, deep teal and turquoise water, coral-orange skin, and pearl-white eggs. Treat every storyboard location and composition as authoritative. Preserve identity through anatomy and palette only; never copy the first frame's camera, rock geometry, pose, or background into a new shot. No text, people, aquarium glass, equipment, gore, human facial expressions, split screens, grids, or panels."
+  },
+  "beats": [
+    {
+      "id": "b1",
+      "role": "setup",
+      "development": "action",
+      "new_information": "The mother hangs tens of thousands of eggs and stops eating.",
+      "critical_visual": true,
+      "caption": "DINNER IS OVER",
+      "claim_ids": ["c_brood"],
+      "duration_sec": 8.8,
+      "vo": "Why is this giant Pacific octopus the worst mother? She lays tens of thousands of eggs—then stops eating.",
+      "visual_beats": [
+        {
+          "id": "gp2_11",
+          "anchor_phrase": "Why is this giant Pacific octopus the worst mother?",
+          "purpose": "hook_action",
+          "chronology": "brooding begins",
+          "state_before": "From just outside a rocky reef opening, a coral-orange female giant Pacific octopus is already reaching upward inside the den with one egg strand stretched between her suckers and the ceiling. Open water fills the foreground; the moving arm is the first-frame subject.",
+          "state_after": "Her arm presses the strand onto the ceiling and releases it, adding one visible row to the hanging nursery while all eight arms remain anatomically connected.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Begin on the arm in motion. Press and release one strand by second two; keep the camera outside the threshold and the body inside.",
+          "render_mode": "Full Motion",
+          "caption": "THE WORST MOTHER?",
+          "labels": []
+        },
+        {
+          "id": "gp2_12",
+          "anchor_phrase": "She lays tens of thousands of eggs",
+          "purpose": "scale_reveal",
+          "chronology": "brooding begins",
+          "state_before": "Low side angle inside the den. The mother braces on one rock wall while another arm carries a fresh egg strand upward. Only a small portion of the ceiling nursery is visible at first.",
+          "state_after": "The camera eases wider as she attaches the strand, revealing a vast pearl-white curtain covering most of the ceiling. The mother remains readable but no longer fills the frame.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Attach one strand while the camera reveals the much larger egg curtain; action and scale payoff complete by the end.",
+          "render_mode": "Full Motion",
+          "caption": "TENS OF THOUSANDS",
+          "labels": []
+        },
+        {
+          "id": "gp2_13",
+          "anchor_phrase": "then stops eating",
+          "purpose": "cost_reveal",
+          "chronology": "brooding begins",
+          "state_before": "Graphic natural-history overhead scale composition, not a literal camera view: the coral-orange mother is a small readable silhouette beneath an enormous field of attached white egg strands, with the dark den exit far to one side.",
+          "state_after": "The final still makes the nursery's overwhelming scale and the mother's fixed position instantly readable without numbers or labels.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Very slow overhead push that preserves the scale comparison; no new action or text.",
+          "render_mode": "Still",
+          "caption": "THEN SHE STOPS EATING",
+          "labels": []
+        }
+      ]
+    },
+    {
+      "id": "b2",
+      "role": "hinge",
+      "development": "constraint",
+      "new_information": "Her eight arms replace feeding time with continuous egg care.",
+      "critical_visual": true,
+      "caption": "EIGHT ARMS. ONE JOB.",
+      "claim_ids": ["c_brood"],
+      "duration_sec": 4.6,
+      "vo": "Dinner is over. Her eight arms have a nonstop job.",
+      "visual_beats": [
+        {
+          "id": "gp2_21",
+          "anchor_phrase": "Dinner is over",
+          "purpose": "curiosity_reset",
+          "chronology": "early brood",
+          "state_before": "Extreme-wide reef view outside the den. Small prey-sized reef life moves through bright open water in the foreground while the mother is visible deep inside beneath the pale egg ceiling. No chase begins.",
+          "state_after": "Foreground life exits the frame; the mother's nearest arm rises toward the eggs instead of toward the opening, visually closing the feeding option.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Reef life crosses the foreground and leaves; inside the den, one arm immediately rises toward the eggs. No attack or anthropomorphic reaction.",
+          "render_mode": "Full Motion",
+          "caption": "DINNER: CLOSED",
+          "labels": []
+        },
+        {
+          "id": "gp2_22",
+          "anchor_phrase": "Her eight arms have a nonstop job",
+          "purpose": "action_tease",
+          "chronology": "early brood",
+          "state_before": "Extreme macro across pale suckers on one coral-orange arm approaching a translucent attached egg strand. The mother and den are abstract blur; the sucker-to-egg relationship dominates.",
+          "state_after": "The suckers sweep carefully beside the eggs without crushing or detaching them, revealing precise tending rather than a static portrait.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "One continuous sucker pass moves along the attached strand and finishes cleanly; keep egg cases intact.",
+          "render_mode": "Full Motion",
+          "caption": "A NONSTOP JOB",
+          "labels": []
+        }
+      ]
+    },
+    {
+      "id": "b3",
+      "role": "mechanism",
+      "development": "mechanism",
+      "new_information": "Arm fanning and siphon jets move oxygen-rich water across the eggs.",
+      "critical_visual": true,
+      "caption": "THE NURSERY BREATHES",
+      "claim_ids": ["c_brood"],
+      "duration_sec": 7,
+      "vo": "She fans the eggs, then blasts oxygen-rich water across them, again and again, for months.",
+      "visual_beats": [
+        {
+          "id": "gp2_31",
+          "anchor_phrase": "She fans the eggs",
+          "purpose": "mechanism_action",
+          "chronology": "early brood",
+          "state_before": "Top-down medium composition with the mother centered below only one section of egg curtain. All eight arms radiate clearly; two arms are pulled back before a fanning stroke.",
+          "state_after": "Two arms sweep outward once, bending the nearby strands together in the same water direction while the remaining arms brace her body.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Make one broad outward fanning stroke. Egg strands bend together and rebound; no camera orbit.",
+          "render_mode": "Full Motion",
+          "caption": "ARMS FAN",
+          "labels": []
+        },
+        {
+          "id": "gp2_32",
+          "anchor_phrase": "blasts oxygen-rich water",
+          "purpose": "mechanism_reveal",
+          "chronology": "early brood",
+          "state_before": "Extreme close side view of an anatomically plausible siphon beneath the mantle, aimed across frame toward a few attached eggs. Turquoise particles wait nearly still between siphon and eggs.",
+          "state_after": "One strong jet drives every turquoise particle and nearby egg strand across frame in the same direction, proving cause and effect without arrows or words.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "The siphon jet starts instantly and pushes particles and egg strands across frame by second two. Keep anatomy stable.",
+          "render_mode": "Full Motion",
+          "caption": "SIPHON BLAST",
+          "labels": []
+        },
+        {
+          "id": "gp2_33",
+          "anchor_phrase": "again and again, for months",
+          "purpose": "causal_summary",
+          "chronology": "brood montage",
+          "state_before": "Clean scientific cutaway on a dark teal field: den entrance at left, mother as a coral silhouette at center, white egg curtain above, and a single turquoise water path crossing every egg. This is one integrated diagram, not panels.",
+          "state_after": "The completed still shows surrounding water entering, the mother redirecting it, and the full curtain receiving flow in one instantly readable causal chain.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Slow push along the turquoise flow path from entrance to egg curtain; no labels, arrows, split screens, or extra animals.",
+          "render_mode": "Still",
+          "caption": "FRESH WATER, ON REPEAT",
+          "labels": []
+        }
+      ]
+    },
+    {
+      "id": "b4",
+      "role": "escalation",
+      "development": "consequence",
+      "new_information": "Months pass, embryos develop visible eyes, and the mother remains in the den.",
+      "critical_visual": true,
+      "caption": "MONTHS LATER",
+      "claim_ids": ["c_brood"],
+      "duration_sec": 6.5,
+      "vo": "Months later, dark eyes stare from inside the eggs. She still has not left.",
+      "visual_beats": [
+        {
+          "id": "gp2_41",
+          "anchor_phrase": "Months later",
+          "purpose": "time_reset",
+          "chronology": "months pass",
+          "state_before": "Wide exterior silhouette of the same den opening across a long passage of ocean light: moving surface shafts sweep repeatedly over the rocks while one small coral silhouette remains inside beneath the eggs. One continuous frame, not a montage or panel grid.",
+          "state_after": "The completed time-transition frame contrasts changing outside light with the mother's unbroken position inside the dark den.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Use a restrained push toward the den while bands of ocean light imply elapsed time; do not copy the opening camera or add text.",
+          "render_mode": "Still",
+          "caption": "MONTHS PASS",
+          "labels": []
+        },
+        {
+          "id": "gp2_42",
+          "anchor_phrase": "dark eyes stare from inside the eggs",
+          "purpose": "development_reveal",
+          "chronology": "months later",
+          "state_before": "Microscopic-feeling macro inside a cluster of translucent attached eggs. Dark embryo eyes and curled tiny arms are now the dominant shapes; the adult mother is absent from this composition.",
+          "state_after": "One embryo turns slightly inside its intact case, making development unmistakable while scale remains tiny and anatomy juvenile.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Very small focus drift from the nearest eye to curled tiny arms; egg cases remain sealed and attached.",
+          "render_mode": "Still",
+          "caption": "DARK EYES APPEAR",
+          "labels": []
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "role": "climax",
+      "development": "consequence",
+      "new_information": "Rice-grain-sized eggs open and release tiny eight-armed hatchlings into the water.",
+      "critical_visual": true,
+      "caption": "THEN—POP",
+      "claim_ids": ["c_hatchlings"],
+      "duration_sec": 5.1,
+      "vo": "Then—pop. Rice-grain-sized eggs release tiny eight-armed octopuses into open water.",
+      "visual_beats": [
+        {
+          "id": "gp2_51",
+          "anchor_phrase": "Then—pop",
+          "purpose": "climax_trigger",
+          "chronology": "hatching begins",
+          "state_before": "Extreme macro of one attached translucent egg stretched around a curled hatchling. A seam is just beginning to split; eight tiny arms are compact and readable inside.",
+          "state_after": "The case opens and one translucent orange hatchling slips fully free, arms unfurling without becoming a miniature adult.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Open one egg and release exactly one hatchling by second two. Keep the empty case attached.",
+          "render_mode": "Full Motion",
+          "caption": "POP",
+          "labels": []
+        },
+        {
+          "id": "gp2_52",
+          "anchor_phrase": "eggs release tiny eight-armed octopuses",
+          "purpose": "climax_release",
+          "chronology": "hatching wave",
+          "state_before": "Medium view from beside the egg curtain looking toward the bright den mouth. Several egg cases are open; the first few tiny hatchlings hover between the curtain and open water. The mother is only a low background silhouette.",
+          "state_after": "A wave of tiny hatchlings pulses toward the bright opening while empty cases remain attached behind them.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Hatchlings pulse away from the curtain toward the opening in one coherent direction; no swarm appears from nowhere.",
+          "render_mode": "Full Motion",
+          "caption": "THE CURTAIN HATCHES",
+          "labels": []
+        },
+        {
+          "id": "gp2_53",
+          "anchor_phrase": "into open water",
+          "purpose": "scale_payoff",
+          "chronology": "newly hatched",
+          "state_before": "Open-water extreme close-up with one rice-grain-scale translucent hatchling beside its empty teardrop egg case. Eight tiny arms and orderly minute suckers are visible against clean cobalt water; no adult is in frame.",
+          "state_after": "The still makes the hatchling's tiny scale and complete juvenile anatomy legible before it drifts upward.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Slow upward camera drift with the tiny hatchling; preserve scale and uncluttered open water.",
+          "render_mode": "Still",
+          "caption": "EIGHT ARMS, ALREADY",
+          "labels": []
+        }
+      ]
+    },
+    {
+      "id": "b6",
+      "role": "reinterpretation",
+      "development": "reinterpretation",
+      "new_information": "The mother usually dies soon after hatching; her fasting sustained the care that got the eggs to hatch.",
+      "critical_visual": true,
+      "caption": "SHE SPENT EVERYTHING",
+      "claim_ids": ["c_brood", "c_hatchlings"],
+      "duration_sec": 6.5,
+      "vo": "She usually dies soon after. Worst mother? She spent everything so they could hatch.",
+      "visual_beats": [
+        {
+          "id": "gp2_61",
+          "anchor_phrase": "She usually dies soon after",
+          "purpose": "cost_payoff",
+          "chronology": "after hatching",
+          "state_before": "Quiet wide silhouette from behind the living mother at the bottom of an emptied den. Mostly empty strands hang above; bright hatchlings are already beyond the opening. No corpse, collapse, tears, or human pose.",
+          "state_after": "The completed still holds the contrast between the resting mother, emptied nursery, and moving life outside without depicting a guaranteed death moment.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "A slow pull back reveals empty strands above the resting living mother; no collapse, death, or melodramatic lighting change.",
+          "render_mode": "Still",
+          "caption": "SHE USUALLY DIES SOON AFTER",
+          "labels": []
+        },
+        {
+          "id": "gp2_62",
+          "anchor_phrase": "She spent everything so they could hatch",
+          "purpose": "final_reinterpretation",
+          "chronology": "after hatching",
+          "state_before": "Decisive extreme-wide view in luminous open water outside the den. Dozens of tiny hatchlings move toward camera and upward; far behind, the den opening frames the mother's small living silhouette and empty strands.",
+          "state_after": "The final cluster clears the den and spreads into open water, making the offspring's departure the strongest and last visible action.",
+          "visual_proof": true,
+          "duration": 5,
+          "motion": "Track backward with the hatchlings as they clear the den into open water. Keep the mother small and still in the distant opening; end on forward movement.",
+          "render_mode": "Full Motion",
+          "caption": "SO THEY COULD HATCH",
+          "labels": []
+        }
+      ]
+    }
+  ],
+  "retention_storyboard": {
+    "version": "nature_retention_storyboard_v1",
+    "script_word_min": 78,
+    "script_word_max": 86,
+    "hook_variants": [
+      {
+        "strategy": "catastrophe",
+        "line": "This mother guards tens of thousands of eggs—and the job usually kills her."
+      },
+      {
+        "strategy": "mystery",
+        "line": "Why does this octopus stop eating the moment her eggs arrive?"
+      },
+      {
+        "strategy": "reversal",
+        "line": "Why is this giant Pacific octopus the worst mother?"
+      }
+    ],
+    "selected_hook": "Why is this giant Pacific octopus the worst mother?",
+    "second_open_loop": "If dinner is over, what are all eight arms doing nonstop for months?",
+    "climax": "The white egg curtain erupts into tiny eight-armed hatchlings moving through the den opening into open water.",
+    "mute_story": [
+      "A mother attaches an overwhelming ceiling of eggs and remains beneath it.",
+      "Reef life passes outside while her arms turn back to the eggs.",
+      "Arms and siphon move water across the nursery.",
+      "Outside light changes and dark-eyed embryos develop inside the eggs.",
+      "Egg cases open and tiny hatchlings stream away.",
+      "The emptied den remains behind as hatchlings enter open water."
+    ],
+    "beats": [
+      {
+        "scene_id": "b1",
+        "retention_function": "hook",
+        "mini_payoff": "The title question is answered with an immediate physical cost: tens of thousands of eggs and no more eating.",
+        "opens_loop": "What could possibly be more important than feeding for months?"
+      },
+      {
+        "scene_id": "b2",
+        "retention_function": "curiosity_reset",
+        "mini_payoff": "Her arms visibly choose egg tending over the open reef.",
+        "opens_loop": "What exactly do those arms do for the eggs?"
+      },
+      {
+        "scene_id": "b3",
+        "retention_function": "mechanism",
+        "mini_payoff": "Fanning and a siphon jet visibly move oxygen-rich water across the whole curtain.",
+        "opens_loop": "Can she keep this up long enough for anything inside the eggs to change?"
+      },
+      {
+        "scene_id": "b4",
+        "retention_function": "escalation",
+        "mini_payoff": "Months of care resolve into visible dark eyes and curled arms inside intact eggs.",
+        "opens_loop": "What happens when the developed curtain finally opens?"
+      },
+      {
+        "scene_id": "b5",
+        "retention_function": "climax",
+        "mini_payoff": "A single pop becomes a wave of tiny eight-armed hatchlings entering open water.",
+        "opens_loop": "What did this successful hatch cost the mother?"
+      },
+      {
+        "scene_id": "b6",
+        "retention_function": "reinterpretation",
+        "mini_payoff": "The emptied den and departing hatchlings overturn the worst-mother verdict without showing a fabricated death.",
+        "opens_loop": ""
+      }
+    ],
+    "shots": [
+      {
+        "shot_id": "gp2_11",
+        "visual_mode": "grounded_action",
+        "composition_id": "threshold_arm_attach",
+        "shot_scale": "wide",
+        "location_id": "reef_den_threshold",
+        "dominant_action": "one arm presses an egg strand onto the ceiling",
+        "state_change": "a loose strand becomes attached to the nursery ceiling",
+        "consequence_category": "brood_commitment",
+        "mini_payoff": "parenting work begins in the first frame",
+        "reveal_level": "tease",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_12",
+        "visual_mode": "grounded_action",
+        "composition_id": "low_side_curtain_reveal",
+        "shot_scale": "extreme_wide",
+        "location_id": "den_ceiling",
+        "dominant_action": "the mother attaches one strand as the vast curtain is revealed",
+        "state_change": "a partial nursery expands into an overwhelming egg ceiling",
+        "consequence_category": "brood_scale",
+        "mini_payoff": "tens of thousands becomes a visible scale event",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_13",
+        "visual_mode": "scale_comparison",
+        "composition_id": "overhead_mother_under_field",
+        "shot_scale": "overhead_wide",
+        "location_id": "abstract_scale_space",
+        "dominant_action": "the tiny mother holds position beneath an enormous egg field",
+        "state_change": "the viewer's sense of scale shifts from mother to nursery",
+        "consequence_category": "feeding_cost",
+        "mini_payoff": "her fixed position reads as the cost of the brood",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_21",
+        "visual_mode": "grounded_action",
+        "composition_id": "reef_foreground_den_depth",
+        "shot_scale": "extreme_wide",
+        "location_id": "reef_outside_den",
+        "dominant_action": "reef life exits while her arm rises toward the eggs",
+        "state_change": "attention moves from possible feeding space back to egg care",
+        "consequence_category": "care_reframe",
+        "mini_payoff": "dinner is visibly replaced by nursery work",
+        "reveal_level": "tease",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_22",
+        "visual_mode": "macro_evidence",
+        "composition_id": "sucker_egg_diagonal",
+        "shot_scale": "extreme_close",
+        "location_id": "egg_surface",
+        "dominant_action": "suckers sweep carefully beside an attached egg strand",
+        "state_change": "an approaching arm becomes a precise tending pass",
+        "consequence_category": "egg_tending",
+        "mini_payoff": "the nonstop job becomes concrete",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_31",
+        "visual_mode": "grounded_action",
+        "composition_id": "top_down_radial_fan",
+        "shot_scale": "medium",
+        "location_id": "den_floor",
+        "dominant_action": "two arms fan water across the lower egg strands",
+        "state_change": "still strands bend together and rebound in moving water",
+        "consequence_category": "ventilation_action",
+        "mini_payoff": "arm motion visibly moves the nursery water",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_32",
+        "visual_mode": "macro_evidence",
+        "composition_id": "siphon_particle_profile",
+        "shot_scale": "extreme_close",
+        "location_id": "siphon_macro",
+        "dominant_action": "the siphon fires a turquoise jet toward attached eggs",
+        "state_change": "still particles and strands surge in one direction",
+        "consequence_category": "oxygen_delivery",
+        "mini_payoff": "the hidden ventilation mechanism becomes visible",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_33",
+        "visual_mode": "science_diagram",
+        "composition_id": "single_chain_water_cutaway",
+        "shot_scale": "diagram_wide",
+        "location_id": "scientific_cutaway_space",
+        "dominant_action": "one water path crosses from the entrance through the full egg curtain",
+        "state_change": "separate actions resolve into one causal ventilation chain",
+        "consequence_category": "nursery_flow",
+        "mini_payoff": "the entire mechanism reads at a glance",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_41",
+        "visual_mode": "time_transition",
+        "composition_id": "exterior_light_den_silhouette",
+        "shot_scale": "wide",
+        "location_id": "den_exterior",
+        "dominant_action": "changing ocean light sweeps past an unmoving den silhouette",
+        "state_change": "one moment expands into months of continuous attendance",
+        "consequence_category": "elapsed_time",
+        "mini_payoff": "months become visible without a title card",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_42",
+        "visual_mode": "macro_evidence",
+        "composition_id": "embryo_eye_cluster",
+        "shot_scale": "macro",
+        "location_id": "egg_interior",
+        "dominant_action": "one dark-eyed embryo turns inside its intact egg",
+        "state_change": "featureless eggs now contain visible eyes and curled arms",
+        "consequence_category": "embryo_growth",
+        "mini_payoff": "the months of work produce undeniable development",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_51",
+        "visual_mode": "macro_evidence",
+        "composition_id": "single_egg_split",
+        "shot_scale": "extreme_close",
+        "location_id": "egg_surface",
+        "dominant_action": "one egg opens and releases one tiny hatchling",
+        "state_change": "a sealed case becomes an empty attached case and free hatchling",
+        "consequence_category": "hatch_trigger",
+        "mini_payoff": "the promised pop happens on screen",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_52",
+        "visual_mode": "grounded_action",
+        "composition_id": "curtain_to_bright_exit",
+        "shot_scale": "medium",
+        "location_id": "den_opening",
+        "dominant_action": "a wave of hatchlings pulses from the curtain toward the den mouth",
+        "state_change": "a hanging nursery becomes moving offspring and empty cases",
+        "consequence_category": "hatch_release",
+        "mini_payoff": "one pop escalates into the whole curtain hatching",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_53",
+        "visual_mode": "scale_comparison",
+        "composition_id": "hatchling_empty_case_pair",
+        "shot_scale": "extreme_close",
+        "location_id": "open_water_macro",
+        "dominant_action": "one tiny hatchling drifts beside its empty egg case",
+        "state_change": "an abstract swarm resolves into one rice-grain-scale juvenile",
+        "consequence_category": "juvenile_scale",
+        "mini_payoff": "eight arms are readable at astonishing scale",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_61",
+        "visual_mode": "time_transition",
+        "composition_id": "rear_mother_empty_ceiling",
+        "shot_scale": "wide",
+        "location_id": "emptied_den",
+        "dominant_action": "the camera reveals empty strands above the resting living mother",
+        "state_change": "the packed nursery becomes an emptied den with offspring beyond it",
+        "consequence_category": "maternal_cost",
+        "mini_payoff": "the cost is visible without manufacturing a death scene",
+        "reveal_level": "partial",
+        "reference_scope": "none",
+        "continuity_group": ""
+      },
+      {
+        "shot_id": "gp2_62",
+        "visual_mode": "payoff",
+        "composition_id": "open_water_departure_den_depth",
+        "shot_scale": "extreme_wide",
+        "location_id": "open_water",
+        "dominant_action": "hatchlings clear the den and spread toward camera through open water",
+        "state_change": "the offspring leave the emptied nursery while the mother remains behind",
+        "consequence_category": "offspring_departure",
+        "mini_payoff": "the final image overturns the title verdict through action",
+        "reveal_level": "full_payoff",
+        "reference_scope": "none",
+        "continuity_group": ""
+      }
+    ]
+  },
+  "profile": "short",
+  "voice_direction": "A fast, playful science storyteller speaking to one friend in natural American English. Keep the delivery near the fastest natural pace this voice can sustain without slurring. Start immediately; make the opening mischievous rather than cruel. Punch WORST MOTHER, DINNER IS OVER, NONSTOP, POP, and EVERYTHING once. Accelerate through the arm-and-siphon mechanism, create a tiny silence before Then—pop, then land the last two questions warmly and decisively. No announcer voice, sleepy documentary cadence, fake grief, dramatic gasp, or extra words. Do not read these directions aloud.",
+  "presentation": {
+    "version": "nature_short_v3",
+    "tts_model": "gpt-4o-mini-tts-2025-12-15",
+    "voice_instructions": "A fast, playful science storyteller speaking to one friend in natural American English. Keep the delivery near the fastest natural pace this voice can sustain without slurring. Start immediately; make the opening mischievous rather than cruel. Punch WORST MOTHER, DINNER IS OVER, NONSTOP, POP, and EVERYTHING once. Accelerate through the arm-and-siphon mechanism, create a tiny silence before Then—pop, then land the last two questions warmly and decisively. No announcer voice, sleepy documentary cadence, fake grief, dramatic gasp, or extra words. Do not read these directions aloud.",
+    "max_shot_sec": 3.4,
+    "sound_bed": "playful_pulse",
+    "identity_reference_mode": "storyboard_groups",
+    "preflight_similarity_threshold": 0.965,
+    "preflight_max_regenerations": 3
+  }
+}

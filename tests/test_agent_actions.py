@@ -697,6 +697,18 @@ def test_harp_seal_bundled_directed_pilot_is_valid_portrait_nature_short():
     })["scope"] == "first-37-pilot"
 
 
+def test_octopus_v2_bundle_exposes_the_storyboard_gated_nature_short():
+    import directed_longform as dl
+    payload = studio._bundled_directed_spec("giant_pacific_octopus_nature_short_v2")
+    report = dl.validate_directed_spec(payload)
+    assert report["valid"] is True, report["issues"]
+    assert report["spec_sha256"] == (
+        "5b6b9dc2b3a24b3c101858d7bf77583024f50a86134eb3fee09a2f01b2e78024")
+    assert report["nature_retention_storyboard"]["score"] == 100
+    assert report["pilot_cost_estimate"]["preflight_redraw_allowance"] == 3
+    assert report["pilot_cost_estimate"]["estimated_total_usd"] == 3.666
+
+
 def test_portrait_pilot_window_does_not_loosen_landscape_contract():
     import directed_longform as dl
     portrait = dl.DirectedTarget(

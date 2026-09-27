@@ -9,17 +9,26 @@ import difflib
 import json
 import math
 import re
+import shutil
+import textwrap
 import wave
 from pathlib import Path
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 VERSION = "nature_short_presentation_v2"
+V3_VERSION = "nature_short_presentation_v3"
+
+
+def _presentation_version(direction):
+    return V3_VERSION if getattr(direction, "version", "") == "nature_short_v3" else VERSION
 
 
 def narration_identity(text, voice, direction):
     return {"model": direction.tts_model, "voice": voice, "text": text,
-            "instructions": direction.voice_instructions, "version": VERSION}
+            "instructions": direction.voice_instructions,
+            "version": _presentation_version(direction)}
 
 
 def narrate(text, output_path, voice, direction, ep):
@@ -103,7 +112,7 @@ def caption_cues(text, words, duration):
     return cues, quality
 
 
-def prepare_captions(indexed_scenes, audio_paths, ep, out):
+def prepare_captions(indexed_scenes, audio_paths, ep, out, direction=None):
     """Transcribe before image purchases, reusing durable results on continuation."""
     cues, quality, cursor = [], [], 0.
     for (_, scene), path in zip(indexed_scenes, audio_paths):
@@ -115,11 +124,199 @@ def prepare_captions(indexed_scenes, audio_paths, ep, out):
         cues.extend({**c, "start": c["start"]+cursor, "end": c["end"]+cursor} for c in local)
         quality.append({"scene_id": scene.scene_id, "matched_token_fraction": round(ratio, 3)})
         cursor += duration
-    result = {"version": VERSION, "cues": cues, "alignment": quality,
+    result = {"version": _presentation_version(direction), "cues": cues, "alignment": quality,
               "estimated_cost_usd": len(indexed_scenes) * .006,
               "human_timing_review_required": any(q["matched_token_fraction"] < .9 for q in quality)}
     (Path(out) / "nature_captions.json").write_text(json.dumps(result, indent=2))
     return result
+
+
+def _font(size, *, bold=False):
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(name, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _wrapped(draw, xy, text, *, width, font, fill, spacing=8):
+    x, y = xy
+    approx = max(12, int(width / max(7, getattr(font, "size", 18) * .56)))
+    for line in textwrap.wrap(str(text or "—"), width=approx):
+        draw.text((x, y), line, font=font, fill=fill)
+        box = draw.textbbox((x, y), line, font=font)
+        y += max(20, box[3] - box[1]) + spacing
+    return y
+
+
+def render_storyboard_animatic(spec, shots, holds, indexed_scenes, audio_paths, out, ep):
+    """Render the authoritative V3 board over final measured narration before image spend."""
+    import nature_retention_storyboard as nrs
+    report = nrs.score_directed_spec(spec.model_dump(mode="json"))
+    report["measured_narration_sec"] = round(sum(ep._audio_dur(path) for path in audio_paths), 3)
+    report["measured_shot_holds_sec"] = [round(float(value), 3) for value in holds]
+    report_path = Path(out) / "nature_storyboard_gate.json"
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    if not report.get("passed"):
+        raise ValueError("Nature retention storyboard failed before visual spending")
+
+    board = spec.nature_short.retention_storyboard.model_dump(mode="json")
+    row_by_id = {row["shot_id"]: row for row in board["shots"]}
+    scene_by_id = {scene.scene_id: scene for _, scene in indexed_scenes}
+    root = Path(out) / "nature_animatic_cards"
+    root.mkdir(parents=True, exist_ok=True)
+    clips = []
+    mode_colors = {
+        "grounded_action": "#12344b", "macro_evidence": "#41215c",
+        "science_diagram": "#17433c", "time_transition": "#4a3423",
+        "scale_comparison": "#3f2949", "payoff": "#69411c",
+    }
+    for index, (shot, hold) in enumerate(zip(shots, holds)):
+        row = row_by_id[shot["shot_id"]]
+        image_path = root / f"card_{index:03d}.jpg"
+        clip_path = root / f"card_{index:03d}.mp4"
+        image = Image.new("RGB", (540, 960), mode_colors.get(row["visual_mode"], "#182235"))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((24, 24, 516, 936), radius=24, fill="#0b1220", outline="#35d9c5", width=3)
+        draw.text((48, 48), f"SHOT {index + 1:02d}  ·  {hold:.2f}s",
+                  font=_font(24, bold=True), fill="#35d9c5")
+        draw.text((48, 92), f"{row['visual_mode'].replace('_', ' ').upper()}  /  {row['shot_scale'].upper()}",
+                  font=_font(17, bold=True), fill="#fbbf24")
+        y = _wrapped(draw, (48, 146), row["dominant_action"], width=444,
+                     font=_font(32, bold=True), fill="white", spacing=10)
+        y = _wrapped(draw, (48, y + 20), "CHANGE: " + row["state_change"], width=444,
+                     font=_font(20), fill="#cbd5e1")
+        y = _wrapped(draw, (48, y + 20), "PAYOFF: " + row["mini_payoff"], width=444,
+                     font=_font(20, bold=True), fill="#fbbf24")
+        scene = scene_by_id.get(shot.get("scene_id"))
+        _wrapped(draw, (48, min(800, y + 28)), "VO: " + (scene.narration if scene else ""),
+                 width=444, font=_font(16), fill="#94a3b8", spacing=5)
+        image.save(image_path, "JPEG", quality=88)
+        ep._run_ffmpeg([
+            ep._ffmpeg_bin(), "-nostdin", "-y", "-loop", "1", "-i", str(image_path),
+            "-t", f"{float(hold):.6f}", "-vf", "fps=24,format=yuv420p",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-an", str(clip_path),
+        ], timeout=120.0)
+        clips.append(clip_path)
+
+    video_list = root / "video_segments.txt"
+    video_list.write_text("".join(f"file '{path.as_posix()}'\n" for path in clips), encoding="utf-8")
+    audio_list = root / "audio_segments.txt"
+    audio_list.write_text("".join(f"file '{Path(path).as_posix()}'\n" for path in audio_paths), encoding="utf-8")
+    preview = Path(out) / "nature_animatic_preview.mp4"
+    ep._run_ffmpeg([
+        ep._ffmpeg_bin(), "-nostdin", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(video_list),
+        "-f", "concat", "-safe", "0", "-i", str(audio_list),
+        "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
+        "-b:a", "128k", "-shortest", "-movflags", "+faststart", str(preview),
+    ], timeout=180.0)
+    shutil.rmtree(root, ignore_errors=True)
+    return {"report": report, "report_path": str(report_path), "preview_path": str(preview)}
+
+
+def _visual_signature(path):
+    with Image.open(path) as source:
+        image = source.convert("RGB").resize((48, 84))
+    rgb = np.asarray(image, dtype=np.float32) / 255.0
+    gray = rgb.mean(axis=2)
+    centered = gray - gray.mean()
+    norm = float(np.linalg.norm(centered))
+    structure = centered / norm if norm > 1e-8 else centered
+    edge = np.concatenate((np.diff(gray, axis=0).ravel(), np.diff(gray, axis=1).ravel()))
+    edge_norm = float(np.linalg.norm(edge))
+    edge = edge / edge_norm if edge_norm > 1e-8 else edge
+    histogram = np.concatenate([
+        np.histogram(rgb[:, :, channel], bins=12, range=(0, 1), density=True)[0]
+        for channel in range(3)
+    ]).astype(np.float32)
+    histogram /= max(1e-8, float(np.linalg.norm(histogram)))
+    return rgb.ravel(), structure.ravel(), edge, histogram
+
+
+def _visual_similarity(left, right):
+    a_rgb, a_structure, a_edge, a_hist = left
+    b_rgb, b_structure, b_edge, b_hist = right
+    mean_absolute_error = float(np.mean(np.abs(a_rgb - b_rgb)))
+    appearance = 1.0 - mean_absolute_error
+    structure = float(np.clip(np.dot(a_structure, b_structure), -1, 1))
+    edge = float(np.clip(np.dot(a_edge, b_edge), -1, 1))
+    histogram = float(np.clip(np.dot(a_hist, b_hist), 0, 1))
+    combined = .35 * appearance + .30 * structure + .15 * edge + .20 * histogram
+    # Exact or almost exact exports may be flat diagrams, where demeaned structure/edges have no
+    # energy. Pixel agreement must still identify those copies instead of scoring them as diverse.
+    near_copy = 1.0 - min(1.0, mean_absolute_error * 3.0)
+    return round(max(0.0, combined, near_copy), 4)
+
+
+def preflight_visual_diversity(image_paths, shots, out, threshold):
+    """Reject near-duplicate generated compositions before any motion provider call."""
+    paths = [str(path) for path in image_paths]
+    signatures = [_visual_signature(path) for path in paths]
+
+    def continuity_group(shot):
+        prefix = "continuity_group:"
+        return next((str(label)[len(prefix):] for label in shot.get("labels", [])
+                     if str(label).startswith(prefix) and str(label)[len(prefix):]), "")
+
+    def intentional_pair(left, right):
+        group = continuity_group(shots[left])
+        return bool(group and group == continuity_group(shots[right]))
+
+    adjacent = []
+    for index in range(1, len(paths)):
+        similarity = _visual_similarity(signatures[index - 1], signatures[index])
+        intentional = intentional_pair(index - 1, index)
+        adjacent.append({
+            "left": shots[index - 1]["shot_id"], "right": shots[index]["shot_id"],
+            "similarity": similarity, "intentional_continuity": intentional,
+            "failed": similarity >= threshold and not intentional,
+        })
+    duplicate_pairs = []
+    duplicate_threshold = min(.995, threshold + .02)
+    for left in range(len(paths)):
+        for right in range(left + 2, len(paths)):
+            similarity = _visual_similarity(signatures[left], signatures[right])
+            if similarity >= duplicate_threshold and not intentional_pair(left, right):
+                duplicate_pairs.append({
+                    "left": shots[left]["shot_id"], "right": shots[right]["shot_id"],
+                    "similarity": similarity,
+                })
+
+    thumb_w, thumb_h, columns = 216, 384, 5
+    rows = math.ceil(len(paths) / columns)
+    sheet = Image.new("RGB", (columns * thumb_w, rows * (thumb_h + 34)), "#0b1220")
+    draw = ImageDraw.Draw(sheet)
+    for index, (path, shot) in enumerate(zip(paths, shots)):
+        with Image.open(path) as source:
+            image = source.convert("RGB")
+        image.thumbnail((thumb_w, thumb_h), Image.Resampling.LANCZOS)
+        x, y = (index % columns) * thumb_w, (index // columns) * (thumb_h + 34)
+        sheet.paste(image, (x + (thumb_w - image.width) // 2, y))
+        draw.rectangle((x, y + thumb_h, x + thumb_w, y + thumb_h + 34), fill="#111827")
+        draw.text((x + 8, y + thumb_h + 8), shot["shot_id"], font=_font(15, bold=True), fill="white")
+    contact_path = Path(out) / "nature_preflight_contact_sheet.jpg"
+    sheet.save(contact_path, "JPEG", quality=88)
+
+    failed_adjacent = [item for item in adjacent if item["failed"]]
+    # One deliberate non-adjacent callback can be valuable. Two or more near-duplicate pairs are
+    # a visual system reverting to one composition and must stop before motion spend.
+    report = {
+        "version": "nature_visual_diversity_v1",
+        "passed": not failed_adjacent and len(duplicate_pairs) <= 1,
+        "threshold": threshold,
+        "duplicate_threshold": duplicate_threshold,
+        "adjacent_pairs": adjacent,
+        "failed_adjacent_pairs": failed_adjacent,
+        "nonadjacent_near_duplicates": duplicate_pairs,
+        "contact_sheet_path": str(contact_path),
+        "repair": ("Regenerate only the failed stills with a different composition, scale, location or visual mode."
+                   if failed_adjacent or len(duplicate_pairs) > 1 else ""),
+    }
+    report_path = Path(out) / "nature_visual_diversity_gate.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report["report_path"] = str(report_path)
+    return report
 
 
 def _ass_time(seconds):
@@ -216,6 +413,19 @@ def final_treatment(preview, out, spec, shots, holds, captions, scene_starts, ep
         ends = scene_starts[1:]+[cursor]
         quiet_spans = [(a,b) for scene,a,b in zip(spec.narration,scene_starts,ends)
                        if scene.story_role == "limitation"]
+        if spec.nature_short.version == "nature_short_v3":
+            # V3 uses structural sound changes: a short breath before the hatch/climax and a
+            # quieter final reinterpretation. Constant pulse through the emotional turn was one
+            # of the octopus v1 retention failures.
+            quiet_spans.extend(
+                (a, min(b, a + .45))
+                for scene, a, b in zip(spec.narration, scene_starts, ends)
+                if scene.story_role == "consequence"
+            )
+            quiet_spans.extend(
+                (a, b) for scene, a, b in zip(spec.narration, scene_starts, ends)
+                if scene.story_role == "reinterpretation"
+            )
         sound_bed(bed, cursor, scene_starts, quiet_spans)
         args += ["-i",str(bed),"-filter_complex",
                  "[0:a]loudnorm=I=-16:TP=-2:LRA=8[vo];[vo][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]",
@@ -229,7 +439,7 @@ def final_treatment(preview, out, spec, shots, holds, captions, scene_starts, ep
     ep._run_ffmpeg(args)
     Path(temp).replace(preview)
     bed.unlink(missing_ok=True)
-    return {"version":VERSION, "captions":"post-composition ASS",
+    return {"version":_presentation_version(spec.nature_short), "captions":"post-composition ASS",
             "sound_bed":spec.nature_short.sound_bed, "tts_model":spec.nature_short.tts_model,
             "caption_alignment":captions["alignment"],
             "human_timing_review_required":captions["human_timing_review_required"]}

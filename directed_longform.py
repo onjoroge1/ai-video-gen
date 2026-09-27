@@ -148,12 +148,85 @@ class DirectedShot(_StrictModel):
     labels: list[str] = Field(default_factory=list)
 
 
+class NatureStoryboardHook(_StrictModel):
+    strategy: str = Field(min_length=2, max_length=80)
+    line: str = Field(min_length=8, max_length=300)
+
+
+class NatureStoryboardBeat(_StrictModel):
+    scene_id: str = Field(min_length=1)
+    retention_function: str = Field(min_length=2, max_length=80)
+    mini_payoff: str = Field(min_length=3, max_length=400)
+    opens_loop: str = Field(default="", max_length=400)
+
+
+class NatureStoryboardShot(_StrictModel):
+    shot_id: str = Field(min_length=1)
+    visual_mode: str = Field(min_length=2, max_length=80)
+    composition_id: str = Field(min_length=2, max_length=120)
+    shot_scale: str = Field(min_length=2, max_length=80)
+    location_id: str = Field(min_length=2, max_length=120)
+    dominant_action: str = Field(min_length=2, max_length=300)
+    state_change: str = Field(min_length=2, max_length=500)
+    consequence_category: str = Field(min_length=2, max_length=120)
+    mini_payoff: str = Field(min_length=2, max_length=400)
+    reveal_level: Literal["hidden", "tease", "partial", "full_payoff"]
+    reference_scope: Literal["none", "continuity_group", "explicit_subject"] = "none"
+    continuity_group: str = Field(default="", max_length=120)
+
+
+class NatureRetentionStoryboard(_StrictModel):
+    version: Literal["nature_retention_storyboard_v1"] = "nature_retention_storyboard_v1"
+    script_word_min: int = Field(ge=1, le=250)
+    script_word_max: int = Field(ge=1, le=250)
+    hook_variants: list[NatureStoryboardHook] = Field(min_length=3, max_length=6)
+    selected_hook: str = Field(min_length=8, max_length=300)
+    second_open_loop: str = Field(min_length=3, max_length=400)
+    climax: str = Field(min_length=3, max_length=500)
+    mute_story: list[str] = Field(min_length=4, max_length=12)
+    beats: list[NatureStoryboardBeat] = Field(min_length=2, max_length=20)
+    shots: list[NatureStoryboardShot] = Field(min_length=4, max_length=60)
+
+    @model_validator(mode="after")
+    def coherent_word_range(self):
+        if self.script_word_min > self.script_word_max:
+            raise ValueError("script_word_min cannot exceed script_word_max")
+        return self
+
+
 class NatureShortPresentation(_StrictModel):
-    version: Literal["nature_short_v2"] = "nature_short_v2"
+    # V2 stays parseable and hash-stable for already approved actions. V3 opts into the toolkit
+    # storyboard, grouped references and pre-motion visual-diversity gate.
+    version: Literal["nature_short_v2", "nature_short_v3"] = "nature_short_v2"
     tts_model: Literal["gpt-4o-mini-tts-2025-12-15"] = "gpt-4o-mini-tts-2025-12-15"
     voice_instructions: str = Field(min_length=20, max_length=1500)
     max_shot_sec: float = Field(default=3.4, ge=2, le=4)
     sound_bed: Literal["playful_pulse", "none"] = "playful_pulse"
+    identity_reference_mode: Literal["global_first_frame", "storyboard_groups"] = "global_first_frame"
+    preflight_similarity_threshold: float = Field(default=0.965, ge=0.90, le=0.999)
+    preflight_max_regenerations: int = Field(default=3, ge=0, le=5)
+    retention_storyboard: NatureRetentionStoryboard | None = None
+
+    @model_validator(mode="after")
+    def v3_requires_authoritative_storyboard(self):
+        if self.version == "nature_short_v3":
+            if self.identity_reference_mode != "storyboard_groups":
+                raise ValueError("Nature Short v3 requires storyboard_groups identity references")
+            if self.retention_storyboard is None:
+                raise ValueError("Nature Short v3 requires a retention_storyboard")
+        return self
+
+    @model_serializer(mode="wrap")
+    def preserve_v2_hash(self, handler):
+        data = handler(self)
+        if self.version == "nature_short_v2":
+            # These fields did not exist when the approved V2 bundles were hashed. Keeping their
+            # normalized JSON byte-for-byte stable is part of the immutable approval boundary.
+            data.pop("identity_reference_mode", None)
+            data.pop("preflight_similarity_threshold", None)
+            data.pop("preflight_max_regenerations", None)
+            data.pop("retention_storyboard", None)
+        return data
 
 
 class DirectedLongformSpec(_StrictModel):
@@ -259,8 +332,12 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         (len(master_keys) - len(referenced_master_keys)) * IMAGE_COST_USD
         + len(referenced_master_keys) * IMAGE_EDIT_COST_USD
     )
+    preflight_redraws = 0
     if spec.nature_short:
         images = len(master_keys) * IMAGE_EDIT_COST_USD
+        if spec.nature_short.version == "nature_short_v3":
+            preflight_redraws = spec.nature_short.preflight_max_regenerations
+            images += preflight_redraws * IMAGE_EDIT_COST_USD
     i2v = len(motion_keys) * I2V_COST_USD
     return {
         "narration_characters": narration_chars,
@@ -268,6 +345,7 @@ def _cost_estimate(spec: DirectedLongformSpec, *, start_sec: float = 0.0,
         "shot_count": len(shots),
         "unique_master_assets": len(master_keys),
         "full_motion_assets": len(motion_keys),
+        **({"preflight_redraw_allowance": preflight_redraws} if preflight_redraws else {}),
         "tts_usd": round(tts, 4),
         **({"alignment_usd": round(alignment, 4)} if spec.nature_short else {}),
         "images_usd": round(images, 4),
@@ -582,6 +660,29 @@ def validate_directed_spec(payload: dict) -> dict:
             f"{spec.acceptance.frontloaded_motion_count} required",
             "shots"))
 
+    nature_retention = None
+    if spec.nature_short and spec.nature_short.version == "nature_short_v3":
+        # The V3 storyboard is part of the immutable directed spec and is rescored at the same
+        # boundary that authorizes spend. A report copied from some other script/shot plan cannot
+        # pass because scene and shot IDs/order must match this exact payload.
+        import nature_retention_storyboard as nrs
+        nature_retention = nrs.score_directed_spec(spec.model_dump(mode="json"))
+        for failure in nature_retention.get("automatic_rejections") or []:
+            detail = next((item for item in nature_retention.get("issues") or []
+                           if item.get("code") == failure), {})
+            issues.append(_issue(
+                "nature_retention_" + str(failure),
+                str(detail.get("message") or failure),
+                "nature_short.retention_storyboard",
+            ))
+        if (nature_retention.get("score") or 0) < nature_retention.get("minimum_score", 82):
+            issues.append(_issue(
+                "nature_retention_score",
+                f"storyboard scored {nature_retention.get('score', 0)}/100; "
+                f"{nature_retention.get('minimum_score', 82)} required before visual spending",
+                "nature_short.retention_storyboard",
+            ))
+
     cost = _cost_estimate(spec)
     pilot_cost = _cost_estimate(spec, end_sec=spec.target.pilot_end_sec)
     if cost["unique_master_assets"] > spec.acceptance.max_unique_master_assets:
@@ -634,6 +735,8 @@ def validate_directed_spec(payload: dict) -> dict:
         **visual_metrics,
         "evidence_coverage_pct": round(coverage, 1),
         "planned_bolt_appearances": bolt_count,
+        **({"nature_retention_storyboard": nature_retention}
+           if nature_retention is not None else {}),
         "cost_estimate": cost,
         "pilot_cost_estimate": pilot_cost,
         "issues": issues,

@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 import nature_channel as nc
 import nature_story_flow as ns
 
@@ -209,3 +211,41 @@ def test_harp_seal_pilot_spec_passes_shared_pre_render_gate():
     keyframe = ns.compile_keyframe_spec(episode)
     assert keyframe["loop"] is False
     assert keyframe["beats"][-1]["caption"] == "HER MILK BUYS TIME"
+
+
+def test_octopus_v2_toolkit_storyboard_improves_script_and_blocks_spend_until_82():
+    path = Path(__file__).resolve().parents[1] / "spec" / "giant_pacific_octopus_nature_story_v2.json"
+    episode = json.loads(path.read_text(encoding="utf-8"))
+    report = ns.validate_episode(episode, profile=ns.PROFILE_SHORT)
+    statuses = {check["check_id"]: check["status"] for check in report["checks"]}
+    assert report["passed_pre_render"] is True
+    assert report["metrics"]["word_count"] == 83
+    assert report["metrics"]["retention_storyboard_score"] == 100
+    assert statuses["SCRIPT_RETENTION"] == "PASS"
+    assert statuses["STORYBOARD_DIVERSITY"] == "PASS"
+
+    built = ns.compile_retention_storyboard(episode)
+    assert built["validation"]["passed"] is True
+    assert built["validation"]["minimum_score"] == 82
+    assert built["validation"]["metrics"]["visual_mode_count"] >= 4
+    assert built["validation"]["metrics"]["shot_scale_count"] >= 3
+    assert built["validation"]["metrics"]["location_count"] >= 2
+
+
+def test_v3_rejects_repetitive_board_and_weak_script_before_directed_compile():
+    path = Path(__file__).resolve().parents[1] / "spec" / "giant_pacific_octopus_nature_story_v2.json"
+    episode = json.loads(path.read_text(encoding="utf-8"))
+    for row in episode["retention_storyboard"]["shots"]:
+        row.update({
+            "visual_mode": "same_den",
+            "composition_id": "same_den_camera",
+            "shot_scale": "wide",
+            "location_id": "same_den",
+        })
+    episode["retention_storyboard"]["beats"][1]["opens_loop"] = ""
+    report = ns.validate_episode(episode, profile=ns.PROFILE_SHORT)
+    assert report["passed_pre_render"] is False
+    assert "STORYBOARD_DIVERSITY" in report["hard_failures"]
+    assert "SCRIPT_RETENTION" in report["hard_failures"]
+    with pytest.raises(ValueError, match="pre-render contract"):
+        ns.compile_directed_short(episode)

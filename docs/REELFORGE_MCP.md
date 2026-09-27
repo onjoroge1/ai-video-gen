@@ -42,7 +42,7 @@ effective cost caps. Configuration discovery is not a live provider/readiness te
 | --- | --- | --- |
 | `get_video_capabilities` | GET `/api/agent/capabilities` | Read contract and caps |
 | `propose_video` | POST `/api/agent/actions` | Non-spending generic illustrated proposal and approval URL |
-| `propose_directed_pilot` | POST `/api/agent/actions` | Non-spending exact bundled directed-pilot proposal and approval URL; currently exposes the harp-seal Nature Short bundle |
+| `propose_directed_pilot` | POST `/api/agent/actions` | Non-spending exact bundled directed-pilot proposal and approval URL; exposes the versioned Nature Short bundles advertised by capabilities |
 | `get_video_status` | GET `/api/agent/actions/{id}/public-status?after=N` | Sanitized progress, spend, errors, events |
 | `get_video_diagnostics` | GET `/api/agent/actions/{id}/diagnostics` | Private saved research, script or grade |
 | `resume_video` | POST `/api/agent/actions/{id}/dispatch` | Existing eligible job recovery; may resume spending |
@@ -50,8 +50,13 @@ effective cost caps. Configuration discovery is not a live provider/readiness te
 
 Directed pilot proposals use the same operator approval boundary as the studio. The MCP adapter can
 select only explicitly bundled specs exposed by its typed tool contract; it cannot submit an
-arbitrary path or approve the spend. The current Nature Short bundle is
-`harp_seal_nature_short_v1`, a 45-second portrait directed pilot.
+arbitrary path or approve the spend. The typed Nature bundles are
+`harp_seal_nature_short_v1`, `harp_seal_nature_short_v2`, and
+`giant_pacific_octopus_nature_short_v2`. The octopus bundle uses Nature Short v3: its immutable
+spec contains the high-retention storyboard, requires an 82/100 pre-spend score, renders a measured
+voice animatic, and checks generated-still diversity before purchasing motion.
+The studio shortcut `/agent/actions?pilot=octopus-v2` creates or reconnects to that exact
+non-spending proposal; approval still binds the displayed SHA-256 and $5 ceiling once.
 
 Rendering is asynchronous. Save the action ID, poll status with `next_event_seq`, and reconnect
 after a chat restart. A missing artifact means it is not available, not permission to regenerate

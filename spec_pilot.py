@@ -742,6 +742,8 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     nature = spec.nature_short
     nature_report = None
     nature_captions = None
+    nature_animatic = None
+    nature_visual_diversity = None
     nature_scene_starts = []
     nature_timing_notes = []
 
@@ -926,7 +928,20 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         for note in nature_timing_notes:
             log(f"Nature pacing advisory: {note['shot_id']} measures "
                 f"{note['measured_sec']:.2f}s; preserving measured speech timing")
-        nature_captions = nsp.prepare_captions(indexed_scenes, audio_paths, ep, out)
+        if nature.version == "nature_short_v3":
+            nature_captions = nsp.prepare_captions(
+                indexed_scenes, audio_paths, ep, out, direction=nature)
+        else:
+            # Preserve the V2 call shape for already approved jobs and their recovery harnesses.
+            nature_captions = nsp.prepare_captions(indexed_scenes, audio_paths, ep, out)
+        if nature.version == "nature_short_v3":
+            # The toolkit animatic uses final measured speech and the exact immutable shot rows.
+            # Its deterministic score is already part of directed validation; rendering it here
+            # makes pacing inspectable and preserves the pre-spend evidence beside the job.
+            nature_animatic = nsp.render_storyboard_animatic(
+                spec, shots, planned_holds, indexed_scenes, audio_paths, out, ep)
+            log(f"Nature storyboard/animatic gate: "
+                f"{nature_animatic['report']['score']}/100 PASS")
         cursor = 0.0
         for path in audio_paths:
             nature_scene_starts.append(cursor)
@@ -943,6 +958,13 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
     stream_image_assets: list[dict] = []
     pending_stream: dict | None = None
     leading_blocked_seconds = 0.0
+    shot_master_prompts: dict[str, str] = {}
+    nature_storyboard_rows = {}
+    if nature and nature.version == "nature_short_v3" and nature.retention_storyboard:
+        nature_storyboard_rows = {
+            row.shot_id: row.model_dump(mode="json")
+            for row in nature.retention_storyboard.shots
+        }
 
     def compact_stream_clips(*, force: bool = False) -> None:
         """Collapse bounded groups of shot clips before they can fill serverless /tmp."""
@@ -1035,6 +1057,7 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         prompt = f"{base} Master image: {master_prompt}."
         if negative:
             prompt += f" Avoid: {negative}"
+        shot_master_prompts[shot["shot_id"]] = prompt
         asset_key = shot.get("asset_key") or shot["shot_id"]
         prompt_key = _content_key(asset_key, world, prompt, shot.get("reference_ids") or [])
         safe_key = re.sub(r"[^a-zA-Z0-9._-]+", "-", asset_key).strip("-.")[:48] or "asset"
@@ -1043,14 +1066,27 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         # Same reuse contract as narration, keyed on the prompt: iterating on camera movement
         # must not re-buy fifteen stills that have not changed. An edited prompt still redraws.
         sidecar = Path(master_path).with_suffix(".prompt.txt")
+        reference_paths = [reference_files[item] for item in shot.get("reference_ids") or []]
+        nature_row = nature_storyboard_rows.get(shot["shot_id"]) or {}
+        nature_group_path = None
+        if nature and nature.version == "nature_short_v3":
+            scope = nature_row.get("reference_scope") or "none"
+            group = nature_row.get("continuity_group") or ""
+            if scope == "continuity_group" and group:
+                safe_group = re.sub(r"[^a-zA-Z0-9._-]+", "-", group).strip("-.")[:48]
+                nature_group_path = out / f"nature_reference_{safe_group}.jpg"
+                reference_paths = [str(nature_group_path)] if nature_group_path.exists() else []
+            elif scope != "explicit_subject":
+                reference_paths = []
+        elif nature and (out / "nature_identity.jpg").exists():
+            # Preserve the exact V2 behavior for already approved immutable specs. V3 never lets
+            # the first complete background become a global composition reference.
+            reference_paths = [str(out / "nature_identity.jpg")]
         if (Path(master_path).exists() and Path(master_path).stat().st_size > 0
                 and sidecar.exists() and sidecar.read_text(encoding="utf-8") == prompt):
             log(f"  shot {order + 1:>2} reusing image on disk")
         elif _generate_shot_image(
-                prompt, master_path, image_costs, log,
-                ([str(out / "nature_identity.jpg")] if nature
-                 and (out / "nature_identity.jpg").exists() else
-                 [reference_files[item] for item in shot.get("reference_ids") or []] or None),
+                prompt, master_path, image_costs, log, reference_paths or None,
                 image_size=_frame["image_size"]):
             sidecar.write_text(prompt, encoding="utf-8")
         else:
@@ -1066,7 +1102,11 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
                     leading_blocked_seconds += hole
             log(f"  shot {order + 1:>2} BLOCKED — {shot['visual'][:50]}")
             continue
-        if nature and not (out / "nature_identity.jpg").exists():
+        if nature and nature.version == "nature_short_v3" and nature_group_path \
+                and not nature_group_path.exists():
+            shutil.copyfile(master_path, nature_group_path)
+        elif nature and nature.version == "nature_short_v2" \
+                and not (out / "nature_identity.jpg").exists():
             shutil.copyfile(master_path, out / "nature_identity.jpg")
         overlay = "" if nature else shot.get("overlay_text") or ""
         world_label = world_labels.get(world, "")
@@ -1147,6 +1187,74 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         log(f"  ⚠ {len(blocked)} shot(s) blocked by image moderation; "
             f"{len(shots)} states remain over this window instead of "
             f"{len(shots) + len(blocked)} — neighbouring shots absorbed the time")
+
+    if (nature and nature.version == "nature_short_v3" and not streaming_render):
+        # All still purchases are now complete, but no motion provider has been called. This is
+        # the cheapest honest point to inspect what the image model actually produced rather
+        # than assuming fifteen filenames equal fifteen compositions.
+        nature_visual_diversity = nsp.preflight_visual_diversity(
+            image_paths, shots, out, nature.preflight_similarity_threshold)
+        if not nature_visual_diversity.get("passed"):
+            initial_diversity = nature_visual_diversity
+            candidate_ids = []
+            for item in ((initial_diversity.get("failed_adjacent_pairs") or [])
+                         + (initial_diversity.get("nonadjacent_near_duplicates") or [])):
+                if item.get("right") not in candidate_ids:
+                    candidate_ids.append(item.get("right"))
+            candidate_ids = [item for item in candidate_ids if item][
+                :nature.preflight_max_regenerations]
+            regenerated = []
+            for shot_id in candidate_ids:
+                index = next(i for i, item in enumerate(shots)
+                             if item["shot_id"] == shot_id)
+                row = nature_storyboard_rows[shot_id]
+                repair_prompt = (
+                    shot_master_prompts[shot_id]
+                    + " DIVERSITY REPAIR: The prior result resembled another shot. Preserve only "
+                      "the species anatomy and palette. Radically change the silhouette layout, "
+                      "camera axis, foreground/background depth and negative-space pattern while "
+                      f"obeying this authored composition: {row['composition_id']} at "
+                      f"{row['shot_scale']} scale in {row['location_id']}."
+                )
+                repair_key = _content_key(shot_id, repair_prompt, "nature_diversity_repair_v1")
+                safe_id = re.sub(r"[^a-zA-Z0-9._-]+", "-", shot_id).strip("-.")[:48]
+                repair_path = str(
+                    out / "images" / "masters"
+                    / f"{safe_id}.diversity-repair.{repair_key[:16]}.jpg")
+                if not _generate_shot_image(
+                        repair_prompt, repair_path, image_costs, log, None,
+                        image_size=_frame["image_size"]):
+                    continue
+                old_path = image_paths[index]
+                image_paths[index] = repair_path
+                Path(repair_path).with_suffix(".prompt.txt").write_text(
+                    repair_prompt, encoding="utf-8")
+                if old_path != repair_path:
+                    Path(old_path).unlink(missing_ok=True)
+                    Path(old_path).with_suffix(".prompt.txt").unlink(missing_ok=True)
+                regenerated.append(shot_id)
+                log(f"  shot {index + 1:>2} regenerated for visual diversity")
+            nature_visual_diversity = nsp.preflight_visual_diversity(
+                image_paths, shots, out, nature.preflight_similarity_threshold)
+            nature_visual_diversity["repair_attempt"] = {
+                "version": "nature_diversity_repair_v1",
+                "allowed": nature.preflight_max_regenerations,
+                "regenerated_shots": regenerated,
+                "initial_failed_adjacent_pairs":
+                    initial_diversity.get("failed_adjacent_pairs") or [],
+                "initial_nonadjacent_near_duplicates":
+                    initial_diversity.get("nonadjacent_near_duplicates") or [],
+            }
+            Path(nature_visual_diversity["report_path"]).write_text(
+                json.dumps(nature_visual_diversity, indent=2), encoding="utf-8")
+            if not nature_visual_diversity.get("passed"):
+                failed = nature_visual_diversity.get("failed_adjacent_pairs") or []
+                raise RuntimeError(
+                    "Nature generated-still diversity gate failed before motion spending: "
+                    + ", ".join(f"{item['left']}/{item['right']}"
+                                for item in failed[:4]))
+        log("Nature generated-still diversity gate: PASS — "
+            f"{len(shots)} frames inspected before motion spending")
 
     # Rescale the shot table onto the narration that actually exists. The spec's table spans
     # 45.0s while the measured narration is shorter, and muxing with -shortest simply amputated
@@ -1291,6 +1399,20 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         manifest["nature_presentation"] = nature_report
         manifest["providers"].append({"purpose": "caption_alignment", "provider": "openai",
                                       "model_id": ep.TRANSCRIPTION_MODEL})
+        if nature_animatic:
+            manifest["nature_retention_storyboard"] = {
+                "score": nature_animatic["report"].get("score"),
+                "passed": nature_animatic["report"].get("passed"),
+                "report_path": _relative(nature_animatic["report_path"]),
+                "preview_path": _relative(nature_animatic["preview_path"]),
+            }
+        if nature_visual_diversity:
+            manifest["nature_visual_diversity"] = {
+                "passed": nature_visual_diversity.get("passed"),
+                "report_path": _relative(nature_visual_diversity["report_path"]),
+                "contact_sheet_path": _relative(
+                    nature_visual_diversity["contact_sheet_path"]),
+            }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     report = {
@@ -1315,6 +1437,15 @@ def render_pilot(spec_path: str | Path | dict, out_dir: str, *, voice: str = "ec
         "directed_spec_path": validation_paths["directed_spec_path"],
         "validation_report_path": validation_paths["validation_report_path"],
         "generation_manifest_path": str(manifest_path),
+        **({
+            "nature_storyboard_report_path": nature_animatic["report_path"],
+            "nature_animatic_preview_path": nature_animatic["preview_path"],
+        } if nature_animatic else {}),
+        **({
+            "nature_visual_diversity_path": nature_visual_diversity["report_path"],
+            "nature_preflight_contact_sheet_path":
+                nature_visual_diversity["contact_sheet_path"],
+        } if nature_visual_diversity else {}),
         **grade_artifacts,
     }
     log(f"Window cost: ${report['total_cost_usd']:.3f} "
