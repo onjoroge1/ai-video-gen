@@ -3090,6 +3090,8 @@ async def _agent_bound_job(action_id: str) -> str:
 
 _AGENT_DIAGNOSTIC_FILES = {
     "script": "_state.json", "grade": "grade.txt",
+    "storyboard-repair": "illustrated_storyboard_repair_v1.json",
+    "storyboard-failure": "semantic_failure_illustrated-storyboard.json",
     "rendered-contract": "rendered_contract.json",
     "evidence-validation": "evidence_validation.json",
     "nature-visual-review": "nature_visual_review.json",
@@ -3126,7 +3128,7 @@ def _read_agent_diagnostic(job_id: str, artifact: str) -> str:
 @app.get("/api/agent/actions/{action_id}/diagnostics")
 async def agent_diagnostics(action_id: str, artifact: Literal[
         "research-handoff", "script", "grade", "rendered-contract", "evidence-validation",
-        "nature-visual-review", "nature-semantic-review"
+        "nature-visual-review", "nature-semantic-review", "storyboard-repair", "storyboard-failure"
         ] = "research-handoff", offset: int = 0):
     """Private, paginated saved evidence. Never rerun a provider to answer a read."""
     if offset < 0:
@@ -3169,6 +3171,45 @@ async def agent_nature_review_page(action_id: str, download: bool = False):
         "Reading it does not retry or change the video.</p>"
         "<p><a href='?download=true'>Download nature_visual_review.json</a></p>"
         f"<pre>{html.escape(content)}</pre></body></html>",
+        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/agent/actions/{action_id}/storyboard-repair")
+async def agent_storyboard_repair_page(action_id: str, download: bool = False):
+    """Studio-authenticated read of the existing repair, including legacy PR141 records."""
+    import html
+    job_id = await _agent_bound_job(action_id)
+    try:
+        content = await asyncio.to_thread(_read_agent_diagnostic, job_id, "storyboard-repair")
+        record = json.loads(content)
+        if not isinstance(record, dict):
+            raise ValueError("Invalid saved repair record")
+    except (OSError, ValueError):
+        raise HTTPException(status_code=409, detail="Saved repair report could not be read") from None
+    if download:
+        return Response(content, media_type="application/json", headers={
+            "Content-Disposition": 'attachment; filename="illustrated_storyboard_repair_v1.json"',
+            "Cache-Control": "no-store"})
+    reason = (record.get("reason") or json.dumps(
+        record.get("claim_validation") or record.get("candidate_validation") or {}, ensure_ascii=False))
+    return HTMLResponse(
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Saved storyboard repair · ReelForge</title>"
+        "<style>body{max-width:1100px;margin:32px auto;padding:0 20px;"
+        "font:16px/1.5 system-ui;background:#090b10;color:#f5f7fa}"
+        "a{color:#5aa9ff}pre{white-space:pre-wrap;overflow-wrap:anywhere;"
+        "padding:20px;background:#11151d;border-radius:12px}</style></head><body>"
+        "<h1>Saved storyboard repair</h1>"
+        f"<p>Job: <code>{html.escape(job_id)}</code></p>"
+        f"<p>Status: <strong>{html.escape(str(record.get('status') or 'unknown'))}</strong></p>"
+        "<h2>Repair result</h2>"
+        f"<pre>{html.escape(str(reason))}</pre>"
+        "<p>The render error can describe the original draft after an edit was discarded. "
+        "This report shows the saved repair result. Reading it does not retry or change the video.</p>"
+        "<p><a href='?download=true'>Download illustrated_storyboard_repair_v1.json</a></p>"
+        "<details><summary>Complete saved report</summary>"
+        f"<pre>{html.escape(content)}</pre></details></body></html>",
         headers={"Cache-Control": "no-store"})
 
 
@@ -4074,6 +4115,8 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "research_handoff_path": "research_handoff.json",
         "spine_failure_path": "semantic_failure_story-spine.json",
         "spine_after_research_path": "semantic_failure_story-spine-after-research.json",
+        "storyboard_repair_path": "illustrated_storyboard_repair_v1.json",
+        "storyboard_failure_path": "semantic_failure_illustrated-storyboard.json",
         "claim_report_path": "claim_ledger_report.json",
         "audio_timing_report_path": "audio_timing_report.json",
         "evidence_plan_path": "evidence_asset_plan.json",
@@ -4521,6 +4564,8 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "research-handoff": "research_handoff_path",
         "spine-failure": "spine_failure_path",
         "spine-after-research": "spine_after_research_path",
+        "storyboard-repair": "storyboard_repair_path",
+        "storyboard-failure": "storyboard_failure_path",
         "claims": "claim_report_path", "timing": "audio_timing_report_path",
         "evidence-plan": "evidence_plan_path",
         "evidence-validation": "evidence_validation_path",

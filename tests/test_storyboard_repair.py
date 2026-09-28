@@ -143,7 +143,25 @@ def test_rejected_repair_retains_failure_and_is_not_repurchased(tmp_path, monkey
         out, report = pipeline._repair_illustrated_storyboard(copy.deepcopy(script), 'q', script['_research_dossier'], tmp_path, [], lambda _: None)
         assert out == script and not report['validation']['passed']
     assert create.call_count == 1
-    assert json.loads((tmp_path / repair.FILENAME).read_text())['status'] == 'rejected'
+    saved = json.loads((tmp_path / repair.FILENAME).read_text())
+    assert saved['status'] == 'rejected'
+    assert saved['rejection_code'] == {'sources': 'SOURCE_VALIDATION', 'late': 'EDIT_CONSTRAINT',
+                                       'invalid_json': 'JSON_PARSE'}[kind]
+    assert saved['provider_response_text'] == create.return_value.content[0].text
+    assert ('candidate_script' in saved) == (kind == 'sources')
+    assert repair.rejection_summary(tmp_path)
+
+
+def test_public_rejection_summary_never_exposes_private_response_or_exception(tmp_path):
+    for code in [*repair.REJECTION_SUMMARIES, 'token=secret-private-value']:
+        (tmp_path / repair.FILENAME).write_text(json.dumps({
+            'status': 'rejected', 'rejection_code': code, 'reason': 'password=secret-private-value',
+            'provider_response_text': 'secret-private-value'}))
+        summary = repair.rejection_summary(tmp_path)
+        assert summary and 'secret-private-value' not in summary
+    for content in ['not json', '[]', '{"status":"accepted"}']:
+        (tmp_path / repair.FILENAME).write_text(content)
+        assert not repair.rejection_summary(tmp_path)
 
 
 def test_other_gates_and_passed_scripts_do_not_buy_an_edit(tmp_path, monkeypatch):
@@ -235,6 +253,24 @@ def test_resume_pipeline_repairs_saved_draft_without_research_or_regeneration(tm
                                        visual_style='illustrated_story', resume=True, max_cost_usd=10)
     saved = json.loads((tmp_path / '_state.json').read_text())['script']
     assert repair.VERSION in saved and board(saved)['validation']['passed']
+    assert create.call_count == 1
+
+
+def test_failed_resume_reports_repair_rejection_and_keeps_original_gate(tmp_path, monkeypatch):
+    script = failed_script()
+    write_failure(tmp_path, script)
+    create, _ = writer(monkeypatch, response_for(script))
+    create.return_value.content[0].text = 'not JSON: private provider response'
+    monkeypatch.setenv('RUNTIME_HARD', '0')
+    monkeypatch.setenv('ILLUSTRATED_STORYBOARD_HARD', '1')
+    for _ in range(2):
+        with pytest.raises(ValueError) as exc:
+            pipeline.run_explainer_pipeline('Why did this happen?', str(tmp_path), duration_sec=300,
+                                           visual_style='illustrated_story', resume=True, max_cost_usd=10)
+        message = str(exc.value)
+        assert message.startswith('Illustrated storyboard failed: The repair response could not be parsed as JSON.')
+        assert 'LATE_MECHANISM' in message and 'NO_CALLBACK' in message
+        assert 'private provider response' not in message
     assert create.call_count == 1
 
 
