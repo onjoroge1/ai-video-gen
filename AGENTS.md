@@ -209,6 +209,14 @@ only for an exact saved legacy overlap rejection with matching draft/evidence ha
 citations. It rechecks the role under the same approval; it does not turn the saved rejection into
 a pass or buy another research repair.
 
+An illustrated storyboard that used `illustrated_storyboard_recovery_v1` but whose saved repair
+was rejected only because it still exceeded the opening word budget may receive one
+`illustrated_storyboard_opening_budget_recovery_v2` continuation. The server must reproduce the
+original storyboard failure and the exact saved v1 rejection from the private checkpoint, bind
+both hashes atomically, and find no media, live lease, reservation, or unresolved provider stage.
+The v2 prompt assigns per-scene word caps whose sum equals the unchanged mechanism deadline; the
+original storyboard and source gates still decide acceptance. No other v1 rejection qualifies.
+
 The assembled script is checkpointed as `script-ready` before narration and updated as
 `narration-ready` before images. These durable writes must succeed before the next media
 stage. Narration, images and completed local renders retain their immutable per-stage objects.

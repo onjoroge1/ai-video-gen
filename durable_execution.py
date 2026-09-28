@@ -63,6 +63,7 @@ normalize_durable_job_max_cost_env()
 
 RESEARCH_BUDGET_RECOVERY = "research_search_budget_recovery_v1"
 STORYBOARD_RECOVERY = "illustrated_storyboard_recovery_v1"
+STORYBOARD_BUDGET_RECOVERY = "illustrated_storyboard_opening_budget_recovery_v2"
 _RESERVATION_FAILURE = re.compile(
     r"Stage (anthropic:[0-9a-f]{32}) reserves \$([0-9]+\.[0-9]{4}); "
     r"the single-call ceiling is \$([0-9]+\.[0-9]{4})")
@@ -99,6 +100,19 @@ def storyboard_recovery(job: dict) -> bool:
                 and float(job.get("spent_cost_usd") or 0) < float(job.get("max_cost_usd") or 0)
                 and re.fullmatch(r"[0-9a-f]{64}", str((job.get("checkpoint") or {}).get("sha256") or ""))
                 and not (job.get("result") or {}).get(STORYBOARD_RECOVERY))
+
+
+def storyboard_budget_recovery(job: dict) -> bool:
+    """Candidate for one stricter edit after the saved v1 response missed its word budget."""
+    from storyboard_repair import repairable_failure
+    result = job.get("result") or {}
+    return bool(job.get("status") == "error" and repairable_failure(job.get("error"))
+                and not job.get("lease_owner") and not job.get("lease_expires_at")
+                and float(job.get("reserved_cost_usd") or 0) == 0
+                and float(job.get("spent_cost_usd") or 0) < float(job.get("max_cost_usd") or 0)
+                and re.fullmatch(r"[0-9a-f]{64}", str((job.get("checkpoint") or {}).get("sha256") or ""))
+                and result.get(STORYBOARD_RECOVERY)
+                and not result.get(STORYBOARD_BUDGET_RECOVERY))
 
 
 class PostgresStore(_legacy.PostgresStore):
@@ -139,6 +153,47 @@ class PostgresStore(_legacy.PostgresStore):
             row = self._json_ready(self._row(cur, cur.fetchone())) or {}
         self.append_event(job_id, "infrastructure_rearmed",
                           "Saved storyboard queued for one bounded narration repair")
+        return row
+
+    def resume_storyboard_budget_failure(self, job_id: str, *, expected_checkpoint_sha256: str,
+                                         expected_error: str, failure_sha256: str,
+                                         prior_repair_sha256: str) -> dict:
+        """Queue one exact v2 edit after v1 exceeded the opening narration budget."""
+        hashes = (expected_checkpoint_sha256, failure_sha256, prior_repair_sha256)
+        if not all(re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes):
+            raise DurableExecutionError("Storyboard budget recovery requires exact saved hashes")
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            if job.get("status") in {"queued", "processing"}:
+                return job
+            prior = (job.get("result") or {}).get(STORYBOARD_RECOVERY) or {}
+            if (not storyboard_budget_recovery(job) or job.get("error") != expected_error
+                    or (job.get("checkpoint") or {}).get("sha256") != expected_checkpoint_sha256
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(prior.get("failure_sha256") or ""))):
+                raise DurableExecutionError("Job is not eligible for storyboard budget recovery")
+            cur.execute("""
+                SELECT stage_key,status FROM generation_stages WHERE job_id=%s
+                AND status NOT IN ('completed','incomplete') FOR UPDATE
+            """, (job_id,))
+            if cur.fetchall():
+                raise DurableExecutionError(
+                    "Storyboard budget recovery has an unresolved provider stage")
+            marker = {STORYBOARD_BUDGET_RECOVERY: {
+                "checkpoint_sha256": expected_checkpoint_sha256,
+                "failure_sha256": failure_sha256,
+                "prior_repair_sha256": prior_repair_sha256,
+                "prior_error": expected_error,
+            }}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (json.dumps(marker), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed",
+                          "Saved storyboard queued with exact opening scene budgets")
         return row
 
     def resume_research_budget_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
