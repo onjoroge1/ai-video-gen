@@ -20,6 +20,25 @@ FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
 REPAIRABLE = {"LATE_MECHANISM", "NO_CALLBACK"}
 
+REJECTION_SUMMARIES = {
+    "JSON_PARSE": "The repair response could not be parsed as JSON.",
+    "EDIT_CONSTRAINT": "The repair did not meet the permitted narration edits or word limits.",
+    "STORYBOARD_VALIDATION": "The revised narration still failed storyboard validation.",
+    "SOURCE_VALIDATION": "The revised narration did not pass source validation.",
+}
+
+
+def rejection_summary(output_dir):
+    """A fixed public explanation; private model text and validation details stay private."""
+    try:
+        record = json.loads((Path(output_dir) / FILENAME).read_text())
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(record, dict) or record.get("status") != "rejected":
+        return ""
+    return (REJECTION_SUMMARIES.get(record.get("rejection_code"), "The narration repair was rejected.")
+            + " Inspect the saved repair report for details.")
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,

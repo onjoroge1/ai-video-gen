@@ -100,8 +100,9 @@ def test_upstream_failure_is_tool_error_without_retry_or_credential_leak():
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('artifact', ['nature-visual-review', 'nature-semantic-review'])
-def test_nature_reviews_are_scoped_saved_reads_over_real_protocol(artifact):
+@pytest.mark.parametrize('artifact', ['nature-visual-review', 'nature-semantic-review',
+                                      'storyboard-repair', 'storyboard-failure'])
+def test_reviews_and_storyboard_failures_are_scoped_saved_reads_over_real_protocol(artifact):
     calls = []
     def upstream(request):
         calls.append(request)

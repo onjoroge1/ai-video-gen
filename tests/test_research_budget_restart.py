@@ -228,6 +228,9 @@ vm.runInContext(`(async()=>{
   if(!restartHtml(status).includes('Restart from saved progress'))throw Error('Button missing');
   const failed={...status,job:{...status.job,restart:{eligible:false,message:'Repair first'}}};
   if(!restartHtml(failed).includes('disabled>Restart unavailable'))throw Error('Unsafe button');
+  const storyboard={...failed,job:{...failed.job,error:'Illustrated storyboard failed: LATE_MECHANISM: late'}};
+  if(!actionCard(storyboard).includes('/agent/actions/act_test/storyboard-repair'))throw Error('Repair report link missing');
+  if(actionCard(status).includes('/storyboard-repair'))throw Error('Unrelated job has repair link');
   if(restartHtml({...status,finished_video:{}})!=='')throw Error('Finished video offered restart');
   let calls=0,complete;
   api=(path,options)=>{calls++;if(!path.endsWith('/dispatch')||options.method!=='POST')throw Error('Wrong request');return new Promise(resolve=>complete=resolve)};

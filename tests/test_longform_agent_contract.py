@@ -205,3 +205,61 @@ def test_nature_failure_diagnostics_read_original_checkpoint_privately_without_r
     anyio.run(run)
     assert job == original
     assert len(roots) == 4 and all(not root.exists() for root in roots)
+
+
+def test_storyboard_repair_diagnostics_reveal_legacy_reason_without_retry(monkeypatch):
+    _secure_environment(monkeypatch)
+    token = 'r' * 48
+    monkeypatch.setenv('REELFORGE_AGENT_READ_TOKEN', token)
+    repo = FakeActionRepository()
+    repo.action = {'action_id': ACTION_ID, 'job_id': 'saved-job'}
+    monkeypatch.setattr(agent_actions, 'repository', lambda: repo)
+    monkeypatch.setattr(studio, '_durable_execution_required', lambda: True)
+    # Legacy PR141 shape: neither rejection_code nor provider_response_text existed.
+    saved = json.dumps({'status': 'rejected', 'reason': 'Repair still exceeds the opening word budget',
+                        'input_script': {'title': '<script>alert(1)</script>'}})
+    failure = '{"stage":"illustrated-storyboard","report":{"passed":false}}'
+    job = {'status': 'error', 'spent_cost_usd': 3.299, 'checkpoint': {'sha256': 'latest'}}
+    original = copy.deepcopy(job)
+    class Store:
+        def get_job(self, job_id):
+            assert job_id == 'saved-job'
+            return job
+    monkeypatch.setattr(studio, '_durable_components', lambda: (Store(), object()))
+    roots = []
+    class Runtime:
+        def __init__(self, **kwargs):
+            assert kwargs['worker_id'] == 'read-only'
+            self.root = Path(kwargs['output_dir'])
+            roots.append(self.root)
+        def restore_checkpoint(self, checkpoint):
+            assert checkpoint == original['checkpoint']
+            (self.root / 'illustrated_storyboard_repair_v1.json').write_text(saved)
+            (self.root / 'semantic_failure_illustrated-storyboard.json').write_text(failure)
+    monkeypatch.setattr(studio.durable_execution, 'DurableRuntime', Runtime)
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app), base_url='http://test') as c:
+            api = f'/api/agent/actions/{ACTION_ID}/diagnostics'
+            page = f'/agent/actions/{ACTION_ID}/storyboard-repair'
+            assert (await c.get(api + '?artifact=storyboard-repair')).status_code == 401
+            assert (await c.get(page)).status_code != 200
+            assert not roots
+            headers = {'Authorization': 'Bearer ' + token}
+            response = await c.get(api + '?artifact=storyboard-repair', headers=headers)
+            assert response.status_code == 200 and response.json()['content'] == saved
+            response = await c.get(api + '?artifact=storyboard-failure', headers=headers)
+            assert response.json()['content'] == failure
+            assert (await c.get(page, headers=headers)).status_code != 200
+            assert (await c.post(f'/api/agent/actions/{ACTION_ID}/dispatch', headers=headers)).status_code == 403
+            c.cookies.set(private_access.COOKIE_NAME, private_access.create_session('owner'))
+            response = await c.get(page)
+            assert response.status_code == 200
+            assert 'Repair still exceeds the opening word budget' in response.text
+            assert '&lt;script&gt;' in response.text and '<script>' not in response.text
+            assert response.headers['cache-control'] == 'no-store'
+            response = await c.get(page + '?download=true')
+            assert response.text == saved
+            assert response.headers['content-disposition'] == 'attachment; filename="illustrated_storyboard_repair_v1.json"'
+            assert response.headers['cache-control'] == 'no-store'
+    anyio.run(run)
+    assert job == original and len(roots) == 4 and all(not root.exists() for root in roots)

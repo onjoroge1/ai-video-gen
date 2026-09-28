@@ -2036,23 +2036,27 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         messages=[{"role": "user", "content": repair.prompt(script, edit)}])
     cost_sink.append(_msg_cost(response.usage))
     # No paid JSON-repair recursion. Invalid or still-failing edits retain the original failure.
+    record["provider_response_text"] = response.content[0].text
     try:
         candidate = repair.apply_response(script, edit, json.loads(response.content[0].text))
     except (ValueError, TypeError, KeyError) as exc:
-        record.update(status="rejected", reason=str(exc))
+        record.update(status="rejected", reason=str(exc),
+                      rejection_code="JSON_PARSE" if isinstance(exc, json.JSONDecodeError) else "EDIT_CONSTRAINT")
         persist()
         log("Story repair rejected: " + str(exc))
         return script, board
     rederive_narration_bindings(candidate, log, dossier)
     candidate_board = lane.build_storyboard(candidate, question)
     if not candidate_board["validation"]["passed"]:
-        record.update(status="rejected", candidate_validation=candidate_board["validation"])
+        record.update(status="rejected", rejection_code="STORYBOARD_VALIDATION",
+                      candidate_validation=candidate_board["validation"], candidate_script=candidate)
         persist()
         return script, board
     claims = _validate_claims(candidate, dossier, cost_sink)
     if not claims.get("passed"):
-        record.update(status="rejected", candidate_validation=candidate_board["validation"],
-                      claim_validation=claims)
+        record.update(status="rejected", rejection_code="SOURCE_VALIDATION",
+                      candidate_validation=candidate_board["validation"],
+                      claim_validation=claims, candidate_script=candidate)
         persist()
         log("Story repair rejected: the rewritten narration did not pass source validation")
         return script, board
@@ -11118,7 +11122,10 @@ def run_explainer_pipeline(
                     research_dossier=research_dossier,
                     report=storyboard.get("validation") or {},
                     operator_direction=operator_direction, log=log)
+                from storyboard_repair import rejection_summary
+                repair_failure = rejection_summary(output_dir)
                 raise ValueError("Illustrated storyboard failed: "
+                                 + (repair_failure + " Original errors: " if repair_failure else "")
                                  + "; ".join(storyboard_errors))
             log("Illustrated storyboard: FAILING but downgraded by ILLUSTRATED_STORYBOARD_HARD=0 "
                 "— this render is DIAGNOSTIC ONLY and must not be published")
