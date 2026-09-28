@@ -16,6 +16,9 @@ import story_engines as se
 
 VERSION = "illustrated_storyboard_repair_v1"
 FILENAME = VERSION + ".json"
+BUDGET_VERSION = "illustrated_storyboard_opening_budget_repair_v2"
+BUDGET_FILENAME = BUDGET_VERSION + ".json"
+BUDGET_REJECTION_REASON = "Repair still exceeds the opening word budget"
 FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
 REPAIRABLE = {"LATE_MECHANISM", "NO_CALLBACK"}
@@ -31,7 +34,9 @@ REJECTION_SUMMARIES = {
 def rejection_summary(output_dir):
     """A fixed public explanation; private model text and validation details stay private."""
     try:
-        record = json.loads((Path(output_dir) / FILENAME).read_text())
+        root = Path(output_dir)
+        path = root / BUDGET_FILENAME if (root / BUDGET_FILENAME).exists() else root / FILENAME
+        record = json.loads(path.read_text())
     except (OSError, ValueError):
         return ""
     if not isinstance(record, dict) or record.get("status") != "rejected":
@@ -115,6 +120,8 @@ def prompt(script, edit):
         "Tighten the lead-in by removing repetition while retaining every scene's factual event. "
         "The combined words BEFORE the mechanism must be at most opening_word_limit, including "
         "hook and chapter markers. This budget accounts for the shorter resulting runtime. "
+        "If scene_word_limits is present, each named scene must also be at or below its exact "
+        "word limit; count whitespace-separated words before returning JSON. "
         "When the close is requested, return explicitly to the FULL opening_object in natural "
         "spoken narration and connect it to the earned conclusion. Keep the close at least its "
         "original word count, and no more than 20 words longer. Keep a hinge at most 10 words. "
@@ -143,6 +150,11 @@ def apply_response(script, edit, response):
     if any(e.startswith("LATE_MECHANISM:") for e in edit["errors"]):
         if sum(counts[:edit["mechanism_index"]]) > edit["opening_word_limit"]:
             raise ValueError("Repair still exceeds the opening word budget")
+        limits = edit.get("scene_word_limits") or {}
+        for index, scene in enumerate(scenes[:edit["mechanism_index"]]):
+            limit = limits.get(scene["scene_id"])
+            if limit is not None and counts[index] > limit:
+                raise ValueError("Repair exceeds a scene opening word limit")
     close = edit["close_index"]
     if scenes[close]["scene_id"] in updates:
         if (edit["opening_object"].casefold() not in scenes[close]["narration"].casefold()
@@ -152,6 +164,80 @@ def apply_response(script, edit, response):
     if hook and hook in script["scenes"][0]["narration"] and hook not in scenes[0]["narration"]:
         raise ValueError("Repair changed the spoken hook")
     return candidate
+
+
+def budget_plan(script, board):
+    """Give the retry exact per-scene caps whose sum cannot miss the deadline again."""
+    edit = plan(script, board)
+    if not edit or not any(e.startswith("LATE_MECHANISM:") for e in edit["errors"]):
+        return None
+    indexes = list(range(edit["mechanism_index"]))
+    counts = edit["original_counts"]
+    hook_words = len(str(script.get("hook") or "").split())
+    minimums = [max(8, hook_words) if index == 0 else 6 for index in indexes]
+    if sum(minimums) > edit["opening_word_limit"]:
+        return None
+    slack = [max(0, counts[index] - minimums[position])
+             for position, index in enumerate(indexes)]
+    remaining = edit["opening_word_limit"] - sum(minimums)
+    total_slack = sum(slack)
+    additions = [0] * len(indexes)
+    if total_slack:
+        exact = [remaining * value / total_slack for value in slack]
+        additions = [min(slack[i], math.floor(value)) for i, value in enumerate(exact)]
+        left = remaining - sum(additions)
+        order = sorted(range(len(indexes)), key=lambda i: exact[i] - additions[i], reverse=True)
+        for i in order:
+            if left <= 0:
+                break
+            if additions[i] < slack[i]:
+                additions[i] += 1
+                left -= 1
+    caps = [minimums[i] + additions[i] for i in range(len(indexes))]
+    edit["scene_word_limits"] = {
+        script["scenes"][index]["scene_id"]: caps[position]
+        for position, index in enumerate(indexes)
+    }
+    return edit
+
+
+def inspect_saved_budget_rejection(output_dir, expected_error=None, operator_direction=None):
+    """Verify the exact v1 budget miss before permitting one stricter v2 edit."""
+    root = Path(output_dir)
+    if (root / BUDGET_FILENAME).exists() or has_media(root):
+        return None
+    try:
+        prior = json.loads((root / FILENAME).read_text())
+        failure = json.loads((root / FAILURE_FILE).read_text())
+        state = json.loads((root / "_state.json").read_text())
+    except (OSError, ValueError, TypeError):
+        return None
+    if not all(isinstance(value, dict) for value in (prior, failure, state)):
+        return None
+    script = prior.get("input_script")
+    if not isinstance(script, dict):
+        return None
+    dossier = (script or {}).get("_research_dossier") or {}
+    errors = (failure.get("report") or {}).get("errors") or []
+    if (prior.get("version") != VERSION or prior.get("status") != "rejected"
+            or prior.get("reason") != BUDGET_REJECTION_REASON
+            or prior.get("input_sha256") != digest(script)
+            or prior.get("original_validation") != failure.get("report")
+            or failure.get("stage") != "illustrated-storyboard"
+            or failure.get("script") != script
+            or failure.get("research_dossier") != dossier
+            or (state.get("script") or {}).get("_research_dossier") != dossier
+            or (operator_direction is not None
+                and failure.get("operator_direction") != operator_direction)
+            or (expected_error is not None and PREFIX + "; ".join(errors) != expected_error)
+            or not dossier or not repairable_errors(errors)):
+        return None
+    board = illustrated_story.build_storyboard(deepcopy(script), "")
+    edit = budget_plan(script, board)
+    if board.get("validation") != failure.get("report") or not edit:
+        return None
+    return {"script": script, "dossier": dossier, "state": state, "edit": edit,
+            "failure_sha256": digest(failure), "prior_repair_sha256": digest(prior)}
 
 
 def inspect_saved_failure(output_dir, expected_error=None, operator_direction=None):

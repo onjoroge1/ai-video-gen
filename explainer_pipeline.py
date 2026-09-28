@@ -1987,10 +1987,31 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
     from durable_execution import current
 
     path = Path(output_dir) / repair.FILENAME
+    attempt_version = repair.VERSION
+    plan_builder = repair.plan
     board = lane.build_storyboard(copy.deepcopy(script), question)
     if repair.has_media(output_dir):
         return script, board  # Narration edits cannot invalidate already-purchased media.
     saved = json.loads(path.read_text()) if path.exists() else None
+    if saved and saved.get("status") == "rejected":
+        runtime = current()
+        job = runtime.store.get_job(runtime.job_id) if runtime is not None else {}
+        armed = (job.get("result") or {}).get(
+            "illustrated_storyboard_opening_budget_recovery_v2") or {}
+        failure_path = Path(output_dir) / repair.FAILURE_FILE
+        failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
+        if (saved.get("reason") == repair.BUDGET_REJECTION_REASON
+                and armed.get("prior_repair_sha256") == repair.digest(saved)
+                and armed.get("failure_sha256") == repair.digest(failure)):
+            script = saved["input_script"]
+            dossier = script.get("_research_dossier") or dossier
+            board = lane.build_storyboard(copy.deepcopy(script), question)
+            path = Path(output_dir) / repair.BUDGET_FILENAME
+            attempt_version = repair.BUDGET_VERSION
+            plan_builder = repair.budget_plan
+            saved = json.loads(path.read_text()) if path.exists() else None
+        else:
+            return script, board
     if saved:
         identities = {repair.story_identity(saved["input_script"])}
         if saved.get("script"):
@@ -2005,10 +2026,10 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         script = saved["input_script"]
         dossier = script.get("_research_dossier") or dossier
         board = lane.build_storyboard(copy.deepcopy(script), question)
-    edit = repair.plan(script, board)
+    edit = plan_builder(script, board)
     if not edit:
         return script, board
-    record = saved or {"version": repair.VERSION, "status": "started",
+    record = saved or {"version": attempt_version, "status": "started",
                        "input_sha256": repair.digest(script), "input_script": script,
                        "original_validation": board["validation"]}
 
@@ -2016,9 +2037,9 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2))
         temporary.replace(path)
-        runtime = current()
-        if runtime is not None:
-            runtime.checkpoint("illustrated-storyboard-repair-" + record["status"])
+        active_runtime = current()
+        if active_runtime is not None:
+            active_runtime.checkpoint("illustrated-storyboard-repair-" + record["status"])
 
     if not saved:
         state_path = Path(output_dir) / "_state.json"
@@ -2029,7 +2050,10 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             temporary_state.write_text(json.dumps(state, ensure_ascii=False))
             temporary_state.replace(state_path)
         persist()  # mandatory before another paid call
-    log("Story repair: tightening the opening and restoring the spoken callback")
+    if attempt_version == repair.BUDGET_VERSION:
+        log("Story repair: enforcing exact opening scene budgets")
+    else:
+        log("Story repair: tightening the opening and restoring the spoken callback")
     response = _claude().messages.create(
         model=ANTHROPIC_MODEL, max_tokens=4000,
         system="You edit sourced narration without changing its facts. Return only JSON.",
@@ -2061,7 +2085,7 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         log("Story repair rejected: the rewritten narration did not pass source validation")
         return script, board
     candidate["_claim_validation"] = claims
-    candidate[repair.VERSION] = {"input_sha256": record["input_sha256"]}
+    candidate[attempt_version] = {"input_sha256": record["input_sha256"]}
     record.update(status="accepted", script=candidate, board=candidate_board,
                   claim_validation=claims)
     persist()

@@ -80,6 +80,44 @@ def write_failure(root, script=None):
     return failure
 
 
+def write_budget_rejection(root, script=None):
+    script = script or failed_script()
+    failure = write_failure(root, script)
+    prior = {
+        'version': repair.VERSION,
+        'status': 'rejected',
+        'input_sha256': repair.digest(script),
+        'input_script': script,
+        'original_validation': failure['report'],
+        'reason': repair.BUDGET_REJECTION_REASON,
+        'rejection_code': 'EDIT_CONSTRAINT',
+    }
+    (root / repair.FILENAME).write_text(json.dumps(prior))
+    return failure, prior
+
+
+def budget_response_for(script):
+    edit = repair.budget_plan(script, board(script))
+    rows = []
+    for scene_id in edit['scene_ids']:
+        index = next(i for i, scene in enumerate(script['scenes'])
+                     if scene['scene_id'] == scene_id)
+        if index < edit['mechanism_index']:
+            limit = edit['scene_word_limits'][scene_id]
+            if index == 0:
+                hook = script['hook']
+                text = hook + ' ' + words('Roots were being eaten beneath the cane.', limit - len(hook.split()))
+            else:
+                text = words(script['scenes'][index]['narration'], limit)
+        else:
+            text = 'Return to ' + OPENING + '. ' + words(
+                'The ending brings the lesson back to where the story began.', 30)
+            original = len(script['scenes'][index]['narration'].split())
+            text = words(text, original)
+        rows.append({'scene_id': scene_id, 'narration': text})
+    return {'scenes': rows}
+
+
 def failed_job():
     return {'id': 'job-1', 'status': 'error', 'error': LIVE_ERROR, 'result': {},
             'checkpoint': {'sha256': CHECKPOINT}, 'attempts': 2, 'max_attempts': 5,
@@ -202,6 +240,60 @@ def test_saved_failure_is_reproduced_before_recovery(tmp_path):
     assert saved and saved['script'] == failed_script()
 
 
+def test_budget_retry_has_hard_scene_caps_that_sum_to_the_deadline():
+    script = failed_script()
+    edit = repair.budget_plan(script, board(script))
+    assert sum(edit['scene_word_limits'].values()) == edit['opening_word_limit']
+    candidate = repair.apply_response(script, edit, budget_response_for(script))
+    assert board(candidate)['validation']['passed']
+    for scene in candidate['scenes'][:edit['mechanism_index']]:
+        assert len(scene['narration'].split()) <= edit['scene_word_limits'][scene['scene_id']]
+
+
+def test_saved_budget_rejection_is_reproduced_before_second_recovery(tmp_path):
+    failure, prior = write_budget_rejection(tmp_path)
+    saved = repair.inspect_saved_budget_rejection(tmp_path, LIVE_ERROR, '')
+    assert saved and saved['script'] == failed_script()
+    assert saved['failure_sha256'] == repair.digest(failure)
+    assert saved['prior_repair_sha256'] == repair.digest(prior)
+    (tmp_path / repair.BUDGET_FILENAME).write_text('{}')
+    assert repair.inspect_saved_budget_rejection(tmp_path, LIVE_ERROR, '') is None
+
+
+def test_budget_retry_requires_exact_rearm_marker_and_replays_once(tmp_path, monkeypatch):
+    script = failed_script()
+    failure, prior = write_budget_rejection(tmp_path, script)
+    create, claims = writer(monkeypatch, budget_response_for(script))
+    store, blob = MemoryStore(cap=10), MemoryBlob(tmp_path / 'blob')
+    store.get_job = lambda _: store.job
+    worker = runtime(tmp_path, store, blob, 'budget-worker')
+    # Put the saved archive in the worker directory used by the active runtime.
+    write_budget_rejection(Path(worker.output_dir), script)
+    marker = {
+        'failure_sha256': repair.digest(failure),
+        'prior_repair_sha256': repair.digest(prior),
+    }
+    store.job['result'] = {durable.STORYBOARD_BUDGET_RECOVERY: marker}
+    with durable.activate(worker):
+        out, report = pipeline._repair_illustrated_storyboard(
+            script, 'q', script['_research_dossier'], worker.output_dir, [], lambda _: None)
+        again, _ = pipeline._repair_illustrated_storyboard(
+            script, 'q', script['_research_dossier'], worker.output_dir, [], lambda _: None)
+    assert report['validation']['passed'] and again == out
+    assert repair.BUDGET_VERSION in out and repair.VERSION not in out
+    assert create.call_count == 1 and claims.call_count == 1
+    assert json.loads((Path(worker.output_dir) / repair.BUDGET_FILENAME).read_text())['status'] == 'accepted'
+
+
+def test_budget_retry_without_exact_marker_never_calls_provider(tmp_path, monkeypatch):
+    script = failed_script()
+    write_budget_rejection(tmp_path, script)
+    create, _ = writer(monkeypatch, budget_response_for(script))
+    out, report = pipeline._repair_illustrated_storyboard(
+        script, 'q', script['_research_dossier'], tmp_path, [], lambda _: None)
+    assert out == script and not report['validation']['passed'] and not create.called
+
+
 def test_server_inspects_the_actual_durable_archive_before_rearming(tmp_path):
     store, blob = MemoryStore(cap=10), MemoryBlob(tmp_path / 'blob')
     worker = runtime(tmp_path, store, blob, 'saved')
@@ -212,6 +304,20 @@ def test_server_inspects_the_actual_durable_archive_before_rearming(tmp_path):
     assert result and len(result['failure_sha256']) == 64
     job['error'] += '; NO_RUNTIME: missing'
     assert studio._storyboard_checkpoint_repairable(job, store, blob) is None
+    assert store.job['spent_cost_usd'] == 0 and not store.stages
+
+
+def test_server_inspects_saved_v1_budget_rejection_before_rearming(tmp_path):
+    store, blob = MemoryStore(cap=10), MemoryBlob(tmp_path / 'blob')
+    worker = runtime(tmp_path, store, blob, 'saved-budget-rejection')
+    failure, prior = write_budget_rejection(Path(worker.output_dir))
+    checkpoint = worker.checkpoint('storyboard-repair-rejected')
+    job = {**failed_job(), 'checkpoint': checkpoint}
+    job['result'][durable.STORYBOARD_RECOVERY] = {
+        'failure_sha256': repair.digest(failure)}
+    result = studio._storyboard_budget_checkpoint_repairable(job, store, blob)
+    assert result == {'failure_sha256': repair.digest(failure),
+                      'prior_repair_sha256': repair.digest(prior)}
     assert store.job['spent_cost_usd'] == 0 and not store.stages
 
 
@@ -310,6 +416,26 @@ def test_transaction_preserves_all_spend_limits_and_paid_stages():
     assert json.loads(params[0])[durable.STORYBOARD_RECOVERY]['prior_error'] == LIVE_ERROR
 
 
+def test_budget_recovery_transaction_binds_both_saved_hashes():
+    job = failed_job()
+    job['result'][durable.STORYBOARD_RECOVERY] = {
+        # The final failure record gets a new failed_at timestamp after v1 rejects; the
+        # current checkpoint hash/report, not this earlier diagnostic hash, is authoritative.
+        'failure_sha256': 'd' * 64, 'checkpoint_sha256': CHECKPOINT}
+    store, cursor = transaction_store(job)
+    store.resume_storyboard_budget_failure(
+        'job-1', expected_checkpoint_sha256=CHECKPOINT, expected_error=LIVE_ERROR,
+        failure_sha256='b' * 64, prior_repair_sha256='c' * 64)
+    updates = [c.args for c in cursor.execute.call_args_list
+               if c.args[0].lstrip().startswith('UPDATE')]
+    assert len(updates) == 1
+    sql, params = updates[0]
+    marker = json.loads(params[0])[durable.STORYBOARD_BUDGET_RECOVERY]
+    assert marker['failure_sha256'] == 'b' * 64
+    assert marker['prior_repair_sha256'] == 'c' * 64
+    assert 'cost_usd=' not in sql and 'request=' not in sql
+
+
 @pytest.mark.parametrize('change', ['lease', 'reservation', 'budget', 'checkpoint', 'used', 'other_error', 'paid_unknown', 'changed_error'])
 def test_unsafe_recovery_never_writes(change):
     job, stages, expected = failed_job(), [], LIVE_ERROR
@@ -363,3 +489,44 @@ def test_dispatch_checks_private_checkpoint_and_uses_same_approval(monkeypatch, 
     anyio.run(run)
     assert store.resume_storyboard_failure.call_count == int(saved_ok)
     assert dispatched == (['job-1'] if saved_ok else [])
+
+
+def test_dispatch_checks_private_budget_rejection_and_uses_same_approval(monkeypatch):
+    _secure_environment(monkeypatch)
+    repository = FakeActionRepository()
+    repository.action = {'action_id': ACTION_ID, 'operation': 'generic_illustrated',
+                         'status': 'queued', 'job_id': 'job-1', 'cost_ceiling_usd': 10,
+                         'claim_token_sha256': agent_actions.token_digest(ACTION_ID),
+                         'spec_sha256': 'd' * 64}
+    job = failed_job()
+    job['result'][durable.STORYBOARD_RECOVERY] = {
+        'failure_sha256': 'b' * 64, 'checkpoint_sha256': CHECKPOINT}
+    store = Mock()
+    store.get_job.return_value = job
+    store.events.return_value = []
+    monkeypatch.setattr(agent_actions, 'repository', lambda: repository)
+    monkeypatch.setattr(studio, '_durable_execution_required', lambda: True)
+    monkeypatch.setattr(studio, '_durable_components', lambda: (store, Mock()))
+    monkeypatch.setattr(db, 'finished_video_get', lambda _: None)
+    monkeypatch.setattr(studio, '_storyboard_budget_checkpoint_repairable', lambda *_: {
+        'failure_sha256': 'b' * 64, 'prior_repair_sha256': 'c' * 64})
+    dispatched = []
+    async def worker(job_id):
+        dispatched.append(job_id)
+        return {'claimed': True}
+    monkeypatch.setattr(studio, '_run_durable_explainer_worker', worker)
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app),
+                                     base_url='https://test') as client:
+            status = (await client.get(
+                f'/api/agent/actions/{ACTION_ID}/public-status')).json()
+            assert status['job']['restart']['kind'] == 'storyboard_opening_budget'
+            response = await client.post(
+                f'/api/agent/actions/{ACTION_ID}/dispatch',
+                headers={'Authorization': f'Bearer {ACTION_ID}'})
+            assert response.status_code == 200, response.text
+    anyio.run(run)
+    store.resume_storyboard_budget_failure.assert_called_once_with(
+        'job-1', expected_checkpoint_sha256=CHECKPOINT, expected_error=LIVE_ERROR,
+        failure_sha256='b' * 64, prior_repair_sha256='c' * 64)
+    assert dispatched == ['job-1']
