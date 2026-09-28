@@ -10,9 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/ShortGPT/
       - name: Export tracked application and test sources only
         run: |
           python - <<'PY'
@@ -25,7 +29,7 @@ jobs:
                   if p.is_file() and p.suffix in allowed and not p.is_symlink() and p.stat().st_size < 3000000:
                       z.write(p, name)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reelforge-kids-development-source
           path: /tmp/reelforge-source.zip
