@@ -7052,12 +7052,12 @@ def _hero_i2v_indices(usable, sel) -> set:
 
 def _animate_one(provider: str, image_path: str, prompt: str, out_mp4: str,
                  vw: int, vh: int, seconds: int, fal_model: str | None = None,
-                 idempotency_key: str | None = None, stage_note=None):
+                 idempotency_key: str | None = None, stage_note=None, directed_motion: bool = False):
     """Generate ONE i2v clip with a SPECIFIC provider. Returns (ok, quota_hit, err_str).
     fal_model overrides _FAL_MODEL for THIS clip (used by the hero-beat hybrid); fal branch only."""
     size = _i2v_size(vw, vh)
     sw, sh = (int(x) for x in size.split("x"))
-    if "narration-aligned evidence change" in (prompt or ""):
+    if directed_motion or "narration-aligned evidence change" in (prompt or ""):
         motion = (prompt or "").strip()[:900]
     else:
         motion = ("Subtle, restrained motion: locked-off camera, very slow gentle drift and slight "

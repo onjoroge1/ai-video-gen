@@ -103,6 +103,22 @@ def create_server(client: ReelForgeClient | None = None) -> FastMCP:
         return result
 
     @server.tool(annotations=write)
+    async def propose_bolt_kids_episode(spec: dict, cost_ceiling_usd: float) -> dict:
+        """Propose one complete 120-second Kids episode spec, without spending.
+
+        Use approved robot/set library references. The server validates the dedicated schema,
+        freezes providers and policy, and returns the existing studio approval boundary.
+        Final full-video editorial review remains required; this tool never approves or publishes.
+        """
+        result = await client.request("POST", "/api/agent/actions", body={
+            "operation": "bolt_kids_episode", "spec": spec, "cost_ceiling_usd": cost_ceiling_usd})
+        result.pop("claim_token", None)
+        action_id = result["action_id"]
+        client.action_path(action_id)
+        result["approval_url"] = f"{client.base_url}/agent/actions?action={action_id}"
+        return result
+
+    @server.tool(annotations=write)
     async def propose_directed_pilot(
             bundled_spec_id: Literal[
                 "harp_seal_nature_short_v1", "harp_seal_nature_short_v2",
@@ -135,7 +151,8 @@ def create_server(client: ReelForgeClient | None = None) -> FastMCP:
     @server.tool(annotations=read)
     async def get_video_diagnostics(action_id: str, artifact: Literal[
             "research-handoff", "script", "grade", "rendered-contract", "evidence-validation",
-            "nature-visual-review", "nature-semantic-review", "storyboard-repair", "storyboard-failure"
+            "nature-visual-review", "nature-semantic-review", "storyboard-repair", "storyboard-failure",
+            "kids-gates", "kids-episode", "kids-quality", "kids-timeline"
             ] = "research-handoff", offset: int = 0) -> dict:
         """Read saved research, script, grade, storyboard repair or Nature reviews without regeneration. Follow next_offset for long artifacts.
 

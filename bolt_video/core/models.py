@@ -14,6 +14,7 @@ class VideoFormatId(str, Enum):
     SIMULATION = "simulation"
     QUIZ = "quiz"
     TV_REVIEW = "tv_review"
+    BOLT_KIDS = "bolt_kids"
 
 
 class JobStatus(str, Enum):
