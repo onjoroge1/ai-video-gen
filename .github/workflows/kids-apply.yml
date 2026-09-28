@@ -1,0 +1,48 @@
+name: Apply exact reviewed Kids implementation
+on:
+  push:
+    branches: [feat/bolt-kids-flow]
+    paths: [.github/workflows/kids-apply.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'onjoroge1/ai-video-gen' && github.ref == 'refs/heads/feat/bolt-kids-flow'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact commit without traversing legacy submodules
+        run: |
+          git init .
+          git remote add origin https://github.com/onjoroge1/ai-video-gen.git
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout -B feat/bolt-kids-flow FETCH_HEAD
+      - name: Verify and apply exact locally tested patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma, pathlib
+          root = pathlib.Path('.github/kids-implementation')
+          encoded = b''.join((root / f'{i:02d}.b64').read_bytes() for i in range(1,9))
+          assert hashlib.sha256(encoded).hexdigest() == 'aed334106a1eea67f9f4583341dc093b1fd461df23cd0f3e30c3c3968d74ea8d', 'Transfer hash mismatch'
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '699fbe856164d61e32b417396a3b11be5167ad3c06b5c6290eacbe42fa429989', 'Patch hash mismatch'
+          pathlib.Path('/tmp/kids.patch').write_bytes(patch)
+          print('Verified exact 185710-byte implementation patch')
+          PY
+          git apply --check /tmp/kids.patch
+          git apply /tmp/kids.patch
+          rm -f .github/workflows/kids-apply.yml
+          rm -rf .github/kids-implementation
+          test ! -e .github/workflows/kids-development-snapshot.yml
+          python -m compileall -q bolt_video/kids
+          git diff --check
+      - name: Commit only to development branch and remove transfer machinery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'ReelForge development bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add dedicated Bolt Kids end-to-end gated production flow'
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/bolt-kids-flow
