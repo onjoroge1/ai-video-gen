@@ -10,18 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/ShortGPT/
+      - name: Archive exact commit without submodule initialization
+        run: |
+          git init .
+          git remote add origin https://github.com/onjoroge1/ai-video-gen.git
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git archive FETCH_HEAD | tar -x
       - name: Export tracked application and test sources only
         run: |
           python - <<'PY'
           import pathlib, subprocess, zipfile
-          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          paths = subprocess.check_output(['git','ls-tree','-r','--name-only','-z','FETCH_HEAD']).decode().split('\0')
           allowed = {'.py','.toml','.txt','.json','.yml','.yaml','.md','.html','.js','.css'}
           with zipfile.ZipFile('/tmp/reelforge-source.zip','w',zipfile.ZIP_DEFLATED) as z:
               for name in paths:
