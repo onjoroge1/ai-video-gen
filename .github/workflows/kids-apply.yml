@@ -17,7 +17,7 @@ jobs:
           git remote add origin https://github.com/onjoroge1/ai-video-gen.git
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout -B feat/bolt-kids-flow FETCH_HEAD
-      - name: Verify and apply exact locally tested patch
+      - name: Verify and apply exact locally tested source patch
         run: |
           python - <<'PY'
           import base64, hashlib, lzma, pathlib
@@ -31,12 +31,15 @@ jobs:
           PY
           git apply --check /tmp/kids.patch
           git apply /tmp/kids.patch
-          rm -f .github/workflows/kids-apply.yml
+          # This token has contents permission only. Workflow additions/removals
+          # are performed separately through the authorized GitHub connector.
+          git restore --source=HEAD --worktree .github/workflows
+          rm -f .github/workflows/bolt-kids.yml
           rm -rf .github/kids-implementation
-          test ! -e .github/workflows/kids-development-snapshot.yml
           python -m compileall -q bolt_video/kids
           git diff --check
-      - name: Commit only to development branch and remove transfer machinery
+          test -z "$(git diff --name-only -- .github/workflows)"
+      - name: Commit source changes only to development branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
