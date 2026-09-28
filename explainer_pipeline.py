@@ -1974,6 +1974,97 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
     return script, cost
 
 
+def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_sink, log):
+    """One targeted edit of the finished words, with unchanged structural and source gates.
+
+    Persist the input before purchase. Cooperative continuation replays that exact request;
+    a rejected response or an accepted edit never buys another attempt on this job.
+    """
+    import copy
+    from pathlib import Path
+    import storyboard_repair as repair
+    import illustrated_story as lane
+    from durable_execution import current
+
+    path = Path(output_dir) / repair.FILENAME
+    board = lane.build_storyboard(copy.deepcopy(script), question)
+    if repair.has_media(output_dir):
+        return script, board  # Narration edits cannot invalidate already-purchased media.
+    saved = json.loads(path.read_text()) if path.exists() else None
+    if saved:
+        identities = {repair.story_identity(saved["input_script"])}
+        if saved.get("script"):
+            identities.add(repair.story_identity(saved["script"]))
+        if repair.story_identity(script) not in identities:
+            raise ValueError("Saved storyboard repair does not match this script")
+        # The immutable input owns this one attempt even if a surrounding finalizer ran again.
+        if saved["status"] == "accepted":
+            return saved["script"], saved["board"]
+        if saved["status"] == "rejected":
+            return script, board
+        script = saved["input_script"]
+        dossier = script.get("_research_dossier") or dossier
+        board = lane.build_storyboard(copy.deepcopy(script), question)
+    edit = repair.plan(script, board)
+    if not edit:
+        return script, board
+    record = saved or {"version": repair.VERSION, "status": "started",
+                       "input_sha256": repair.digest(script), "input_script": script,
+                       "original_validation": board["validation"]}
+
+    def persist():
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2))
+        temporary.replace(path)
+        runtime = current()
+        if runtime is not None:
+            runtime.checkpoint("illustrated-storyboard-repair-" + record["status"])
+
+    if not saved:
+        state_path = Path(output_dir) / "_state.json"
+        if state_path.exists():
+            state = json.loads(state_path.read_text())
+            state["script"] = script
+            temporary_state = state_path.with_suffix(".tmp")
+            temporary_state.write_text(json.dumps(state, ensure_ascii=False))
+            temporary_state.replace(state_path)
+        persist()  # mandatory before another paid call
+    log("Story repair: tightening the opening and restoring the spoken callback")
+    response = _claude().messages.create(
+        model=ANTHROPIC_MODEL, max_tokens=4000,
+        system="You edit sourced narration without changing its facts. Return only JSON.",
+        messages=[{"role": "user", "content": repair.prompt(script, edit)}])
+    cost_sink.append(_msg_cost(response.usage))
+    # No paid JSON-repair recursion. Invalid or still-failing edits retain the original failure.
+    try:
+        candidate = repair.apply_response(script, edit, json.loads(response.content[0].text))
+    except (ValueError, TypeError, KeyError) as exc:
+        record.update(status="rejected", reason=str(exc))
+        persist()
+        log("Story repair rejected: " + str(exc))
+        return script, board
+    rederive_narration_bindings(candidate, log, dossier)
+    candidate_board = lane.build_storyboard(candidate, question)
+    if not candidate_board["validation"]["passed"]:
+        record.update(status="rejected", candidate_validation=candidate_board["validation"])
+        persist()
+        return script, board
+    claims = _validate_claims(candidate, dossier, cost_sink)
+    if not claims.get("passed"):
+        record.update(status="rejected", candidate_validation=candidate_board["validation"],
+                      claim_validation=claims)
+        persist()
+        log("Story repair rejected: the rewritten narration did not pass source validation")
+        return script, board
+    candidate["_claim_validation"] = claims
+    candidate[repair.VERSION] = {"input_sha256": record["input_sha256"]}
+    record.update(status="accepted", script=candidate, board=candidate_board,
+                  claim_validation=claims)
+    persist()
+    log("Story repair: PASS — timing, callback and source validation")
+    return candidate, candidate_board
+
+
 def _align_callback_object(script: dict, log=lambda message: None) -> bool:
     """Make final_callback_object equal opening_object, which the planner is told it MUST be.
 
@@ -10619,6 +10710,17 @@ def run_explainer_pipeline(
         try:
             with open(state_path) as _sf:
                 _st = json.load(_sf)
+            # The final gate may have tightened a hook/hinge after _state was saved. Reuse
+            # the actual failed draft, not an earlier approximation of it. A migration that
+            # cannot reproduce its saved failure must stop instead of buying a fresh script.
+            if illustrated_story_on:
+                import storyboard_repair as _story_repair
+                if (os.path.isfile(os.path.join(output_dir, _story_repair.FAILURE_FILE))
+                        and not os.path.isfile(os.path.join(output_dir, _story_repair.FILENAME))):
+                    _saved_failure = _story_repair.inspect_saved_failure(
+                        output_dir, operator_direction=operator_direction)
+                    if _saved_failure:
+                        _st["script"] = _saved_failure["script"]
             script = _st["script"]
             style_mode = _st.get("style_mode", "educational")
             scenes = script.get("scenes", [])
@@ -10660,6 +10762,9 @@ def run_explainer_pipeline(
                         if os.path.exists(os.path.join(output_dir, "images", f"scene_{i:02d}.jpg"))])
             log(f"▶ RESUMING from checkpoint — {len(scenes)} scenes, {done} images already on disk (won't re-pay).")
         except Exception as exc:
+            if illustrated_story_on and os.path.isfile(os.path.join(
+                    output_dir, "semantic_failure_illustrated-storyboard.json")):
+                raise ValueError("Saved storyboard recovery could not restore its script") from exc
             log(f"⚠ Resume checkpoint unreadable ({type(exc).__name__}) — starting fresh")
             resumed = False
 
@@ -10993,6 +11098,11 @@ def run_explainer_pipeline(
         if nature_channel.is_nature(_TOPIC_CHANNEL.get()):
             _nature_subject_sheet(question, script, aux_costs, log)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
+        if not (storyboard.get("validation") or {}).get("passed"):
+            script, storyboard = _repair_illustrated_storyboard(
+                script, question, research_dossier, output_dir, aux_costs, log)
+            scenes = script.get("scenes") or []
+            script["_runtime_plan"] = plan_runtime(scenes, duration_sec)
         if not (storyboard.get("validation") or {}).get("passed"):
             storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []
             # ILLUSTRATED_STORYBOARD_HARD=0 downgrades this to a report, matching the escape hatch

@@ -3349,6 +3349,10 @@ def _agent_restart_state(action: dict, job: dict) -> dict:
             and durable_execution.research_budget_recovery(job)):
         return {"eligible": True, "kind": "research_budget",
                 "message": "Research can resume with fewer permitted searches. Completed work and both spending limits are preserved."}
+    if (action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+            and durable_execution.storyboard_recovery(job)):
+        return {"eligible": True, "kind": "storyboard_repair",
+                "message": "Check the saved storyboard, then attempt one narration repair under the original budget."}
     if (job.get("status") in {"queued", "retry"}
             and not job.get("lease_owner") and not job.get("lease_expires_at")
             and int(job.get("attempts") or 0) < int(job.get("max_attempts") or 0)):
@@ -3621,6 +3625,25 @@ def _composed_evidence_checkpoint_repairable(job: dict, store, blob) -> bool:
         return False
 
 
+def _storyboard_checkpoint_repairable(job: dict, store, blob) -> dict | None:
+    """Inspect the private snapshot on the server; no provider calls or approval changes."""
+    import storyboard_repair
+    from longform_research import validate_research_dossier
+    try:
+        with tempfile.TemporaryDirectory(prefix="storyboard_repair_review_") as output_dir:
+            runtime = durable_execution.DurableRuntime(
+                job_id=job["id"], worker_id="read-only", output_dir=output_dir, store=store, blob=blob)
+            runtime.restore_checkpoint(job["checkpoint"])
+            saved = storyboard_repair.inspect_saved_failure(
+                output_dir, expected_error=job["error"],
+                operator_direction=(job.get("request") or {}).get("operator_direction", ""))
+            if saved and validate_research_dossier(saved["dossier"]).get("passed"):
+                return {"failure_sha256": saved["failure_sha256"]}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, durable_execution.DurableExecutionError):
+        pass
+    return None
+
+
 def _compiled_function_checkpoint_repairable(job: dict, store, blob) -> bool:
     """Read the exact old handoff before one semantic-function continuation."""
     import research_handoff
@@ -3675,6 +3698,18 @@ async def dispatch_agent_action(action_id: str, request: Request):
             await asyncio.to_thread(
                 store.resume_provider_block, str(action["job_id"]),
                 expected_checkpoint_sha256=(job.get("checkpoint") or {}).get("sha256", ""))
+        elif (job and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+                and durable_execution.storyboard_recovery(job)):
+            saved = await asyncio.to_thread(_storyboard_checkpoint_repairable, job, store, blob)
+            if not saved:
+                raise HTTPException(status_code=409, detail="Saved storyboard did not qualify for repair")
+            try:
+                await asyncio.to_thread(
+                    store.resume_storyboard_failure, str(action["job_id"]),
+                    expected_checkpoint_sha256=job["checkpoint"]["sha256"],
+                    expected_error=job["error"], failure_sha256=saved["failure_sha256"])
+            except durable_execution.DurableExecutionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         elif (job and job.get("status") in {"error", "storage_error"}
                 and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
                 and "No space left on device" in str(job.get("error") or "")):
