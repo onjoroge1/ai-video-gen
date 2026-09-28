@@ -3090,7 +3090,12 @@ async def _agent_bound_job(action_id: str) -> str:
 
 _AGENT_DIAGNOSTIC_FILES = {
     "script": "_state.json", "grade": "grade.txt",
-    "storyboard-repair": "illustrated_storyboard_repair_v1.json",
+    # Keep the stable artifact name while returning the newest attempted repair. Older jobs
+    # have only v1; opening-budget recoveries write v2 alongside it.
+    "storyboard-repair": (
+        "illustrated_storyboard_opening_budget_repair_v2.json",
+        "illustrated_storyboard_repair_v1.json",
+    ),
     "storyboard-failure": "semantic_failure_illustrated-storyboard.json",
     "rendered-contract": "rendered_contract.json",
     "evidence-validation": "evidence_validation.json",
@@ -3105,6 +3110,8 @@ def _read_agent_diagnostic(job_id: str, artifact: str) -> str:
         return json.dumps(_research_handoff_payload(job_id), ensure_ascii=False)
     if artifact not in _AGENT_DIAGNOSTIC_FILES:
         raise HTTPException(status_code=422, detail="Unsupported saved artifact")
+    configured = _AGENT_DIAGNOSTIC_FILES[artifact]
+    filenames = configured if isinstance(configured, tuple) else (configured,)
     if _durable_execution_required():
         store, blob = _durable_components()
         job = store.get_job(job_id)
@@ -3115,10 +3122,11 @@ def _read_agent_diagnostic(job_id: str, artifact: str) -> str:
                 job_id=job_id, worker_id="read-only", output_dir=output_dir,
                 store=store, blob=blob)
             runtime.restore_checkpoint(job["checkpoint"])
-            path = Path(output_dir) / _AGENT_DIAGNOSTIC_FILES[artifact]
-            if not path.is_file():
-                raise HTTPException(status_code=404, detail="Saved artifact is not available")
-            return path.read_text(encoding="utf-8")
+            for filename in filenames:
+                path = Path(output_dir) / filename
+                if path.is_file():
+                    return path.read_text(encoding="utf-8")
+            raise HTTPException(status_code=404, detail="Saved artifact is not available")
     path, _ = _explainer_text_artifact(job_id, artifact)
     if not path:
         raise HTTPException(status_code=404, detail="Saved artifact is not available")
@@ -3176,7 +3184,7 @@ async def agent_nature_review_page(action_id: str, download: bool = False):
 
 @app.get("/agent/actions/{action_id}/storyboard-repair")
 async def agent_storyboard_repair_page(action_id: str, download: bool = False):
-    """Studio-authenticated read of the existing repair, including legacy PR141 records."""
+    """Studio-authenticated read of the newest repair, including legacy PR141 records."""
     import html
     job_id = await _agent_bound_job(action_id)
     try:
@@ -3186,9 +3194,12 @@ async def agent_storyboard_repair_page(action_id: str, download: bool = False):
             raise ValueError("Invalid saved repair record")
     except (OSError, ValueError):
         raise HTTPException(status_code=409, detail="Saved repair report could not be read") from None
+    filename = ("illustrated_storyboard_opening_budget_repair_v2.json"
+                if record.get("version") == "illustrated_storyboard_opening_budget_repair_v2"
+                else "illustrated_storyboard_repair_v1.json")
     if download:
         return Response(content, media_type="application/json", headers={
-            "Content-Disposition": 'attachment; filename="illustrated_storyboard_repair_v1.json"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store"})
     reason = (record.get("reason") or json.dumps(
         record.get("claim_validation") or record.get("candidate_validation") or {}, ensure_ascii=False))
@@ -3207,7 +3218,7 @@ async def agent_storyboard_repair_page(action_id: str, download: bool = False):
         f"<pre>{html.escape(str(reason))}</pre>"
         "<p>The render error can describe the original draft after an edit was discarded. "
         "This report shows the saved repair result. Reading it does not retry or change the video.</p>"
-        "<p><a href='?download=true'>Download illustrated_storyboard_repair_v1.json</a></p>"
+        f"<p><a href='?download=true'>Download {filename}</a></p>"
         "<details><summary>Complete saved report</summary>"
         f"<pre>{html.escape(content)}</pre></details></body></html>",
         headers={"Cache-Control": "no-store"})
@@ -4158,6 +4169,7 @@ def _materialize_durable_explainer(job_id: str) -> dict | None:
         "research_handoff_path": "research_handoff.json",
         "spine_failure_path": "semantic_failure_story-spine.json",
         "spine_after_research_path": "semantic_failure_story-spine-after-research.json",
+        "storyboard_budget_repair_path": "illustrated_storyboard_opening_budget_repair_v2.json",
         "storyboard_repair_path": "illustrated_storyboard_repair_v1.json",
         "storyboard_failure_path": "semantic_failure_illustrated-storyboard.json",
         "claim_report_path": "claim_ledger_report.json",
@@ -4599,7 +4611,7 @@ async def stateboard_thumbnail(job_id: str):
 
 def _explainer_text_artifact(job_id: str, kind: str):
     """Resolve a transcript ('txt'), captions ('srt'), description ('desc') or grade path."""
-    job_key = {
+    job_keys = ({
         "script": "script_path", "txt": "transcript_path", "srt": "srt_path",
         "desc": "description_path",
         "grade": "grade_path", "research": "research_report_path",
@@ -4626,15 +4638,20 @@ def _explainer_text_artifact(job_id: str, kind: str):
         "nature-semantic-review": "nature_semantic_review_path",
         "diagnostic-preview": "diagnostic_preview_path",
         "opening-preview": "first_minute_preview_path", "thumb": "thumbnail_path",
-    }[kind]
+    }[kind],)
+    if kind == "storyboard-repair":
+        job_keys = ("storyboard_budget_repair_path", "storyboard_repair_path")
+    job_key = job_keys[0]
     job = explainer_jobs.get(job_id)
-    if _durable_execution_required() and (not job or not job.get(job_key)):
+    if _durable_execution_required() and (not job or not any(job.get(key) for key in job_keys)):
         try:
             job = _materialize_durable_explainer(job_id)
         except durable_execution.StorageUnavailable:
             raise
-    if job and job.get(job_key) and os.path.exists(job[job_key]):
-        return job[job_key], job.get("title", "explainer")
+    if job:
+        for candidate_key in job_keys:
+            if job.get(candidate_key) and os.path.exists(job[candidate_key]):
+                return job[candidate_key], job.get("title", "explainer")
     if _durable_execution_required():
         store, blob = _durable_components()
         record = store.finished_get(job_id)
