@@ -197,8 +197,9 @@ private checkpoint check succeeds. Merging the code alone does not restart or va
 After a rejected storyboard repair, the action page links **Inspect saved storyboard repair**
 to the studio-authenticated `/agent/actions/{action_id}/storyboard-repair` viewer. This displays
 the exact stored rejection reason or validation report and supports downloading the original
-`illustrated_storyboard_repair_v1.json`, including records written by PR141. The MCP artifact
-`storyboard-repair` reads the same snapshot using the existing scoped read credential;
+newest saved repair: `illustrated_storyboard_opening_budget_repair_v2.json` when present, otherwise
+the legacy `illustrated_storyboard_repair_v1.json`, including records written by PR141. The MCP
+artifact `storyboard-repair` reads the same newest snapshot using the existing scoped read credential;
 `storyboard-failure` reads the original failed draft and gate report. These reads make no provider
 calls and do not reopen a consumed recovery. New attempts retain their provider text and rejected
 candidate for diagnosis, and show a fixed rejection category before the original storyboard errors.

@@ -263,3 +263,57 @@ def test_storyboard_repair_diagnostics_reveal_legacy_reason_without_retry(monkey
             assert response.headers['cache-control'] == 'no-store'
     anyio.run(run)
     assert job == original and len(roots) == 4 and all(not root.exists() for root in roots)
+
+
+def test_storyboard_repair_diagnostics_prefer_latest_budget_repair(monkeypatch):
+    _secure_environment(monkeypatch)
+    token = 'r' * 48
+    monkeypatch.setenv('REELFORGE_AGENT_READ_TOKEN', token)
+    repo = FakeActionRepository()
+    repo.action = {'action_id': ACTION_ID, 'job_id': 'saved-job'}
+    monkeypatch.setattr(agent_actions, 'repository', lambda: repo)
+    monkeypatch.setattr(studio, '_durable_execution_required', lambda: True)
+    legacy = json.dumps({'version': 'illustrated_storyboard_repair_v1',
+                         'status': 'rejected', 'reason': 'legacy reason'})
+    latest = json.dumps({'version': 'illustrated_storyboard_opening_budget_repair_v2',
+                         'status': 'rejected',
+                         'reason': 'Repair exceeds a scene opening word limit'})
+    job = {'status': 'error', 'spent_cost_usd': 3.4736,
+           'checkpoint': {'sha256': 'latest'}}
+    original = copy.deepcopy(job)
+    class Store:
+        def get_job(self, job_id):
+            assert job_id == 'saved-job'
+            return job
+    monkeypatch.setattr(studio, '_durable_components', lambda: (Store(), object()))
+    roots = []
+    class Runtime:
+        def __init__(self, **kwargs):
+            assert kwargs['worker_id'] == 'read-only'
+            self.root = Path(kwargs['output_dir'])
+            roots.append(self.root)
+        def restore_checkpoint(self, checkpoint):
+            assert checkpoint == original['checkpoint']
+            (self.root / 'illustrated_storyboard_repair_v1.json').write_text(legacy)
+            (self.root / 'illustrated_storyboard_opening_budget_repair_v2.json').write_text(latest)
+    monkeypatch.setattr(studio.durable_execution, 'DurableRuntime', Runtime)
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=studio.app), base_url='http://test') as c:
+            api = f'/api/agent/actions/{ACTION_ID}/diagnostics?artifact=storyboard-repair'
+            response = await c.get(api, headers={'Authorization': 'Bearer ' + token})
+            assert response.status_code == 200
+            assert response.json()['content'] == latest
+            c.cookies.set(private_access.COOKIE_NAME, private_access.create_session('owner'))
+            page = f'/agent/actions/{ACTION_ID}/storyboard-repair'
+            response = await c.get(page)
+            assert response.status_code == 200
+            assert 'Repair exceeds a scene opening word limit' in response.text
+            assert 'legacy reason' not in response.text
+            assert 'Download illustrated_storyboard_opening_budget_repair_v2.json' in response.text
+            response = await c.get(page + '?download=true')
+            assert response.text == latest
+            assert response.headers['content-disposition'] == (
+                'attachment; filename="illustrated_storyboard_opening_budget_repair_v2.json"')
+            assert response.headers['cache-control'] == 'no-store'
+    anyio.run(run)
+    assert job == original and len(roots) == 3 and all(not root.exists() for root in roots)
