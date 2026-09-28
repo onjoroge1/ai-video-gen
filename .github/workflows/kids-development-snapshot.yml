@@ -1,0 +1,32 @@
+name: Kids development snapshot
+on:
+  push:
+    branches: [feat/bolt-kids-flow]
+    paths: [.github/workflows/kids-development-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked application and test sources only
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, zipfile
+          paths = subprocess.check_output(['git','ls-files','-z']).decode().split('\0')
+          allowed = {'.py','.toml','.txt','.json','.yml','.yaml','.md','.html','.js','.css'}
+          with zipfile.ZipFile('/tmp/reelforge-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for name in paths:
+                  p = pathlib.Path(name)
+                  if p.is_file() and p.suffix in allowed and not p.is_symlink() and p.stat().st_size < 3000000:
+                      z.write(p, name)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reelforge-kids-development-source
+          path: /tmp/reelforge-source.zip
+          retention-days: 1
