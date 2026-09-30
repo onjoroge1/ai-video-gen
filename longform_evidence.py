@@ -206,6 +206,31 @@ def _objects_clash(forbidden_item: str, required: list) -> bool:
     return bool(stems) and any(stems & _object_stems(item) for item in required or [])
 
 
+# The recurring cast by name. A cast-free lane forbids them on screen; a writer that names one
+# in a beat has written a picture the lane cannot buy. Kept here rather than imported from
+# explainer_pipeline (which imports this module) so the plan stays self-describing.
+CAST_NAMES = ("Bolt", "Alex")
+_CAST_NAME_PATTERN = re.compile(r"\b(" + "|".join(CAST_NAMES) + r")(?:'s)?\b")
+
+
+def scrub_cast_names(text: str) -> tuple[str, list[str]]:
+    """Replace a named cast member with an anonymous figure; report which names were found.
+
+    Cane toads (2026-09-30): the lane is cast-free by contract and the writer prompt says never
+    to write Bolt, yet one consequence beat came back "Bolt crouched at soil edge examining the
+    toad, wary". Nothing between the writer and the image purchase read the visual for a cast
+    name, the image model drew a cartoon dog with a lightning bolt on its flank in a Queensland
+    cane field, the verifier correctly reported bolt_present, and the delivered film lost the
+    whole cast-discipline component (10/100) to one frame nobody had asked for. Rewriting to an
+    anonymous figure is the same repair the lane applies to every other consequence beat: the
+    period-coded person the references use, never the avatar.
+    """
+    found = sorted({match.group(1) for match in _CAST_NAME_PATTERN.finditer(text or "")})
+    if not found:
+        return text or "", []
+    return _CAST_NAME_PATTERN.sub("an anonymous figure", text or ""), found
+
+
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
                      pack: dict, *, opening: bool) -> dict:
     purpose = _text(beat.get("purpose")).casefold() or ("setup" if state_index == 0 else "evidence")
@@ -253,6 +278,19 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     before = _text(beat.get("state_before"))
     after = _text(beat.get("state_after")) or _text(beat.get("visual"))
     required = _list(beat.get("required_objects"))
+    visual = _text(beat.get("visual")) or after
+    cast_scrubbed: list[str] = []
+    if _text(pack.get("cast")) == "none":
+        scrubbed = []
+        for value in (before, after, visual, *required):
+            value, names = scrub_cast_names(value)
+            scrubbed.append(value)
+            cast_scrubbed.extend(names)
+        before, after, visual, *required = scrubbed
+        cast_scrubbed = sorted(set(cast_scrubbed))
+        # The avatar was never allowed on this lane; a leak the scrub missed (a description
+        # rather than the name) is redrawn by the verifier instead of tolerated.
+        include_bolt = False
     if not required and after:
         required = [after]
     opening_label = _text(pack.get("opening_object", {}).get("label"))
@@ -269,7 +307,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     clashes = [item for item in forbidden if _objects_clash(item, required)]
     if clashes:
         forbidden = [item for item in forbidden if item not in clashes]
-    if pure_evidence and "Bolt" not in forbidden:
+    if (pure_evidence or _text(pack.get("cast")) == "none") and "Bolt" not in forbidden:
         forbidden.append("Bolt")
     if not people_allowed and nature_channel.FORBIDDEN_PEOPLE not in forbidden:
         # Forbidden objects reach the verifier, so a frame with a person is redrawn, not tolerated.
@@ -293,11 +331,13 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "opening": opening,
         "anchor_phrase": _text(beat.get("anchor_phrase")),
         "purpose": purpose,
-        "visual": _text(beat.get("visual")) or after,
+        "visual": visual,
         "state_before": before,
         "state_after": after,
         "required_objects": required,
         "forbidden_objects": forbidden,
+        # Auditable: which cast names the writer put into a cast-free beat, if any.
+        "cast_names_scrubbed": cast_scrubbed,
         "asset_strategy": strategy,
         "source_asset_id": source_asset_id,
         "detail_target": _text(beat.get("detail_target")),

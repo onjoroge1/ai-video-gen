@@ -34,7 +34,8 @@ def test_later_states_keep_their_forbidden_objects():
             "required_objects": ["pale beetle grubs", "chewed cane roots"],
             "forbidden_objects": ["toads"], "anchor_phrase": "predators started dying"}
     state = le._state_from_beat({}, beat, 0, 1, pack, opening=False)
-    assert state["forbidden_objects"] == ["toads"]
+    # "toads" survives; the cast-free lane also forbids the mascot on every state.
+    assert state["forbidden_objects"] == ["toads", "Bolt"]
 
 
 def test_clash_matching_is_by_object_word_not_by_shared_filler():
@@ -103,3 +104,24 @@ def test_opening_cut_ratio_is_measured_over_bought_scenes_only():
                                         purchased_through=1)
     assert any(e["code"] == "opening_visible_information_ratio" for e in strict["errors"])
     assert not any(e["code"] == "opening_visible_information_ratio" for e in bounded["errors"])
+
+
+def test_cast_free_lane_never_plans_the_mascot():
+    """Cane toads (2026-09-30): "Bolt crouched at soil edge examining the toad" in a cast-free
+    lane bought a cartoon dog with a lightning bolt and cost the film its whole cast component."""
+    pack = _pack()
+    assert pack["cast"] == "none"
+    beat = {"purpose": "consequence", "visual": "Bolt crouched at soil edge examining the toad, wary",
+            "state_after": "Bolt's paw beside a cane toad on bare soil",
+            "required_objects": ["a cane toad", "Bolt"], "anchor_phrase": "examining the toad"}
+    state = le._state_from_beat({}, beat, 23, 1, pack, opening=False)
+    joined = " ".join([state["visual"], state["state_after"], *state["required_objects"]])
+    assert "Bolt" not in joined and "an anonymous figure" in state["visual"]
+    assert state["cast_names_scrubbed"] == ["Bolt"]
+    assert state["include_bolt"] is False and "Bolt" in state["forbidden_objects"]
+
+
+def test_scrub_is_a_no_op_off_the_cast_free_lane_and_on_clean_text():
+    assert le.scrub_cast_names("a farmer kneels by a toad") == ("a farmer kneels by a toad", [])
+    text, names = le.scrub_cast_names("Alex and Bolt inspect the beetle grubs")
+    assert names == ["Alex", "Bolt"] and "Alex" not in text and "Bolt" not in text
