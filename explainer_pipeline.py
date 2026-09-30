@@ -3691,6 +3691,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _spine_correction = (
                 "\n\nYOUR PREVIOUS BEAT SHEET FAILED THE EVIDENCE CHECK. The report:\n"
                 + _sfm.spine_summary(_sb, _spine)
+                # A beat refused for its claim's KIND usually has the right claim sitting one
+                # row away in the ledger (cane toads, 2026-09-29: c49 mechanism cited, c48
+                # outcome unused). Name those candidates; the planner still has to cite them.
+                + _sfm.citation_suggestions(_sb, _spine, _claims_for_roles, sheet_engine_id)
                 + "\n\nRewrite the sheet so every REQUIRED step's event text asserts only what "
                 "the claim it cites states, and cite the claim that actually states each "
                 "detail -- the ledger may hold a better claim than the one you used. Keep the "
@@ -3717,8 +3721,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     print(_sfm.spine_summary(_sb, _spine))
                 else:
                     print("  ✗ spine retry still unsupported — trying research repair on the original")
+                    # The retry's own verdict is the only record of what the planner changed and
+                    # why that was not enough; without it every failed re-ask reads the same.
+                    print("  retry report:\n" + _sfm.spine_summary(
+                        _retry_prepared["beats"], _retry_prepared["compiled"]))
             else:
-                print("  ✗ spine retry did not compile — trying research repair on the original")
+                print("  ✗ spine retry did not compile — trying research repair on the original: "
+                      + "; ".join(_s(i.get("code")) for i in (_retry_roles.get("issues") or [])))
         if not _spine["passed"] and not _diagnostic_render():
             from durable_execution import current as _current_runtime
             import research_coverage
@@ -9604,6 +9613,24 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
         return script, 0.0
 
 
+def _only_repairable_timing_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is a narration-timing miss (LATE_MECHANISM / NO_CALLBACK) the only thing blocking?
+
+    True only when the long-form contract itself passed and every causal error is one of the
+    codes the storyboard repair owns. Any other causal failure, or a failed contract, still
+    replans as before.
+    """
+    if not (validation or {}).get("passed") or not causal_errors:
+        return False
+    import storyboard_repair
+    # Hook and hinge word budgets are rewritten to fit right before the storyboard gate
+    # (_ensure_hook_fits_budget, _ensure_hinge_fits_budget); the two timing codes have the
+    # storyboard repair. All four are one-sentence edits of a validated draft.
+    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE"}
+    codes = [str(e).split(":", 1)[0].strip() for e in causal_errors]
+    return all(code in bounded for code in codes)
+
+
 def _causal_contract_report(script: dict, question: str) -> tuple[bool, list[str]]:
     """Does this draft satisfy the causal contract? Non-mutating, provider-free, free to call.
 
@@ -9755,6 +9782,21 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                 + (" and the causal contract now passes" if best_causal_ok else ""))
             if best_validation.get("passed") and best_causal_ok:
                 break
+        # LEAVE A NARRATION-TIMING MISS TO THE NARRATION EDIT, NOT TO A REPLAN.
+        #
+        # LATE_MECHANISM and NO_CALLBACK are measured on the finished words of a draft whose
+        # spine has already passed. The storyboard gate below owns a bounded, evidence-checked
+        # narration repair for exactly those two codes (storyboard_repair). A replan rebuilds the
+        # causal sheet from scratch and re-rolls the spine. Measured on the cane toad film
+        # (2026-09-29, attempt 3): a draft that had cleared research, spine and ledger with its
+        # mechanism at 51s against a 51s deadline was replanned, the replacement sheet failed the
+        # spine twice, and the run died with a validated draft in hand.
+        if causal_lane and _only_repairable_timing_blocks(best_validation, best_causal_errors):
+            log("Causal contract misses only word budgets or narration timing ("
+                + "; ".join(str(e).split(":", 1)[0] for e in best_causal_errors)
+                + ") — leaving them to the bounded edits before the storyboard gate instead "
+                "of replanning")
+            break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
         if causal_lane and not best_causal_ok:
             causal_fixes = "; ".join(
@@ -9766,23 +9808,32 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         log(f"Long-form contract {best_validation.get('score', 0)}/100"
             + ("" if best_causal_ok else " + causal contract failing")
             + f" — replan {_attempt}/{_attempts} before render: {fixes}")
-        cand = generate_script(
-            question, duration_sec, style, image_guidance=image_guidance,
-            video_format=video_format, series=series, operator_direction=operator_direction,
-            story_format=story_format,
-            research_dossier=research_dossier,
-            # The replan MUST carry the lane. Without it this call rebuilds every scene through
-            # the plain path, so the causal_role/caused_by/chapter fields the storyboard reads are
-            # simply absent — a pilot got all the way past research, fact-check and the runtime
-            # contract before failing with a blank role on all 22 scenes. A replanned script is
-            # still a script for the same lane.
-            causal_lane=causal_lane,
-            cost_sink=cost_sink,
-            # Same engine as the draft being repaired. Without this the replan re-picks and ends
-            # up fixing a different contract from the one that failed.
-            pinned_engine=_s(best.get("_story_engine")),
-            improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
-        )
+        try:
+            cand = generate_script(
+                question, duration_sec, style, image_guidance=image_guidance,
+                video_format=video_format, series=series, operator_direction=operator_direction,
+                story_format=story_format,
+                research_dossier=research_dossier,
+                # The replan MUST carry the lane. Without it this call rebuilds every scene
+                # through the plain path, so the causal_role/caused_by/chapter fields the
+                # storyboard reads are simply absent — a pilot got all the way past research,
+                # fact-check and the runtime contract before failing with a blank role on all
+                # 22 scenes. A replanned script is still a script for the same lane.
+                causal_lane=causal_lane,
+                cost_sink=cost_sink,
+                # Same engine as the draft being repaired. Without this the replan re-picks and
+                # ends up fixing a different contract from the one that failed.
+                pinned_engine=_s(best.get("_story_engine")),
+                improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
+            )
+        except (ValueError, RuntimeError) as exc:
+            # A replan that cannot itself pass the spine or compile is a failed CANDIDATE, not a
+            # failed run: the draft it was meant to improve already passed every gate that
+            # raised here. Keep the draft; the storyboard gate below still has the last word.
+            log(f"Replan {_attempt}/{_attempts} was rejected before it could be compared "
+                f"({type(exc).__name__}: {str(exc).splitlines()[0][:120]}) — keeping the "
+                "validated draft")
+            continue
         total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
         cand_validation = validate_longform_story(cand, question)
         cand_causal_ok, cand_causal_errors = (
@@ -12112,8 +12163,11 @@ def run_explainer_pipeline(
                 raise RuntimeError(
                     "One or more first-tranche evidence assets were explicitly rejected.")
             log("  ⚠ [ASSETS, advisory] first-tranche assets rejected — continuing")
+        # Only the scenes this tranche bought can be held to "explicitly accepted"; the
+        # compiler's opening is longer than 45 s of audio and its later scenes are bought next.
         evidence_validation = validate_evidence_plan(
-            evidence_plan, require_verified_assets=True, opening_only=True)
+            evidence_plan, require_verified_assets=True, opening_only=True,
+            purchased_through=opening_stop)
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
@@ -12808,6 +12862,25 @@ def run_explainer_pipeline(
 
     # 4c. Ready-to-paste YouTube description (best-effort).
     full_transcript = " ".join(n.strip() for n in rendered_narr if n and n.strip())
+    # 4c-0. World-channel backfire films carry one title formula and one thumbnail grammar
+    #       (backfire_packaging). The title is settled here, before the description and the
+    #       thumbnail read it, and every number in it must be spoken in the finished narration.
+    import backfire_packaging as _backfire
+    _backfire_packaged = _backfire.applies(script, video_format)
+    if _backfire_packaged:
+        try:
+            _packaged_title = _backfire.propose_title(
+                script.get("title", question), question, full_transcript, cost_sink=aux_costs,
+                log=log)
+        except Exception as exc:
+            _packaged_title = None
+            log(f"⚠ Packaging title failed ({type(exc).__name__}) — keeping the script title")
+        if _packaged_title and _packaged_title != script.get("title"):
+            log(f'Packaging title: "{script.get("title", "")}" → "{_packaged_title}"')
+            script["_packaging"] = {"version": _backfire.VERSION,
+                                    "script_title": script.get("title", ""),
+                                    "title": _packaged_title}
+            script["title"] = _packaged_title
     description_path = generate_description(
         script.get("title", question), script.get("hook", ""), full_transcript, output_dir,
         cost_sink=aux_costs, question=question, video_format=video_format,
@@ -12823,9 +12896,14 @@ def run_explainer_pipeline(
     _thumb_report: dict = {}
     try:
         log("stage:Generating thumbnail...")
-        thumbnail_path = generate_thumbnail(
-            script.get("title", question), question, style_mode, video_format, output_dir,
-            cost_sink=img_costs, report=_thumb_report, transcript=full_transcript)
+        if _backfire_packaged:
+            thumbnail_path = _backfire.generate_thumbnail(
+                script.get("title", question), question, full_transcript, output_dir,
+                cost_sink=img_costs, report=_thumb_report, log=log)
+        else:
+            thumbnail_path = generate_thumbnail(
+                script.get("title", question), question, style_mode, video_format, output_dir,
+                cost_sink=img_costs, report=_thumb_report, transcript=full_transcript)
         if _thumb_report.get("fallback"):
             log("⚠ Thumbnail: image gen failed even after the safe-retry — BLANK fallback used")
         elif _thumb_report.get("qa") == "skipped":

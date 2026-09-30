@@ -186,6 +186,26 @@ def _derive_bolt_action(beat: dict, scene: dict, subject: str) -> str:
     return f"{verb} {target}"
 
 
+_CLASH_STOPWORDS = frozenset(("single", "small", "large", "group", "several", "many", "ground",
+                              "field", "with", "from", "into", "onto", "over", "under", "near"))
+
+
+def _object_stems(label: str) -> set[str]:
+    """Content words of an object label, singular-ish, so "toads" meets "a single cane toad"."""
+    stems = set()
+    for word in re.findall(r"[a-z]+", _text(label).casefold()):
+        if len(word) < 4 or word in _CLASH_STOPWORDS:
+            continue
+        stems.add(word.rstrip("s").rstrip("e"))   # toads/toad, beetles/beetle, grubs/grub
+    return stems
+
+
+def _objects_clash(forbidden_item: str, required: list) -> bool:
+    """Does a forbidden object name something a required object of the same state names?"""
+    stems = _object_stems(forbidden_item)
+    return bool(stems) and any(stems & _object_stems(item) for item in required or [])
+
+
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
                      pack: dict, *, opening: bool) -> dict:
     purpose = _text(beat.get("purpose")).casefold() or ("setup" if state_index == 0 else "evidence")
@@ -241,6 +261,14 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     if scene_index == 0 and state_index == 0 and opening_label and opening_label not in required:
         required.append(opening_label)
     forbidden = _list(beat.get("forbidden_objects"))
+    # A forbidden object that the same state also requires is a contradiction no image can
+    # satisfy. Cane toads (2026-09-30): the writer forbade "toads" in the pre-toad setup beat,
+    # the establishing frame appended the opening object "a single cane toad ...", and the
+    # verifier rejected every redraw for showing the toad it was told to show. Drop the clash
+    # and say so; every other forbidden item is still enforced on the pixels.
+    clashes = [item for item in forbidden if _objects_clash(item, required)]
+    if clashes:
+        forbidden = [item for item in forbidden if item not in clashes]
     if pure_evidence and "Bolt" not in forbidden:
         forbidden.append("Bolt")
     if not people_allowed and nature_channel.FORBIDDEN_PEOPLE not in forbidden:
@@ -840,7 +868,16 @@ MAX_VISUAL_STATE_SECONDS = 3.5
 
 
 def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
-                           opening_only: bool = False) -> dict:
+                           opening_only: bool = False,
+                           purchased_through: int | None = None) -> dict:
+    """`purchased_through` bounds the verified-asset checks to scenes already bought.
+
+    The compiler's opening runs to about 30% of the story (7 scenes at 300 s); the first tranche
+    buys 45 s of measured audio (4 scenes). Validating the compiler's opening after buying the
+    tranche read the three unbought scenes as "not explicitly accepted" and stopped the run with
+    every bought asset passing (Four Pests 2026-09-22, cane toads 2026-09-30). Unbought scenes
+    keep every structural check here and meet the asset checks after their own purchase.
+    """
     errors: list[dict] = []
     pack = plan.get("continuity_pack") if isinstance(plan, dict) else None
     scenes = plan.get("scenes") if isinstance(plan, dict) else None
@@ -981,7 +1018,8 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                 errors.append(_issue(
                     "missing_source_asset", "Reframe/reuse state has no declared source asset.",
                     scene=scene_index + 1, state_id=state_id))
-            verify_state = require_verified_assets and (not opening_only or opening)
+            verify_state = (require_verified_assets and (not opening_only or opening)
+                            and (purchased_through is None or scene_index < purchased_through))
             if verify_state:
                 if _text(state.get("asset_status")) not in ACCEPTED_ASSET_STATUSES:
                     errors.append(_issue(
@@ -1044,8 +1082,13 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
             "bolt_state_budget_exceeded",
             f"Bolt occupies {bolt_ratio:.0%} of compiled visual states; no more than 35% is allowed."))
 
-    verified_cuts = sum(1 for state in opening_cuts if state.get("verified_visible_information"))
-    ratio = verified_cuts / len(opening_cuts) if opening_cuts else 0.0
+    # Same tranche bound as the asset checks: an unbought cut cannot have verified anything yet,
+    # and counting it as a failure held a 100%-verified tranche to "56%" (cane toads 2026-09-30).
+    measured_cuts = [state for state in opening_cuts
+                     if purchased_through is None
+                     or int(state.get("scene_index") or 0) < purchased_through]
+    verified_cuts = sum(1 for state in measured_cuts if state.get("verified_visible_information"))
+    ratio = verified_cuts / len(measured_cuts) if measured_cuts else 0.0
     if require_verified_assets and ratio < 0.70:
         errors.append(_issue(
             "opening_visible_information_ratio",
