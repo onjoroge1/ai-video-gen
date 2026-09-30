@@ -656,6 +656,12 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
     sources = [_text(shot.get("source")) for shot in shots]
     source_changes = sum(a != b for a, b in zip(sources, sources[1:]))
     verified = sum(bool(shot.get("verified_visible_information")) for shot in shots)
+    # A hold split (longform_shots.split_long_holds) is the SAME accepted picture continued
+    # under a camera move, not a cut to a new one. It counts as a visual state for the hold
+    # rule -- the screen changes -- and it claims no information, so it is left out of the
+    # denominator here rather than diluting the ratio of cuts that do carry verified evidence.
+    # It stays in every other measure (shot count, source changes, boundary deltas).
+    information_cuts = [shot for shot in shots if _text(shot.get("asset_strategy")) != "hold_split"]
     expected_bolt = 0
     pure_bolt_violations = 0
     continuity_failures = []
@@ -693,7 +699,7 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         "distinct_source_count": len(set(filter(None, sources))),
         "source_change_ratio": round(source_change_ratio, 3),
         "pixel_boundary_change_ratio": round(pixel_changes / max(1, len(boundary_deltas)), 3),
-        "verified_information_ratio": round(verified / max(1, len(shots)), 3),
+        "verified_information_ratio": round(verified / max(1, len(information_cuts)), 3),
         "per_cut_verification_ratio": round(
             sum(frame.get("asset_verification_passed") for frame in frames) / max(1, len(frames)), 3),
         "unverified_cut_count": sum(not frame.get("asset_verification_passed") for frame in frames),

@@ -47,6 +47,7 @@ from longform_retention import (
     write_retention_report,
 )
 from longform_shots import (
+    split_long_holds,
     compile_scene_shots,
     semantic_broll_beat,
     select_alternate_image_indices,
@@ -7693,13 +7694,16 @@ def _render_first_minute_preview(
     for k, result in enumerate(r for r in results if r.get("aud_ok")):
         scene = result["scene"]
         duration = _audio_dur(result["aud"])
-        shots = compile_scene_shots(
+        # The last pass over the plan before pixels: a still held past the ceiling is split
+        # into parts on the same accepted picture (longform_shots.split_long_holds). Applied
+        # here and in the full render, so the gate inspects exactly the plan that was cut.
+        shots = split_long_holds(compile_scene_shots(
             scene, duration, k, has_alternate=bool(result.get("alt_img")),
             i2v_seconds=I2V_SECONDS_LONGFORM,
             word_times=result.get("word_times"),
             evidence_states=result.get("evidence_states"),
             motion_state_ids=frozenset((motion_clips or {}).keys()),
-        )
+        ))
         visual = None
         if len(shots) > 1:
             visual = os.path.join(gate_dir, f"opening_{k:02d}_shots.mp4")
@@ -12672,14 +12676,14 @@ def run_explainer_pipeline(
             # on planned states, while here the real statuses give a smaller set with different
             # spacing, so passing there does not guarantee passing here. A scene that cannot be cut
             # should be skipped like any other scene failure, not cost the whole render.
-            _shot_plan = compile_scene_shots(
+            _shot_plan = split_long_holds(compile_scene_shots(
                 scene, _audio_dur(r["aud"]), k,
                 has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
                 i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
                 word_times=r.get("word_times"),
                 evidence_states=r.get("evidence_states"),
                 motion_state_ids=frozenset(state_motion_clips),
-            ) if video_format != "social" else []
+            )) if video_format != "social" else []
             if video_format != "social" and int(r["i"]) in frozen_opening_segments:
                 frozen = frozen_opening_segments[int(r["i"])]
                 if not _clip_is_real(frozen):

@@ -7,6 +7,7 @@ manufacturing jump cuts from repeated crops of one image.
 
 from __future__ import annotations
 
+import math
 import re
 
 
@@ -219,6 +220,74 @@ def _shot(
         "semantic_aligned": bool(semantic_aligned),
         "new_information": bool(new_information),
     }
+
+
+def split_long_holds(shots: list[dict], *, max_hold: float | None = None) -> list[dict]:
+    """Cut every still that would hold past the ceiling into parts on the SAME verified picture.
+
+    The rendered gate rejects any still held longer than MAX_VISUAL_STATE_SECONDS, per shot, and
+    every illustrated film delivered so far carried that failure: the writer returns three or
+    four states for a twelve-second scene where four to six are needed, the plan gate only
+    warns, and the render then holds each still for scene_seconds / state_count. Measured on the
+    cane toad film (2026-09-30): 25 of 91 shots over 3.5 s, worst 9.04 s, raw judge score 89
+    capped to 69 by exactly that.
+
+    A hold over the ceiling is split into ceil(hold / ceiling) equal parts. The first part is the
+    original shot, shortened. Each later part shows the same accepted asset with a camera move
+    rather than a new picture: a push onto the centre detail (the same `push_to_detail` move a
+    detail reframe already renders as), then a cut back to the wide frame with a pan for the
+    third part, alternating from there. Nothing unverified reaches the screen -- every frame is
+    the master the inspector accepted -- and nothing is claimed for it: the parts carry
+    new_information=False, verified_visible_information=False, semantic_aligned=False and
+    asset_strategy "hold_split", so no information ratio can be laundered through them. The
+    split is a pacing repair, not evidence; the plan-time shortfall it papers over is still
+    reported by the evidence plan.
+
+    Generated-motion shots are never split: a motion clip has its own duration. Each part is at
+    least ceiling / 2, which is above MIN_SHOT_SECONDS, so no flash frame is created.
+
+    Applied by the PIPELINE on the plan it renders and inspects, not inside compile_scene_shots:
+    the compiler's contract is one shot per accepted state with measured timing, and the anchor
+    tests hold it to that. The split is the edit's last pass over that plan.
+    """
+    from longform_evidence import MAX_VISUAL_STATE_SECONDS
+    ceiling = float(max_hold if max_hold is not None else MAX_VISUAL_STATE_SECONDS)
+    out: list[dict] = []
+    for shot in shots:
+        duration = float(shot.get("duration") or 0.0)
+        if shot.get("kind") != "still" or duration <= ceiling + 1e-9:
+            out.append(shot)
+            continue
+        parts = math.ceil(duration / ceiling)
+        step = duration / parts
+        start = float(shot.get("start_sec") or 0.0)
+        head = dict(shot, duration=round(step, 3), end_sec=round(start + step, 3))
+        out.append(head)
+        for part in range(1, parts):
+            part_start = start + part * step
+            tighten = part % 2 == 1
+            piece = dict(
+                shot,
+                duration=round(step, 3),
+                start_sec=round(part_start, 3),
+                end_sec=round(part_start + step, 3),
+                # The renderer pushes from the PREVIOUS shot's image for push_to_detail; the
+                # previous part shows this same asset, so the push lands on this picture's
+                # centre detail. The wide return is a real cut back to the full frame.
+                # "pull_to_wide", not "hard_cut": a cut from the centre detail back to the full
+                # frame of the same picture is a deliberate re-establish, and naming it
+                # hard_cut made shot_plan_metrics report it as a push that could not render.
+                transition="push_to_detail" if tighten else "pull_to_wide",
+                motion="locked" if tighten else ("pan_left" if (part // 2) % 2 == 0 else "pan_right"),
+                anchor_phrase="",
+                semantic_aligned=False,
+                new_information=False,
+                verified_visible_information=False,
+                asset_strategy="hold_split",
+                timing_source="hold_split",
+            )
+            out.append(piece)
+    return out
 
 
 def compile_scene_shots(
@@ -609,7 +678,13 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
     shots = [shot for scene in plan for shot in scene]
     stills = [float(s["duration"]) for s in shots if s["kind"] == "still"]
     motion = [float(s["duration"]) for s in shots if s["kind"] == "i2v"]
-    cuts = [shot for scene in plan for shot in scene[1:]]
+    # A hold-split part (split_long_holds) is the same accepted picture continued under a camera
+    # move. It is a still for every hold measure below and it is NOT a cut: it claims no
+    # information and sits on no phrase, so counting it here would report the pacing repair as
+    # unaligned, meaningless cuts. Measured on the first re-cut opening: alignment 64% -> 35%
+    # and meaningful cuts 100% -> 45% with the pictures and their timing unchanged.
+    cuts = [shot for scene in plan for shot in scene[1:]
+            if shot.get("asset_strategy") != "hold_split"]
     hard_cuts = [shot for shot in cuts if shot.get("transition") == "hard_cut"]
     meaningful = [shot for shot in cuts if shot.get("new_information")]
     aligned = [shot for shot in cuts if shot.get("semantic_aligned")]
