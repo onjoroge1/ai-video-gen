@@ -60,7 +60,7 @@ Numbers: at most ONE number in the whole Short, years included, and only if a ci
 
 Facts: every line except the payoff cites claim ids from the ledger that actually state what the line says. Never invent a number, species, place, date or cause.
 
-Visuals, written WITH the words: every line's visual names the shot size, the subject and the action, and the picture must demonstrate that exact sentence and never contradict it (never show the toad reaching a beetle under a line that says the beetles were out of reach). Vary shot size: never the same size three lines running; use at least one close-up and one wide. People appear only when the line is about people acting. Line 1 and the payoff share the same composition. Pictures: a state id from the available pictures when one truly fits, otherwise "NEW: " plus a 12-25 word description of one illustrated moment in the film's real setting and period, literal, never symbolic.
+Visuals, written WITH the words: every line's visual names the shot size, the subject and ONE action that a single still can show (a predator with a toad in its jaws, a quoll on bare gorge rock, a toad under tall cane); never a change over time ("declining", "disappearing", "spreading", "fading") and never a silhouette or outline, and the picture must demonstrate that exact sentence and never contradict it (never show the toad reaching a beetle under a line that says the beetles were out of reach). Vary shot size: never the same size three lines running; use at least one close-up and one wide. People appear only when the line is about people acting. Line 1 and the payoff share the same composition. Pictures: a state id from the available pictures when one truly fits, otherwise "NEW: " plus a 12-25 word description of one illustrated moment in the film's real setting and period, literal, never symbolic: a named animal doing a named thing in a named place, filling the frame. Never "silhouettes", "outlines", "montage", "across the continent" or any wording that cannot be one solid drawing.
 """
 
 
@@ -220,6 +220,45 @@ def _narrate(text: str, out_path: str, voice: str, speed: float) -> float:
     return _duration(out_path)
 
 
+def align_words(script_text: str, whisper: list) -> list:
+    """Give every SCRIPT word a (start, end) from whisper's words, by sequence alignment.
+
+    Whisper does not return the script verbatim: on the second cane toad build it merged
+    "sugar cane" into "sugarcane" and dropped an initial "The", 66 words for 68, and chunking
+    by running count then drifted across sentence ends ("swallow it Australia"). Aligning on
+    normalised tokens with difflib pins each script word to its spoken moment; a script word
+    with no match takes the midpoint of its neighbours. Captions then show the script's own
+    words with whisper's timing.
+    """
+    import difflib
+    norm = lambda w: re.sub(r"[^a-z0-9]", "", w.lower())
+    sw = script_text.split()
+    a = [norm(w) for w in sw]
+    b = [norm(w[0]) for w in whisper]
+    timing: list = [None] * len(sw)
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                timing[i1 + k] = (float(whisper[j1 + k][1]), float(whisper[j1 + k][2]))
+        elif tag == "replace" and (i2 - i1) and (j2 - j1):
+            # e.g. "sugar cane" <-> "sugarcane": share the replaced whisper span across the
+            # replaced script words in proportion.
+            s0, e0 = float(whisper[j1][1]), float(whisper[j2 - 1][2])
+            n = i2 - i1
+            for k in range(n):
+                timing[i1 + k] = (s0 + (e0 - s0) * k / n, s0 + (e0 - s0) * (k + 1) / n)
+    # Fill the rest from neighbours.
+    for i in range(len(sw)):
+        if timing[i] is None:
+            prev_end = next((timing[j][1] for j in range(i - 1, -1, -1) if timing[j]), 0.0)
+            next_start = next((timing[j][0] for j in range(i + 1, len(sw)) if timing[j]), prev_end + 0.3)
+            timing[i] = (prev_end, max(prev_end + 0.05, next_start))
+    matched = sum(1 for t in timing if t) and sum(
+        1 for tag, i1, i2, _, _ in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+        if tag == "equal" for _ in range(i2 - i1))
+    return [(sw[i], timing[i][0], timing[i][1]) for i in range(len(sw))], matched / max(1, len(sw))
+
+
 def _line_spans(lines: list[dict], words: list) -> list[tuple[float, float]]:
     """(start, end) per line from whisper word timings, matched by running word count."""
     counts = [len(str(l["text"]).split()) for l in lines]
@@ -240,7 +279,7 @@ def _line_spans(lines: list[dict], words: list) -> list[tuple[float, float]]:
 
 
 def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: str,
-                 cost_sink: list, generate: bool, setting: str = "") -> str:
+                 cost_sink: list, generate: bool, setting: str = "", feedback: str = "") -> str:
     import explainer_pipeline as ep
     pic = str(line.get("picture") or "")
     if not pic.startswith("NEW:") and states.get(pic, {}).get("path") and not generate:
@@ -256,17 +295,21 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
     import hashlib
     # Cache by WHAT is drawn, not by line position: a redraft moves lines around, and a picture
     # cached under line_03 for one script is the wrong picture for the next script's line 3.
-    key = hashlib.sha1((desc + "|" + "|".join(objects) + "|" + setting).encode()).hexdigest()[:10]
+    key = hashlib.sha1((desc + "|" + "|".join(objects) + "|" + setting + "|" + feedback).encode()).hexdigest()[:10]
     out = os.path.join(out_dir, f"pic_{key}.jpg")
     if os.path.isfile(out):
         return out
     # Every new frame is pinned to the film's place and period. Without this the model drew
     # "toads entering Gordonvale" as an ancient city gate with robed crowds (cane toads, 2026-10-01).
-    prompt = (f"Vertical 9:16 illustrated frame for a phone screen. {desc}. "
+    prompt = (f"Vertical 9:16 illustrated frame for a phone screen. {desc}. The named subject is the "
+              f"dominant element, large and in focus, never a faint outline or background figure. "
               + (f"Setting: {setting}; the clothing, buildings, tools and landscape must belong to "
                  f"that real place and period, nothing ancient, biblical, fantasy or symbolic. " if setting else "")
               + (f"It must clearly show: {', '.join(objects)}. " if objects else "")
-              + "Subject centred in the middle third of the frame, large and readable at phone size."
+              + "Subject centred in the middle third of the frame, large and readable at phone size. "
+              + "No silhouettes, outlines, ghosted figures, montages, maps or charts: real, solid, "
+                "fully drawn animals and objects."
+              + (f" A PREVIOUS ATTEMPT WAS REJECTED because: {feedback}. Fix exactly that." if feedback else "")
               + style_suffix)
     ep.generate_image(prompt, out, cost_sink=cost_sink, size="1024x1536")
     return out
@@ -277,14 +320,22 @@ def _check_picture(path: str, line: dict, states: dict, cost_sink: list, setting
     import base64
     import explainer_pipeline as ep
     pic = str(line.get("picture") or "")
-    wanted = (states.get(pic) or {}).get("objects") or [pic[4:].strip() if pic.startswith("NEW:") else line["text"]]
+    visual = line.get("visual") if isinstance(line.get("visual"), dict) else {}
+    # Judge the VISUAL BEAT the line asked for, not the whole sentence. "Large predators
+    # swallowed toads, and some declined dramatically" has a drawable half and an undrawable
+    # half; a frame of a predator swallowing a toad was being rejected for not showing the
+    # decline (cane toads, 2026-10-01, two redraws each on two lines).
+    if visual.get("subject"):
+        wanted = [f"{visual.get('shot', 'medium')} shot: {visual['subject']} — {visual.get('action', '')}"]
+    else:
+        wanted = (states.get(pic) or {}).get("objects") or [pic[4:].strip() if pic.startswith("NEW:") else line["text"]]
     data = base64.b64encode(open(path, "rb").read()).decode()
     try:
         r = ep._claude().messages.create(model=ep.ANTHROPIC_MODEL, max_tokens=120,
             system='Answer ONLY JSON: {"ok": true|false, "reason": "..."}',
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
-                {"type": "text", "text": f"The narration for this frame is: \"{line['text']}\". Does the image literally depict that line's subject (the actual animals, places or objects it names, not a symbol or allegory), and clearly show: {'; '.join(map(str, wanted))}? No text or labels should be present. Answer ok=false if the picture is symbolic, generic, about something else, or CONTRADICTS the line (shows the opposite of what the sentence says happened)." + (f" The setting must read as {setting}: answer ok=false if the clothing, architecture or landscape belong to another era or region." if setting else "")}]}])
+                {"type": "text", "text": f"This frame was commissioned to show: {'; '.join(map(str, wanted))}. The narration spoken over it is: \"{line['text']}\". Judge the commissioned beat, not the whole sentence: does the image clearly show that subject doing that action as the DOMINANT element of the frame, large, solid and in focus (not a faint outline, silhouette, background figure or small detail while a farm, workers or a landscape fill the picture), literal rather than symbolic, with no text or labels? Separately, does anything in the image CONTRADICT the narration (show the opposite of what the sentence says)? Answer ok=true only if the beat is shown and nothing contradicts the narration; a still cannot show a change over time, so do not reject it for failing to show a decline, a spread or a disappearance." + (f" The setting must read as {setting}: answer ok=false if the clothing, architecture or landscape belong to another era or region." if setting else "")}]}])
         cost_sink.append(ep._msg_cost(r.usage))
         parsed, _ = ep._parse_script_json(r.content[0].text)
         return parsed if isinstance(parsed, dict) else {"ok": None, "reason": "unparsed"}
@@ -424,7 +475,7 @@ def readiness(lines, spans, slots, words_total, until, whisper_words, export: di
         # 25 seconds"; a 21.9 s one-story cut is inside that, not short of it.
         "length_20_to_36s": (round(until, 1), 20 <= until <= 36),
         "payoff_complete": (str(lines[-1]["text"]).strip()[-1:], lines[-1].get("role") == "payoff" and not str(lines[-1]["text"]).strip().endswith("?")),
-        "caption_word_coverage_ge_0_9": (round(len(whisper_words) / max(1, words_total), 2), len(whisper_words) / max(1, words_total) >= 0.9),
+        "caption_word_coverage_ge_0_9": (round(whisper_words, 2), whisper_words >= 0.9),
         "distinct_pictures_ge_6": (pictures, pictures >= 6),
         "shot_variety": (sorted({str((l.get("visual") or {}).get("shot", "")) for l in lines}),
                          {"close-up", "wide"} <= {str((l.get("visual") or {}).get("shot", "")) for l in lines}),
@@ -474,7 +525,8 @@ def main() -> int:
 
     audio = os.path.join(job, "short_audio.mp3")
     until = _narrate(text, audio, args.voice, args.speed)
-    words = ep.transcribe_words(audio)
+    whisper = ep.transcribe_words(audio)
+    words, matched_fraction = align_words(text, whisper) if whisper else ([], 0.0)
     spans = _line_spans(lines, words) if words else []
     if not spans:
         raise SystemExit("whisper returned no word timings; cannot sync captions")
@@ -485,10 +537,12 @@ def main() -> int:
     for i, line in enumerate(lines):
         path = _picture_for(line, states, job, i, style, costs, generate, setting)
         verdict = _check_picture(path, line, states, costs, setting) if generate else {"ok": True, "reason": "film asset, already verified"}
-        if verdict.get("ok") is False and generate:
-            print(f"  redrawing picture {i + 1}: {verdict.get('reason', '')[:100]}")
-            os.remove(path)
-            path = _picture_for(line, states, job, i, style, costs, generate, setting)
+        for attempt in range(2):
+            if verdict.get("ok") is not False or not generate:
+                break
+            reason = str(verdict.get("reason", ""))[:220]
+            print(f"  redrawing picture {i + 1} ({attempt + 1}/2): {reason[:100]}")
+            path = _picture_for(line, states, job, i, style, costs, generate, setting, feedback=reason)
             verdict = _check_picture(path, line, states, costs, setting)
         pictures.append(path)
         checks.append(verdict)
@@ -562,7 +616,7 @@ def main() -> int:
 
     words_total = len(text.split())
     export = audit_export(lines, chunks, until, claims)
-    gate = readiness(lines, spans, slots, words_total, until, words, export)
+    gate = readiness(lines, spans, slots, words_total, until, matched_fraction, export)
     package = {
         "short": out_path, "seconds": round(until, 2), "title": (re.sub(r"\s+That\s.*$", "", title, flags=re.I) + " #Shorts")[:100],
         "lines": lines, "openings": openings, "headline": headline,
