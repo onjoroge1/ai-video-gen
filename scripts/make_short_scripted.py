@@ -290,6 +290,14 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
     if visual:
         desc = (f"{visual.get('shot', 'medium')} shot of {visual.get('subject', '')}: {visual.get('action', '')}. "
                 f"{desc}")
+    # Words that make the model draw an absence or a ghost. "a fading quoll" came back as a faint
+    # outline on a rock face and the checker let it through (cane toads, 2026-10-01).
+    desc = re.sub(r"\b(fading|faint|faded|ghostly|ghosted|disappearing|vanishing|silhouettes?|outlines?|"
+                  r"shadowy|translucent|declining|spreading across)\b", "", desc, flags=re.I)
+    desc = re.sub(r"\s+", " ", desc).strip()
+    names_people = bool(re.search(r"\b(farmer|worker|hunter|people|man|woman|men|women|official|scientist|"
+                                  r"entomologist|crowd|settler|rancher|person)s?\b",
+                                  f"{line.get('text', '')} {visual.get('subject', '')} {visual.get('action', '')}", re.I))
     out_dir = os.path.join(job, "short_images")
     os.makedirs(out_dir, exist_ok=True)
     import hashlib
@@ -308,7 +316,8 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
               + (f"It must clearly show: {', '.join(objects)}. " if objects else "")
               + "Subject centred in the middle third of the frame, large and readable at phone size. "
               + "No silhouettes, outlines, ghosted figures, montages, maps or charts: real, solid, "
-                "fully drawn animals and objects."
+                "fully drawn animals and objects in full colour with ink contour, like every other subject."
+              + ("" if names_people else " No people in this frame at all; the narration names none.")
               + (f" A PREVIOUS ATTEMPT WAS REJECTED because: {feedback}. Fix exactly that." if feedback else "")
               + style_suffix)
     ep.generate_image(prompt, out, cost_sink=cost_sink, size="1024x1536")
