@@ -12929,9 +12929,13 @@ def run_explainer_pipeline(
         except Exception as exc:
             log(f"⚠ Could not set opening thumbnail frame ({type(exc).__name__})")
 
-    # Reclaim disk: drop the bulky intermediates (images/audio/scene clips), keep the MP4 + text.
+    # Reclaim disk: drop the scene clips, keep the MP4 + text. The accepted IMAGES and the
+    # measured AUDIO stay unless KEEP_SCENE_ASSETS=0: a delivered film is also the source for
+    # its vertical teaser (scripts/make_teaser_short.py), and the first film to need one
+    # (cane toads, 2026-09-30) had already lost its 92 verified images to this cleanup.
     import shutil as _sh
-    for d in (img_dir, aud_dir, scene_dir):
+    _keep = os.environ.get("KEEP_SCENE_ASSETS", "1").strip().lower() not in ("0", "false", "no")
+    for d in ((scene_dir,) if _keep else (img_dir, aud_dir, scene_dir)):
         _sh.rmtree(d, ignore_errors=True)
 
     # ── ACTUAL cost (from real usage tokens), not the pre-spend estimate ──
