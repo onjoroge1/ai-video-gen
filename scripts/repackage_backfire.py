@@ -48,6 +48,10 @@ def main() -> int:
     parser.add_argument("--force-engine", action="store_true",
                         help="package even when the script's engine is outside the backfire set")
     parser.add_argument("--question", default="")
+    parser.add_argument("--crossed-out", default="",
+                        help="the living thing to cross out on the left, e.g. 'a grey wolf in snow'")
+    parser.add_argument("--consequence", default="",
+                        help="the crowded consequence scene on the right, e.g. 'elk herd on a bare riverbank'")
     args = parser.parse_args()
     run_dir = Path(args.run_dir).resolve()
     script = _load_script(run_dir)
@@ -66,8 +70,14 @@ def main() -> int:
     title = bp.propose_title(script.get("title", ""), question, transcript, cost_sink=costs, log=log)
     settled = title or script.get("title", "")
     report: dict = {}
+    pairs = None
+    if args.crossed_out and args.consequence:
+        pairs = [{"crossed_out_subject": args.crossed_out,
+                  "crossed_out_scene": f"a large sharp close-up of {args.crossed_out}, facing the camera",
+                  "consequence_subject": args.consequence,
+                  "consequence_scene": f"a wide dramatic view of {args.consequence}"}]
     thumb = bp.generate_thumbnail(settled, question, transcript, str(run_dir), cost_sink=costs,
-                                  report=report, log=log)
+                                  report=report, log=log, pairs=pairs)
     payload = {"version": bp.VERSION, "script_title": script.get("title", ""), "title": settled,
                "title_changed": bool(title and title != script.get("title")),
                "thumbnail": thumb, "thumbnail_report": report,

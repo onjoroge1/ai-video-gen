@@ -183,9 +183,14 @@ _STRATEGY_SYSTEM = (
     "covered by a red prohibition ring. RIGHT: the literal consequence, the thing that multiplied, "
     "spread or was harmed, shown as a crowded, dramatic scene. Both scenes must show real species "
     "with correct anatomy and the story's real setting; no gore, blood, corpses, monsters, people's "
-    "faces, text, logos, maps, or symbols. Propose TWO different pairs so the better one can be "
-    "chosen: pair A crosses out the target of the intervention, pair B crosses out the introduced "
-    "fix itself. Return ONLY JSON: {\"pairs\": [{\"crossed_out_subject\": \"3-6 words\", "
+    "faces, text, logos, maps, or symbols. The crossed-out subject is ALWAYS a living thing: the "
+    "animal or plant that was introduced, removed, or targeted. Never a tool, weapon, trap, "
+    "vehicle, document, coin, building or person: a crossed-out rifle reads as a story about "
+    "guns, and a crossed-out wolf reads as a story about killing wolves. Propose TWO different "
+    "pairs so the better one can be chosen: pair A crosses out the species the intervention was "
+    "aimed at or removed, pair B crosses out the species introduced as the fix (for a removal "
+    "story, both pairs cross out the removed animal in different settings). Return ONLY JSON: "
+    "{\"pairs\": [{\"crossed_out_subject\": \"3-6 words\", "
     "\"crossed_out_scene\": \"one sentence, close-up, what fills the left panel\", "
     "\"consequence_subject\": \"3-6 words\", \"consequence_scene\": \"one sentence, wide, what "
     "fills the right panel\"}, {...}]}"
@@ -371,12 +376,17 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
 
 def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                        cost_sink: list | None = None, report: dict | None = None,
-                       log=lambda message: None) -> str:
-    """Render one composed thumbnail per candidate pair, keep the fewest-fails by the vision grader."""
+                       log=lambda message: None, pairs: list[dict] | None = None) -> str:
+    """Render one composed thumbnail per candidate pair, keep the fewest-fails by the vision grader.
+
+    `pairs` overrides the model's strategy: an operator naming the crossed-out subject and the
+    consequence directly (scripts/repackage_backfire.py --crossed-out/--consequence).
+    """
     import explainer_pipeline as ep
 
     rep = report if isinstance(report, dict) else {}
-    pairs = strategy(title, question, transcript, cost_sink=cost_sink) or [fallback_pair(question)]
+    pairs = list(pairs or []) or strategy(title, question, transcript, cost_sink=cost_sink) \
+        or [fallback_pair(question)]
     limit = max(1, min(2, int(os.environ.get("THUMB_VARIANTS", "2") or 2)))
     out = os.path.join(out_dir, "thumbnail.jpg")
     best_path, best_grade, fell = None, None, False
