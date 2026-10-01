@@ -95,10 +95,19 @@ def main() -> int:
                 lines = handle.read().splitlines()
         except FileNotFoundError:
             lines = []
-        keep = [line for line in lines if not line.startswith(("YOUTUBE_OAUTH_REFRESH_TOKEN=",
-                                                                "YOUTUBE_CHANNEL_ID="))]
-        keep += [f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}",
-                 f"YOUTUBE_CHANNEL_ID={channel['id']}"]
+        # The refresh token is replaced; the channel id is written only if .env has none, so a
+        # consent that lands on the wrong channel (it binds to whatever was picked at Google's
+        # chooser) does not also silently repoint the analytics report at that channel.
+        keep = [line for line in lines if not line.startswith("YOUTUBE_OAUTH_REFRESH_TOKEN=")]
+        keep.append(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
+        if not any(line.startswith("YOUTUBE_CHANNEL_ID=") for line in keep):
+            keep.append(f"YOUTUBE_CHANNEL_ID={channel['id']}")
+        wanted = os.environ.get("YOUTUBE_CHANNEL_ID", "").strip()
+        if wanted and wanted != channel["id"]:
+            print(f"\nWARNING: this token is bound to {channel['snippet']['title']!r} "
+                  f"({channel['id']}), not the channel in .env ({wanted}). Uploads would land "
+                  "on the wrong channel. Run again and pick the other channel on Google's "
+                  "'Choose an account' page (brand channels are listed under the account).")
         with open(env_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(keep) + "\n")
         print(f"\nWrote the refresh token and channel id to {env_path}")
