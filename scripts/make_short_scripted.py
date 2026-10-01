@@ -517,7 +517,9 @@ def audit_export(lines: list[dict], chunks: list, until: float, claims: dict) ->
 def _silence_fraction(audio: str) -> float:
     out = subprocess.run([_ffmpeg_bin(), "-i", audio, "-af", "silencedetect=n=-32dB:d=0.25", "-f", "null", "-"],
                          capture_output=True, text=True)
-    total = sum(float(m) for m in re.findall(r"silence_duration: ([0-9.]+)", out.stderr))
+    # The 0.12 s lead-in before the first word is design, not a pause; leave it out.
+    pairs = re.findall(r"silence_start: ([0-9.]+)[\s\S]*?silence_duration: ([0-9.]+)", out.stderr)
+    total = sum(float(d) for st, d in pairs if float(st) > 0.05)
     return total / max(0.1, _duration(audio))
 
 
