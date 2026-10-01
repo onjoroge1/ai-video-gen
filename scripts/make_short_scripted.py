@@ -729,7 +729,7 @@ def main() -> int:
     export = audit_export(lines, chunks, until, claims)
     gate = readiness(lines, spans, slots, words_total, until, matched_fraction, export, audio)
     package = {
-        "short": out_path, "seconds": round(until, 2), "title": (re.sub(r"\s+That\s.*$", "", title, flags=re.I) + " #Shorts")[:100],
+        "short": out_path, "seconds": round(until, 2), "title": (_headline_from(title).title() + " #Shorts")[:100],   # no unexplained number in the title either
         "lines": lines, "openings": openings, "headline": headline, "music": music and os.path.basename(music),
         "music_credit": music_credit,
         "slots": [{"start": round(a, 2), "end": round(b, 2), "picture": os.path.basename(p_), "framing": f_} for a, b, p_, f_ in slots],
