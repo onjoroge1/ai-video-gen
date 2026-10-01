@@ -68,7 +68,12 @@ def main() -> int:
         scopes=SCOPES,
     )
     # access_type=offline + prompt=consent is what makes Google return a refresh token.
-    creds = flow.run_local_server(port=0, access_type="offline", prompt="consent")
+    # --no-browser: print the URL only. When the flow is driven from another browser window,
+    # the auto-opened tab is a second copy of the same consent; whichever finishes first wins
+    # the one-time code and the other lands on an error page. Measured 2026-10-01: the brand
+    # channel was picked in one window while the auto-opened one completed as the base account.
+    creds = flow.run_local_server(port=0, access_type="offline", prompt="consent",
+                                  open_browser="--no-browser" not in sys.argv)
     if not creds.refresh_token:
         print("Google returned no refresh token. Revoke the app at "
               "https://myaccount.google.com/permissions and run this again.")
