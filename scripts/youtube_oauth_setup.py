@@ -20,7 +20,12 @@ Then, with the two values in .env (the script loads .env itself; do not `source`
 file holds unquoted URLs that the shell cannot parse):
     python3 scripts/youtube_oauth_setup.py
 
-It prints the four lines to paste into .env. Nothing is written anywhere by this script.
+It prints the four lines to paste into .env. With --write it also appends the refresh token
+and channel id to .env itself (replacing any earlier YOUTUBE_OAUTH_REFRESH_TOKEN /
+YOUTUBE_CHANNEL_ID lines), so the token never has to be copied by hand.
+
+If the Google account owns several YouTube channels (brand accounts), the consent page shows
+a chooser; the token is bound to the channel picked there, and the script prints which one.
 """
 from __future__ import annotations
 
@@ -78,6 +83,20 @@ def main() -> int:
     print(f"YOUTUBE_OAUTH_CLIENT_SECRET={client_secret}")
     print(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
     print(f"YOUTUBE_CHANNEL_ID={channel['id']}")
+    if "--write" in sys.argv:
+        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        try:
+            with open(env_path, encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+        except FileNotFoundError:
+            lines = []
+        keep = [line for line in lines if not line.startswith(("YOUTUBE_OAUTH_REFRESH_TOKEN=",
+                                                                "YOUTUBE_CHANNEL_ID="))]
+        keep += [f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}",
+                 f"YOUTUBE_CHANNEL_ID={channel['id']}"]
+        with open(env_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(keep) + "\n")
+        print(f"\nWrote the refresh token and channel id to {env_path}")
     return 0
 
 
