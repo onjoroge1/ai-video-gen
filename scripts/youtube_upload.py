@@ -81,6 +81,16 @@ def main() -> int:
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
     yt = build("youtube", "v3", credentials=_creds(), cache_discovery=False)
+    # An upload lands on the channel the TOKEN is bound to (the one picked at Google's account
+    # chooser), not on YOUTUBE_CHANNEL_ID. The first teaser upload (2026-09-30) landed on the
+    # wrong channel this way. Refuse rather than misfile.
+    mine = yt.channels().list(part="id,snippet", mine=True).execute().get("items") or []
+    bound = mine[0]["id"] if mine else ""
+    wanted = os.environ.get("YOUTUBE_CHANNEL_ID", "").strip()
+    if wanted and bound != wanted:
+        sys.exit(f"token is bound to channel {bound} ({mine[0]['snippet']['title']!r}) but "
+                 f"YOUTUBE_CHANNEL_ID is {wanted}; re-run scripts/youtube_oauth_setup.py "
+                 "--write and pick the right channel at Google's account chooser")
     media = MediaFileUpload(args.video, mimetype="video/mp4", chunksize=8 * 1024 * 1024,
                             resumable=True)
     request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
