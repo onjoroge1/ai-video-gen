@@ -7803,24 +7803,36 @@ def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> Non
     technical/cost failures still block". One token, a fraction of a cent, against a run that
     spends dollars on pictures nobody can check.
     """
+    # The verifier is whatever _claude() resolves to. With SCRIPT_PROVIDER=openai the images are
+    # judged by OpenAI (the adapter carries image blocks; measured 2026-10-01 on gpt-5.6-luna),
+    # so probing Anthropic here would abort a run whose verifier is fine -- which is exactly
+    # what happened while the Anthropic billing gate was stuck.
+    provider_name = "Anthropic"
     try:
-        # The RAW client, not _claude(). A durable worker wraps the client so an identical request
-        # replays from the ledger instead of hitting the provider -- which is exactly right for a
-        # paid stage and exactly wrong for a liveness probe. Wrapped, every scene after the first
-        # would replay the first scene's cached "ok" and the check would pass forever, including
-        # after the balance had gone. This is not a stage and must not be journalled.
-        _verifier_probe_client().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=1,
-            messages=[{"role": "user", "content": "ok"}])
+        if script_provider.active_provider() == script_provider.OPENAI:
+            provider_name = "OpenAI"
+            _openai().chat.completions.create(
+                model=script_provider.openai_script_model(), max_completion_tokens=16,
+                messages=[{"role": "user", "content": "ok"}], timeout=30.0)
+        else:
+            # The RAW client, not _claude(). A durable worker wraps the client so an identical
+            # request replays from the ledger instead of hitting the provider -- right for a paid
+            # stage and wrong for a liveness probe. Wrapped, every scene after the first would
+            # replay the first scene's cached "ok" and the check would pass forever, including
+            # after the balance had gone. This is not a stage and must not be journalled.
+            _verifier_probe_client().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=1,
+                messages=[{"role": "user", "content": "ok"}])
     except Exception as exc:
         detail = str(exc)
-        if "credit balance is too low" in detail or "insufficient" in detail.lower():
+        if ("credit balance is too low" in detail or "insufficient" in detail.lower()
+                or "exceeded your current quota" in detail):
             where = ("before any image was bought" if scene_index is None else
                      f"after {scene_index} scene(s) of images were bought and verified")
             raise RuntimeError(
-                f"Evidence verification is unavailable {where}: the Anthropic balance is too low. "
-                "Further images would be generated and none could be confirmed to show what it "
-                "claims. Top up and re-run; the research and script are cached."
+                f"Evidence verification is unavailable {where}: the {provider_name} balance is "
+                "too low. Further images would be generated and none could be confirmed to show "
+                "what it claims. Top up and re-run; the research and script are cached."
             ) from exc
         # Any other failure here is not necessarily fatal -- a transient network blip should not
         # stop a run that has already paid for its script. Report and continue; the per-asset
