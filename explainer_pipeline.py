@@ -1702,7 +1702,15 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     import causal_story as _cs
 
     hook = _s(script.get("hook"))
-    if not hook or len(hook.split()) <= _cs.MAX_HOOK_WORDS:
+    # Two shapes of the same defect: too many words, or two sentences where the long-form
+    # budget is one. The second slipped past this repair on the Yellowstone film (2026-09-30):
+    # "Yellowstone killed its last wolves to protect the elk. Then the elk ate the park." is 15
+    # words, so nothing here fired, and MULTI_SENTENCE_HOOK triggered a full replan instead.
+    def _sentences(text: str) -> int:
+        return len([part for part in re.split(r"[.!?]+", text) if part.strip()])
+    too_long = len(hook.split()) > _cs.MAX_HOOK_WORDS
+    too_many = _sentences(hook) > 1
+    if not hook or not (too_long or too_many):
         return script, 0.0
     cost = 0.0
     rewritten = ""
@@ -1716,9 +1724,10 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
                 model=ANTHROPIC_MODEL, max_tokens=300,
                 system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
                 messages=[{"role": "user", "content":
-                           f'This opening line is {len(hook.split())} words and must be at most '
-                           f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
-                           "Rewrite it shorter. It must still NAME THE ACTOR AND THE REVERSAL in "
+                           f'This opening line is {len(hook.split())} words and '
+                           f'{_sentences(hook)} sentence(s); it must be ONE sentence of at most '
+                           f'{_cs.MAX_HOOK_WORDS} words:\n\n"{hook}"\n\n'
+                           "Rewrite it. It must still NAME THE ACTOR AND THE REVERSAL in "
                            "plain words, keep the same subject, and read aloud as one clean "
                            "sentence. Withhold only the payoff noun. Do not add a new claim, and "
                            "do not make it cryptic: \"How the British Empire tried to solve a "
@@ -1737,10 +1746,20 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
             candidate = _s((parsed or {}).get("hook"))
         except Exception:
             break
-        if candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS:
+        if (candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS
+                and _sentences(candidate) <= 1):
             rewritten = candidate
             break
         previous = candidate or previous
+    if not rewritten and too_many and not too_long:
+        # Deterministic fallback for the two-sentence shape: "A. Then B." becomes "A — then B."
+        # The reference register IS the promise, a dash, and the turn; this keeps every word
+        # and only changes the punctuation that the sentence counter reads.
+        parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", hook) if part.strip()]
+        if len(parts) == 2:
+            first, second = parts[0].rstrip(".!?"), parts[1]
+            second = second[0].lower() + second[1:] if second[:5].lower() == "then " else second
+            rewritten = f"{first} — {second}"
     if not rewritten:
         # Deterministic fallback, and the one mechanical cut the docstring above allows: a hook
         # that runs "the promise — and here is the payoff" is two sentences wearing one dash.
@@ -9370,9 +9389,11 @@ def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
     different story whose evidence has to be re-established from scratch.
     """
     codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
-    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item)
+    # Causal errors arrive as dicts or as "CODE: message" strings; read the code either way.
+    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item).split(":", 1)[0].strip()
               for item in causal_errors or []]
-    return bool(codes) and all(code == "LONG_HOOK" for code in codes)
+    # Both are the hook's shape, and both are what _ensure_hook_fits_budget rewrites.
+    return bool(codes) and all(code in ("LONG_HOOK", "MULTI_SENTENCE_HOOK") for code in codes)
 
 
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
