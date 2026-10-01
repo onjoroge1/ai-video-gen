@@ -714,7 +714,7 @@ def main() -> int:
         fx = (f"[{riser_idx}:a]adelay={int(max(0, cta_at - 1.3) * 1000)}|{int(max(0, cta_at - 1.3) * 1000)}[r];"
               f"[{boom_idx}:a]adelay={int(cta_at * 1000)}|{int(cta_at * 1000)}[b]")
         if music:
-            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-33:TP=-10:LRA=7,afade=t=in:st=0:d=0.4,"
+            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-33:TP=-9:LRA=7,afade=t=in:st=0:d=0.4,"
                          f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8[m];" + fx + ";"
                          f"[1:a][m][r][b]amix=inputs=4:duration=first:dropout_transition=0:normalize=0,"
                          f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
