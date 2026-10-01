@@ -606,8 +606,11 @@ def main() -> int:
     _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", raw_audio, "-af",
           # The voice's "silence" carries room tone at about -27 dB RMS, so -35 dB removed almost
           # nothing (measured: 0.28 s of 4.0 s). -30 dB catches the pauses; 0.24 s stays.
+          # Keep 0.12 s of lead-in and fade over 60 ms: trimming to the -30 dB crossing started the
+          # file mid-attack and the opening "Why" played as a bare hiss (v3, 0.15 s).
           "silenceremove=stop_periods=-1:stop_duration=0.28:stop_threshold=-30dB:stop_silence=0.24,"
-          "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB",
+          "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB:start_silence=0.12,"
+          "afade=t=in:st=0:d=0.06",
           "-c:a", "libmp3lame", "-q:a", "2", audio])
     until = _duration(audio)
     print(f"narration {raw_len:.2f}s -> {until:.2f}s after trimming pauses")
@@ -711,7 +714,7 @@ def main() -> int:
         fx = (f"[{riser_idx}:a]adelay={int(max(0, cta_at - 1.3) * 1000)}|{int(max(0, cta_at - 1.3) * 1000)}[r];"
               f"[{boom_idx}:a]adelay={int(cta_at * 1000)}|{int(cta_at * 1000)}[b]")
         if music:
-            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-29:TP=-8:LRA=7,afade=t=in:st=0:d=0.4,"
+            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-33:TP=-10:LRA=7,afade=t=in:st=0:d=0.4,"
                          f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8[m];" + fx + ";"
                          f"[1:a][m][r][b]amix=inputs=4:duration=first:dropout_transition=0:normalize=0,"
                          f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
