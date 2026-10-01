@@ -34,33 +34,37 @@ from make_teaser_short import (  # noqa: E402
 from media_binaries import ffmpeg as _ffmpeg_bin  # noqa: E402
 
 TARGET_SECONDS = 30.0
-WORDS_MIN, WORDS_MAX = 66, 84
+WORDS_MIN, WORDS_MAX = 70, 92
 PICTURE_SECONDS = 1.9          # a fresh picture at least this often
 MIN_PICTURE_SECONDS = 1.1
 
-_SCRIPT_SYSTEM = """You write 25-second vertical YouTube Shorts for a documentary channel about interventions that backfired. A Short tells ONE complete story: one question (what went wrong), one mechanism, one consequence, one payoff. It is not a tour of the research and not a trailer. It must be TRUE to the film's verified claims and nothing else.
+_SCRIPT_SYSTEM = """You write 25-second vertical YouTube Shorts for a documentary channel about interventions that backfired. A Short tells ONE complete story: one question, one mechanism, one consequence, one payoff, then a spoken invitation to the full film. It must be TRUE to the film's verified claims and nothing else.
 
 Return ONLY JSON:
-{"openings": ["...", "...", "..."],
- "lines": [{"text": "...", "role": "hook|setup|mechanism|consequence|payoff", "claim_ids": ["c01"],
+{"openings": ["...?", "...?", "...?"],
+ "lines": [{"text": "...", "role": "hook|decision|setup|mechanism|consequence|payoff|cta", "claim_ids": ["c01"],
+            "emphasis": ["one", "two"],
             "visual": {"shot": "close-up|medium|wide", "subject": "...", "action": "..."},
             "picture": "state:s001:e01 or NEW: ..."}]}
 
-Story shape (6 to 8 lines, 66 to 84 words; under 66 the Short runs short of 22 seconds):
-- openings: THREE candidate first lines, each at most 9 words, each a direct contradiction the viewer can SEE in one picture: the thing itself doing the surprising thing ("This toad can kill anything that eats it."). Name the actual animal or plant (toad, wolf, vine), never an epithet ("this beetle killer", "this pest control"). Not a summary of the premise, no place names, no dates, no numbers. Then write the Short using the strongest one as line 1 (role hook).
-- line 2 (role hook): the human decision that makes line 1 absurd, at most 8 words ("Australia brought it in on purpose.").
-- one line (role setup): what they were trying to fix, in plain words. No agency names, no town names, no dates unless a date IS the story.
-- one line (role mechanism): why it failed, conversational ("But the crop rescue failed."), never research prose ("did not increase significantly"). Follow the EDITORIAL CONSTRAINTS below exactly; never present one hypothesised reason as the whole explanation if the brief says it is not.
-- two or three lines (role consequence): what happened instead, each a different concrete consequence.
-- the LAST line (role payoff): finishes the story in one plain declarative sentence that returns to the subject of line 1, so the last picture can return to the opening composition. It is not a question and asserts nothing new.
+Story shape (7 to 9 lines, 70 to 92 words):
+- openings: THREE candidate first lines, each a QUESTION of at most 10 words ending with "?", naming the actual animal or plant, whose answer is a contradiction the viewer can SEE in picture 1 ("Why would anyone import a toad that kills what eats it?"). No place names, dates or numbers. Line 1 (role hook) is one of them, verbatim.
+- line 2 (role decision), at most 8 words: the human decision that answers the question and makes it absurd ("Australia brought it in on purpose."). It must NOT begin with the same word as line 1 and must not repeat the animal's name.
+- one line (role setup): what they were trying to fix, in plain words. No agency names, town names or dates.
+- one line (role mechanism): why it failed, conversational, bound by the EDITORIAL CONSTRAINTS below; never present one hypothesised reason as the whole explanation if the brief says it is not.
+- two or three lines (role consequence): what happened instead, each a different concrete consequence, plain words a stranger understands.
+- one line (role payoff): a NEW fact that reframes the story, not a restatement of line 1; it may share the animal's name with line 1 and nothing else.
+- the LAST line (role cta), spoken, at most 16 words, may be two short sentences: name ONE thing the film shows that this Short did not (from the ledger or transcript, no numbers), then "The full story is on the channel." Example: "Some snakes are now evolving to survive it. The full story is on the channel."
 
-Language: every line is one spoken sentence of at most 14 words, present tense where possible, no semicolons, dashes or parentheses, at most one comma, no lists of more than three. No throat-clearing. Spoken register throughout.
+Language: every line is one spoken sentence (the cta may be two) of at most 14 words, present tense where possible, no semicolons, dashes or parentheses, at most one comma, no lists of more than three. Spoken register throughout: never research prose. Banned words: monitored, significantly, dramatically, documented, populations, estimated, reported, data, study, species-level, respectively.
 
-Numbers: at most ONE number in the whole Short, years included, and only if a cited claim states it exactly and the same sentence says what it counts. Prefer none. A number the viewer cannot place is noise.
+Numbers: at most ONE number in the whole Short, years included, only if a cited claim states it exactly and the same sentence says what it counts. Prefer none.
 
-Facts: every line except the payoff cites claim ids from the ledger that actually state what the line says. Never invent a number, species, place, date or cause.
+Facts: every line except the hook and cta cites claim ids that actually state what the line says. Never invent a number, species, place, date or cause.
 
-Visuals, written WITH the words: every line's visual names the shot size, the subject and ONE action that a single still can show (a predator with a toad in its jaws, a quoll on bare gorge rock, a toad under tall cane); never a change over time ("declining", "disappearing", "spreading", "fading") and never a silhouette or outline, and the picture must demonstrate that exact sentence and never contradict it (never show the toad reaching a beetle under a line that says the beetles were out of reach). Vary shot size: never the same size three lines running; use at least one close-up and one wide. People appear only when the line is about people acting. Line 1 and the payoff share the same composition. Pictures: a state id from the available pictures when one truly fits, otherwise "NEW: " plus a 12-25 word description of one illustrated moment in the film's real setting and period, literal, never symbolic: a named animal doing a named thing in a named place, filling the frame. Never "silhouettes", "outlines", "montage", "across the continent" or any wording that cannot be one solid drawing.
+Emphasis: for each line, one or two words the captions should highlight: the danger or the twist (kill, poison, on purpose, failed), never a proper noun.
+
+Visuals, written WITH the words: every line's visual names the shot size, the subject and ONE action a single still can show (a predator with a toad in its jaws, a quoll on bare rock); never a change over time and never a silhouette. Picture 1 must make the danger legible in one glance: the action itself, not the aftermath (a lizard biting down on a toad, not a lizard lying near one). Only the animals, people and objects the line names may appear. Vary shot size: never the same size three lines running; at least one close-up and one wide. Line 1 and the payoff share one composition so the loop is seamless. Pictures: a state id from the available pictures when one truly fits, otherwise "NEW: " plus a 12-25 word literal description in the film's real setting and period: a named animal doing a named thing in a named place, filling the frame.
 """
 
 
@@ -109,46 +113,69 @@ def _numbers(text: str) -> set:
     return {t.replace(",", "") for t in re.findall(r"\$?\d[\d,]*(?:\.\d+)?%?", text)}
 
 
+JARGON = re.compile(r"\b(monitored|significantly|dramatically|documented|populations?|estimated|reported|data|study|species-level|respectively)\b", re.I)
+
+
 def _validate(lines: list[dict], claims: dict, states: dict, openings: list | None = None) -> list[str]:
     errs = []
-    if not 6 <= len(lines) <= 8:
-        errs.append(f"{len(lines)} lines; need 6-8")
+    if not 7 <= len(lines) <= 9:
+        errs.append(f"{len(lines)} lines; need 7-9")
     words = sum(len(str(l.get("text", "")).split()) for l in lines)
     if not WORDS_MIN <= words <= WORDS_MAX:
         errs.append(f"{words} words; need {WORDS_MIN}-{WORDS_MAX}")
     if openings is not None and len([o for o in openings if str(o).strip()]) != 3:
         errs.append("propose exactly 3 openings")
+    first_word = ""
     if lines:
         first = str(lines[0].get("text", "")).strip()
-        if len(first.split()) > 9:
-            errs.append(f"line 1 is {len(first.split())} words; max 9")
-        if lines[0].get("role") != "hook":
-            errs.append("line 1 must have role hook")
+        first_word = (first.split() or [""])[0].lower().strip(",.?")
+        if len(first.split()) > 10:
+            errs.append(f"line 1 is {len(first.split())} words; max 10")
+        if lines[0].get("role") != "hook" or not first.endswith("?"):
+            errs.append("line 1 must be role hook and a question ending with ?")
         if openings and first not in [str(o).strip() for o in openings]:
             errs.append("line 1 must be one of the proposed openings, verbatim")
         if _numbers(first) or re.search(r"\b(1[6-9]\d\d|20\d\d)\b", first):
             errs.append("line 1 must contain no number or date")
-        if len(lines) > 1 and lines[1].get("role") == "hook" and len(str(lines[1].get("text", "")).split()) > 8:
-            errs.append("line 2 is over 8 words")
+        if len(lines) > 1:
+            second = str(lines[1].get("text", "")).strip()
+            if lines[1].get("role") != "decision" or len(second.split()) > 8:
+                errs.append("line 2 must be role decision, at most 8 words")
+            if (second.split() or [""])[0].lower().strip(",.") == first_word:
+                errs.append("line 2 must not begin with the same word as line 1")
         last = str(lines[-1].get("text", "")).strip()
-        if lines[-1].get("role") != "payoff" or last.endswith("?") or not last.endswith((".", "!")):
-            errs.append("last line must be role payoff: a complete declarative sentence, not a question")
+        if lines[-1].get("role") != "cta" or "full story" not in last.lower() or "channel" not in last.lower():
+            errs.append("last line must be role cta and say the full story is on the channel")
+        if len(last.split()) > 16:
+            errs.append("cta is over 16 words")
+        payoffs = [l for l in lines if l.get("role") == "payoff"]
+        if len(payoffs) != 1:
+            errs.append("exactly one payoff line")
+        else:
+            a = {w.lower().strip(",.?!") for w in first.split() if len(w) > 3}
+            b = {w.lower().strip(",.?!") for w in str(payoffs[0].get("text", "")).split() if len(w) > 3}
+            if a and len(a & b) / len(a) > 0.5:
+                errs.append("the payoff restates line 1; it must add a new fact")
     roles = [str(l.get("role")) for l in lines]
-    for needed in ("setup", "mechanism", "consequence"):
+    for needed in ("decision", "setup", "mechanism", "consequence"):
         if needed not in roles:
             errs.append(f"no line has role {needed}")
     all_numbers = set()
     shots = []
     for i, l in enumerate(lines, 1):
         text = str(l.get("text", ""))
-        if len(text.split()) > 14:
-            errs.append(f"line {i} is {len(text.split())} words; max 14")
-        if re.search(r"explained like you are five|in this video|let'?s dive|did not increase significantly", text, re.I):
+        limit = 16 if l.get("role") == "cta" else 14
+        if len(text.split()) > limit:
+            errs.append(f"line {i} is {len(text.split())} words; max {limit}")
+        if re.search(r"explained like you are five|in this video|let'?s dive|did not increase", text, re.I):
             errs.append(f"line {i} contains filler or research prose")
+        m = JARGON.search(text)
+        if m:
+            errs.append(f"line {i} uses the banned word '{m.group(0)}'")
         if re.search(r"[;—–(]", text) or len(re.findall(r"(?<!\d),|,(?!\d)", text)) > 1:
             errs.append(f"line {i} uses semicolons, dashes, parentheses or more than one comma")
         ids = [str(c) for c in (l.get("claim_ids") or [])]
-        if l.get("role") != "payoff":
+        if l.get("role") not in ("hook", "cta"):
             if not ids:
                 errs.append(f"line {i} cites no claim")
             for cid in ids:
@@ -318,6 +345,7 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
               + "No silhouettes, outlines, ghosted figures, montages, maps or charts: real, solid, "
                 "fully drawn animals and objects in full colour with ink contour, like every other subject."
               + ("" if names_people else " No people in this frame at all; the narration names none.")
+              + " Do not add any animal, person, vehicle or object the description does not name."
               + (f" A PREVIOUS ATTEMPT WAS REJECTED because: {feedback}. Fix exactly that." if feedback else "")
               + style_suffix)
     ep.generate_image(prompt, out, cost_sink=cost_sink, size="1024x1536")
@@ -353,40 +381,43 @@ def _check_picture(path: str, line: dict, states: dict, cost_sink: list, setting
 
 
 def _slots(spans, pictures, extra_pool):
-    """Picture slots: each line's picture, split so no picture holds longer than PICTURE_SECONDS;
-    the second half of a long line borrows the next unused extra picture when one exists."""
+    """Picture slots: (start, end, path, framing). A line longer than PICTURE_SECONDS is split;
+    the second part is a different unused film image when one exists, otherwise a hard cut to a
+    tight detail crop of the same image, so every slot is a visibly different composition.
+    Cuts land on sentence boundaries by construction (each line starts a slot)."""
     slots = []
     pool = list(extra_pool)
-    for (s, e), pic in zip(spans, pictures):
-        d = e - s
+    for (s_, e_), pic in zip(spans, pictures):
+        d = e_ - s_
         n = max(1, int(round(d / PICTURE_SECONDS + 0.49)))
         step = d / n
         for k in range(n):
-            use = pic
             if k % 2 == 1 and pool:
-                use = pool.pop(0)
-            slots.append((s + k * step, s + (k + 1) * step, use, k))
+                slots.append((s_ + k * step, s_ + (k + 1) * step, pool.pop(0), "full"))
+            else:
+                slots.append((s_ + k * step, s_ + (k + 1) * step, pic, "detail" if k % 2 == 1 else "full"))
     return slots
 
 
 def _render_slots(slots, out_path, tmp):
     parts = []
-    moves = ("push", "pan_l", "pan_r", "pull")
-    for i, (s, e, path, k) in enumerate(slots):
-        d = max(MIN_PICTURE_SECONDS * 0.8, e - s)
+    for i, (s_, e_, path, framing) in enumerate(slots):
+        d = max(MIN_PICTURE_SECONDS * 0.8, e_ - s_)
         n = max(1, int(round(d * FPS)))
         with Image.open(path) as im:
             iw, ih = im.size
         cw = min(iw, int(ih * 9 / 16))
-        move = moves[i % len(moves)]
-        z = f"min(1+0.14*on/{n},1.14)" if move in ("push",) else (f"max(1.14-0.14*on/{n},1.0)" if move == "pull" else "1.08")
-        x = "iw/2-(iw/zoom/2)"
-        if move == "pan_l":
-            x = f"(iw-iw/zoom)*(1-on/{n})"
-        elif move == "pan_r":
-            x = f"(iw-iw/zoom)*on/{n}"
-        vf = (f"crop={cw}:{ih}:(iw-{cw})/2:0,scale=2160:3840,"
-              f"zoompan=z='{z}':x='{x}':y='ih/2-(ih/zoom/2)':d={n}:s={W}x{H}:fps={FPS},format=yuv420p")
+        if framing == "detail":
+            # A tight crop on the upper-middle of the subject, pulling out slightly: reads as a
+            # second camera, not a continuation of the push.
+            crop_w, crop_h = int(cw * 0.62), int(ih * 0.62)
+            crop = f"crop={crop_w}:{crop_h}:(iw-{crop_w})/2:ih*0.14"
+            z = f"max(1.10-0.10*on/{n},1.0)"
+        else:
+            crop = f"crop={cw}:{ih}:(iw-{cw})/2:0"
+            z = f"min(1+0.20*on/{n},1.20)" if i % 2 == 0 else f"max(1.20-0.20*on/{n},1.0)"
+        vf = (f"{crop},scale=2160:3840,"
+              f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={n}:s={W}x{H}:fps={FPS},format=yuv420p")
         clip = os.path.join(tmp, f"slot_{i:03d}.mp4")
         _run([_ffmpeg_bin(), "-v", "error", "-y", "-loop", "1", "-i", path, "-t", f"{d:.3f}",
               "-vf", vf, "-r", str(FPS), "-an", clip])
@@ -404,18 +435,25 @@ def _caption_chunks(words: list, until: float, lines: list[dict] | None = None, 
     words regardless of where sentences ended, so a chunk read as a phrase that was never said.
     Chunks are formed inside each scripted line; a trailing single word joins the chunk before it.
     """
-    counts = [len(str(l["text"]).split()) for l in (lines or [])] or [len(words)]
     chunks, cursor = [], 0
-    for n in counts:
-        line_words = words[cursor:cursor + n]
-        cursor += n
-        groups = [line_words[i:i + size] for i in range(0, len(line_words), size)]
-        if len(groups) > 1 and len(groups[-1]) == 1:
-            groups[-2] = groups[-2] + groups[-1]
-            groups.pop()
-        for g in groups:
-            if g:
-                chunks.append([w for w in g])
+    for l in (lines or [{"text": " ".join(w[0] for w in words)}]):
+        # Clauses first (split at commas), then 3-4 word groups inside a clause, so a chunk is
+        # always a phrase a reader would say in one breath: never "high, and sugar".
+        clause_lengths = [len(c.split()) for c in re.split(r"(?<=[,.!?])\s+", str(l["text"])) if c.strip()]
+        for n in clause_lengths:
+            clause_words = words[cursor:cursor + n]
+            cursor += n
+            if n <= 4:
+                groups = [clause_words]
+            else:
+                per = 4 if n % 4 == 0 or n % 3 == 1 else 3
+                groups = [clause_words[i:i + per] for i in range(0, n, per)]
+                if len(groups) > 1 and len(groups[-1]) == 1:
+                    groups[-2] = groups[-2] + groups[-1]
+                    groups.pop()
+            for g in groups:
+                if g:
+                    chunks.append([w for w in g])
     out = []
     for i, group in enumerate(chunks):
         start = float(group[0][1])
@@ -426,9 +464,17 @@ def _caption_chunks(words: list, until: float, lines: list[dict] | None = None, 
     return out
 
 
+_EMPHASIS_WORDS = re.compile(r"^(kill|kills|killed|killing|poison|poisons|poisonous|deadly|die|died|dies|dead|"
+                             r"fail|failed|fails|backfired|toxic|toxin|swallow|swallowed|disappear|disappeared|"
+                             r"vanished|never|nothing|every|worse|wrong|mistake|purpose|evolving|evolved|survive)$", re.I)
+_EMPHASIS_EXTRA: set = set()
+
+
 def _emphasis(word: str) -> tuple:
-    bare = word.strip(".,;:!?")
-    return YELLOW if (re.search(r"\d", bare) or (bare[:1].isupper() and len(bare) > 3)) else WHITE
+    bare = word.strip(".,;:!?").lower()
+    if bare in _EMPHASIS_EXTRA or _EMPHASIS_WORDS.match(bare) or re.search(r"\d", bare):
+        return YELLOW
+    return WHITE
 
 
 def _headline_from(title: str) -> str:
@@ -457,7 +503,7 @@ def audit_export(lines: list[dict], chunks: list, until: float, claims: dict) ->
         else:
             straddle.append(" ".join(group))
             cursor += len(g)
-    last_shown_to_end = bool(chunks) and chunks[-1][1] >= until - 0.1
+    last_shown_to_end = bool(chunks) and chunks[-1][1] >= until - 0.1   # the cta caption stays up
     unsupported = []
     for l in lines:
         for n in _numbers(str(l["text"])):
@@ -468,22 +514,37 @@ def audit_export(lines: list[dict], chunks: list, until: float, claims: dict) ->
             "numbers_supported": (len(unsupported) == 0, unsupported)}
 
 
-def readiness(lines, spans, slots, words_total, until, whisper_words, export: dict | None = None) -> dict:
+def _silence_fraction(audio: str) -> float:
+    out = subprocess.run([_ffmpeg_bin(), "-i", audio, "-af", "silencedetect=n=-32dB:d=0.25", "-f", "null", "-"],
+                         capture_output=True, text=True)
+    total = sum(float(m) for m in re.findall(r"silence_duration: ([0-9.]+)", out.stderr))
+    return total / max(0.1, _duration(audio))
+
+
+def readiness(lines, spans, slots, words_total, until, whisper_words, export: dict | None = None,
+              audio: str = "") -> dict:
     first_words = len(str(lines[0]["text"]).split())
     pictures = len({p for _, _, p, _ in slots})
+    compositions = len({(p, f) for _, _, p, f in slots})
+    silence = _silence_fraction(audio) if audio else 0.0
     checks = {
-        "words_before_twist_le_9": (first_words, first_words <= 9),
+        "hook_is_question": (str(lines[0]["text"]).strip()[-1:], str(lines[0]["text"]).strip().endswith("?")),
+        "spoken_cta": (lines[-1].get("role"), lines[-1].get("role") == "cta" and "channel" in str(lines[-1]["text"]).lower()),
+        # Natural speech breathes about one eighth of the time; the first cut sat at a fifth.
+        "silence_fraction_le_0_14": (round(silence, 3), silence <= 0.14),
+        "distinct_compositions_ge_12": (compositions, compositions >= 12),
+        "words_before_twist_le_10": (first_words, first_words <= 10),
         # Measured on the first scripted Short (cane toads, echo at 1.3x, eight plain sentences):
         # 66 words in 23.0 s is 2.86 w/s, and an 8-word first line lands at 3.3 s because the
         # voice pauses at every full stop. Those are the pace of a narrator reading punchy copy,
         # not a documentary drawl, so the bands sit where a measured natural read can reach.
         "seconds_to_twist_le_3_5": (round(spans[0][1], 2), spans[0][1] <= 3.5),
-        "new_picture_interval_le_2s": (round(until / max(1, len(slots)), 2), until / max(1, len(slots)) <= 2.0),
+        "composition_interval_le_2s": (round(until / max(1, compositions), 2), until / max(1, compositions) <= 2.0),
         "words_per_second_2_7_to_3_9": (round(words_total / until, 2), 2.7 <= words_total / until <= 3.9),
         # 20 s floor: the channel's own shorts loop best under 15 s and the review target was "roughly
         # 25 seconds"; a 21.9 s one-story cut is inside that, not short of it.
-        "length_20_to_36s": (round(until, 1), 20 <= until <= 36),
-        "payoff_complete": (str(lines[-1]["text"]).strip()[-1:], lines[-1].get("role") == "payoff" and not str(lines[-1]["text"]).strip().endswith("?")),
+        "length_19_to_36s": (round(until, 1), 19 <= until <= 36),
+        "payoff_adds_a_fact": ([l["text"][:40] for l in lines if l.get("role") == "payoff"], any(l.get("role") == "payoff" for l in lines)),
         "caption_word_coverage_ge_0_9": (round(whisper_words, 2), whisper_words >= 0.9),
         "distinct_pictures_ge_6": (pictures, pictures >= 6),
         "shot_variety": (sorted({str((l.get("visual") or {}).get("shot", "")) for l in lines}),
@@ -505,6 +566,7 @@ def main() -> int:
     ap.add_argument("--generate-images", action="store_true")
     ap.add_argument("--out", default="")
     ap.add_argument("--headline", default="", help="override the on-screen headline")
+    ap.add_argument("--music", default="tense", help="music_assets mood: tense|dramatic|energetic|upbeat|corporate|nostalgic")
     ap.add_argument("--reuse-script", action="store_true",
                     help="keep the lines in short_package.json instead of writing new ones")
     args = ap.parse_args()
@@ -531,9 +593,24 @@ def main() -> int:
         print("openings proposed:", " | ".join(openings))
     text = " ".join(str(l["text"]).strip() for l in lines)
     print("script:", text)
+    for l in lines:
+        for w in (l.get("emphasis") or []):
+            _EMPHASIS_EXTRA.add(str(w).lower().strip(".,;:!?"))
 
+    raw_audio = os.path.join(job, "short_audio_raw.mp3")
     audio = os.path.join(job, "short_audio.mp3")
-    until = _narrate(text, audio, args.voice, args.speed)
+    raw_len = _narrate(text, raw_audio, args.voice, args.speed)
+    # The voice stops for up to a second at every full stop (20% of the first cut was silence,
+    # 1.06 s of it right after the hook). Keep 0.22 s of each pause, which is how a person
+    # reading punchy copy breathes, and drop the rest.
+    _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", raw_audio, "-af",
+          # The voice's "silence" carries room tone at about -27 dB RMS, so -35 dB removed almost
+          # nothing (measured: 0.28 s of 4.0 s). -30 dB catches the pauses; 0.24 s stays.
+          "silenceremove=stop_periods=-1:stop_duration=0.28:stop_threshold=-30dB:stop_silence=0.24,"
+          "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB",
+          "-c:a", "libmp3lame", "-q:a", "2", audio])
+    until = _duration(audio)
+    print(f"narration {raw_len:.2f}s -> {until:.2f}s after trimming pauses")
     whisper = ep.transcribe_words(audio)
     words, matched_fraction = align_words(text, whisper) if whisper else ([], 0.0)
     spans = _line_spans(lines, words) if words else []
@@ -576,7 +653,9 @@ def main() -> int:
         head_lines = [[(w, YELLOW if li == 0 else WHITE) for w in line.split()]
                       for li, line in enumerate(_wrap(probe, headline, _font(size), W - 140)[:2])]
         _text_png(head_png, head_lines, size=size, y=140, stroke=10)
-        overlays.append((head_png, 0.0, until))
+        # The headline arrives after the question is asked: "MISTAKE" on screen at 0 s answers
+        # the hook before the voice does, and duplicates the first caption's words.
+        overlays.append((head_png, spans[0][1], until))
         cap_y = H - SAFE_BOTTOM - 210
         chunks = _caption_chunks(words, until, lines)
         for i, (s, e, group) in enumerate(chunks):
@@ -594,29 +673,52 @@ def main() -> int:
                   size=46, y=cap_y - 125, stroke=6, pill=True)
         overlays.append((end_png, spans[-1][0], until))
 
-        music = ""
-        mdir = os.path.join(job, "music")
-        if os.path.isdir(mdir):
-            wavs = [os.path.join(mdir, f) for f in os.listdir(mdir) if f.endswith(".wav")]
-            music = wavs[0] if wavs else ""
+        # A bed with a pulse, not the film's classical score at an inaudible level; a riser into
+        # the last line and a soft boom on it. Kevin MacLeod tracks need the credit line.
+        music, music_credit = "", ""
+        try:
+            import music_assets
+            music = music_assets.get_music_path(args.music) or ""
+            music_credit = music_assets.MUSIC_CREDIT if music else ""
+        except Exception:
+            music = ""
+        riser = os.path.join(tmp, "riser.wav")
+        _run([_ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=color=pink:d=1.3",
+              "-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*t*(180+260*t)):d=1.3",
+              "-filter_complex", "[0:a]highpass=f=220,volume=1.2[w];[1:a]volume=0.4[c];"
+              "[w][c]amix=inputs=2:normalize=0,afade=t=in:st=0:d=1.2,volume=0.9,aresample=48000[o]",
+              "-map", "[o]", riser])
+        boom = os.path.join(tmp, "boom.wav")
+        _run([_ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=58:d=0.7",
+              "-f", "lavfi", "-i", "anoisesrc=color=brown:d=0.7",
+              "-filter_complex", "[0:a]volume=1.6[s];[1:a]highpass=f=40,lowpass=f=200,volume=1.0[n];"
+              "[s][n]amix=inputs=2:normalize=0,afade=t=out:st=0.12:d=0.55,volume=1.2,aresample=48000[o]",
+              "-map", "[o]", boom])
+        cta_at = spans[-1][0]
         cmd = [_ffmpeg_bin(), "-v", "error", "-y", "-i", base, "-i", audio]
         if music:
             cmd += ["-i", music]
+        cmd += ["-i", riser, "-i", boom]
         for png, _, _ in overlays:
             cmd += ["-i", png]
-        first_png = 3 if music else 2
+        first_png = (5 if music else 4)
+        riser_idx, boom_idx = (3, 4) if music else (2, 3)
         chain, prev = [], "[0:v]"
         for k, (_, s, e) in enumerate(overlays):
             nxt = f"[v{k}]"
             chain.append(f"{prev}[{first_png + k}:v]overlay=0:0:enable='between(t,{s:.3f},{e:.3f})'{nxt}")
             prev = nxt
+        fx = (f"[{riser_idx}:a]adelay={int(max(0, cta_at - 1.3) * 1000)}|{int(max(0, cta_at - 1.3) * 1000)}[r];"
+              f"[{boom_idx}:a]adelay={int(cta_at * 1000)}|{int(cta_at * 1000)}[b]")
         if music:
-            chain.append(f"[2:a]atrim=0:{until:.3f},volume=0.16,afade=t=out:st={max(0, until - 1.2):.3f}:d=1.2[m];"
-                         f"[1:a][m]amix=inputs=2:duration=first:dropout_transition=0,loudnorm=I=-15:TP=-1.5:LRA=9[a]")
-            amap = "[a]"
+            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-29:TP=-8:LRA=7,afade=t=in:st=0:d=0.4,"
+                         f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8[m];" + fx + ";"
+                         f"[1:a][m][r][b]amix=inputs=4:duration=first:dropout_transition=0:normalize=0,"
+                         f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
         else:
-            chain.append(f"[1:a]loudnorm=I=-15:TP=-1.5:LRA=9[a]")
-            amap = "[a]"
+            chain.append(fx + f";[1:a][r][b]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
+                         f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
+        amap = "[a]"
         cmd += ["-filter_complex", ";".join(chain), "-map", prev, "-map", amap,
                 "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
                 "-r", str(FPS), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
@@ -625,10 +727,12 @@ def main() -> int:
 
     words_total = len(text.split())
     export = audit_export(lines, chunks, until, claims)
-    gate = readiness(lines, spans, slots, words_total, until, matched_fraction, export)
+    gate = readiness(lines, spans, slots, words_total, until, matched_fraction, export, audio)
     package = {
         "short": out_path, "seconds": round(until, 2), "title": (re.sub(r"\s+That\s.*$", "", title, flags=re.I) + " #Shorts")[:100],
-        "lines": lines, "openings": openings, "headline": headline,
+        "lines": lines, "openings": openings, "headline": headline, "music": music and os.path.basename(music),
+        "music_credit": music_credit,
+        "slots": [{"start": round(a, 2), "end": round(b, 2), "picture": os.path.basename(p_), "framing": f_} for a, b, p_, f_ in slots],
         "captions": [{"start": round(s_, 2), "end": round(e_, 2), "text": " ".join(g)} for s_, e_, g in chunks],
         "words": words_total, "pictures": pictures, "picture_checks": checks,
         "readiness": gate, "cost_usd": round(sum(costs), 4), "voice": args.voice, "speed": args.speed,
