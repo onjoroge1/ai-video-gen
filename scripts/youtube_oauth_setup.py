@@ -16,9 +16,9 @@ Before running, in Google Cloud Console (https://console.cloud.google.com):
   3. APIs & Services -> Credentials -> Create credentials -> OAuth client ID -> type
      "Desktop app". Copy the Client ID and Client secret.
 
-Then:
-    YOUTUBE_OAUTH_CLIENT_ID=... YOUTUBE_OAUTH_CLIENT_SECRET=... \\
-        python3 scripts/youtube_oauth_setup.py
+Then, with the two values in .env (the script loads .env itself; do not `source` it, the
+file holds unquoted URLs that the shell cannot parse):
+    python3 scripts/youtube_oauth_setup.py
 
 It prints the four lines to paste into .env. Nothing is written anywhere by this script.
 """
@@ -34,6 +34,11 @@ SCOPES = [
 
 
 def main() -> int:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     client_id = os.environ.get("YOUTUBE_OAUTH_CLIENT_ID", "").strip()
     client_secret = os.environ.get("YOUTUBE_OAUTH_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
