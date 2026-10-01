@@ -231,6 +231,47 @@ def scrub_cast_names(text: str) -> tuple[str, list[str]]:
     return _CAST_NAME_PATTERN.sub("an anonymous figure", text or ""), found
 
 
+# Words that name a pose, a mood, a gaze, or a lighting effect rather than a physical object. The
+# writer prompt forbids them ("NEVER a pose, expression, mood, grip, gaze, camera angle or
+# lighting note") and the image verifier cannot confirm them, so a state built on one is a
+# purchase that can only be rejected. Yellowstone (2026-09-30): required object "elk with uniform
+# cast shadows", state_after "alert elk with shadows frozen mid-flinch"; two redraws, then the
+# whole first tranche aborted on it with 18 accepted images already paid for.
+_UNVERIFIABLE_WORDS = frozenset((
+    "alert", "wary", "tense", "relaxed", "startled", "nervous", "calm", "anxious", "frozen",
+    "flinch", "mid-flinch", "flinching", "mood", "expression", "gaze", "glance", "pose",
+    "posture", "grip", "shadowed", "shadow", "shadows", "silhouetted", "backlit", "glowing",
+    "dramatic", "ominous", "menacing", "serene", "peaceful", "eerie", "watchful", "uneasy",
+))
+_UNVERIFIABLE_PHRASES = (
+    r"\bwith\s+(?:\w+\s+){0,3}shadows?(?:\s+frozen\s+mid-flinch)?",
+    r"\bshadows?\s+frozen(?:\s+mid-flinch)?",
+    r"\bcast\s+shadows?",
+    r"\bfrozen\s+mid-\w+",
+)
+
+
+def scrub_unverifiable(text: str) -> tuple[str, list[str]]:
+    """Strip pose / mood / lighting terms from an object or state phrase; report what went."""
+    original = _text(text)
+    if not original:
+        return original, []
+    removed: list[str] = []
+    out = original
+    for pattern in _UNVERIFIABLE_PHRASES:
+        for match in re.finditer(pattern, out, flags=re.I):
+            removed.append(match.group(0))
+        out = re.sub(pattern, " ", out, flags=re.I)
+    kept = []
+    for word in out.split():
+        if word.strip(",.;:").lower() in _UNVERIFIABLE_WORDS:
+            removed.append(word)
+            continue
+        kept.append(word)
+    out = re.sub(r"\s+", " ", " ".join(kept)).strip(" ,;:")
+    return (out or original), removed
+
+
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
                      pack: dict, *, opening: bool) -> dict:
     purpose = _text(beat.get("purpose")).casefold() or ("setup" if state_index == 0 else "evidence")
@@ -278,6 +319,16 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     before = _text(beat.get("state_before"))
     after = _text(beat.get("state_after")) or _text(beat.get("visual"))
     required = _list(beat.get("required_objects"))
+    unverifiable: list[str] = []
+    before, gone = scrub_unverifiable(before); unverifiable += gone
+    after, gone = scrub_unverifiable(after); unverifiable += gone
+    scrubbed_required = []
+    for item in required:
+        clean, gone = scrub_unverifiable(item)
+        unverifiable += gone
+        if clean and clean not in scrubbed_required:
+            scrubbed_required.append(clean)
+    required = scrubbed_required
     visual = _text(beat.get("visual")) or after
     cast_scrubbed: list[str] = []
     if _text(pack.get("cast")) == "none":
@@ -356,6 +407,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "location_id": pack["first_act_location"]["location_id"] if opening else "",
         "opening_object_id": pack["opening_object"]["object_id"] if scene_index == 0 else "",
         # Planning metadata never awards a retention event. The asset verifier owns this field.
+        "unverifiable_terms_scrubbed": unverifiable,
         "new_information": False,
         "verified_visible_information": False,
         "asset_status": "planned",
