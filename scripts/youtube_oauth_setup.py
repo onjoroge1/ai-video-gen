@@ -1,8 +1,9 @@
 """One-time YouTube OAuth setup for READ-ONLY channel analytics.
 
 Run this yourself; it opens your browser for Google's consent screen and must be approved by
-the account that owns the channel. It never uploads, edits or publishes anything: the scopes
-requested are youtube.readonly and yt-analytics.readonly only.
+the account that owns the channel. The scopes requested are
+youtube.readonly, yt-analytics.readonly and youtube.upload (private uploads via
+scripts/youtube_upload.py; it cannot edit or delete existing videos).
 
 Before running, in Google Cloud Console (https://console.cloud.google.com):
   1. APIs & Services -> Library: enable "YouTube Data API v3" and "YouTube Analytics API".
@@ -35,6 +36,10 @@ import sys
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
+    # Upload only; no edit/delete of existing videos. Until the Cloud project passes YouTube's
+    # API compliance audit, every API upload is locked to private, which is the intended
+    # workflow here: the operator reviews in Studio and makes it public by hand.
+    "https://www.googleapis.com/auth/youtube.upload",
 ]
 
 
