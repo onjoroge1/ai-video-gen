@@ -190,6 +190,14 @@ def _retry(fn, *, tries: int = 4, base_delay: float = 2.0, label: str = "API cal
     raise last
 
 
+def _anthropic_default_headers() -> dict:
+    """Headers every Anthropic client sends. A user-scoped key (the newer "linked" kind created
+    2026-10-01 while diagnosing a billing block) must name its workspace on every request;
+    workspace-scoped and legacy keys must not. ANTHROPIC_WORKSPACE_ID in .env covers the first."""
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+    return {"anthropic-workspace-id": workspace} if workspace else {}
+
+
 def _claude():
     """The script client. Anthropic by default; OpenAI when SCRIPT_PROVIDER=openai.
 
@@ -216,7 +224,7 @@ def _anthropic_native():
         runtime = None
     # A durable worker owns retries and must checkpoint before its invocation expires. SDK
     # retries can multiply a single 180s/240s request beyond that worker's complete lifetime.
-    client = anthropic.Anthropic(
+    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
         max_retries=0 if runtime else int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
     return runtime.wrap_anthropic(client) if runtime else client
@@ -7775,7 +7783,7 @@ def _verifier_probe_client():
     Short timeout and no retries -- a probe that hangs or retries costs more than it saves, and a
     slow answer is not the failure it is looking for.
     """
-    return anthropic.Anthropic(
+    return anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=30.0, max_retries=0)
 
 
