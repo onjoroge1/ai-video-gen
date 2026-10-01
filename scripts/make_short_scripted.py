@@ -81,7 +81,12 @@ def _load(job: str):
                                       "objects": st.get("required_objects") or [], "path": path,
                                       "scene": sc.get("scene_index")}
     title = rr.get("title") or script.get("title") or os.path.basename(job)
-    return title, script.get("hook") or "", transcript, claims, states
+    pack = plan.get("continuity_pack") or {}
+    location = str((pack.get("first_act_location") or {}).get("label") or "")
+    years = sorted(set(re.findall(r"\b(1[6-9]\d\d|20\d\d)\b", transcript)))
+    era = f"{years[0]}s" if years else ""
+    setting = ", ".join(x for x in (location, era) if x)
+    return title, script.get("hook") or "", transcript, claims, states, setting
 
 
 def _validate(lines: list[dict], claims: dict, states: dict) -> list[str]:
@@ -179,7 +184,7 @@ def _line_spans(lines: list[dict], words: list) -> list[tuple[float, float]]:
 
 
 def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: str,
-                 cost_sink: list, generate: bool) -> str:
+                 cost_sink: list, generate: bool, setting: str = "") -> str:
     import explainer_pipeline as ep
     pic = str(line.get("picture") or "")
     if not pic.startswith("NEW:") and states.get(pic, {}).get("path") and not generate:
@@ -191,11 +196,15 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
     import hashlib
     # Cache by WHAT is drawn, not by line position: a redraft moves lines around, and a picture
     # cached under line_03 for one script is the wrong picture for the next script's line 3.
-    key = hashlib.sha1((desc + "|" + "|".join(objects)).encode()).hexdigest()[:10]
+    key = hashlib.sha1((desc + "|" + "|".join(objects) + "|" + setting).encode()).hexdigest()[:10]
     out = os.path.join(out_dir, f"pic_{key}.jpg")
     if os.path.isfile(out):
         return out
+    # Every new frame is pinned to the film's place and period. Without this the model drew
+    # "toads entering Gordonvale" as an ancient city gate with robed crowds (cane toads, 2026-10-01).
     prompt = (f"Vertical 9:16 illustrated frame for a phone screen. {desc}. "
+              + (f"Setting: {setting}; the clothing, buildings, tools and landscape must belong to "
+                 f"that real place and period, nothing ancient, biblical, fantasy or symbolic. " if setting else "")
               + (f"It must clearly show: {', '.join(objects)}. " if objects else "")
               + "Subject centred in the middle third of the frame, large and readable at phone size."
               + style_suffix)
@@ -203,7 +212,7 @@ def _picture_for(line: dict, states: dict, job: str, index: int, style_suffix: s
     return out
 
 
-def _check_picture(path: str, line: dict, states: dict, cost_sink: list) -> dict:
+def _check_picture(path: str, line: dict, states: dict, cost_sink: list, setting: str = "") -> dict:
     """A light vision check that the drawn frame shows what the line says; cheap, not a gate."""
     import base64
     import explainer_pipeline as ep
@@ -215,7 +224,7 @@ def _check_picture(path: str, line: dict, states: dict, cost_sink: list) -> dict
             system='Answer ONLY JSON: {"ok": true|false, "reason": "..."}',
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
-                {"type": "text", "text": f"The narration for this frame is: \"{line['text']}\". Does the image literally depict that line's subject (the actual animals, places or objects it names, not a symbol or allegory), and clearly show: {'; '.join(map(str, wanted))}? No text or labels should be present. Answer ok=false if the picture is symbolic, generic, or about something else."}]}])
+                {"type": "text", "text": f"The narration for this frame is: \"{line['text']}\". Does the image literally depict that line's subject (the actual animals, places or objects it names, not a symbol or allegory), and clearly show: {'; '.join(map(str, wanted))}? No text or labels should be present. Answer ok=false if the picture is symbolic, generic, or about something else." + (f" The setting must read as {setting}: answer ok=false if the clothing, architecture or landscape belong to another era or region." if setting else "")}]}])
         cost_sink.append(ep._msg_cost(r.usage))
         parsed, _ = ep._parse_script_json(r.content[0].text)
         return parsed if isinstance(parsed, dict) else {"ok": None, "reason": "unparsed"}
@@ -268,15 +277,31 @@ def _render_slots(slots, out_path, tmp):
           "-i", os.path.join(tmp, "concat.txt"), "-c", "copy", out_path])
 
 
-def _caption_chunks(words: list, until: float, size: int = 3):
-    chunks = []
-    for i in range(0, len(words), size):
-        group = words[i:i + size]
-        start, end = float(group[0][1]), float(group[-1][2])
-        if i + size < len(words):
-            end = float(words[i + size][1])          # hold until the next chunk begins
-        chunks.append((start, min(end, until), [w[0] for w in group]))
-    return chunks
+def _caption_chunks(words: list, until: float, lines: list[dict] | None = None, size: int = 3):
+    """Caption chunks of 2-4 words that never cross a sentence boundary.
+
+    The first cut ("FOR BEETLES BUT", "AND DIED SOME") chunked the whisper stream every three
+    words regardless of where sentences ended, so a chunk read as a phrase that was never said.
+    Chunks are formed inside each scripted line; a trailing single word joins the chunk before it.
+    """
+    counts = [len(str(l["text"]).split()) for l in (lines or [])] or [len(words)]
+    chunks, cursor = [], 0
+    for n in counts:
+        line_words = words[cursor:cursor + n]
+        cursor += n
+        groups = [line_words[i:i + size] for i in range(0, len(line_words), size)]
+        if len(groups) > 1 and len(groups[-1]) == 1:
+            groups[-2] = groups[-2] + groups[-1]
+            groups.pop()
+        for g in groups:
+            if g:
+                chunks.append([w for w in g])
+    out = []
+    for i, group in enumerate(chunks):
+        start = float(group[0][1])
+        end = float(chunks[i + 1][0][1]) if i + 1 < len(chunks) else float(group[-1][2])
+        out.append((start, min(end, until), [w[0] for w in group]))
+    return out
 
 
 def _emphasis(word: str) -> tuple:
@@ -314,6 +339,8 @@ def main() -> int:
     ap.add_argument("--speed", type=float, default=1.3)
     ap.add_argument("--generate-images", action="store_true")
     ap.add_argument("--out", default="")
+    ap.add_argument("--reuse-script", action="store_true",
+                    help="keep the lines in short_package.json instead of writing new ones")
     args = ap.parse_args()
     job = os.path.abspath(args.job)
     from dotenv import load_dotenv
@@ -321,13 +348,18 @@ def main() -> int:
     import explainer_pipeline as ep
     import illustrated_story
     costs: list[float] = []
-    title, hook, transcript, claims, states = _load(job)
+    title, hook, transcript, claims, states, setting = _load(job)
     have_images = any(s["path"] for s in states.values())
     generate = args.generate_images or not have_images
     print(f"{title} | {len(claims)} verified claims | {sum(1 for s in states.values() if s['path'])} pictures on disk"
           + (" | drawing new vertical frames" if generate else ""))
 
-    lines = write_script(title, hook, transcript, claims, states, costs)
+    prior = os.path.join(job, "short_package.json")
+    if args.reuse_script and os.path.isfile(prior):
+        lines = json.load(open(prior))["lines"]
+        print(f"reusing the {len(lines)} approved lines from short_package.json")
+    else:
+        lines = write_script(title, hook, transcript, claims, states, costs)
     text = " ".join(str(l["text"]).strip() for l in lines)
     print("script:", text)
 
@@ -342,13 +374,13 @@ def main() -> int:
     style = illustrated_story.visual_style_suffix(" Vertical portrait composition, subject in the middle third.")
     pictures, checks = [], []
     for i, line in enumerate(lines):
-        path = _picture_for(line, states, job, i, style, costs, generate)
-        verdict = _check_picture(path, line, states, costs) if generate else {"ok": True, "reason": "film asset, already verified"}
+        path = _picture_for(line, states, job, i, style, costs, generate, setting)
+        verdict = _check_picture(path, line, states, costs, setting) if generate else {"ok": True, "reason": "film asset, already verified"}
         if verdict.get("ok") is False and generate:
             print(f"  redrawing picture {i + 1}: {verdict.get('reason', '')[:100]}")
             os.remove(path)
-            path = _picture_for(line, states, job, i, style, costs, generate)
-            verdict = _check_picture(path, line, states, costs)
+            path = _picture_for(line, states, job, i, style, costs, generate, setting)
+            verdict = _check_picture(path, line, states, costs, setting)
         pictures.append(path)
         checks.append(verdict)
     # Extra pictures for long lines: unused film images, else nothing.
@@ -373,9 +405,9 @@ def main() -> int:
                       for li, line in enumerate(_wrap(probe, headline, _font(size), W - 140)[:2])]
         _text_png(head_png, head_lines, size=size, y=140, stroke=10)
         overlays.append((head_png, 0.0, until))
-        cap_y = H - SAFE_BOTTOM - 300
+        cap_y = H - SAFE_BOTTOM - 210
         end_at = max(0.0, until - 2.2)
-        for i, (s, e, group) in enumerate(_caption_chunks(words, until)):
+        for i, (s, e, group) in enumerate(_caption_chunks(words, until, lines)):
             if s >= end_at:
                 break
             png = os.path.join(tmp, f"cap_{i:03d}.png")
@@ -386,8 +418,8 @@ def main() -> int:
             _text_png(png, [[(w.upper(), _emphasis(w)) for w in group]], size=size, y=cap_y, stroke=9, pill=True)
             overlays.append((png, s, min(e, end_at)))
         end_png = os.path.join(tmp, "end.png")
-        _text_png(end_png, [[("WATCH", YELLOW), ("THE", YELLOW), ("FULL", YELLOW), ("STORY", YELLOW)]],
-                  size=88, y=cap_y - 20, stroke=10, pill=True)
+        _text_png(end_png, [[("WATCH", YELLOW), ("THE", YELLOW)], [("FULL", WHITE), ("STORY", WHITE)]],
+                  size=92, y=cap_y - 70, stroke=10, pill=True)
         overlays.append((end_png, end_at, until))
 
         music = ""
