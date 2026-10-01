@@ -34,8 +34,15 @@ def main() -> int:
     base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
     headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
                "content-type": "application/json"}
+    # A user-scoped key (the newer "linked" kind) must name the workspace on every request;
+    # a workspace-scoped key must not. ANTHROPIC_WORKSPACE_ID in .env covers the first kind.
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+    if workspace:
+        headers["anthropic-workspace-id"] = workspace
     model = "claude-haiku-4-5-20251001"
-    print(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}  key ...{key[-6:]}  base {base}")
+    workspace = headers.get("anthropic-workspace-id", "")
+    print(f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}  key ...{key[-6:]}  base {base}"
+          + (f"  workspace {workspace}" if workspace else ""))
 
     checks = [
         ("models (credit-free)", "GET", "/v1/models?limit=1", None),
