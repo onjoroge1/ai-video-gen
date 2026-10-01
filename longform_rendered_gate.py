@@ -682,12 +682,7 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         # location and opening_object are NOT cast-dependent and still apply: a lane without a
         # recurring human still has a recurring place and a callback object.
         cast_free = _text((evidence_plan.get("continuity_pack") or {}).get("cast")) == "none"
-        fields = ("location_matches", "opening_object_matches") if cast_free else (
-            "human_identity_matches", "clothing_matches", "location_matches",
-            "opening_object_matches")
-        for field in fields:
-            if verification.get(field) is False:
-                continuity_failures.append({"state_id": state.get("state_id"), "field": field})
+        continuity_failures.extend(continuity_failures_for(state, cast_free=cast_free))
     avg_state = sum(durations) / len(durations) if durations else 999.0
     max_state = max(durations, default=999.0)
     pixel_changes = sum(item["pixel_delta"] >= pixel_threshold for item in boundary_deltas)
@@ -769,6 +764,35 @@ def blind_story_prompt(transcript_cues: list[dict]) -> str:
     )
 
 
+def continuity_failures_for(state: dict, *, cast_free: bool) -> list[dict]:
+    """Continuity fields this rendered state failed, counting only fields it was held to.
+
+    A False on a field the state was never required to satisfy is not a failure. The verifier
+    answers every question it is asked, and "is the opening object (a lone wolf) in this frame
+    of elk browsing willow" is honestly False on a state whose plan did not require the wolf.
+    Measured on Yellowstone (2026-10-01): 18 such Falses across the opening, every asset passed,
+    and broken_continuity capped a raw 83 at 49. The verifier records which fields it was held
+    to (`expected`); older records fall back to the asset's own verdict, which already folds in
+    exactly the expected fields.
+    """
+    verification = state.get("verification") if isinstance(state.get("verification"), dict) else {}
+    fields = ("location_matches", "opening_object_matches") if cast_free else (
+        "human_identity_matches", "clothing_matches", "location_matches",
+        "opening_object_matches")
+    expected = verification.get("expected") if isinstance(verification.get("expected"), dict) else None
+    out = []
+    for field in fields:
+        if verification.get(field) is not False:
+            continue
+        if expected is not None:
+            if not expected.get(field):
+                continue
+        elif verification.get("passed") is True:
+            continue
+        out.append({"state_id": state.get("state_id"), "field": field})
+    return out
+
+
 def cross_check_blind_observations(blind: dict, deterministic: dict) -> dict:
     """Remove model-awarded credit whenever encoded facts contradict the observation."""
     checked = dict(blind or {})
@@ -782,6 +806,19 @@ def cross_check_blind_observations(blind: dict, deterministic: dict) -> dict:
     if checked.get("slideshow") is False and deterministic.get("slideshow"):
         checked["slideshow"] = True
         contradictions.append("judge missed deterministic source-reuse slideshow behavior")
+    # The symmetric case. Slideshow behaviour is a measured property of the MP4 -- source reuse
+    # and pixel change at the cuts -- and the deterministic inspection exists to decide it. A
+    # judge that calls a cut with 96% boundary change and 74% source change a slideshow (the
+    # OpenAI judge on Yellowstone, 2026-10-01, while also answering multi_shot_storytelling=true)
+    # is contradicted by the instrument, the same way the line above overrules a judge that
+    # missed a measured slideshow. Capping a raw 83 at 49 on that answer is not measuring.
+    if (checked.get("slideshow") is True and deterministic.get("slideshow") is False
+            and float(deterministic.get("pixel_boundary_change_ratio") or 0) >= 0.45
+            and float(deterministic.get("source_change_ratio") or 0) >= float(
+                (deterministic.get("threshold_profile") or {}).get("source_change_ratio_threshold")
+                or PROVISIONAL_THRESHOLD_PROFILE["source_change_ratio_threshold"])):
+        checked["slideshow"] = False
+        contradictions.append("judge called a measured multi-source, high-change cut a slideshow")
     if checked.get("bolt_useful") and deterministic.get("bolt_shot_ratio", 0) >= 0.70:
         checked["bolt_useful"] = False
         contradictions.append("judge credited Bolt despite Bolt-everywhere frequency")

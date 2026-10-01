@@ -6109,6 +6109,17 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         required = result.get("required_objects") if isinstance(result.get("required_objects"), dict) else {}
         forbidden = (result.get("forbidden_objects_absent")
                      if isinstance(result.get("forbidden_objects_absent"), dict) else {})
+        # Record which continuity fields this state was held to, so the rendered gate can tell a
+        # failed expectation from an honest False on a question that was never a requirement.
+        result["expected"] = {
+            field: bool(expected[expected_key])
+            for expected_key, field in (
+                ("expect_human_identity", "human_identity_matches"),
+                ("expect_clothing", "clothing_matches"),
+                ("expect_location", "location_matches"),
+                ("expect_opening_object", "opening_object_matches"),
+            )
+        }
         required_pass = all(required.get(item) is True for item in expected["required_objects"])
         forbidden_pass = all(forbidden.get(item) is True for item in expected["forbidden_objects"])
         continuity_pass = all(
