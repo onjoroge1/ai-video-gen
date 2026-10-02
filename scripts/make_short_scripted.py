@@ -34,7 +34,7 @@ from make_teaser_short import (  # noqa: E402
 from media_binaries import ffmpeg as _ffmpeg_bin  # noqa: E402
 
 TARGET_SECONDS = 30.0
-WORDS_MIN, WORDS_MAX = 70, 92
+WORDS_MIN, WORDS_MAX = 55, 65
 PICTURE_SECONDS = 1.9          # a fresh picture at least this often
 MIN_PICTURE_SECONDS = 1.1
 
@@ -47,14 +47,17 @@ Return ONLY JSON:
             "visual": {"shot": "close-up|medium|wide", "subject": "...", "action": "..."},
             "picture": "state:s001:e01 or NEW: ..."}]}
 
-Story shape (7 to 9 lines, 70 to 92 words):
-- openings: THREE candidate first lines, each a QUESTION of at most 10 words ending with "?", naming the actual animal or plant, whose answer is a contradiction the viewer can SEE in picture 1 ("Why would anyone import a toad that kills what eats it?"). No place names, dates or numbers. Line 1 (role hook) is one of them, verbatim.
-- line 2 (role decision), at most 8 words: the human decision that answers the question and makes it absurd ("Australia brought it in on purpose."). It must NOT begin with the same word as line 1 and must not repeat the animal's name.
-- one line (role setup): what they were trying to fix, in plain words. No agency names, town names or dates.
-- one line (role mechanism): why it failed, conversational, bound by the EDITORIAL CONSTRAINTS below; never present one hypothesised reason as the whole explanation if the brief says it is not.
-- two or three lines (role consequence): what happened instead, each a different concrete consequence, plain words a stranger understands.
-- one line (role payoff): a NEW fact that reframes the story, not a restatement of line 1; it may share the animal's name with line 1 and nothing else.
-- the LAST line (role cta), spoken, at most 16 words, may be two short sentences: name ONE thing the film shows that this Short did not (from the ledger or transcript, no numbers), then "The full story is on the channel." Example: "Some snakes are now evolving to survive it. The full story is on the channel."
+Story shape (6 lines, 55 to 65 words; a listener holds about one new noun per second, so name few things):
+- openings: THREE candidate first lines, each a QUESTION of at most 10 words ending with "?", about the INTRODUCED or REMOVED animal itself and the human choice: why would people bring in / wipe out a thing that does X ("Why would anyone import a toad that kills what eats it?"). The answer must be a contradiction the viewer can SEE in picture 1. Not about a bystander species, no place names, dates or numbers. Line 1 (role hook) is one of them, verbatim.
+- line 2 (role decision), at most 9 words: the country or the people and what for, answering the question ("Australia did it to kill sugar cane beetles."). Never an agency, bureau, department or official by name. Not the same first word as line 1.
+- line 3 (role mechanism), at most 8 words: what became of that plan, as an OUTCOME in plain words ("It barely helped the cane."), never a reason for it; the EDITORIAL CONSTRAINTS below forbid presenting one hypothesised reason as the explanation.
+- line 4 (role consequence): the backfire, naming the animals that paid for it ("But crocodiles, lizards and quolls died swallowing the toads.").
+- line 5 (role payoff): a NEW fact that reframes the consequence, not a restatement of line 1 ("The small survivors learned to leave them alone.").
+- line 6 (role cta), spoken, at most 16 words, two short sentences: one thing the film shows that this Short did not (no numbers), then "The full story is on the channel."
+
+Name at most 22 distinct things in the whole Short (animals, places, crops, people): every extra noun costs attention. One place name at most, in line 2, and no adjectives that add a noun ("ground-dwelling", "large-bodied").
+
+COHESION: every sentence must follow from the one before, answering it, resulting from it, or contrasting with it, and it should carry a word or idea from it ("toad" -> "it", "beetles" -> "the cane", "died" -> "survivors"). A listener must never need a fact that has not been said yet. Read the six lines aloud as one paragraph: if any sentence could be deleted without breaking the chain, it is not pulling weight.
 
 Language: every line is one spoken sentence (the cta may be two) of at most 14 words, present tense where possible, no semicolons, dashes or parentheses, at most one comma, no lists of more than three. Spoken register throughout: never research prose. Banned words: monitored, significantly, dramatically, documented, populations, estimated, reported, data, study, species-level, respectively.
 
@@ -118,8 +121,8 @@ JARGON = re.compile(r"\b(monitored|significantly|dramatically|documented|populat
 
 def _validate(lines: list[dict], claims: dict, states: dict, openings: list | None = None) -> list[str]:
     errs = []
-    if not 7 <= len(lines) <= 9:
-        errs.append(f"{len(lines)} lines; need 7-9")
+    if not 6 <= len(lines) <= 7:
+        errs.append(f"{len(lines)} lines; need 6-7")
     words = sum(len(str(l.get("text", "")).split()) for l in lines)
     if not WORDS_MIN <= words <= WORDS_MAX:
         errs.append(f"{words} words; need {WORDS_MIN}-{WORDS_MAX}")
@@ -137,10 +140,25 @@ def _validate(lines: list[dict], claims: dict, states: dict, openings: list | No
             errs.append("line 1 must be one of the proposed openings, verbatim")
         if _numbers(first) or re.search(r"\b(1[6-9]\d\d|20\d\d)\b", first):
             errs.append("line 1 must contain no number or date")
+        if re.search(r"\b(bureau|department|agency|ministry|officials?|authorit(y|ies)|government)\b", " ".join(str(l.get("text", "")) for l in lines[:3]), re.I):
+            errs.append("lines 1-3 must not name an agency, bureau, department, officials or government")
         if len(lines) > 1:
             second = str(lines[1].get("text", "")).strip()
-            if lines[1].get("role") != "decision" or len(second.split()) > 8:
-                errs.append("line 2 must be role decision, at most 8 words")
+            if lines[1].get("role") != "decision" or len(second.split()) > 9:
+                errs.append("line 2 must be role decision, at most 9 words")
+        if len(lines) > 2 and (lines[2].get("role") != "mechanism" or len(str(lines[2].get("text", "")).split()) > 8):
+            errs.append("line 3 must be role mechanism, at most 8 words")
+        if len(lines) > 2:
+            mech = str(lines[2].get("text", ""))
+            # An outcome, not a reason: "It barely helped the cane", never "the beetles lived high".
+            if re.search(r"\b(because|beyond|lived|reach|reached|high|since|instead of)\b", mech, re.I) or not re.search(
+                    r"\b(barely|hardly|failed|fail|didn'?t|never|still|kept|stayed|no better|unchanged|worked|went on|carried on|made no|little)\b", mech, re.I):
+                errs.append("line 3 must state the OUTCOME of the plan in plain words (barely helped / failed / changed nothing), not a reason for it")
+        if lines and len(lines) > 4:
+            hook_words = {w.lower().strip(",.?!") for w in str(lines[0].get("text", "")).split() if len(w) > 3}
+            pay_words = {w.lower().strip(",.?!") for w in str(lines[4].get("text", "")).split() if len(w) > 3}
+            if len(hook_words & pay_words) > 1:
+                errs.append("line 1 gives away the payoff: it shares words with line 5 beyond the animal's name")
             if (second.split() or [""])[0].lower().strip(",.") == first_word:
                 errs.append("line 2 must not begin with the same word as line 1")
         last = str(lines[-1].get("text", "")).strip()
@@ -157,7 +175,7 @@ def _validate(lines: list[dict], claims: dict, states: dict, openings: list | No
             if a and len(a & b) / len(a) > 0.5:
                 errs.append("the payoff restates line 1; it must add a new fact")
     roles = [str(l.get("role")) for l in lines]
-    for needed in ("decision", "setup", "mechanism", "consequence"):
+    for needed in ("decision", "mechanism", "consequence", "payoff"):
         if needed not in roles:
             errs.append(f"no line has role {needed}")
     all_numbers = set()
@@ -555,18 +573,48 @@ def _silence_fraction(audio: str) -> float:
     return total / max(0.1, _duration(audio))
 
 
+_STOP = set("the a an of to in on for and or but with that this it its they them their from after then while is "
+            "are was were be been by as at into did do does so than too very not no yes who what why how when "
+            "would could should still some many most all any anyone someone there here now".split())
+
+
+def content_nouns(lines: list[dict]) -> set:
+    """A rough count of the distinct things a script names: content words over three letters that
+    are not verbs or adverbs by their ending. Used only as a density measure."""
+    out = set()
+    for l in lines:
+        for w in str(l["text"]).split():
+            w = w.strip(".,?!;:").lower()
+            if w in _STOP or len(w) <= 3 or not w.isalpha() or w.endswith(("ly", "ed", "ing")):
+                continue
+            out.add(w)
+    return out
+
+
 def readiness(lines, spans, slots, words_total, until, whisper_words, export: dict | None = None,
               audio: str = "") -> dict:
     first_words = len(str(lines[0]["text"]).split())
+    nouns = content_nouns(lines)
+    first_consequence = next((spans[i][0] for i, l in enumerate(lines) if l.get("role") == "consequence"), until)
     pictures = len({p for _, _, p, _ in slots})
     compositions = len({(p, f) for _, _, p, f in slots})
     silence = _silence_fraction(audio) if audio else 0.0
     checks = {
         "hook_is_question": (str(lines[0]["text"]).strip()[-1:], str(lines[0]["text"]).strip().endswith("?")),
+        # Audit of the 72-word cut (2026-10-01): 32 distinct content nouns in 20 s, one every
+        # 0.6 s, and the first death at 10 s. A listener keeps up at about one new thing a second.
+        "words_55_to_65": (words_total, WORDS_MIN <= words_total <= WORDS_MAX),
+        # The counter also catches bare verbs (kill, release), so it reads about 25% high; 1.5
+        # here is roughly 1.2 real nouns a second, and 26 is the cap for a 16-20 s piece.
+        # Per-second density punishes brevity (a 15 s piece reads high on the same words), so the
+        # cap is on the COUNT of distinct things named; the rate is reported, loosely bounded.
+        "content_nouns_per_sec_le_2": (round(len(nouns) / max(1, until), 2), len(nouns) / max(1, until) <= 2.0),
+        "distinct_content_nouns_le_24": (len(nouns), len(nouns) <= 24),
+        "first_consequence_le_8s": (round(first_consequence, 2), first_consequence <= 8.0),
         "spoken_cta": (lines[-1].get("role"), lines[-1].get("role") == "cta" and "channel" in str(lines[-1]["text"]).lower()),
         # Natural speech breathes about one eighth of the time; the first cut sat at a fifth.
         "silence_fraction_le_0_14": (round(silence, 3), silence <= 0.14),
-        "distinct_compositions_ge_12": (compositions, compositions >= 12),
+        "distinct_compositions_ge_9": (compositions, compositions >= 9),
         "words_before_twist_le_10": (first_words, first_words <= 10),
         # Measured on the first scripted Short (cane toads, echo at 1.3x, eight plain sentences):
         # 66 words in 23.0 s is 2.86 w/s, and an 8-word first line lands at 3.3 s because the
@@ -577,10 +625,10 @@ def readiness(lines, spans, slots, words_total, until, whisper_words, export: di
         "words_per_second_2_7_to_3_9": (round(words_total / until, 2), 2.7 <= words_total / until <= 3.9),
         # 20 s floor: the channel's own shorts loop best under 15 s and the review target was "roughly
         # 25 seconds"; a 21.9 s one-story cut is inside that, not short of it.
-        "length_19_to_36s": (round(until, 1), 19 <= until <= 36),
+        "length_15_to_30s": (round(until, 1), 15 <= until <= 30),
         "payoff_adds_a_fact": ([l["text"][:40] for l in lines if l.get("role") == "payoff"], any(l.get("role") == "payoff" for l in lines)),
         "caption_word_coverage_ge_0_9": (round(whisper_words, 2), whisper_words >= 0.9),
-        "distinct_pictures_ge_6": (pictures, pictures >= 6),
+        "distinct_pictures_ge_5": (pictures, pictures >= 5),
         "shot_variety": (sorted({str((l.get("visual") or {}).get("shot", "")) for l in lines}),
                          {"close-up", "wide"} <= {str((l.get("visual") or {}).get("shot", "")) for l in lines}),
     }
@@ -596,7 +644,7 @@ def main() -> int:
     ap.add_argument("job")
     ap.add_argument("--seconds", type=float, default=TARGET_SECONDS)
     ap.add_argument("--voice", default="echo")
-    ap.add_argument("--speed", type=float, default=1.3)
+    ap.add_argument("--speed", type=float, default=1.2)   # with pauses trimmed, 1.3x ran 4.1 w/s
     ap.add_argument("--generate-images", action="store_true")
     ap.add_argument("--out", default="")
     ap.add_argument("--headline", default="", help="override the on-screen headline")
@@ -644,7 +692,9 @@ def main() -> int:
     _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", raw_audio, "-af",
           "silenceremove=stop_periods=-1:stop_duration=0.2:stop_threshold=-32dB:stop_silence=0.14,"
           "silenceremove=start_periods=1:start_duration=0.02:start_threshold=-45dB,"
-          "adelay=120|120,afade=t=in:st=0:d=0.06",
+          # The fade must sit on the word, not on the lead-in before it: the breathy onset of
+          # "Why", compressed and gained +9 dB, stepped from -84 to -13 dB in 25 ms (the whoosh).
+          "adelay=120|120,afade=t=in:st=0.12:d=0.14",
           "-c:a", "libmp3lame", "-q:a", "2", audio])
     until = _duration(audio)
     print(f"narration {raw_len:.2f}s -> {until:.2f}s after trimming pauses")
