@@ -393,12 +393,19 @@ def _check_picture(path: str, line: dict, states: dict, cost_sink: list, setting
     data = base64.b64encode(open(path, "rb").read()).decode()
     try:
         r = ep._claude().messages.create(model=ep.ANTHROPIC_MODEL, max_tokens=120,
-            system='Answer ONLY JSON: {"ok": true|false, "reason": "..."}',
+            system='Answer ONLY JSON: {"ok": true|false, "reason": "...", "subject_area": 0.0-1.0}',
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
-                {"type": "text", "text": f"This frame was commissioned to show: {'; '.join(map(str, wanted))}. The narration spoken over it is: \"{line['text']}\". Judge the commissioned beat, not the whole sentence: does the image clearly show that subject doing that action as the DOMINANT element of the frame, large, solid and in focus (not a faint outline, silhouette, background figure or small detail while a farm, workers or a landscape fill the picture), literal rather than symbolic, with no text or labels? Separately, does anything in the image CONTRADICT the narration (show the opposite of what the sentence says)? Answer ok=true only if the beat is shown and nothing contradicts the narration; a still cannot show a change over time, so do not reject it for failing to show a decline, a spread or a disappearance." + (f" The setting must read as {setting}: answer ok=false if the clothing, architecture or landscape belong to another era or region." if setting else "")}]}])
+                {"type": "text", "text": f"This frame was commissioned to show: {'; '.join(map(str, wanted))}. The narration spoken over it is: \"{line['text']}\". Judge the commissioned beat, not the whole sentence: does the image clearly show that subject doing that action as the DOMINANT element of the frame, large, solid and in focus (not a faint outline, silhouette, background figure or small detail while a farm, workers or a landscape fill the picture), literal rather than symbolic, with no text or labels? Separately, does anything in the image CONTRADICT the narration (show the opposite of what the sentence says)? Answer ok=true only if the beat is shown and nothing contradicts the narration; a still cannot show a change over time, so do not reject it for failing to show a decline, a spread or a disappearance. Also estimate what fraction of the frame's area the named subject occupies and return it as subject_area (0 to 1); on a phone screen a subject under a fifth of the frame is not legible." + (f" The setting must read as {setting}: answer ok=false if the clothing, architecture or landscape belong to another era or region." if setting else "")}]}])
         cost_sink.append(ep._msg_cost(r.usage))
         parsed, _ = ep._parse_script_json(r.content[0].text)
+        if isinstance(parsed, dict):
+            try:
+                area = float(parsed.get("subject_area", 1.0))
+            except (TypeError, ValueError):
+                area = 1.0
+            if parsed.get("ok") is True and area < 0.2:
+                parsed = dict(parsed, ok=False, reason=f"the subject fills only about {int(area * 100)}% of the frame; it must dominate")
         return parsed if isinstance(parsed, dict) else {"ok": None, "reason": "unparsed"}
     except Exception as exc:
         return {"ok": None, "reason": f"{type(exc).__name__}"}
@@ -714,14 +721,42 @@ def main() -> int:
     style = illustrated_story.visual_style_suffix(" Vertical portrait composition, subject in the middle third.")
     pictures, checks = [], []
     for i, line in enumerate(lines):
+        # A film image may stand in for a line only if its own plan names the line's subject
+        # (the vision check at phone size waved through a valley with a speck of a wolf for
+        # "Why kill wolves"). Otherwise the line gets a drawn frame of its visual beat.
+        pic = str(line.get("picture", ""))
+        visual = line.get("visual") if isinstance(line.get("visual"), dict) else {}
+        subject_words = {w.lower().rstrip("s") for w in re.findall(r"[a-z]+", str(visual.get("subject", "")).lower()) if len(w) > 3}
+        # The hook and the payoff carry the Short and share one composition; a film frame built
+        # for a 16:9 establishing shot puts the animal at the size of a speck (the Yellowstone
+        # hook's wolf). Those two lines are always drawn for the vertical frame.
+        if not pic.startswith("NEW:") and line.get("role") in ("hook", "payoff") and visual.get("subject"):
+            line = dict(line, picture="NEW: " + f"{visual.get('shot', 'medium')} shot of {visual.get('subject', '')}: {visual.get('action', '')}")
+            pic = line["picture"]
+            print(f"  picture {i + 1}: {line.get('role')} line is always drawn for the vertical frame")
+        if not pic.startswith("NEW:") and pic in states and subject_words:
+            named = " ".join([states[pic].get("visual", "")] + list(states[pic].get("objects") or [])).lower()
+            animal_words = {w for w in subject_words if w in ("wolf", "wolve", "elk", "toad", "beetle", "quoll", "snake", "crocodile",
+                                                             "lizard", "beaver", "aspen", "willow", "predator", "monitor", "bird", "rabbit", "cat", "rat")}
+            if animal_words and not any(w in named for w in animal_words):
+                line = dict(line, picture="NEW: " + f"{visual.get('shot', 'medium')} shot of {visual.get('subject', '')}: {visual.get('action', '')}")
+                print(f"  picture {i + 1}: film image {pic} does not show {', '.join(sorted(animal_words))}; drawing it")
         path = _picture_for(line, states, job, i, style, costs, generate, setting)
-        verdict = _check_picture(path, line, states, costs, setting) if generate else {"ok": True, "reason": "film asset, already verified"}
+        # A film image was verified for the FILM's sentence, not this one: on Yellowstone the
+        # hook "Why kill wolves" reused a valley with no wolf and the call to action a trapper
+        # setting a leg-hold trap. Every picture is checked against its own line; a film asset
+        # that fails is replaced by a drawn frame, which is then checked like any other.
+        verdict = _check_picture(path, line, states, costs, setting)
         for attempt in range(2):
-            if verdict.get("ok") is not False or not generate:
+            if verdict.get("ok") is not False:
                 break
             reason = str(verdict.get("reason", ""))[:220]
             print(f"  redrawing picture {i + 1} ({attempt + 1}/2): {reason[:100]}")
-            path = _picture_for(line, states, job, i, style, costs, generate, setting, feedback=reason)
+            if not str(line.get("picture", "")).startswith("NEW:"):
+                visual = line.get("visual") if isinstance(line.get("visual"), dict) else {}
+                line = dict(line, picture="NEW: " + (f"{visual.get('shot', 'medium')} shot of {visual.get('subject', '')}: {visual.get('action', '')}"
+                                                     if visual.get("subject") else str(line["text"])))
+            path = _picture_for(line, states, job, i, style, costs, True, setting, feedback=reason)
             verdict = _check_picture(path, line, states, costs, setting)
         pictures.append(path)
         checks.append(verdict)
