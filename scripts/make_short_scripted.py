@@ -514,8 +514,40 @@ def audit_export(lines: list[dict], chunks: list, until: float, claims: dict) ->
             "numbers_supported": (len(unsupported) == 0, unsupported)}
 
 
+def _loudnorm_linear(src: str, dst: str, target_i: float, target_tp: float, extra: str = "",
+                     pre_filter: str = "", lra: int = 20) -> tuple[str, str]:
+    """Two-pass EBU R128 normalisation with linear gain: a single fixed gain for the whole file.
+
+    One-pass loudnorm is dynamic: it rides the gain, so in every pause of the voice it lifted
+    the music bed to within 1 dB of the speech (measured on v3). Fixed gain keeps the bed where
+    it was mixed.
+    """
+    # Measure the SAME signal the second pass will normalise (pre-filter included), and allow
+    # the loudness range the material has: linear mode is refused when measured LRA exceeds
+    # the target, and a dramatic cue has a wide one.
+    pre = (pre_filter + ",") if pre_filter else ""
+    probe = subprocess.run([_ffmpeg_bin(), "-i", src, "-af", pre + f"loudnorm=I={target_i}:TP={target_tp}:LRA={lra}:print_format=json",
+                            "-f", "null", "-"], capture_output=True, text=True).stderr
+    m = re.search(r"\{[\s\S]*\}", probe)
+    stats = json.loads(m.group(0)) if m else {}
+    # loudnorm's JSON uses input_i / input_tp / input_lra / input_thresh; the second pass wants
+    # them as measured_I / measured_TP / measured_LRA / measured_thresh.
+    names = {"input_i": "I", "input_tp": "TP", "input_lra": "LRA", "input_thresh": "thresh"}
+    measured = ":".join(f"measured_{names[k]}={stats[k]}" for k in names if k in stats)
+    offset = f":offset={stats['target_offset']}" if "target_offset" in stats else ""
+    af = (f"loudnorm=I={target_i}:TP={target_tp}:LRA={lra}:{measured}{offset}:linear=true:print_format=json" if measured
+          else f"loudnorm=I={target_i}:TP={target_tp}:LRA={lra}:print_format=json")
+    log = subprocess.run([_ffmpeg_bin(), "-y", "-i", src, "-af", pre + af + (("," + extra) if extra else ""),
+                          "-ar", "48000", dst], capture_output=True, text=True).stderr
+    kind = re.search(r'"normalization_type"\s*:\s*"(\w+)"', log)
+    # Linear is the point. If the gain needed would push peaks past the ceiling, loudnorm falls
+    # back to dynamic gain-riding without saying so; the voice gets a compressor first so that
+    # cannot happen, and this records which mode actually ran.
+    return dst, (kind.group(1) if kind else "unknown")
+
+
 def _silence_fraction(audio: str) -> float:
-    out = subprocess.run([_ffmpeg_bin(), "-i", audio, "-af", "silencedetect=n=-32dB:d=0.25", "-f", "null", "-"],
+    out = subprocess.run([_ffmpeg_bin(), "-i", audio, "-af", "silencedetect=n=-38dB:d=0.2", "-f", "null", "-"],
                          capture_output=True, text=True)
     # The 0.12 s lead-in before the first word is design, not a pause; leave it out.
     pairs = re.findall(r"silence_start: ([0-9.]+)[\s\S]*?silence_duration: ([0-9.]+)", out.stderr)
@@ -603,16 +635,14 @@ def main() -> int:
     audio = os.path.join(job, "short_audio.mp3")
     raw_len = _narrate(text, raw_audio, args.voice, args.speed)
     # The voice stops for up to a second at every full stop (20% of the first cut was silence,
-    # 1.06 s of it right after the hook). Keep 0.22 s of each pause, which is how a person
-    # reading punchy copy breathes, and drop the rest.
+    # 1.06 s of it right after the hook). The TTS pauses are true silence (-75 dB, measured on
+    # decoded samples), so the trim keys on -32 dB, where a word's decay ends, and keeps 0.14 s;
+    # a word's own tail brings a pause to about 0.3 s, which is how a person reading punchy copy
+    # breathes. Then a 0.12 s lead-in and a 60 ms fade so the first word does not start mid-attack.
     _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", raw_audio, "-af",
-          # The voice's "silence" carries room tone at about -27 dB RMS, so -35 dB removed almost
-          # nothing (measured: 0.28 s of 4.0 s). -30 dB catches the pauses; 0.24 s stays.
-          # Keep 0.12 s of lead-in and fade over 60 ms: trimming to the -30 dB crossing started the
-          # file mid-attack and the opening "Why" played as a bare hiss (v3, 0.15 s).
-          "silenceremove=stop_periods=-1:stop_duration=0.28:stop_threshold=-30dB:stop_silence=0.24,"
-          "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB:start_silence=0.12,"
-          "afade=t=in:st=0:d=0.06",
+          "silenceremove=stop_periods=-1:stop_duration=0.2:stop_threshold=-32dB:stop_silence=0.14,"
+          "silenceremove=start_periods=1:start_duration=0.02:start_threshold=-45dB,"
+          "adelay=120|120,afade=t=in:st=0:d=0.06",
           "-c:a", "libmp3lame", "-q:a", "2", audio])
     until = _duration(audio)
     print(f"narration {raw_len:.2f}s -> {until:.2f}s after trimming pauses")
@@ -700,7 +730,24 @@ def main() -> int:
               "[s][n]amix=inputs=2:normalize=0,afade=t=out:st=0.12:d=0.55,volume=1.2,aresample=48000[o]",
               "-map", "[o]", boom])
         cta_at = spans[-1][0]
-        cmd = [_ffmpeg_bin(), "-v", "error", "-y", "-i", base, "-i", audio]
+        # TTS peaks sit 21 dB above its loudness; a gentle compressor brings that to about 12 dB
+        # so the +11 dB the voice needs can be applied as a fixed gain.
+        voice_n, voice_mode = _loudnorm_linear(
+            audio, os.path.join(tmp, "voice_n.wav"), -16.0, -1.5,
+            # ...and a limiter at -10.5 dBFS so the fixed gain lands under the -1.5 dBTP ceiling
+            # (measured: compressor alone left peaks at -8.8 dBTP, 1.6 dB too high, and loudnorm
+            # fell back to dynamic).
+            pre_filter="acompressor=threshold=-24dB:ratio=3:attack=4:release=90:makeup=2:knee=6,"
+                       "alimiter=limit=0.24:attack=3:release=40:level=false")
+        music_mode = ""
+        if music:
+            # About 10 dB under the voice in a pause: audible as a bed, never competing.
+            music, music_mode = _loudnorm_linear(
+                music, os.path.join(tmp, "music_n.wav"), -26.0, -3.0,
+                extra=f"atrim=0:{until:.3f},afade=t=in:st=0:d=0.4,"
+                      f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8")
+        print(f"loudness normalisation: voice {voice_mode}" + (f", music {music_mode}" if music else ""))
+        cmd = [_ffmpeg_bin(), "-v", "error", "-y", "-i", base, "-i", voice_n]
         if music:
             cmd += ["-i", music]
         cmd += ["-i", riser, "-i", boom]
@@ -713,16 +760,12 @@ def main() -> int:
             nxt = f"[v{k}]"
             chain.append(f"{prev}[{first_png + k}:v]overlay=0:0:enable='between(t,{s:.3f},{e:.3f})'{nxt}")
             prev = nxt
-        fx = (f"[{riser_idx}:a]adelay={int(max(0, cta_at - 1.3) * 1000)}|{int(max(0, cta_at - 1.3) * 1000)}[r];"
-              f"[{boom_idx}:a]adelay={int(cta_at * 1000)}|{int(cta_at * 1000)}[b]")
-        if music:
-            chain.append(f"[2:a]atrim=0:{until:.3f},loudnorm=I=-33:TP=-9:LRA=7,afade=t=in:st=0:d=0.4,"
-                         f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8[m];" + fx + ";"
-                         f"[1:a][m][r][b]amix=inputs=4:duration=first:dropout_transition=0:normalize=0,"
-                         f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
-        else:
-            chain.append(fx + f";[1:a][r][b]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
-                         f"loudnorm=I=-15:TP=-1.5:LRA=9[a]")
+        # Riser and boom are synthesised near full scale; scale them to sit under the voice.
+        fx = (f"[{riser_idx}:a]volume=0.22,adelay={int(max(0, cta_at - 1.3) * 1000)}|{int(max(0, cta_at - 1.3) * 1000)}[r];"
+              f"[{boom_idx}:a]volume=0.35,adelay={int(cta_at * 1000)}|{int(cta_at * 1000)}[b]")
+        inputs = "[1:a][2:a][r][b]" if music else "[1:a][r][b]"
+        chain.append(fx + f";{inputs}amix=inputs={4 if music else 3}:duration=first:dropout_transition=0:normalize=0,"
+                     f"alimiter=limit=0.92:level=false[a]")
         amap = "[a]"
         cmd += ["-filter_complex", ";".join(chain), "-map", prev, "-map", amap,
                 "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
@@ -736,7 +779,7 @@ def main() -> int:
     package = {
         "short": out_path, "seconds": round(until, 2), "title": (_headline_from(title).title() + " #Shorts")[:100],   # no unexplained number in the title either
         "lines": lines, "openings": openings, "headline": headline, "music": music and os.path.basename(music),
-        "music_credit": music_credit,
+        "music_credit": music_credit, "voice_norm": voice_mode, "music_norm": music_mode,
         "slots": [{"start": round(a, 2), "end": round(b, 2), "picture": os.path.basename(p_), "framing": f_} for a, b, p_, f_ in slots],
         "captions": [{"start": round(s_, 2), "end": round(e_, 2), "text": " ".join(g)} for s_, e_, g in chunks],
         "words": words_total, "pictures": pictures, "picture_checks": checks,
