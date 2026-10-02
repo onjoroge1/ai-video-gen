@@ -1695,6 +1695,42 @@ def _subject_terms(title: str) -> list:
     return [w for w in words if w.lower() not in _HOOK_STOP and len(w) > 2]
 
 
+def _ensure_lead_spoken(script: dict, log=lambda message: None) -> bool:
+    """Put the hook and the cold open back at the front of scene 1; True when narration changed.
+
+    Idempotent (finalize_narration strips a lead it wrote before re-adding it), so it is safe
+    after the fact-check, the editor's revision and a resume. The cold open's claim refs are
+    restored on scene 1 the same way the writer set them.
+    """
+    scenes = script.get("scenes") or []
+    hook = _s(script.get("hook")).strip()
+    cold = _s(script.get("_cold_open")).strip()
+    if not scenes or not (hook or cold) or not script.get("_compiled_story"):
+        return False
+    import causal_story as _cs
+    before = _s(scenes[0].get("narration"))
+    for scene in scenes:
+        scene.setdefault("chapter", 0)
+    _cs.finalize_narration(scenes, hook=hook, cold_open=cold,
+                           format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG))
+    if cold:
+        refs = scenes[0].get("claim_refs")
+        refs = refs if isinstance(refs, list) else []
+        eid = next((_s(r.get("evidence_id")) for r in refs
+                    if isinstance(r, dict) and _s(r.get("evidence_id"))), "e01")
+        spoken = cold.rstrip(".!?") + "."
+        spoken = spoken[0].upper() + spoken[1:]
+        for cid in (script.get("_cold_open_claim_refs") or []):
+            if not any(isinstance(r, dict) and r.get("claim_id") == cid
+                       and r.get("narration_phrase") == spoken for r in refs):
+                refs.append({"claim_id": cid, "evidence_id": eid, "narration_phrase": spoken})
+        scenes[0]["claim_refs"] = refs
+    changed = _s(scenes[0].get("narration")) != before
+    if changed:
+        log("Lead restored at the front of scene 1 (hook" + (" + cold open" if cold else "") + ")")
+    return changed
+
+
 def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
     """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
 
@@ -1972,6 +2008,15 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
         "state, in their words for any number or mechanism; add no fact that no claim states; "
         "the hook is exactly the first sentence of the first scene; narration never gives visual "
         "or editorial directions ('picture that', 'look again', 'here is the answer').")
+    _lead_hook = _s(script.get("hook")).strip()
+    _lead_cold = _s(script.get("_cold_open")).strip()
+    if _lead_hook:
+        # The lead is spoken and planned: the first scene opens with the hook and the cold open
+        # verbatim. Killer bees (2026-10-02): the revision rewrote scene 1 from its setup event,
+        # the fallback below then made that setup sentence the hook, and the cold open was gone.
+        system += (f' The first scene MUST begin with the hook verbatim: "{_lead_hook}"'
+                   + (f' and then the cold open verbatim: "{_lead_cold}"' if _lead_cold else "")
+                   + "; do not restate either anywhere else.")
     system += nature_channel.writing_rules_block(_TOPIC_CHANNEL.get())
     body = (f'TITLE: {_s(script.get("title"))}\nQUESTION: {question}\n\n'
             + "".join(blocks) + "\nEDITOR'S REVISION NOTE (apply exactly this, nothing else):\n"
@@ -1996,8 +2041,9 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
     first = _s(script["scenes"][0].get("narration"))
     if hook and first.lower().startswith(hook.lower()[:40]):
         script["hook"] = hook
-    else:
+    elif not _lead_hook:
         script["hook"] = re.split(r"(?<=[.!?])\s+", first, maxsplit=1)[0]
+    # else: the original hook stands and _ensure_lead_spoken puts it back in front of scene 1.
     script["_revision_note"] = note
     script.pop("_claim_validation", None)
     total = sum(len(_s(s.get("narration")).split()) for s in script["scenes"])
@@ -11360,6 +11406,11 @@ def run_explainer_pipeline(
 
     if illustrated_story_on:
         log("stage:Building illustrated storyboard...")
+        # The lead is spoken: every pass that rewrote narration (fact-check, revision, refit)
+        # could have pushed the hook and cold open out of scene 1. Re-applied here, once, then
+        # the bindings that depend on the narration text are re-derived.
+        if _ensure_lead_spoken(script, log):
+            rederive_narration_bindings(script, log, research_dossier)
         # Last chance before the gate that measures it. LONG_HOOK was the single remaining
         # failure on an otherwise renderable draft — 19 words against a budget of 18.
         script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)

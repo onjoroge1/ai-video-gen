@@ -71,3 +71,19 @@ def test_description_meta_scrub_and_sources():
                          {"claim_refs": [{"claim_id": "c1"}]}]}
     assert ep.description_sources(script) == [("nps.gov", "https://www.nps.gov/yell/a"),
                                               ("doi.org", "https://doi.org/10.1/b")]
+
+
+def test_lead_is_restored_after_a_pass_dropped_it():
+    script = {"hook": "Brazil imported African bees to make more honey, and twenty-six queens escaped",
+              "_cold_open": "An escaped swarm boils from a hive box as a beekeeper backs away",
+              "_cold_open_claim_refs": ["c14"], "_compiled_story": True,
+              "scenes": [{"narration": "European honey bees had been introduced in the 1600s. Brazil wanted more.",
+                          "claim_refs": [{"claim_id": "c01", "evidence_id": "e01", "narration_phrase": "Brazil wanted more."}]},
+                         {"narration": "In 1956 African queens arrived."}]}
+    assert ep._ensure_lead_spoken(script)
+    first = script["scenes"][0]["narration"]
+    assert first.startswith("Brazil imported African bees to make more honey, and twenty-six queens escaped. "
+                            "An escaped swarm boils from a hive box as a beekeeper backs away. European honey bees")
+    assert any(r["claim_id"] == "c14" for r in script["scenes"][0]["claim_refs"])
+    assert not ep._ensure_lead_spoken(script)          # idempotent: nothing to change the second time
+    assert script["scenes"][0]["narration"] == first

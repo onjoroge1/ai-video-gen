@@ -242,6 +242,12 @@ _UNVERIFIABLE_WORDS = frozenset((
     "flinch", "mid-flinch", "flinching", "mood", "expression", "gaze", "glance", "pose",
     "posture", "grip", "shadowed", "shadow", "shadows", "silhouetted", "backlit", "glowing",
     "dramatic", "ominous", "menacing", "serene", "peaceful", "eerie", "watchful", "uneasy",
+    # Lineage and provenance are not visible in pixels. Killer bees (2026-10-02): a state
+    # required a "hybrid flight path" and the verifier rejected three redraws because "hybrid
+    # bee lineage cannot be verified from visible pixels alone", killing the first tranche.
+    "hybrid", "hybrids", "hybridized", "hybridised", "africanized", "africanised", "crossbred",
+    "cross-bred", "purebred", "pure-bred", "lineage", "genetic", "genetically", "descendant",
+    "descendants", "native", "non-native", "invasive", "feral", "imported", "introduced",
 ))
 _UNVERIFIABLE_PHRASES = (
     r"\bwith\s+(?:\w+\s+){0,3}shadows?(?:\s+frozen\s+mid-flinch)?",
