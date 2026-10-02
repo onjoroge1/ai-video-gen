@@ -27,6 +27,9 @@ RENDERED_GATE_VERSION = 2
 RELEASE_SCORE = 85
 OPENING_AVG_STATE_RANGE = (1.8, 3.2)
 OPENING_MAX_STATE_SECONDS = 3.5
+# A generated-motion shot is visual change for the length of its clip; it is a hold only past
+# that. 5 s clips plus a frame of slack (longform_shots.MOTION_CLIP_SECONDS).
+MOTION_HOLD_ALLOWANCE_SECONDS = 5.25
 DIAGNOSTIC_WATERMARK = "REJECTED DIAGNOSTIC — NOT FOR PUBLICATION"
 MIN_CALIBRATION_EXAMPLES_PER_CLASS = 20
 MIN_CALIBRATION_BALANCED_ACCURACY = 0.70
@@ -700,7 +703,10 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         "unverified_cut_count": sum(not frame.get("asset_verification_passed") for frame in frames),
         "average_visual_state_sec": round(avg_state, 3),
         "max_visual_state_sec": round(max_state, 3),
-        "long_hold_count": sum(duration > OPENING_MAX_STATE_SECONDS for duration in durations),
+        "long_hold_count": sum(
+            duration > (MOTION_HOLD_ALLOWANCE_SECONDS if shot.get("kind") == "i2v"
+                        else OPENING_MAX_STATE_SECONDS)
+            for shot, duration in zip(shots, durations)),
         "bolt_shot_count": expected_bolt,
         "bolt_shot_ratio": round(expected_bolt / max(1, len(shots)), 3),
         # Whether this lane HAS a mascot to count, carried so the scorer can tell "Bolt was

@@ -222,7 +222,11 @@ def _shot(
     }
 
 
-def split_long_holds(shots: list[dict], *, max_hold: float | None = None) -> list[dict]:
+MOTION_CLIP_SECONDS = 5.0   # a generated clip's own length; a longer motion shot is slowed to fit
+
+
+def split_long_holds(shots: list[dict], *, max_hold: float | None = None,
+                     motion_seconds: float = MOTION_CLIP_SECONDS) -> list[dict]:
     """Cut every still that would hold past the ceiling into parts on the SAME verified picture.
 
     The rendered gate rejects any still held longer than MAX_VISUAL_STATE_SECONDS, per shot, and
@@ -255,7 +259,34 @@ def split_long_holds(shots: list[dict], *, max_hold: float | None = None) -> lis
     out: list[dict] = []
     for shot in shots:
         duration = float(shot.get("duration") or 0.0)
-        if shot.get("kind") != "still" or duration <= ceiling + 1e-9:
+        kind = shot.get("kind")
+        if kind == "i2v":
+            # A motion shot longer than its clip is not more motion: the renderer SLOWS the clip
+            # to fill the shot (killer bees, 2026-10-02: a 5 s swarm clip stretched over the
+            # 11.7 s lead, slowed 2.3x, and inspected as one long hold). The clip keeps its own
+            # length; the remainder becomes still parts on the same accepted picture below.
+            if duration <= float(motion_seconds) + 1e-9:
+                out.append(shot)
+                continue
+            start = float(shot.get("start_sec") or 0.0)
+            clip = float(motion_seconds)
+            out.append(dict(shot, duration=round(clip, 3), end_sec=round(start + clip, 3)))
+            rest = duration - clip
+            parts = math.ceil(rest / ceiling)
+            step = rest / parts
+            for part in range(parts):
+                part_start = start + clip + part * step
+                tighten = part % 2 == 0
+                out.append(dict(
+                    shot, kind="still", duration=round(step, 3), start_sec=round(part_start, 3),
+                    end_sec=round(part_start + step, 3),
+                    transition="push_to_detail" if tighten else "pull_to_wide",
+                    motion="locked" if tighten else ("pan_left" if (part // 2) % 2 == 0 else "pan_right"),
+                    anchor_phrase="", semantic_aligned=False, new_information=False,
+                    verified_visible_information=False, asset_strategy="hold_split",
+                    timing_source="hold_split"))
+            continue
+        if kind != "still" or duration <= ceiling + 1e-9:
             out.append(shot)
             continue
         parts = math.ceil(duration / ceiling)

@@ -66,7 +66,9 @@ def test_parts_alternate_push_and_wide_return_on_the_same_source():
 
 def test_short_stills_and_motion_clips_are_untouched():
     still = {"kind": "still", "source": "a", "duration": 3.5, "start_sec": 0.0, "end_sec": 3.5}
-    clip = {"kind": "i2v", "source": "b", "duration": 8.0, "start_sec": 3.5, "end_sec": 11.5}
+    # A motion shot within its clip's own length is motion for all of it. Past that length the
+    # renderer slows the clip to fit, so the remainder is handed to stills (test_motion_hold_split).
+    clip = {"kind": "i2v", "source": "b", "duration": 5.0, "start_sec": 3.5, "end_sec": 8.5}
     assert split_long_holds([still, clip]) == [still, clip]
 
 

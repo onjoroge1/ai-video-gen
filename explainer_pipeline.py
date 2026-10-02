@@ -4157,11 +4157,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if causal_lane and is_first and _cold_text:
             opening_direction += (
                 f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
-                'narration (do not write those two sentences; they are prepended). The FIRST '
-                'visual_beat of scene 1 must SHOW that aftermath sentence: anchor_phrase taken '
-                'from its words, state_after = the visible damage, and the opening object in it. '
-                'Scene 1\'s own narration then begins the setup; its later states show the '
-                'setup.')
+                'narration (do not write those two sentences; they are prepended). The first TWO '
+                'visual_beats of scene 1 both show that aftermath: beat 1 is the wide aftermath '
+                'with the opening object in it, anchored on the first words of the hook; beat 2 is '
+                'a closer detail of the same aftermath (asset_strategy detail_reframe of beat 1), '
+                'anchored on the first words of the cold open sentence. One picture cannot hold '
+                'across both sentences. Scene 1\'s own narration then begins the setup; its later '
+                'states show the setup.')
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role and "
             f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
