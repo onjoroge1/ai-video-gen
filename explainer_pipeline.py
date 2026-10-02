@@ -2911,6 +2911,21 @@ def _cold_open_correction(plan: dict, research_dossier: dict | None) -> str:
         issues.append({"code": "COLD_OPEN_UNCITED",
                        "message": "cold_open.claim_refs must name a claim from the ledger that "
                                   "supports the aftermath it shows"})
+    if text and not issues:
+        # Entailment, judged now for cents rather than after the TTS. The first killer bees
+        # cold open put a beekeeper and a grove into a claim about twenty-six escaped queens.
+        try:
+            import claim_entailment as ce
+            cited = [_s(c.get("claim")) for c in ((research_dossier or {}).get("claims") or [])
+                     if isinstance(c, dict) and _s(c.get("claim_id")) in refs and _s(c.get("claim"))]
+            verdict = ce.narration_fidelity("\n".join(cited), text) if cited else None
+            if verdict and not ce.is_retryable(verdict) and not verdict.get("passed"):
+                issues.append({"code": "COLD_OPEN_EXCEEDS_CLAIM",
+                               "message": "the cold open shows more than its cited claims support: "
+                                          + ", ".join(verdict.get("unsupported_details") or [])
+                                          + "; show only what the claim states"})
+        except Exception as exc:  # the judge being out is not a planner defect
+            print(f"[cold-open] entailment check skipped: {type(exc).__name__}")
     if not issues:
         return ""
     return ("\n\nThe sheet was returned without a usable cold_open: "
