@@ -601,6 +601,8 @@ def main() -> int:
     ap.add_argument("--out", default="")
     ap.add_argument("--headline", default="", help="override the on-screen headline")
     ap.add_argument("--music", default="tense", help="music_assets mood: tense|dramatic|energetic|upbeat|corporate|nostalgic")
+    ap.add_argument("--music-lufs", type=float, default=-26.0,
+                    help="bed loudness; the voice is -16, so -26 sits about 10 dB under it (measured 16 dB under in pauses on the tense cue)")
     ap.add_argument("--reuse-script", action="store_true",
                     help="keep the lines in short_package.json instead of writing new ones")
     args = ap.parse_args()
@@ -743,7 +745,7 @@ def main() -> int:
         if music:
             # About 10 dB under the voice in a pause: audible as a bed, never competing.
             music, music_mode = _loudnorm_linear(
-                music, os.path.join(tmp, "music_n.wav"), -26.0, -3.0,
+                music, os.path.join(tmp, "music_n.wav"), args.music_lufs, -3.0,
                 extra=f"atrim=0:{until:.3f},afade=t=in:st=0:d=0.4,"
                       f"afade=t=out:st={max(0, until - 0.8):.3f}:d=0.8")
         print(f"loudness normalisation: voice {voice_mode}" + (f", music {music_mode}" if music else ""))
