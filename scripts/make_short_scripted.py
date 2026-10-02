@@ -760,10 +760,10 @@ def main() -> int:
             verdict = _check_picture(path, line, states, costs, setting)
         pictures.append(path)
         checks.append(verdict)
-    # Extra pictures for long lines: unused film images, else nothing.
-    used = set(pictures)
-    extra = [s["path"] for s in states.values() if s["path"] and s["path"] not in used]
-    slots = _slots(spans, pictures, extra)
+    # A long line's second slot is a detail crop of ITS OWN picture, never a borrowed film
+    # image: the borrowed ones were unchecked against the line (a wolfless valley under
+    # "from eating plants?", the film's tilted-block metaphor under the call to action).
+    slots = _slots(spans, pictures, [])
 
     out_path = args.out or os.path.join(job, "short.mp4")
     with tempfile.TemporaryDirectory(prefix="short_") as tmp:
