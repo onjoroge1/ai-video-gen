@@ -48,7 +48,7 @@ Return ONLY JSON:
             "picture": "state:s001:e01 or NEW: ..."}]}
 
 Story shape (6 lines, 55 to 65 words; a listener holds about one new noun per second, so name few things):
-- openings: THREE candidate first lines, each a QUESTION of at most 10 words ending with "?", about the INTRODUCED or REMOVED animal itself and the human choice: why would people bring in / wipe out a thing that does X ("Why would anyone import a toad that kills what eats it?"). The answer must be a contradiction the viewer can SEE in picture 1. Not about a bystander species, no place names, dates or numbers. Line 1 (role hook) is one of them, verbatim.
+- openings: THREE candidate first lines, each a QUESTION of at most 10 words ending with "?", about the INTRODUCED or REMOVED animal itself and the human choice: why would people bring in / wipe out a thing that does X ("Why would anyone import a toad that kills what eats it?"). X must be a DOCUMENTED fact from the ledger (the toad's poison kills predators), never a hypothesised or contested cause the EDITORIAL CONSTRAINTS mark as disputed ("wolves kept the elk from eating the park" is the contested cascade: ask instead why a park would kill its own wolves). The answer must be a contradiction the viewer can SEE in picture 1. Not about a bystander species, no place names, dates or numbers. Line 1 (role hook) is one of them, verbatim.
 - line 2 (role decision), at most 9 words: the country or the people and what for, answering the question ("Australia did it to kill sugar cane beetles."). Never an agency, bureau, department or official by name. Not the same first word as line 1.
 - line 3 (role mechanism), at most 8 words: what became of that plan, as an OUTCOME in plain words ("It barely helped the cane."), never a reason for it; the EDITORIAL CONSTRAINTS below forbid presenting one hypothesised reason as the explanation.
 - line 4 (role consequence): the backfire, naming the animals that paid for it ("But crocodiles, lizards and quolls died swallowing the toads.").
@@ -120,6 +120,7 @@ JARGON = re.compile(r"\b(monitored|significantly|dramatically|documented|populat
 
 
 def _validate(lines: list[dict], claims: dict, states: dict, openings: list | None = None) -> list[str]:
+    content_nouns = globals()['content_nouns']
     errs = []
     if not 6 <= len(lines) <= 7:
         errs.append(f"{len(lines)} lines; need 6-7")
@@ -151,9 +152,11 @@ def _validate(lines: list[dict], claims: dict, states: dict, openings: list | No
         if len(lines) > 2:
             mech = str(lines[2].get("text", ""))
             # An outcome, not a reason: "It barely helped the cane", never "the beetles lived high".
-            if re.search(r"\b(because|beyond|lived|reach|reached|high|since|instead of)\b", mech, re.I) or not re.search(
-                    r"\b(barely|hardly|failed|fail|didn'?t|never|still|kept|stayed|no better|unchanged|worked|went on|carried on|made no|little)\b", mech, re.I):
-                errs.append("line 3 must state the OUTCOME of the plan in plain words (barely helped / failed / changed nothing), not a reason for it")
+            # An outcome is recognised by the absence of explanation, not by a word list: the
+            # list ("barely helped", "failed") fit an introduction story and refused every honest
+            # outcome of a removal ("the wolves were gone and the elk multiplied") on Yellowstone.
+            if re.search(r"\b(because|beyond|lived|reach|reached|too high|since|instead of|so that|in order)\b", mech, re.I):
+                errs.append("line 3 must state what BECAME of the plan in plain words, not a reason for it")
         if lines and len(lines) > 4:
             hook_words = {w.lower().strip(",.?!") for w in str(lines[0].get("text", "")).split() if len(w) > 3}
             pay_words = {w.lower().strip(",.?!") for w in str(lines[4].get("text", "")).split() if len(w) > 3}
@@ -214,6 +217,9 @@ def _validate(lines: list[dict], claims: dict, states: dict, openings: list | No
             errs.append(f"line {i} names no picture")
         elif not pic.startswith("NEW:") and states and pic not in states:
             errs.append(f"line {i} names unknown picture {pic}")
+    nouns = content_nouns(lines)
+    if len(nouns) > 24:
+        errs.append(f"the Short names {len(nouns)} distinct things; at most 24 (drop a list or an adjective-noun)")
     if len(all_numbers) > 1:
         errs.append(f"{len(all_numbers)} different numbers ({', '.join(sorted(all_numbers))}); at most one")
     if shots and ("close-up" not in shots or "wide" not in shots):
