@@ -71,6 +71,20 @@ def main() -> int:
             if line.strip().lower().startswith("tags:"):
                 tags = [t.strip() for t in line.split(":", 1)[1].split(",") if t.strip()]
                 break
+    # YouTube rejects the whole upload ("invalidTags") for one tag over 30 characters or one
+    # holding < > or quotes; the description's Tags line is written for readers, not the API.
+    # Measured on the cane toad re-cut (2026-10-02): five of its 17 tags were 34-44 characters.
+    cleaned: list[str] = []
+    total = 0
+    for tag in tags:
+        tag = tag.replace("<", "").replace(">", "").replace('"', "").strip()
+        if not tag or len(tag) > 30 or tag.lower() in {t.lower() for t in cleaned}:
+            continue
+        if total + len(tag) + 2 > 480:
+            break
+        cleaned.append(tag)
+        total += len(tag) + 2
+    tags = cleaned
     body = {
         "snippet": {"title": title, "description": description[:5000], "tags": tags[:30],
                     "categoryId": CATEGORY_EDUCATION, "defaultLanguage": "en"},
