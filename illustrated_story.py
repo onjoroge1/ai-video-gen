@@ -335,7 +335,11 @@ def build_storyboard(script: dict, question: str) -> dict:
             scene["causal_role"] = step["role"]
     causal = cs.validate_causal_story({
         "runtime_sec": round(spoken, 1),
-        "hook": {"line": _text(script.get("hook"))},
+        "hook": {"line": _text(script.get("hook")),
+                 "cold_open": _text(script.get("_cold_open")),
+                 # Held only on scripts planned under the cold-open contract: a checkpoint or
+                 # cached script written before it carries no key and is judged as before.
+                 "require_cold_open": "_cold_open" in script},
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made

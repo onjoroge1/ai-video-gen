@@ -395,7 +395,11 @@ _RATE_OPENAI_SCRIPT_OUT = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")
 _WEB_SEARCH_MAX_USES = 5
 # Spoken after the hook and before "Step one", exactly as both references do. It sets the
 # register and licenses simplification; measured identical in both reference videos.
-_CAUSAL_FORMAT_TAG = "explained like you are five"
+# The spoken lead tag after the hook ("Explained like you are five"). It was copied from the
+# reference channel's DNA and read as a leaked instruction in the cane toad film (2026-10-02):
+# a browse viewer who clicked a FATAL ERROR thumbnail hears a summary, then a tagline, then
+# 48 s of setup. Off by default for every channel; CAUSAL_FORMAT_TAG=... restores it.
+_CAUSAL_FORMAT_TAG = os.environ.get("CAUSAL_FORMAT_TAG", "").strip()
 _WEB_SEARCH_COST_CEILING = float(os.environ.get("WEB_SEARCH_COST_CEILING_USD", "0.10"))
 
 # Pre-spend ESTIMATE only (actual spend is read from real usage tokens per call).
@@ -2835,6 +2839,39 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         return ""
 
 
+def _plan_cold_open(plan: dict) -> tuple[str, list[str]]:
+    """The planner's cold open as (sentence, claim_refs); ("", []) when it wrote none."""
+    raw = plan.get("cold_open") if isinstance(plan, dict) else None
+    if isinstance(raw, str):
+        return raw.strip(), []
+    if not isinstance(raw, dict):
+        return "", []
+    refs = [_s(r).strip() for r in (raw.get("claim_refs") or []) if _s(r).strip()]
+    return _s(raw.get("text")).strip(), refs
+
+
+def _cold_open_correction(plan: dict, research_dossier: dict | None) -> str:
+    """Why the planner's cold open is unusable, as a re-ask; "" when it passes.
+
+    Checked BEFORE the sheet is compiled further so a missing sentence costs one planner call,
+    not a draft: the storyboard gate holds the same rule and fails the run pre-spend.
+    """
+    import causal_story as _cs
+    text, refs = _plan_cold_open(plan)
+    issues = _cs.check_cold_open(text, _s(plan.get("hook")))
+    known = {_s(c.get("claim_id")) for c in ((research_dossier or {}).get("claims") or [])
+             if isinstance(c, dict)}
+    if text and known and not [r for r in refs if r in known]:
+        issues.append({"code": "COLD_OPEN_UNCITED",
+                       "message": "cold_open.claim_refs must name a claim from the ledger that "
+                                  "supports the aftermath it shows"})
+    if not issues:
+        return ""
+    return ("\n\nThe sheet was returned without a usable cold_open: "
+            + "; ".join(f"{_s(i.get('code'))}: {_s(i.get('message'))}" for i in issues)
+            + ". Return the whole sheet again with cold_open fixed and everything else kept.")
+
+
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
@@ -3688,6 +3725,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 print("  ✓ compile retry succeeded")
             else:
                 print("  ✗ compile retry still does not compile — failing on the original")
+        # The cold open is checked here, where a miss costs one planner call. Left to the
+        # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
+        _cold_fix = _cold_open_correction(plan, research_dossier)
+        if _cold_fix and _roles.get("compiled"):
+            print("Beat sheet has no usable cold open — re-asking the planner once")
+            _retry_plan, _retry_cost = _ask_planner(_cold_fix)
+            cost += _retry_cost
+            _retry_beats = _beats_of(_retry_plan)
+            _retry_roles = _compiler.compile_roles(
+                _retry_beats, sheet_engine_id, _claims_for_roles)
+            if _retry_roles.get("passed") and not _cold_open_correction(_retry_plan, research_dossier):
+                plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                throughline = _s(plan.get("throughline")).strip() or throughline
+                print("  ✓ cold-open retry succeeded")
+            else:
+                print("  ✗ cold-open retry did not help — keeping the original; the storyboard "
+                      "gate will report it")
         if _roles.get("compiled"):
             prepared = _planning.prepare(
                 beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
@@ -3879,7 +3934,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     wpm = max(14, min(20, total_words // max(1, n_scenes)))
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
-        beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
+        beats[0].get("_story_engine"),
+        (_s(plan.get("hook")) + " " + _plan_cold_open(plan)[0]).strip()) if causal_lane else {})
     if causal_lane:
         # ONE BEAT, SEVERAL SCENES. A beat whose budget exceeds what one scene can be illustrated
         # with becomes that many scene slots. Measured: the writer returns 4-6 visual states per
@@ -4036,6 +4092,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "and a timescale nobody researched. A beat whose event.text is empty asserts no "
             "history: write it as pure connective or rhetoric and it needs no evidence at all."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
+        _cold_text = _plan_cold_open(plan)[0] if causal_lane else ""
+        if causal_lane and is_first and _cold_text:
+            opening_direction += (
+                f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
+                'narration (do not write those two sentences; they are prepended). The FIRST '
+                'visual_beat of scene 1 must SHOW that aftermath sentence: anchor_phrase taken '
+                'from its words, state_after = the visible damage, and the opening object in it. '
+                'Scene 1\'s own narration then begins the setup; its later states show the '
+                'setup.')
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role and "
             f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
@@ -4294,13 +4359,30 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # The hook is passed in because it is SPOKEN. Until now it reached only the YouTube description
     # and the video's first words were the numeral "Step one."
     _narration_repairs = []
+    _cold_open, _cold_refs = _plan_cold_open(plan) if causal_lane else ("", [])
     if causal_lane:
         import causal_story as _cs
         for _scene in all_scenes:
             _scene.setdefault("chapter", 0)
         _narration_repairs = _cs.finalize_narration(
             all_scenes, hook=_s(plan.get("hook")),
-            format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG))
+            format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG),
+            cold_open=_cold_open)
+        # The cold open is narration that asserts history, so it is cited like any other
+        # sentence: the claim check and the phrase re-binding read these refs.
+        if _cold_open and _cold_refs and all_scenes:
+            _refs = all_scenes[0].get("claim_refs")
+            _refs = _refs if isinstance(_refs, list) else []
+            _eid = next((_s(r.get("evidence_id")) for r in _refs
+                         if isinstance(r, dict) and _s(r.get("evidence_id"))), "e01")
+            _spoken = _cold_open.rstrip(".!?") + "."
+            _spoken = _spoken[0].upper() + _spoken[1:]
+            for _cid in _cold_refs:
+                if not any(isinstance(r, dict) and r.get("claim_id") == _cid
+                           and r.get("narration_phrase") == _spoken for r in _refs):
+                    _refs.append({"claim_id": _cid, "evidence_id": _eid,
+                                  "narration_phrase": _spoken})
+            all_scenes[0]["claim_refs"] = _refs
 
     if causal_lane and _roles.get("compiled"):
         _compiler.refresh_story_positions(all_scenes)
@@ -4310,6 +4392,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     return {
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
+        "_cold_open": _cold_open,
+        "_cold_open_claim_refs": _cold_refs,
         "style_mode": style_mode,
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
@@ -8092,6 +8176,59 @@ def _write_grade(grade: dict, out_dir: str) -> str:
     return path
 
 
+# A model's preamble inside the JSON it was told to return. The Four Pests description shipped
+# with "To give viewers clear context, rank for key search terms, and drive viewer engagement,
+# use this optimized layout:" as its first line (found in Studio 2026-10-02); summary was only
+# checked for being non-empty.
+_DESC_META = re.compile(
+    r"(optimi[sz]ed layout|rank for key search|drive viewer engagement|use this layout|"
+    r"here(?:'s| is) (?:an? |the )?(?:optimi[sz]ed|seo|youtube|revised|updated) |"
+    r"as an? (?:ai|seo|youtube) |\bseo strateg|description copy|first sentence names)",
+    re.I)
+
+
+def _scrub_description_meta(text: str) -> str:
+    """Drop lines that talk about the description instead of the video."""
+    kept = []
+    for line in _s(text).splitlines():
+        probe = line.strip()
+        if not probe:
+            kept.append(line)
+            continue
+        if _DESC_META.search(probe):
+            continue
+        # A short lead-in that ends in a colon is a preamble ("Here is the description:").
+        if probe.endswith(":") and len(probe) < 160 and not kept:
+            continue
+        kept.append(line)
+    out = "\n".join(kept).strip()
+    return re.sub(r"\n{3,}", "\n\n", out)
+
+
+def description_sources(script: dict, limit: int = 5) -> list[tuple[str, str]]:
+    """(label, url) for the sources the delivered narration cites most, for the description.
+
+    Only claims a scene actually cites count, so a dossier's unused research never appears as a
+    source of the film. Label is the site, not the claim.
+    """
+    dossier = script.get("_research_dossier") if isinstance(script, dict) else None
+    claims = {_s(c.get("claim_id")): c for c in ((dossier or {}).get("claims") or [])
+              if isinstance(c, dict)}
+    counts: dict[str, int] = {}
+    for scene in (script.get("scenes") or []):
+        for ref in (scene.get("claim_refs") or []):
+            cid = _s(ref.get("claim_id") if isinstance(ref, dict) else ref)
+            url = _s((claims.get(cid) or {}).get("source_url")).strip()
+            if url.startswith("http"):
+                counts[url] = counts.get(url, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    out = []
+    for url, _n in ranked[:limit]:
+        host = re.sub(r"^www\.", "", re.sub(r"^https?://", "", url).split("/")[0])
+        out.append((host, url))
+    return out
+
+
 _DESC_DISCLOSURE = ("🤖 Created with AI assistance (synthetic narration and AI-generated "
                     "visuals); disclosed as altered/synthetic content.")
 
@@ -8149,7 +8286,8 @@ def _build_chapters(scene_starts: list, picks: list) -> list:
 def generate_description(title: str, hook: str, transcript: str, out_dir: str,
                          cost_sink: list | None = None, question: str = "",
                          video_format: str = "landscape", scene_narr: list | None = None,
-                         scene_durs: list | None = None) -> str:
+                         scene_durs: list | None = None,
+                         sources: list | None = None) -> str:
     """Write a ready-to-paste, SEO-rich YouTube description (best-effort Claude; template fallback).
 
     Long-form gets the full package: keyword-front-loaded hook + summary, EXACT auto-chapters
@@ -8185,8 +8323,11 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
     fmt_word = "a vertical Short" if social else "a long-form video"
     sys = (
         "You are a YouTube SEO strategist. Write description COPY for an explainer video and return "
-        "ONLY JSON. Front-load the primary keyword/topic in the first sentence (it shows in search "
-        "and above the fold). Be accurate to the transcript; for political/historical topics stay "
+        "ONLY JSON. The first sentence of the summary states WHAT WENT WRONG in plain words with the "
+        "primary keyword in it (it is the only line browse viewers see above the fold); the second "
+        "sentence says what the film follows. Plain prose about the video only: never describe the "
+        "description, the layout, SEO, or your task, and no preamble of any kind. Qualify contested "
+        "claims the way the narration does. Be accurate to the transcript; for political/historical topics stay "
         "NEUTRAL and factual — do NOT name real living politicians, take sides, or imply false "
         "consequences. No clickbait that the video doesn't deliver.\n"
         "TAG ARCHITECTURE (critical for a new channel — specific tags are the MATCHMAKER that picks the "
@@ -8223,9 +8364,10 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
         o, _ = _parse_script_json(r.content[0].text)
-        if not isinstance(o, dict) or not _s(o.get("summary")).strip():
+        summary = _scrub_description_meta(_s(o.get("summary")))
+        if not isinstance(o, dict) or not summary:
             raise ValueError("bad description JSON")
-        parts = [_s(o.get("summary")).strip()]
+        parts = [summary]
         if want_chapters:
             chapters = _build_chapters(scene_starts, o.get("chapters") or [])
             if chapters:
@@ -8236,6 +8378,8 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
             qa = [_s(q).strip() for q in (o.get("questions_answered") or []) if _s(q).strip()]
             if qa:
                 parts.append("❓ QUESTIONS ANSWERED\n" + " ".join(qa[:6]))
+            if sources:
+                parts.append("📚 SOURCES\n" + "\n".join(f"{label}: {url}" for label, url in sources[:5]))
             parts.append("Subscribe for clear, no-spin explainers on how the world really works — "
                          "new videos regularly.")
         tags = [_s(t).strip().lstrip("#").strip() for t in (o.get("hashtags") or []) if _s(t).strip()]
@@ -12940,7 +13084,8 @@ def run_explainer_pipeline(
     description_path = generate_description(
         script.get("title", question), script.get("hook", ""), full_transcript, output_dir,
         cost_sink=aux_costs, question=question, video_format=video_format,
-        scene_narr=rendered_narr, scene_durs=rendered_durs)
+        scene_narr=rendered_narr, scene_durs=rendered_durs,
+        sources=description_sources(script) if video_format != "social" else None)
     log("YouTube description written")
 
     # 4c-ii. Persist the social self-grade (if we graded one).

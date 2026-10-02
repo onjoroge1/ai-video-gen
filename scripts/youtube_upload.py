@@ -64,6 +64,13 @@ def main() -> int:
     if len(title) > 100:
         sys.exit(f"title is {len(title)} chars; YouTube allows 100")
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+    if not tags:
+        # The description's own "Tags:" line is the pipeline's tag architecture; without --tags
+        # the upload used to go out with none.
+        for line in description.splitlines():
+            if line.strip().lower().startswith("tags:"):
+                tags = [t.strip() for t in line.split(":", 1)[1].split(",") if t.strip()]
+                break
     body = {
         "snippet": {"title": title, "description": description[:5000], "tags": tags[:30],
                     "categoryId": CATEGORY_EDUCATION, "defaultLanguage": "en"},

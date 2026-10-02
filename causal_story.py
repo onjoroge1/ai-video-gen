@@ -471,6 +471,40 @@ def _check_timing(steps: list[dict], runtime_sec: float, issues: list[dict],
             mechanism["step_id"]))
 
 
+# The cold open is the aftermath sentence spoken right after the hook. The cane toad film
+# (2026-10-02) opened on a summary hook and 48 s of setup; its first visible consequence landed
+# at 52.9 s and browse viewers left at 41 s. One sentence, one picture, inside ten seconds.
+MAX_COLD_OPEN_WORDS = 22
+
+
+def check_cold_open(cold_open: str, hook_line: str = "") -> list[dict]:
+    """Provider-free shape check for the cold open; empty list when it passes."""
+    issues: list[dict] = []
+    text = _text(cold_open)
+    if not text:
+        issues.append(_issue(
+            "COLD_OPEN_MISSING",
+            "write cold_open: one sentence showing the aftermath of the fix gone wrong, spoken "
+            "right after the hook and pictured first"))
+        return issues
+    if _words(text) > MAX_COLD_OPEN_WORDS:
+        issues.append(_issue(
+            "LONG_COLD_OPEN",
+            f"the cold open is {_words(text)} words against a {MAX_COLD_OPEN_WORDS}-word budget; "
+            "it shows one picture, it does not explain"))
+    if len([part for part in re.split(r"[.!?]+", text) if part.strip()]) > 1:
+        issues.append(_issue("MULTI_SENTENCE_COLD_OPEN", "the cold open is one sentence"))
+    if re.search(r"explained like|in this video|here is the story|let'?s dive", text, re.I):
+        issues.append(_issue("COLD_OPEN_META", "the cold open narrates the video, not the damage"))
+    hook_words = {w for w in re.findall(r"[a-z]+", hook_line.lower()) if len(w) > 3 and w not in _STOPWORDS}
+    own = {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3 and w not in _STOPWORDS}
+    if hook_words and own and len(own & hook_words) / len(own) > 0.6:
+        issues.append(_issue(
+            "COLD_OPEN_RESTATES_HOOK",
+            "the cold open repeats the hook; show the aftermath the hook only promises"))
+    return issues
+
+
 def _check_hook(hook: dict, steps: list[dict], issues: list[dict],
                 short_form: bool = False) -> None:
     line = _text(hook.get("line"))
@@ -491,6 +525,8 @@ def _check_hook(hook: dict, steps: list[dict], issues: list[dict],
         issues.append(_issue(
             "MULTI_SENTENCE_HOOK",
             f"the hook is {sentences} sentences against a {max_sentences}-sentence budget"))
+    if hook.get("require_cold_open") and not short_form:
+        issues.extend(check_cold_open(_text(hook.get("cold_open")), line))
 
     withheld = _text(hook.get("withheld_subject"))
     if not withheld:
@@ -1087,7 +1123,8 @@ def speaks_chapter_markers() -> bool:
     return os.environ.get("SPOKEN_CHAPTER_MARKERS", "0") == "1"
 
 
-def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "") -> list[str]:
+def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
+                       cold_open: str = "") -> list[str]:
     """Guarantee the spoken hook, the chapter spine, and the hinge cap. Returns what it changed.
 
     THE HOOK IS SPOKEN. `script["hook"]` used to reach only the YouTube description, so the video's
@@ -1142,7 +1179,7 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "")
         number, which is what a planner that writes its own markers actually produces.
         """
         body = narration
-        parts = [part for part in (_sentence(hook), _sentence(format_tag)) if part]
+        parts = [part for part in (_sentence(hook), _sentence(cold_open), _sentence(format_tag)) if part]
         removing = True
         while removing:
             removing = False
@@ -1179,7 +1216,11 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "")
             # so turning the flag off removes them wherever they came from.
             lead = ""
             if is_first_scene:
-                lead = " ".join(p for p in (_sentence(hook), _sentence(format_tag)) if p).strip()
+                # Promise, then the damage, then the (optional) tag. The cold open is the
+                # aftermath sentence the planner wrote; it puts a visible consequence inside the
+                # first ten seconds instead of after the setup.
+                lead = " ".join(p for p in (_sentence(hook), _sentence(cold_open),
+                                            _sentence(format_tag)) if p).strip()
             marker = _spoken(chapter) if is_chapter_opener and speaks_chapter_markers() else ""
             wanted = " ".join(part for part in (lead, marker, body) if part).strip()
             if wanted != narration:
