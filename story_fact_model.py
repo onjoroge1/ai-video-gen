@@ -763,6 +763,23 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
             # same sentence for its mechanism and its reversal, and collapsing them silently
             # removed the reversal, so the compiler reported the story as unsupported when the
             # real defect was that the planner never wrote a reversal at all.
+            # A REPEATABLE role that duplicates another required role is pruned, not fatal, when
+            # the sheet carries another beat of that role to do the job. Killer bees
+            # (2026-10-02): the planner wrote hybridization as the mechanism and again as one of
+            # seven escalations (the escape, the spread, Texas 1990, the stings were the others);
+            # the sheet passed every evidence check and died here, twice, as "a role is missing".
+            # With one escalation left the role really is missing and the issue stays blocking.
+            repeat_role = role in COLLAPSIBLE_ROLES and sum(
+                1 for b in (beats or []) if isinstance(b, dict)
+                and _text(b.get("role") or b.get("causal_role")).lower() == role
+                and not _text(b.get("continues"))) >= 2
+            if prior_role != role and prior_role in required and role in required and repeat_role:
+                issues.append(_issue(
+                    "DUPLICATE_EVENT_FUNCTION",
+                    f"beat {beat_id} ({role}) restates the {prior_role} ({prior_id}); collapsed, "
+                    f"the other {role} beats carry that function",
+                    beat_id=beat_id, duplicate_of=prior_id, collapsible=True))
+                break
             if (prior_role != role and prior_role in required and role in required):
                 issues.append(_issue(
                     "DUPLICATE_ACROSS_REQUIRED_ROLES",
