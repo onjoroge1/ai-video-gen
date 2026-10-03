@@ -1,0 +1,46 @@
+# The beat-sheet planner (Dramatron level 2), one case per cached research dossier, judged by
+# story_planner.score_plan and the cold-open / event-count gates. No film is rendered.
+#
+#   cd /Users/obadiah/ai-video-gen-local
+#   set -a; source <(grep -E '^OPENAI_API_KEY=' .env); set +a
+#   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/planner.yaml
+#   npx promptfoo@latest view
+description: "ReelForge beat-sheet planner, judged by the deterministic gates"
+
+providers:
+  - id: openai:chat:gpt-5.6-luna
+    label: luna
+
+prompts:
+  - id: file://prompts.py:planner
+    label: planner
+
+defaultTest:
+  assert:
+    - type: is-json
+    - type: python
+      value: file://asserts.py:plan_score
+    - type: python
+      value: file://asserts.py:plan_has_cold_open
+    - type: python
+      value: file://asserts.py:plan_event_count
+
+tests:
+  - description: cane toads (introduced species)
+    vars:
+      question: "Introducing Cane Toads to Eat Beetles Made Australia Toxic to Predators"
+      dossier: dossier_canetoad.json
+      engine: removed_keystone
+      duration: 300
+  - description: Yellowstone wolves (removed species)
+    vars:
+      question: "Yellowstone Killed Its Wolves to Protect the Elk and the Elk Ate the Park"
+      dossier: dossier_wolves.json
+      engine: removed_keystone
+      duration: 300
+  - description: killer bees (the sheet that repeated itself)
+    vars:
+      question: "Brazil Imported African Bees to Make More Honey and Twenty-Six Swarms Escaped as the Killer Bees"
+      dossier: dossier_killerbees.json
+      engine: removed_keystone
+      duration: 300

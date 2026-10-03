@@ -36,6 +36,9 @@ def main() -> int:
     parser.add_argument("--topic-channel", default="")
     parser.add_argument("--motion-mode", default="stills")   # motion returns once the scripts hold (2026-10-02)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--stop-after", choices=("plan", "script"), default="",
+                        help="plan: write plan.json/plan_for_approval.md and stop (copy to "
+                             "plan.approved.json to approve); script: stop after the narration")
     args = parser.parse_args()
 
     out = Path(args.out).resolve()
@@ -78,6 +81,8 @@ def main() -> int:
             story_format="standard_explainer",
             visual_style="illustrated_story",
             topic_channel=args.topic_channel,
+            stop_after_plan=args.stop_after == "plan",
+            stop_after_script=args.stop_after == "script",
             progress_cb=log,
         )
     except Exception as exc:  # the log file is the record; the exception text is the headline

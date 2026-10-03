@@ -1829,6 +1829,11 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     return script, cost
 
 
+class PlanApprovalRequired(RuntimeError):
+    """The beat sheet was written to plan.json / plan_for_approval.md and the operator asked to
+    stop there (stop_after_plan). Copy it to plan.approved.json, edited or not, and rerun."""
+
+
 class ScriptApprovalRequired(RuntimeError):
     """The script passed every pre-spend gate and the operator asked to approve it before render.
 
@@ -2537,6 +2542,9 @@ def _engine_runtime_fit(engine_id: str, duration_sec: float) -> dict:
 
 # Set once per run by run_explainer_pipeline from its topic_channel; read by the engine selector.
 _TOPIC_CHANNEL: contextvars.ContextVar = contextvars.ContextVar("reelforge_topic_channel", default="")
+# Planner control for the causal lane: where to write/read the plan approval files and whether
+# to stop after the plan. Set per run next to the channel; read by _generate_script_chunked.
+_PLAN_CONTROL: contextvars.ContextVar = contextvars.ContextVar("reelforge_plan_control", default={})
 
 
 def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[str]:
@@ -3728,7 +3736,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             row["n"] = i + 1                            # canonical renumber
         return rows
 
-    plan, _plan_cost = _ask_planner()
+    import story_planner as _planner
+    _control = _PLAN_CONTROL.get() or {}
+    _approved = _planner.approved_plan(_s(_control.get("output_dir"))) if causal_lane else None
+    if _approved:
+        plan, _plan_cost = _approved, 0.0
+        print(f"[plan] using the operator-approved beat sheet ({_planner.APPROVED_PLAN_FILE})")
+    elif causal_lane:
+        # DRAMATRON-STYLE: several candidate sheets, and the deterministic gates choose. One
+        # sheet asked for once gave killer bees seven escalations on three facts (2026-10-02).
+        _n = max(1, int(os.environ.get("PLAN_CANDIDATES", str(_planner.PLAN_CANDIDATES_DEFAULT)) or 1))
+        _cands, _scores, _plan_cost = [], [], 0.0
+        for _k in range(_n):
+            _p, _c = _ask_planner()
+            _plan_cost += _c
+            _cands.append(_p)
+            _scores.append(_planner.score_plan(_p, sheet_engine_id, research_dossier, duration_sec))
+        _best = _planner.choose_plan(_scores)
+        print("[plan] candidates: " + ", ".join(
+            f"#{i + 1} {s.get('score')} ({s.get('beats')} beats, {int(100 * (s.get('distinct_ratio') or 0))}% distinct"
+            f"{', cold open ok' if s.get('cold_open_ok') else ', cold open weak'})"
+            for i, s in enumerate(_scores)) + f" -> #{_best + 1}")
+        for _issue in (_scores[_best].get("issues") or [])[:6]:
+            print(f"[plan]   {_issue}")
+        plan = _cands[_best]
+        plan["_plan_score"] = _scores[_best]
+        plan["_plan_candidates"] = _scores
+        if _control.get("stop_after_plan"):
+            _path = _planner.write_plan_for_approval(
+                _s(_control.get("output_dir")) or ".", plan, _scores[_best], _scores)
+            print(f"[plan] written for approval: {_path}")
+            raise PlanApprovalRequired(
+                f"Beat sheet written to {_path}; copy plan.json to plan.approved.json and rerun "
+                "without stop_after_plan to continue.")
+    else:
+        plan, _plan_cost = _ask_planner()
     cost += _plan_cost
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
@@ -5589,6 +5631,15 @@ def rewrite_repeated_scenes(script: dict, dossier: dict, dupes: list[dict],
     again with the whole script in view. The result is accepted only if every rewritten scene
     stops repeating and no new repeat appears; otherwise the original is returned unchanged.
     """
+    import script_editor
+    defects = [{"scene": d["scene"], "code": script_editor.REPEAT,
+                "note": f"repeats scene {d['duplicate_of']} ({d['overlap']:.0%} overlap)"}
+               for d in dupes if not d.get("continuation")]
+    if not defects:
+        return script, 0.0
+    edited, cost, remaining = script_editor.edit(script, dossier, defects, cost_sink, log)
+    return edited, cost
+    # The in-function editor below is kept only as documentation of the first version.
     scenes = script.get("scenes") or []
     targets = sorted({d["scene"] for d in dupes if not d.get("continuation")})
     if not targets:
@@ -10997,6 +11048,7 @@ def run_explainer_pipeline(
     progress_cb=None,
     topic_channel: str = "",
     stop_after_script: bool = False,
+    stop_after_plan: bool = False,
     revision_note: str = "",
 ) -> dict:
 
@@ -11009,6 +11061,7 @@ def run_explainer_pipeline(
     # under generate_graded_script -> _generate_script_chunked, and every caller of those would
     # otherwise need a new positional-safe keyword for a value only the Nature channel sets.
     _TOPIC_CHANNEL.set((topic_channel or "").strip().lower())
+    _PLAN_CONTROL.set({"output_dir": output_dir, "stop_after_plan": bool(stop_after_plan)})
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
     stable_standard_longform = _stable_standard_longform(

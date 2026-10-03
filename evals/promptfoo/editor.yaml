@@ -1,0 +1,27 @@
+# The targeted editor on a delivered script with detected defects (the killer bees repeats).
+#
+#   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/editor.yaml
+description: "ReelForge targeted editor, judged by the defect detector"
+
+providers:
+  - id: openai:chat:gpt-5.6-luna
+    label: luna
+
+prompts:
+  - id: file://prompts.py:editor
+    label: editor
+
+defaultTest:
+  assert:
+    - type: is-json
+    - type: python
+      value: file://asserts.py:edit_resolves_defects
+    - type: python
+      value: file://asserts.py:edit_keeps_length
+    - type: python
+      value: file://asserts.py:no_meta_phrases
+
+tests:
+  - description: killer bees — the escape beat restates the cold open
+    vars:
+      script: script_killerbees_repeats.json
