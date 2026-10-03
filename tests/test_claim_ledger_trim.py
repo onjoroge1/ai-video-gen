@@ -99,9 +99,10 @@ def test_a_paraphrased_verdict_overshoot_drops_the_unbound_sentence():
         "She left it with its father — and came back with dinner."
 
 
-def test_the_hook_sentence_is_never_dropped_and_annotated_spans_are_clipped():
+def test_the_hook_sentence_is_never_dropped_and_unsafe_spans_are_not_clipped():
     """Job 218e75c5 (2026-09-25): the judge wrote 'with Dad (that the male takes over the egg)'
-    and the fallback deleted the spoken question instead of clipping 'with Dad'."""
+    and the fallback deleted the spoken question. Preserve that question; the unsupported
+    unbound sentence may be dropped whole, but arbitrary inline spans are no longer clipped."""
     script = {"hook": "Why does this emperor penguin look like the worst mother?",
               "scenes": [{"beat_id": "event_01", "narration": (
                   "Why does this emperor penguin look like the worst mother? She leaves her only "
@@ -113,8 +114,8 @@ def test_the_hook_sentence_is_never_dropped_and_annotated_spans_are_clipped():
         scene="event_01", details=("with Dad (that the male takes over the egg)",)))
     assert dropped == 1
     assert script["scenes"][0]["narration"] == (
-        "Why does this emperor penguin look like the worst mother? She leaves her only egg and "
-        "heads to sea. But if the chick hatches before she returns, how does the father feed it?")
+        "Why does this emperor penguin look like the worst mother? "
+        "But if the chick hatches before she returns, how does the father feed it?")
 
 
 def test_the_unbound_fallback_drops_one_sentence_per_round():

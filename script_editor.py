@@ -53,6 +53,8 @@ _SYSTEM = (
     "META_PHRASE / FILLER -- remove the phrase that narrates the video or points backwards; say "
     "the content directly. HOOK_TOO_LONG / HINGE_TOO_LONG -- cut to the budget without losing the "
     "turn. EXCEEDS_EVENT -- cut the listed unsupported details rather than hedging them. "
+    "Every repaired sentence must be grammatically complete; rewrite the sentence instead of "
+    "deleting a span that leaves a dangling preposition or removes its predicate. "
     "Return ONLY JSON: {\"scenes\": [{\"scene\": <1-based index>, \"narration\": \"...\"}]}"
 )
 
@@ -128,6 +130,7 @@ def detect_defects(script: dict, claim_report: dict | None = None) -> list[dict]
 def build_payload(script: dict, research_dossier: dict | None, defects: list[dict]) -> dict:
     """The editor's user message, shared by the pipeline and the promptfoo eval."""
     from longform_research import claim_context_for_prompt
+    import causal_story as cs
     scenes = script.get("scenes") or []
     targets = {int(d["scene"]) for d in defects if 1 <= int(d["scene"]) <= len(scenes)}
     rows = []
@@ -139,6 +142,11 @@ def build_payload(script: dict, research_dossier: dict | None, defects: list[dic
             row["event"] = (s.get("event") or {}).get("text", "")
             row["words_now"] = n
             row["words_allowed"] = f"{max(6, int(n * 0.8))}-{int(n * 1.2) + 1}"
+            codes = {d["code"] for d in defects if int(d["scene"]) == i + 1}
+            if HINGE_TOO_LONG in codes:
+                row["words_allowed"] = f"1-{cs.MAX_HINGE_WORDS}"
+            if HOOK_TOO_LONG in codes:
+                row["hook_words_allowed"] = f"1-{cs.MAX_HOOK_WORDS}"
         rows.append(row)
     return {
         "hook": _text(script.get("hook")),
@@ -187,8 +195,14 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
     candidate = json.loads(json.dumps(script))
     done = set()
     for row in rows:
-        index = int((row or {}).get("scene") or 0)
+        if not isinstance(row, dict) or type(row.get("scene")) is not int:
+            return script, round(cost, 4), defects
+        index = row["scene"]
         text = _text((row or {}).get("narration"))
+        from script_repair import broken_repair
+        if broken_repair(text):
+            log("  editor: incomplete narration repair; keeping the original")
+            return script, round(cost, 4), defects
         if index in targets and text:
             candidate["scenes"][index - 1]["narration"] = text
             done.add(index)
@@ -202,7 +216,9 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
     for index in targets:
         was = len(_text(scenes[index - 1].get("narration")).split())
         now = len(_text(candidate["scenes"][index - 1].get("narration")).split())
-        if was >= 8 and abs(now - was) / was > 0.35:
+        budget_edit = any(int(d["scene"]) == index and d["code"] in
+                          (HOOK_TOO_LONG, HINGE_TOO_LONG) for d in defects)
+        if not budget_edit and was >= 8 and abs(now - was) / was > 0.35:
             log(f"  editor: scene {index} went {was}->{now} words; keeping the original")
             return script, round(cost, 4), defects
     after = detect_defects(candidate, None)
