@@ -1169,7 +1169,7 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
         # format tag is stored lowercase ("explained like you are five") and would otherwise be
         # read mid-sentence.
         value = _text(value).rstrip(".")
-        return (value[0].upper() + value[1:] + ".") if value else ""
+        return (value[0].upper() + value[1:] + ("" if value[-1] in "?!" else ".")) if value else ""
 
     def _strip_lead(narration: str) -> str:
         """Remove a previously-applied hook, tag and marker so the rebuild is idempotent.
@@ -1189,6 +1189,9 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
         """
         body = narration
         parts = [part for part in (_sentence(hook), _sentence(cold_open), _sentence(format_tag)) if part]
+        # Recognise the old malformed question stop when restoring an existing draft.
+        parts = [legacy for part in parts for legacy in
+                 ([part + ".", part] if part.endswith(("?", "!")) else [part])]
         removing = True
         while removing:
             removing = False

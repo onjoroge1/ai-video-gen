@@ -41,7 +41,8 @@ _SYSTEM = (
     "in the order, its tone and its causal meaning; keep its word count inside the words_allowed "
     "range given for it (count them), and assert nothing "
     "beyond its `event` text: no number, date, place, named actor, motive or quantity the event "
-    "does not contain. Rules by defect: REPEAT -- the scene says what an earlier scene already "
+    "does not contain. Explicit context_events also support brief causal connections and "
+    "callbacks, without adding facts or re-explaining earlier scenes. Rules by defect: REPEAT -- the scene says what an earlier scene already "
     "said; write what that scene did NOT say: the next stretch of time, the particular, the "
     "consequence, the picture. COLD_OPEN_RESTATED -- the scene retells the opening flash-forward; "
     "tell the same moment in full and in sequence with the particulars the flash-forward withheld. "
@@ -140,6 +141,8 @@ def build_payload(script: dict, research_dossier: dict | None, defects: list[dic
         if (i + 1) in targets:
             n = len(_text(s.get("narration")).split())
             row["event"] = (s.get("event") or {}).get("text", "")
+            from story_fact_model import context_events
+            row["context_events"] = context_events(s, scenes)
             row["words_now"] = n
             row["words_allowed"] = f"{max(6, int(n * 0.8))}-{int(n * 1.2) + 1}"
             codes = {d["code"] for d in defects if int(d["scene"]) == i + 1}

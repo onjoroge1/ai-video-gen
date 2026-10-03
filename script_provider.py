@@ -280,12 +280,12 @@ class _OpenAIMessages:
         # its schema on OpenAI too, including in the durable request identity.
         requested_tools = _ignored.get("tools") or []
         choice = _ignored.get("tool_choice") or {}
-        narration_schema = (len(requested_tools) == 1
-                            and requested_tools[0].get("name") == "submit_narration_edits"
-                            and choice == {"type": "tool", "name": "submit_narration_edits"})
+        tool_name = requested_tools[0].get("name") if len(requested_tools) == 1 else None
+        narration_schema = (tool_name in {"submit_narration_edits", "submit_expanded_scenes"}
+                            and choice == {"type": "tool", "name": tool_name})
         if narration_schema:
             kwargs["response_format"] = {"type": "json_schema", "json_schema": {
-                "name": "submit_narration_edits", "strict": True,
+                "name": tool_name, "strict": tool_name == "submit_narration_edits",
                 "schema": requested_tools[0]["input_schema"]}}
         effort = reasoning_effort()
         from durable_execution import current, canonical_hash, BudgetExceeded

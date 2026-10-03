@@ -251,7 +251,8 @@ def test_yield_after_checkpoint_resumes_on_another_worker(tmp_path, monkeypatch,
     assert script["scenes"] and not judge.calls
     assert not any("Plan the sourced factual events" in p for p in prompts)
     if boundary == "script-stage-expansion-progress":
-        assert not prompts
+        # The first four scenes survived. Only the remaining batch is purchased.
+        assert len(prompts) == 1 and "NOW WRITE scenes 5-8 ONLY" in prompts[0]
 
 
 def test_cadence_reports_rhythm_without_turning_preferences_into_gates():

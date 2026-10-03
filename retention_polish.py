@@ -79,6 +79,7 @@ def apply_edits(script, response):
 
 
 def prompt(script, grade, target, floor):
+    from story_fact_model import context_events
     return (
         "Improve this sourced YouTube narration without inventing facts. Use submit_narration_edits "
         "for at most FOUR weak scenes; all others are read-only. Address the grade's named weakness. "
@@ -87,7 +88,8 @@ def prompt(script, grade, target, floor):
         "not another version of the same claim. Remove repetition, preserve uncertainty, vary "
         "sentence lengths naturally, and end with the concrete opening object and its changed meaning. "
         "Do not manufacture mystery by concealing the causal mechanism; keep it early. "
-        "Every assertion must stay inside that scene's event. Keep IDs, order, sourced cold open "
+        "Every assertion must stay inside that scene's event or its explicit context_events. "
+        "Use context only for brief causal connections and callbacks, not recaps. Keep IDs, order, sourced cold open "
         "verbatim, chapter markers, hinge <=10 words, and callback. If editing the first scene, "
         "its FIRST sentence is the new hook. No new scene, fact, date, actor, or statistic. "
         "No scene may grow by more than 8 words; total length must stay within 85%-105%. "
@@ -97,8 +99,9 @@ def prompt(script, grade, target, floor):
         + json.dumps({"cadence": script_cadence.measure(script), "grade": grade, "targets": {"overall": target, "hook": target,
             "story": target, "other_axes": floor}, "hook": script.get("hook"),
             "cold_open": script.get("_cold_open"), "contract": script.get("_story_contract"),
-            "scenes": [{k: s.get(k) for k in ("scene_id", "narration", "causal_role", "event",
-                                               "continues", "claim_refs", "chapter")}
+            "scenes": [{**{k: s.get(k) for k in ("scene_id", "narration", "causal_role", "event",
+                                               "continues", "claim_refs", "chapter")},
+                        "context_events": context_events(s, script["scenes"])}
                        for s in script["scenes"]]}, ensure_ascii=False))
 
 

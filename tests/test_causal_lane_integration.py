@@ -183,6 +183,13 @@ def _spine(n_beats):
             "parallel_cases": []}
 
 
+def _assigned_expansion(prompt):
+    """Read the actual row IDs requested, including a missing-row-only retry."""
+    if "EXPANSION RESPONSE CONTRACT:" in prompt:
+        return json.loads(prompt.rsplit("identity.\n", 1)[1])["assigned_rows"]
+    return []
+
+
 def _route(prompt, n_beats):
     """Dispatch on what the prompt asks for, so adding a call cannot silently break the mock."""
     if ("Design a SCENE-BY-SCENE BEAT SHEET" in prompt
@@ -197,10 +204,11 @@ def _route(prompt, n_beats):
     # assumption, not the pipeline's.
     asked = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
     count = (int(asked.group(2)) - int(asked.group(1)) + 1) if asked else n_beats
-    return {"scenes": [{"narration": f"Line {i + 1} of the story here.", "image_prompt": "p",
+    assigned = _assigned_expansion(prompt)
+    return {"scenes": [{"scene_id": b.get("scene_id"), "narration": f"Line {b['n']} of the story here.", "image_prompt": "p",
                         "scene_type": "real_world_example", "environment_type": "city",
                         "text_overlay": "X", "text_sub": "", "shot_type": "medium"}
-                       for i in range(count)]}
+                       for b in (assigned or [{"n": i + 1} for i in range(count)])]}
 
 
 def _capture_expansion_prompt(monkeypatch, **kwargs):
@@ -988,28 +996,29 @@ def test_truncated_expansion_splits_batch_without_losing_or_repeating_beats(monk
             matched = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
             if not matched:
                 return _reply(_route(prompt, 10))
-            lo, hi = map(int, matched.groups())
+            assigned = _assigned_expansion(prompt)
+            lo, hi = assigned[0]["n"], assigned[-1]["n"]
             expansions.append((lo, hi))
             if len(expansions) == 1:
                 response = _reply({})
                 response.stop_reason = "max_tokens"
                 return response
-            return _reply({"scenes": [{"narration": f"Unique beat number {i}.",
-                                       "environment_type": "city"} for i in range(lo, hi + 1)]})
+            return _reply({"scenes": [{"scene_id": b["scene_id"], "narration": f"Unique beat number {b['n']}.",
+                                       "environment_type": "city"} for b in assigned]})
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": Messages()})())
     monkeypatch.setattr(ep, "_dedupe_narration", lambda scenes, *a: (scenes, 0))
     monkeypatch.setattr(ep, "_msg_cost", lambda usage: .1)
     script = ep._generate_script_chunked("Why?", 200, "s", "", 10, causal_lane=True,
                                          pinned_engine="backfiring_solution")
-    # The first batch is truncated and retried as two halves; the rest follow in batches of ten.
+    # The first small batch is truncated; only its missing rows retry individually.
     # Asserted as coverage rather than as a literal range list, because the number of scenes is no
     # longer the number of beats -- a beat may be carried across several -- so pinning the list
     # pins the batch count as well, which is not what this test is about.
-    assert expansions[0] == (1, 10), expansions
-    assert (1, 5) in expansions and (6, 10) in expansions, "the truncated batch was halved"
+    assert expansions[0] == (1, 4), expansions
+    assert expansions[1:5] == [(1, 1), (2, 2), (3, 3), (4, 4)]
     covered = []
     for lo, hi in expansions:
-        if (lo, hi) == (1, 10):
+        if (lo, hi) == (1, 4):
             continue                      # the truncated attempt produced nothing
         covered.extend(range(lo, hi + 1))
     written = [s["story_beat_n"] for s in script["scenes"]]
@@ -1480,8 +1489,10 @@ def test_the_claim_repair_runs_again_while_it_is_still_converging():
     block = block[:block.index("claim_validation = _validate_claims(script, research_dossier",
                                block.index("_after_count"))]
     assert "_CLAIM_REPAIR_PASSES" in block, "bounded by a named ceiling, not an open loop"
-    assert "if _after_count >= _before_count:" in block and "break" in block, \
-        "a pass that does not reduce the failures must be the last one"
+    assert "accepted = improves(" in block and "if not accepted:" in block and "break" in block
+    from script_integrity import improves
+    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": 1}]}
+    assert not improves(report, report), "a no-progress edit must stop the loop"
     assert ep._CLAIM_REPAIR_PASSES >= 2 and ep._CLAIM_REPAIR_PASSES <= 4, \
         "a ceiling, and a small one — each pass is a paid provider call"
 

@@ -71,8 +71,18 @@ def reconcile_factcheck_events(script: dict, before: list[str], proposals: list,
             continue
         candidate = deepcopy(scene)
         candidate["event"] = {"text": event["text"].strip(), "claim_refs": list(dict.fromkeys(refs))}
+        # Recheck the candidate's explicit context sources, without asking unrelated
+        # narration to pass before this local correction can even be considered.
+        parents = []
+        for parent in scenes:
+            if (parent.get("beat_id") in (candidate.get("context_refs") or [])
+                    and parent.get("beat_id") not in {p.get("beat_id") for p in parents}):
+                context = deepcopy(parent)
+                context.pop("narration", None)
+                context.pop("context_refs", None)
+                parents.append(context)
         report = sfm.validate_cascade(
-            [candidate], claims, lr._claims_by_parallel_case(dossier or {}),
+            [candidate, *parents], claims, lr._claims_by_parallel_case(dossier or {}),
             cache=cache, cost_sink=cost_sink, engine_id=script.get("_story_engine", ""))
         results.append({"scene": index, "passed": bool(report.get("passed")), "report": report})
         if report.get("passed"):
