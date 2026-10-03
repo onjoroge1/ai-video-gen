@@ -32,6 +32,20 @@ def _fixture(name: str) -> dict:
         return json.load(handle)
 
 
+def integrity_findings(output, context) -> dict:
+    import script_integrity as si
+    case = _fixture("script_integrity.json")[context["vars"]["case"]]
+    try:
+        report = si._normalise(_json(output), si._inputs({"scenes": case["scenes"]}, {"claims": []}))
+        actual = {e["code"] for e in report["errors"]}
+        expected = set(case["expected"])
+        passed = actual == expected
+        return {"pass": passed, "score": int(passed),
+                "reason": f"Expected {sorted(expected)}; observed {sorted(actual)}"}
+    except (ValueError, TypeError, KeyError):
+        return {"pass": False, "score": 0, "reason": "Malformed or unaddressable integrity report"}
+
+
 def plan_score(output, context) -> dict:
     """score_plan over the returned beat sheet; pass at 75 or more."""
     import story_planner as sp

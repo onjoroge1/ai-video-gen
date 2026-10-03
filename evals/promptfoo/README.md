@@ -28,3 +28,17 @@ are offline; no API secrets or paid evaluations are needed on a pull request.
 
 Add representative dossiers to `fixtures/` for opt-in provider comparisons. Keep source passages,
 verification status and scope. Do not infer measured viewer retention from an evaluation score.
+
+## Meaning and continuity regression cases
+
+`integrity.yaml` runs nine cases from the dec618fc investigation, including corrected
+counterexamples. It uses `script_integrity`'s production prompt and validates both the
+response schema and exact expected error-code set. It does not generate research or media.
+This is a paid opt-in evaluation through the existing production provider adapter:
+
+```sh
+REELFORGE_PAID_EVAL=1 npx promptfoo eval -c evals/promptfoo/integrity.yaml
+```
+
+Offline tests validate plumbing and fixtures; live classification quality remains
+unverified until this evaluation or an authenticated Studio test is actually run.

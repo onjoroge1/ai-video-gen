@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v2"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v3"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -99,6 +99,14 @@ def _normalise(reply: Any, fallback_reason: str) -> dict:
                 "unsupported_details": [],
                 "reason": fallback_reason or f"unusable judge verdict {verdict!r}"}
     details = [_text(item) for item in (reply.get("unsupported_details") or []) if _text(item)]
+    # A judge saying "not flagged" inside a failure is internally inconsistent, not
+    # permission to delete narration. Retry once through _judged; never auto-pass it.
+    disclaims_failure = any(re.search(
+        r"\b(?:not flagged|not itself an added fact|not an unsupported (?:fact|detail)|"
+        r"should not be flagged)\b", detail, re.I) for detail in details)
+    if (verdict == "entailed" and details) or disclaims_failure:
+        return {"verdict": "invalid_response", "passed": False, "supported_core": "",
+                "unsupported_details": [], "reason": "internally inconsistent judge response"}
     # `partially_entailed` is the most useful state in the system, and reducing it to passed=False
     # throws away what makes it useful. "Unsupported" says remove the assertion; "partially" says
     # there is a valid factual core worth keeping and these specific inventions to strip. The
@@ -125,6 +133,7 @@ _FIDELITY_SYSTEM = (
     "- figurative language and non-factual emphasis\n"
     "- causal connectives already entailed by the event sequence\n"
     "- restating the event as a scene rather than a summary\n"
+    "- omitting a proper name when the identity remains unchanged ('one reserve' for Riponui)\n"
     "A rhetorical question does not assert that its premise happened. Framing that moves the story "
     "along is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"
@@ -138,6 +147,18 @@ _FIDELITY_SYSTEM = (
     "- causal mechanisms the event does not contain\n"
     "\nFlag a detail only if a viewer would come away believing a specific thing about the world "
     "that the event does not support. Return ONLY JSON."
+)
+
+# Shared by drafting and both entailment boundaries. A repeated number does not
+# establish that the writer has preserved the measured quantity.
+MEANING_RULES = (
+    "Preserve every numerical claim's numerator, denominator, population, outcome, "
+    "time window, geography and uncertainty. Half of chick DEATHS attributed to stoats "
+    "does not mean half of ALL chicks die from stoats, nor a coin-flip survival chance. "
+    "Survived monitoring does not mean survived to adulthood. A legal protection or "
+    "intended benefit is not proof that a policy worked. Preserve causal direction: "
+    "introducing a predator is not removing a predator; removing a problem is not "
+    "removing a species. Rhetorical lessons and questions must preserve those premises. "
 )
 
 
@@ -217,7 +238,7 @@ def _default_judge(payload: dict) -> dict:
                 "quoted by the researcher, so read it especially literally.\n" + _RETURN_SHAPE)
 
     response = ep._claude().messages.create(
-        model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system,
+        model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system + "\n" + MEANING_RULES,
         messages=[{"role": "user", "content": body}])
     if payload.get("cost_sink") is not None:
         payload["cost_sink"].append(ep._msg_cost(response.usage))
