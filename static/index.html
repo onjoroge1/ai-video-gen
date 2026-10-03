@@ -1478,6 +1478,11 @@
        EXPLAINER TAB
   ════════════════════════════════════════════════════════════════ -->
   <div id="explainer-section" style="display:none">
+    <form onsubmit="event.preventDefault(); const id=this.elements.job.value.trim(); if (/^[A-Za-z0-9_-]{1,100}$/.test(id)) location.href='/studio/jobs/'+encodeURIComponent(id);" style="margin-bottom:20px">
+      <label for="reconnect-job">Open saved job</label>
+      <input id="reconnect-job" name="job" placeholder="Job ID" required pattern="[A-Za-z0-9_-]{1,100}">
+      <button type="submit">Open job</button>
+    </form>
 
     <!-- Quick description + tags (no render) -->
     <div class="card" style="margin-bottom:16px;">
@@ -1693,6 +1698,7 @@
       <div class="progress-header">
         <span class="progress-title" id="expl-progress-title">Generating Video</span>
         <span class="job-id" id="expl-job-id-badge"></span>
+        <a id="expl-job-link" hidden>Open persistent job view</a>
       </div>
       <div class="stages">
         <div class="stage-item" id="expl-stage-script">
@@ -3290,6 +3296,11 @@
     const queued = await res.json();
     const { job_id } = queued;
     explJobId = job_id;
+    const jobUrl = '/studio/jobs/' + encodeURIComponent(job_id);
+    const jobLink = document.getElementById('expl-job-link');
+    jobLink.href = jobUrl; jobLink.hidden = false;
+    // Keep the current stream, but make a refresh/bookmark restore this exact job.
+    history.replaceState(null, '', jobUrl);
     document.getElementById('expl-job-id-badge').textContent = job_id;
     _explActivateStage('script');
 
@@ -3582,6 +3593,8 @@
   }
 
   function resetExplainer() {
+    history.replaceState(null, '', '/');
+    document.getElementById('expl-job-link').hidden = true;
     explJobId = null; explReviewRecord = null; explFormatReviewRecord = null; explStageEl = null;
     document.getElementById('expl-question').value = '';
     ['expl-error-panel','expl-review-panel','expl-format-review-panel','expl-result-panel','expl-script-panel','expl-progress-panel'].forEach(id =>
