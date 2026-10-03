@@ -5,7 +5,38 @@ import json
 import script_stages
 
 
-@script_stages.cached("planning-evidence", context=lambda: {"contract": 1})
+def _verdicts(response, ids):
+    """Normalize live and durable tool inputs before checking complete coverage."""
+    def reject(code):
+        # Keep diagnostics useful without exposing provider text in Studio errors.
+        raise ValueError("UNSCORED_JUDGE_UNAVAILABLE: planning claim support [" + code + "]")
+
+    if getattr(response, "stop_reason", None) in {"max_tokens", "pause_turn"}:
+        reject("INCOMPLETE_RESPONSE")
+    blocks = [b for b in response.content if getattr(b, "type", "") == "tool_use"]
+    if len(blocks) != 1 or getattr(blocks[0], "name", "") != "submit_claim_support":
+        reject("UNEXPECTED_TOOL")
+    value = blocks[0].input
+    # Durable execution wraps nested dictionaries on fresh calls as well as replay.
+    # Its model_dump() returns the original nested JSON, like the SDK models.
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if not isinstance(value, dict) or not isinstance(value.get("claims"), list):
+        reject("INVALID_PAYLOAD")
+    rows = value["claims"]
+    if any(not isinstance(r, dict)
+           or not isinstance(r.get("claim_id"), str)
+           or r.get("verdict") not in ("supported", "unsupported")
+           or not isinstance(r.get("reason"), str) or not r["reason"].strip()
+           for r in rows):
+        reject("INVALID_VERDICT")
+    by_id = {r["claim_id"]: r for r in rows}
+    if len(rows) != len(ids) or len(by_id) != len(rows) or set(by_id) != set(ids):
+        reject("INCOMPLETE_COVERAGE")
+    return rows, by_id
+
+
+@script_stages.cached("planning-evidence", context=lambda: {"contract": 2})
 def prepare(dossier, *, cost_sink=None):
     import explainer_pipeline as ep
     claims = dossier.get("claims") or []
@@ -34,16 +65,7 @@ def prepare(dossier, *, cost_sink=None):
             for c in claims], ensure_ascii=False)}])
     if cost_sink is not None:
         cost_sink.append(ep._msg_cost(response.usage))
-    blocks = [b for b in response.content if getattr(b, "type", "") == "tool_use"
-              and getattr(b, "name", "") == "submit_claim_support"]
-    try:
-        rows = blocks[0].input["claims"] if len(blocks) == 1 else []
-        by_id = {r["claim_id"]: r for r in rows}
-        if (len(rows) != len(ids) or set(by_id) != set(ids)
-                or any(r["verdict"] not in {"supported", "unsupported"} for r in rows)):
-            raise ValueError("Incomplete claim-support verdicts")
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
-        raise ValueError("UNSCORED_JUDGE_UNAVAILABLE: planning claim support") from exc
+    rows, by_id = _verdicts(response, ids)
     result = deepcopy(dossier)
     result["claim_support_review"] = rows
     result["planning_excluded_claims"] = [c for c in result["claims"]

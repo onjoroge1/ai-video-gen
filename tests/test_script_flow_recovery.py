@@ -170,6 +170,64 @@ def test_planning_evidence_quarantines_claim_quote_mismatch(monkeypatch):
     assert len(claims) == 2
 
 
+def test_planning_evidence_normalizes_fresh_and_replayed_durable_input(tmp_path, monkeypatch):
+    import planning_evidence
+    dossier = {"claims": [
+        {"claim_id": "c1", "claim": "Stoats controlled rabbits.",
+         "support_quote": "Stoats were intended to control rabbits."},
+        {"claim_id": "c2", "claim": "Stoats were introduced.",
+         "support_quote": "Stoats were introduced."}]}
+    raw = payload(stop_reason="tool_use")
+    raw["content"] = [{"type": "tool_use", "name": "submit_claim_support", "input": {
+        "claims": [{"claim_id": "c1", "verdict": "unsupported", "reason": "intention only"},
+                   {"claim_id": "c2", "verdict": "supported", "reason": "exact"}]}}]
+    provider = Provider(raw)
+    store, blob = MemoryStore(cap=10), MemoryBlob(tmp_path / "blob")
+    results = []
+    for name in ("fresh", "replayed"):
+        worker = runtime(tmp_path, store, blob, name)
+        monkeypatch.setattr(ep, "_claude", lambda: worker.wrap_anthropic(provider))
+        # Bypass only the semantic cache to exercise provider replay on worker two.
+        with durable.activate(worker):
+            results.append(planning_evidence.prepare.__wrapped__(dossier))
+    assert results[0] == results[1]
+    assert [c["claim_id"] for c in results[0]["claims"]] == ["c2"]
+    assert results[0]["planning_excluded_claims"] == [dossier["claims"][0]]
+    assert len(provider.calls) == 1
+    assert len(dossier["claims"]) == 2
+
+
+@pytest.mark.parametrize("rows,code", [
+    ([], "INCOMPLETE_COVERAGE"),
+    ([{"claim_id": "other", "verdict": "supported", "reason": "exact"}], "INCOMPLETE_COVERAGE"),
+    ([{"claim_id": "c1", "verdict": "supported", "reason": "exact"}] * 2, "INCOMPLETE_COVERAGE"),
+    ([{"claim_id": "c1", "verdict": "maybe", "reason": "unclear"}], "INVALID_VERDICT"),
+    ([{"claim_id": "c1", "verdict": "supported", "reason": ""}], "INVALID_VERDICT"),
+    ([None], "INVALID_VERDICT"),
+    (None, "INVALID_PAYLOAD"),
+])
+def test_planning_evidence_rejects_invalid_durable_verdicts(rows, code):
+    import planning_evidence
+    from _durable_execution_legacy import _CachedAnthropicResponse
+    response = _CachedAnthropicResponse({"content": [
+        {"type": "tool_use", "name": "submit_claim_support", "input": {"claims": rows}}]})
+    with pytest.raises(ValueError, match=code):
+        planning_evidence._verdicts(response, ["c1"])
+
+
+@pytest.mark.parametrize("stop", ["max_tokens", "pause_turn"])
+def test_planning_evidence_rejects_incomplete_response(stop):
+    import planning_evidence
+    with pytest.raises(ValueError, match="INCOMPLETE_RESPONSE"):
+        planning_evidence._verdicts(NS(stop_reason=stop, content=[]), ["c1"])
+
+
+def test_planning_evidence_rejects_unexpected_tool():
+    import planning_evidence
+    with pytest.raises(ValueError, match="UNEXPECTED_TOOL"):
+        planning_evidence._verdicts(NS(content=[NS(type="tool_use", name="other")]), ["c1"])
+
+
 @pytest.mark.parametrize("boundary", ["script-stage-accepted-plan", "script-stage-expansion-progress"])
 def test_yield_after_checkpoint_resumes_on_another_worker(tmp_path, monkeypatch, boundary):
     class Yield(BaseException):
