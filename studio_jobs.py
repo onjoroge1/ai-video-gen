@@ -6,7 +6,7 @@ import tempfile
 from fastapi import HTTPException
 import durable_execution
 
-ACTIVE = {"queued", "rendering", "running", "retry"}
+ACTIVE = {"queued", "processing", "rendering", "running", "retry"}
 REPORTS = {
     "claim_failure": "semantic_failure_claim-ledger.json",
     "runtime_claim_failure": "semantic_failure_runtime-claim-ledger.json",
@@ -20,7 +20,13 @@ REPORTS = {
 
 
 def snapshot(row, events):
+    import provider_blocks
+    resumable = (row.get("kind") == "explainer"
+                 and not (row.get("request") or {}).get("controlled_pilot")
+                 and bool(provider_blocks.for_job(row))
+                 and bool((row.get("checkpoint") or {}).get("sha256")))
     return {"id": row["id"], "status": row.get("status"),
+            "provider_resumable": resumable,
             "active": row.get("status") in ACTIVE, "error": row.get("error"),
             "question": (row.get("request") or {}).get("question", ""),
             "spent_cost_usd": row.get("spent_cost_usd"),
