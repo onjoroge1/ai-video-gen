@@ -12034,6 +12034,8 @@ def run_explainer_pipeline(
     if stop_after_script:
         # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the
         # narration where an editor can read it and stop; the approved rerun reuses the cache.
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-awaiting-approval")
         approval_path = os.path.join(output_dir, "script_for_approval.md")
         with open(approval_path, "w", encoding="utf-8") as handle:
             handle.write(f"# {_s(script.get('title'))}\n\n")

@@ -1946,7 +1946,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             try:
                 durable_runtime.checkpoint(
                     "awaiting-review" if awaiting_review else
-                    "awaiting-format-acknowledgement" if awaiting_format else "failed-attempt")
+                    "awaiting-format-acknowledgement" if awaiting_format else
+                    "awaiting-script-approval" if awaiting_script else "failed-attempt")
                 row = durable_runtime.store.get_job(job_id) or {}
                 attempts = int(row.get("attempts") or 1)
                 max_attempts = int(row.get("max_attempts") or 1)
@@ -1956,16 +1957,21 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 ))
                 status = ("awaiting_review" if awaiting_review else
                           "format_acknowledgement_required" if awaiting_format else
+                          "awaiting_script_approval" if awaiting_script else
                           ("error" if hard_failure or attempts >= max_attempts else "retry"))
                 durable_runtime.store.set_status(
-                    job_id, status, error=None if (awaiting_review or awaiting_format) else str(exc),
+                    job_id, status,
+                    error=None if (awaiting_review or awaiting_format or awaiting_script) else str(exc),
                     result={"rendered_contract": job.get("rendered_contract") or {},
-                            "title": job.get("title") or request.question},
+                            "title": job.get("title") or request.question,
+                            "hook": (job.get("script") or {}).get("hook", ""),
+                            "scene_count": len((job.get("script") or {}).get("scenes") or [])},
                     worker_id=durable_runtime.worker_id)
                 job["status"] = status
                 durable_runtime.event(
                     "review_required" if awaiting_review else
                     "format_acknowledgement_required" if awaiting_format else
+                    "script_approval_required" if awaiting_script else
                     "retry" if status == "retry" else "error", str(exc))
             except Exception as storage_exc:
                 job["status"] = "storage_error"
@@ -4424,6 +4430,7 @@ async def explainer_status_stream(job_id: str, request: Request, after: int = 0)
                     if row["status"] in (
                             "done", "degraded", "error", "awaiting_review", "human_rejected",
                             "format_acknowledgement_required", "format_rejected",
+                            "awaiting_script_approval",
                             "storage_error", "pilot_awaiting_editorial", "pilot_passed",
                             "pilot_failed"):
                         break
@@ -4443,6 +4450,7 @@ async def explainer_status_stream(job_id: str, request: Request, after: int = 0)
             if job["status"] in (
                     "done", "error", "degraded", "awaiting_review",
                     "format_acknowledgement_required", "format_rejected",
+                    "awaiting_script_approval",
                     "pilot_awaiting_editorial", "pilot_passed", "pilot_failed"):
                 break
             # Heartbeat every ~3s of quiet so the browser detects a dead connection

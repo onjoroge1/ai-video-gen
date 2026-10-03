@@ -1624,6 +1624,14 @@
         <span class="field-hint">A second AI pass corrects science errors. Adds ~$0.10 &amp; a few seconds.</span>
       </div>
 
+      <div class="field" id="expl-script-only-field" style="margin-top:14px; border:1px solid var(--border); border-radius:10px; padding:14px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="expl-script-only" onchange="setExplainerScriptOnly(this.checked)" />
+          Script only — stop before voice, images, motion, and rendering
+        </label>
+        <span class="field-hint">Runs research, the planner, targeted editing, fact-checking, claim validation, and every pre-spend script gate. The completed script opens in Studio for editorial review.</span>
+      </div>
+
       <div class="field" style="margin-top:14px;">
         <label>Format</label>
         <div style="display:flex; gap:10px;">
@@ -1671,7 +1679,7 @@
 
     <button class="btn-generate" id="expl-btn" onclick="startExplainer()">
       <span class="rec-icon"></span>
-      GENERATE EXPLAINER VIDEO
+      <span id="expl-btn-label">GENERATE EXPLAINER VIDEO</span>
     </button>
 
     <!-- Error panel -->
@@ -1683,7 +1691,7 @@
     <!-- Progress panel -->
     <div class="progress-panel" id="expl-progress-panel">
       <div class="progress-header">
-        <span class="progress-title">Generating Video</span>
+        <span class="progress-title" id="expl-progress-title">Generating Video</span>
         <span class="job-id" id="expl-job-id-badge"></span>
       </div>
       <div class="stages">
@@ -1773,9 +1781,10 @@
     <!-- Script viewer -->
     <div id="expl-script-panel" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:14px;">
       <div class="script-header">
-        <span class="script-header-title">Script — Scene Breakdown</span>
+        <span class="script-header-title" id="expl-script-header-title">Script — Scene Breakdown</span>
         <button class="script-close" onclick="document.getElementById('expl-script-panel').style.display='none'">✕</button>
       </div>
+      <div id="expl-script-summary" style="display:none; padding:14px 18px; border-bottom:1px solid var(--border);"></div>
       <div class="script-body" id="expl-script-body"></div>
     </div>
 
@@ -3214,6 +3223,13 @@
     }
   }
 
+  function setExplainerScriptOnly(enabled) {
+    document.getElementById('expl-btn-label').textContent =
+      enabled ? 'GENERATE SCRIPT ONLY' : 'GENERATE EXPLAINER VIDEO';
+    document.getElementById('expl-progress-title').textContent =
+      enabled ? 'Generating Script' : 'Generating Video';
+  }
+
   async function startExplainer() {
     const question = document.getElementById('expl-question').value.trim();
     if (!question) { alert('Please enter a question.'); return; }
@@ -3244,6 +3260,7 @@
       style:          document.getElementById('expl-style').value,
       image_guidance: document.getElementById('expl-theme').value.trim(),
       fact_check:     document.getElementById('expl-factcheck').checked,
+      stop_after_script: document.getElementById('expl-script-only').checked,
       video_format:   explFormat,
       speech_bubble:  document.getElementById('expl-bubble').checked,
       motion_mode:    explFormat === 'social' ? null : document.getElementById('expl-motion-mode').value,
@@ -3308,6 +3325,12 @@
         es.close();
         btn.disabled = false;
         await showExplainerFormatReview(job_id);
+      } else if (ev.type === 'script_approval_required') {
+        addLog(explLog, 'done', 'Script passed every pre-spend gate. No media was generated.');
+        if (explStageEl) explStageEl.classList.replace('active','done');
+        es.close();
+        btn.disabled = false;
+        await showExplainerScript(job_id, true);
       }
     };
     es.onerror = () => { /* EventSource reconnects with Last-Event-ID; keep this job active. */ };
@@ -3509,27 +3532,51 @@
     }
   }
 
-  function showExplainerScript() {
-    if (!explJobId) return;
-    fetch(`/api/explainer/script/${explJobId}`)
-      .then(r => r.json())
-      .then(script => {
-        const body = document.getElementById('expl-script-body');
-        body.innerHTML = '';
-        (script.scenes || []).forEach(scene => {
-          const row = document.createElement('div');
-          row.className = 'scene-row';
-          row.innerHTML = `
-            <div class="scene-num">S${scene.id}</div>
-            <div>
-              <div class="scene-narration">${escHtml(scene.narration)}</div>
-              <div class="scene-visual">${escHtml(scene.image_prompt)}</div>
-              ${scene.text_overlay ? `<div style="margin-top:6px; font-family:var(--mono); font-size:10px; color:var(--amber); letter-spacing:0.1em;">${escHtml(scene.text_overlay)}</div>` : ''}
-            </div>`;
-          body.appendChild(row);
-        });
-        document.getElementById('expl-script-panel').style.display = 'block';
+  async function showExplainerScript(jobId = explJobId, approval = false) {
+    if (!jobId) return;
+    try {
+      const response = await fetch(`/api/explainer/script/${jobId}`);
+      if (!response.ok) throw new Error(await response.text());
+      const script = await response.json();
+      const scenes = script.scenes || [];
+      const words = scenes.reduce((count, scene) =>
+        count + String(scene.narration || '').trim().split(/\s+/).filter(Boolean).length, 0);
+      const grade = script._grade || {};
+      const summary = document.getElementById('expl-script-summary');
+      summary.style.display = 'block';
+      summary.innerHTML = `
+        <div style="font-weight:700; margin-bottom:6px;">${escHtml(script.title || 'Untitled script')}</div>
+        <div style="margin-bottom:8px;">${escHtml(script.hook || '')}</div>
+        <span class="tag">${scenes.length} scenes</span>
+        <span class="tag">${words} words</span>
+        ${grade.overall == null ? '' : `<span class="tag">Script grade ${escHtml(String(grade.overall))}/100</span>`}
+        ${approval ? '<div class="field-hint" style="margin-top:10px; color:var(--green);">Ready for editorial review. Voice, images, motion, and rendering were not started.</div>' : ''}`;
+      const body = document.getElementById('expl-script-body');
+      body.innerHTML = '';
+      scenes.forEach((scene, index) => {
+        const row = document.createElement('div');
+        row.className = 'scene-row';
+        const label = scene.beat_id || scene.scene_id || scene.id || index + 1;
+        const role = scene.causal_role || scene.story_role || scene.role || '';
+        const visual = scene.image_prompt || scene.visual || '';
+        row.innerHTML = `
+          <div class="scene-num">${escHtml(String(label))}</div>
+          <div>
+            ${role ? `<div style="font-family:var(--mono); font-size:10px; color:var(--amber); margin-bottom:6px; text-transform:uppercase;">${escHtml(role)}</div>` : ''}
+            <div class="scene-narration">${escHtml(scene.narration || '')}</div>
+            ${visual ? `<div class="scene-visual">${escHtml(visual)}</div>` : ''}
+            ${scene.text_overlay ? `<div style="margin-top:6px; font-family:var(--mono); font-size:10px; color:var(--amber); letter-spacing:0.1em;">${escHtml(scene.text_overlay)}</div>` : ''}
+          </div>`;
+        body.appendChild(row);
       });
+      document.getElementById('expl-script-header-title').textContent =
+        approval ? 'Script ready for approval' : 'Script — Scene Breakdown';
+      const panel = document.getElementById('expl-script-panel');
+      panel.style.display = 'block';
+      panel.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (err) {
+      showError('expl-error-panel', 'expl-error-msg', `Script unavailable: ${err.message}`);
+    }
   }
 
   function resetExplainer() {
