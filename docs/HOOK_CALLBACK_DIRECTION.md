@@ -31,6 +31,27 @@ The pasted viral-hook post is qualitative inspiration, not verified experimental
 evidence. Its 1,000-hook sample, 30% frequency and neuroscience/2025 trend claims were
 not independently established. No retention lift or virality guarantee follows.
 
+## Implementation
+
+`hook_callback.py` supplies a shared writing brief and a hook/ending grading rubric.
+Each planner candidate is asked for a `hook_contract`: viewer question, supported
+answer, documented contrast, callback image and optional closing question. This is
+writing intent, not new factual evidence. Expansion receives the same contract in
+each batch and only the ending batch writes its callback. The assembled script keeps
+the contract for the targeted editor and private Studio inspection.
+
+The existing whole-script integrity review also checks `HOOK_PROMISE_UNPAID` against
+the actual spoken narration, including discourse scenes. Metadata cannot stand in
+for a spoken answer. The error routes to the bounded editor; a repair cannot trade
+fewer factual errors for a newly unanswered opening. The source judge explicitly
+checks historical questions' factual premises. No separate provider call is added.
+
+Planner, graded-script, entailment, integrity and editorial cache contracts change.
+Old plans without the field remain readable. The brief prefers a question for an
+intervention story but does not force questions, invented contradictions, timelines
+or identical opening/closing wording across every story engine. Live writing quality
+and viewer retention are unverified until separately measured.
+
 The current job b3cf7a4f remains a PR155 baseline test. Do not inject this new wording
 into its stored request, change its evidence, or invalidate completed paid work while
 resuming the provider-account interruption. Apply hook changes in a separately scoped

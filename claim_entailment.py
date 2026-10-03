@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v3"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v4"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -134,8 +134,9 @@ _FIDELITY_SYSTEM = (
     "- causal connectives already entailed by the event sequence\n"
     "- restating the event as a scene rather than a summary\n"
     "- omitting a proper name when the identity remains unchanged ('one reserve' for Riponui)\n"
-    "A rhetorical question does not assert that its premise happened. Framing that moves the story "
-    "along is not a new fact.\n"
+    "A clearly hypothetical question need not assert that its scenario happened. But a historical "
+    "question ('How did X cause Y?') presupposes X, Y and their relationship: those premises need "
+    "evidence. Rhetorical form never licenses a new factual claim. Framing alone is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"
     "- quantities and scale ('hundreds of farms')\n"
     "- dates and timescales ('overnight', 'within a year', 'in 1902')\n"

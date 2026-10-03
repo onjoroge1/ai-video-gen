@@ -62,6 +62,8 @@ def planner_prompt(question: str, duration_sec: int, engine_id: str,
     import script_cadence
     prompt = story_compiler.factual_plan_prompt(question, duration_sec, n_scenes, engine_id, cast_rules)
     prompt += script_cadence.BRIEF
+    import hook_callback
+    prompt += hook_callback.BRIEF
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         prompt += (
@@ -220,6 +222,12 @@ def plan_markdown(plan: dict, report: dict | None = None, candidates: list[dict]
     if report:
         lines.append(f"Plan score: {report.get('score')}/100"
                      + (" — " + "; ".join(report.get("issues") or []) if report.get("issues") else ""))
+        lines.append("")
+    import hook_callback
+    pair = hook_callback.contract(plan)
+    if pair:
+        lines += ["Hook/callback writing plan (not evidence):"]
+        lines += [f"- {key}: {value}" for key, value in pair.items()]
         lines.append("")
     if candidates:
         lines.append("Candidates: " + ", ".join(f"#{i + 1} {c.get('score')}" for i, c in enumerate(candidates)))

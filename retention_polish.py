@@ -10,6 +10,7 @@ import re
 
 import storyboard_repair as repair
 import script_cadence
+import hook_callback
 from script_repair import broken_repair
 
 VERSION = "retention_polish_v1"
@@ -91,6 +92,7 @@ def prompt(script, grade, target, floor):
         "No scene may grow by more than 8 words; total length must stay within 85%-105%. "
         "Return complete spoken sentences, not clipped fragments or editorial instructions.\n"
         + script_cadence.BRIEF
+        + hook_callback.BRIEF + hook_callback.expansion_direction(script)
         + json.dumps({"cadence": script_cadence.measure(script), "grade": grade, "targets": {"overall": target, "hook": target,
             "story": target, "other_axes": floor}, "hook": script.get("hook"),
             "cold_open": script.get("_cold_open"), "contract": script.get("_story_contract"),
@@ -108,7 +110,8 @@ def run(script, question, dossier, output_dir, cost_sink, log):
     saved = json.loads(path.read_text()) if path.exists() else None
     context_hash = repair.digest({"question": question, "dossier": dossier, "version": VERSION,
                                   "target": ep._SCRIPT_GATE_PASS, "floor": ep._SCRIPT_GATE_FLOOR,
-                                  "cadence_policy": script_cadence.VERSION})
+                                  "cadence_policy": script_cadence.VERSION,
+                                  "hook_policy": hook_callback.VERSION})
     if saved:
         if saved.get("context_hash") != context_hash:
             raise ValueError("Saved editorial pass belongs to different evidence or targets")
