@@ -4,6 +4,7 @@ const base = '/api/studio/jobs/' + encodeURIComponent(jobId);
 const el = id => document.getElementById(id);
 let cursor = 0, artifactKey = null, lastSnapshot = null;
 let pollTimer = null, resuming = false;
+let savedArtifact = null, creatingRevision = false;
 el('job').textContent = 'Job ' + jobId;
 el('evidence').href = '/agent/research/' + encodeURIComponent(jobId);
 async function get(url) {
@@ -25,10 +26,12 @@ async function loadArtifacts() {
   el('load').disabled = true;
   try {
     const saved = await get(base + '/artifacts');
+    savedArtifact = saved;
     el('script').replaceChildren(); el('reports').replaceChildren();
     const script = saved.script;
-    const ready = script && script._script_readiness;
-    const approved = lastSnapshot && lastSnapshot.status === 'awaiting_script_approval' && ready && ready.passed;
+    const approved = lastSnapshot && lastSnapshot.status === 'awaiting_script_approval' && saved.approval_current === true;
+    el('revision-actions').hidden = !(script && saved.content_sha256 && lastSnapshot && lastSnapshot.script_revision_eligible);
+    el('render-action').hidden = !approved;
     el('artifact-status').textContent = (approved ? 'Ready for editorial review.' : script ? 'Saved draft — final approval not confirmed.' : 'No assembled script in this checkpoint yet.') +
       ' Source: ' + (saved.script_source || 'not available') +
       ' Checkpoint: ' + (saved.checkpoint_sha256 || 'not saved') +
@@ -40,7 +43,7 @@ async function loadArtifacts() {
         const narration = document.createElement('p'); narration.textContent = scene.narration || '';
         el('script').append(heading, narration);
       }
-      for (const key of ['_script_readiness','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review','_edit_audit']) {
+      for (const key of ['_script_readiness','_final_retention_review','_final_factcheck_review','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review','_edit_audit']) {
         if (script[key] != null) report(key, script[key]);
       }
     }
@@ -50,6 +53,31 @@ async function loadArtifacts() {
   finally { el('load').disabled = false; }
 }
 el('load').onclick = loadArtifacts;
+async function createRevision(mode) {
+  if (creatingRevision || !savedArtifact || !lastSnapshot || !lastSnapshot.script_revision_eligible) return;
+  const cap = Number(el(mode === 'evaluate' ? 'evaluation-cap' : 'render-cap').value);
+  if (!Number.isFinite(cap) || cap <= 0 || cap > 10) {
+    el('revision-status').textContent = 'Enter a cost cap above $0 and at most $10.'; return;
+  }
+  creatingRevision = true;
+  el('evaluate-script').disabled = el('render-script').disabled = true;
+  try {
+    const response = await fetch(base + '/script-revisions', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mode, cost_ceiling_usd:cap,
+        checkpoint_sha256:savedArtifact.checkpoint_sha256, content_sha256:savedArtifact.content_sha256})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : `Request failed (${response.status}). Refresh this job.`);
+    el('revision-status').textContent = 'Job created. Opening its progress…';
+    // Enqueue is idempotent for this exact scope. Dispatch continues that job only.
+    fetch(result.dispatch_url, {method:'POST', keepalive:true}).catch(() => {});
+    location.assign(result.studio_url);
+  } catch (error) { el('revision-status').textContent = error.message; }
+  finally { creatingRevision = false; el('evaluate-script').disabled = el('render-script').disabled = false; }
+}
+el('evaluate-script').onclick = () => createRevision('evaluate');
+el('render-script').onclick = () => createRevision('render');
 el('resume').onclick = async () => {
   if (resuming || !lastSnapshot || !(lastSnapshot.provider_resumable || lastSnapshot.planning_review_resumable)) return;
   resuming = true; el('resume').disabled = true; clearTimeout(pollTimer);

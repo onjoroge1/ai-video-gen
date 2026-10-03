@@ -2,11 +2,22 @@
 import script_stages
 import storyboard_repair
 
-VERSION = "script_readiness_v1"
+VERSION = "script_readiness_v2"
+
+
+def content_hash(script):
+    """Approved words and their factual meaning; excludes mutable render/cache bookkeeping."""
+    return script_stages.digest({
+        "title": script.get("title"), "hook": script.get("hook"),
+        "engine": script.get("_story_engine"), "contract": script.get("_story_contract"),
+        "cold_open": script.get("_cold_open"), "cold_open_claim_refs": script.get("_cold_open_claim_refs"),
+        "scenes": [{k: scene.get(k) for k in ("scene_id", "narration", "event", "causal_role",
+                    "caused_by", "derivation", "scope", "chapter", "continues", "_story_compiler_version")}
+                   for scene in script.get("scenes") or []]})
 
 
 def evaluate(script, dossier, *, claims, structure, storyboard, runtime,
-             duplicates, review, runtime_hard=False, factcheck_required=False):
+             duplicates, review, runtime_hard=False, factcheck_required=False, factual_review=None):
     narration_hash = storyboard_repair.story_identity(script)
     gates = {
         "claims": bool(claims and claims.get("passed")),
@@ -17,7 +28,10 @@ def evaluate(script, dossier, *, claims, structure, storyboard, runtime,
                           and review.get("narration_sha256") == narration_hash),
     }
     if factcheck_required:
-        gates["factcheck"] = (script.get("_factcheck_review") or {}).get("status") == "complete"
+        factual_review = factual_review or {}
+        gates["factcheck"] = bool(factual_review.get("passed")
+            and factual_review.get("content_sha256") == content_hash(script)
+            and factual_review.get("evidence_sha256") == script_stages.digest(dossier))
     warnings = []
     if runtime_hard:
         gates["runtime"] = bool(runtime and runtime.get("passed"))
@@ -26,6 +40,7 @@ def evaluate(script, dossier, *, claims, structure, storyboard, runtime,
     errors = [name for name, passed in gates.items() if not passed]
     return {"version": VERSION, "passed": not errors, "errors": errors,
             "warnings": warnings, "gates": gates, "narration_sha256": narration_hash,
+            "content_sha256": content_hash(script),
             "script_sha256": script_stages.digest({k: v for k, v in script.items()
                                                    if k != "_script_readiness"}),
             "evidence_sha256": script_stages.digest(dossier),

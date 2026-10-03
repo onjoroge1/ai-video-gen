@@ -10,7 +10,7 @@ deterministic check afterwards that the defects are gone and no new one appeared
     python3 script_editor.py jobs/<id>            # report defects, write script.edited.json
     python3 script_editor.py jobs/<id> --apply    # also write the edit back into _state.json
 
-Defects detected here are free; the single model call is the only spend.
+Detectors are free. One rewrite and bounded semantic validation calls may spend.
 """
 from __future__ import annotations
 
@@ -184,31 +184,61 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
         cost = ep._msg_cost(response.usage)
         if cost_sink is not None:
             cost_sink.append(cost)
-        data, parse_cost = ep._parse_script_json(response.content[0].text)
-        cost += float(parse_cost or 0.0)
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw[raw.find("{"):raw.rfind("}") + 1]
+        data = json.loads(raw)  # malformed edits stop; never buy an unbounded JSON rewrite
+    except __import__("durable_execution").DurableExecutionError:
+        raise
     except Exception as exc:
         log(f"  editor unavailable: {type(exc).__name__}: {str(exc)[:120]}")
         return script, round(cost, 4), defects
+    candidate, remaining = apply_response(script, defects, data, log=log)
+    if candidate is script:
+        return script, round(cost, 4), defects
+    semantic_costs = []
+    if not semantic_accepts(candidate, research_dossier or {}, cost_sink=semantic_costs):
+        log("  editor: semantic validation failed; keeping the original")
+        candidate, remaining = script, defects
+    if cost_sink is not None:
+        for amount in semantic_costs:
+            cost_sink.append(amount)
+    return candidate, round(cost + sum(semantic_costs), 4), remaining
+
+
+def semantic_accepts(candidate, dossier, *, cost_sink=None):
+    """Shared by the production editor and Promptfoo; a detector pass is insufficient."""
+    import explainer_pipeline as ep
+    report = ep._validate_claims(candidate, dossier, cost_sink)
+    return bool(report.get("passed")) and not report.get("retryable")
+
+
+def apply_response(script, defects, data, *, log=lambda message: None):
+    """Pure edit transaction. Reject missing, duplicate, foreign or malformed scene edits."""
+    scenes = script.get("scenes") or []
+    targets = sorted({int(d["scene"]) for d in defects if 1 <= int(d["scene"]) <= len(scenes)})
     rows = data.get("scenes") if isinstance(data, dict) else None
     if not isinstance(rows, list):
-        return script, round(cost, 4), defects
+        return script, defects
     candidate = json.loads(json.dumps(script))
     done = set()
     for row in rows:
         if not isinstance(row, dict) or type(row.get("scene")) is not int:
-            return script, round(cost, 4), defects
+            return script, defects
         index = row["scene"]
         text = _text((row or {}).get("narration"))
         from script_repair import broken_repair
         if broken_repair(text):
             log("  editor: incomplete narration repair; keeping the original")
-            return script, round(cost, 4), defects
+            return script, defects
+        if index not in targets or index in done or not text:
+            return script, defects
         if index in targets and text:
             candidate["scenes"][index - 1]["narration"] = text
             done.add(index)
     if done != set(targets):
         log("  editor: did not return every listed scene; keeping the original")
-        return script, round(cost, 4), defects
+        return script, defects
     if any(d["code"] == HOOK_TOO_LONG for d in defects):
         first = re.split(r"(?<=[.!?])\s+", _text(candidate["scenes"][0].get("narration")), maxsplit=1)[0]
         if first:
@@ -220,7 +250,7 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
                           (HOOK_TOO_LONG, HINGE_TOO_LONG) for d in defects)
         if not budget_edit and was >= 8 and abs(now - was) / was > 0.35:
             log(f"  editor: scene {index} went {was}->{now} words; keeping the original")
-            return script, round(cost, 4), defects
+            return script, defects
     after = detect_defects(candidate, None)
     wanted = {k for k in _keys(defects) if k[1] != EXCEEDS_EVENT}
     still = wanted & _keys(after)
@@ -228,11 +258,11 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
     if still or new_repeats:
         log("  editor: " + (f"{len(still)} defect(s) remain" if still else "")
             + (f"; {len(new_repeats)} new repeat(s)" if new_repeats else "") + "; keeping the original")
-        return script, round(cost, 4), defects
+        return script, defects
     for index in targets:
         log(f"  ✎ scene {index} edited: " + ", ".join(_text(d["code"]) for d in defects if int(d["scene"]) == index))
     remaining = [d for d in after if d["code"] in {k[1] for k in _keys(defects)}]
-    return candidate, round(cost, 4), remaining
+    return candidate, remaining
 
 
 def main() -> int:

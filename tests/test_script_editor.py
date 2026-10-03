@@ -52,13 +52,14 @@ def test_edit_is_refused_when_a_defect_survives(monkeypatch):
 def test_edit_is_accepted_when_the_gates_clear(monkeypatch):
     script = _script()
     defects = se.detect_defects(script)
+    monkeypatch.setattr(ep, "_validate_claims", lambda *a, **k: {"passed": True})
     fixes = {3: "The breach came in October 1957: a visiting keeper lifted the excluder grids and the queens left with their workers.",
              4: "The hybrids moved two hundred miles a year, colony by colony, across the Brazilian interior."}
 
     class _Resp:
         usage = type("U", (), {"input_tokens": 10, "output_tokens": 10})()
         content = [type("C", (), {"text": json.dumps({"scenes": [
-            {"scene": d["scene"], "narration": fixes[d["scene"]]} for d in defects]})})()]
+            {"scene": i, "narration": fixes[i]} for i in sorted({d["scene"] for d in defects})]})})()]
 
     class _Client:
         class messages:

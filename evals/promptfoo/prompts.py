@@ -29,6 +29,7 @@ def planner(context: dict) -> list[dict]:
     user = sp.planner_prompt(
         v["question"], int(v.get("duration") or 300), v.get("engine") or "removed_keystone",
         dossier, operator_direction=v.get("direction") or "")
+    user += sp.candidate_brief(int(v.get("candidate") or 1))
     return [{"role": "system", "content": sp.planner_system_prompt()},
             {"role": "user", "content": user}]
 

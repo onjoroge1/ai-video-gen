@@ -47,13 +47,14 @@ def _words(text: str) -> set[str]:
 
 def planner_prompt(question: str, duration_sec: int, engine_id: str,
                    research_dossier: dict | None, *, operator_direction: str = "",
-                   series: str = "", improve_note: str = "", cast_free: bool = True) -> str:
+                   series: str = "", improve_note: str = "", cast_free: bool = True,
+                   n_scenes: int | None = None, cast_rules: str | None = None) -> str:
     """The exact beat-sheet request the pipeline sends for the causal lane."""
     import explainer_pipeline as ep
     import story_compiler
     from longform_research import claim_context_for_prompt
-    n_scenes = ep.scene_count_for(duration_sec, "landscape")
-    cast_rules = ("" if not cast_free else
+    n_scenes = n_scenes if n_scenes is not None else ep.scene_count_for(duration_sec, "landscape")
+    cast_rules = cast_rules if cast_rules is not None else ("" if not cast_free else
                   "\nCAST: this story has NO recurring characters and NO named host. Never "
                   "write Alex, Bolt, or any invented stand-in into the narration. Name the real "
                   "actors the history had -- 'colonial officials', 'the bounty clerks', "

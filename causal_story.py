@@ -782,8 +782,10 @@ each step a chapter number and do not make the chapters equal in length. Every s
 first must happen BECAUSE of a named earlier step — set caused_by to that step's id. If a step
 would still make sense in a different position, it is a fact, not a step, and does not belong.
 
-Required spine: setup (the world and the problem) -> intervention (the fix someone applies) ->
-false_resolution (state plainly that it worked) -> hinge (ONE sentence, at most {MAX_HINGE_WORDS}
+Follow the selected engine's required functions. Where supported, the progression is:
+setup (the world and the problem) -> intervention (the fix someone applies) ->
+optional false_resolution (a documented expectation or observed result, distinguished explicitly;
+never turn an intention into success) -> optional hinge (ONE sentence, at most {MAX_HINGE_WORDS}
 words, that breaks it) -> mechanism (name the principle, in the first {MECHANISM_DEADLINE_PCT:.0%}
 of runtime) -> at least {MIN_ESCALATIONS} escalation steps, each caused by the previous one ->
 reversal (the end state, explicitly worse than start_state) -> optional generalization ->
@@ -796,8 +798,8 @@ If you include a generalization step, give at least {MIN_PARALLEL_CASES} paralle
 different domains, each with the same four parts (domain, problem, solution, result) in the same
 order, so the repetition itself carries the argument.
 
-Vary sentence length deliberately. After a long sentence that builds, land a short one of five
-words or fewer. The short fragments are what a viewer remembers.
+Vary sentence length to follow the thought. Use complete, natural sentences, concrete actions,
+and occasional short landings. Do not force a fragment or a punch line after every longer sentence.
 """.strip()
     extra = _text(operator_direction)
     return base if not extra else f"{base}\n\nOPERATOR DIRECTION:\n{extra}"

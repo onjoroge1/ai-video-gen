@@ -31,6 +31,8 @@ import openai
 import fal_models
 import nature_channel
 import script_stages
+import script_contracts
+from durable_execution import DurableExecutionError
 import script_cadence
 import hook_callback
 import event_citation_repair
@@ -1668,6 +1670,8 @@ def _dedupe_narration(scenes: list, beats: list, throughline: str) -> tuple[list
                 if clean:
                     s["narration"] = clean
         return scenes, cost
+    except DurableExecutionError:
+        raise
     except Exception:
         return scenes, 0.0
 
@@ -1797,6 +1801,8 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
             parsed, repair_cost = _parse_script_json(response.content[0].text)
             cost += repair_cost or 0.0
             candidate = _s((parsed or {}).get("hook"))
+        except DurableExecutionError:
+            raise
         except Exception:
             break
         if (candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS
@@ -1871,6 +1877,8 @@ def _nature_subject_sheet(question: str, script: dict, cost_sink: list | None = 
             cost_sink.append(_msg_cost(r.usage))
         sheet, _ = _parse_script_json(r.content[0].text)
         text = nature_channel.subject_sheet_text(sheet)
+    except DurableExecutionError:
+        raise
     except Exception as exc:
         log(f"⚠ subject sheet unavailable ({type(exc).__name__}) — frames carry the no-people rule only")
         text = ""
@@ -2041,6 +2049,8 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
             cost_sink.append(cost)
         parsed, repair_cost = _parse_script_json(response.content[0].text)
         cost += repair_cost or 0.0
+    except DurableExecutionError:
+        raise
     except Exception as exc:
         log(f"⚠ revision unavailable ({type(exc).__name__}) — keeping the cached draft")
         return script, 0.0
@@ -2295,6 +2305,8 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
             if candidate and len(candidate.split()) <= _cs.MAX_HINGE_WORDS:
                 rewritten = candidate
                 break
+    except DurableExecutionError:
+        raise
     except Exception:
         return script, cost
     if not rewritten:
@@ -2323,14 +2335,18 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
     # on the common path and a second failure surface on a script that has no claims at all.
     def _joins_pass() -> bool:
         try:
-            return bool((validate_claim_joins(script, research_dossier) or {}).get("passed"))
+            return bool((_validate_claims(script, research_dossier, cost_sink) or {}).get("passed"))
+        except DurableExecutionError:
+            raise
         except Exception:
-            return True     # unmeasurable is not the same as broken; do not revert on it
+            return False    # unavailable evidence cannot authorize a text repair
 
     before_ok = _joins_pass()
     scenes[index]["narration"] = rewritten
     try:
         rederive_narration_bindings(script, log, research_dossier)
+    except DurableExecutionError:
+        raise
     except Exception:
         pass
     # Keep the shorter hinge only if it did not cost the scene its evidence. A sourced claim is a
@@ -2340,6 +2356,8 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
         scenes[index]["narration"] = original
         try:
             rederive_narration_bindings(script, log, research_dossier)
+        except DurableExecutionError:
+            raise
         except Exception:
             pass
         log(f"  hinge left at {len(original.split())} words: the shorter version lost its source")
@@ -2400,6 +2418,8 @@ def _ensure_hook_names_subject(script: dict, title: str, cost_sink=None) -> tupl
                     if clean and i < len(scenes):
                         scenes[i]["narration"] = clean
         return script, cost
+    except DurableExecutionError:
+        raise
     except Exception:
         return script, 0.0
 
@@ -2710,6 +2730,8 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
             return replacement
         if chosen in _se.ENGINES:
             print(f"[engine] {chosen} does not fit {duration_sec}s; it was not offered")
+    except DurableExecutionError:
+        raise
     except Exception as exc:
         print(f"[engine] selection unavailable ({type(exc).__name__}), "
               f"falling back to a feasible engine: {str(exc)[:100]}")
@@ -3212,6 +3234,8 @@ def _repair_incentive_citations(beats: list, suspicions: list, claims: dict,
                 beat["incentive"] = dict(beat["incentive"], **updates)
                 print(f"[roles] {suspect['beat_id']} citations repaired: "
                       + "; ".join(f"{k} -> {', '.join(v)}" for k, v in updates.items()))
+        except DurableExecutionError:
+            raise
         except Exception as exc:                      # noqa: BLE001 - repair is best-effort
             print(f"[roles] citation repair unavailable ({type(exc).__name__}); "
                   "the original citations go to the evidence boundary unchanged")
@@ -3751,6 +3775,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                         "beat sheet while keeping everything else: " + improve_note)
     if causal_lane:
         beat_prompt += script_cadence.BRIEF
+    # Production and offline evaluations must send the same planning contract.
+    if causal_lane and _ef.map_for(sheet_engine_id):
+        import story_planner
+        beat_prompt = story_planner.planner_prompt(
+            question, duration_sec, sheet_engine_id, research_dossier,
+            improve_note=improve_note, n_scenes=n_scenes, cast_rules=cast_rules)
     def _ask_planner(correction: str = ""):
         """The beat-sheet call, as a function so a compile failure can re-ask it once.
 
@@ -3794,7 +3824,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     _plan_inputs = {"prompt": beat_prompt, "series": series, "operator": operator_direction,
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
-                    "model": ANTHROPIC_MODEL, "evidence": research_dossier,
+                    "model": script_contracts.model_identity(), "evidence": research_dossier,
                     "policy": "script_flow_v6", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
@@ -4219,6 +4249,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # here let expansion silently discard Alex's intention, the evidence state, and the continuity
     # anchor even though the planner had supplied them.
     def _expansion_beat(beat: dict) -> dict:
+        if causal_lane:
+            # Only the accepted event is factual input. Planner beliefs, outcomes and
+            # visual descriptions have NOT passed evidence entailment.
+            import story_fact_model
+            beat = story_fact_model.expansion_input(beat)
         return {
             "n": beat.get("n"), "role": _s(beat.get("role")) or "beat",
             **({"beat_id": beat.get("beat_id")} if causal_lane else {}),
@@ -5432,7 +5467,7 @@ _FACTCHECK_SYSTEM = (
 )
 
 
-@script_stages.cached("factcheck", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 2},
+@script_stages.cached("factcheck", context=lambda: {"channel": _TOPIC_CHANNEL.get(), **script_contracts.acceptance_policy()},
                       cache_if=lambda result: not any(str(n).startswith("Fact-check unavailable") for n in result[1]))
 def factcheck_script(script: dict, question: str, research_dossier: dict | None = None) -> tuple[dict, list, float]:
     """Verify narration factual accuracy via a second model pass. Returns (script, notes, cost).
@@ -5510,6 +5545,8 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
             if not reviewed.get("passed"):
                 notes.insert(0, "Fact-check incomplete: corrected some findings; source/integrity failures remain")
         return candidate, notes, round(cost + sum(reconciliation_costs), 4)
+    except DurableExecutionError:
+        raise
     except Exception:
         return script, ["Fact-check unavailable: no completed factual review"], round(cost + sum(reconciliation_costs), 4)
 
@@ -5912,6 +5949,8 @@ def rewrite_repeated_scenes(script: dict, dossier: dict, dupes: list[dict],
             log(f"  ✎ scene {index} rewritten so it no longer repeats scene "
                 f"{next(d['duplicate_of'] for d in dupes if d['scene'] == index)}")
         return candidate, round(cost, 4)
+    except DurableExecutionError:
+        raise
     except Exception as exc:
         log(f"  repeat editor unavailable: {type(exc).__name__}: {str(exc)[:120]}")
         return script, round(cost, 4)
@@ -5937,7 +5976,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "NARRATION_EXCEEDS_EVENT",
         "METRIC_MEANING_CHANGED", "CAUSAL_DIRECTION_REVERSED",
         "UNRESOLVED_REFERENCE", "MISSING_CASE_TRANSITION",
-        "HOOK_PROMISE_UNPAID",
+        "HOOK_PROMISE_UNPAID", "BROKEN_GRAMMAR", "TIME_SCOPE_CHANGED",
         # The hook overshoots the same way and is repaired the same way. It is addressed to the
         # scene it opens, because that is where the narrator reads it and where the trim has to
         # land; `script["hook"]` is re-derived from the repaired sentence below.
@@ -5975,6 +6014,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     for index in indexes:
         refs = event_of(scenes[index - 1])["claim_refs"]
         scene_claim_ids[index] = set(refs) & all_ids if refs else all_ids
+        if any(e.get("code") == "METRIC_MEANING_CHANGED" and int(e["scene"]) == index for e in errors):
+            # The correct measure may already exist elsewhere in the ledger. A proposed event
+            # correction still has to pass the same source, scope and narration cascade.
+            scene_claim_ids[index] = set(all_ids)
     if 1 in scene_claim_ids:
         scene_claim_ids[1].update(set(script.get("_cold_open_claim_refs") or []) & all_ids)
         if any(e.get("code") == "HOOK_EXCEEDS_STORY" for e in errors):
@@ -6010,7 +6053,12 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             key: scenes[index - 1].get(key)
             for key in ("narration", "story_role", "causal_role", "evidence_id", "claim_refs")
         }} for index in indexes],
+        "event_correction_policy": "For METRIC_MEANING_CHANGED only, you may propose event_updates "
+            "using an existing ledger measure with its exact outcome, denominator, scope and date. "
+            "Keep the scene's purpose. All proposals are independently validated; never invent evidence.",
         "output_schema": {
+            "event_updates": [{"scene": 1, "event": {"text": "corrected factual ceiling",
+                                                     "claim_refs": ["existing claim id"]}}],
             "scenes": [{"scene": 1, "narration": "complete corrected narration",
                         "evidence_id": "existing evidence id",
                         "claim_refs": [{"claim_id": "existing claim id",
@@ -6057,6 +6105,16 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             seen.add(index)
         if seen != set(indexes):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
+        from script_repair import reconcile_factcheck_events
+        metric_indexes = {int(e["scene"]) for e in errors if e.get("code") == "METRIC_MEANING_CHANGED"}
+        event_updates = data.get("event_updates") or []
+        if not isinstance(event_updates, list):
+            return script, round(response_cost + float(parse_cost or 0.0), 4)
+        validation_costs = []
+        reconcile_factcheck_events(candidate, [_s(sc.get("narration")) for sc in scenes],
+            [u for u in event_updates if isinstance(u, dict) and u.get("scene") in metric_indexes],
+            dossier, validation_costs)
+        response_cost += sum(validation_costs)
         # A repair that turned two scenes into one sentence is refused: the caller keeps the
         # original and the duplicate gate reports it, instead of the film saying it twice.
         if any(d["scene"] in indexes or d["duplicate_of"] in indexes
@@ -6074,6 +6132,8 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                 candidate["hook"] = first
         cost = (response_cost + float(parse_cost or 0.0))
         return candidate, round(cost, 4)
+    except DurableExecutionError:
+        raise
     except Exception:
         # A response received from the provider is billable even when its JSON or semantic repair
         # is unusable. Never turn a paid failed repair into zero recorded spend.
@@ -6281,6 +6341,8 @@ def _enforce_requested_runtime(
                 f"Runtime fit {attempt + 1}: {report['estimated_seconds']:.1f}s estimated, "
                 f"{report['word_count']} words (target {duration_sec}s)"
             )
+        except DurableExecutionError:
+            raise
         except Exception as exc:
             log(f"⚠ Runtime fit unavailable ({type(exc).__name__})")
             break
@@ -6948,6 +7010,10 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                             aux_costs: list[float], question: str = "",
                             log=lambda message: None) -> tuple[list[dict], dict]:
     """Generate, measure, and if necessary refit all TTS before buying visual assets."""
+    if script.get("_frozen_content_sha256"):
+        import script_readiness
+        if script["_frozen_content_sha256"] != script_readiness.content_hash(script):
+            raise ValueError("APPROVED_SCRIPT_CHANGED before narration")
     scenes = script.get("scenes") or []
     os.makedirs(aud_dir, exist_ok=True)
 
@@ -7073,7 +7139,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 "Measured audio timing failed: "
                 + "; ".join(error["message"] for error in non_runtime[:6])
             )
-        if attempt >= 2 or not _runtime_is_enforced():
+        if attempt >= 2 or not _runtime_is_enforced() or script.get("_frozen_content_sha256"):
             # Nothing to gain from re-rendering audio to hit an advisory target, and the rewrite
             # would invalidate every binding derived from the narration just measured.
             break
@@ -10464,7 +10530,7 @@ def _script_cache_path(question: str, fingerprint: str) -> str:
     root = os.environ.get("SCRIPT_CACHE_DIR", "").strip() or os.path.join(
         tempfile.gettempdir(), "reelforge", "script")
     key = hashlib.sha256(
-        f"{ANTHROPIC_MODEL}|{_s(question).strip().casefold()}|{fingerprint}".encode()).hexdigest()
+        f"{script_stages.digest(script_contracts.model_identity())}|{_s(question).strip().casefold()}|{fingerprint}".encode()).hexdigest()
     return os.path.join(root, f"{key[:32]}.json")
 
 
@@ -10487,7 +10553,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     claims = script_stages.digest(research_dossier or {})
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
-        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v2", "retention_polish_v1",
+        _s(operator_direction), claims, prompt_source, script_stages.digest(script_contracts.acceptance_policy()),
     ]).encode()).hexdigest()
 
 
@@ -10520,7 +10586,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 5})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), **script_contracts.acceptance_policy()})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -11347,6 +11413,9 @@ def run_explainer_pipeline(
     stop_after_script: bool = False,
     stop_after_plan: bool = False,
     revision_note: str = "",
+    script_revision: dict | None = None,
+    fresh_script: bool = False,
+    text_cost_sink=None,
 ) -> dict:
 
     def log(msg: str):
@@ -11370,6 +11439,15 @@ def run_explainer_pipeline(
         story_format=story_format,
         controlled_pilot=controlled_pilot,
     )
+    frozen_script = bool(script_revision and script_revision.get("mode") == "render")
+    if script_revision and (not illustrated_story_on or controlled_pilot or stop_after_plan or revision_note):
+        raise ValueError("Script revisions require the ordinary illustrated script workflow")
+    if script_revision:
+        import script_revisions
+        # Validate before any provider call, including worker resumes.
+        revision_input = script_revisions.restore(script_revision, stop_after_script=stop_after_script)
+        _write_generation_manifest(os.path.join(output_dir, "script_revision.json"), {
+            k: v for k, v in script_revision.items() if k != "script"})
     script_operator_direction = (
         illustrated_story_lane.story_direction(question, operator_direction)
         if illustrated_story_on else operator_direction
@@ -11536,8 +11614,8 @@ def run_explainer_pipeline(
     # Declared at function scope: the block that decides it sits inside the long-form branch, and
     # the reference gating that reads it does not. Social never enters that branch and must not
     # trip over an undefined name on its way past.
-    cast_free = False
-    aux_costs: list[float] = []   # Claude calls outside the script (grade, description) — were uncounted
+    cast_free = illustrated_story_on and _illustrated_is_cast_free()
+    aux_costs = text_cost_sink if text_cost_sink is not None else []
 
     # ── RESUME: if a checkpoint exists, reuse the script + already-paid scene assets ──
     state_path = os.path.join(output_dir, "_state.json")
@@ -11645,6 +11723,16 @@ def run_explainer_pipeline(
                 raise ValueError("Saved storyboard recovery could not restore its script") from exc
             raise script_stages.RecoveryError("Saved script checkpoint could not be restored; refusing to regenerate paid work") from exc
 
+    if resumed and illustrated_story_on and script.get("_script_readiness", {}).get("passed"):
+        import script_finalizer
+        script_finalizer.verify_approved(script, research_dossier, question, duration_sec,
+                                         factcheck_required=fact_check)
+        frozen_script = True
+    if frozen_script and not resumed:
+        import script_finalizer
+        script_finalizer.verify_approved(revision_input, revision_input.get("_research_dossier") or {},
+                                         question, duration_sec, factcheck_required=fact_check)
+
     # Pre-spend cost guard: refuse absurd jobs BEFORE the (paid) script call.
     rough_scenes = scene_count_for(duration_sec, video_format)
     rough_est = estimate_cost(rough_scenes, host_count=rough_scenes)  # assume all host = upper bound
@@ -11659,7 +11747,12 @@ def run_explainer_pipeline(
         log("stage:Writing script...")
         if image_guidance.strip():
             log(f"Theme/setting steer: {image_guidance.strip()}")
-        if video_format == "social":
+        script_fingerprint = ""
+        if script_revision:
+            script = revision_input
+            research_dossier = script.get("_research_dossier") or {}
+            log("Saved script revision: using the parent words and ledger; research and planning skipped")
+        elif video_format == "social":
             # Social gate: generate → enforce conceit → grade_short, regenerate weak drafts, keep best.
             script, short_grade = generate_graded_short(question, duration_sec, style, image_guidance,
                                                         series, cost_sink=aux_costs, log=log,
@@ -11701,11 +11794,11 @@ def run_explainer_pipeline(
                 f"{script_fingerprint}|revision|{revision}".encode()).hexdigest()
                 if revision else "")
             script = (_cached_graded_script(question, revised_fingerprint, log)
-                      if revision else None)
+                      if revision and not fresh_script else None)
             if script is not None:
                 script_fingerprint = revised_fingerprint
             else:
-                script = _cached_graded_script(question, script_fingerprint, log)
+                script = None if fresh_script else _cached_graded_script(question, script_fingerprint, log)
                 if script is None:
                     script = generate_graded_script(
                         question, duration_sec, style, image_guidance,
@@ -11727,171 +11820,174 @@ def run_explainer_pipeline(
         log(f"Script ready: {len(scenes)} scenes — \"{script.get('title', '')}\"")
         log(f"Style mode: {style_mode}")
 
-        # 1b. Fact-check pass — verify the science, correct errors before rendering.
-        if fact_check and scenes:
-            log("stage:Fact-checking script...")
-            before_factcheck = [_s(sc.get("narration")) for sc in scenes]
-            script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
-            after_factcheck = [_s(sc.get("narration")) for sc in script.get("scenes") or []]
-            script["_factcheck_review"] = {
-                "status": ("unavailable" if any(n.startswith("Fact-check unavailable") for n in fc_notes)
-                           else "rejected" if any(n.startswith("Fact-check repair rejected") for n in fc_notes)
-                           else "incomplete" if any(n.startswith("Fact-check incomplete") for n in fc_notes)
-                           else "complete"),
-                "before_sha256": script_stages.digest(before_factcheck),
-                "after_sha256": script_stages.digest(after_factcheck), "notes": fc_notes}
+        if not frozen_script:
+            # 1b. Fact-check pass — verify the science, correct errors before rendering.
+            if fact_check and scenes:
+                log("stage:Fact-checking script...")
+                before_factcheck = [_s(sc.get("narration")) for sc in scenes]
+                script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
+                if text_cost_sink is not None:
+                    text_cost_sink.append(fc_cost)
+                after_factcheck = [_s(sc.get("narration")) for sc in script.get("scenes") or []]
+                script["_factcheck_review"] = {
+                    "status": ("unavailable" if any(n.startswith("Fact-check unavailable") for n in fc_notes)
+                               else "rejected" if any(n.startswith("Fact-check repair rejected") for n in fc_notes)
+                               else "incomplete" if any(n.startswith("Fact-check incomplete") for n in fc_notes)
+                               else "complete"),
+                    "before_sha256": script_stages.digest(before_factcheck),
+                    "after_sha256": script_stages.digest(after_factcheck), "notes": fc_notes}
 
-            script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
-            if fc_notes:
-                changed = sum(a != b for a, b in zip(before_factcheck, after_factcheck))
-                log(f"Fact-check: {script['_factcheck_review']['status']} — {changed} narration line(s) changed")
-                for nft in fc_notes[:6]:
-                    log(f"  • {nft}")
-            else:
-                log("Fact-check: no corrections needed ✓")
-            scenes = script.get("scenes", [])
-        # Story-structure gates, REVIEW-ONLY. Measured after fact-check because that pass rewrites
-        # narration, and cadence/anchor measurements are only meaningful on the final wording.
-        # Deliberately gates nothing yet: the bands need to be trusted against real topics before
-        # they are allowed to stop a run. Promote to blocking behind an env flag once they are.
-        # Both bindings are made against pre-fact-check wording and are re-derived here, after the
-        # last pass that can rewrite narration and before anything validates them against it.
-        if video_format != "social":
-            rederive_narration_bindings(script, log, research_dossier)
-        # NOT `_story_engine`. That key already holds the causal engine id chosen by
-        # _assign_causal_spine, and this returns a report dict from the story_engine module —
-        # a different, stdlib-only prose analyser one letter away in name. Overwriting it
-        # destroyed the engine identity mid-run: illustrated_story reads the key expecting a
-        # string, se.get() resolved the dict through a lenient resolve_id to DEFAULT_ENGINE,
-        # and an accumulating-indictment story was failed for lacking the `tool` beat that
-        # only The Backfiring Solution requires. Three renders died there.
-        script["_story_structure_review"] = _review_story_structure(
-            script, story_format, video_format, log)
-        if video_format != "social":
-            # Said twice is a defect, not taste: collapse repeats before any claim judgement,
-            # and refuse the render if two scenes still say the same sentence.
-            _dropped = collapse_duplicate_narration(script, log)
-            if _dropped:
-                log(f"Duplicate narration: dropped {_dropped} scene(s) that repeated an earlier one")
-                rederive_narration_bindings(script, log, research_dossier)
+                script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
+                if fc_notes:
+                    changed = sum(a != b for a, b in zip(before_factcheck, after_factcheck))
+                    log(f"Fact-check: {script['_factcheck_review']['status']} — {changed} narration line(s) changed")
+                    for nft in fc_notes[:6]:
+                        log(f"  • {nft}")
+                else:
+                    log("Fact-check: no corrections needed ✓")
                 scenes = script.get("scenes", [])
-            _remaining = duplicate_narration(script.get("scenes") or [])
-            if _remaining:
-                script, _editor_cost = rewrite_repeated_scenes(
-                    script, research_dossier, _remaining, aux_costs, log)
-                if _editor_cost:
+            # Story-structure gates, REVIEW-ONLY. Measured after fact-check because that pass rewrites
+            # narration, and cadence/anchor measurements are only meaningful on the final wording.
+            # Deliberately gates nothing yet: the bands need to be trusted against real topics before
+            # they are allowed to stop a run. Promote to blocking behind an env flag once they are.
+            # Both bindings are made against pre-fact-check wording and are re-derived here, after the
+            # last pass that can rewrite narration and before anything validates them against it.
+            if video_format != "social":
+                rederive_narration_bindings(script, log, research_dossier)
+            # NOT `_story_engine`. That key already holds the causal engine id chosen by
+            # _assign_causal_spine, and this returns a report dict from the story_engine module —
+            # a different, stdlib-only prose analyser one letter away in name. Overwriting it
+            # destroyed the engine identity mid-run: illustrated_story reads the key expecting a
+            # string, se.get() resolved the dict through a lenient resolve_id to DEFAULT_ENGINE,
+            # and an accumulating-indictment story was failed for lacking the `tool` beat that
+            # only The Backfiring Solution requires. Three renders died there.
+            script["_story_structure_review"] = _review_story_structure(
+                script, story_format, video_format, log)
+            if video_format != "social":
+                # Said twice is a defect, not taste: collapse repeats before any claim judgement,
+                # and refuse the render if two scenes still say the same sentence.
+                _dropped = collapse_duplicate_narration(script, log)
+                if _dropped:
+                    log(f"Duplicate narration: dropped {_dropped} scene(s) that repeated an earlier one")
                     rederive_narration_bindings(script, log, research_dossier)
                     scenes = script.get("scenes", [])
                 _remaining = duplicate_narration(script.get("scenes") or [])
-            if _remaining:
-                raise ValueError(
-                    "DUPLICATE_NARRATION: scenes say the same thing — "
-                    + "; ".join(f"scene {d['scene']} repeats scene {d['duplicate_of']} "
-                                f"({d['overlap']:.0%})" for d in _remaining))
-            claim_validation = _validate_claims(script, research_dossier, aux_costs)
-            script["_claim_validation"] = claim_validation
-            # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
-            # five narration overshoots to one -- "baskets of tails swelled and swelled" -- and
-            # then stopped and refused the render for the survivor. Each pass rewrites only the
-            # scenes still failing, so a second pass on a shrinking list is a different and
-            # smaller job, not a retry of the one that just ran.
-            #
-            # Gated on the count going DOWN. A repair that fixes nothing, or trades one overshoot
-            # for another, stops immediately rather than buying another call to find that out.
-            for _repair_pass in range(_CLAIM_REPAIR_PASSES):
-                if claim_validation.get("passed"):
-                    break
-                _before_count = len(claim_validation.get("errors") or [])
-                repaired_script, repair_cost = repair_claim_join_failures(
-                    script, research_dossier, claim_validation,
-                    operator_direction=operator_direction)
-                if not repair_cost:
-                    break
-                _paid_cost = round(float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
-                repaired_script = json.loads(json.dumps(repaired_script))
-                rederive_narration_bindings(repaired_script, log, research_dossier)
-                repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
-                _after_count = len(repaired_validation.get("errors") or [])
-                from script_integrity import improves
-                accepted = improves(claim_validation, repaired_validation)
-                import script_edit_audit
-                script_edit_audit.record(script, repaired_script, claim_validation, repaired_validation,
-                                         "claim-repair", accepted, "validated improvement" if accepted
-                                         else "no improvement or new integrity failure")
-                if not accepted:
-                    script["_script_cost_usd"] = _paid_cost
-                    log("Claim ledger repair rejected: no improvement or new integrity failure; keeping prior draft")
-                    break
-                script = repaired_script
-                script["_script_cost_usd"] = _paid_cost
-                claim_validation = repaired_validation
-                script["_claim_validation"] = claim_validation
-                scenes = script.get("scenes", [])
-                log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
-                    + ("PASS" if claim_validation.get("passed")
-                       else f"{_before_count} -> {_after_count} failing"))
-                if _after_count >= _before_count:
-                    break
-            if not claim_validation.get("passed"):
-                # Last resort before refusing: delete the sentence that carries only an
-                # unsupported detail, then judge the script again. See _trim_unsupported_sentences.
-                # Up to three rounds: a trim can surface a failure the judge had not yet reached
-                # (job 2e2c7498: one round left "with Dad" standing after three sentences fell).
-                for _trim_round in range(3):
-                    script, claim_validation, trimmed = _validated_claim_trim(
-                        script, research_dossier, claim_validation, aux_costs, log)
-                    if not trimmed:
-                        break
-                    script["_claim_validation"] = claim_validation
-                    scenes = script.get("scenes", [])
-                    log(f"Claim ledger trim {_trim_round + 1}: dropped {trimmed} unsupported "
-                        "sentence(s)/clause(s) -> "
-                        + ("PASS" if claim_validation.get("passed")
-                           else f"{len(claim_validation.get('errors') or [])} failing"))
-                    if claim_validation.get("passed"):
-                        break
-            if collapse_duplicate_narration(script, log):
-                rederive_narration_bindings(script, log, research_dossier)
+                if _remaining:
+                    script, _editor_cost = rewrite_repeated_scenes(
+                        script, research_dossier, _remaining, aux_costs, log)
+                    if _editor_cost:
+                        rederive_narration_bindings(script, log, research_dossier)
+                        scenes = script.get("scenes", [])
+                    _remaining = duplicate_narration(script.get("scenes") or [])
+                if _remaining:
+                    raise ValueError(
+                        "DUPLICATE_NARRATION: scenes say the same thing — "
+                        + "; ".join(f"scene {d['scene']} repeats scene {d['duplicate_of']} "
+                                    f"({d['overlap']:.0%})" for d in _remaining))
                 claim_validation = _validate_claims(script, research_dossier, aux_costs)
                 script["_claim_validation"] = claim_validation
-                scenes = script.get("scenes", [])
-            if not claim_validation.get("passed"):
-                # The only pre-spend blocker with no override, which made it impossible to render
-                # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
-                # can continue; the failure is still logged and still recorded on the script, and
-                # the result is NOT publishable -- an unbound scene means a factual or causal line
-                # has no source behind it. Default stays on.
-                if _claim_ledger_hard() and not sourcing_advisory:
-                    # Name the scenes. The validator records a scene index on every issue and the
-                    # raised message threw it away, so three identical sentences said a scene was
-                    # unbound without saying which — the same shape of unhelpful error that sent
-                    # the research-dossier investigation looking for a parser bug that did not
-                    # exist. An operator cannot judge whether a rule is too broad or a script is
-                    # genuinely unsourced without seeing the line.
-                    detail = []
+                # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
+                # five narration overshoots to one -- "baskets of tails swelled and swelled" -- and
+                # then stopped and refused the render for the survivor. Each pass rewrites only the
+                # scenes still failing, so a second pass on a shrinking list is a different and
+                # smaller job, not a retry of the one that just ran.
+                #
+                # Gated on the count going DOWN. A repair that fixes nothing, or trades one overshoot
+                # for another, stops immediately rather than buying another call to find that out.
+                for _repair_pass in range(_CLAIM_REPAIR_PASSES):
+                    if claim_validation.get("passed"):
+                        break
+                    _before_count = len(claim_validation.get("errors") or [])
+                    repaired_script, repair_cost = repair_claim_join_failures(
+                        script, research_dossier, claim_validation,
+                        operator_direction=operator_direction)
+                    if not repair_cost:
+                        break
+                    _paid_cost = round(float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+                    repaired_script = json.loads(json.dumps(repaired_script))
+                    rederive_narration_bindings(repaired_script, log, research_dossier)
+                    repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
+                    _after_count = len(repaired_validation.get("errors") or [])
+                    from script_integrity import improves
+                    accepted = improves(claim_validation, repaired_validation)
+                    import script_edit_audit
+                    script_edit_audit.record(script, repaired_script, claim_validation, repaired_validation,
+                                             "claim-repair", accepted, "validated improvement" if accepted
+                                             else "no improvement or new integrity failure")
+                    if not accepted:
+                        script["_script_cost_usd"] = _paid_cost
+                        log("Claim ledger repair rejected: no improvement or new integrity failure; keeping prior draft")
+                        break
+                    script = repaired_script
+                    script["_script_cost_usd"] = _paid_cost
+                    claim_validation = repaired_validation
+                    script["_claim_validation"] = claim_validation
+                    scenes = script.get("scenes", [])
+                    log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
+                        + ("PASS" if claim_validation.get("passed")
+                           else f"{_before_count} -> {_after_count} failing"))
+                    if _after_count >= _before_count:
+                        break
+                if not claim_validation.get("passed"):
+                    # Last resort before refusing: delete the sentence that carries only an
+                    # unsupported detail, then judge the script again. See _trim_unsupported_sentences.
+                    # Up to three rounds: a trim can surface a failure the judge had not yet reached
+                    # (job 2e2c7498: one round left "with Dad" standing after three sentences fell).
+                    for _trim_round in range(3):
+                        script, claim_validation, trimmed = _validated_claim_trim(
+                            script, research_dossier, claim_validation, aux_costs, log)
+                        if not trimmed:
+                            break
+                        script["_claim_validation"] = claim_validation
+                        scenes = script.get("scenes", [])
+                        log(f"Claim ledger trim {_trim_round + 1}: dropped {trimmed} unsupported "
+                            "sentence(s)/clause(s) -> "
+                            + ("PASS" if claim_validation.get("passed")
+                               else f"{len(claim_validation.get('errors') or [])} failing"))
+                        if claim_validation.get("passed"):
+                            break
+                if collapse_duplicate_narration(script, log):
+                    rederive_narration_bindings(script, log, research_dossier)
+                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                    script["_claim_validation"] = claim_validation
+                    scenes = script.get("scenes", [])
+                if not claim_validation.get("passed"):
+                    # The only pre-spend blocker with no override, which made it impossible to render
+                    # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
+                    # can continue; the failure is still logged and still recorded on the script, and
+                    # the result is NOT publishable -- an unbound scene means a factual or causal line
+                    # has no source behind it. Default stays on.
+                    if _claim_ledger_hard() and not sourcing_advisory:
+                        # Name the scenes. The validator records a scene index on every issue and the
+                        # raised message threw it away, so three identical sentences said a scene was
+                        # unbound without saying which — the same shape of unhelpful error that sent
+                        # the research-dossier investigation looking for a parser bug that did not
+                        # exist. An operator cannot judge whether a rule is too broad or a script is
+                        # genuinely unsourced without seeing the line.
+                        detail = []
+                        for item in claim_validation.get("errors", [])[:6]:
+                            index = item.get("scene")
+                            text = ""
+                            if isinstance(index, int) and 1 <= index <= len(script.get("scenes") or []):
+                                role = _s(script["scenes"][index - 1].get("story_role"))
+                                text = (f" [scene {index}, role={role or '?'}: "
+                                        f"{_s(script['scenes'][index - 1].get('narration'))[:90]}]")
+                            detail.append(f"{item['message']}{text}")
+                        _persist_semantic_failure(
+                            output_dir=output_dir, stage="claim-ledger", script=script,
+                            research_dossier=research_dossier, report=claim_validation,
+                            operator_direction=operator_direction, log=log)
+                        raise ValueError(
+                            "Claim ledger failed after script/fact-check before asset spend: "
+                            + "; ".join(detail)
+                        )
                     for item in claim_validation.get("errors", [])[:6]:
-                        index = item.get("scene")
-                        text = ""
-                        if isinstance(index, int) and 1 <= index <= len(script.get("scenes") or []):
-                            role = _s(script["scenes"][index - 1].get("story_role"))
-                            text = (f" [scene {index}, role={role or '?'}: "
-                                    f"{_s(script['scenes'][index - 1].get('narration'))[:90]}]")
-                        detail.append(f"{item['message']}{text}")
-                    _persist_semantic_failure(
-                        output_dir=output_dir, stage="claim-ledger", script=script,
-                        research_dossier=research_dossier, report=claim_validation,
-                        operator_direction=operator_direction, log=log)
-                    raise ValueError(
-                        "Claim ledger failed after script/fact-check before asset spend: "
-                        + "; ".join(detail)
-                    )
-                for item in claim_validation.get("errors", [])[:6]:
-                    log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
-            elif script_fingerprint:
-                # Survived fact-check and the ledger, so it is worth reusing. Caching at
-                # generation instead cached a draft that failed the ledger six scenes later, and
-                # the next run would have iterated against it.
-                _store_graded_script(question, script_fingerprint, script)
+                        log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")
+                elif script_fingerprint and not fresh_script:
+                    # Survived fact-check and the ledger, so it is worth reusing. Caching at
+                    # generation instead cached a draft that failed the ledger six scenes later, and
+                    # the next run would have iterated against it.
+                    _store_graded_script(question, script_fingerprint, script)
         # CAST-FREE ILLUSTRATED LANE. The corpus is explicit about who is on screen: "simple
         # round-headed stick figures represent everyone -- the authority figures (marked by uniform
         # hats), the ordinary population (marked by regional dress), and a lone narrator-avatar figure
@@ -11929,7 +12025,7 @@ def run_explainer_pipeline(
     # Runtime is a pre-spend contract. Fit/reject the final fact-checked narration now, before
     # any TTS or image provider call. Re-check resumed checkpoints too so an older overlong plan
     # cannot bypass the new contract.
-    if video_format != "social":
+    if video_format != "social" and not frozen_script:
         log("stage:Enforcing requested runtime...")
         # The refit exists ONLY to hit a duration target, and c9803fd made that target advisory.
         # It was still rewriting narration for a goal nothing enforces -- and every rewrite
@@ -11994,7 +12090,7 @@ def run_explainer_pipeline(
             log("  Length is a request (RUNTIME_HARD=0), so this is not blocking — but the "
                 "storyboard measures the narration it was given, not the runtime you asked for.")
 
-    if illustrated_story_on:
+    if illustrated_story_on and not frozen_script:
         log("stage:Building illustrated storyboard...")
         # The lead is spoken: every pass that rewrote narration (fact-check, revision, refit)
         # could have pushed the hook and cold open out of scene 1. Re-applied here, once, then
@@ -12091,6 +12187,11 @@ def run_explainer_pipeline(
         _save_script_checkpoint(state_path, script, style_mode, short_grade,
                                 video_format, label="script-editorial-complete")
 
+    elif illustrated_story_on:
+        storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
+        _write_generation_manifest(storyboard_path,
+            illustrated_story_lane.build_storyboard(copy.deepcopy(script), question))
+
     # Objective long-form gate: inspect the persisted story roles and narrative-debt ledger before
     # any image/TTS spend. The planner already received one automatic retry in
     # generate_graded_script; a remaining error is therefore a genuine structural failure.
@@ -12185,24 +12286,25 @@ def run_explainer_pipeline(
             "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
             "%(exact_reuse_count)d exact callback reuse" % counts)
 
-    if stop_after_script and illustrated_story_on:
-        import script_readiness
-        readiness = script_readiness.evaluate(
-            script, research_dossier,
-            claims=_validate_claims(script, research_dossier, aux_costs),
-            structure=validate_longform_story(script, question),
-            storyboard=illustrated_story_lane.build_storyboard(copy.deepcopy(script), question)["validation"],
-            runtime=plan_runtime(script.get("scenes") or [], duration_sec),
-            duplicates=duplicate_narration(script.get("scenes") or []),
-            review=script.get("_final_retention_review"), runtime_hard=_runtime_is_enforced(),
-            factcheck_required=fact_check)
-        script["_script_readiness"] = readiness
+    if illustrated_story_on:
+        import script_finalizer
+        readiness = (script_finalizer.verify_approved(
+            script, research_dossier, question, duration_sec, factcheck_required=fact_check)
+            if frozen_script else script_finalizer.evaluate(
+                script, research_dossier, question, duration_sec,
+                factcheck_required=fact_check, cost_sink=aux_costs))
         _write_generation_manifest(os.path.join(output_dir, "script_readiness.json"), readiness)
         if not readiness["passed"]:
             _persist_semantic_failure(output_dir=output_dir, stage="script-readiness",
                 script=script, research_dossier=research_dossier, report=readiness,
                 operator_direction=operator_direction, log=log)
             raise ValueError("SCRIPT_NOT_READY: " + ", ".join(readiness["errors"]))
+        script["_frozen_content_sha256"] = readiness["content_sha256"]
+        frozen_script = True
+        if script_revision:
+            _write_generation_manifest(os.path.join(output_dir, "script_revision.json"), {
+                **{k: v for k, v in script_revision.items() if k != "script"},
+                "result_content_sha256": readiness["content_sha256"], "result": readiness})
     if stop_after_script:
         # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the
         # narration where an editor can read it and stop; the approved rerun reuses the cache.
@@ -12226,8 +12328,7 @@ def run_explainer_pipeline(
         log(f"Script written for approval: {approval_path}")
         raise ScriptApprovalRequired(
             "Script validation completed and is awaiting operator approval; see the readiness report for warnings "
-            "(stop_after_script). Rerun the same request without stop_after_script to render; "
-            "SCRIPT_CACHE=1 reuses this exact script.")
+            "(stop_after_script). Approve this exact saved script through Studio to render.")
 
     mascot_ok = (not cast_free) and os.path.exists(MASCOT_REF)
     human_ok = (not cast_free) and os.path.exists(HUMAN_REF)
@@ -13742,7 +13843,7 @@ def run_explainer_pipeline(
     #       thumbnail read it, and every number in it must be spoken in the finished narration.
     import backfire_packaging as _backfire
     _backfire_packaged = _backfire.applies(script, video_format)
-    if _backfire_packaged:
+    if _backfire_packaged and not frozen_script:
         try:
             _packaged_title = _backfire.propose_title(
                 script.get("title", question), question, full_transcript, cost_sink=aux_costs,

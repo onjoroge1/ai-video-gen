@@ -195,6 +195,8 @@ def test_targeted_editor_uses_hard_hinge_cap(monkeypatch):
     defects = [{"scene": 1, "code": editor.HINGE_TOO_LONG, "note": "over budget"}]
     assert editor.build_payload(script, {}, defects)["scenes"][0]["words_allowed"] == "1-10"
     monkeypatch.setattr(ep, "_claude", client({"scenes": [{"scene": 1, "narration": "The problem was still there."}]}))
+    # This checks the budget transaction; semantic acceptance has its own adverse tests.
+    monkeypatch.setattr(ep, "_validate_claims", lambda *a, **k: {"passed": True})
     out, cost, remaining = editor.edit(script, {}, defects)
     assert not remaining and out is not script and cost > 0
 

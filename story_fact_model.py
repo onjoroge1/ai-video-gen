@@ -1147,6 +1147,9 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     kept, narrowed, unrepairable = narrow_required_roles(
         kept, {row["beat_id"]: row for row in report["evidence"]}, engine_id,
         judge=judge, cache=cache, cost_sink=cost_sink)
+    report["unavailable"].extend(
+        {**row, "stage": "function", "verdict": row["function_verdict"]}
+        for row in unrepairable if row.get("function_verdict") in ce.RETRYABLE_VERDICTS)
     # No second entailment call: `supported_core` is Boundary A's own finding about these same
     # claims, so re-asking "do they support it" is a question whose answer we already bought. The
     # check worth running is the other contract -- whether the narrowed beat still does its job --
@@ -1197,6 +1200,18 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
         "still_failing": still_failing,
         "cascade": report,
     }
+
+
+def expansion_input(beat):
+    """Give prose only the accepted event, never unreviewed planner assertions."""
+    row = deepcopy(beat)
+    row["event"] = event_of(beat)
+    row["beat"] = row["event"]["text"]
+    row["claim_refs"] = list(row["event"]["claim_refs"])
+    for key in ("human_intention", "human_belief", "expected_outcome", "actual_outcome",
+                "continuity_anchor", "causal_link", "changes_state"):
+        row.pop(key, None)
+    return row
 
 
 def relationship_fingerprint(beat, beats):

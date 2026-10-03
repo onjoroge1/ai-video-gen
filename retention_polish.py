@@ -10,6 +10,7 @@ import re
 
 import storyboard_repair as repair
 import script_cadence
+import script_contracts
 import hook_callback
 from script_repair import broken_repair
 
@@ -109,6 +110,7 @@ def run(script, question, dossier, output_dir, cost_sink, log):
     path = Path(output_dir) / FILENAME
     saved = json.loads(path.read_text()) if path.exists() else None
     context_hash = repair.digest({"question": question, "dossier": dossier, "version": VERSION,
+                                  "acceptance_policy": script_contracts.acceptance_policy(),
                                   "target": ep._SCRIPT_GATE_PASS, "floor": ep._SCRIPT_GATE_FLOOR,
                                   "cadence_policy": script_cadence.VERSION,
                                   "hook_policy": hook_callback.VERSION})

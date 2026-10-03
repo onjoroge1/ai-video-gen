@@ -174,7 +174,7 @@ def test_a_non_material_claim_may_permit_exaggeration():
     assert [c["claim_id"] for c in out["claims"]] == ["c01"]
 
 
-def test_optional_attention_roles_are_spent_before_repeats():
+def test_optional_attention_roles_require_evidence():
     """The overcorrection the first version of this clause caused.
 
     Naming only the repeatable functions produced a delivered spine of
@@ -186,9 +186,9 @@ def test_optional_attention_roles_are_spent_before_repeats():
     mapping = ef.map_for("removed_keystone")
     assert sc._early_attention_functions(mapping) == ("intended_effect",)
     clause = sc._repeat_to_reach_count(mapping, 300)
-    assert "FIRST" in clause and "intended_effect" in clause
+    assert "intended_effect" in clause and "ONLY when the ledger supports" in clause
     # And the repeats still happen, for the remainder.
-    assert "THEN supply" in clause
+    assert "Omit them when unsupported" in clause and "return fewer" in clause
 
 
 def test_an_engine_whose_required_set_already_turns_early_is_unchanged():
@@ -198,7 +198,7 @@ def test_an_engine_whose_required_set_already_turns_early_is_unchanged():
     assert sc._early_attention_functions(mapping) == ()
     clause = sc._repeat_to_reach_count(mapping, 300)
     assert "FIRST" not in clause
-    assert clause.startswith("Every required function")
+    assert "never permission to invent an event" in clause
 
 
 def test_early_attention_functions_are_derived_from_the_retention_vocabulary():
