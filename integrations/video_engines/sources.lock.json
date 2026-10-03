@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-21",
+  "sources": {
+    "moneyprinterturbo": {"repository": "https://github.com/harry0703/MoneyPrinterTurbo.git", "revision": "3d5f4e421927d61f3eac729cf4b711ac0b69d688", "license": "MIT", "python": "3.11"},
+    "openshorts": {"repository": "https://github.com/mutonby/openshorts.git", "revision": "4b2cf58922587ecb17b990a9575e46320bdb3118", "license": "MIT core only; cloud excluded; transitive licenses need separate review", "python": "3.11"}
+  },
+  "motion_canvas": {"version": "3.17.2", "license": "MIT core/2d/UI/vite-plugin", "export": "PNG image sequence; existing ReelForge FFmpeg assembly", "excluded_packages": ["@motion-canvas/ffmpeg"]}
+}
