@@ -1273,7 +1273,10 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
             return f"STORY_SPINE_UNSUPPORTED\n\n  ! [SHEET_CARRIES_NO_EVENTS] " \
                    f"{compiled['unrepairable'][0]['message']}"
         return f"{head} (no research to check them against either)"
-    lines = ["SUPPORTED_SPINE_COVERAGE" if coverage["covered"] else "STORY_SPINE_UNSUPPORTED", ""]
+    lines = ["SUPPORTED_SPINE_COVERAGE" if compiled.get("passed") else "STORY_SPINE_UNSUPPORTED", ""]
+    for issue in (compiled.get("cascade") or {}).get("unavailable") or []:
+        lines.append(f"  ! [UNSCORED_JUDGE_UNAVAILABLE] {issue.get('beat_id', '')}: "
+                     + str(issue.get("reason") or "evidence judge unavailable"))
     lines.append("Required causal functions:")
     for role in coverage["required"]:
         mark = "+" if coverage["supported_by_role"].get(role) else "-"

@@ -16,10 +16,13 @@ root = pathlib.Path(sys.argv[1]).resolve()
 sys.path.extend(json.loads(sys.argv[2]))
 sys.path.insert(0, str(root))
 import app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus
+import script_cadence, script_stages, script_readiness, planning_evidence, event_citation_repair
+import story_planner, script_editor, script_repair, storyboard_repair, retention_polish
 import claim_entailment, cost_ledger, event_functions, prompt_contract
 import story_compiler, story_fact_model, story_planning, research_handoff, topic_fit
 import nature_retention_storyboard, nature_short_presentation, nature_story_flow, nature_render_quality
-for module in (app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus,
+for module in (script_cadence, script_stages, script_readiness, planning_evidence, event_citation_repair,
+               story_planner, script_editor, script_repair, storyboard_repair, retention_polish, app, durable_execution, illustrated_story, illustrated_score, provider_readiness, reference_corpus,
                claim_entailment, cost_ledger, event_functions, prompt_contract,
                story_compiler, story_fact_model, story_planning, research_handoff, topic_fit,
                nature_retention_storyboard, nature_short_presentation, nature_story_flow, nature_render_quality):

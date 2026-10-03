@@ -1854,7 +1854,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         _checkpoint_generation_manifest(
             output_dir, status=("awaiting_human_review" if awaiting_review else
                                 "awaiting_story_format_acknowledgement" if awaiting_format
-                                else "failed"), error=str(exc))
+                                else "awaiting_script_approval" if awaiting_script else "failed"), error=str(exc))
         state_path = os.path.join(output_dir, "_state.json")
         if os.path.isfile(state_path):
             try:
@@ -2991,8 +2991,20 @@ def _read_research_handoff(resolve) -> dict:
     import research_handoff
     path = resolve("research-handoff")
     if path:
+        # The most recently evaluated draft may be a rejected replacement. Resolve
+        # the explicit selection from the same restored checkpoint before displaying it.
+        from pathlib import Path
+        pointer = Path(path).parent / "selected_research_attempt.json"
+        if pointer.exists():
+            selected = json.loads(pointer.read_text())
+            attempt_id = selected.get("attempt_id", "")
+            if not re.fullmatch(r"[0-9a-f]{64}", attempt_id):
+                raise ValueError("Invalid selected research attempt")
+            path = Path(path).parent / "research_attempts" / (attempt_id + ".json")
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
+        if pointer.exists() and payload.get("identity") != selected.get("identity"):
+            raise ValueError("Selected research attempt does not match its saved artifact")
     else:
         original = resolve("research")
         if not original:

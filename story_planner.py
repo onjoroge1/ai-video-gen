@@ -59,7 +59,9 @@ def planner_prompt(question: str, duration_sec: int, engine_id: str,
                   "actors the history had -- 'colonial officials', 'the bounty clerks', "
                   "'Delhi residents', 'the breeders' -- or use no name at all. Set "
                   "human_present and mascot_present to false on every scene.\n")
+    import script_cadence
     prompt = story_compiler.factual_plan_prompt(question, duration_sec, n_scenes, engine_id, cast_rules)
+    prompt += script_cadence.BRIEF
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         prompt += (
@@ -110,7 +112,7 @@ def distinct_events(beats: list[dict]) -> list[bool]:
 
 def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
                duration_sec: int) -> dict:
-    """Deterministic score for one beat sheet; 100 is a sheet the gates would wave through."""
+    """Deterministic score for one beat sheet; semantic validation and final readiness are separate."""
     import causal_story as cs
     import story_compiler
     import story_engines
@@ -251,3 +253,14 @@ def approved_plan(output_dir: str) -> dict | None:
     with open(path, encoding="utf-8") as handle:
         plan = json.load(handle)
     return plan if isinstance(plan, dict) and plan.get("beats") else None
+
+
+def candidate_brief(index):
+    """Stable diversity: each candidate is replayable, but sends a different request."""
+    approaches = (
+        "Open on a concrete, sourced consequence; trace the decision that caused it.",
+        "Open on the original intervention and its promise; follow the first sourced sign of failure.",
+        "Open on a sourced physical object or animal; show how its meaning changes at the ending.",
+    )
+    return (f"\nCANDIDATE {index + 1}/3 — {approaches[index]} "
+            "Keep the required engine, evidence limits and roles. Do not invent a scene to fit this approach.")
