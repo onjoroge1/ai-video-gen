@@ -23,6 +23,8 @@ defaultTest:
     - type: python
       value: file://asserts.py:plan_has_cold_open
     - type: python
+      value: file://asserts.py:plan_has_hook_pair
+    - type: python
       value: file://asserts.py:plan_event_count
 
 tests:

@@ -32,6 +32,20 @@ def _fixture(name: str) -> dict:
         return json.load(handle)
 
 
+def plan_has_hook_pair(output, context) -> dict:
+    import hook_callback
+    try:
+        plan = _json(output)
+        pair = hook_callback.contract(plan) if isinstance(plan, dict) else {}
+        missing = [key for key in ("viewer_question", "supported_answer", "callback_image")
+                   if not pair.get(key)]
+        return {"pass": not missing, "score": int(not missing),
+                "reason": "Missing hook-pair fields: " + ", ".join(missing) if missing else
+                          "Hook/answer/callback present; semantic quality is separately judged"}
+    except (ValueError, TypeError):
+        return {"pass": False, "score": 0, "reason": "Invalid hook-pair response"}
+
+
 def integrity_findings(output, context) -> dict:
     import script_integrity as si
     case = _fixture("script_integrity.json")[context["vars"]["case"]]

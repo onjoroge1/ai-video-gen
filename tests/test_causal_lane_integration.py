@@ -1056,7 +1056,8 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
         assert evasive not in causal, f"the prompt still asks the hook to hedge: {evasive!r}"
 
     # And the positive rule is stated once, not accreted into three overlapping paragraphs.
-    assert causal.count("named actor") == 1, "the subject rule is stated more than once"
+    assert causal.count("naming the concrete title subject") == 1
+    assert '"hook": "at most 18 words, with a named actor' not in causal
 
     # A retired instruction must not survive as a quotation. Naming the behaviour you are
     # forbidding still puts that phrasing in the context.

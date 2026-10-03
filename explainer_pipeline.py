@@ -32,6 +32,7 @@ import fal_models
 import nature_channel
 import script_stages
 import script_cadence
+import hook_callback
 import event_citation_repair
 from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_duration, \
     probe_dimensions as _probe_dimensions, probe_media as _probe_media
@@ -3794,7 +3795,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
                     "model": ANTHROPIC_MODEL, "evidence": research_dossier,
-                    "policy": "script_flow_v4", "diagnostic": _diagnostic_render()}
+                    "policy": "script_flow_v5", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
     if _saved_plan is not None:
@@ -4356,6 +4357,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
             "Do not invent another false resolution or escalation after the reversal."
             if causal_lane and is_last else "")
+        pair_direction = hook_callback.expansion_direction(plan) if causal_lane else ""
         ch_prompt = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
             + (cast_rules if causal_lane and _illustrated_is_cast_free() else
@@ -4410,6 +4412,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + _cadence_rule_block(effective_story_format)
             + opening_direction
             + ending_direction
+            + pair_direction
             + (' This batch contains the ENDING: after the peak, write ONE brief false-relief beat, then '
                'the FINAL ESCALATION, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT '
                'experiment posed at the start (do NOT drift to a different scenario), then close on ONE '
@@ -4646,6 +4649,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
         "_cold_open": _cold_open,
+        "_hook_contract": hook_callback.contract(plan) if causal_lane else {},
         "_cold_open_claim_refs": _cold_refs,
         "style_mode": style_mode,
         "scenes": all_scenes,
@@ -5900,6 +5904,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "NARRATION_EXCEEDS_EVENT",
         "METRIC_MEANING_CHANGED", "CAUSAL_DIRECTION_REVERSED",
         "UNRESOLVED_REFERENCE", "MISSING_CASE_TRANSITION",
+        "HOOK_PROMISE_UNPAID",
         # The hook overshoots the same way and is repaired the same way. It is addressed to the
         # scene it opens, because that is where the narrator reads it and where the trim has to
         # land; `script["hook"]` is re-derived from the repaired sentence below.
@@ -5940,6 +5945,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     permitted_ids = set().union(*scene_claim_ids.values())
     payload = {
         "operator_direction": operator_direction,
+        "hook_plan_not_evidence": hook_callback.contract(script),
+        "read_only_story": ([{"scene": i, "narration": s.get("narration"),
+                              "event": event_of(s)} for i, s in enumerate(scenes, 1)]
+                            if any(e.get("code") == "HOOK_PROMISE_UNPAID" for e in errors) else []),
         "claims": claim_context_for_prompt({**dossier, "claims": [c for c in dossier.get("claims") or []
                   if c.get("claim_id") in permitted_ids]}),
         "failures": errors,
@@ -10262,7 +10271,8 @@ def grade_script(script: dict, cost_sink: list | None = None) -> dict | None:
     sample = full if len(full) <= 12000 else full[:6000] + " […] " + full[-6000:]
     try:
         r = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_GRADE_SYSTEM + script_cadence.BRIEF,
+            model=ANTHROPIC_MODEL, max_tokens=600,
+            system=_SCRIPT_GRADE_SYSTEM + script_cadence.BRIEF + hook_callback.GRADE_GUIDANCE,
             messages=[{"role": "user", "content":
                        f'Title: "{_s(script.get("title"))}". Hook: "{_s(script.get("hook"))}".\n'
                        f'{len(scenes)} scenes. Descriptive rhythm metrics (not automatic grades): '
@@ -10459,7 +10469,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 3})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 4})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",

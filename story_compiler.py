@@ -114,9 +114,15 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     functions = tuple(mapping.to_role)
     import causal_story
     schema = {
-        "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
-                               "and the concrete title subject",
+        "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, naming the concrete "
+                               "title subject; a natural question or statement",
         "throughline": "",
+        "hook_contract": {
+            "viewer_question": "the concrete question the hook promises to answer",
+            "supported_answer": "the answer the supplied evidence and events can establish",
+            "contrast": "documented intent versus consequence, or empty if unsupported",
+            "callback_image": "the opening object or image whose meaning changes at the close",
+            "closing_question": "optional application of the earned answer; not a repeat of the hook"},
         "cold_open": {"text": "ONE sentence, at most 22 words, spoken right after the hook: the "
                               "visible AFTERMATH of the fix gone wrong, as a viewer would see it "
                               "(a dead predator with the toad in its jaws, a river bank stripped "
