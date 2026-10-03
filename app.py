@@ -4444,6 +4444,36 @@ async def studio_job_artifacts(job_id: str):
         raise HTTPException(503, "Saved artifacts temporarily unavailable") from exc
 
 
+class StudioProviderResumeRequest(BaseModel):
+    checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@app.post("/api/studio/jobs/{job_id}/resume-provider")
+async def studio_resume_provider(job_id: str, request: StudioProviderResumeRequest):
+    """Explicit account recovery; preserve this Studio job's recipe and spending cap."""
+    if not _durable_execution_required():
+        raise HTTPException(409, "Durable execution is not enabled")
+    try:
+        store, _ = _durable_components()
+        row = await asyncio.to_thread(store.get_job, job_id)
+        if not row:
+            raise HTTPException(404, "Job not found")
+        if row.get("kind") != "explainer" or (row.get("request") or {}).get("controlled_pilot"):
+            raise HTTPException(409, "This job must use its original approval workflow")
+        if (row.get("checkpoint") or {}).get("sha256") != request.checkpoint_sha256:
+            raise HTTPException(409, "Saved checkpoint changed; refresh this job before resuming")
+        # The existing locked transaction checks the rejection, one known provider
+        # stage, outstanding reservation and original cap. It is concurrency-safe.
+        await asyncio.to_thread(store.resume_provider_block, job_id,
+                                expected_checkpoint_sha256=request.checkpoint_sha256)
+        return {"job_id": job_id, "resuming": True,
+                "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(503, "Provider recovery storage temporarily unavailable") from exc
+    except durable_execution.DurableExecutionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.get("/api/explainer/status/{job_id}")
 async def explainer_status_stream(job_id: str, request: Request, after: int = 0):
     durable = _durable_execution_required()

@@ -3,6 +3,7 @@ const jobId = decodeURIComponent(location.pathname.split('/').pop());
 const base = '/api/studio/jobs/' + encodeURIComponent(jobId);
 const el = id => document.getElementById(id);
 let cursor = 0, artifactKey = null, lastSnapshot = null;
+let pollTimer = null, resuming = false;
 el('job').textContent = 'Job ' + jobId;
 el('evidence').href = '/agent/research/' + encodeURIComponent(jobId);
 async function get(url) {
@@ -49,10 +50,34 @@ async function loadArtifacts() {
   finally { el('load').disabled = false; }
 }
 el('load').onclick = loadArtifacts;
+el('resume').onclick = async () => {
+  if (resuming || !lastSnapshot || !lastSnapshot.provider_resumable) return;
+  resuming = true; el('resume').disabled = true; clearTimeout(pollTimer);
+  let resumeError = '';
+  try {
+    const response = await fetch(base + '/resume-provider', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({checkpoint_sha256:lastSnapshot.checkpoint_sha256})
+    });
+    if (!response.ok) throw new Error(`Resume was not accepted (${response.status}). Refresh the saved job and check its status.`);
+    await response.json();
+    el('resume').hidden = true;
+    el('connection').textContent = 'Resuming the same job using saved work and the existing cap.';
+    // Dispatch is a long-running request; the saved job remains the status source.
+    fetch('/api/explainer/dispatch/' + encodeURIComponent(jobId), {method:'POST'}).catch(() => {});
+  } catch (error) {
+    resumeError = error.message;
+  } finally {
+    resuming = false; el('resume').disabled = false;
+    await poll();
+    if (resumeError) el('error').textContent = resumeError;
+  }
+};
 async function poll() {
   let delay = 3000;
   try {
     const data = await get(base + '?after=' + cursor); lastSnapshot = data;
+    el('resume').hidden = !data.provider_resumable;
     el('question').textContent = data.question;
     el('status').textContent = (data.status || 'Unknown').replaceAll('_', ' ');
     el('error').textContent = data.error || '';
@@ -68,6 +93,6 @@ async function poll() {
     if (!data.active && !backlog) return;
     if (backlog) delay = 0;
   } catch (error) { el('connection').textContent = 'Connection interrupted: ' + error.message + ' Retrying…'; delay = 5000; }
-  setTimeout(poll, delay);
+  pollTimer = setTimeout(poll, delay);
 }
 poll();
