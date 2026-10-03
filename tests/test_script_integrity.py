@@ -126,10 +126,13 @@ def test_trim_that_orphans_a_subject_is_rolled_back(monkeypatch):
     monkeypatch.setattr(ep, "_validate_claims", lambda *a: {"passed": False, "errors": [
         {"code": "UNRESOLVED_REFERENCE", "scene": 2}]})
     candidate, report, count = ep._validated_claim_trim(script, DOSSIER, before, [], lambda _: None)
-    assert count == 0 and candidate is script and script == original and report is before
+    assert count == 0 and candidate is script and report is before
+    assert script["scenes"] == original["scenes"]
+    assert script["_edit_audit"][-1]["accepted"] is False
+    assert script["_edit_audit"][-1]["candidate_report"]["errors"][0]["code"] == "UNRESOLVED_REFERENCE"
     monkeypatch.setattr(ep, "_validate_claims", lambda *a: {"passed": True, "errors": []})
     candidate, report, count = ep._validated_claim_trim(script, DOSSIER, before, [], lambda _: None)
-    assert count == 1 and report["passed"] and script == original
+    assert count == 1 and report["passed"] and script["scenes"] == original["scenes"]
     assert candidate["scenes"][0]["narration"] == "Birds remain offshore."
 
 

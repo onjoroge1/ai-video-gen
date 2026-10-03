@@ -40,7 +40,7 @@ async function loadArtifacts() {
         const narration = document.createElement('p'); narration.textContent = scene.narration || '';
         el('script').append(heading, narration);
       }
-      for (const key of ['_script_readiness','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review']) {
+      for (const key of ['_script_readiness','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review','_edit_audit']) {
         if (script[key] != null) report(key, script[key]);
       }
     }

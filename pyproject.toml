@@ -39,6 +39,7 @@ py-modules = [
     "planning_review_recovery",
     "hook_callback",
     "script_integrity",
+    "script_edit_audit",
     "event_citation_repair",
     "claim_verify",
     "hippo_recovery",
