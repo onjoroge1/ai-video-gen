@@ -1819,8 +1819,9 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
         if (6 <= len(head.split()) <= _cs.MAX_HOOK_WORDS and head != hook
                 and (not subject or any(w in head.lower() for w in subject))):
             rewritten = head if head.endswith((".", "!", "?")) else head + "."
-    if not rewritten:
-        return script, cost                       # still over: leave the original alone
+    from script_repair import broken_repair
+    if not rewritten or broken_repair(rewritten):
+        return script, cost                       # invalid repair: leave the original alone
 
     scenes = script.get("scenes") or []
     if scenes and hook in _s(scenes[0].get("narration")):
@@ -2247,6 +2248,11 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
         f'\nTHIS SENTENCE CARRIES SOURCED EVIDENCE: "{keep}". The shorter version must still '
         "state that same fact, in its own words if need be, because a hinge that loses its source "
         "is rejected and the original is kept instead.\n" if keep else "")
+    from story_fact_model import event_of
+    hinge_event = event_of(scenes[index])
+    if hinge_event["text"]:
+        keep_rule += ("\nFACTUAL CEILING (assert nothing beyond this event): "
+                      + hinge_event["text"] + "\n")
 
     cost = 0.0
     rewritten = ""
@@ -2298,8 +2304,9 @@ def _ensure_hinge_fits_budget(script: dict, cost_sink=None, log=lambda message: 
                 and not leading[-1].rstrip().endswith("?"):
             rewritten = " ".join(leading)
             log(f"  hinge: no compliant rewrite; keeping its first sentence(s): {rewritten!r}")
-    if not rewritten:
-        return script, cost                       # still over: leave the original alone
+    from script_repair import broken_repair
+    if not rewritten or broken_repair(rewritten):
+        return script, cost                       # invalid repair: leave the original alone
 
     # Only compare bindings once there is a rewrite worth keeping. Measuring before the call ran
     # claim validation on drafts that were about to be left alone, which is work bought for nothing
@@ -5335,7 +5342,12 @@ _FACTCHECK_SYSTEM = (
     "the new title punchy. Preserve tone, length, and order. Return "
     'ONLY valid JSON: {"title": "corrected or unchanged title", "narration": ["corrected line per scene, '
     'same count and order"], "notes": ["short note per correction"]}. If a line or the title is already '
-    "accurate, return it unchanged."
+    "accurate, return it unchanged. Each changed factual scene must also propose a corrected "
+    "event in event_updates: [{scene: <1-based index>, event: {text: <plain factual ceiling>, "
+    "claim_refs: [<existing ledger claim IDs>]}}]. Preserve the scene's role and factual purpose. "
+    "Do not turn the hook/cold open into a setup event; preserve those lead sentences. "
+    "Do not change derived events. Corrections and their citations are independently validated. "
+    "Return complete grammatical sentences, never fragments left by deleting an assertion."
 )
 
 
@@ -5352,12 +5364,18 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
         "title": _s(script.get("title")) or question,
         "question": question,
         "narration": lines,
+        "events": [{"scene": i, "event": sc.get("event"),
+                    "role": sc.get("causal_role"), "derived": bool(sc.get("derivation"))}
+                   for i, sc in enumerate(scenes, 1)],
+        "read_only_lead": {"hook": script.get("hook"), "cold_open": script.get("_cold_open")},
         "binding_claim_ledger": claim_context_for_prompt(research_dossier or {}),
         "constraint": (
             "Use the binding ledger. Do not introduce a factual claim absent from it. If a correction "
             "would require a new source, identify it in notes but do not silently rewrite the narration."
         ),
     }
+    cost = 0.0
+    reconciliation_costs = []
     try:
         resp = _claude().messages.create(
             model=ANTHROPIC_MODEL,
@@ -5365,25 +5383,32 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
             system=_FACTCHECK_SYSTEM,
             messages=[{"role": "user", "content": json.dumps(payload)}],
         )
+        cost = _msg_cost(resp.usage)
         raw = resp.content[0].text.strip()
         if "```" in raw:
             raw = raw[raw.find("{"): raw.rfind("}") + 1]
         data = json.loads(raw)
         fixed = data.get("narration", [])
-        notes = [n for n in (data.get("notes") or []) if n and n.strip()]
+        notes = [n for n in (data.get("notes") or []) if isinstance(n, str) and n.strip()]
+        from script_repair import broken_repair, reconcile_factcheck_events
+        if (not isinstance(fixed, list) or len(fixed) != len(scenes)
+                or any(not isinstance(new, str) or not new.strip()
+                       or (new.strip() != old and broken_repair(new))
+                       for old, new in zip(lines, fixed))):
+            return script, ["Fact-check repair rejected: incomplete or malformed narration"], round(cost, 4)
         if isinstance(fixed, list) and len(fixed) == len(scenes):
             for sc, new in zip(scenes, fixed):
                 if isinstance(new, str) and new.strip():
                     sc["narration"] = new.strip()
+        reconcile_factcheck_events(script, lines, data.get("event_updates", []),
+                                   research_dossier or {}, reconciliation_costs)
         new_title = data.get("title")
         if isinstance(new_title, str) and new_title.strip() and new_title.strip() != _s(script.get("title")):
             notes.append(f'title → "{new_title.strip()}" (subject/accuracy)')
             script["title"] = new_title.strip()
-        u = resp.usage
-        cost = u.input_tokens * _RATE_SCRIPT_IN + u.output_tokens * _RATE_SCRIPT_OUT
-        return script, notes, round(cost, 4)
+        return script, notes, round(cost + sum(reconciliation_costs), 4)
     except Exception:
-        return script, [], 0.0   # never let fact-check kill the job
+        return script, [], round(cost + sum(reconciliation_costs), 4)
 
 
 _CLAIM_REPAIR_SYSTEM = (
@@ -5494,7 +5519,7 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
         kept = []
         matched_any = False
         hook_key = re.sub(r"[^a-z0-9]+", " ", _s(script.get("hook")).lower()).strip()
-        for sentence in sentences:
+        for sentence_index, sentence in enumerate(sentences):
             offending = any(detail.lower() in sentence.lower() for detail in details)
             in_binding = any(sentence in phrase or phrase in sentence for phrase in bound)
             # The spoken hook is never a sentence to delete: it is the episode's promise, and
@@ -5510,14 +5535,14 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
             # overshoots by its purpose clause alone, and dropping the sentence would drop the
             # huddle with it. Cut the quoted span when it is a proper part of the sentence and no
             # bound phrase runs through it; the ledger re-judges what is left.
-            clipped = _clip_unsupported_clause(sentence, details, bound)
+            clipped = sentence if is_hook else _clip_unsupported_clause(sentence, details, bound)
             if offending and clipped and clipped != sentence:
                 dropped += 1
                 log(f"  ✂ scene {index}: clipped {sentence!r} -> {clipped!r}")
                 kept.append(clipped)
                 continue
             if (offending and not in_binding and len(sentences) >= 2
-                    and len(kept) + (len(sentences) - len(kept) - 1) >= 1):
+                    and len(kept) + len(sentences) - sentence_index - 1 >= 1):
                 dropped += 1
                 log(f"  ✂ scene {index}: dropped {sentence!r} (unsupported: {', '.join(details)})")
                 continue
@@ -5548,7 +5573,7 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
 def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]) -> str:
     """Remove a quoted unsupported span from inside a sentence, or return it unchanged.
 
-    Only a proper substring is clipped (a whole-sentence match is the caller's to drop), only
+    Only a comma-delimited purpose adjunct is clipped (other spans need a rewrite), only
     when no bound claim phrase overlaps the span, and only when at least four words survive.
     Leading clauses lose their trailing comma and the remainder is re-capitalised; trailing
     clauses lose their leading comma and keep the full stop.
@@ -5565,6 +5590,18 @@ def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]
                for phrase in bound):
             continue
         head, tail = text[:position], text[position + len(span):]
+        # Only a comma-delimited purpose adjunct can be removed mechanically. Removing an
+        # arbitrary phrase can erase a predicate or leave a stranded preposition.
+        leading = not head.strip() and tail.lstrip().startswith(",")
+        trailing = head.rstrip().endswith(",") and not tail.strip().rstrip(".!?")
+        if not (span.lower().startswith("to ") and (leading or trailing)):
+            continue
+        # Protect every overlapping binding, not only a phrase containing the whole span.
+        if any(phrase.lower() in text.lower() and
+               max(position, text.lower().find(phrase.lower())) <
+               min(position + len(span), text.lower().find(phrase.lower()) + len(phrase))
+               for phrase in bound if phrase):
+            continue
         head = re.sub(r"[\s,;:]+$", "", head)
         tail = re.sub(r"^[\s,;:]+", " ", tail)
         if not head.strip():
@@ -5579,7 +5616,9 @@ def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]
             continue
         if not re.search(r"[.!?]$", remainder):
             remainder += "."
-        return remainder
+        from script_repair import broken_repair
+        if not broken_repair(remainder):
+            return remainder
     return sentence
 
 
@@ -5856,7 +5895,8 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             narration = _s(item.get("narration")).strip()
             refs = item.get("claim_refs")
             evidence_id = _s(item.get("evidence_id")).strip()
-            if not narration or not isinstance(refs, list):
+            from script_repair import broken_repair
+            if broken_repair(narration) or not isinstance(refs, list):
                 return script, round(response_cost + float(parse_cost or 0.0), 4)
             failed_codes = {error.get("code") for error in errors
                             if int(error.get("scene") or 0) == index}
@@ -9938,6 +9978,14 @@ def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
     return bool(codes) and all(code in ("LONG_HOOK", "MULTI_SENTENCE_HOOK") for code in codes)
 
 
+def _only_word_budget_blocks(validation: dict, causal_errors: list) -> bool:
+    errors = list((validation or {}).get("errors") or []) + list(causal_errors or [])
+    codes = [(_s(e.get("code")) if isinstance(e, dict) else _s(e).split(":", 1)[0].strip())
+             for e in errors]
+    return bool(codes) and all(c in {"LONG_HOOK", "MULTI_SENTENCE_HOOK", "SOFT_HINGE"}
+                               for c in codes)
+
+
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
     """Sourcing validation, routed to whichever contract this script was written under.
 
@@ -9951,6 +9999,14 @@ def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None)
     nobody looked at.
     """
     from longform_research import script_has_events, validate_story_fact_model
+    from script_repair import broken_repair
+
+    fragments = [{"code": "BROKEN_NARRATION_REPAIR", "scene": i,
+                  "message": f"scene {i}: narration contains an incomplete repair fragment"}
+                 for i, scene in enumerate(script.get("scenes") or [], 1)
+                 if broken_repair(_s(scene.get("narration")))]
+    if fragments:
+        return {"passed": False, "errors": fragments}
 
     if not script_has_events(script):
         return validate_claim_joins(script, dossier)
@@ -10263,7 +10319,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     claims = ",".join(sorted(_s(c.get("claim_id")) for c in (research_dossier or {}).get("claims") or []))
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
-        _s(operator_direction), claims, prompt_source,
+        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v1",
     ]).encode()).hexdigest()
 
 
@@ -10326,6 +10382,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
     # Attempts are numbered because the message below used to say "replanning once" whatever the
     # retry budget was, which is false for any budget above one and hides how close a run came.
     _attempts = max(0, _LONGFORM_CONTRACT_RETRIES)
+    _replans = 0
     for _attempt in range(1, _attempts + 1):
         if best_validation.get("passed") and best_causal_ok:
             break
@@ -10337,18 +10394,21 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         # hook was 20 words against an 18-word budget, and the replacement sheet failed the spine.
         # Two words cost a validated story.
         #
-        # `_ensure_hook_fits_budget` already exists and does exactly this. When hook length is the
-        # ONLY thing blocking, it is the whole repair; anything else still replans as before.
-        if causal_lane and _only_hook_length_blocks(best_validation, best_causal_errors):
+        # Hook and hinge length can fail together. Both are local edits; neither justifies
+        # discarding a supported story, even when a bounded rewrite is rejected.
+        if causal_lane and _only_word_budget_blocks(best_validation, best_causal_errors):
             best, _hook_cost = _ensure_hook_fits_budget(best, cost_sink)
-            total_generation_cost += float(_hook_cost or 0.0)
+            best, _hinge_cost = _ensure_hinge_fits_budget(
+                best, cost_sink, log, research_dossier)
+            total_generation_cost += float(_hook_cost or 0.0) + float(_hinge_cost or 0.0)
             best_validation = validate_longform_story(best, question)
             best_causal_ok, best_causal_errors = _causal_contract_report(best, question)
-            log(f"Hook trimmed to budget instead of replanning; contract "
+            log(f"Hook/hinge targeted edits instead of replanning; contract "
                 f"{best_validation.get('score', 0)}/100"
                 + (" and the causal contract now passes" if best_causal_ok else ""))
-            if best_validation.get("passed") and best_causal_ok:
-                break
+            # Even a rejected local repair does not justify replacing a supported story.
+            # The unchanged word-budget and evidence gates still decide whether it can proceed.
+            break
         # LEAVE A NARRATION-TIMING MISS TO THE NARRATION EDIT, NOT TO A REPLAN.
         #
         # LATE_MECHANISM and NO_CALLBACK are measured on the finished words of a draft whose
@@ -10376,6 +10436,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             + ("" if best_causal_ok else " + causal contract failing")
             + f" — replan {_attempt}/{_attempts} before render: {fixes}")
         try:
+            _replans += 1
             cand = generate_script(
                 question, duration_sec, style, image_guidance=image_guidance,
                 video_format=video_format, series=series, operator_direction=operator_direction,
@@ -10421,7 +10482,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
             best, best_validation = cand, cand_validation
             best_causal_ok, best_causal_errors = cand_causal_ok, cand_causal_errors
     if causal_lane and not best_causal_ok:
-        log(f"Causal contract still failing after {_attempts} replan(s) — keeping the closest "
+        log(f"Causal contract still failing after {_replans} replan(s) — keeping the closest "
             "draft; the storyboard gate below is where this stops.")
     # Track every beat-sheet/expansion attempt, including a discarded retry.
     best["_script_cost_usd"] = round(total_generation_cost, 4)
