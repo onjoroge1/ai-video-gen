@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--voice", default="echo")
     parser.add_argument("--max-cost", type=float, default=12.0)
     parser.add_argument("--topic-channel", default="")
-    parser.add_argument("--motion-mode", default="standard")
+    parser.add_argument("--motion-mode", default="stills")   # motion returns once the scripts hold (2026-10-02)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
