@@ -14,6 +14,7 @@ REPORTS = {
     "claims": "claim_ledger_report.json",
     "storyboard": "illustrated_storyboard.json",
     "storyboard_failure": "semantic_failure_illustrated-storyboard.json",
+    "planning_review": "planning_review.json",
     "manifest": "generation_manifest.json",
     "polish": "retention_polish_v1.json",
 }
@@ -21,12 +22,14 @@ REPORTS = {
 
 def snapshot(row, events):
     import provider_blocks
+    import planning_review_recovery
     resumable = (row.get("kind") == "explainer"
                  and not (row.get("request") or {}).get("controlled_pilot")
                  and bool(provider_blocks.for_job(row))
                  and bool((row.get("checkpoint") or {}).get("sha256")))
     return {"id": row["id"], "status": row.get("status"),
             "provider_resumable": resumable,
+            "planning_review_resumable": planning_review_recovery.eligible(row),
             "active": row.get("status") in ACTIVE, "error": row.get("error"),
             "question": (row.get("request") or {}).get("question", ""),
             "spent_cost_usd": row.get("spent_cost_usd"),

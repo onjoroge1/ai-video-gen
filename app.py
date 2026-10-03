@@ -4474,6 +4474,31 @@ async def studio_resume_provider(job_id: str, request: StudioProviderResumeReque
         raise HTTPException(409, str(exc)) from exc
 
 
+@app.post("/api/studio/jobs/{job_id}/resume-planning-review")
+async def studio_resume_planning_review(job_id: str, request: StudioProviderResumeRequest):
+    import planning_review_recovery as recovery
+    if not _durable_execution_required():
+        raise HTTPException(409, "Durable execution is not enabled")
+    try:
+        store, blob = _durable_components()
+        row = await asyncio.to_thread(store.get_job, job_id)
+        if not row:
+            raise HTTPException(404, "Job not found")
+        if (row.get("checkpoint") or {}).get("sha256") != request.checkpoint_sha256:
+            raise HTTPException(409, "Saved checkpoint changed; refresh this job")
+        if not recovery.eligible(row):
+            raise HTTPException(409, "No eligible saved planning review")
+        evidence = await asyncio.to_thread(recovery.inspect_checkpoint, row, store, blob)
+        await asyncio.to_thread(store.resume_planning_review, job_id,
+                               expected_checkpoint_sha256=request.checkpoint_sha256, evidence=evidence)
+        return {"job_id": job_id, "resuming": True,
+                "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(503, "Review recovery storage temporarily unavailable") from exc
+    except (durable_execution.DurableExecutionError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(409, "Saved planning review could not be safely resumed") from exc
+
+
 @app.get("/api/explainer/status/{job_id}")
 async def explainer_status_stream(job_id: str, request: Request, after: int = 0):
     durable = _durable_execution_required()

@@ -51,11 +51,11 @@ async function loadArtifacts() {
 }
 el('load').onclick = loadArtifacts;
 el('resume').onclick = async () => {
-  if (resuming || !lastSnapshot || !lastSnapshot.provider_resumable) return;
+  if (resuming || !lastSnapshot || !(lastSnapshot.provider_resumable || lastSnapshot.planning_review_resumable)) return;
   resuming = true; el('resume').disabled = true; clearTimeout(pollTimer);
   let resumeError = '';
   try {
-    const response = await fetch(base + '/resume-provider', {
+    const response = await fetch(base + (lastSnapshot.planning_review_resumable ? '/resume-planning-review' : '/resume-provider'), {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({checkpoint_sha256:lastSnapshot.checkpoint_sha256})
     });
@@ -77,7 +77,8 @@ async function poll() {
   let delay = 3000;
   try {
     const data = await get(base + '?after=' + cursor); lastSnapshot = data;
-    el('resume').hidden = !data.provider_resumable;
+    el('resume').hidden = !(data.provider_resumable || data.planning_review_resumable);
+    el('resume').textContent = data.planning_review_resumable ? 'Resume saved research — retry claim review' : 'Provider access restored — resume this job';
     el('question').textContent = data.question;
     el('status').textContent = (data.status || 'Unknown').replaceAll('_', ' ');
     el('error').textContent = data.error || '';

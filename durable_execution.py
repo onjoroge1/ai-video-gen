@@ -230,6 +230,53 @@ class PostgresStore(_legacy.PostgresStore):
                           "Research resumed within the existing spending limits")
         return row
 
+    def resume_planning_review(self, job_id, *, expected_checkpoint_sha256, evidence):
+        """One contract migration; all prior paid stages and the cap stay intact."""
+        import planning_review_recovery as recovery
+        import planning_evidence
+        from _durable_execution_legacy import _CachedAnthropicResponse
+        with self._tx() as (_, cur):
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = self._json_ready(self._row(cur, cur.fetchone())) or {}
+            prior = (job.get("result") or {}).get(recovery.MARKER) or {}
+            if (job.get("status") in {"queued", "processing"}
+                    and prior.get("checkpoint_sha256") == expected_checkpoint_sha256):
+                return job
+            if (not recovery.eligible(job) or (job.get("checkpoint") or {}).get("sha256")
+                    != expected_checkpoint_sha256):
+                raise DurableExecutionError("Job is not eligible for planning review migration")
+            cur.execute("SELECT * FROM generation_stages WHERE job_id=%s FOR UPDATE", (job_id,))
+            stages = [self._json_ready(self._row(cur, raw)) or {} for raw in cur.fetchall()]
+            if not stages or any(s.get("status") != "completed" or s.get("provider") != "anthropic"
+                                 for s in stages):
+                raise DurableExecutionError("Review migration has unfinished or non-script provider work")
+            failures = 0
+            for stage in stages:
+                value = stage.get("result") or {}
+                if not any(b.get("type") == "tool_use" and b.get("name") == "submit_claim_support"
+                           for b in value.get("content", []) if isinstance(b, dict)):
+                    continue
+                try:
+                    planning_evidence._verdicts(_CachedAnthropicResponse(value), evidence["claim_ids"])
+                except ValueError as exc:
+                    if str(exc) == recovery.LEGACY_ERROR:
+                        failures += 1
+                    else:
+                        raise DurableExecutionError("Saved review does not reproduce the coverage failure") from exc
+            if failures != 1:
+                raise DurableExecutionError("Expected one saved incomplete claim review")
+            marker = {recovery.MARKER: {"checkpoint_sha256": expected_checkpoint_sha256,
+                                       "research_hash": evidence["research_hash"]}}
+            cur.execute("""
+                UPDATE generation_jobs SET status='queued',error=NULL,
+                    max_attempts=GREATEST(max_attempts,attempts+1),
+                    result=result || %s::jsonb,finished_at=NULL,updated_at=now()
+                WHERE id=%s RETURNING *
+            """, (json.dumps(marker), job_id))
+            row = self._json_ready(self._row(cur, cur.fetchone())) or {}
+        self.append_event(job_id, "infrastructure_rearmed", "Resuming saved research with bounded claim review")
+        return row
+
     def resume_provider_block(self, job_id: str, *, expected_checkpoint_sha256: str) -> dict:
         """One explicit resume of a provider account block, for any topic or stage.
 
