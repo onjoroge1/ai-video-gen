@@ -4132,9 +4132,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         lo, hi = batch[0]["n"], batch[-1]["n"]
         is_first, is_last = (bi == 0), (bi + per_batch >= n_scenes)
         prev_tail = " ".join(s.get("narration", "") for s in all_scenes[-2:]).strip()
+        # Everything already said, one line per scene, so a later batch cannot restate an
+        # earlier one it never saw (the writer used to see only the last two scenes' tails).
+        said = "\n".join(f"  {k + 1}. {' '.join(_s(s.get('narration')).split()[:18])}"
+                          for k, s in enumerate(all_scenes))
         seam = ("" if is_first else
                 f'\nThe previous scene ended: "{prev_tail}". Continue DIRECTLY as one video — no recap, '
-                'no "welcome back"/"in this chapter", do not re-introduce the topic.\n')
+                'no "welcome back"/"in this chapter", do not re-introduce the topic.\n'
+                f'ALREADY SAID (every earlier scene; never restate any of it):\n{said}\n')
         assigned = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in batch)
         opening_direction = (
             " Preserve the assigned causal roles and order. The mechanism is explained only in "
@@ -5286,6 +5291,11 @@ _CLAIM_REPAIR_SYSTEM = (
     # supported core the boundary would have accepted and the exact details that overshot it, so
     # the instruction is subtractive. "Rows of pens" is the measured case -- a real image, no
     # source, and cutting it costs the sentence nothing.
+    "A scene marked continues_previous is the SECOND BREATH of one beat whose first part is "
+    "its previous_narration: both parts share one event. Repair it as the next stretch of the "
+    "same thought -- the detail, the consequence, the picture that follows -- and NEVER as a "
+    "restatement of the first part. Two scenes that say the same sentence are a defect the "
+    "ledger will reject even when both are true. "
     "When a scene fails NARRATION_EXCEEDS_EVENT, its narration claims more than its `event` "
     "states. Rewrite that scene to assert nothing beyond the event: cut the listed unsupported "
     "details rather than hedging them, and keep the writing vivid in HOW it says what remains. "
@@ -5464,6 +5474,173 @@ def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]
     return sentence
 
 
+def _narration_overlap(a: str, b: str) -> tuple[float, float]:
+    """(share of the shorter sentence's content words the other carries, Jaccard of both).
+
+    Both are needed. The first alone called the escape beat a repeat of the cold open: a
+    flash-forward and the same moment told in full share the proper nouns by design, and the
+    short one is mostly proper nouns. The Jaccard stays low there (the full telling adds the
+    beekeeper, the excluders, the distance) and is 1.0 for the verbatim copy this gate exists for.
+    """
+    wa = {w for w in re.findall(r"[a-z]{3,}", _s(a).lower()) if w not in _DUP_STOP}
+    wb = {w for w in re.findall(r"[a-z]{3,}", _s(b).lower()) if w not in _DUP_STOP}
+    if not wa or not wb:
+        return 0.0, 0.0
+    return len(wa & wb) / min(len(wa), len(wb)), len(wa & wb) / len(wa | wb)
+
+
+_DUP_STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
+             "then", "than", "this", "these", "those", "their", "they", "them", "its", "for",
+             "but", "not", "are", "been", "being", "after", "before", "while", "where", "which",
+             "about", "could", "would", "also", "more", "most", "some", "each", "both"}
+DUPLICATE_NARRATION_OVERLAP = 0.75
+DUPLICATE_NARRATION_JACCARD = 0.5
+
+
+def duplicate_narration(scenes: list[dict]) -> list[dict]:
+    """Pairs of scenes that say the same thing, by content-word overlap.
+
+    Killer bees (2026-10-02): the claim-ledger repair rewrote both parts of six split beats to the
+    same supported-core sentence, so 1:11 and 1:22 of the delivered film were the escape told
+    twice, word for word. The engagement grade saw it (repetition 8/100) and was advisory; this
+    is deterministic and free, so it can block before the TTS is bought.
+    """
+    found = []
+    for i, scene in enumerate(scenes or []):
+        # The parent of a continuation is compared first, so a part that restates its own beat
+        # is recorded as that and not as a repeat of some earlier scene it also resembles.
+        parent = next((j for j in range(i)
+                       if _s(scene.get("continues"))
+                       and _s(scenes[j].get("beat_id")) == _s(scene.get("continues"))), None)
+        order = ([parent] if parent is not None else []) + [j for j in range(i) if j != parent]
+        for j in order:
+            overlap, jaccard = _narration_overlap(scene.get("narration"), scenes[j].get("narration"))
+            if overlap >= DUPLICATE_NARRATION_OVERLAP and jaccard >= DUPLICATE_NARRATION_JACCARD:
+                found.append({"scene": i + 1, "duplicate_of": j + 1, "overlap": round(overlap, 2),
+                              "jaccard": round(jaccard, 2), "continuation": j == parent})
+                break
+    return found
+
+
+def collapse_duplicate_narration(script: dict, log=lambda message: None) -> int:
+    """Drop a scene whose narration repeats an earlier one; returns how many were dropped.
+
+    A continuation part that restates its parent is removed and the parent's part count shrinks.
+    A non-continuation duplicate is removed only when its role may repeat (escalation,
+    generalization, context); a required single role is left for the gate to report.
+    """
+    scenes = script.get("scenes") or []
+    dupes = duplicate_narration(scenes)
+    if not dupes:
+        return 0
+    drop = set()
+    for item in dupes:
+        # Only a continuation that restates its own parent is deleted: the beat is still told,
+        # once. Any other repeat is a scene that needs rewriting (rewrite_repeated_scenes); the
+        # escape beat restating the cold open must become the escape told in full, not vanish.
+        if item["continuation"]:
+            drop.add(item["scene"] - 1)
+            log(f"  ✂ scene {item['scene']} repeats scene {item['duplicate_of']} "
+                f"({item['overlap']:.0%} overlap); dropped")
+    if not drop:
+        return 0
+    kept = []
+    for index, scene in enumerate(scenes):
+        if index in drop:
+            continue
+        kept.append(scene)
+    # Part counts and the continues chain are re-derived from what survived.
+    by_beat = {}
+    for scene in kept:
+        base = _s(scene.get("_parent_beat_id")) or re.sub(r"[b-f]$", "", _s(scene.get("beat_id")))
+        by_beat.setdefault(base, []).append(scene)
+    for base, parts in by_beat.items():
+        for k, scene in enumerate(parts):
+            scene["beat_part"] = k + 1
+            scene["beat_part_count"] = len(parts)
+            scene["continues"] = _s(parts[k - 1].get("beat_id")) if k else ""
+    for n, scene in enumerate(kept, 1):
+        scene["n"] = n
+    script["scenes"] = kept
+    if script.get("_compiled_story"):
+        _compiler.refresh_story_positions(kept)
+    return len(drop)
+
+
+_REPEAT_EDITOR_SYSTEM = (
+    "You are the targeted editor of an already-written factual video script. Rewrite ONLY the "
+    "scenes listed, each of which says the same thing as an earlier scene. Keep every scene's "
+    "role, order, length (within 20%), tone and causal meaning, and assert nothing beyond its "
+    "`event` text. Make each rewritten scene carry what the earlier scene did NOT say: the "
+    "detail, the picture, the consequence, the next stretch of time. When the earlier scene is "
+    "the opening flash-forward, this scene is the same moment told in full and in sequence, "
+    "with the particulars the flash-forward withheld, never the flash-forward again. Do not "
+    "introduce a number, date, place, named actor or motive the event does not contain. Return "
+    "ONLY JSON: {\"scenes\": [{\"scene\": <1-based index>, \"narration\": \"...\"}]}"
+)
+
+
+def rewrite_repeated_scenes(script: dict, dossier: dict, dupes: list[dict],
+                            cost_sink: list | None = None, log=lambda message: None) -> tuple[dict, float]:
+    """One bounded editor pass over scenes that repeat an earlier scene. Returns (script, cost).
+
+    The claim-ledger repair rewrites a failing sentence toward its supported core, and two
+    scenes with one event converge on one sentence; this is the pass that pulls them apart
+    again with the whole script in view. The result is accepted only if every rewritten scene
+    stops repeating and no new repeat appears; otherwise the original is returned unchanged.
+    """
+    scenes = script.get("scenes") or []
+    targets = sorted({d["scene"] for d in dupes if not d.get("continuation")})
+    if not targets:
+        return script, 0.0
+    said = [{"scene": k + 1, "narration": _s(s.get("narration"))} for k, s in enumerate(scenes)]
+    payload = {
+        "all_scenes": said,
+        "rewrite": [{"scene": index,
+                     "repeats_scene": next(d["duplicate_of"] for d in dupes if d["scene"] == index),
+                     "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+                     "role": _s(scenes[index - 1].get("causal_role") or scenes[index - 1].get("story_role")),
+                     "narration": _s(scenes[index - 1].get("narration"))}
+                    for index in targets],
+        "claims": claim_context_for_prompt(dossier or {}),
+    }
+    cost = 0.0
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=3000, system=_REPEAT_EDITOR_SYSTEM,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+        cost = _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(cost)
+        data, parse_cost = _parse_script_json(response.content[0].text)
+        cost += float(parse_cost or 0.0)
+        rows = data.get("scenes") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return script, round(cost, 4)
+        candidate = json.loads(json.dumps(script))
+        done = set()
+        for row in rows:
+            index = int((row or {}).get("scene") or 0)
+            text = _s((row or {}).get("narration")).strip()
+            if index in targets and text:
+                candidate["scenes"][index - 1]["narration"] = text
+                done.add(index)
+        if done != set(targets):
+            return script, round(cost, 4)
+        before = {(d["scene"], d["duplicate_of"]) for d in dupes}
+        after = {(d["scene"], d["duplicate_of"]) for d in duplicate_narration(candidate["scenes"])}
+        if after & before or (after - before):
+            log("  repeat editor: rewrite still repeats; keeping the original")
+            return script, round(cost, 4)
+        for index in targets:
+            log(f"  ✎ scene {index} rewritten so it no longer repeats scene "
+                f"{next(d['duplicate_of'] for d in dupes if d['scene'] == index)}")
+        return candidate, round(cost, 4)
+    except Exception as exc:
+        log(f"  repeat editor unavailable: {type(exc).__name__}: {str(exc)[:120]}")
+        return script, round(cost, 4)
+
+
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                                *, operator_direction: str = "") -> tuple[dict, float]:
     """Run one bounded, evidence-locked repair for scene-level claim failures.
@@ -5512,6 +5689,9 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "claims": claim_context_for_prompt(dossier),
         "failures": errors,
         "scenes": [{"scene": index,
+            "continues_previous": bool(_s(scenes[index - 1].get("continues"))),
+            "beat_part": f"{int(scenes[index - 1].get('beat_part') or 1)} of "
+                         f"{int(scenes[index - 1].get('beat_part_count') or 1)}",
             "previous_narration": _s(scenes[index - 2].get("narration")) if index > 1 else "",
             "next_narration": _s(scenes[index].get("narration")) if index < len(scenes) else "",
             # The event is the ceiling. Without it the repair is told a sentence is wrong and not
@@ -5573,6 +5753,12 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             target["claim_refs"] = refs
             seen.add(index)
         if seen != set(indexes):
+            return script, round(response_cost + float(parse_cost or 0.0), 4)
+        # A repair that turned two scenes into one sentence is refused: the caller keeps the
+        # original and the duplicate gate reports it, instead of the film saying it twice.
+        if any(d["scene"] in indexes or d["duplicate_of"] in indexes
+               for d in duplicate_narration(candidate["scenes"])
+               if d not in duplicate_narration(script.get("scenes") or [])):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
         # The hook lives twice: in `script["hook"]` and prepended to the scene it opens. Repairing
         # only the narration leaves the old, over-reaching sentence in the field that the
@@ -11219,6 +11405,26 @@ def run_explainer_pipeline(
         script["_story_structure_review"] = _review_story_structure(
             script, story_format, video_format, log)
         if video_format != "social":
+            # Said twice is a defect, not taste: collapse repeats before any claim judgement,
+            # and refuse the render if two scenes still say the same sentence.
+            _dropped = collapse_duplicate_narration(script, log)
+            if _dropped:
+                log(f"Duplicate narration: dropped {_dropped} scene(s) that repeated an earlier one")
+                rederive_narration_bindings(script, log, research_dossier)
+                scenes = script.get("scenes", [])
+            _remaining = duplicate_narration(script.get("scenes") or [])
+            if _remaining:
+                script, _editor_cost = rewrite_repeated_scenes(
+                    script, research_dossier, _remaining, aux_costs, log)
+                if _editor_cost:
+                    rederive_narration_bindings(script, log, research_dossier)
+                    scenes = script.get("scenes", [])
+                _remaining = duplicate_narration(script.get("scenes") or [])
+            if _remaining:
+                raise ValueError(
+                    "DUPLICATE_NARRATION: scenes say the same thing — "
+                    + "; ".join(f"scene {d['scene']} repeats scene {d['duplicate_of']} "
+                                f"({d['overlap']:.0%})" for d in _remaining))
             claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
             # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
@@ -11270,6 +11476,11 @@ def run_explainer_pipeline(
                            else f"{len(claim_validation.get('errors') or [])} failing"))
                     if claim_validation.get("passed"):
                         break
+            if collapse_duplicate_narration(script, log):
+                rederive_narration_bindings(script, log, research_dossier)
+                claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                script["_claim_validation"] = claim_validation
+                scenes = script.get("scenes", [])
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
