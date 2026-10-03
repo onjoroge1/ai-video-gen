@@ -263,3 +263,15 @@ def test_cost_uses_the_rates_of_the_provider_that_ran(monkeypatch):
 
     assert anthropic_cost > 0 and openai_cost > 0, "a zero cost hides spend rather than saving it"
     assert openai_cost != anthropic_cost, "both providers billed at one rate table"
+
+
+def test_narration_edit_tool_translates_to_strict_openai_schema():
+    import storyboard_repair as repair
+    client = OpenAIScriptClient(_FakeClient(_Raw('{"scenes": []}')))
+    tool = repair.response_tool(['scene_001'])
+    response = client.messages.create(messages=[{'role': 'user', 'content': 'repair'}],
+        tools=[tool], tool_choice={'type': 'tool', 'name': repair.EDIT_TOOL})
+    sent = client.messages._client.chat.completions.seen
+    assert sent['response_format']['json_schema'] == {
+        'name': repair.EDIT_TOOL, 'strict': True, 'schema': tool['input_schema']}
+    assert repair.response_data(response) == {'scenes': []}

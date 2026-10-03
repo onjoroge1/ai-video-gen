@@ -2072,7 +2072,7 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
 
     path = Path(output_dir) / repair.FILENAME
     attempt_version = repair.VERSION
-    plan_builder = repair.plan
+    plan_builder = repair.initial_plan
     board = lane.build_storyboard(copy.deepcopy(script), question)
     if repair.has_media(output_dir):
         return script, board  # Narration edits cannot invalidate already-purchased media.
@@ -2141,12 +2141,17 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
     response = _claude().messages.create(
         model=ANTHROPIC_MODEL, max_tokens=4000,
         system="You edit sourced narration without changing its facts. Return only JSON.",
+        tools=[repair.response_tool(edit["scene_ids"])],
+        tool_choice={"type": "tool", "name": repair.EDIT_TOOL},
         messages=[{"role": "user", "content": repair.prompt(script, edit)}])
     cost_sink.append(_msg_cost(response.usage))
     # No paid JSON-repair recursion. Invalid or still-failing edits retain the original failure.
-    record["provider_response_text"] = response.content[0].text
+    record["edit_plan"] = edit
+    record["provider_response_text"] = "".join(getattr(b, "text", "") for b in response.content)
     try:
-        candidate = repair.apply_response(script, edit, json.loads(response.content[0].text))
+        data = repair.response_data(response)
+        record["provider_response"] = data
+        candidate = repair.apply_response(script, edit, data)
     except (ValueError, TypeError, KeyError) as exc:
         record.update(status="rejected", reason=str(exc),
                       rejection_code="JSON_PARSE" if isinstance(exc, json.JSONDecodeError) else "EDIT_CONSTRAINT")
@@ -10239,19 +10244,20 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
 def _only_repairable_timing_blocks(validation: dict, causal_errors: list) -> bool:
     """Is a narration-timing miss (LATE_MECHANISM / NO_CALLBACK) the only thing blocking?
 
-    True only when the long-form contract itself passed and every causal error is one of the
-    codes the storyboard repair owns. Any other causal failure, or a failed contract, still
-    replans as before.
+    Both validators can report the same timing defect. Every reported error must belong to
+    the local repair path; an unexplained failed validation or a structural defect still replans.
     """
-    if not (validation or {}).get("passed") or not causal_errors:
+    validation_errors = list((validation or {}).get("errors") or [])
+    if not (validation or {}).get("passed") and not validation_errors:
         return False
     import storyboard_repair
     # Hook and hinge word budgets are rewritten to fit right before the storyboard gate
     # (_ensure_hook_fits_budget, _ensure_hinge_fits_budget); the two timing codes have the
     # storyboard repair. All four are one-sentence edits of a validated draft.
-    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE"}
-    codes = [str(e).split(":", 1)[0].strip() for e in causal_errors]
-    return all(code in bounded for code in codes)
+    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "MULTI_SENTENCE_HOOK", "SOFT_HINGE"}
+    codes = [(_s(e.get("code")) if isinstance(e, dict) else str(e).split(":", 1)[0].strip())
+             for e in validation_errors + list(causal_errors or [])]
+    return bool(codes) and all(code in bounded for code in codes)
 
 
 def _causal_contract_report(script: dict, question: str) -> tuple[bool, list[str]]:
@@ -10319,7 +10325,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     claims = ",".join(sorted(_s(c.get("claim_id")) for c in (research_dossier or {}).get("claims") or []))
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
-        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v1",
+        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v1", "retention_polish_v1",
     ]).encode()).hexdigest()
 
 
@@ -11866,6 +11872,22 @@ def run_explainer_pipeline(
                 "— this render is DIAGNOSTIC ONLY and must not be published")
             for error in storyboard_errors[:6]:
                 log(f"  ✗ [STORYBOARD, ILLUSTRATED_STORYBOARD_HARD=0] {error}")
+        # Grade the words AFTER factual and timing repairs. Sourced scripts cannot use the
+        # unsourced whole-track revision above; this bounded editor revalidates every change.
+        if research_dossier:
+            import retention_polish
+            script, final_review = retention_polish.run(
+                script, question, research_dossier, output_dir, aux_costs, log)
+            scenes = script.get("scenes") or []
+            storyboard = illustrated_story_lane.build_storyboard(script, question)
+            claim_validation = script.get("_claim_validation") or claim_validation
+            script["_runtime_plan"] = plan_runtime(scenes, duration_sec)
+            if not final_review["passed"] and (stop_after_script or _script_gate_hard()):
+                _persist_semantic_failure(
+                    output_dir=output_dir, stage="script-retention", script=script,
+                    research_dossier=research_dossier, report=final_review,
+                    operator_direction=operator_direction, log=log)
+                raise ValueError("SCRIPT_RETENTION_TARGET: " + "; ".join(final_review["errors"]))
         storyboard_path = os.path.join(output_dir, "illustrated_storyboard.json")
         with open(storyboard_path, "w", encoding="utf-8") as handle:
             json.dump(storyboard, handle, indent=2, ensure_ascii=False)

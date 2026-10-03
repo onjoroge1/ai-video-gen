@@ -49,15 +49,7 @@ def board(script):
 
 
 def response_for(script):
-    edit = repair.plan(script, board(script))
-    by_id = {s['scene_id']: s for s in script['scenes']}
-    updated = []
-    for scene_id in edit['scene_ids']:
-        index = next(i for i, s in enumerate(script['scenes']) if s['scene_id'] == scene_id)
-        text = (words(by_id[scene_id]['narration'], [44, 40, 36, 6][index]) if index < 4
-                else 'Return to ' + OPENING + '. ' + words('This image brings the lesson back to where this story began.', 27))
-        updated.append({'scene_id': scene_id, 'narration': text})
-    return {'scenes': updated}
+    return budget_response_for(script)
 
 
 def writer(monkeypatch, response):
@@ -98,23 +90,22 @@ def write_budget_rejection(root, script=None):
 
 def budget_response_for(script):
     edit = repair.budget_plan(script, board(script))
+    def fill(count):
+        return ('Damage follows quickly. ' if count % 2 else '') + 'Roots suffer. ' * (count // 2 - (1 if count % 2 else 0))
     rows = []
     for scene_id in edit['scene_ids']:
-        index = next(i for i, scene in enumerate(script['scenes'])
-                     if scene['scene_id'] == scene_id)
+        index = next(i for i, scene in enumerate(script['scenes']) if scene['scene_id'] == scene_id)
         if index < edit['mechanism_index']:
             limit = edit['scene_word_limits'][scene_id]
             if index == 0:
-                hook = script['hook']
-                text = hook + ' ' + words('Roots were being eaten beneath the cane.', limit - len(hook.split()))
+                text = script['hook'] + ' ' + fill(limit - len(script['hook'].split()))
+            elif index == 3:
+                text = 'Except the problem is not solved.'
             else:
-                text = words(script['scenes'][index]['narration'], limit)
+                text = fill(limit)
         else:
-            text = 'Return to ' + OPENING + '. ' + words(
-                'The ending brings the lesson back to where the story began.', 30)
-            original = len(script['scenes'][index]['narration'].split())
-            text = words(text, original)
-        rows.append({'scene_id': scene_id, 'narration': text})
+            text = 'Return to ' + OPENING + '. ' + fill(17)
+        rows.append({'scene_id': scene_id, 'narration': text.strip()})
     return {'scenes': rows}
 
 
@@ -344,6 +335,7 @@ def test_resume_pipeline_repairs_saved_draft_without_research_or_regeneration(tm
     script = failed_script()
     write_failure(tmp_path, script)
     create, _ = writer(monkeypatch, response_for(script))
+    monkeypatch.setattr(pipeline, 'grade_script', Mock(return_value={'overall': 80, 'scores': dict.fromkeys(('hook', 'story', 'ending', 'repetition', 'cadence'), 80)}))
     monkeypatch.setattr(pipeline, 'generate_research_dossier', Mock(side_effect=AssertionError('research repurchased')))
     monkeypatch.setattr(pipeline, 'generate_graded_script', Mock(side_effect=AssertionError('script regenerated')))
     class ReachedNextGate(Exception):
@@ -530,3 +522,61 @@ def test_dispatch_checks_private_budget_rejection_and_uses_same_approval(monkeyp
         'job-1', expected_checkpoint_sha256=CHECKPOINT, expected_error=LIVE_ERROR,
         failure_sha256='b' * 64, prior_repair_sha256='c' * 64)
     assert dispatched == ['job-1']
+
+
+def test_structured_tool_response_survives_paid_stage_replay(tmp_path, monkeypatch):
+    script = failed_script()
+    _, claims = writer(monkeypatch, {})
+    raw = payload(stop_reason='tool_use')
+    raw['content'] = [{'type': 'tool_use', 'id': 'edit_1', 'name': repair.EDIT_TOOL,
+                       'input': response_for(script)}]
+    provider = Provider(raw)
+    store, blob = MemoryStore(cap=10), MemoryBlob(tmp_path / 'blob')
+    worker = runtime(tmp_path, store, blob, 'tool-a')
+    monkeypatch.setattr(pipeline, '_claude', lambda: worker.wrap_anthropic(provider))
+    claims.side_effect = durable.CooperativeYield('claims')
+    with durable.activate(worker), pytest.raises(durable.CooperativeYield):
+        pipeline._repair_illustrated_storyboard(script, 'q', script['_research_dossier'], worker.output_dir, [], lambda _: None)
+    checkpoint = worker.checkpoint('yield')
+    worker = runtime(tmp_path, store, blob, 'tool-b')
+    worker.restore_checkpoint(checkpoint)
+    claims.side_effect = None
+    with durable.activate(worker):
+        _, result = pipeline._repair_illustrated_storyboard(script, 'q', script['_research_dossier'], worker.output_dir, [], lambda _: None)
+    assert result['validation']['passed'] and len(provider.calls) == 1
+    schema = provider.calls[0]['tools'][0]['input_schema']
+    assert schema['additionalProperties'] is False
+    assert schema['properties']['scenes']['items']['additionalProperties'] is False
+    assert 'scene_word_limits' in provider.calls[0]['messages'][0]['content']
+
+
+@pytest.mark.parametrize('reason', ['max_tokens', 'pause_turn'])
+def test_incomplete_edit_never_passes(reason):
+    with pytest.raises(ValueError, match='Incomplete'):
+        repair.response_data(SimpleNamespace(stop_reason=reason, content=[]))
+
+
+def test_spoken_cold_open_is_reserved_and_cannot_be_removed():
+    script = failed_script()
+    script['_cold_open'] = 'A toad waits in the furrow.'
+    script['scenes'][0]['narration'] = script['hook'] + ' ' + script['_cold_open'] + ' ' + script['scenes'][0]['narration']
+    edit = repair.initial_plan(script, board(script))
+    assert edit['scene_word_limits'][script['scenes'][0]['scene_id']] >= len((script['hook'] + ' ' + script['_cold_open']).split())
+    with pytest.raises(ValueError, match='cold open'):
+        repair.apply_response(script, edit, budget_response_for(script))
+
+
+def test_script_only_rejects_an_unscored_final_draft_before_media(tmp_path, monkeypatch):
+    script = failed_script()
+    write_failure(tmp_path, script)
+    create, _ = writer(monkeypatch, response_for(script))
+    monkeypatch.setattr(pipeline, 'grade_script', Mock(return_value=None))
+    monkeypatch.setattr(pipeline, 'generate_research_dossier', Mock(side_effect=AssertionError('new research')))
+    monkeypatch.setattr(pipeline, 'generate_graded_script', Mock(side_effect=AssertionError('new script')))
+    monkeypatch.setenv('RUNTIME_HARD', '0')
+    with pytest.raises(ValueError, match='SCRIPT_RETENTION_TARGET: UNSCORED'):
+        pipeline.run_explainer_pipeline('Why did this happen?', str(tmp_path), duration_sec=300,
+            visual_style='illustrated_story', resume=True, max_cost_usd=10, stop_after_script=True)
+    failure = json.loads((tmp_path / 'semantic_failure_script-retention.json').read_text())
+    assert not failure['report']['passed'] and failure['script']['_grade']['status'] == 'UNSCORED'
+    assert not repair.has_media(tmp_path) and create.call_count == 1
