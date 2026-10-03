@@ -155,7 +155,8 @@ WHAT_EACH_FUNCTION_IS = {
                          "Never assign an introduced species a role in a place before it arrived",
     SPECIES_MOVED: "the moment a species was deliberately removed or introduced, and what it was "
                    "meant to achieve",
-    INTENDED_EFFECT: "the target species responding as intended — the part that worked",
+    INTENDED_EFFECT: "the documented expected benefit or observed response of the target species; "
+                     "say explicitly which it is. Intended success is not evidence it worked",
     HIDDEN_LINK: "the ecological interaction the plan omitted. For a REMOVAL: what else the "
                  "removed species had been doing. For an INTRODUCTION: the new interaction made "
                  "possible by its arrival, such as native predators eating a toxic newcomer. One "
@@ -323,7 +324,7 @@ REMOVED_KEYSTONE = EngineFunctionMap(
     role_meanings={
         "setup": "the relevant prior food web for a removal, or the target problem before an introduction",
         "intervention": "the species deliberately removed or introduced",
-        "false_resolution": "the target responding as intended — the part that worked",
+        "false_resolution": "a documented expected benefit or observed response, explicitly distinguished",
         "mechanism": "the ecological interaction the removal erased or the introduction created",
         "escalation": "a population changing through that omitted interaction",
         "reversal": "what the place became",

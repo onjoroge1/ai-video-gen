@@ -1206,6 +1206,8 @@ class ExplainerRequest(BaseModel):
     # Stop after the script passes every pre-spend gate and write it for editorial approval;
     # nothing beyond text is bought. The approved rerun reuses the cached script.
     stop_after_script: bool = False
+    # Server-created immutable seed. Public generation cannot supply it.
+    script_revision: dict | None = None
     # An editor's targeted note: revise the cached script beat by beat instead of writing a
     # fresh draft. Beats may merge or shorten, never drop; the ledger re-judges every sentence.
     revision_note: str = Field(default="", max_length=6000)
@@ -1606,6 +1608,8 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     visual_style=request.visual_style,
                     topic_channel=request.topic_channel,
                     stop_after_script=request.stop_after_script,
+                    script_revision=request.script_revision,
+                    max_cost_usd=(request.script_revision or {}).get("cost_ceiling_usd", ep.MAX_COST_USD),
                     revision_note=request.revision_note,
                     controlled_pilot=request.controlled_pilot,
                     pilot_batch_id=request.pilot_batch_id,
@@ -4050,6 +4054,8 @@ async def dispatch_agent_action(action_id: str, request: Request):
 
 @app.post("/api/explainer/generate")
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
+    if request.script_revision is not None:
+        raise HTTPException(403, "Script revisions must use the saved Studio job workflow")
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
     if request.topic_channel and (request.visual_style != "illustrated_story"
@@ -4446,6 +4452,44 @@ async def studio_job_artifacts(job_id: str):
 
 class StudioProviderResumeRequest(BaseModel):
     checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+class StudioScriptRevisionRequest(BaseModel):
+    mode: Literal["evaluate", "render"]
+    checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    cost_ceiling_usd: float = Field(gt=0, le=10, allow_inf_nan=False)
+
+
+@app.post("/api/studio/jobs/{job_id}/script-revisions")
+async def studio_script_revision(job_id: str, request: StudioScriptRevisionRequest,
+                                 background_tasks: BackgroundTasks):
+    """One explicit spending boundary, bound to saved words and a separate child job."""
+    if not _durable_execution_required():
+        raise HTTPException(409, "Durable execution is not enabled")
+    import script_revisions
+    import studio_jobs
+    store, blob = _durable_components()
+    row = await asyncio.to_thread(store.get_job, job_id)
+    if not row:
+        raise HTTPException(404, "Job not found")
+    configured_cap = float(os.environ.get(
+        "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00")))
+    if request.cost_ceiling_usd > configured_cap:
+        raise HTTPException(400, "Requested cap exceeds the deployment limit")
+    try:
+        if not script_revisions.eligible(row):
+            raise ValueError("This job must use its original approval or recovery workflow")
+        saved = await asyncio.to_thread(studio_jobs.artifacts, job_id, store, blob)
+        child_id, recipe = script_revisions.prepare(row, saved, **request.model_dump())
+        child = ExplainerRequest.model_validate(recipe)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    result = await _enqueue_explainer_request(child, background_tasks,
+        job_id=child_id, max_cost_usd=request.cost_ceiling_usd)
+    result["parent_job_id"] = job_id
+    result["studio_url"] = f"/studio/jobs/{child_id}"
+    return result
 
 
 @app.post("/api/studio/jobs/{job_id}/resume-provider")

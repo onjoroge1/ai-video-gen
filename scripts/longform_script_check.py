@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -34,11 +35,11 @@ from longform_retention import validate_longform_story
 from runtime_planner import plan_runtime
 
 
-COVERAGE = ["research", "fresh graded script with production replans", "fact-check",
-            "narration bindings", "claim joins", "configured runtime policy",
-            "illustrated hook and storyboard when selected"]
-EXCLUDED = ["HTTP approval and dispatch", "durable worker recovery", "evidence asset plan",
-            "TTS and measured audio timing", "images", "render", "Blob publication"]
+COVERAGE = ["production run_explainer_pipeline with stop_after_script", "research and planning",
+            "fact-check and bounded repairs", "runtime policy", "storyboard and evidence plan",
+            "final editorial grade", "current-script readiness"]
+EXCLUDED = ["HTTP approval and dispatch", "durable worker recovery", "TTS and measured audio timing",
+            "images", "render", "Blob publication"]
 
 
 def _positive(value: str) -> int:
@@ -82,156 +83,53 @@ def parse_args(argv=None):
 
 
 def run_sample(args, sample_id: int, log=print) -> dict:
+    """Observe the production stop boundary, with no independently maintained orchestration."""
     started = time.monotonic()
-    # A ledger, not a list. It is charged as each provider answers, so an attempt that raises --
-    # which is most of them while the story contract is being tightened -- still reports what it
-    # spent. Flushed to disk after every charge, next to the report.
-    ledger_path = (str(Path(args.output).with_suffix("")) + f".spend.{sample_id}.json"
-                   if args.output else None)
-    costs = cost_ledger.CostLedger(ledger_path)
-    script: dict = {}
-    dossier: dict = {}
-    is_illustrated = args.visual_style == "illustrated_story"
-    stable = ep._stable_standard_longform(args.video_format, args.format, False)
-    sourcing_advisory = stable and not is_illustrated
-    research_mode = ep._ordinary_research_mode(stable, is_illustrated)
-    report = {
-        "sample": sample_id, "passed": False, "stage": "research", "checks": {},
-        "fresh_script": True, "research_mode": research_mode,
-        "runtime_hard": ep._runtime_is_enforced(),
-        "configured_replans": ep._LONGFORM_CONTRACT_RETRIES,
-        "script_provider": ep.script_provider.active_provider(),
-        "script_model": (ep.script_provider.openai_script_model()
-                         if ep.script_provider.active_provider() == ep.script_provider.OPENAI
-                         else ep.ANTHROPIC_MODEL),
-        "research_model": ep.ANTHROPIC_MODEL,
-        "claim_ledger_hard": ep._claim_ledger_hard(),
-        "illustrated_storyboard_hard": ep._illustrated_storyboard_hard(),
-        "recorded_cost_usd": 0.0,
-        "cost_basis": "pipeline usage estimates; not a provider billing ledger",
-        "cost_may_be_incomplete": True,
-        "spend": {},
-    }
-    try:
-        if research_mode != "off":
-            try:
-                report["checks"]["topic_fit"] = ep.screen_topic_fit(args.question, costs, log)
-                dossier = ep.generate_research_dossier(args.question, cost_sink=costs, log=log)
-            except Exception as exc:
-                if research_mode == "required":
-                    raise
-                report["research_warning"] = f"{type(exc).__name__}: {exc}"
-        report["checks"]["research"] = validate_research_dossier(dossier)
-        report["stage"] = "script"
-        direction = illustrated.story_direction(args.question) if is_illustrated else ""
-        # Call the generator directly. SCRIPT_CACHE must not turn independent samples into
-        # repeated measurements of one cached draft. Its own production replan policy remains.
-        script = ep.generate_graded_script(
-            args.question, args.duration, "engaging and scientific", "", args.video_format, "",
-            cost_sink=costs, log=log, operator_direction=direction,
-            story_format=args.format, research_dossier=dossier, causal_lane=is_illustrated)
-        report["stage"] = "factcheck"
-        if script.get("scenes"):
-            script, notes, cost = ep.factcheck_script(script, args.question, dossier)
-            script["_script_cost_usd"] = float(script.get("_script_cost_usd") or 0) + cost
-            report["factcheck_notes"] = notes
-        ep.rederive_narration_bindings(script, log)
-        script["_story_structure_review"] = ep._review_story_structure(
-            script, args.format, args.video_format, log)
-        report["checks"]["structure_review"] = script["_story_structure_review"]
-        report["stage"] = "claims_after_factcheck"
-        # The ROUTED validator, which is what production calls. Calling validate_claim_joins
-        # directly ran the legacy phrase-overlap checker on a script written under the fact-model
-        # contract: it reported 22 claim_assertion_mismatch and scope_inflation failures on a
-        # script whose spine had just passed, for narration production never asks it to judge. A
-        # harness that measures a stage the pipeline does not run is measuring nothing.
-        joins = ep._validate_claims(script, dossier, costs)
-        # Production repairs before it refuses (run_explainer_pipeline does this immediately after
-        # the same call), and a harness that only reports the failure measures a pipeline nobody
-        # runs. Every failure at this boundary arrives with the supported core and the exact
-        # details that overshot it, which is a repairable state, not a verdict.
-        if not joins.get("passed"):
-            repaired, repair_cost = ep.repair_claim_join_failures(
-                script, dossier, joins, operator_direction=direction)
-            if repair_cost:
-                costs.append(repair_cost)
-                script = repaired
-                ep.rederive_narration_bindings(script, log)
-                joins = ep._validate_claims(script, dossier, costs)
-                log("Claim ledger repair: "
-                    + ("PASS" if joins.get("passed") else "still failing"))
-        report["checks"][report["stage"]] = joins
-        if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
-            raise ValueError("Claim ledger failed after fact-check: " + json.dumps(joins.get("errors")))
-
-        report["stage"] = "runtime"
-        if ep._runtime_is_enforced():
-            script = ep._enforce_requested_runtime(
-                script, args.duration, cost_sink=costs, log=log)
-        else:
-            script["_runtime_plan"] = plan_runtime(script.get("scenes") or [], args.duration)
-        report["checks"]["runtime"] = script["_runtime_plan"]
-        ep.rederive_narration_bindings(script, log)
-        report["stage"] = "claims_after_runtime"
-        joins = ep._validate_claims(script, dossier, costs)
-        report["checks"][report["stage"]] = joins
-        if not joins.get("passed") and ep._claim_ledger_hard() and not sourcing_advisory:
-            raise ValueError("Claim ledger failed after runtime: " + json.dumps(joins.get("errors")))
-
-        if is_illustrated:
-            report["stage"] = "illustrated_storyboard"
-            script, _ = ep._ensure_hook_fits_budget(script, costs)
-            board = illustrated.build_storyboard(script, args.question)
-            report["checks"]["illustrated_storyboard"] = board["validation"]
-            report["causal_clock"] = {
-                "estimated_runtime_sec": board.get("estimated_runtime_sec"),
-                "chain": board.get("chain"), "chapter_count": board.get("chapter_count"),
-            }
-            if not board["validation"].get("passed") and ep._illustrated_storyboard_hard():
-                raise ValueError("Illustrated storyboard failed: " + "; ".join(board["validation"]["errors"]))
-        # Retention and prose structure are reported at this boundary, not invented extra gates.
-        report["checks"]["retention_review"] = validate_longform_story(script, args.question)
-        report["stage"] = "complete"
-        report["passed"] = True
-    except Exception as exc:
-        report["error"] = {"type": type(exc).__name__, "message": str(exc)}
-        # The sheet a refusal was about, kept so role assignment can be compared across samples.
-        if getattr(exc, "beats", None):
-            report["spine"] = {"compiled": getattr(exc, "spine", {}), "beats": exc.beats}
-    finally:
-        # The ledger is now the source of truth: it holds the generator's own spend, charged as
-        # each call returned, so `_script_cost_usd` is a cross-check rather than an addend. The
-        # old formula added the two because the generator published its total only on success --
-        # which is exactly why four failed Hanoi attempts each reported $0.0000.
+    costs = cost_ledger.CostLedger()
+    report = {"sample": sample_id, "passed": False, "stage": "production", "checks": {},
+              "fresh_script": True, "cost_may_be_incomplete": True,
+              "cost_basis": "recorded estimates, not provider billing"}
+    with tempfile.TemporaryDirectory(prefix="script-check-") as directory:
+        def progress(message):
+            if message.startswith("stage:"):
+                report["stage"] = message[6:]
+            log(message)
+        try:
+            ep.run_explainer_pipeline(args.question, directory, duration_sec=args.duration,
+                video_format=args.video_format, story_format=args.format, visual_style=args.visual_style,
+                stop_after_script=True, fresh_script=True, text_cost_sink=costs, progress_cb=progress)
+            raise RuntimeError("Production script-only path returned without its approval boundary")
+        except ep.ScriptApprovalRequired:
+            report["stage"] = "complete"
+            report["passed"] = True
+        except Exception as exc:
+            report["error"] = {"type": type(exc).__name__, "message": str(exc)}
+        state = Path(directory, "_state.json")
+        script = json.loads(state.read_text()).get("script", {}) if state.exists() else {}
+        failures = [json.loads(p.read_text()) for p in Path(directory).glob("semantic_failure_*.json")]
+        if not report["passed"] and failures:
+            latest = max(failures, key=lambda row: str(row.get("failed_at") or ""))
+            script = latest.get("script") or script
+            report["failure"] = latest.get("report")
+            report["stage"] = latest.get("stage") or report["stage"]
+        for key in ("_script_readiness", "_final_retention_review", "_final_factcheck_review",
+                    "_claim_validation", "_runtime_plan", "_retention_validation"):
+            if key in script:
+                report["checks"][key] = script[key]
+        report["script"] = script
+        report["engine"] = script.get("_story_engine")
+        report["spine"] = script.get("_spine") or {}
+        report["scene_count"] = len(script.get("scenes") or [])
+        report["word_count"] = sum(len(str(row.get("narration") or "").split())
+                                   for row in script.get("scenes") or [])
+        report["clean_script_checks"] = report["passed"] and bool(
+            (script.get("_script_readiness") or {}).get("passed"))
         report["spend"] = costs.report()
         report["recorded_cost_usd"] = costs.total()
-        published = round(float(script.get("_script_cost_usd") or 0), 6)
-        charged = costs.script_stage_total()
-        # Disagreement means a call site spends without charging. Reported, never silently summed.
-        if published and abs(published - charged) > 0.005:
-            report["spend"]["unattributed_script_usd"] = round(published - charged, 6)
-            report["recorded_cost_usd"] = round(
-                report["recorded_cost_usd"] + max(0.0, published - charged), 6)
-        # Some production helpers swallow provider/parsing errors before recording their cost.
-        # Never present a zero/partial estimate, especially after an exception, as actual billing.
-        report["cost_may_be_incomplete"] = True
         report["elapsed_sec"] = round(time.monotonic() - started, 3)
-        report["engine"] = script.get("_story_engine")
-        report["spine"] = report.get("spine") or script.get("_spine") or {}
-        scenes = script.get("scenes") or []
-        report["scene_count"] = len(scenes)
-        report["word_count"] = sum(len(str(s.get("narration") or "").split()) for s in scenes)
-        report["script"] = script
         if args.show_script:
-            for index, scene in enumerate(scenes, 1):
-                log(f"{index}. [{scene.get('causal_role') or scene.get('story_role') or '?'}] "
-                    f"{scene.get('narration') or ''}")
-    # Failures waived by diagnostic flags must not look like clean candidate passes.
-    quality_checks = ("research", "claims_after_factcheck", "claims_after_runtime",
-                      "illustrated_storyboard") if is_illustrated else (
-                          "claims_after_factcheck", "claims_after_runtime")
-    report["clean_script_checks"] = report["passed"] and all(
-        report["checks"].get(key, {}).get("passed", False) for key in quality_checks)
+            for i, row in enumerate(script.get("scenes") or [], 1):
+                log(f"{i}. {row.get('narration') or ''}")
     return report
 
 

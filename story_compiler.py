@@ -62,25 +62,7 @@ def _early_attention_functions(mapping) -> tuple:
 
 
 def _repeat_to_reach_count(mapping, duration) -> str:
-    """How to reach the event count: variety first, then the functions that may recur.
-
-    THE OVERCORRECTION THIS FIXES. The first version of this clause named only the repeatable
-    functions, and the planner did exactly as told. Measured on a delivered 348s film, the spine
-    came back as
-
-        setup setup intervention intervention mechanism mechanism
-        escalation x16 reversal reversal generalization generalization
-
-    -- sixteen consecutive escalations, and `intended_effect` never used at all. Two costs. The
-    shape is monotonous: after the mechanism the story just gets worse sixteen times. And the film
-    ran 83.3 seconds before its first attention beat, because the one optional role that could have
-    supplied an earlier one was never asked for.
-
-    An engine's optional attention roles come first, one each, before the count is topped up with
-    repeats. For removed_keystone that is `intended_effect` -- the plan appearing to work before the
-    mechanism explains why it could not -- which is both the missing early attention beat and the
-    beat that makes the reversal land.
-    """
+    """Add distinct evidenced events; optional attention functions remain optional."""
     repeatable = _repeatable_functions(mapping)
     if not repeatable:
         return ""
@@ -89,23 +71,15 @@ def _repeat_to_reach_count(mapping, duration) -> str:
     if not extra:
         return ""
     early = _early_attention_functions(mapping)[:extra]
-    variety = (
-        f'FIRST, spend {len(early)} of them on {", ".join(early)} -- once each, in engine order. '
-        'These are not optional decoration: they are the beats that re-earn attention, and without '
-        'them the film runs minutes on explanation before anything turns. '
-        if early else "")
-    remaining = extra - len(early)
-    repeats = (
-        f'{"THEN supply" if early else "Supply"} {remaining} further '
-        f'{"event" if remaining == 1 else "events"} using the only functions that may recur: '
-        f'{", ".join(repeatable)}. Each must be a distinct sourced step in the compounding -- a '
-        'further reach, a further scale, a further cost -- in the order it happened. '
-        if remaining > 0 else "")
     return (
-        f'Every required function above appears EXACTLY ONCE, so {len(mapping.required)} of those '
-        f'{wanted} events are already spoken for and {extra} remain. ' + variety + repeats +
-        'Do not reach the count with `context` events: an unsupported context event is pruned '
-        'later, and the scenes that remain absorb its time.\n')
+        f'The count is a coverage target, never permission to invent an event. '
+        f'Optional attention functions ({", ".join(early) or "none"}) may appear once each '
+        'ONLY when the ledger supports their meaning. Omit them when unsupported. '
+        f'For additional events use {", ".join(repeatable)}: each must add a distinct '
+        'documented action, consequence, scale or cost, in the order it happened. '
+        'An expectation must be narrated as an expectation, not initial success. '
+        'If the evidence supports fewer events, return fewer; do not pad with context or '
+        'repeat the same fact to reach the requested runtime.\n')
 
 
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
@@ -187,11 +161,12 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         #
         # So the budget is stated as a count the planner can act on. Context is not free: it is
         # the most common thing to put first and the most expensive place to put it.
-        + f'At most {_max_events_before_incentive(duration, engine_id)} event(s) may come BEFORE '
-        'the one that changes the incentive. The mechanism is derived from that beat and must land '
-        'early, so the events before it are a hard budget, not an introduction to fill. Optional '
-        'context belongs AFTER the incentive changes, or nowhere -- an unsupported context event '
-        'placed first is pruned later and has already pushed the mechanism late.\n'
+        + (f'At most {_max_events_before_incentive(duration, engine_id)} event(s) may come BEFORE '
+           'the one that changes the incentive. Its derived mechanism must land early. '
+           'Optional context belongs after this change, if supported.\n'
+           if "mechanism" in mapping.derived else
+           'Place the documented mechanism early, using the selected engine definitions. '
+           'Do not invent an incentive or reward scheme for an ecological interaction.\n')
         + '\n'.join(f'{name}: {ef.WHAT_EACH_FUNCTION_IS[name]}'
                     for name in functions)
         # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup before
@@ -207,7 +182,7 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'presentation transitions and the closing question. Every event you supply needs a '
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
-        'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
+        'not an inversion. Supply factual functions from this engine only; do not add editorial role fields.\n'
         + ('First decide whether this episode REMOVES a species or INTRODUCES one, then follow the '
            'matching definitions above all the way through. An introduced species cannot perform '
            'a setup function in that place before it arrived.\n'

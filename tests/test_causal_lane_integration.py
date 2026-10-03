@@ -76,7 +76,7 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
                      "28-40% first escalation", "STANDARD EXPLAINER. Deliver the first useful"):
         assert conflict not in causal
     assert "The compiler assigns story roles" in causal
-    assert "Do not supply a hinge, mechanism, tool" in causal
+    assert "do not add editorial role fields" in causal
 
 
 def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
@@ -1258,12 +1258,17 @@ def test_a_narration_that_overshoots_its_event_is_repaired_not_only_refused(monk
     assert "NARRATION_EXCEEDS_EVENT" in seen["system"] and "Imagery, rhythm and voice are free" in seen["system"]
 
 
-def test_a_beat_id_addressed_failure_resolves_to_its_scene():
+def test_a_beat_id_addressed_failure_resolves_to_its_scene(monkeypatch):
     """The fact model addresses scenes by beat_id; the older codes use a 1-based index."""
     script = {"scenes": [{"beat_id": "event_01", "narration": "One."},
                          {"beat_id": "event_07", "narration": "Two."}]}
     report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07"}]}
     # An unresolvable id must refuse the repair rather than silently rewriting scene 0.
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    create = Mock(return_value=SimpleNamespace(content=[SimpleNamespace(text='{"scenes":[]}')],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1)))
+    monkeypatch.setattr(ep, "_claude", lambda: SimpleNamespace(messages=SimpleNamespace(create=create)))
     ep.repair_claim_join_failures(script, {"claims": []}, report)
     assert report["errors"][0]["scene"] == "event_07"
     ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}

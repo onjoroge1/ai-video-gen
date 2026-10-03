@@ -63,7 +63,8 @@ def test_semantic_rejection_or_outage_cannot_pass_narrowing(verdict):
     judge = Mock(return_value={"verdict": verdict})
     kept, narrowed, blocked = facts.narrow_required_roles(
         [saved["draft_beats"][0]], {"event_1": partial}, "removed_keystone", judge=judge)
-    assert not narrowed and blocked and judge.call_count == 1
+    assert not narrowed and blocked
+    assert judge.call_count == (2 if verdict == "unavailable" else 1)
     assert kept[0]["event"]["text"] != CORE
 
 

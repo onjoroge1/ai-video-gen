@@ -304,6 +304,8 @@ def test_readiness_pass_preserves_advisory_runtime_warning():
     args = dict(claims={"passed": True}, structure={"passed": True},
                 storyboard={"passed": True}, runtime={"passed": False}, duplicates=[],
                 review=review, factcheck_required=True)
+    args["factual_review"] = {"passed": True, "content_sha256": script_readiness.content_hash(script),
+                              "evidence_sha256": script_stages.digest({})}
     report = script_readiness.evaluate(script, {}, **args)
     assert report["passed"] and report["warnings"]
     assert not script_readiness.evaluate(script, {}, **args, runtime_hard=True)["passed"]

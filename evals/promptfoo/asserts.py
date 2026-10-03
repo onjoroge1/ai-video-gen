@@ -95,34 +95,34 @@ def plan_event_count(output, context) -> dict:
 
 
 def edit_resolves_defects(output, context) -> dict:
-    """Apply the editor's scenes to the fixture and re-run the detector."""
+    """The same structural transaction as production, not a claim of factual quality."""
     import script_editor as se
-    v = context.get("vars") or {}
-    script = _fixture(v["script"])
-    before = se.detect_defects(script, script.get("_claim_validation"))
-    data = _json(output)
-    rows = data.get("scenes") if isinstance(data, dict) else None
-    if not isinstance(rows, list):
-        return {"pass": False, "score": 0.0, "reason": "no scenes in the reply"}
-    targets = {int(d["scene"]) for d in before}
-    done = set()
-    for row in rows:
-        index = int((row or {}).get("scene") or 0)
-        text = ((row or {}).get("narration") or "").strip()
-        if index in targets and text:
-            script["scenes"][index - 1]["narration"] = text
-            done.add(index)
-    if done != targets:
-        return {"pass": False, "score": 0.0, "reason": f"edited {sorted(done)} of {sorted(targets)}"}
-    after = se.detect_defects(script, None)
-    keys_before = {(d["scene"], d["code"]) for d in before if d["code"] != se.EXCEEDS_EVENT}
-    keys_after = {(d["scene"], d["code"]) for d in after}
-    still = keys_before & keys_after
-    new = {k for k in keys_after if k[1] in (se.REPEAT, se.COLD_OPEN_RESTATED)} - keys_before
-    ok = not still and not new
-    return {"pass": ok, "score": 1.0 if ok else max(0.0, 1 - (len(still) + len(new)) / max(1, len(keys_before))),
-            "reason": ("resolved all " + str(len(keys_before))) if ok else
-                      f"still {sorted(still)}; new {sorted(new)}"}
+    try:
+        script = _fixture(context["vars"]["script"])
+        before = se.detect_defects(script, script.get("_claim_validation"))
+        candidate, remaining = se.apply_response(script, before, _json(output))
+        passed = candidate is not script and not remaining
+        return {"pass": passed, "score": int(passed),
+                "reason": "Structural edit contract only; grounding is checked separately"}
+    except (ValueError, KeyError, TypeError):
+        return {"pass": False, "score": 0, "reason": "Invalid edit transaction"}
+
+
+def edit_is_grounded(output, context) -> dict:
+    import script_editor as se
+    if os.environ.get("REELFORGE_PAID_EVAL") != "1":
+        return {"pass": False, "score": 0, "reason": "Semantic review unverified; paid eval disabled"}
+    costs = []
+    try:
+        script = _fixture(context["vars"]["script"])
+        defects = se.detect_defects(script, script.get("_claim_validation"))
+        candidate, remaining = se.apply_response(script, defects, _json(output))
+        passed = (candidate is not script and not remaining
+                  and se.semantic_accepts(candidate, script.get("_research_dossier") or {}, cost_sink=costs))
+        return {"pass": passed, "score": int(passed),
+                "reason": f"Production semantic acceptance: {passed}; review estimate ${sum(costs):.4f}"}
+    except (ValueError, KeyError, TypeError):
+        return {"pass": False, "score": 0, "reason": "Invalid or ungrounded edit"}
 
 
 def edit_keeps_length(output, context) -> dict:

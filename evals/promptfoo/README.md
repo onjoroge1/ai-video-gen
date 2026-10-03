@@ -2,8 +2,10 @@
 
 `planner.yaml` and `editor.yaml` now use `production_provider.py`, which invokes the same
 `explainer_pipeline._claude()` routing and model configuration as Studio. Configure the same
-script-provider environment as the deployment. Each case makes one request, bounded at 12,000
-output tokens; these evaluations are paid and are not subject to a Studio job's dollar ceiling.
+script-provider environment as the deployment. Each case makes one writing request bounded at 12,000
+output tokens. Editor acceptance also runs the production source and integrity validators,
+which can make additional bounded judge calls. These evaluations are paid and are not subject
+to a Studio job's dollar ceiling.
 No research, voice, images, or video generation runs.
 
 ```bash
@@ -14,11 +16,12 @@ npx promptfoo eval -c evals/promptfoo/editor.yaml
 ```
 
 The adapter refuses provider calls unless explicitly enabled. Use an installed, reviewed
-Promptfoo version. No live evaluation was purchased for the script-flow recovery PR.
+Promptfoo version. Offline verification does not establish live writing quality.
 
 Planner assertions are **deterministic preflight**, not semantic evidence approval or final
 script readiness. They cover JSON, score >=75, cold-open shape and event count. Editor assertions
-cover defects, length and meta phrases. Prompts include the reference-informed cadence brief;
+use the production edit transaction and require semantic acceptance; defect counts, length
+and meta phrases alone cannot pass an edit. Prompts include the reference-informed cadence brief;
 full Studio orchestration, source validation and final readiness remain separate tests.
 
 CI runs `tests/test_script_flow_recovery.py` through the normal pytest suite. It reproduces

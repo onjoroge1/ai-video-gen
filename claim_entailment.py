@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v5"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v6"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -62,7 +62,8 @@ def is_retryable(verdict: dict) -> bool:
 # rewrites a claim and keeps its id, and keying on the id would inherit a verdict for text nobody
 # has judged. Under durable resume that is a stale PASS on a checkpoint, not just a stale value.
 _CLAIM_KEY_FIELDS = ("claim", "support_quote", "source_url", "geographic_scope",
-                     "timescale", "confidence")
+                     "timescale", "confidence", "support_provenance", "source_published_at",
+                     "as_of", "metric")
 
 
 def _text(value: Any) -> str:
@@ -82,7 +83,9 @@ def cache_key(claims: list[dict], event_text: str, *,
     Claims are sorted, because the judgement is about the SET: a reorder must not re-buy the call.
     """
     canonical = sorted(_canonical_claim(claim) for claim in (claims or []))
-    payload = "\n".join([kind, contract_version, _text(event_text), *canonical])
+    from script_contracts import model_identity
+    payload = "\n".join([kind, contract_version, json.dumps(model_identity(), sort_keys=True),
+                         _text(event_text), *canonical])
     return f"{contract_version}:{kind}:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -192,6 +195,9 @@ def _claim_block(claim: dict) -> str:
     url = str(claim.get("source_url") or "").strip()
     if url:
         lines.append(f"    source: {url}")
+    for field in ("geographic_scope", "timescale", "confidence", "source_published_at", "as_of", "metric"):
+        if claim.get(field):
+            lines.append(f"    {field}: {claim[field]}")
     return "\n".join(lines)
 
 
@@ -265,10 +271,13 @@ def _default_judge(payload: dict) -> dict:
 
 def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
             cache: dict | None, fallback_reason: str) -> dict:
+    from durable_execution import DurableExecutionError
     if cache is not None and key in cache and not is_retryable(cache[key]):
         return dict(cache[key])
     try:
         reply = (judge or _default_judge)(payload)
+    except DurableExecutionError:
+        raise
     except Exception as exc:                       # noqa: BLE001 - any provider failure fails closed
         result = {"verdict": "unavailable", "passed": False, "supported_core": "",
                   "unsupported_details": [],
@@ -283,6 +292,8 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
         # planning were bought. Ask the judge once more before failing closed.
         try:
             result = _normalise((judge or _default_judge)({**payload, "review_attempt": 2}), fallback_reason)
+        except DurableExecutionError:
+            raise
         except Exception as exc:                   # noqa: BLE001 - second failure fails closed
             result = {"verdict": "unavailable", "passed": False, "supported_core": "",
                       "unsupported_details": [],

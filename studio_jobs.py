@@ -10,7 +10,10 @@ ACTIVE = {"queued", "processing", "rendering", "running", "retry"}
 REPORTS = {
     "claim_failure": "semantic_failure_claim-ledger.json",
     "runtime_claim_failure": "semantic_failure_runtime-claim-ledger.json",
-    "readiness": "retention_readiness.json",
+    "readiness": "script_readiness.json",
+    "readiness_failure": "semantic_failure_script-readiness.json",
+    "retention_failure": "semantic_failure_script-retention.json",
+    "revision": "script_revision.json",
     "claims": "claim_ledger_report.json",
     "storyboard": "illustrated_storyboard.json",
     "storyboard_failure": "semantic_failure_illustrated-storyboard.json",
@@ -23,6 +26,7 @@ REPORTS = {
 def snapshot(row, events):
     import provider_blocks
     import planning_review_recovery
+    import script_revisions
     resumable = (row.get("kind") == "explainer"
                  and not (row.get("request") or {}).get("controlled_pilot")
                  and bool(provider_blocks.for_job(row))
@@ -30,6 +34,7 @@ def snapshot(row, events):
     return {"id": row["id"], "status": row.get("status"),
             "provider_resumable": resumable,
             "planning_review_resumable": planning_review_recovery.eligible(row),
+            "script_revision_eligible": script_revisions.eligible(row),
             "active": row.get("status") in ACTIVE, "error": row.get("error"),
             "question": (row.get("request") or {}).get("question", ""),
             "spent_cost_usd": row.get("spent_cost_usd"),
@@ -68,7 +73,8 @@ def artifacts(job_id, store, blob):
         # Pre-spend refusals happen before _state.json is written. Keep their exact
         # narration available without labeling it approved or selecting an arbitrary file.
         failures = [v for k, v in result["reports"].items()
-                    if k in {"claim_failure", "runtime_claim_failure", "storyboard_failure"}
+                    if k in {"claim_failure", "runtime_claim_failure", "storyboard_failure",
+                             "readiness_failure", "retention_failure"}
                     and isinstance(v, dict) and isinstance(v.get("script"), dict)
                     and v["script"].get("scenes")]
         if row.get("status") == "error" and failures:
@@ -77,4 +83,19 @@ def artifacts(job_id, store, blob):
             result["script_source"] = "failed diagnostic: " + str(failed.get("stage") or "unknown")
         elif result["script"]:
             result["script_source"] = "saved state"
+        if result["script"]:
+            import script_readiness
+            result["content_sha256"] = script_readiness.content_hash(result["script"])
+            import script_finalizer
+            import script_revisions
+            result["approval_current"] = False
+            if script_revisions.eligible(row) and row.get("status") == "awaiting_script_approval":
+                request = row.get("request") or {}
+                try:
+                    script_finalizer.verify_approved(result["script"],
+                        result["script"].get("_research_dossier") or {}, request.get("question"),
+                        request.get("duration_sec"), factcheck_required=request.get("fact_check", True))
+                    result["approval_current"] = True
+                except ValueError:
+                    pass  # A stale certificate is visible, but cannot enable rendering.
     return result

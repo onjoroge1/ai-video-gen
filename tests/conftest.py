@@ -22,11 +22,27 @@ import socket
 import explainer_pipeline
 
 
+class OfflineNetworkAttempt(BaseException):
+    """A test defect, not a provider outage that production code may swallow/retry."""
+
+
 @pytest.fixture(autouse=True)
 def _no_external_network(request, monkeypatch):
     """Default tests replace providers; an accidental live call must fail before sending data."""
     if request.node.get_closest_marker("entailment_live"):
         return  # separately opt-in and skipped by default below
+    # Socket-only blocking permits an external request through a loopback proxy.
+    # Refuse real HTTP transports before DNS, proxy routing or SDK retries. In-memory
+    # ASGI/MockTransport and explicitly mocked provider adapters remain usable.
+    import httpx
+    import requests
+    def blocked(*args, **kwargs):
+        raise OfflineNetworkAttempt("Real HTTP transport reached in an offline test; mock the provider boundary")
+    async def blocked_async(*args, **kwargs):
+        blocked()
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", blocked)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", blocked_async)
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", blocked)
     original = socket.socket.connect
     original_ex = socket.socket.connect_ex
 
@@ -38,7 +54,7 @@ def _no_external_network(request, monkeypatch):
             except ValueError:
                 local = host == "localhost"
             if not local:
-                raise AssertionError("External network is disabled in offline tests; mock the provider boundary")
+                raise OfflineNetworkAttempt("External network is disabled in offline tests; mock the provider boundary")
 
     def connect(sock, address):
         check(address)

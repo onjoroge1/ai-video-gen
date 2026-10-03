@@ -984,6 +984,7 @@ def claim_context_for_prompt(dossier: dict) -> list[dict]:
         "claim_id", "claim", "source_url", "support_quote", "source_type", "calculation", "assumptions",
         "geographic_scope", "timescale", "confidence", "allowed_exaggeration",
         "quote_verified", "source_reachable", "support_provenance", "claim_kind",
+        "source_published_at", "as_of", "metric",
     )
     return [
         {key: claim.get(key) for key in keys}
