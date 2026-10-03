@@ -142,7 +142,17 @@ def score_retention_readiness(
     # measurement. Which opening a causal story should have is an editorial question, so it is
     # left unassessed rather than silently decided here.
     causal_lane = _text(checks.get("retention_role_vocabulary")) == "causal"
-    if causal_lane:
+    cold_open = _text(script.get("_cold_open"))
+    if causal_lane and "_cold_open" in script:
+        # Planned under the cold-open contract (2026-10-02): the aftermath sentence is spoken
+        # inside scene 1 right after the hook, so the opening IS a visible consequence when the
+        # sentence survived every narration pass. Measured, not conceded.
+        first = _text(scenes[0].get("narration")) if scenes else ""
+        if cold_open and cold_open.rstrip(".!?").casefold() in first.casefold():
+            opening += 5
+        else:
+            opening_notes.append("cold open missing from the first scene's narration")
+    elif causal_lane:
         unmeasured.append("opening_is_cold_consequence")
         opening_notes.append(
             "opening-beat shape not assessed: this lane opens on `setup` by engine contract")

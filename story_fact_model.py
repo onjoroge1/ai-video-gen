@@ -763,6 +763,23 @@ def duplicate_event_functions(beats: list[dict], engine_id: str = "") -> list[di
             # same sentence for its mechanism and its reversal, and collapsing them silently
             # removed the reversal, so the compiler reported the story as unsupported when the
             # real defect was that the planner never wrote a reversal at all.
+            # A REPEATABLE role that duplicates another required role is pruned, not fatal, when
+            # the sheet carries another beat of that role to do the job. Killer bees
+            # (2026-10-02): the planner wrote hybridization as the mechanism and again as one of
+            # seven escalations (the escape, the spread, Texas 1990, the stings were the others);
+            # the sheet passed every evidence check and died here, twice, as "a role is missing".
+            # With one escalation left the role really is missing and the issue stays blocking.
+            repeat_role = role in COLLAPSIBLE_ROLES and sum(
+                1 for b in (beats or []) if isinstance(b, dict)
+                and _text(b.get("role") or b.get("causal_role")).lower() == role
+                and not _text(b.get("continues"))) >= 2
+            if prior_role != role and prior_role in required and role in required and repeat_role:
+                issues.append(_issue(
+                    "DUPLICATE_EVENT_FUNCTION",
+                    f"beat {beat_id} ({role}) restates the {prior_role} ({prior_id}); collapsed, "
+                    f"the other {role} beats carry that function",
+                    beat_id=beat_id, duplicate_of=prior_id, collapsible=True))
+                break
             if (prior_role != role and prior_role in required and role in required):
                 issues.append(_issue(
                     "DUPLICATE_ACROSS_REQUIRED_ROLES",
@@ -913,7 +930,10 @@ def narrow_required_roles(beats: list[dict], verdicts: dict,
                                   f"that no longer performs its function — {why}. "
                                   f"{role}: {role_function(role, engine_id)}",
                                   beat_id=beat_id, role=role,
-                                  function_verdict=(function_result or {}).get("verdict")))
+                                  function_verdict=(function_result or {}).get("verdict"),
+                                  # What Boundary A could not find in the cited passages: the
+                                  # re-ask searches the ledger for exactly these words.
+                                  dropped=verdict.get("unsupported_details") or []))
             out.append(beat)
             continue
 
@@ -1319,4 +1339,72 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
         mark = "-" if bid not in kept else ("!" if bid in compiled["still_failing"] else "+")
         lines.append(f"  {mark} {bid} [{role:16s}] {event_of(beat)['text'][:74]}")
     lines += ["", f"Spine: {len(kept)} beats from {len(beats or [])} proposed."]
+    return "\n".join(lines)
+
+
+_SUGGESTION_STOPWORDS = frozenset((
+    "that", "with", "from", "this", "have", "were", "which", "their", "they", "them", "than",
+    "into", "been", "some", "more", "most", "when", "where", "after", "before", "because",
+    "about", "also", "over", "such", "only", "other", "these", "those", "there", "while"))
+
+
+def _content_words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[a-z]+", _text(text).lower())
+            if len(word) > 3 and word not in _SUGGESTION_STOPWORDS}
+
+
+def citation_suggestions(beats: list[dict], compiled: dict, claims: dict, engine_id: str = "",
+                         limit: int = 3) -> str:
+    """For each beat refused on CLAIM_KIND_MISMATCH, the acceptable-kind claims nearest its text.
+
+    Measured on the cane toad film (2026-09-29): the reversal "snakes with long toad exposure
+    have shifted" cited c49, the mechanism claim explaining WHY gape-limited snakes are selected
+    for size, while c48, an outcome claim stating that two snake species HAVE evolved larger
+    gapes, sat unused. The generic re-ask ("the ledger may hold a better claim") returned the
+    same citation. Naming the candidates costs nothing and changes nothing about the gate: the
+    planner still has to cite them and Boundary A still has to agree.
+    """
+    cascade = (compiled or {}).get("cascade") or {}
+    issues = [issue for issue in cascade.get("structural") or []
+              if issue.get("code") == "CLAIM_KIND_MISMATCH" and issue.get("beat_id")]
+    # A required beat whose citations left out the detail its function needs (the intervention's
+    # purpose, the setup's problem) is the same defect from the other side: the words Boundary A
+    # could not find are usually in another claim. Search the ledger for THOSE words.
+    issues += [issue for issue in (compiled or {}).get("unrepairable") or []
+               if issue.get("code") == "ROLE_CONTRACT_FAILED" and issue.get("beat_id")]
+    if not issues or not claims:
+        return ""
+    by_id = {}
+    for index, beat in enumerate(beats or []):
+        by_id[_text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}"] = beat or {}
+    lines = ["", "CITATION SUGGESTIONS — claims of an acceptable kind whose text overlaps each "
+                 "refused beat (cite one of these, or narrow the beat to what one states):"]
+    seen = set()
+    for issue in issues:
+        beat_id = issue["beat_id"]
+        if beat_id in seen:
+            continue
+        seen.add(beat_id)
+        beat = by_id.get(beat_id, {})
+        role = _text(issue.get("role") or beat.get("role") or beat.get("causal_role")).lower()
+        accepted = accepted_claim_kinds(role, engine_id)
+        missing = " ".join(_text(detail) for detail in (issue.get("dropped") or []))
+        target = _content_words(missing) if missing else _content_words(event_of(beat)["text"])
+        ranked = []
+        for claim_id, claim in claims.items():
+            kind, _reason = resolved_claim_kind(claim)
+            if kind not in accepted:
+                continue
+            overlap = len(target & _content_words(claim.get("claim") or claim.get("text")))
+            if overlap:
+                ranked.append((overlap, claim_id, kind, _text(claim.get("claim") or claim.get("text"))))
+        ranked.sort(key=lambda row: (-row[0], row[1]))
+        kinds = ", ".join(accepted) if accepted else "no factual claims"
+        if not ranked:
+            lines.append(f"  {beat_id} [{role}] may cite {kinds}: no such claim overlaps its "
+                         "event text; rewrite the beat to what an acceptable claim states")
+            continue
+        lines.append(f"  {beat_id} [{role}] may cite {kinds}:")
+        for _overlap, claim_id, kind, text in ranked[:limit]:
+            lines.append(f"    {claim_id} ({kind}): {text[:180]}")
     return "\n".join(lines)

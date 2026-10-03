@@ -162,8 +162,20 @@ WHAT_EACH_FUNCTION_IS = {
                  "sourceable sentence; never imply the introduced species was already present",
     POPULATION_RESPONDS: "a population changing because that omitted ecological interaction was "
                          "removed or created — measured, with numbers where the record has them",
-    SYSTEM_RESETTLES: "what the place became. Not 'the programme failed' but the new state: what "
-                      "now grows there, what no longer does, what it costs to keep",
+    # Worded for plants AND animals. The first wording ("what now grows there, what no longer
+    # does, what it costs to keep") was written on kudzu, and the function-fulfillment judge read
+    # it literally: on cane toads (2026-09-29) it refused "predators locally scarce, smaller
+    # species increasing, toads permanent across the north" three times for supplying "none of
+    # the required elements about growth or upkeep costs". The yardstick names the shape of a
+    # new state; it must not name one kingdom's version of it.
+    # The judge is asked whether the statement supplies EVERY required part, so the alternatives
+    # are spelled out as alternatives: a second wording that listed them with "and" was read as
+    # four requirements and refused a reversal for omitting the upkeep cost.
+    SYSTEM_RESETTLES: "what the place became. Not 'the programme failed' but the new state of the "
+                      "place, which ANY ONE of the following establishes (only one is required): "
+                      "which species now dominate, persist or spread there; which are scarce or "
+                      "gone; how the survivors changed; what it costs to keep or manage. Plants "
+                      "or animals alike",
     BEHAVIOUR_OBSERVED: "the behaviour toward eggs or young as it was first seen or preserved: a "
                         "skeleton on a clutch, a chick pushed from a nest, a parent that stops "
                         "eating. What the record directly holds, before anyone read it",
@@ -297,7 +309,17 @@ REMOVED_KEYSTONE = EngineFunctionMap(
     # A food-web relationship can establish the prior ecology and explain the aftermath.
     # Its use as setup does not turn a mechanism-labelled source into an historical event.
     # Boundary A must still establish that the particular setup follows from that source.
-    claim_kinds={"setup": ("event", "context", "outcome", "mechanism")},
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism"),
+                 # Same reason as strange_behaviour and mistaken_verdict: ecology sources record
+                 # what a population did and what the place became as processes, and the
+                 # classifier files them as mechanism. Cane toads (2026-09-29): three
+                 # consecutive sheets put the reversal on "smaller predators survive and learn
+                 # to avoid toads" (c27, mechanism 0.80, runner-up outcome) or "two snake
+                 # species have evolved larger gapes", and the run died each time with every
+                 # other required beat standing. Boundary A still has to show the beat follows
+                 # from the claim; only the cheap kind gate stops refusing the channel's shape.
+                 "escalation": ("event", "context", "outcome", "mechanism"),
+                 "reversal": ("event", "context", "outcome", "mechanism")},
     role_meanings={
         "setup": "the relevant prior food web for a removal, or the target problem before an introduction",
         "intervention": "the species deliberately removed or introduced",

@@ -116,7 +116,15 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     schema = {
         "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
                                "and the concrete title subject",
-        "throughline": "", "opening_object": "", "final_callback_object": "",
+        "throughline": "",
+        "cold_open": {"text": "ONE sentence, at most 22 words, spoken right after the hook: the "
+                              "visible AFTERMATH of the fix gone wrong, as a viewer would see it "
+                              "(a dead predator with the toad in its jaws, a river bank stripped "
+                              "bare), not a summary and not the setup",
+                      "claim_refs": ["claim_id"]},
+        "opening_object": "the subject exactly as it appears in the cold_open aftermath image; "
+                          "the close returns to it",
+        "final_callback_object": "",
         "recurring_location": "the primary case's documented setting, reused in the opening",
         "style_mode": "educational", "stages": [], "parallel_cases": [],
         "beats": [{"n": 1, "beat_id": "event_01", "beat": "the factual event text",
@@ -180,6 +188,15 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'placed first is pruned later and has already pushed the mechanism late.\n'
         + '\n'.join(f'{name}: {ef.WHAT_EACH_FUNCTION_IS[name]}'
                     for name in functions)
+        # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup before
+        # the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR thumbnail left at
+        # 41 s on average. The reference films earn their setup by showing the damage first.
+        + 'COLD OPEN: besides the hook, write cold_open -- one sentence of at most 22 words that '
+        'SHOWS the aftermath of the fix gone wrong as a picture the viewer can see, cited to a '
+        'claim. It is spoken right after the hook, before the first setup event, and the first '
+        'image of the film is that aftermath. It must not restate the hook, name a number the '
+        'claim does not hold, or explain anything; it shows the damage and the setup then earns '
+        'it. Make opening_object the subject as it appears in that aftermath image.\n'
         + '\nThe compiler assigns story roles, derives the mechanism and reversal, and adds '
         'presentation transitions and the closing question. Every event you supply needs a '
         'nonempty factual text and its own supporting claim_refs. State changes must follow '

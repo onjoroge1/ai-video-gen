@@ -27,6 +27,9 @@ RENDERED_GATE_VERSION = 2
 RELEASE_SCORE = 85
 OPENING_AVG_STATE_RANGE = (1.8, 3.2)
 OPENING_MAX_STATE_SECONDS = 3.5
+# A generated-motion shot is visual change for the length of its clip; it is a hold only past
+# that. 5 s clips plus a frame of slack (longform_shots.MOTION_CLIP_SECONDS).
+MOTION_HOLD_ALLOWANCE_SECONDS = 5.25
 DIAGNOSTIC_WATERMARK = "REJECTED DIAGNOSTIC — NOT FOR PUBLICATION"
 MIN_CALIBRATION_EXAMPLES_PER_CLASS = 20
 MIN_CALIBRATION_BALANCED_ACCURACY = 0.70
@@ -656,6 +659,12 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
     sources = [_text(shot.get("source")) for shot in shots]
     source_changes = sum(a != b for a, b in zip(sources, sources[1:]))
     verified = sum(bool(shot.get("verified_visible_information")) for shot in shots)
+    # A hold split (longform_shots.split_long_holds) is the SAME accepted picture continued
+    # under a camera move, not a cut to a new one. It counts as a visual state for the hold
+    # rule -- the screen changes -- and it claims no information, so it is left out of the
+    # denominator here rather than diluting the ratio of cuts that do carry verified evidence.
+    # It stays in every other measure (shot count, source changes, boundary deltas).
+    information_cuts = [shot for shot in shots if _text(shot.get("asset_strategy")) != "hold_split"]
     expected_bolt = 0
     pure_bolt_violations = 0
     continuity_failures = []
@@ -676,12 +685,7 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         # location and opening_object are NOT cast-dependent and still apply: a lane without a
         # recurring human still has a recurring place and a callback object.
         cast_free = _text((evidence_plan.get("continuity_pack") or {}).get("cast")) == "none"
-        fields = ("location_matches", "opening_object_matches") if cast_free else (
-            "human_identity_matches", "clothing_matches", "location_matches",
-            "opening_object_matches")
-        for field in fields:
-            if verification.get(field) is False:
-                continuity_failures.append({"state_id": state.get("state_id"), "field": field})
+        continuity_failures.extend(continuity_failures_for(state, cast_free=cast_free))
     avg_state = sum(durations) / len(durations) if durations else 999.0
     max_state = max(durations, default=999.0)
     pixel_changes = sum(item["pixel_delta"] >= pixel_threshold for item in boundary_deltas)
@@ -693,13 +697,16 @@ def inspect_rendered_opening(video_path: str, shot_plan: list[list[dict]], outpu
         "distinct_source_count": len(set(filter(None, sources))),
         "source_change_ratio": round(source_change_ratio, 3),
         "pixel_boundary_change_ratio": round(pixel_changes / max(1, len(boundary_deltas)), 3),
-        "verified_information_ratio": round(verified / max(1, len(shots)), 3),
+        "verified_information_ratio": round(verified / max(1, len(information_cuts)), 3),
         "per_cut_verification_ratio": round(
             sum(frame.get("asset_verification_passed") for frame in frames) / max(1, len(frames)), 3),
         "unverified_cut_count": sum(not frame.get("asset_verification_passed") for frame in frames),
         "average_visual_state_sec": round(avg_state, 3),
         "max_visual_state_sec": round(max_state, 3),
-        "long_hold_count": sum(duration > OPENING_MAX_STATE_SECONDS for duration in durations),
+        "long_hold_count": sum(
+            duration > (MOTION_HOLD_ALLOWANCE_SECONDS if shot.get("kind") == "i2v"
+                        else OPENING_MAX_STATE_SECONDS)
+            for shot, duration in zip(shots, durations)),
         "bolt_shot_count": expected_bolt,
         "bolt_shot_ratio": round(expected_bolt / max(1, len(shots)), 3),
         # Whether this lane HAS a mascot to count, carried so the scorer can tell "Bolt was
@@ -763,6 +770,35 @@ def blind_story_prompt(transcript_cues: list[dict]) -> str:
     )
 
 
+def continuity_failures_for(state: dict, *, cast_free: bool) -> list[dict]:
+    """Continuity fields this rendered state failed, counting only fields it was held to.
+
+    A False on a field the state was never required to satisfy is not a failure. The verifier
+    answers every question it is asked, and "is the opening object (a lone wolf) in this frame
+    of elk browsing willow" is honestly False on a state whose plan did not require the wolf.
+    Measured on Yellowstone (2026-10-01): 18 such Falses across the opening, every asset passed,
+    and broken_continuity capped a raw 83 at 49. The verifier records which fields it was held
+    to (`expected`); older records fall back to the asset's own verdict, which already folds in
+    exactly the expected fields.
+    """
+    verification = state.get("verification") if isinstance(state.get("verification"), dict) else {}
+    fields = ("location_matches", "opening_object_matches") if cast_free else (
+        "human_identity_matches", "clothing_matches", "location_matches",
+        "opening_object_matches")
+    expected = verification.get("expected") if isinstance(verification.get("expected"), dict) else None
+    out = []
+    for field in fields:
+        if verification.get(field) is not False:
+            continue
+        if expected is not None:
+            if not expected.get(field):
+                continue
+        elif verification.get("passed") is True:
+            continue
+        out.append({"state_id": state.get("state_id"), "field": field})
+    return out
+
+
 def cross_check_blind_observations(blind: dict, deterministic: dict) -> dict:
     """Remove model-awarded credit whenever encoded facts contradict the observation."""
     checked = dict(blind or {})
@@ -776,6 +812,19 @@ def cross_check_blind_observations(blind: dict, deterministic: dict) -> dict:
     if checked.get("slideshow") is False and deterministic.get("slideshow"):
         checked["slideshow"] = True
         contradictions.append("judge missed deterministic source-reuse slideshow behavior")
+    # The symmetric case. Slideshow behaviour is a measured property of the MP4 -- source reuse
+    # and pixel change at the cuts -- and the deterministic inspection exists to decide it. A
+    # judge that calls a cut with 96% boundary change and 74% source change a slideshow (the
+    # OpenAI judge on Yellowstone, 2026-10-01, while also answering multi_shot_storytelling=true)
+    # is contradicted by the instrument, the same way the line above overrules a judge that
+    # missed a measured slideshow. Capping a raw 83 at 49 on that answer is not measuring.
+    if (checked.get("slideshow") is True and deterministic.get("slideshow") is False
+            and float(deterministic.get("pixel_boundary_change_ratio") or 0) >= 0.45
+            and float(deterministic.get("source_change_ratio") or 0) >= float(
+                (deterministic.get("threshold_profile") or {}).get("source_change_ratio_threshold")
+                or PROVISIONAL_THRESHOLD_PROFILE["source_change_ratio_threshold"])):
+        checked["slideshow"] = False
+        contradictions.append("judge called a measured multi-source, high-change cut a slideshow")
     if checked.get("bolt_useful") and deterministic.get("bolt_shot_ratio", 0) >= 0.70:
         checked["bolt_useful"] = False
         contradictions.append("judge credited Bolt despite Bolt-everywhere frequency")

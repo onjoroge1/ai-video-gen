@@ -186,6 +186,98 @@ def _derive_bolt_action(beat: dict, scene: dict, subject: str) -> str:
     return f"{verb} {target}"
 
 
+_CLASH_STOPWORDS = frozenset(("single", "small", "large", "group", "several", "many", "ground",
+                              "field", "with", "from", "into", "onto", "over", "under", "near"))
+
+
+def _object_stems(label: str) -> set[str]:
+    """Content words of an object label, singular-ish, so "toads" meets "a single cane toad"."""
+    stems = set()
+    for word in re.findall(r"[a-z]+", _text(label).casefold()):
+        if len(word) < 4 or word in _CLASH_STOPWORDS:
+            continue
+        stems.add(word.rstrip("s").rstrip("e"))   # toads/toad, beetles/beetle, grubs/grub
+    return stems
+
+
+def _objects_clash(forbidden_item: str, required: list) -> bool:
+    """Does a forbidden object name something a required object of the same state names?"""
+    stems = _object_stems(forbidden_item)
+    return bool(stems) and any(stems & _object_stems(item) for item in required or [])
+
+
+# The recurring cast by name. A cast-free lane forbids them on screen; a writer that names one
+# in a beat has written a picture the lane cannot buy. Kept here rather than imported from
+# explainer_pipeline (which imports this module) so the plan stays self-describing.
+CAST_NAMES = ("Bolt", "Alex")
+_CAST_NAME_PATTERN = re.compile(r"\b(" + "|".join(CAST_NAMES) + r")(?:'s)?\b")
+
+
+def scrub_cast_names(text: str) -> tuple[str, list[str]]:
+    """Replace a named cast member with an anonymous figure; report which names were found.
+
+    Cane toads (2026-09-30): the lane is cast-free by contract and the writer prompt says never
+    to write Bolt, yet one consequence beat came back "Bolt crouched at soil edge examining the
+    toad, wary". Nothing between the writer and the image purchase read the visual for a cast
+    name, the image model drew a cartoon dog with a lightning bolt on its flank in a Queensland
+    cane field, the verifier correctly reported bolt_present, and the delivered film lost the
+    whole cast-discipline component (10/100) to one frame nobody had asked for. Rewriting to an
+    anonymous figure is the same repair the lane applies to every other consequence beat: the
+    period-coded person the references use, never the avatar.
+    """
+    found = sorted({match.group(1) for match in _CAST_NAME_PATTERN.finditer(text or "")})
+    if not found:
+        return text or "", []
+    return _CAST_NAME_PATTERN.sub("an anonymous figure", text or ""), found
+
+
+# Words that name a pose, a mood, a gaze, or a lighting effect rather than a physical object. The
+# writer prompt forbids them ("NEVER a pose, expression, mood, grip, gaze, camera angle or
+# lighting note") and the image verifier cannot confirm them, so a state built on one is a
+# purchase that can only be rejected. Yellowstone (2026-09-30): required object "elk with uniform
+# cast shadows", state_after "alert elk with shadows frozen mid-flinch"; two redraws, then the
+# whole first tranche aborted on it with 18 accepted images already paid for.
+_UNVERIFIABLE_WORDS = frozenset((
+    "alert", "wary", "tense", "relaxed", "startled", "nervous", "calm", "anxious", "frozen",
+    "flinch", "mid-flinch", "flinching", "mood", "expression", "gaze", "glance", "pose",
+    "posture", "grip", "shadowed", "shadow", "shadows", "silhouetted", "backlit", "glowing",
+    "dramatic", "ominous", "menacing", "serene", "peaceful", "eerie", "watchful", "uneasy",
+    # Lineage and provenance are not visible in pixels. Killer bees (2026-10-02): a state
+    # required a "hybrid flight path" and the verifier rejected three redraws because "hybrid
+    # bee lineage cannot be verified from visible pixels alone", killing the first tranche.
+    "hybrid", "hybrids", "hybridized", "hybridised", "africanized", "africanised", "crossbred",
+    "cross-bred", "purebred", "pure-bred", "lineage", "genetic", "genetically", "descendant",
+    "descendants", "native", "non-native", "invasive", "feral", "imported", "introduced",
+))
+_UNVERIFIABLE_PHRASES = (
+    r"\bwith\s+(?:\w+\s+){0,3}shadows?(?:\s+frozen\s+mid-flinch)?",
+    r"\bshadows?\s+frozen(?:\s+mid-flinch)?",
+    r"\bcast\s+shadows?",
+    r"\bfrozen\s+mid-\w+",
+)
+
+
+def scrub_unverifiable(text: str) -> tuple[str, list[str]]:
+    """Strip pose / mood / lighting terms from an object or state phrase; report what went."""
+    original = _text(text)
+    if not original:
+        return original, []
+    removed: list[str] = []
+    out = original
+    for pattern in _UNVERIFIABLE_PHRASES:
+        for match in re.finditer(pattern, out, flags=re.I):
+            removed.append(match.group(0))
+        out = re.sub(pattern, " ", out, flags=re.I)
+    kept = []
+    for word in out.split():
+        if word.strip(",.;:").lower() in _UNVERIFIABLE_WORDS:
+            removed.append(word)
+            continue
+        kept.append(word)
+    out = re.sub(r"\s+", " ", " ".join(kept)).strip(" ,;:")
+    return (out or original), removed
+
+
 def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int,
                      pack: dict, *, opening: bool) -> dict:
     purpose = _text(beat.get("purpose")).casefold() or ("setup" if state_index == 0 else "evidence")
@@ -233,6 +325,29 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     before = _text(beat.get("state_before"))
     after = _text(beat.get("state_after")) or _text(beat.get("visual"))
     required = _list(beat.get("required_objects"))
+    unverifiable: list[str] = []
+    before, gone = scrub_unverifiable(before); unverifiable += gone
+    after, gone = scrub_unverifiable(after); unverifiable += gone
+    scrubbed_required = []
+    for item in required:
+        clean, gone = scrub_unverifiable(item)
+        unverifiable += gone
+        if clean and clean not in scrubbed_required:
+            scrubbed_required.append(clean)
+    required = scrubbed_required
+    visual = _text(beat.get("visual")) or after
+    cast_scrubbed: list[str] = []
+    if _text(pack.get("cast")) == "none":
+        scrubbed = []
+        for value in (before, after, visual, *required):
+            value, names = scrub_cast_names(value)
+            scrubbed.append(value)
+            cast_scrubbed.extend(names)
+        before, after, visual, *required = scrubbed
+        cast_scrubbed = sorted(set(cast_scrubbed))
+        # The avatar was never allowed on this lane; a leak the scrub missed (a description
+        # rather than the name) is redrawn by the verifier instead of tolerated.
+        include_bolt = False
     if not required and after:
         required = [after]
     opening_label = _text(pack.get("opening_object", {}).get("label"))
@@ -241,7 +356,15 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     if scene_index == 0 and state_index == 0 and opening_label and opening_label not in required:
         required.append(opening_label)
     forbidden = _list(beat.get("forbidden_objects"))
-    if pure_evidence and "Bolt" not in forbidden:
+    # A forbidden object that the same state also requires is a contradiction no image can
+    # satisfy. Cane toads (2026-09-30): the writer forbade "toads" in the pre-toad setup beat,
+    # the establishing frame appended the opening object "a single cane toad ...", and the
+    # verifier rejected every redraw for showing the toad it was told to show. Drop the clash
+    # and say so; every other forbidden item is still enforced on the pixels.
+    clashes = [item for item in forbidden if _objects_clash(item, required)]
+    if clashes:
+        forbidden = [item for item in forbidden if item not in clashes]
+    if (pure_evidence or _text(pack.get("cast")) == "none") and "Bolt" not in forbidden:
         forbidden.append("Bolt")
     if not people_allowed and nature_channel.FORBIDDEN_PEOPLE not in forbidden:
         # Forbidden objects reach the verifier, so a frame with a person is redrawn, not tolerated.
@@ -265,11 +388,13 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "opening": opening,
         "anchor_phrase": _text(beat.get("anchor_phrase")),
         "purpose": purpose,
-        "visual": _text(beat.get("visual")) or after,
+        "visual": visual,
         "state_before": before,
         "state_after": after,
         "required_objects": required,
         "forbidden_objects": forbidden,
+        # Auditable: which cast names the writer put into a cast-free beat, if any.
+        "cast_names_scrubbed": cast_scrubbed,
         "asset_strategy": strategy,
         "source_asset_id": source_asset_id,
         "detail_target": _text(beat.get("detail_target")),
@@ -288,6 +413,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "location_id": pack["first_act_location"]["location_id"] if opening else "",
         "opening_object_id": pack["opening_object"]["object_id"] if scene_index == 0 else "",
         # Planning metadata never awards a retention event. The asset verifier owns this field.
+        "unverifiable_terms_scrubbed": unverifiable,
         "new_information": False,
         "verified_visible_information": False,
         "asset_status": "planned",
@@ -840,7 +966,16 @@ MAX_VISUAL_STATE_SECONDS = 3.5
 
 
 def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
-                           opening_only: bool = False) -> dict:
+                           opening_only: bool = False,
+                           purchased_through: int | None = None) -> dict:
+    """`purchased_through` bounds the verified-asset checks to scenes already bought.
+
+    The compiler's opening runs to about 30% of the story (7 scenes at 300 s); the first tranche
+    buys 45 s of measured audio (4 scenes). Validating the compiler's opening after buying the
+    tranche read the three unbought scenes as "not explicitly accepted" and stopped the run with
+    every bought asset passing (Four Pests 2026-09-22, cane toads 2026-09-30). Unbought scenes
+    keep every structural check here and meet the asset checks after their own purchase.
+    """
     errors: list[dict] = []
     pack = plan.get("continuity_pack") if isinstance(plan, dict) else None
     scenes = plan.get("scenes") if isinstance(plan, dict) else None
@@ -981,7 +1116,8 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                 errors.append(_issue(
                     "missing_source_asset", "Reframe/reuse state has no declared source asset.",
                     scene=scene_index + 1, state_id=state_id))
-            verify_state = require_verified_assets and (not opening_only or opening)
+            verify_state = (require_verified_assets and (not opening_only or opening)
+                            and (purchased_through is None or scene_index < purchased_through))
             if verify_state:
                 if _text(state.get("asset_status")) not in ACCEPTED_ASSET_STATUSES:
                     errors.append(_issue(
@@ -1044,8 +1180,13 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
             "bolt_state_budget_exceeded",
             f"Bolt occupies {bolt_ratio:.0%} of compiled visual states; no more than 35% is allowed."))
 
-    verified_cuts = sum(1 for state in opening_cuts if state.get("verified_visible_information"))
-    ratio = verified_cuts / len(opening_cuts) if opening_cuts else 0.0
+    # Same tranche bound as the asset checks: an unbought cut cannot have verified anything yet,
+    # and counting it as a failure held a 100%-verified tranche to "56%" (cane toads 2026-09-30).
+    measured_cuts = [state for state in opening_cuts
+                     if purchased_through is None
+                     or int(state.get("scene_index") or 0) < purchased_through]
+    verified_cuts = sum(1 for state in measured_cuts if state.get("verified_visible_information"))
+    ratio = verified_cuts / len(measured_cuts) if measured_cuts else 0.0
     if require_verified_assets and ratio < 0.70:
         errors.append(_issue(
             "opening_visible_information_ratio",

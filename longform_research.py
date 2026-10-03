@@ -738,6 +738,19 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
             # are five..." behind, and a narration opening on a bare full stop is both a worse
             # sentence for the judge to read and a worse one for the narrator to say.
             beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+    # THE COLD OPEN IS NOT AN ASSERTION ABOUT BEAT ONE EITHER. It is the aftermath sentence
+    # spoken after the hook (2026-10-02), cited to its own claims; judged against beat one's
+    # setup event it was refused on the first killer bees resume ("an escaped swarm ... a
+    # beekeeper backed away" against "European bees were introduced in the 1600s"). Lifted out
+    # here and judged below against the claims it cites.
+    cold_open = _text(script.get("_cold_open")).strip()
+    cold_spoken = (cold_open.rstrip(".!?") + ".") if cold_open else ""
+    if cold_spoken:
+        cold_spoken = cold_spoken[0].upper() + cold_spoken[1:]
+    if cold_spoken and beats:
+        lead = _text(beats[0].get("narration"))
+        if lead.casefold().startswith(cold_spoken.casefold()):
+            beats[0] = dict(beats[0], narration=lead[len(cold_spoken):].lstrip(" .,;:—-").strip())
         # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
         # opening ends on the problem the video resolves ("But if the chick hatches before she
         # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
@@ -834,6 +847,30 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                       + ", ".join(verdict.get("unsupported_details") or []),
                            "supported_core": verdict.get("supported_core"),
                            "unsupported_details": verdict.get("unsupported_details")})
+
+    if cold_open:
+        import claim_entailment as ce
+        index = _claim_index(dossier)
+        cited = [_text((index.get(ref) or {}).get("claim"))
+                 for ref in (script.get("_cold_open_claim_refs") or [])]
+        cited = [c for c in cited if c]
+        if not cited:
+            errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
+                           "message": "the cold open cites no claim from the ledger"})
+        else:
+            verdict = ce.narration_fidelity("\n".join(cited), cold_open, judge=judge, cache=cache,
+                                            cost_sink=cost_sink)
+            if ce.is_retryable(verdict):
+                errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": "cold_open",
+                               "message": f"cold open: {verdict.get('reason') or verdict['verdict']}",
+                               "retryable": True})
+            elif not verdict["passed"]:
+                errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
+                               "message": "the cold open shows more than its cited claims support ("
+                                          f"{verdict['verdict']}): "
+                                          + ", ".join(verdict.get("unsupported_details") or []),
+                               "supported_core": verdict.get("supported_core"),
+                               "unsupported_details": verdict.get("unsupported_details")})
 
     # An outage is not a content failure, but it is not a pass either. It blocks and says why.
     for row in report["unavailable"]:

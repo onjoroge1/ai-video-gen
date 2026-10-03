@@ -47,6 +47,7 @@ from longform_retention import (
     write_retention_report,
 )
 from longform_shots import (
+    split_long_holds,
     compile_scene_shots,
     semantic_broll_beat,
     select_alternate_image_indices,
@@ -189,6 +190,14 @@ def _retry(fn, *, tries: int = 4, base_delay: float = 2.0, label: str = "API cal
     raise last
 
 
+def _anthropic_default_headers() -> dict:
+    """Headers every Anthropic client sends. A user-scoped key (the newer "linked" kind created
+    2026-10-01 while diagnosing a billing block) must name its workspace on every request;
+    workspace-scoped and legacy keys must not. ANTHROPIC_WORKSPACE_ID in .env covers the first."""
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+    return {"anthropic-workspace-id": workspace} if workspace else {}
+
+
 def _claude():
     """The script client. Anthropic by default; OpenAI when SCRIPT_PROVIDER=openai.
 
@@ -215,7 +224,7 @@ def _anthropic_native():
         runtime = None
     # A durable worker owns retries and must checkpoint before its invocation expires. SDK
     # retries can multiply a single 180s/240s request beyond that worker's complete lifetime.
-    client = anthropic.Anthropic(
+    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
         max_retries=0 if runtime else int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
     return runtime.wrap_anthropic(client) if runtime else client
@@ -386,7 +395,11 @@ _RATE_OPENAI_SCRIPT_OUT = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")
 _WEB_SEARCH_MAX_USES = 5
 # Spoken after the hook and before "Step one", exactly as both references do. It sets the
 # register and licenses simplification; measured identical in both reference videos.
-_CAUSAL_FORMAT_TAG = "explained like you are five"
+# The spoken lead tag after the hook ("Explained like you are five"). It was copied from the
+# reference channel's DNA and read as a leaked instruction in the cane toad film (2026-10-02):
+# a browse viewer who clicked a FATAL ERROR thumbnail hears a summary, then a tagline, then
+# 48 s of setup. Off by default for every channel; CAUSAL_FORMAT_TAG=... restores it.
+_CAUSAL_FORMAT_TAG = os.environ.get("CAUSAL_FORMAT_TAG", "").strip()
 _WEB_SEARCH_COST_CEILING = float(os.environ.get("WEB_SEARCH_COST_CEILING_USD", "0.10"))
 
 # Pre-spend ESTIMATE only (actual spend is read from real usage tokens per call).
@@ -1682,6 +1695,42 @@ def _subject_terms(title: str) -> list:
     return [w for w in words if w.lower() not in _HOOK_STOP and len(w) > 2]
 
 
+def _ensure_lead_spoken(script: dict, log=lambda message: None) -> bool:
+    """Put the hook and the cold open back at the front of scene 1; True when narration changed.
+
+    Idempotent (finalize_narration strips a lead it wrote before re-adding it), so it is safe
+    after the fact-check, the editor's revision and a resume. The cold open's claim refs are
+    restored on scene 1 the same way the writer set them.
+    """
+    scenes = script.get("scenes") or []
+    hook = _s(script.get("hook")).strip()
+    cold = _s(script.get("_cold_open")).strip()
+    if not scenes or not (hook or cold) or not script.get("_compiled_story"):
+        return False
+    import causal_story as _cs
+    before = _s(scenes[0].get("narration"))
+    for scene in scenes:
+        scene.setdefault("chapter", 0)
+    _cs.finalize_narration(scenes, hook=hook, cold_open=cold,
+                           format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG))
+    if cold:
+        refs = scenes[0].get("claim_refs")
+        refs = refs if isinstance(refs, list) else []
+        eid = next((_s(r.get("evidence_id")) for r in refs
+                    if isinstance(r, dict) and _s(r.get("evidence_id"))), "e01")
+        spoken = cold.rstrip(".!?") + "."
+        spoken = spoken[0].upper() + spoken[1:]
+        for cid in (script.get("_cold_open_claim_refs") or []):
+            if not any(isinstance(r, dict) and r.get("claim_id") == cid
+                       and r.get("narration_phrase") == spoken for r in refs):
+                refs.append({"claim_id": cid, "evidence_id": eid, "narration_phrase": spoken})
+        scenes[0]["claim_refs"] = refs
+    changed = _s(scenes[0].get("narration")) != before
+    if changed:
+        log("Lead restored at the front of scene 1 (hook" + (" + cold open" if cold else "") + ")")
+    return changed
+
+
 def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
     """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
 
@@ -1701,7 +1750,15 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     import causal_story as _cs
 
     hook = _s(script.get("hook"))
-    if not hook or len(hook.split()) <= _cs.MAX_HOOK_WORDS:
+    # Two shapes of the same defect: too many words, or two sentences where the long-form
+    # budget is one. The second slipped past this repair on the Yellowstone film (2026-09-30):
+    # "Yellowstone killed its last wolves to protect the elk. Then the elk ate the park." is 15
+    # words, so nothing here fired, and MULTI_SENTENCE_HOOK triggered a full replan instead.
+    def _sentences(text: str) -> int:
+        return len([part for part in re.split(r"[.!?]+", text) if part.strip()])
+    too_long = len(hook.split()) > _cs.MAX_HOOK_WORDS
+    too_many = _sentences(hook) > 1
+    if not hook or not (too_long or too_many):
         return script, 0.0
     cost = 0.0
     rewritten = ""
@@ -1715,9 +1772,10 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
                 model=ANTHROPIC_MODEL, max_tokens=300,
                 system=("You tighten the opening line of a narrated explainer. Return ONLY JSON."),
                 messages=[{"role": "user", "content":
-                           f'This opening line is {len(hook.split())} words and must be at most '
-                           f'{_cs.MAX_HOOK_WORDS}:\n\n"{hook}"\n\n'
-                           "Rewrite it shorter. It must still NAME THE ACTOR AND THE REVERSAL in "
+                           f'This opening line is {len(hook.split())} words and '
+                           f'{_sentences(hook)} sentence(s); it must be ONE sentence of at most '
+                           f'{_cs.MAX_HOOK_WORDS} words:\n\n"{hook}"\n\n'
+                           "Rewrite it. It must still NAME THE ACTOR AND THE REVERSAL in "
                            "plain words, keep the same subject, and read aloud as one clean "
                            "sentence. Withhold only the payoff noun. Do not add a new claim, and "
                            "do not make it cryptic: \"How the British Empire tried to solve a "
@@ -1736,10 +1794,20 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
             candidate = _s((parsed or {}).get("hook"))
         except Exception:
             break
-        if candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS:
+        if (candidate and len(candidate.split()) <= _cs.MAX_HOOK_WORDS
+                and _sentences(candidate) <= 1):
             rewritten = candidate
             break
         previous = candidate or previous
+    if not rewritten and too_many and not too_long:
+        # Deterministic fallback for the two-sentence shape: "A. Then B." becomes "A — then B."
+        # The reference register IS the promise, a dash, and the turn; this keeps every word
+        # and only changes the punctuation that the sentence counter reads.
+        parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", hook) if part.strip()]
+        if len(parts) == 2:
+            first, second = parts[0].rstrip(".!?"), parts[1]
+            second = second[0].lower() + second[1:] if second[:5].lower() == "then " else second
+            rewritten = f"{first} — {second}"
     if not rewritten:
         # Deterministic fallback, and the one mechanical cut the docstring above allows: a hook
         # that runs "the promise — and here is the payoff" is two sentences wearing one dash.
@@ -1759,6 +1827,11 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
         scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
     script["hook"] = rewritten
     return script, cost
+
+
+class PlanApprovalRequired(RuntimeError):
+    """The beat sheet was written to plan.json / plan_for_approval.md and the operator asked to
+    stop there (stop_after_plan). Copy it to plan.approved.json, edited or not, and rerun."""
 
 
 class ScriptApprovalRequired(RuntimeError):
@@ -1940,6 +2013,15 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
         "state, in their words for any number or mechanism; add no fact that no claim states; "
         "the hook is exactly the first sentence of the first scene; narration never gives visual "
         "or editorial directions ('picture that', 'look again', 'here is the answer').")
+    _lead_hook = _s(script.get("hook")).strip()
+    _lead_cold = _s(script.get("_cold_open")).strip()
+    if _lead_hook:
+        # The lead is spoken and planned: the first scene opens with the hook and the cold open
+        # verbatim. Killer bees (2026-10-02): the revision rewrote scene 1 from its setup event,
+        # the fallback below then made that setup sentence the hook, and the cold open was gone.
+        system += (f' The first scene MUST begin with the hook verbatim: "{_lead_hook}"'
+                   + (f' and then the cold open verbatim: "{_lead_cold}"' if _lead_cold else "")
+                   + "; do not restate either anywhere else.")
     system += nature_channel.writing_rules_block(_TOPIC_CHANNEL.get())
     body = (f'TITLE: {_s(script.get("title"))}\nQUESTION: {question}\n\n'
             + "".join(blocks) + "\nEDITOR'S REVISION NOTE (apply exactly this, nothing else):\n"
@@ -1964,8 +2046,9 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
     first = _s(script["scenes"][0].get("narration"))
     if hook and first.lower().startswith(hook.lower()[:40]):
         script["hook"] = hook
-    else:
+    elif not _lead_hook:
         script["hook"] = re.split(r"(?<=[.!?])\s+", first, maxsplit=1)[0]
+    # else: the original hook stands and _ensure_lead_spoken puts it back in front of scene 1.
     script["_revision_note"] = note
     script.pop("_claim_validation", None)
     total = sum(len(_s(s.get("narration")).split()) for s in script["scenes"])
@@ -2459,6 +2542,9 @@ def _engine_runtime_fit(engine_id: str, duration_sec: float) -> dict:
 
 # Set once per run by run_explainer_pipeline from its topic_channel; read by the engine selector.
 _TOPIC_CHANNEL: contextvars.ContextVar = contextvars.ContextVar("reelforge_topic_channel", default="")
+# Planner control for the causal lane: where to write/read the plan approval files and whether
+# to stop after the plan. Set per run next to the channel; read by _generate_script_chunked.
+_PLAN_CONTROL: contextvars.ContextVar = contextvars.ContextVar("reelforge_plan_control", default={})
 
 
 def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[str]:
@@ -2805,6 +2891,54 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         # in the expansion prompt are the floor, and they are what shipped before this existed.
         print(f"[blueprint] unavailable, continuing without: {type(exc).__name__}: {str(exc)[:120]}")
         return ""
+
+
+def _plan_cold_open(plan: dict) -> tuple[str, list[str]]:
+    """The planner's cold open as (sentence, claim_refs); ("", []) when it wrote none."""
+    raw = plan.get("cold_open") if isinstance(plan, dict) else None
+    if isinstance(raw, str):
+        return raw.strip(), []
+    if not isinstance(raw, dict):
+        return "", []
+    refs = [_s(r).strip() for r in (raw.get("claim_refs") or []) if _s(r).strip()]
+    return _s(raw.get("text")).strip(), refs
+
+
+def _cold_open_correction(plan: dict, research_dossier: dict | None) -> str:
+    """Why the planner's cold open is unusable, as a re-ask; "" when it passes.
+
+    Checked BEFORE the sheet is compiled further so a missing sentence costs one planner call,
+    not a draft: the storyboard gate holds the same rule and fails the run pre-spend.
+    """
+    import causal_story as _cs
+    text, refs = _plan_cold_open(plan)
+    issues = _cs.check_cold_open(text, _s(plan.get("hook")))
+    known = {_s(c.get("claim_id")) for c in ((research_dossier or {}).get("claims") or [])
+             if isinstance(c, dict)}
+    if text and known and not [r for r in refs if r in known]:
+        issues.append({"code": "COLD_OPEN_UNCITED",
+                       "message": "cold_open.claim_refs must name a claim from the ledger that "
+                                  "supports the aftermath it shows"})
+    if text and not issues:
+        # Entailment, judged now for cents rather than after the TTS. The first killer bees
+        # cold open put a beekeeper and a grove into a claim about twenty-six escaped queens.
+        try:
+            import claim_entailment as ce
+            cited = [_s(c.get("claim")) for c in ((research_dossier or {}).get("claims") or [])
+                     if isinstance(c, dict) and _s(c.get("claim_id")) in refs and _s(c.get("claim"))]
+            verdict = ce.narration_fidelity("\n".join(cited), text) if cited else None
+            if verdict and not ce.is_retryable(verdict) and not verdict.get("passed"):
+                issues.append({"code": "COLD_OPEN_EXCEEDS_CLAIM",
+                               "message": "the cold open shows more than its cited claims support: "
+                                          + ", ".join(verdict.get("unsupported_details") or [])
+                                          + "; show only what the claim states"})
+        except Exception as exc:  # the judge being out is not a planner defect
+            print(f"[cold-open] entailment check skipped: {type(exc).__name__}")
+    if not issues:
+        return ""
+    return ("\n\nThe sheet was returned without a usable cold_open: "
+            + "; ".join(f"{_s(i.get('code'))}: {_s(i.get('message'))}" for i in issues)
+            + ". Return the whole sheet again with cold_open fixed and everything else kept.")
 
 
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
@@ -3602,7 +3736,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             row["n"] = i + 1                            # canonical renumber
         return rows
 
-    plan, _plan_cost = _ask_planner()
+    import story_planner as _planner
+    _control = _PLAN_CONTROL.get() or {}
+    _approved = _planner.approved_plan(_s(_control.get("output_dir"))) if causal_lane else None
+    if _approved:
+        plan, _plan_cost = _approved, 0.0
+        print(f"[plan] using the operator-approved beat sheet ({_planner.APPROVED_PLAN_FILE})")
+    elif causal_lane:
+        # DRAMATRON-STYLE: several candidate sheets, and the deterministic gates choose. One
+        # sheet asked for once gave killer bees seven escalations on three facts (2026-10-02).
+        _n = max(1, int(os.environ.get("PLAN_CANDIDATES", str(_planner.PLAN_CANDIDATES_DEFAULT)) or 1))
+        _cands, _scores, _plan_cost = [], [], 0.0
+        for _k in range(_n):
+            _p, _c = _ask_planner()
+            _plan_cost += _c
+            _cands.append(_p)
+            _scores.append(_planner.score_plan(_p, sheet_engine_id, research_dossier, duration_sec))
+        _best = _planner.choose_plan(_scores)
+        print("[plan] candidates: " + ", ".join(
+            f"#{i + 1} {s.get('score')} ({s.get('beats')} beats, {int(100 * (s.get('distinct_ratio') or 0))}% distinct"
+            f"{', cold open ok' if s.get('cold_open_ok') else ', cold open weak'})"
+            for i, s in enumerate(_scores)) + f" -> #{_best + 1}")
+        for _issue in (_scores[_best].get("issues") or [])[:6]:
+            print(f"[plan]   {_issue}")
+        plan = _cands[_best]
+        plan["_plan_score"] = _scores[_best]
+        plan["_plan_candidates"] = _scores
+        if _control.get("stop_after_plan"):
+            _path = _planner.write_plan_for_approval(
+                _s(_control.get("output_dir")) or ".", plan, _scores[_best], _scores)
+            print(f"[plan] written for approval: {_path}")
+            raise PlanApprovalRequired(
+                f"Beat sheet written to {_path}; copy plan.json to plan.approved.json and rerun "
+                "without stop_after_plan to continue.")
+    else:
+        plan, _plan_cost = _ask_planner()
     cost += _plan_cost
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
@@ -3660,6 +3828,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 print("  ✓ compile retry succeeded")
             else:
                 print("  ✗ compile retry still does not compile — failing on the original")
+        # The cold open is checked here, where a miss costs one planner call. Left to the
+        # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
+        _cold_fix = _cold_open_correction(plan, research_dossier)
+        if _cold_fix and _roles.get("compiled"):
+            print("Beat sheet has no usable cold open — re-asking the planner once")
+            _retry_plan, _retry_cost = _ask_planner(_cold_fix)
+            cost += _retry_cost
+            _retry_beats = _beats_of(_retry_plan)
+            _retry_roles = _compiler.compile_roles(
+                _retry_beats, sheet_engine_id, _claims_for_roles)
+            if _retry_roles.get("passed") and not _cold_open_correction(_retry_plan, research_dossier):
+                plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                throughline = _s(plan.get("throughline")).strip() or throughline
+                print("  ✓ cold-open retry succeeded")
+            else:
+                print("  ✗ cold-open retry did not help — keeping the original; the storyboard "
+                      "gate will report it")
         if _roles.get("compiled"):
             prepared = _planning.prepare(
                 beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
@@ -3691,6 +3877,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _spine_correction = (
                 "\n\nYOUR PREVIOUS BEAT SHEET FAILED THE EVIDENCE CHECK. The report:\n"
                 + _sfm.spine_summary(_sb, _spine)
+                # A beat refused for its claim's KIND usually has the right claim sitting one
+                # row away in the ledger (cane toads, 2026-09-29: c49 mechanism cited, c48
+                # outcome unused). Name those candidates; the planner still has to cite them.
+                + _sfm.citation_suggestions(_sb, _spine, _claims_for_roles, sheet_engine_id)
                 + "\n\nRewrite the sheet so every REQUIRED step's event text asserts only what "
                 "the claim it cites states, and cite the claim that actually states each "
                 "detail -- the ledger may hold a better claim than the one you used. Keep the "
@@ -3717,8 +3907,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     print(_sfm.spine_summary(_sb, _spine))
                 else:
                     print("  ✗ spine retry still unsupported — trying research repair on the original")
+                    # The retry's own verdict is the only record of what the planner changed and
+                    # why that was not enough; without it every failed re-ask reads the same.
+                    print("  retry report:\n" + _sfm.spine_summary(
+                        _retry_prepared["beats"], _retry_prepared["compiled"]))
             else:
-                print("  ✗ spine retry did not compile — trying research repair on the original")
+                print("  ✗ spine retry did not compile — trying research repair on the original: "
+                      + "; ".join(_s(i.get("code")) for i in (_retry_roles.get("issues") or [])))
         if not _spine["passed"] and not _diagnostic_render():
             from durable_execution import current as _current_runtime
             import research_coverage
@@ -3842,7 +4037,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     wpm = max(14, min(20, total_words // max(1, n_scenes)))
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
-        beats[0].get("_story_engine"), _s(plan.get("hook"))) if causal_lane else {})
+        beats[0].get("_story_engine"),
+        (_s(plan.get("hook")) + " " + _plan_cold_open(plan)[0]).strip()) if causal_lane else {})
     if causal_lane:
         # ONE BEAT, SEVERAL SCENES. A beat whose budget exceeds what one scene can be illustrated
         # with becomes that many scene slots. Measured: the writer returns 4-6 visual states per
@@ -3978,9 +4174,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         lo, hi = batch[0]["n"], batch[-1]["n"]
         is_first, is_last = (bi == 0), (bi + per_batch >= n_scenes)
         prev_tail = " ".join(s.get("narration", "") for s in all_scenes[-2:]).strip()
+        # Everything already said, one line per scene, so a later batch cannot restate an
+        # earlier one it never saw (the writer used to see only the last two scenes' tails).
+        said = "\n".join(f"  {k + 1}. {' '.join(_s(s.get('narration')).split()[:18])}"
+                          for k, s in enumerate(all_scenes))
         seam = ("" if is_first else
                 f'\nThe previous scene ended: "{prev_tail}". Continue DIRECTLY as one video — no recap, '
-                'no "welcome back"/"in this chapter", do not re-introduce the topic.\n')
+                'no "welcome back"/"in this chapter", do not re-introduce the topic.\n'
+                f'ALREADY SAID (every earlier scene; never restate any of it):\n{said}\n')
         assigned = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in batch)
         opening_direction = (
             " Preserve the assigned causal roles and order. The mechanism is explained only in "
@@ -3999,6 +4200,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "and a timescale nobody researched. A beat whose event.text is empty asserts no "
             "history: write it as pure connective or rhetoric and it needs no evidence at all."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
+        _cold_text = _plan_cold_open(plan)[0] if causal_lane else ""
+        if causal_lane and is_first and _cold_text:
+            opening_direction += (
+                f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
+                'narration (do not write those two sentences; they are prepended). The first TWO '
+                'visual_beats of scene 1 both show that aftermath: beat 1 is the wide aftermath '
+                'with the opening object in it, anchored on the first words of the hook; beat 2 is '
+                'a closer detail of the same aftermath (asset_strategy detail_reframe of beat 1), '
+                'anchored on the first words of the cold open sentence. One picture cannot hold '
+                'across both sentences. Scene 1\'s own narration then begins the setup; its later '
+                'states show the setup.')
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role and "
             f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
@@ -4257,13 +4469,30 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # The hook is passed in because it is SPOKEN. Until now it reached only the YouTube description
     # and the video's first words were the numeral "Step one."
     _narration_repairs = []
+    _cold_open, _cold_refs = _plan_cold_open(plan) if causal_lane else ("", [])
     if causal_lane:
         import causal_story as _cs
         for _scene in all_scenes:
             _scene.setdefault("chapter", 0)
         _narration_repairs = _cs.finalize_narration(
             all_scenes, hook=_s(plan.get("hook")),
-            format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG))
+            format_tag=nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG),
+            cold_open=_cold_open)
+        # The cold open is narration that asserts history, so it is cited like any other
+        # sentence: the claim check and the phrase re-binding read these refs.
+        if _cold_open and _cold_refs and all_scenes:
+            _refs = all_scenes[0].get("claim_refs")
+            _refs = _refs if isinstance(_refs, list) else []
+            _eid = next((_s(r.get("evidence_id")) for r in _refs
+                         if isinstance(r, dict) and _s(r.get("evidence_id"))), "e01")
+            _spoken = _cold_open.rstrip(".!?") + "."
+            _spoken = _spoken[0].upper() + _spoken[1:]
+            for _cid in _cold_refs:
+                if not any(isinstance(r, dict) and r.get("claim_id") == _cid
+                           and r.get("narration_phrase") == _spoken for r in _refs):
+                    _refs.append({"claim_id": _cid, "evidence_id": _eid,
+                                  "narration_phrase": _spoken})
+            all_scenes[0]["claim_refs"] = _refs
 
     if causal_lane and _roles.get("compiled"):
         _compiler.refresh_story_positions(all_scenes)
@@ -4273,6 +4502,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     return {
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
+        "_cold_open": _cold_open,
+        "_cold_open_claim_refs": _cold_refs,
         "style_mode": style_mode,
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
@@ -5102,6 +5333,11 @@ _CLAIM_REPAIR_SYSTEM = (
     # supported core the boundary would have accepted and the exact details that overshot it, so
     # the instruction is subtractive. "Rows of pens" is the measured case -- a real image, no
     # source, and cutting it costs the sentence nothing.
+    "A scene marked continues_previous is the SECOND BREATH of one beat whose first part is "
+    "its previous_narration: both parts share one event. Repair it as the next stretch of the "
+    "same thought -- the detail, the consequence, the picture that follows -- and NEVER as a "
+    "restatement of the first part. Two scenes that say the same sentence are a defect the "
+    "ledger will reject even when both are true. "
     "When a scene fails NARRATION_EXCEEDS_EVENT, its narration claims more than its `event` "
     "states. Rewrite that scene to assert nothing beyond the event: cut the listed unsupported "
     "details rather than hedging them, and keep the writing vivid in HOW it says what remains. "
@@ -5280,6 +5516,182 @@ def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]
     return sentence
 
 
+def _narration_overlap(a: str, b: str) -> tuple[float, float]:
+    """(share of the shorter sentence's content words the other carries, Jaccard of both).
+
+    Both are needed. The first alone called the escape beat a repeat of the cold open: a
+    flash-forward and the same moment told in full share the proper nouns by design, and the
+    short one is mostly proper nouns. The Jaccard stays low there (the full telling adds the
+    beekeeper, the excluders, the distance) and is 1.0 for the verbatim copy this gate exists for.
+    """
+    wa = {w for w in re.findall(r"[a-z]{3,}", _s(a).lower()) if w not in _DUP_STOP}
+    wb = {w for w in re.findall(r"[a-z]{3,}", _s(b).lower()) if w not in _DUP_STOP}
+    if not wa or not wb:
+        return 0.0, 0.0
+    return len(wa & wb) / min(len(wa), len(wb)), len(wa & wb) / len(wa | wb)
+
+
+_DUP_STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
+             "then", "than", "this", "these", "those", "their", "they", "them", "its", "for",
+             "but", "not", "are", "been", "being", "after", "before", "while", "where", "which",
+             "about", "could", "would", "also", "more", "most", "some", "each", "both"}
+DUPLICATE_NARRATION_OVERLAP = 0.75
+DUPLICATE_NARRATION_JACCARD = 0.5
+
+
+def duplicate_narration(scenes: list[dict]) -> list[dict]:
+    """Pairs of scenes that say the same thing, by content-word overlap.
+
+    Killer bees (2026-10-02): the claim-ledger repair rewrote both parts of six split beats to the
+    same supported-core sentence, so 1:11 and 1:22 of the delivered film were the escape told
+    twice, word for word. The engagement grade saw it (repetition 8/100) and was advisory; this
+    is deterministic and free, so it can block before the TTS is bought.
+    """
+    found = []
+    for i, scene in enumerate(scenes or []):
+        # The parent of a continuation is compared first, so a part that restates its own beat
+        # is recorded as that and not as a repeat of some earlier scene it also resembles.
+        parent = next((j for j in range(i)
+                       if _s(scene.get("continues"))
+                       and _s(scenes[j].get("beat_id")) == _s(scene.get("continues"))), None)
+        order = ([parent] if parent is not None else []) + [j for j in range(i) if j != parent]
+        for j in order:
+            overlap, jaccard = _narration_overlap(scene.get("narration"), scenes[j].get("narration"))
+            if overlap >= DUPLICATE_NARRATION_OVERLAP and jaccard >= DUPLICATE_NARRATION_JACCARD:
+                found.append({"scene": i + 1, "duplicate_of": j + 1, "overlap": round(overlap, 2),
+                              "jaccard": round(jaccard, 2), "continuation": j == parent})
+                break
+    return found
+
+
+def collapse_duplicate_narration(script: dict, log=lambda message: None) -> int:
+    """Drop a scene whose narration repeats an earlier one; returns how many were dropped.
+
+    A continuation part that restates its parent is removed and the parent's part count shrinks.
+    A non-continuation duplicate is removed only when its role may repeat (escalation,
+    generalization, context); a required single role is left for the gate to report.
+    """
+    scenes = script.get("scenes") or []
+    dupes = duplicate_narration(scenes)
+    if not dupes:
+        return 0
+    drop = set()
+    for item in dupes:
+        # Only a continuation that restates its own parent is deleted: the beat is still told,
+        # once. Any other repeat is a scene that needs rewriting (rewrite_repeated_scenes); the
+        # escape beat restating the cold open must become the escape told in full, not vanish.
+        if item["continuation"]:
+            drop.add(item["scene"] - 1)
+            log(f"  ✂ scene {item['scene']} repeats scene {item['duplicate_of']} "
+                f"({item['overlap']:.0%} overlap); dropped")
+    if not drop:
+        return 0
+    kept = []
+    for index, scene in enumerate(scenes):
+        if index in drop:
+            continue
+        kept.append(scene)
+    # Part counts and the continues chain are re-derived from what survived.
+    by_beat = {}
+    for scene in kept:
+        base = _s(scene.get("_parent_beat_id")) or re.sub(r"[b-f]$", "", _s(scene.get("beat_id")))
+        by_beat.setdefault(base, []).append(scene)
+    for base, parts in by_beat.items():
+        for k, scene in enumerate(parts):
+            scene["beat_part"] = k + 1
+            scene["beat_part_count"] = len(parts)
+            scene["continues"] = _s(parts[k - 1].get("beat_id")) if k else ""
+    for n, scene in enumerate(kept, 1):
+        scene["n"] = n
+    script["scenes"] = kept
+    if script.get("_compiled_story"):
+        _compiler.refresh_story_positions(kept)
+    return len(drop)
+
+
+_REPEAT_EDITOR_SYSTEM = (
+    "You are the targeted editor of an already-written factual video script. Rewrite ONLY the "
+    "scenes listed, each of which says the same thing as an earlier scene. Keep every scene's "
+    "role, order, length (within 20%), tone and causal meaning, and assert nothing beyond its "
+    "`event` text. Make each rewritten scene carry what the earlier scene did NOT say: the "
+    "detail, the picture, the consequence, the next stretch of time. When the earlier scene is "
+    "the opening flash-forward, this scene is the same moment told in full and in sequence, "
+    "with the particulars the flash-forward withheld, never the flash-forward again. Do not "
+    "introduce a number, date, place, named actor or motive the event does not contain. Return "
+    "ONLY JSON: {\"scenes\": [{\"scene\": <1-based index>, \"narration\": \"...\"}]}"
+)
+
+
+def rewrite_repeated_scenes(script: dict, dossier: dict, dupes: list[dict],
+                            cost_sink: list | None = None, log=lambda message: None) -> tuple[dict, float]:
+    """One bounded editor pass over scenes that repeat an earlier scene. Returns (script, cost).
+
+    The claim-ledger repair rewrites a failing sentence toward its supported core, and two
+    scenes with one event converge on one sentence; this is the pass that pulls them apart
+    again with the whole script in view. The result is accepted only if every rewritten scene
+    stops repeating and no new repeat appears; otherwise the original is returned unchanged.
+    """
+    import script_editor
+    defects = [{"scene": d["scene"], "code": script_editor.REPEAT,
+                "note": f"repeats scene {d['duplicate_of']} ({d['overlap']:.0%} overlap)"}
+               for d in dupes if not d.get("continuation")]
+    if not defects:
+        return script, 0.0
+    edited, cost, remaining = script_editor.edit(script, dossier, defects, cost_sink, log)
+    return edited, cost
+    # The in-function editor below is kept only as documentation of the first version.
+    scenes = script.get("scenes") or []
+    targets = sorted({d["scene"] for d in dupes if not d.get("continuation")})
+    if not targets:
+        return script, 0.0
+    said = [{"scene": k + 1, "narration": _s(s.get("narration"))} for k, s in enumerate(scenes)]
+    payload = {
+        "all_scenes": said,
+        "rewrite": [{"scene": index,
+                     "repeats_scene": next(d["duplicate_of"] for d in dupes if d["scene"] == index),
+                     "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+                     "role": _s(scenes[index - 1].get("causal_role") or scenes[index - 1].get("story_role")),
+                     "narration": _s(scenes[index - 1].get("narration"))}
+                    for index in targets],
+        "claims": claim_context_for_prompt(dossier or {}),
+    }
+    cost = 0.0
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=3000, system=_REPEAT_EDITOR_SYSTEM,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
+        cost = _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(cost)
+        data, parse_cost = _parse_script_json(response.content[0].text)
+        cost += float(parse_cost or 0.0)
+        rows = data.get("scenes") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return script, round(cost, 4)
+        candidate = json.loads(json.dumps(script))
+        done = set()
+        for row in rows:
+            index = int((row or {}).get("scene") or 0)
+            text = _s((row or {}).get("narration")).strip()
+            if index in targets and text:
+                candidate["scenes"][index - 1]["narration"] = text
+                done.add(index)
+        if done != set(targets):
+            return script, round(cost, 4)
+        before = {(d["scene"], d["duplicate_of"]) for d in dupes}
+        after = {(d["scene"], d["duplicate_of"]) for d in duplicate_narration(candidate["scenes"])}
+        if after & before or (after - before):
+            log("  repeat editor: rewrite still repeats; keeping the original")
+            return script, round(cost, 4)
+        for index in targets:
+            log(f"  ✎ scene {index} rewritten so it no longer repeats scene "
+                f"{next(d['duplicate_of'] for d in dupes if d['scene'] == index)}")
+        return candidate, round(cost, 4)
+    except Exception as exc:
+        log(f"  repeat editor unavailable: {type(exc).__name__}: {str(exc)[:120]}")
+        return script, round(cost, 4)
+
+
 def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                                *, operator_direction: str = "") -> tuple[dict, float]:
     """Run one bounded, evidence-locked repair for scene-level claim failures.
@@ -5328,6 +5740,9 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "claims": claim_context_for_prompt(dossier),
         "failures": errors,
         "scenes": [{"scene": index,
+            "continues_previous": bool(_s(scenes[index - 1].get("continues"))),
+            "beat_part": f"{int(scenes[index - 1].get('beat_part') or 1)} of "
+                         f"{int(scenes[index - 1].get('beat_part_count') or 1)}",
             "previous_narration": _s(scenes[index - 2].get("narration")) if index > 1 else "",
             "next_narration": _s(scenes[index].get("narration")) if index < len(scenes) else "",
             # The event is the ceiling. Without it the repair is told a sentence is wrong and not
@@ -5389,6 +5804,12 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             target["claim_refs"] = refs
             seen.add(index)
         if seen != set(indexes):
+            return script, round(response_cost + float(parse_cost or 0.0), 4)
+        # A repair that turned two scenes into one sentence is refused: the caller keeps the
+        # original and the duplicate gate reports it, instead of the film saying it twice.
+        if any(d["scene"] in indexes or d["duplicate_of"] in indexes
+               for d in duplicate_narration(candidate["scenes"])
+               if d not in duplicate_narration(script.get("scenes") or [])):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
         # The hook lives twice: in `script["hook"]` and prepended to the scene it opens. Repairing
         # only the narration leaves the old, over-reaching sentence in the field that the
@@ -6072,6 +6493,17 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         required = result.get("required_objects") if isinstance(result.get("required_objects"), dict) else {}
         forbidden = (result.get("forbidden_objects_absent")
                      if isinstance(result.get("forbidden_objects_absent"), dict) else {})
+        # Record which continuity fields this state was held to, so the rendered gate can tell a
+        # failed expectation from an honest False on a question that was never a requirement.
+        result["expected"] = {
+            field: bool(expected[expected_key])
+            for expected_key, field in (
+                ("expect_human_identity", "human_identity_matches"),
+                ("expect_clothing", "clothing_matches"),
+                ("expect_location", "location_matches"),
+                ("expect_opening_object", "opening_object_matches"),
+            )
+        }
         required_pass = all(required.get(item) is True for item in expected["required_objects"])
         forbidden_pass = all(forbidden.get(item) is True for item in expected["forbidden_objects"])
         continuity_pass = all(
@@ -7684,13 +8116,16 @@ def _render_first_minute_preview(
     for k, result in enumerate(r for r in results if r.get("aud_ok")):
         scene = result["scene"]
         duration = _audio_dur(result["aud"])
-        shots = compile_scene_shots(
+        # The last pass over the plan before pixels: a still held past the ceiling is split
+        # into parts on the same accepted picture (longform_shots.split_long_holds). Applied
+        # here and in the full render, so the gate inspects exactly the plan that was cut.
+        shots = split_long_holds(compile_scene_shots(
             scene, duration, k, has_alternate=bool(result.get("alt_img")),
             i2v_seconds=I2V_SECONDS_LONGFORM,
             word_times=result.get("word_times"),
             evidence_states=result.get("evidence_states"),
             motion_state_ids=frozenset((motion_clips or {}).keys()),
-        )
+        ))
         visual = None
         if len(shots) > 1:
             visual = os.path.join(gate_dir, f"opening_{k:02d}_shots.mp4")
@@ -7743,7 +8178,7 @@ def _verifier_probe_client():
     Short timeout and no retries -- a probe that hangs or retries costs more than it saves, and a
     slow answer is not the failure it is looking for.
     """
-    return anthropic.Anthropic(
+    return anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=30.0, max_retries=0)
 
 
@@ -7763,24 +8198,36 @@ def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> Non
     technical/cost failures still block". One token, a fraction of a cent, against a run that
     spends dollars on pictures nobody can check.
     """
+    # The verifier is whatever _claude() resolves to. With SCRIPT_PROVIDER=openai the images are
+    # judged by OpenAI (the adapter carries image blocks; measured 2026-10-01 on gpt-5.6-luna),
+    # so probing Anthropic here would abort a run whose verifier is fine -- which is exactly
+    # what happened while the Anthropic billing gate was stuck.
+    provider_name = "Anthropic"
     try:
-        # The RAW client, not _claude(). A durable worker wraps the client so an identical request
-        # replays from the ledger instead of hitting the provider -- which is exactly right for a
-        # paid stage and exactly wrong for a liveness probe. Wrapped, every scene after the first
-        # would replay the first scene's cached "ok" and the check would pass forever, including
-        # after the balance had gone. This is not a stage and must not be journalled.
-        _verifier_probe_client().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=1,
-            messages=[{"role": "user", "content": "ok"}])
+        if script_provider.active_provider() == script_provider.OPENAI:
+            provider_name = "OpenAI"
+            _openai().chat.completions.create(
+                model=script_provider.openai_script_model(), max_completion_tokens=16,
+                messages=[{"role": "user", "content": "ok"}], timeout=30.0)
+        else:
+            # The RAW client, not _claude(). A durable worker wraps the client so an identical
+            # request replays from the ledger instead of hitting the provider -- right for a paid
+            # stage and wrong for a liveness probe. Wrapped, every scene after the first would
+            # replay the first scene's cached "ok" and the check would pass forever, including
+            # after the balance had gone. This is not a stage and must not be journalled.
+            _verifier_probe_client().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=1,
+                messages=[{"role": "user", "content": "ok"}])
     except Exception as exc:
         detail = str(exc)
-        if "credit balance is too low" in detail or "insufficient" in detail.lower():
+        if ("credit balance is too low" in detail or "insufficient" in detail.lower()
+                or "exceeded your current quota" in detail):
             where = ("before any image was bought" if scene_index is None else
                      f"after {scene_index} scene(s) of images were bought and verified")
             raise RuntimeError(
-                f"Evidence verification is unavailable {where}: the Anthropic balance is too low. "
-                "Further images would be generated and none could be confirmed to show what it "
-                "claims. Top up and re-run; the research and script are cached."
+                f"Evidence verification is unavailable {where}: the {provider_name} balance is "
+                "too low. Further images would be generated and none could be confirmed to show "
+                "what it claims. Top up and re-run; the research and script are cached."
             ) from exc
         # Any other failure here is not necessarily fatal -- a transient network blip should not
         # stop a run that has already paid for its script. Report and continue; the per-asset
@@ -8029,6 +8476,59 @@ def _write_grade(grade: dict, out_dir: str) -> str:
     return path
 
 
+# A model's preamble inside the JSON it was told to return. The Four Pests description shipped
+# with "To give viewers clear context, rank for key search terms, and drive viewer engagement,
+# use this optimized layout:" as its first line (found in Studio 2026-10-02); summary was only
+# checked for being non-empty.
+_DESC_META = re.compile(
+    r"(optimi[sz]ed layout|rank for key search|drive viewer engagement|use this layout|"
+    r"here(?:'s| is) (?:an? |the )?(?:optimi[sz]ed|seo|youtube|revised|updated) |"
+    r"as an? (?:ai|seo|youtube) |\bseo strateg|description copy|first sentence names)",
+    re.I)
+
+
+def _scrub_description_meta(text: str) -> str:
+    """Drop lines that talk about the description instead of the video."""
+    kept = []
+    for line in _s(text).splitlines():
+        probe = line.strip()
+        if not probe:
+            kept.append(line)
+            continue
+        if _DESC_META.search(probe):
+            continue
+        # A short lead-in that ends in a colon is a preamble ("Here is the description:").
+        if probe.endswith(":") and len(probe) < 160 and not kept:
+            continue
+        kept.append(line)
+    out = "\n".join(kept).strip()
+    return re.sub(r"\n{3,}", "\n\n", out)
+
+
+def description_sources(script: dict, limit: int = 5) -> list[tuple[str, str]]:
+    """(label, url) for the sources the delivered narration cites most, for the description.
+
+    Only claims a scene actually cites count, so a dossier's unused research never appears as a
+    source of the film. Label is the site, not the claim.
+    """
+    dossier = script.get("_research_dossier") if isinstance(script, dict) else None
+    claims = {_s(c.get("claim_id")): c for c in ((dossier or {}).get("claims") or [])
+              if isinstance(c, dict)}
+    counts: dict[str, int] = {}
+    for scene in (script.get("scenes") or []):
+        for ref in (scene.get("claim_refs") or []):
+            cid = _s(ref.get("claim_id") if isinstance(ref, dict) else ref)
+            url = _s((claims.get(cid) or {}).get("source_url")).strip()
+            if url.startswith("http"):
+                counts[url] = counts.get(url, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    out = []
+    for url, _n in ranked[:limit]:
+        host = re.sub(r"^www\.", "", re.sub(r"^https?://", "", url).split("/")[0])
+        out.append((host, url))
+    return out
+
+
 _DESC_DISCLOSURE = ("🤖 Created with AI assistance (synthetic narration and AI-generated "
                     "visuals); disclosed as altered/synthetic content.")
 
@@ -8086,7 +8586,8 @@ def _build_chapters(scene_starts: list, picks: list) -> list:
 def generate_description(title: str, hook: str, transcript: str, out_dir: str,
                          cost_sink: list | None = None, question: str = "",
                          video_format: str = "landscape", scene_narr: list | None = None,
-                         scene_durs: list | None = None) -> str:
+                         scene_durs: list | None = None,
+                         sources: list | None = None) -> str:
     """Write a ready-to-paste, SEO-rich YouTube description (best-effort Claude; template fallback).
 
     Long-form gets the full package: keyword-front-loaded hook + summary, EXACT auto-chapters
@@ -8122,8 +8623,11 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
     fmt_word = "a vertical Short" if social else "a long-form video"
     sys = (
         "You are a YouTube SEO strategist. Write description COPY for an explainer video and return "
-        "ONLY JSON. Front-load the primary keyword/topic in the first sentence (it shows in search "
-        "and above the fold). Be accurate to the transcript; for political/historical topics stay "
+        "ONLY JSON. The first sentence of the summary states WHAT WENT WRONG in plain words with the "
+        "primary keyword in it (it is the only line browse viewers see above the fold); the second "
+        "sentence says what the film follows. Plain prose about the video only: never describe the "
+        "description, the layout, SEO, or your task, and no preamble of any kind. Qualify contested "
+        "claims the way the narration does. Be accurate to the transcript; for political/historical topics stay "
         "NEUTRAL and factual — do NOT name real living politicians, take sides, or imply false "
         "consequences. No clickbait that the video doesn't deliver.\n"
         "TAG ARCHITECTURE (critical for a new channel — specific tags are the MATCHMAKER that picks the "
@@ -8160,9 +8664,10 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
         o, _ = _parse_script_json(r.content[0].text)
-        if not isinstance(o, dict) or not _s(o.get("summary")).strip():
+        summary = _scrub_description_meta(_s(o.get("summary")))
+        if not isinstance(o, dict) or not summary:
             raise ValueError("bad description JSON")
-        parts = [_s(o.get("summary")).strip()]
+        parts = [summary]
         if want_chapters:
             chapters = _build_chapters(scene_starts, o.get("chapters") or [])
             if chapters:
@@ -8173,6 +8678,8 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
             qa = [_s(q).strip() for q in (o.get("questions_answered") or []) if _s(q).strip()]
             if qa:
                 parts.append("❓ QUESTIONS ANSWERED\n" + " ".join(qa[:6]))
+            if sources:
+                parts.append("📚 SOURCES\n" + "\n".join(f"{label}: {url}" for label, url in sources[:5]))
             parts.append("Subscribe for clear, no-spin explainers on how the world really works — "
                          "new videos regularly.")
         tags = [_s(t).strip().lstrip("#").strip() for t in (o.get("hashtags") or []) if _s(t).strip()]
@@ -9357,9 +9864,11 @@ def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
     different story whose evidence has to be re-established from scratch.
     """
     codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
-    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item)
+    # Causal errors arrive as dicts or as "CODE: message" strings; read the code either way.
+    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item).split(":", 1)[0].strip()
               for item in causal_errors or []]
-    return bool(codes) and all(code == "LONG_HOOK" for code in codes)
+    # Both are the hook's shape, and both are what _ensure_hook_fits_budget rewrites.
+    return bool(codes) and all(code in ("LONG_HOOK", "MULTI_SENTENCE_HOOK") for code in codes)
 
 
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
@@ -9604,6 +10113,24 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
         return script, 0.0
 
 
+def _only_repairable_timing_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is a narration-timing miss (LATE_MECHANISM / NO_CALLBACK) the only thing blocking?
+
+    True only when the long-form contract itself passed and every causal error is one of the
+    codes the storyboard repair owns. Any other causal failure, or a failed contract, still
+    replans as before.
+    """
+    if not (validation or {}).get("passed") or not causal_errors:
+        return False
+    import storyboard_repair
+    # Hook and hinge word budgets are rewritten to fit right before the storyboard gate
+    # (_ensure_hook_fits_budget, _ensure_hinge_fits_budget); the two timing codes have the
+    # storyboard repair. All four are one-sentence edits of a validated draft.
+    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE"}
+    codes = [str(e).split(":", 1)[0].strip() for e in causal_errors]
+    return all(code in bounded for code in codes)
+
+
 def _causal_contract_report(script: dict, question: str) -> tuple[bool, list[str]]:
     """Does this draft satisfy the causal contract? Non-mutating, provider-free, free to call.
 
@@ -9755,6 +10282,21 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                 + (" and the causal contract now passes" if best_causal_ok else ""))
             if best_validation.get("passed") and best_causal_ok:
                 break
+        # LEAVE A NARRATION-TIMING MISS TO THE NARRATION EDIT, NOT TO A REPLAN.
+        #
+        # LATE_MECHANISM and NO_CALLBACK are measured on the finished words of a draft whose
+        # spine has already passed. The storyboard gate below owns a bounded, evidence-checked
+        # narration repair for exactly those two codes (storyboard_repair). A replan rebuilds the
+        # causal sheet from scratch and re-rolls the spine. Measured on the cane toad film
+        # (2026-09-29, attempt 3): a draft that had cleared research, spine and ledger with its
+        # mechanism at 51s against a 51s deadline was replanned, the replacement sheet failed the
+        # spine twice, and the run died with a validated draft in hand.
+        if causal_lane and _only_repairable_timing_blocks(best_validation, best_causal_errors):
+            log("Causal contract misses only word budgets or narration timing ("
+                + "; ".join(str(e).split(":", 1)[0] for e in best_causal_errors)
+                + ") — leaving them to the bounded edits before the storyboard gate instead "
+                "of replanning")
+            break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
         if causal_lane and not best_causal_ok:
             causal_fixes = "; ".join(
@@ -9766,23 +10308,32 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         log(f"Long-form contract {best_validation.get('score', 0)}/100"
             + ("" if best_causal_ok else " + causal contract failing")
             + f" — replan {_attempt}/{_attempts} before render: {fixes}")
-        cand = generate_script(
-            question, duration_sec, style, image_guidance=image_guidance,
-            video_format=video_format, series=series, operator_direction=operator_direction,
-            story_format=story_format,
-            research_dossier=research_dossier,
-            # The replan MUST carry the lane. Without it this call rebuilds every scene through
-            # the plain path, so the causal_role/caused_by/chapter fields the storyboard reads are
-            # simply absent — a pilot got all the way past research, fact-check and the runtime
-            # contract before failing with a blank role on all 22 scenes. A replanned script is
-            # still a script for the same lane.
-            causal_lane=causal_lane,
-            cost_sink=cost_sink,
-            # Same engine as the draft being repaired. Without this the replan re-picks and ends
-            # up fixing a different contract from the one that failed.
-            pinned_engine=_s(best.get("_story_engine")),
-            improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
-        )
+        try:
+            cand = generate_script(
+                question, duration_sec, style, image_guidance=image_guidance,
+                video_format=video_format, series=series, operator_direction=operator_direction,
+                story_format=story_format,
+                research_dossier=research_dossier,
+                # The replan MUST carry the lane. Without it this call rebuilds every scene
+                # through the plain path, so the causal_role/caused_by/chapter fields the
+                # storyboard reads are simply absent — a pilot got all the way past research,
+                # fact-check and the runtime contract before failing with a blank role on all
+                # 22 scenes. A replanned script is still a script for the same lane.
+                causal_lane=causal_lane,
+                cost_sink=cost_sink,
+                # Same engine as the draft being repaired. Without this the replan re-picks and
+                # ends up fixing a different contract from the one that failed.
+                pinned_engine=_s(best.get("_story_engine")),
+                improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
+            )
+        except (ValueError, RuntimeError) as exc:
+            # A replan that cannot itself pass the spine or compile is a failed CANDIDATE, not a
+            # failed run: the draft it was meant to improve already passed every gate that
+            # raised here. Keep the draft; the storyboard gate below still has the last word.
+            log(f"Replan {_attempt}/{_attempts} was rejected before it could be compared "
+                f"({type(exc).__name__}: {str(exc).splitlines()[0][:120]}) — keeping the "
+                "validated draft")
+            continue
         total_generation_cost += float(cand.get("_script_cost_usd") or 0.0)
         cand_validation = validate_longform_story(cand, question)
         cand_causal_ok, cand_causal_errors = (
@@ -10497,6 +11048,7 @@ def run_explainer_pipeline(
     progress_cb=None,
     topic_channel: str = "",
     stop_after_script: bool = False,
+    stop_after_plan: bool = False,
     revision_note: str = "",
 ) -> dict:
 
@@ -10509,6 +11061,7 @@ def run_explainer_pipeline(
     # under generate_graded_script -> _generate_script_chunked, and every caller of those would
     # otherwise need a new positional-safe keyword for a value only the Nature channel sets.
     _TOPIC_CHANNEL.set((topic_channel or "").strip().lower())
+    _PLAN_CONTROL.set({"output_dir": output_dir, "stop_after_plan": bool(stop_after_plan)})
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
     stable_standard_longform = _stable_standard_longform(
@@ -10905,6 +11458,26 @@ def run_explainer_pipeline(
         script["_story_structure_review"] = _review_story_structure(
             script, story_format, video_format, log)
         if video_format != "social":
+            # Said twice is a defect, not taste: collapse repeats before any claim judgement,
+            # and refuse the render if two scenes still say the same sentence.
+            _dropped = collapse_duplicate_narration(script, log)
+            if _dropped:
+                log(f"Duplicate narration: dropped {_dropped} scene(s) that repeated an earlier one")
+                rederive_narration_bindings(script, log, research_dossier)
+                scenes = script.get("scenes", [])
+            _remaining = duplicate_narration(script.get("scenes") or [])
+            if _remaining:
+                script, _editor_cost = rewrite_repeated_scenes(
+                    script, research_dossier, _remaining, aux_costs, log)
+                if _editor_cost:
+                    rederive_narration_bindings(script, log, research_dossier)
+                    scenes = script.get("scenes", [])
+                _remaining = duplicate_narration(script.get("scenes") or [])
+            if _remaining:
+                raise ValueError(
+                    "DUPLICATE_NARRATION: scenes say the same thing — "
+                    + "; ".join(f"scene {d['scene']} repeats scene {d['duplicate_of']} "
+                                f"({d['overlap']:.0%})" for d in _remaining))
             claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
             # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
@@ -10956,6 +11529,11 @@ def run_explainer_pipeline(
                            else f"{len(claim_validation.get('errors') or [])} failing"))
                     if claim_validation.get("passed"):
                         break
+            if collapse_duplicate_narration(script, log):
+                rederive_narration_bindings(script, log, research_dossier)
+                claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                script["_claim_validation"] = claim_validation
+                scenes = script.get("scenes", [])
             if not claim_validation.get("passed"):
                 # The only pre-spend blocker with no override, which made it impossible to render
                 # a diagnostic video and look at it. CLAIM_LEDGER_HARD=0 downgrades it so the run
@@ -11109,6 +11687,11 @@ def run_explainer_pipeline(
 
     if illustrated_story_on:
         log("stage:Building illustrated storyboard...")
+        # The lead is spoken: every pass that rewrote narration (fact-check, revision, refit)
+        # could have pushed the hook and cold open out of scene 1. Re-applied here, once, then
+        # the bindings that depend on the narration text are re-derived.
+        if _ensure_lead_spoken(script, log):
+            rederive_narration_bindings(script, log, research_dossier)
         # Last chance before the gate that measures it. LONG_HOOK was the single remaining
         # failure on an otherwise renderable draft — 19 words against a budget of 18.
         script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
@@ -12112,8 +12695,11 @@ def run_explainer_pipeline(
                 raise RuntimeError(
                     "One or more first-tranche evidence assets were explicitly rejected.")
             log("  ⚠ [ASSETS, advisory] first-tranche assets rejected — continuing")
+        # Only the scenes this tranche bought can be held to "explicitly accepted"; the
+        # compiler's opening is longer than 45 s of audio and its later scenes are bought next.
         evidence_validation = validate_evidence_plan(
-            evidence_plan, require_verified_assets=True, opening_only=True)
+            evidence_plan, require_verified_assets=True, opening_only=True,
+            purchased_through=opening_stop)
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
@@ -12618,14 +13204,14 @@ def run_explainer_pipeline(
             # on planned states, while here the real statuses give a smaller set with different
             # spacing, so passing there does not guarantee passing here. A scene that cannot be cut
             # should be skipped like any other scene failure, not cost the whole render.
-            _shot_plan = compile_scene_shots(
+            _shot_plan = split_long_holds(compile_scene_shots(
                 scene, _audio_dur(r["aud"]), k,
                 has_i2v=bool(_mv), has_alternate=bool(r.get("alt_img")),
                 i2v_seconds=(I2V_SECONDS if video_format == "social" else I2V_SECONDS_LONGFORM),
                 word_times=r.get("word_times"),
                 evidence_states=r.get("evidence_states"),
                 motion_state_ids=frozenset(state_motion_clips),
-            ) if video_format != "social" else []
+            )) if video_format != "social" else []
             if video_format != "social" and int(r["i"]) in frozen_opening_segments:
                 frozen = frozen_opening_segments[int(r["i"])]
                 if not _clip_is_real(frozen):
@@ -12808,10 +13394,30 @@ def run_explainer_pipeline(
 
     # 4c. Ready-to-paste YouTube description (best-effort).
     full_transcript = " ".join(n.strip() for n in rendered_narr if n and n.strip())
+    # 4c-0. World-channel backfire films carry one title formula and one thumbnail grammar
+    #       (backfire_packaging). The title is settled here, before the description and the
+    #       thumbnail read it, and every number in it must be spoken in the finished narration.
+    import backfire_packaging as _backfire
+    _backfire_packaged = _backfire.applies(script, video_format)
+    if _backfire_packaged:
+        try:
+            _packaged_title = _backfire.propose_title(
+                script.get("title", question), question, full_transcript, cost_sink=aux_costs,
+                log=log)
+        except Exception as exc:
+            _packaged_title = None
+            log(f"⚠ Packaging title failed ({type(exc).__name__}) — keeping the script title")
+        if _packaged_title and _packaged_title != script.get("title"):
+            log(f'Packaging title: "{script.get("title", "")}" → "{_packaged_title}"')
+            script["_packaging"] = {"version": _backfire.VERSION,
+                                    "script_title": script.get("title", ""),
+                                    "title": _packaged_title}
+            script["title"] = _packaged_title
     description_path = generate_description(
         script.get("title", question), script.get("hook", ""), full_transcript, output_dir,
         cost_sink=aux_costs, question=question, video_format=video_format,
-        scene_narr=rendered_narr, scene_durs=rendered_durs)
+        scene_narr=rendered_narr, scene_durs=rendered_durs,
+        sources=description_sources(script) if video_format != "social" else None)
     log("YouTube description written")
 
     # 4c-ii. Persist the social self-grade (if we graded one).
@@ -12823,9 +13429,14 @@ def run_explainer_pipeline(
     _thumb_report: dict = {}
     try:
         log("stage:Generating thumbnail...")
-        thumbnail_path = generate_thumbnail(
-            script.get("title", question), question, style_mode, video_format, output_dir,
-            cost_sink=img_costs, report=_thumb_report, transcript=full_transcript)
+        if _backfire_packaged:
+            thumbnail_path = _backfire.generate_thumbnail(
+                script.get("title", question), question, full_transcript, output_dir,
+                cost_sink=img_costs, report=_thumb_report, log=log)
+        else:
+            thumbnail_path = generate_thumbnail(
+                script.get("title", question), question, style_mode, video_format, output_dir,
+                cost_sink=img_costs, report=_thumb_report, transcript=full_transcript)
         if _thumb_report.get("fallback"):
             log("⚠ Thumbnail: image gen failed even after the safe-retry — BLANK fallback used")
         elif _thumb_report.get("qa") == "skipped":
@@ -12847,9 +13458,13 @@ def run_explainer_pipeline(
         except Exception as exc:
             log(f"⚠ Could not set opening thumbnail frame ({type(exc).__name__})")
 
-    # Reclaim disk: drop the bulky intermediates (images/audio/scene clips), keep the MP4 + text.
+    # Reclaim disk: drop the scene clips, keep the MP4 + text. The accepted IMAGES and the
+    # measured AUDIO stay unless KEEP_SCENE_ASSETS=0: a delivered film is also the source for
+    # its vertical teaser (scripts/make_teaser_short.py), and the first film to need one
+    # (cane toads, 2026-09-30) had already lost its 92 verified images to this cleanup.
     import shutil as _sh
-    for d in (img_dir, aud_dir, scene_dir):
+    _keep = os.environ.get("KEEP_SCENE_ASSETS", "1").strip().lower() not in ("0", "false", "no")
+    for d in ((scene_dir,) if _keep else (img_dir, aud_dir, scene_dir)):
         _sh.rmtree(d, ignore_errors=True)
 
     # ── ACTUAL cost (from real usage tokens), not the pre-spend estimate ──

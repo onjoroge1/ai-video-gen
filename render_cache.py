@@ -29,7 +29,9 @@ from durable_execution import current, canonical_hash, file_sha256, CooperativeY
 # semantic_sync_ratio and same_source_hard_cut_count for pixels that are not in the
 # file -- a metric moving without the artifact it measures changing, which is the one
 # failure this whole branch exists to stop doing.
-ILLUSTRATED_RENDER_VERSION = "nature-quality-2026-09-27-v1"
+# Bumped 2026-09-30: a still held past MAX_VISUAL_STATE_SECONDS is now split into parts on the
+# same picture (timing and pixels), so every scene that carried a long hold cuts differently.
+ILLUSTRATED_RENDER_VERSION = "hold-split-2026-09-30-v1"
 
 
 @lru_cache(maxsize=8)
