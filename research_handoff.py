@@ -81,6 +81,20 @@ def save(payload):
     path, runtime = _location()
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Keep each draft independently addressable. Also retain every completed verdict
+        # revision so a later outage/recovery does not erase its audit trail.
+        attempts = path.parent / "research_attempts"
+        attempts.mkdir(exist_ok=True)
+        attempt_id = _hash(payload["identity"])
+        payload = deepcopy(payload)
+        payload["attempt_id"] = attempt_id
+        history = attempts / (attempt_id + "-" + _hash(payload) + ".json")
+        if not history.exists():
+            history.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        latest = attempts / (attempt_id + ".json")
+        pending = latest.with_suffix(".tmp")
+        pending.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        pending.replace(latest)
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         temporary.replace(path)
@@ -91,6 +105,9 @@ def load(key):
     path, _ = _location()
     if not path or not path.exists():
         return None
+    archived = path.parent / "research_attempts" / (_hash(key) + ".json")
+    if archived.exists():
+        path = archived
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("identity") != key or not payload.get("prepared"):
         return None
@@ -211,3 +228,25 @@ def render_table(payload):
             f"<tbody>{claim_rows((payload.get('research_claims') or {}).values())}</tbody></table></div>"
             f"{supplement_section}<details><summary>Saved JSON</summary><pre>{raw}</pre>"
             "</details></main></body></html>")
+
+
+def select(prepared):
+    """Publish the selected attempt, including its exact rejection, for Studio."""
+    key = prepared.get("handoff_identity") if prepared else None
+    path, runtime = _location()
+    if not key or path is None:
+        return
+    source = path.parent / "research_attempts" / (_hash(key) + ".json")
+    payload = json.loads(source.read_text())
+    if payload["identity"] != key:
+        raise ValueError("Selected research attempt identity mismatch")
+    payload["selected"] = True
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    temporary.replace(path)
+    pointer = path.parent / "selected_research_attempt.json"
+    temporary = pointer.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"attempt_id": _hash(key), "identity": key,
+                                     "status": payload["status"]}))
+    temporary.replace(pointer)
+    runtime.checkpoint("research-attempt-selected")

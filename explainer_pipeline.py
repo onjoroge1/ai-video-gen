@@ -30,6 +30,9 @@ from datetime import datetime, timezone
 import openai
 import fal_models
 import nature_channel
+import script_stages
+import script_cadence
+import event_citation_repair
 from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_duration, \
     probe_dimensions as _probe_dimensions, probe_media as _probe_media
 import anthropic
@@ -1594,7 +1597,8 @@ _NARRATION_CADENCE = (
     '(e.g. "The pills sealed the surface, but the bacteria underneath kept the wound open."); what '
     'kills a track is writing every line at the SAME length, whatever that length is. Land a short '
     'punch beat at '
-    'each tension peak, and ask a genuine direct question at a natural turn in this batch. Vary how '
+    'a genuine tension peak. Ask a direct question only when it creates an earned open question; '
+    'never insert one merely to satisfy a quota. Vary how '
     'lines open — do NOT start most sentences with "The" or "They". VARY INTENSITY, not only length: '
     'do NOT write every line as a dramatic climax — when every line shouts, none of them lands. Use '
     'CALM, quieter setup lines and NEUTRAL mechanism lines so the genuine payoffs hit with contrast, '
@@ -3744,6 +3748,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if improve_note:
         beat_prompt += ("\nPRIORITY FIX — the previous draft scored weak here; fix this FIRST in the "
                         "beat sheet while keeping everything else: " + improve_note)
+    if causal_lane:
+        beat_prompt += script_cadence.BRIEF
     def _ask_planner(correction: str = ""):
         """The beat-sheet call, as a function so a compile failure can re-ask it once.
 
@@ -3784,265 +3790,305 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     import story_planner as _planner
     _control = _PLAN_CONTROL.get() or {}
     _approved = _planner.approved_plan(_s(_control.get("output_dir"))) if causal_lane else None
-    if _approved:
-        plan, _plan_cost = _approved, 0.0
-        print(f"[plan] using the operator-approved beat sheet ({_planner.APPROVED_PLAN_FILE})")
-    elif causal_lane:
-        # DRAMATRON-STYLE: several candidate sheets, and the deterministic gates choose. One
-        # sheet asked for once gave killer bees seven escalations on three facts (2026-10-02).
-        _n = max(1, int(os.environ.get("PLAN_CANDIDATES", str(_planner.PLAN_CANDIDATES_DEFAULT)) or 1))
-        _cands, _scores, _plan_cost = [], [], 0.0
-        for _k in range(_n):
-            _p, _c = _ask_planner()
-            _plan_cost += _c
-            _cands.append(_p)
-            _scores.append(_planner.score_plan(_p, sheet_engine_id, research_dossier, duration_sec))
-        _best = _planner.choose_plan(_scores)
-        print("[plan] candidates: " + ", ".join(
-            f"#{i + 1} {s.get('score')} ({s.get('beats')} beats, {int(100 * (s.get('distinct_ratio') or 0))}% distinct"
-            f"{', cold open ok' if s.get('cold_open_ok') else ', cold open weak'})"
-            for i, s in enumerate(_scores)) + f" -> #{_best + 1}")
-        for _issue in (_scores[_best].get("issues") or [])[:6]:
-            print(f"[plan]   {_issue}")
-        plan = _cands[_best]
-        plan["_plan_score"] = _scores[_best]
-        plan["_plan_candidates"] = _scores
-        if _control.get("stop_after_plan"):
-            _path = _planner.write_plan_for_approval(
-                _s(_control.get("output_dir")) or ".", plan, _scores[_best], _scores)
-            print(f"[plan] written for approval: {_path}")
-            raise PlanApprovalRequired(
-                f"Beat sheet written to {_path}; copy plan.json to plan.approved.json and rerun "
-                "without stop_after_plan to continue.")
+    _plan_inputs = {"prompt": beat_prompt, "series": series, "operator": operator_direction,
+                    "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
+                    "channel": _TOPIC_CHANNEL.get(),
+                    "model": ANTHROPIC_MODEL, "evidence": research_dossier,
+                    "policy": "script_flow_v2", "diagnostic": _diagnostic_render()}
+    _plan_inputs = copy.deepcopy(_plan_inputs)
+    _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
+    if _saved_plan is not None:
+        plan = _saved_plan["plan"]
+        beats = _saved_plan["beats"]
+        cost = _saved_plan["cost"]
+        style_mode = _saved_plan["style_mode"]
+        throughline = _saved_plan["throughline"]
+        sheet_engine_id = _saved_plan["sheet_engine_id"]
+        blueprint_block = _saved_plan["blueprint_block"]
+        n_scenes = _saved_plan["n_scenes"]
+        research_dossier = _saved_plan["research_dossier"]
+        _roles = _saved_plan["roles"]
     else:
-        plan, _plan_cost = _ask_planner()
-    cost += _plan_cost
-    style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
-    throughline = _s(plan.get("throughline")).strip()
-    beats = _beats_of(plan)
-    # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
-    # one branch is a NameError on the others the moment the prompt concatenates it.
-    if causal_lane:
-        import story_planning as _planning
-        # Said before the beat sheet is paid for. A dossier holding two periods is a dossier
-        # holding two stories, and the planner blends them: the hippo sheet's `world_without_it`
-        # came back as a 2006 IUCN listing for a bill that died in 1910. Reported, not refused --
-        # a story can legitimately span eras, and the spine gate reasons about events rather than
-        # counting years.
-        _eras = _lr_era_split(research_dossier)
-        if _eras.get("spans_eras"):
-            print(f"[research] {_lr_era_split_report(_eras)}")
-        _claims_for_roles = _spine_claims(research_dossier)
-        _cache = {}
-        _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
-        # ONE RETRY, FOR MECHANICAL COMPILE FAILURES ONLY.
-        #
-        # compile_roles is arithmetic over the planner's declared event functions, and the two
-        # codes it can emit -- UNKNOWN_EVENT_FUNCTION and MULTIPLE_INCENTIVE_CHANGES -- are both
-        # the planner mislabelling a beat, not a shortage of evidence. Neither was retried
-        # anywhere: this call only tested `compiled`, so a sheet with `compiled=True,
-        # passed=False` went straight to _planning.prepare, which re-checked and raised. prepare's
-        # own `for attempt in range(2)` loop sits BELOW that raise, so the retry it advertises was
-        # unreachable for precisely these failures.
-        #
-        # Measured: MULTIPLE_INCENTIVE_CHANGES killed a run at 59s, and UNKNOWN_EVENT_FUNCTION
-        # killed another at 464s for ~$5.56 -- one bad label on one beat of eight, on the same
-        # topic and engine as a run that completed minutes earlier.
-        #
-        # This re-asks the PLANNER with the failure quoted back, which is the pattern this file
-        # uses everywhere else: repair_chain fixes role order rather than asking for it,
-        # collapse_locations counts frequencies rather than requesting four locations. The check
-        # is untouched -- the sheet has to actually compile on the second pass or the run still
-        # dies. compile_correction returns "" for any code outside the mechanical set, so a new
-        # code fails closed instead of being sampled at until it passes.
-        _correction = _compiler.compile_correction(_roles)
-        if _correction:
-            print("Beat sheet did not compile — re-asking the planner once: "
-                + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
-            _retry_plan, _retry_cost = _ask_planner(_correction)
-            cost += _retry_cost
-            _retry_beats = _beats_of(_retry_plan)
-            _retry_roles = _compiler.compile_roles(
-                _retry_beats, sheet_engine_id, _claims_for_roles)
-            # Keep the retry only if it actually compiled. A second sheet that fails differently
-            # is not progress, and the original at least has a failure report already persisted.
-            if _retry_roles.get("passed"):
-                plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
-                style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
-                throughline = _s(plan.get("throughline")).strip() or throughline
-                print("  ✓ compile retry succeeded")
-            else:
-                print("  ✗ compile retry still does not compile — failing on the original")
-        # The cold open is checked here, where a miss costs one planner call. Left to the
-        # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
-        _cold_fix = _cold_open_correction(plan, research_dossier)
-        if _cold_fix and _roles.get("compiled"):
-            print("Beat sheet has no usable cold open — re-asking the planner once")
-            _retry_plan, _retry_cost = _ask_planner(_cold_fix)
-            cost += _retry_cost
-            _retry_beats = _beats_of(_retry_plan)
-            _retry_roles = _compiler.compile_roles(
-                _retry_beats, sheet_engine_id, _claims_for_roles)
-            if _retry_roles.get("passed") and not _cold_open_correction(_retry_plan, research_dossier):
-                plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
-                style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
-                throughline = _s(plan.get("throughline")).strip() or throughline
-                print("  ✓ cold-open retry succeeded")
-            else:
-                print("  ✗ cold-open retry did not help — keeping the original; the storyboard "
-                      "gate will report it")
-        if _roles.get("compiled"):
-            prepared = _planning.prepare(
-                beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
-                question=question, repair=_repair_incentive_citations,
-                cost_sink=cost_sink, cache=_cache)
-            cost += prepared["cost_usd"]
-            _spine = prepared["compiled"]
-            _sb = prepared["beats"]
+        if _approved:
+            plan, _plan_cost = _approved, 0.0
+            print(f"[plan] using the operator-approved beat sheet ({_planner.APPROVED_PLAN_FILE})")
+        elif causal_lane:
+            # DRAMATRON-STYLE: several candidate sheets, and the deterministic gates choose. One
+            # sheet asked for once gave killer bees seven escalations on three facts (2026-10-02).
+            _n = min(3, max(1, int(os.environ.get("PLAN_CANDIDATES", str(_planner.PLAN_CANDIDATES_DEFAULT)) or 1)))
+            _cands, _scores, _plan_cost = [], [], 0.0
+            for _k in range(_n):
+                _p, _c = _ask_planner(_planner.candidate_brief(_k))
+                _plan_cost += _c
+                _cands.append(_p)
+                _scores.append(_planner.score_plan(_p, sheet_engine_id, research_dossier, duration_sec))
+                _scores[-1]["candidate_slot"] = _k + 1
+                _scores[-1]["result_sha256"] = script_stages.digest(_p)
+                _scores[-1]["duplicate_of"] = next((i + 1 for i, prior in enumerate(_scores[:-1])
+                    if prior.get("result_sha256") == _scores[-1]["result_sha256"]), None)
+            _best = _planner.choose_plan(_scores)
+            print("[plan] candidates: " + ", ".join(
+                f"#{i + 1} {s.get('score')} ({s.get('beats')} beats, {int(100 * (s.get('distinct_ratio') or 0))}% distinct"
+                f"{', cold open ok' if s.get('cold_open_ok') else ', cold open weak'})"
+                for i, s in enumerate(_scores)) + f" -> #{_best + 1}")
+            for _issue in (_scores[_best].get("issues") or [])[:6]:
+                print(f"[plan]   {_issue}")
+            plan = _cands[_best]
+            plan["_plan_score"] = _scores[_best]
+            plan["_plan_candidates"] = _scores
+            if _control.get("stop_after_plan"):
+                _path = _planner.write_plan_for_approval(
+                    _s(_control.get("output_dir")) or ".", plan, _scores[_best], _scores)
+                print(f"[plan] written for approval: {_path}")
+                raise PlanApprovalRequired(
+                    f"Beat sheet written to {_path}; copy plan.json to plan.approved.json and rerun "
+                    "without stop_after_plan to continue.")
         else:
-            # Engines without factual-function compilation keep their existing labelling pass.
-            beats, spine_cost = _assign_causal_spine(
-                beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
-                pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
-            cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
-            sheet_engine_id = beats[0].get("_story_engine") or sheet_engine_id
-            _spine_cost = _ledger.StageCostSink(cost_sink, _ledger.BOUNDARY_A)
-            _spine = _sfm.compile_spine(
-                _spine_beats(beats), _claims_for_roles, _lr_claims_by_case(research_dossier),
-                cache=_cache, cost_sink=_spine_cost, engine_id=sheet_engine_id)
-            cost += sum(_spine_cost)
-            _sb = _spine["effective_beats"]
-        print(_sfm.spine_summary(_sb, _spine))
-        if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled"):
-            # ONE RE-ASK WITH THE VERDICT QUOTED BACK, before buying more research. The failure
-            # this catches is a citation choice, not a shortage of evidence: the penguin run
-            # (2026-09-25) cited c04 ("no nest materials") for the egg-on-feet hinge while c06
-            # ("incubates on his feet under a brood pouch") sat unused in the same ledger, and
-            # the research repair below cannot fix a wrong citation by adding claims.
-            _spine_correction = (
-                "\n\nYOUR PREVIOUS BEAT SHEET FAILED THE EVIDENCE CHECK. The report:\n"
-                + _sfm.spine_summary(_sb, _spine)
-                # A beat refused for its claim's KIND usually has the right claim sitting one
-                # row away in the ledger (cane toads, 2026-09-29: c49 mechanism cited, c48
-                # outcome unused). Name those candidates; the planner still has to cite them.
-                + _sfm.citation_suggestions(_sb, _spine, _claims_for_roles, sheet_engine_id)
-                + "\n\nRewrite the sheet so every REQUIRED step's event text asserts only what "
-                "the claim it cites states, and cite the claim that actually states each "
-                "detail -- the ledger may hold a better claim than the one you used. Keep the "
-                "same engine and the same story; change citations and narrow wording, and add "
-                "no new facts.")
-            print("Spine unsupported — re-asking the planner once with the report quoted back")
-            _retry_plan, _retry_cost = _ask_planner(_spine_correction)
-            cost += _retry_cost
-            _retry_beats = _beats_of(_retry_plan)
-            _retry_roles = _compiler.compile_roles(
-                _retry_beats, sheet_engine_id, _claims_for_roles)
-            if _retry_roles.get("passed"):
-                _retry_prepared = _planning.prepare(
-                    _retry_beats, sheet_engine_id, _claims_for_roles,
-                    _lr_claims_by_case(research_dossier), question=question,
-                    repair=_repair_incentive_citations, cost_sink=cost_sink, cache=_cache)
-                cost += _retry_prepared["cost_usd"]
-                if _retry_prepared["compiled"]["passed"]:
+            plan, _plan_cost = _ask_planner()
+        cost += _plan_cost
+        style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
+        throughline = _s(plan.get("throughline")).strip()
+        beats = _beats_of(plan)
+        # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
+        # one branch is a NameError on the others the moment the prompt concatenates it.
+        if causal_lane:
+            import story_planning as _planning
+            # Said before the beat sheet is paid for. A dossier holding two periods is a dossier
+            # holding two stories, and the planner blends them: the hippo sheet's `world_without_it`
+            # came back as a 2006 IUCN listing for a bill that died in 1910. Reported, not refused --
+            # a story can legitimately span eras, and the spine gate reasons about events rather than
+            # counting years.
+            _eras = _lr_era_split(research_dossier)
+            if _eras.get("spans_eras"):
+                print(f"[research] {_lr_era_split_report(_eras)}")
+            _claims_for_roles = _spine_claims(research_dossier)
+            _cache = {}
+            _roles = _compiler.compile_roles(beats, sheet_engine_id, _claims_for_roles)
+            # ONE RETRY, FOR MECHANICAL COMPILE FAILURES ONLY.
+            #
+            # compile_roles is arithmetic over the planner's declared event functions, and the two
+            # codes it can emit -- UNKNOWN_EVENT_FUNCTION and MULTIPLE_INCENTIVE_CHANGES -- are both
+            # the planner mislabelling a beat, not a shortage of evidence. Neither was retried
+            # anywhere: this call only tested `compiled`, so a sheet with `compiled=True,
+            # passed=False` went straight to _planning.prepare, which re-checked and raised. prepare's
+            # own `for attempt in range(2)` loop sits BELOW that raise, so the retry it advertises was
+            # unreachable for precisely these failures.
+            #
+            # Measured: MULTIPLE_INCENTIVE_CHANGES killed a run at 59s, and UNKNOWN_EVENT_FUNCTION
+            # killed another at 464s for ~$5.56 -- one bad label on one beat of eight, on the same
+            # topic and engine as a run that completed minutes earlier.
+            #
+            # This re-asks the PLANNER with the failure quoted back, which is the pattern this file
+            # uses everywhere else: repair_chain fixes role order rather than asking for it,
+            # collapse_locations counts frequencies rather than requesting four locations. The check
+            # is untouched -- the sheet has to actually compile on the second pass or the run still
+            # dies. compile_correction returns "" for any code outside the mechanical set, so a new
+            # code fails closed instead of being sampled at until it passes.
+            _correction = _compiler.compile_correction(_roles)
+            if _correction:
+                print("Beat sheet did not compile — re-asking the planner once: "
+                    + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
+                _retry_plan, _retry_cost = _ask_planner(_correction)
+                cost += _retry_cost
+                _retry_beats = _beats_of(_retry_plan)
+                _retry_roles = _compiler.compile_roles(
+                    _retry_beats, sheet_engine_id, _claims_for_roles)
+                # Keep the retry only if it actually compiled. A second sheet that fails differently
+                # is not progress, and the original at least has a failure report already persisted.
+                if _retry_roles.get("passed"):
                     plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
-                    _spine, _sb = _retry_prepared["compiled"], _retry_prepared["beats"]
                     style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
                     throughline = _s(plan.get("throughline")).strip() or throughline
-                    print("  ✓ spine retry succeeded")
-                    print(_sfm.spine_summary(_sb, _spine))
+                    print("  ✓ compile retry succeeded")
                 else:
-                    print("  ✗ spine retry still unsupported — trying research repair on the original")
-                    # The retry's own verdict is the only record of what the planner changed and
-                    # why that was not enough; without it every failed re-ask reads the same.
-                    print("  retry report:\n" + _sfm.spine_summary(
-                        _retry_prepared["beats"], _retry_prepared["compiled"]))
-            else:
-                print("  ✗ spine retry did not compile — trying research repair on the original: "
-                      + "; ".join(_s(i.get("code")) for i in (_retry_roles.get("issues") or [])))
-        _failure_summary = _sfm.spine_summary(_sb, _spine)
-        if (not _spine["passed"] and not _diagnostic_render()
-                and not _engine_switch_attempted and not _approved
-                # One role miss is commonly a narrow citation gap and belongs to research repair.
-                # A wrong engine breaks several independent causal functions at once: the stoat
-                # run rejected both intervention and false_resolution before its mechanism could
-                # even be supported. Require that stronger signal before changing story shape.
-                and _failure_summary.count("[ROLE_CONTRACT_FAILED]") >= 2):
-            # A citation re-ask cannot make an event perform a causal function it does not have.
-            # Let the selector choose once more with the failed engine removed, then rebuild the
-            # planner prompt and sheet under that new contract. This is a bounded restart: the
-            # recursive run cannot switch again, and no prose/media has been purchased yet.
-            _switch_costs: list[float] = []
-            try:
-                _next_engine = _select_story_engine(
-                    question, duration_sec, _switch_costs,
-                    research_dossier=research_dossier,
-                    excluded_engines=(sheet_engine_id,), failure_report=_failure_summary)
-            except ValueError:
-                _next_engine = ""
-            cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(_switch_costs),
-                            "engine switch after role-contract failure")
-            if _next_engine and _next_engine != sheet_engine_id:
-                print(f"[engine] role contract rejected {sheet_engine_id}; rebuilding the sheet "
-                      f"once with {_next_engine}")
-                _switched = _generate_script_chunked(
-                    question, duration_sec, style, image_guidance, n_scenes, series,
-                    improve_note, operator_direction, story_format, research_dossier,
-                    causal_lane, adherence, _next_engine, cost_sink,
-                    _engine_switch_attempted=True)
-                _switched["_script_cost_usd"] = round(
-                    float(_switched.get("_script_cost_usd") or 0.0) + cost, 6)
-                _switched["_engine_switched_from"] = sheet_engine_id
-                return _switched
-        if not _spine["passed"] and not _diagnostic_render():
-            from durable_execution import current as _current_runtime
-            import research_coverage
-            _runtime = _current_runtime()
-            if _runtime:
-                _persist_semantic_failure(
-                    output_dir=_runtime.output_dir, stage="story-spine",
-                    script={"beats": _roles.get("beats") or beats},
-                    research_dossier=research_dossier, report=_spine,
-                    operator_direction=operator_direction)
-            repaired = research_coverage.repair_sheet(
-                question, _roles.get("beats") or beats, _spine, research_dossier or {},
-                generate=generate_research_dossier, cache=_cache, cost_sink=cost_sink)
-            if repaired:
-                research_dossier = repaired["dossier"]
-                _claims_for_roles = _spine_claims(research_dossier)
-                # Preserve the engine and event text. New citations must support the same
-                # facts before any narration is purchased; there is no replacement plan.
-                prepared = _planning.prepare(
-                    repaired["beats"], sheet_engine_id, _claims_for_roles,
-                    _lr_claims_by_case(research_dossier), question=question,
-                    cost_sink=cost_sink, cache=_cache)
-                cost += repaired["cost_usd"] + prepared["cost_usd"]
-                _spine, _sb = prepared["compiled"], prepared["beats"]
-                print(_sfm.spine_summary(_sb, _spine))
-                if _runtime and not _spine["passed"]:
-                    _persist_semantic_failure(
-                        output_dir=_runtime.output_dir, stage="story-spine-after-research",
-                        script={"beats": _sb}, research_dossier=research_dossier,
-                        report=_spine, operator_direction=operator_direction)
-        plan["_spine"] = {"compiled": _spine, "beats": _sb}
-        plan["_entailment_cache"] = _cache
-        if not _spine["passed"] and not _diagnostic_render():
-            raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
-                                             spine=_spine, beats=_sb)
-        # These are the narrowed, pruned and re-cited objects that were actually accepted.
-        beats = (_compiler.presentation_beats(_sb, sheet_engine_id)
-                 if _roles.get("compiled") and _spine["passed"] else _sb)
-        for i, beat in enumerate(beats):
-            beat["n"] = i + 1
-            if _illustrated_is_cast_free():
-                beat["human_present"] = False
-                beat["mascot_present"] = False
-                beat["bolt_mode"] = "absent"
-        n_scenes = len(beats)
-        if beats:
-            beats[0]["_story_engine"] = sheet_engine_id
+                    print("  ✗ compile retry still does not compile — failing on the original")
+            # The cold open is checked here, where a miss costs one planner call. Left to the
+            # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
+            _cold_fix = _cold_open_correction(plan, research_dossier)
+            if _cold_fix and _roles.get("compiled"):
+                print("Beat sheet has no usable cold open — re-asking the planner once")
+                _retry_plan, _retry_cost = _ask_planner(_cold_fix)
+                cost += _retry_cost
+                _retry_beats = _beats_of(_retry_plan)
+                _retry_roles = _compiler.compile_roles(
+                    _retry_beats, sheet_engine_id, _claims_for_roles)
+                if _retry_roles.get("passed") and not _cold_open_correction(_retry_plan, research_dossier):
+                    plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                    style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                    throughline = _s(plan.get("throughline")).strip() or throughline
+                    print("  ✓ cold-open retry succeeded")
+                else:
+                    print("  ✗ cold-open retry did not help — keeping the original; the storyboard "
+                          "gate will report it")
             if _roles.get("compiled"):
-                beats[0]["_parallel_cases"] = plan.get("parallel_cases") or []
-        blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
+                prepared = _planning.prepare(
+                    beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
+                    question=question, repair=_repair_incentive_citations, event_repair=event_citation_repair.repair,
+                    cost_sink=cost_sink, cache=_cache)
+                cost += prepared["cost_usd"]
+                _spine = prepared["compiled"]
+                _sb = prepared["beats"]
+            else:
+                # Engines without factual-function compilation keep their existing labelling pass.
+                beats, spine_cost = _assign_causal_spine(
+                    beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
+                    pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
+                cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
+                sheet_engine_id = beats[0].get("_story_engine") or sheet_engine_id
+                _spine_cost = _ledger.StageCostSink(cost_sink, _ledger.BOUNDARY_A)
+                _spine = _sfm.compile_spine(
+                    _spine_beats(beats), _claims_for_roles, _lr_claims_by_case(research_dossier),
+                    cache=_cache, cost_sink=_spine_cost, engine_id=sheet_engine_id)
+                cost += sum(_spine_cost)
+                _sb = _spine["effective_beats"]
+            print(_sfm.spine_summary(_sb, _spine))
+            if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled"):
+                # ONE RE-ASK WITH THE VERDICT QUOTED BACK, before buying more research. The failure
+                # this catches is a citation choice, not a shortage of evidence: the penguin run
+                # (2026-09-25) cited c04 ("no nest materials") for the egg-on-feet hinge while c06
+                # ("incubates on his feet under a brood pouch") sat unused in the same ledger, and
+                # the research repair below cannot fix a wrong citation by adding claims.
+                _spine_correction = (
+                    "\n\nYOUR PREVIOUS BEAT SHEET FAILED THE EVIDENCE CHECK. The report:\n"
+                    + _sfm.spine_summary(_sb, _spine)
+                    # A beat refused for its claim's KIND usually has the right claim sitting one
+                    # row away in the ledger (cane toads, 2026-09-29: c49 mechanism cited, c48
+                    # outcome unused). Name those candidates; the planner still has to cite them.
+                    + _sfm.citation_suggestions(_sb, _spine, _claims_for_roles, sheet_engine_id)
+                    + "\n\nRewrite the sheet so every REQUIRED step's event text asserts only what "
+                    "the claim it cites states, and cite the claim that actually states each "
+                    "detail -- the ledger may hold a better claim than the one you used. Keep the "
+                    "same engine and the same story; change citations and narrow wording, and add "
+                    "no new facts.")
+                print("Spine unsupported — re-asking the planner once with the report quoted back")
+                _retry_plan, _retry_cost = _ask_planner(_spine_correction)
+                cost += _retry_cost
+                _retry_beats = _beats_of(_retry_plan)
+                _retry_roles = _compiler.compile_roles(
+                    _retry_beats, sheet_engine_id, _claims_for_roles)
+                if _retry_roles.get("passed"):
+                    _retry_prepared = _planning.prepare(
+                        _retry_beats, sheet_engine_id, _claims_for_roles,
+                        _lr_claims_by_case(research_dossier), question=question,
+                        repair=_repair_incentive_citations, event_repair=event_citation_repair.repair, cost_sink=cost_sink, cache=_cache)
+                    cost += _retry_prepared["cost_usd"]
+                    if _retry_prepared["compiled"]["passed"]:
+                        plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                        prepared = _retry_prepared
+                        _spine, _sb = _retry_prepared["compiled"], _retry_prepared["beats"]
+                        style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                        throughline = _s(plan.get("throughline")).strip() or throughline
+                        print("  ✓ spine retry succeeded")
+                        print(_sfm.spine_summary(_sb, _spine))
+                    else:
+                        print("  ✗ spine retry still unsupported — trying research repair on the original")
+                        # The retry's own verdict is the only record of what the planner changed and
+                        # why that was not enough; without it every failed re-ask reads the same.
+                        print("  retry report:\n" + _sfm.spine_summary(
+                            _retry_prepared["beats"], _retry_prepared["compiled"]))
+                else:
+                    print("  ✗ spine retry did not compile — trying research repair on the original: "
+                          + "; ".join(_s(i.get("code")) for i in (_retry_roles.get("issues") or [])))
+            if _roles.get("compiled"):
+                _planning.handoff.select(prepared)
+            _failure_summary = _sfm.spine_summary(_sb, _spine)
+            if (not _spine["passed"] and not _diagnostic_render()
+                    and not _engine_switch_attempted and not _approved
+                    # One role miss is commonly a narrow citation gap and belongs to research repair.
+                    # A wrong engine breaks several independent causal functions at once: the stoat
+                    # run rejected both intervention and false_resolution before its mechanism could
+                    # even be supported. Require that stronger signal before changing story shape.
+                    and _failure_summary.count("[ROLE_CONTRACT_FAILED]") >= 2):
+                # A citation re-ask cannot make an event perform a causal function it does not have.
+                # Let the selector choose once more with the failed engine removed, then rebuild the
+                # planner prompt and sheet under that new contract. This is a bounded restart: the
+                # recursive run cannot switch again, and no prose/media has been purchased yet.
+                _switch_costs: list[float] = []
+                try:
+                    _next_engine = _select_story_engine(
+                        question, duration_sec, _switch_costs,
+                        research_dossier=research_dossier,
+                        excluded_engines=(sheet_engine_id,), failure_report=_failure_summary)
+                except ValueError:
+                    _next_engine = ""
+                cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(_switch_costs),
+                                "engine switch after role-contract failure")
+                if _next_engine and _next_engine != sheet_engine_id:
+                    print(f"[engine] role contract rejected {sheet_engine_id}; rebuilding the sheet "
+                          f"once with {_next_engine}")
+                    _switched = _generate_script_chunked(
+                        question, duration_sec, style, image_guidance, n_scenes, series,
+                        improve_note, operator_direction, story_format, research_dossier,
+                        causal_lane, adherence, _next_engine, cost_sink,
+                        _engine_switch_attempted=True)
+                    _switched["_script_cost_usd"] = round(
+                        float(_switched.get("_script_cost_usd") or 0.0) + cost, 6)
+                    _switched["_engine_switched_from"] = sheet_engine_id
+                    return _switched
+            if not _spine["passed"] and not _diagnostic_render():
+                from durable_execution import current as _current_runtime
+                import research_coverage
+                _runtime = _current_runtime()
+                if _runtime:
+                    _persist_semantic_failure(
+                        output_dir=_runtime.output_dir, stage="story-spine",
+                        script={"beats": _roles.get("beats") or beats},
+                        research_dossier=research_dossier, report=_spine,
+                        operator_direction=operator_direction)
+                repaired = research_coverage.repair_sheet(
+                    question, _roles.get("beats") or beats, _spine, research_dossier or {},
+                    generate=generate_research_dossier, cache=_cache, cost_sink=cost_sink)
+                if repaired:
+                    research_dossier = repaired["dossier"]
+                    _claims_for_roles = _spine_claims(research_dossier)
+                    # Preserve the engine and event text. New citations must support the same
+                    # facts before any narration is purchased; there is no replacement plan.
+                    prepared = _planning.prepare(
+                        repaired["beats"], sheet_engine_id, _claims_for_roles,
+                        _lr_claims_by_case(research_dossier), question=question,
+                        cost_sink=cost_sink, cache=_cache)
+                    cost += repaired["cost_usd"] + prepared["cost_usd"]
+                    _spine, _sb = prepared["compiled"], prepared["beats"]
+                    print(_sfm.spine_summary(_sb, _spine))
+                    if _runtime and not _spine["passed"]:
+                        _persist_semantic_failure(
+                            output_dir=_runtime.output_dir, stage="story-spine-after-research",
+                            script={"beats": _sb}, research_dossier=research_dossier,
+                            report=_spine, operator_direction=operator_direction)
+            if _roles.get("compiled"):
+                _planning.handoff.select(prepared)
+            plan["_spine"] = {"compiled": _spine, "beats": _sb}
+            plan["_entailment_cache"] = _cache
+            if not _spine["passed"] and not _diagnostic_render():
+                raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
+                                                 spine=_spine, beats=_sb)
+            # These are the narrowed, pruned and re-cited objects that were actually accepted.
+            beats = (_compiler.presentation_beats(_sb, sheet_engine_id)
+                     if _roles.get("compiled") and _spine["passed"] else _sb)
+            for i, beat in enumerate(beats):
+                beat["n"] = i + 1
+                if _illustrated_is_cast_free():
+                    beat["human_present"] = False
+                    beat["mascot_present"] = False
+                    beat["bolt_mode"] = "absent"
+            n_scenes = len(beats)
+            if beats:
+                beats[0]["_story_engine"] = sheet_engine_id
+                if _roles.get("compiled"):
+                    beats[0]["_parallel_cases"] = plan.get("parallel_cases") or []
+            blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
+        script_stages.save("accepted-plan", _plan_inputs, {
+            "plan": plan,
+            "beats": beats,
+            "cost": cost,
+            "style_mode": style_mode,
+            "throughline": throughline,
+            "sheet_engine_id": sheet_engine_id,
+            "blueprint_block": blueprint_block,
+            "n_scenes": n_scenes,
+            "research_dossier": research_dossier,
+            "roles": _roles if causal_lane else {},
+        })
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -4248,6 +4294,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # rather than relabel. Asking once more, with the count and the reason spelled out, is cheaper
     # than a whole new draft; a second miss still refuses.
     count_retry_at, count_note = None, ""
+    _expansion_inputs = copy.deepcopy({"plan": _plan_inputs, "beats": beats, "format": effective_story_format})
+    _expansion_saved = script_stages.load("expansion-progress", _expansion_inputs)
+    if _expansion_saved is not None:
+        all_scenes, bi, cost = (_expansion_saved[k] for k in ("scenes", "next_batch", "cost"))
+        count_retry_at = _expansion_saved["count_retry_at"]
+        count_note = _expansion_saved["count_note"]
+    def _save_expansion():
+        script_stages.save("expansion-progress", _expansion_inputs,
+            {"scenes": all_scenes, "next_batch": bi, "cost": cost,
+             "count_retry_at": count_retry_at, "count_note": count_note})
     while bi < n_scenes:
         batch = beats[bi:bi + per_batch]
         lo, hi = batch[0]["n"], batch[-1]["n"]
@@ -4345,6 +4401,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + 'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
+            + (script_cadence.BRIEF if causal_lane else "")
             + _cadence_rule_block(effective_story_format)
             + opening_direction
             + ending_direction
@@ -4383,6 +4440,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                               f"still its own scene. The previous reply returned {returned}.")
                 print(f"[script] expansion returned {returned} scenes for {len(batch)} beats "
                       f"{lo}-{hi}; asking once more for the exact count")
+                _save_expansion()
                 continue
             raise ValueError(f"Scene expansion returned {returned} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
@@ -4504,6 +4562,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             s["evidence_id"] = beat_evidence
             all_scenes.append(s)
         bi += per_batch
+        _save_expansion()
 
     # 3) STATE-ONCE dedup — count-preserving rewrite of any line that still repeats.
     # OFF on a sourced script, and now for a measured reason rather than only a structural one.
@@ -4950,6 +5009,7 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
     return result
 
 
+@script_stages.cached("research", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL})
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None, evidence_gaps: list | None = None,
                               duration_sec: float = 90.0) -> dict:
@@ -5356,6 +5416,8 @@ _FACTCHECK_SYSTEM = (
 )
 
 
+@script_stages.cached("factcheck", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL},
+                      cache_if=lambda result: not any(str(n).startswith("Fact-check unavailable") for n in result[1]))
 def factcheck_script(script: dict, question: str, research_dossier: dict | None = None) -> tuple[dict, list, float]:
     """Verify narration factual accuracy via a second model pass. Returns (script, notes, cost).
 
@@ -5413,7 +5475,7 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
             script["title"] = new_title.strip()
         return script, notes, round(cost + sum(reconciliation_costs), 4)
     except Exception:
-        return script, [], round(cost + sum(reconciliation_costs), 4)
+        return script, ["Fact-check unavailable: no completed factual review"], round(cost + sum(reconciliation_costs), 4)
 
 
 _CLAIM_REPAIR_SYSTEM = (
@@ -10136,8 +10198,9 @@ _SHORT_GATE_FLOOR    = int(os.environ.get("SHORT_GATE_FLOOR", "64"))      # belo
 _SCRIPT_GRADE_SYSTEM = (
     "You are a brutal YouTube retention editor grading an explainer's NARRATION (the spoken track) "
     "on whether a viewer will STAY and want more. Score 0-100 on five axes:\n"
-    "- hook: do the first 1-2 lines hit a concrete gut-punch/stake within ~10s AND leave an OPEN "
-    "LOOP (a dangling mystery), instead of a flat assertion or slow setup?\n"
+    "- hook: does the opening quickly establish a concrete subject, recognizable situation and "
+    "earned curiosity, then reveal why the ordinary expectation is wrong? A quiet, specific setup "
+    "can work; generic throat-clearing or withholding the subject cannot.\n"
     "- story: does the MIDDLE escalate (each beat adds a new stake/complication/clue) and KEEP THE "
     "VIEWER GUESSING (the answer stays genuinely uncertain), not plateau into a fact-list?\n"
     "- ending: does the climax land as ONE earned payoff and the final line resonate (specific + "
@@ -10162,10 +10225,11 @@ def grade_script(script: dict, cost_sink: list | None = None) -> dict | None:
     sample = full if len(full) <= 12000 else full[:6000] + " […] " + full[-6000:]
     try:
         r = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_GRADE_SYSTEM,
+            model=ANTHROPIC_MODEL, max_tokens=600, system=_SCRIPT_GRADE_SYSTEM + script_cadence.BRIEF,
             messages=[{"role": "user", "content":
                        f'Title: "{_s(script.get("title"))}". Hook: "{_s(script.get("hook"))}".\n'
-                       f'{len(scenes)} scenes. Full narration:\n{sample}'}])
+                       f'{len(scenes)} scenes. Descriptive rhythm metrics (not automatic grades): '
+                       f'{json.dumps(script_cadence.measure(script))}\nFull narration:\n{sample}'}])
         if cost_sink is not None:
             cost_sink.append(_msg_cost(r.usage))
         o, _ = _parse_script_json(r.content[0].text)
@@ -10197,8 +10261,8 @@ _AXIS_FIX = {
                "alive throughout. Touch only the flat lines; leave strong ones UNCHANGED."),
     "repetition": ("Rewrite ONLY lines that re-state a concept an earlier line already covered, so each "
                    "line adds something NEW (state-once). Leave unique lines UNCHANGED."),
-    "cadence": ("Vary sentence length HARD — mix <=5-word punch lines with longer ones, vary how lines "
-                "open (not all 'The'/'They'), and land a genuine question at a turn. Keep the meaning; "
+    "cadence": ("Use natural sentence-length contrast — short emphasis with flowing causal sentences; vary how lines "
+                "open (not all 'The'/'They'). Ask questions only where the story earns them. Keep the meaning; "
                 "only change rhythm/wording."),
 }
 
@@ -10322,7 +10386,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
             inspect.getsource(fn) for fn in (_generate_script_chunked, _assign_causal_spine))
     except Exception:
         prompt_source = "unavailable"
-    claims = ",".join(sorted(_s(c.get("claim_id")) for c in (research_dossier or {}).get("claims") or []))
+    claims = script_stages.digest(research_dossier or {})
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
         _s(operator_direction), claims, prompt_source, "script_repair_integrity_v1", "retention_polish_v1",
@@ -10358,6 +10422,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -11367,7 +11432,7 @@ def run_explainer_pipeline(
         log(f"Motion treatment: {resolved_motion_mode}")
         if requested_motion_mode != resolved_motion_mode:
             log("Motion provider is not configured; falling back to the stable stills/Ken Burns path.")
-        if resolved_motion_mode != "stills" and not I2V_PROVIDER:
+        if not stop_after_script and resolved_motion_mode != "stills" and not I2V_PROVIDER:
             raise ValueError(
                 "Standard/Full Motion requires I2V_PROVIDER. Configure a motion provider or choose Stills.")
     # Declared at function scope: the block that decides it sits inside the long-form branch, and
@@ -11480,13 +11545,12 @@ def run_explainer_pipeline(
             if illustrated_story_on and os.path.isfile(os.path.join(
                     output_dir, "semantic_failure_illustrated-storyboard.json")):
                 raise ValueError("Saved storyboard recovery could not restore its script") from exc
-            log(f"⚠ Resume checkpoint unreadable ({type(exc).__name__}) — starting fresh")
-            resumed = False
+            raise script_stages.RecoveryError("Saved script checkpoint could not be restored; refusing to regenerate paid work") from exc
 
     # Pre-spend cost guard: refuse absurd jobs BEFORE the (paid) script call.
     rough_scenes = scene_count_for(duration_sec, video_format)
     rough_est = estimate_cost(rough_scenes, host_count=rough_scenes)  # assume all host = upper bound
-    if rough_est > max_cost_usd:
+    if not stop_after_script and rough_est > max_cost_usd:
         raise ValueError(
             f"Estimated cost ~${rough_est:.2f} exceeds the ${max_cost_usd:.2f} cap before "
             f"generation started. Lower duration_sec or raise max_cost_usd."
@@ -11523,6 +11587,9 @@ def run_explainer_pipeline(
             # Everything after this point — fact-check, claim binding, the storyboard, the causal
             # contract, the render — was costing a full research-plus-script-plus-replan cycle to
             # test, and those later stages are where the failures were. Off unless SCRIPT_CACHE=1.
+            if illustrated_story_on and research_dossier:
+                import planning_evidence
+                research_dossier = planning_evidence.prepare(research_dossier, cost_sink=aux_costs)
             script_fingerprint = _script_fingerprint(
                 duration_sec=duration_sec, video_format=video_format, story_format=story_format,
                 causal_lane=illustrated_story_on,
@@ -11565,10 +11632,20 @@ def run_explainer_pipeline(
         # 1b. Fact-check pass — verify the science, correct errors before rendering.
         if fact_check and scenes:
             log("stage:Fact-checking script...")
+            before_factcheck = [_s(sc.get("narration")) for sc in scenes]
             script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
+            after_factcheck = [_s(sc.get("narration")) for sc in script.get("scenes") or []]
+            script["_factcheck_review"] = {
+                "status": ("unavailable" if any(n.startswith("Fact-check unavailable") for n in fc_notes)
+                           else "rejected" if any(n.startswith("Fact-check repair rejected") for n in fc_notes)
+                           else "complete"),
+                "before_sha256": script_stages.digest(before_factcheck),
+                "after_sha256": script_stages.digest(after_factcheck), "notes": fc_notes}
+
             script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
             if fc_notes:
-                log(f"Fact-check: {len(fc_notes)} correction(s) applied")
+                changed = sum(a != b for a, b in zip(before_factcheck, after_factcheck))
+                log(f"Fact-check: {script['_factcheck_review']['status']} — {changed} narration line(s) changed")
                 for nft in fc_notes[:6]:
                     log(f"  • {nft}")
             else:
@@ -11736,14 +11813,8 @@ def run_explainer_pipeline(
         # ATOMICALLY (tmp + os.replace): a SIGTERM mid-dump (RELOAD=1 kills the worker on any .py
         # save) would otherwise truncate _state.json → on resume json.load raises → resumed=False →
         # the whole paid script+gate is regenerated, defeating the checkpoint.
-        try:
-            _tmp = state_path + ".tmp"
-            with open(_tmp, "w") as _sf:
-                json.dump({"script": script, "style_mode": style_mode,
-                           "short_grade": short_grade, "video_format": video_format}, _sf)
-            os.replace(_tmp, state_path)
-        except OSError:
-            pass
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-claim-repairs-complete")
 
     # Runtime is a pre-spend contract. Fit/reject the final fact-checked narration now, before
     # any TTS or image provider call. Re-check resumed checkpoints too so an older overlong plan
@@ -11796,14 +11867,8 @@ def run_explainer_pipeline(
                 "Runtime fit broke the sourced claim joins before TTS/image spend: "
                 + "; ".join(item["message"] for item in claim_validation.get("errors", [])[:6])
             )
-        try:
-            _tmp = state_path + ".tmp"
-            with open(_tmp, "w") as _sf:
-                json.dump({"script": script, "style_mode": style_mode,
-                           "short_grade": short_grade, "video_format": video_format}, _sf)
-            os.replace(_tmp, state_path)
-        except OSError:
-            pass
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-runtime-complete")
         _rp = script.get("_runtime_plan") or {}
         # READ THE VERDICT, do not assert it. This line printed PASS unconditionally from the
         # plan's numbers while plan_runtime's own `passed` field went unread anywhere in the
@@ -11872,6 +11937,9 @@ def run_explainer_pipeline(
                 "— this render is DIAGNOSTIC ONLY and must not be published")
             for error in storyboard_errors[:6]:
                 log(f"  ✗ [STORYBOARD, ILLUSTRATED_STORYBOARD_HARD=0] {error}")
+        # Preserve an accepted technical repair before buying or running final review.
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-technical-repairs-complete")
         # Grade the words AFTER factual and timing repairs. Sourced scripts cannot use the
         # unsourced whole-track revision above; this bounded editor revalidates every change.
         if research_dossier:
@@ -11910,14 +11978,8 @@ def run_explainer_pipeline(
         log("Illustrated storyboard: PASS — %d beats across %d recurring locations"
             % (len(storyboard.get("beats") or []),
                len((storyboard.get("visual_bible") or {}).get("locations") or [])))
-        try:
-            temporary_state = state_path + ".tmp"
-            with open(temporary_state, "w", encoding="utf-8") as handle:
-                json.dump({"script": script, "style_mode": style_mode,
-                           "short_grade": short_grade, "video_format": video_format}, handle)
-            os.replace(temporary_state, state_path)
-        except OSError:
-            pass
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-editorial-complete")
 
     # Objective long-form gate: inspect the persisted story roles and narrative-debt ledger before
     # any image/TTS spend. The planner already received one automatic retry in
@@ -11936,7 +11998,7 @@ def run_explainer_pipeline(
         if not retention_validation.get("passed"):
             for issue in (retention_validation.get("errors") or [])[:6]:
                 log(f"  ✗ [{issue.get('code')}] {issue.get('message')}")
-            if _longform_retention_hard() and not stable_standard_longform:
+            if stop_after_script or (_longform_retention_hard() and not stable_standard_longform):
                 raise ValueError(
                     "Long-form retention contract failed before image/TTS spend: "
                     + "; ".join(x.get("message", "") for x in retention_validation.get("errors", [])[:6])
@@ -12012,6 +12074,50 @@ def run_explainer_pipeline(
         log("Evidence compiler: PASS — %(planned_state_count)d states, "
             "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
             "%(exact_reuse_count)d exact callback reuse" % counts)
+
+    if stop_after_script and illustrated_story_on:
+        import script_readiness
+        readiness = script_readiness.evaluate(
+            script, research_dossier,
+            claims=_validate_claims(script, research_dossier, aux_costs),
+            structure=validate_longform_story(script, question),
+            storyboard=illustrated_story_lane.build_storyboard(copy.deepcopy(script), question)["validation"],
+            runtime=plan_runtime(script.get("scenes") or [], duration_sec),
+            duplicates=duplicate_narration(script.get("scenes") or []),
+            review=script.get("_final_retention_review"), runtime_hard=_runtime_is_enforced(),
+            factcheck_required=fact_check)
+        script["_script_readiness"] = readiness
+        _write_generation_manifest(os.path.join(output_dir, "script_readiness.json"), readiness)
+        if not readiness["passed"]:
+            _persist_semantic_failure(output_dir=output_dir, stage="script-readiness",
+                script=script, research_dossier=research_dossier, report=readiness,
+                operator_direction=operator_direction, log=log)
+            raise ValueError("SCRIPT_NOT_READY: " + ", ".join(readiness["errors"]))
+    if stop_after_script:
+        # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the
+        # narration where an editor can read it and stop; the approved rerun reuses the cache.
+        _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                video_format, label="script-awaiting-approval")
+        approval_path = os.path.join(output_dir, "script_for_approval.md")
+        with open(approval_path, "w", encoding="utf-8") as handle:
+            handle.write(f"# {_s(script.get('title'))}\n\n")
+            handle.write(f"Hook: {_s(script.get('hook'))}\n\n")
+            total = 0
+            for index, scene in enumerate(script.get("scenes") or [], 1):
+                narration = _s(scene.get("narration"))
+                total += len(narration.split())
+                role = _s(scene.get("causal_role") or scene.get("role"))
+                handle.write(f"{index}. [{role}] ({len(narration.split())}w) {narration}\n\n")
+            handle.write(f"Total words: {total}\n")
+            grade = script.get("_grade") or {}
+            if grade:
+                handle.write(f"Script grade: {grade.get('overall')}/100 "
+                             f"{json.dumps(grade.get('scores') or {})}\n")
+        log(f"Script written for approval: {approval_path}")
+        raise ScriptApprovalRequired(
+            "Script validation completed and is awaiting operator approval; see the readiness report for warnings "
+            "(stop_after_script). Rerun the same request without stop_after_script to render; "
+            "SCRIPT_CACHE=1 reuses this exact script.")
 
     mascot_ok = (not cast_free) and os.path.exists(MASCOT_REF)
     human_ok = (not cast_free) and os.path.exists(HUMAN_REF)
@@ -12181,31 +12287,6 @@ def run_explainer_pipeline(
     #    Image fails  → local fallback frame (job continues).
     #    Moderation   → one safe-prompt retry, else fallback frame.
     #    Audio fails  → scene is dropped (narration is the backbone).
-    if stop_after_script:
-        # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the
-        # narration where an editor can read it and stop; the approved rerun reuses the cache.
-        _save_script_checkpoint(state_path, script, style_mode, short_grade,
-                                video_format, label="script-awaiting-approval")
-        approval_path = os.path.join(output_dir, "script_for_approval.md")
-        with open(approval_path, "w", encoding="utf-8") as handle:
-            handle.write(f"# {_s(script.get('title'))}\n\n")
-            handle.write(f"Hook: {_s(script.get('hook'))}\n\n")
-            total = 0
-            for index, scene in enumerate(script.get("scenes") or [], 1):
-                narration = _s(scene.get("narration"))
-                total += len(narration.split())
-                role = _s(scene.get("causal_role") or scene.get("role"))
-                handle.write(f"{index}. [{role}] ({len(narration.split())}w) {narration}\n\n")
-            handle.write(f"Total words: {total}\n")
-            grade = script.get("_grade") or {}
-            if grade:
-                handle.write(f"Script grade: {grade.get('overall')}/100 "
-                             f"{json.dumps(grade.get('scores') or {})}\n")
-        log(f"Script written for approval: {approval_path}")
-        raise ScriptApprovalRequired(
-            "Script passed every pre-spend gate and is awaiting operator approval "
-            "(stop_after_script). Rerun the same request without stop_after_script to render; "
-            "SCRIPT_CACHE=1 reuses this exact script.")
     log("stage:Preparing narration and visual assets...")
     _preflight_verifier_credit(log)
 

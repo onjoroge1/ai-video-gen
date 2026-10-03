@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 import storyboard_repair as repair
+import script_cadence
 from script_repair import broken_repair
 
 VERSION = "retention_polish_v1"
@@ -89,7 +90,8 @@ def prompt(script, grade, target, floor):
         "its FIRST sentence is the new hook. No new scene, fact, date, actor, or statistic. "
         "No scene may grow by more than 8 words; total length must stay within 85%-105%. "
         "Return complete spoken sentences, not clipped fragments or editorial instructions.\n"
-        + json.dumps({"grade": grade, "targets": {"overall": target, "hook": target,
+        + script_cadence.BRIEF
+        + json.dumps({"cadence": script_cadence.measure(script), "grade": grade, "targets": {"overall": target, "hook": target,
             "story": target, "other_axes": floor}, "hook": script.get("hook"),
             "cold_open": script.get("_cold_open"), "contract": script.get("_story_contract"),
             "scenes": [{k: s.get(k) for k in ("scene_id", "narration", "causal_role", "event",
@@ -105,7 +107,8 @@ def run(script, question, dossier, output_dir, cost_sink, log):
     path = Path(output_dir) / FILENAME
     saved = json.loads(path.read_text()) if path.exists() else None
     context_hash = repair.digest({"question": question, "dossier": dossier, "version": VERSION,
-                                  "target": ep._SCRIPT_GATE_PASS, "floor": ep._SCRIPT_GATE_FLOOR})
+                                  "target": ep._SCRIPT_GATE_PASS, "floor": ep._SCRIPT_GATE_FLOOR,
+                                  "cadence_policy": script_cadence.VERSION})
     if saved:
         if saved.get("context_hash") != context_hash:
             raise ValueError("Saved editorial pass belongs to different evidence or targets")
@@ -194,8 +197,17 @@ def run(script, question, dossier, output_dir, cost_sink, log):
         if not audit["accepted"]:
             break  # no improvement: stop spending instead of re-rolling
     errors = target_errors(grade, target, floor)
+    # Baselines face the same structural checks as edited candidates. A high score
+    # must not turn an unchecked baseline into a ready script.
+    if not ep.validate_longform_story(best, question).get("passed"):
+        errors.append("STRUCTURE: final narration violates the long-form contract")
+    if not lane.build_storyboard(deepcopy(best), question)["validation"].get("passed"):
+        errors.append("STORYBOARD: final narration violates the illustrated contract")
+    if ep.duplicate_narration(best.get("scenes") or []):
+        errors.append("DUPLICATES: final narration repeats a scene")
     report = {"version": VERSION, "passed": not errors, "errors": errors, "grade": grade,
               "narration_sha256": repair.story_identity(best), "attempts": len(record["attempts"])}
+    best["_cadence_review"] = script_cadence.measure(best)
     best["_grade"] = grade or {"status": "UNSCORED"}
     best["_final_retention_review"] = report
     record.update(status="complete", script=best, report=report)

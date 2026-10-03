@@ -4,8 +4,8 @@
 description: "ReelForge targeted editor, judged by the defect detector"
 
 providers:
-  - id: openai:chat:gpt-5.6-luna
-    label: luna
+  - id: file://production_provider.py
+    label: production-script-provider
 
 prompts:
   - id: file://prompts.py:editor

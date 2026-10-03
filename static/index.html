@@ -3542,6 +3542,7 @@
       const words = scenes.reduce((count, scene) =>
         count + String(scene.narration || '').trim().split(/\s+/).filter(Boolean).length, 0);
       const grade = script._grade || {};
+      const readiness = script._script_readiness;
       const summary = document.getElementById('expl-script-summary');
       summary.style.display = 'block';
       summary.innerHTML = `
@@ -3550,6 +3551,7 @@
         <span class="tag">${scenes.length} scenes</span>
         <span class="tag">${words} words</span>
         ${grade.overall == null ? '' : `<span class="tag">Script grade ${escHtml(String(grade.overall))}/100</span>`}
+        ${readiness ? `<div class="field-hint">Script checks: ${readiness.passed ? 'passed' : 'blocked'}${(readiness.warnings || []).map(w => `<div>${escHtml(w)}</div>`).join('')}</div>` : ''}
         ${approval ? '<div class="field-hint" style="margin-top:10px; color:var(--green);">Ready for editorial review. Voice, images, motion, and rendering were not started.</div>' : ''}`;
       const body = document.getElementById('expl-script-body');
       body.innerHTML = '';
