@@ -1,0 +1,22 @@
+description: "Script meaning and continuity: failures from dec618fc plus safe counterexamples"
+providers:
+  - id: file://production_provider.py
+    label: production-script-provider
+prompts:
+  - id: file://prompts.py:integrity
+    label: integrity
+defaultTest:
+  assert:
+    - type: is-json
+    - type: python
+      value: file://asserts.py:integrity_findings
+tests:
+  - vars: {case: denominator_changed}
+  - vars: {case: denominator_preserved}
+  - vars: {case: causal_reversal}
+  - vars: {case: causal_direction_preserved}
+  - vars: {case: missing_transition}
+  - vars: {case: transition_preserved}
+  - vars: {case: orphaned_reference}
+  - vars: {case: reference_preserved}
+  - vars: {case: safe_omission}

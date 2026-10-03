@@ -3794,7 +3794,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
                     "model": ANTHROPIC_MODEL, "evidence": research_dossier,
-                    "policy": "script_flow_v3", "diagnostic": _diagnostic_render()}
+                    "policy": "script_flow_v4", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
     if _saved_plan is not None:
@@ -4335,6 +4335,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "and a timescale nobody researched. A beat whose event.text is empty asserts no "
             "history: write it as pure connective or rhetoric and it needs no evidence at all."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
+        from claim_entailment import MEANING_RULES
+        opening_direction += "\n" + MEANING_RULES + (
+            " Introduce a new comparison's place explicitly in the spoken narration. "
+            "Keep pronoun antecedents audible, especially after lists of different species. "
+            "Discourse and closing lessons must not reverse the factual causal direction.")
         _cold_text = _plan_cold_open(plan)[0] if causal_lane else ""
         if causal_lane and is_first and _cold_text:
             opening_direction += (
@@ -5513,6 +5518,12 @@ _CLAIM_REPAIR_SYSTEM = (
     "earlier', 'years later', 'by then' all assert an interval. Keep only intervals the "
     "event states. Return only JSON."
 )
+from claim_entailment import MEANING_RULES as _SCRIPT_MEANING_RULES
+_CLAIM_REPAIR_SYSTEM += ("\n" + _SCRIPT_MEANING_RULES +
+    " Resolve an ambiguous pronoun by naming its subject from the scene's own event. "
+    "Introduce a comparison's location from that event. Preserve these introductions "
+    "when shortening. A judge's supported_core is a suggestion, not evidence: verify it "
+    "against the event and cited claims before using it.")
 
 
 _ACTOR_NOUNS = (
@@ -5584,7 +5595,6 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
         bound = [_s(ref.get("narration_phrase")) for ref in (scene.get("claim_refs") or [])
                  if isinstance(ref, dict) and _s(ref.get("narration_phrase"))]
         kept = []
-        matched_any = False
         hook_key = re.sub(r"[^a-z0-9]+", " ", _s(script.get("hook")).lower()).strip()
         for sentence_index, sentence in enumerate(sentences):
             offending = any(detail.lower() in sentence.lower() for detail in details)
@@ -5596,8 +5606,6 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
                 re.sub(r"[^a-z0-9]+", " ", sentence.lower()).strip() == hook_key)
             if is_hook:
                 in_binding = True
-            if offending:
-                matched_any = True
             # A clause, not a sentence: "To stretch that fuel, he joins the others in a huddle"
             # overshoots by its purpose clause alone, and dropping the sentence would drop the
             # huddle with it. Cut the quoted span when it is a proper part of the sentence and no
@@ -5614,27 +5622,34 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
                 log(f"  ✂ scene {index}: dropped {sentence!r} (unsupported: {', '.join(details)})")
                 continue
             kept.append(sentence)
-        if not matched_any and len(sentences) >= 2 and bound:
-            # The judge paraphrased the overshoot ("the father was left guarding the egg") and
-            # no sentence contains its words. The bound sentences are the ones the ledger relies
-            # on; an unbound sentence in a scene the judge refused is the only thing that can be
-            # carrying the overshoot, so drop those and keep at least one sentence.
-            unbound = [s for s in sentences
-                       if not any(s in phrase or phrase in s for phrase in bound)
-                       and not (hook_key and re.sub(r"[^a-z0-9]+", " ", s.lower()).strip() == hook_key)]
-            if unbound and len(unbound) < len(sentences):
-                # One sentence per round, the one sharing most words with the judge's note; the
-                # caller re-judges and comes back if more must go. Dropping every unbound
-                # sentence at once gutted the early-hatch beat (job 2e2c7498).
-                note_words = set(re.findall(r"[a-z]{3,}", " ".join(details).lower()))
-                target = max(unbound, key=lambda s: len(
-                    note_words & set(re.findall(r"[a-z]{3,}", s.lower()))))
-                dropped += 1
-                log(f"  ✂ scene {index}: dropped unbound {target!r} (judge: {', '.join(details)})")
-                kept = [s for s in sentences if s is not target]
+        # No guessing from word overlap when the judge did not identify an exact span.
+        # An unbound line can introduce the next scene's subject or location. Deleting
+        # it blindly orphaned "It survives" and removed Guam from job dec618fc.
         if kept and kept != sentences:
             scene["narration"] = " ".join(kept)
     return dropped
+
+
+def _validated_claim_trim(script, dossier, report, cost_sink, log):
+    """Try a trim transactionally; rejected prose never replaces the saved draft."""
+    from copy import deepcopy
+    from script_integrity import improves
+    if report.get("retryable") or any(e.get("retryable") for e in report.get("errors", [])):
+        return script, report, 0
+    candidate = deepcopy(script)
+    pending_logs = []
+    count = _trim_unsupported_sentences(candidate, report, pending_logs.append)
+    if not count:
+        return script, report, 0
+    rederive_narration_bindings(candidate, pending_logs.append, dossier)
+    reviewed = _validate_claims(candidate, dossier, cost_sink)
+    if not improves(report, reviewed):
+        log("Claim ledger trim rejected: no improvement or new integrity failure; keeping prior draft")
+        return script, report, 0
+    for message in pending_logs:
+        log(message)
+    candidate["_claim_validation"] = reviewed
+    return candidate, reviewed, count
 
 
 def _clip_unsupported_clause(sentence: str, details: list[str], bound: list[str]) -> str:
@@ -5872,6 +5887,8 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     Research/dossier failures are never repairable here. The returned draft still has to pass the
     deterministic ledger; this function cannot turn an invalid result into a pass by itself.
     """
+    if report.get("retryable") or any(e.get("retryable") for e in report.get("errors", [])):
+        return script, 0.0  # an unavailable judge is not an instruction to rewrite
     repairable = {
         "claim_phrase_not_in_narration", "claim_assertion_mismatch", "unhedged_speculation",
         "scope_inflation", "timescale_contradiction", "unbound_factual_scene",
@@ -5881,6 +5898,8 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # stopped at and the exact details it added -- and until now nothing consumed either. A
         # render was refused for "Rows of pens" against an event that says people bred rats.
         "NARRATION_EXCEEDS_EVENT",
+        "METRIC_MEANING_CHANGED", "CAUSAL_DIRECTION_REVERSED",
+        "UNRESOLVED_REFERENCE", "MISSING_CASE_TRANSITION",
         # The hook overshoots the same way and is repaired the same way. It is addressed to the
         # scene it opens, because that is where the narrator reads it and where the trim has to
         # land; `script["hook"]` is re-derived from the repaired sentence below.
@@ -10089,7 +10108,14 @@ def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None)
     if not script_has_events(script):
         return validate_claim_joins(script, dossier)
     cache = script.setdefault("_entailment_cache", {})
-    return validate_story_fact_model(script, dossier, cache=cache, cost_sink=cost_sink)
+    report = validate_story_fact_model(script, dossier, cache=cache, cost_sink=cost_sink)
+    import script_integrity
+    integrity = script_integrity.review(script, dossier, cache=cache, cost_sink=cost_sink)
+    script["_script_integrity"] = integrity
+    report["errors"] = list(report.get("errors") or []) + integrity["errors"]
+    report["passed"] = bool(report.get("passed")) and integrity["passed"]
+    report["retryable"] = bool(report.get("retryable")) or integrity["retryable"]
+    return report
 
 
 def _ordinary_research_mode(stable_standard_longform: bool,
@@ -10400,7 +10426,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     claims = script_stages.digest(research_dossier or {})
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
-        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v1", "retention_polish_v1",
+        _s(operator_direction), claims, prompt_source, "script_repair_integrity_v2", "retention_polish_v1",
     ]).encode()).hexdigest()
 
 
@@ -10433,7 +10459,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 2})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 3})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -11724,9 +11750,10 @@ def run_explainer_pipeline(
                 rederive_narration_bindings(repaired_script, log, research_dossier)
                 repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
                 _after_count = len(repaired_validation.get("errors") or [])
-                if not repaired_validation.get("passed") and _after_count >= _before_count:
+                from script_integrity import improves
+                if not improves(claim_validation, repaired_validation):
                     script["_script_cost_usd"] = _paid_cost
-                    log("Claim ledger repair rejected: failures did not decrease; keeping prior draft")
+                    log("Claim ledger repair rejected: no improvement or new integrity failure; keeping prior draft")
                     break
                 script = repaired_script
                 script["_script_cost_usd"] = _paid_cost
@@ -11744,11 +11771,10 @@ def run_explainer_pipeline(
                 # Up to three rounds: a trim can surface a failure the judge had not yet reached
                 # (job 2e2c7498: one round left "with Dad" standing after three sentences fell).
                 for _trim_round in range(3):
-                    trimmed = _trim_unsupported_sentences(script, claim_validation, log)
+                    script, claim_validation, trimmed = _validated_claim_trim(
+                        script, research_dossier, claim_validation, aux_costs, log)
                     if not trimmed:
                         break
-                    rederive_narration_bindings(script, log, research_dossier)
-                    claim_validation = _validate_claims(script, research_dossier, aux_costs)
                     script["_claim_validation"] = claim_validation
                     scenes = script.get("scenes", [])
                     log(f"Claim ledger trim {_trim_round + 1}: dropped {trimmed} unsupported "

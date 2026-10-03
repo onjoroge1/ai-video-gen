@@ -42,3 +42,12 @@ def editor(context: dict) -> list[dict]:
     payload = se.build_payload(script, script.get("_research_dossier"), defects)
     return [{"role": "system", "content": se._SYSTEM},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+
+
+def integrity(context: dict) -> list[dict]:
+    import script_integrity as si
+    import claim_entailment as ce
+    case = _fixture("script_integrity.json")[context["vars"]["case"]]
+    payload = si._inputs({"scenes": case["scenes"]}, {"claims": []})
+    return [{"role": "system", "content": si.SYSTEM + "\n" + ce.MEANING_RULES},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]

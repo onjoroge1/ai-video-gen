@@ -751,6 +751,7 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         lead = _text(beats[0].get("narration"))
         if lead.casefold().startswith(cold_spoken.casefold()):
             beats[0] = dict(beats[0], narration=lead[len(cold_spoken):].lstrip(" .,;:—-").strip())
+    if beats:
         # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
         # opening ends on the problem the video resolves ("But if the chick hatches before she
         # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
