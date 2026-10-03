@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v4"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v5"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -104,7 +104,14 @@ def _normalise(reply: Any, fallback_reason: str) -> dict:
     disclaims_failure = any(re.search(
         r"\b(?:not flagged|not itself an added fact|not an unsupported (?:fact|detail)|"
         r"should not be flagged)\b", detail, re.I) for detail in details)
-    if (verdict == "entailed" and details) or disclaims_failure:
+    core = _text(reply.get("supported_core")).casefold()
+    # A quoted clause cannot simultaneously be the supported core and the detail
+    # to remove. Treat that response as indeterminate, never as permission to trim.
+    contradictory_quote = any(
+        len(span.split()) >= 3 and span.casefold() in core
+        and not re.search(r"\b(?:not|never|no|without)\b", core)
+        for detail in details for span in re.findall(r"['\"‘“]([^'\"’”]+)['\"’”]", detail))
+    if (verdict == "entailed" and details) or disclaims_failure or contradictory_quote:
         return {"verdict": "invalid_response", "passed": False, "supported_core": "",
                 "unsupported_details": [], "reason": "internally inconsistent judge response"}
     # `partially_entailed` is the most useful state in the system, and reducing it to passed=False
@@ -238,6 +245,8 @@ def _default_judge(payload: dict) -> dict:
                 "passage is marked page_recovered it was matched by word overlap rather than "
                 "quoted by the researcher, so read it especially literally.\n" + _RETURN_SHAPE)
 
+    if payload.get("review_attempt"):
+        body += "\nPrevious response was internally invalid. Re-evaluate independently; bounded review attempt 2."
     response = ep._claude().messages.create(
         model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system + "\n" + MEANING_RULES,
         messages=[{"role": "user", "content": body}])
@@ -273,7 +282,7 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
         # ("[no verdict recorded]" on the reversal, job 7cb4c47b, 2026-09-25) after research and
         # planning were bought. Ask the judge once more before failing closed.
         try:
-            result = _normalise((judge or _default_judge)(payload), fallback_reason)
+            result = _normalise((judge or _default_judge)({**payload, "review_attempt": 2}), fallback_reason)
         except Exception as exc:                   # noqa: BLE001 - second failure fails closed
             result = {"verdict": "unavailable", "passed": False, "supported_core": "",
                       "unsupported_details": [],

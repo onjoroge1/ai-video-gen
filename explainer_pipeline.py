@@ -3795,7 +3795,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
                     "model": ANTHROPIC_MODEL, "evidence": research_dossier,
-                    "policy": "script_flow_v5", "diagnostic": _diagnostic_render()}
+                    "policy": "script_flow_v6", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
     if _saved_plan is not None:
@@ -4326,7 +4326,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "they are prepended once after expansion and budgeted separately."
             " WRITE EACH NARRATION FROM ITS BEAT'S event.text, which is the FACTUAL CEILING for "
             "that beat. Say it however you like — as a scene, a question, a short punch, in your "
-            "own words, with the story's own rhythm. You may not add a fact the event does not "
+            "own words, with the story's own rhythm. Role labels are not evidence: a false_resolution "
+            "may describe a hope or intended task; never say it worked without an observed result "
+            "in the event. Do not manufacture initial success to fit a story arc. You may not add a fact the event does not "
             "contain: no number, date, place, material, quantity, scale, named person, stated "
             "motive or characterisation such as 'secret' or 'overnight' unless the event already "
             "has it. \"Residents raised rats for the bounty\" may become \"Then somebody "
@@ -5403,6 +5405,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
 
 
 _FACTCHECK_SYSTEM = (
+    "Check the supplied validation_findings against each scene event and its cited passages. "
+    "Correct unsupported agency, intentions presented as outcomes, universals and invented details "
+    "as well as numbers. A role such as false_resolution does not establish that a plan worked. "
+    "A title must preserve intentional target versus unintended victim, not merely share nouns. "
+    "Scene events are local factual ceilings; other ledger claims are not permission to expand them. "
     "You are a meticulous science fact-checker. You get a video TITLE and the narration lines of an "
     "explainer video. (1) Correct any factual errors, misleading claims, or oversimplifications in the "
     "narration. PRIORITIZE NUMERIC CLAIMS: extract EVERY number, measurement, record, date and "
@@ -5425,7 +5432,7 @@ _FACTCHECK_SYSTEM = (
 )
 
 
-@script_stages.cached("factcheck", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL},
+@script_stages.cached("factcheck", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 2},
                       cache_if=lambda result: not any(str(n).startswith("Fact-check unavailable") for n in result[1]))
 def factcheck_script(script: dict, question: str, research_dossier: dict | None = None) -> tuple[dict, list, float]:
     """Verify narration factual accuracy via a second model pass. Returns (script, notes, cost).
@@ -5436,6 +5443,13 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
     lines = [s.get("narration", "") for s in scenes]
     if not lines:
         return script, [], 0.0
+    from copy import deepcopy
+    grounded = bool(script.get("_compiled_story") and research_dossier)
+    validation_costs = []
+    working = deepcopy(script)
+    baseline = _validate_claims(working, research_dossier, validation_costs) if grounded else {}
+    if baseline.get("retryable"):
+        return script, ["Fact-check unavailable: evidence review incomplete; narration unchanged"], round(sum(validation_costs), 4)
     payload = {
         "title": _s(script.get("title")) or question,
         "question": question,
@@ -5444,6 +5458,7 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
                     "role": sc.get("causal_role"), "derived": bool(sc.get("derivation"))}
                    for i, sc in enumerate(scenes, 1)],
         "read_only_lead": {"hook": script.get("hook"), "cold_open": script.get("_cold_open")},
+        "validation_findings": baseline.get("errors", []),
         "binding_claim_ledger": claim_context_for_prompt(research_dossier or {}),
         "constraint": (
             "Use the binding ledger. Do not introduce a factual claim absent from it. If a correction "
@@ -5451,7 +5466,7 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
         ),
     }
     cost = 0.0
-    reconciliation_costs = []
+    reconciliation_costs = validation_costs
     try:
         resp = _claude().messages.create(
             model=ANTHROPIC_MODEL,
@@ -5471,25 +5486,39 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
                 or any(not isinstance(new, str) or not new.strip()
                        or (new.strip() != old and broken_repair(new))
                        for old, new in zip(lines, fixed))):
-            return script, ["Fact-check repair rejected: incomplete or malformed narration"], round(cost, 4)
-        if isinstance(fixed, list) and len(fixed) == len(scenes):
-            for sc, new in zip(scenes, fixed):
-                if isinstance(new, str) and new.strip():
-                    sc["narration"] = new.strip()
-        reconcile_factcheck_events(script, lines, data.get("event_updates", []),
+            return script, ["Fact-check repair rejected: incomplete or malformed narration"], round(cost + sum(reconciliation_costs), 4)
+        candidate = deepcopy(working)
+        for sc, new in zip(candidate["scenes"], fixed):
+            sc["narration"] = new.strip()
+        reconcile_factcheck_events(candidate, lines, data.get("event_updates", []),
                                    research_dossier or {}, reconciliation_costs)
         new_title = data.get("title")
         if isinstance(new_title, str) and new_title.strip() and new_title.strip() != _s(script.get("title")):
             notes.append(f'title → "{new_title.strip()}" (subject/accuracy)')
-            script["title"] = new_title.strip()
-        return script, notes, round(cost + sum(reconciliation_costs), 4)
+            candidate["title"] = new_title.strip()
+        if grounded:
+            rederive_narration_bindings(candidate, lambda _: None, research_dossier)
+            reviewed = _validate_claims(candidate, research_dossier, reconciliation_costs)
+            from script_integrity import improves
+            accepted = improves(baseline, reviewed)
+            import script_edit_audit
+            script_edit_audit.record(script, candidate, baseline, reviewed, "factcheck", accepted,
+                                     "validated improvement" if accepted else "no improvement, new integrity failure or unavailable review")
+            if not accepted:
+                return script, ["Fact-check repair rejected: candidate did not improve source/integrity validation"], round(cost + sum(reconciliation_costs), 4)
+            candidate["_claim_validation"] = reviewed
+            if not reviewed.get("passed"):
+                notes.insert(0, "Fact-check incomplete: corrected some findings; source/integrity failures remain")
+        return candidate, notes, round(cost + sum(reconciliation_costs), 4)
     except Exception:
         return script, ["Fact-check unavailable: no completed factual review"], round(cost + sum(reconciliation_costs), 4)
 
 
 _CLAIM_REPAIR_SYSTEM = (
     "You repair source bindings in an already-written factual video script. Change only the "
-    "listed failed scenes. Preserve story role, order, tone, causal meaning and length. Use only "
+    "listed failed scenes. Preserve story role, order, tone, causal meaning and length. "
+    "In scene one, preserve read_only_lead verbatim unless the hook itself is flagged; "
+    "its separate evidence does not expand the body event. An intended result is not observed success. Use only "
     "the supplied claim IDs. Each claim reference's narration_phrase must be the complete exact "
     "sentence it supports. Preserve uncertainty, geographic scope, timescale and negation. Delete "
     "an unsupported assertion rather than inventing evidence. If a factual scene is anaphoric "
@@ -5647,7 +5676,11 @@ def _validated_claim_trim(script, dossier, report, cost_sink, log):
         return script, report, 0
     rederive_narration_bindings(candidate, pending_logs.append, dossier)
     reviewed = _validate_claims(candidate, dossier, cost_sink)
-    if not improves(report, reviewed):
+    accepted = improves(report, reviewed)
+    import script_edit_audit
+    script_edit_audit.record(script, candidate, report, reviewed, "claim-trim", accepted,
+                             "validated improvement" if accepted else "no improvement or new integrity failure")
+    if not accepted:
         log("Claim ledger trim rejected: no improvement or new integrity failure; keeping prior draft")
         return script, report, 0
     for message in pending_logs:
@@ -5942,9 +5975,15 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     for index in indexes:
         refs = event_of(scenes[index - 1])["claim_refs"]
         scene_claim_ids[index] = set(refs) & all_ids if refs else all_ids
+    if 1 in scene_claim_ids:
+        scene_claim_ids[1].update(set(script.get("_cold_open_claim_refs") or []) & all_ids)
+        if any(e.get("code") == "HOOK_EXCEEDS_STORY" for e in errors):
+            scene_claim_ids[1].update(ref for sc in scenes for ref in event_of(sc)["claim_refs"] if ref in all_ids)
     permitted_ids = set().union(*scene_claim_ids.values())
     payload = {
         "operator_direction": operator_direction,
+        "read_only_lead": {"hook": script.get("hook"), "cold_open": script.get("_cold_open"),
+                           "cold_open_claim_refs": script.get("_cold_open_claim_refs", [])},
         "hook_plan_not_evidence": hook_callback.contract(script),
         "read_only_story": ([{"scene": i, "narration": s.get("narration"),
                               "event": event_of(s)} for i, s in enumerate(scenes, 1)]
@@ -10124,6 +10163,18 @@ def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None)
     report["errors"] = list(report.get("errors") or []) + integrity["errors"]
     report["passed"] = bool(report.get("passed")) and integrity["passed"]
     report["retryable"] = bool(report.get("retryable")) or integrity["retryable"]
+    if script.get("_compiled_story") and _s(script.get("title")):
+        import claim_entailment as ce
+        from story_fact_model import event_of
+        story = "\n".join(event_of(s)["text"] for s in script.get("scenes") or [])
+        title_review = ce.narration_fidelity(story, script["title"], cache=cache, cost_sink=cost_sink)
+        if not title_review["passed"]:
+            retryable = ce.is_retryable(title_review)
+            report["errors"].append({"code": "ENTAILMENT_UNAVAILABLE" if retryable else "TITLE_EXCEEDS_STORY",
+                "scene": "title", "message": title_review.get("reason", "Title exceeds the supported story"),
+                "unsupported_details": title_review.get("unsupported_details", []), "retryable": retryable})
+            report["passed"] = False
+            report["retryable"] |= retryable
     return report
 
 
@@ -10469,7 +10520,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 4})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 5})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -11685,6 +11736,7 @@ def run_explainer_pipeline(
             script["_factcheck_review"] = {
                 "status": ("unavailable" if any(n.startswith("Fact-check unavailable") for n in fc_notes)
                            else "rejected" if any(n.startswith("Fact-check repair rejected") for n in fc_notes)
+                           else "incomplete" if any(n.startswith("Fact-check incomplete") for n in fc_notes)
                            else "complete"),
                 "before_sha256": script_stages.digest(before_factcheck),
                 "after_sha256": script_stages.digest(after_factcheck), "notes": fc_notes}
@@ -11761,7 +11813,12 @@ def run_explainer_pipeline(
                 repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
                 _after_count = len(repaired_validation.get("errors") or [])
                 from script_integrity import improves
-                if not improves(claim_validation, repaired_validation):
+                accepted = improves(claim_validation, repaired_validation)
+                import script_edit_audit
+                script_edit_audit.record(script, repaired_script, claim_validation, repaired_validation,
+                                         "claim-repair", accepted, "validated improvement" if accepted
+                                         else "no improvement or new integrity failure")
+                if not accepted:
                     script["_script_cost_usd"] = _paid_cost
                     log("Claim ledger repair rejected: no improvement or new integrity failure; keeping prior draft")
                     break

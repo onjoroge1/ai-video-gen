@@ -12,7 +12,7 @@ import claim_entailment as ce
 from script_stages import digest
 from story_fact_model import event_of
 
-VERSION = "script_integrity_v2"
+VERSION = "script_integrity_v3"
 CODES = {"METRIC_MEANING_CHANGED", "CAUSAL_DIRECTION_REVERSED",
          "UNRESOLVED_REFERENCE", "MISSING_CASE_TRANSITION", "HOOK_PROMISE_UNPAID"}
 
@@ -114,9 +114,10 @@ def review(script, dossier, *, judge=None, cache=None, cost_sink=None):
     if not payload["scenes"]:
         return {"version": VERSION, "passed": True, "errors": [], "retryable": False}
     # At most one retry for an unavailable/malformed review. No free-form JSON repair.
-    for _ in range(2):
+    for attempt in range(2):
+        request = payload if attempt == 0 else {**payload, "review_attempt": 2}
         try:
-            reply = judge(payload) if judge else _judge(payload, cost_sink)
+            reply = judge(request) if judge else _judge(request, cost_sink)
             result = _normalise(reply, payload)
         except Exception:
             continue
