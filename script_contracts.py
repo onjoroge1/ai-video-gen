@@ -15,7 +15,7 @@ def acceptance_policy():
     import hook_callback
     import script_cadence
     import script_integrity
-    return {"version": "script_acceptance_v2", **model_identity(),
+    return {"version": "script_acceptance_v3", **model_identity(),
             "entailment": claim_entailment.ENTAILMENT_CONTRACT_VERSION,
             "integrity": script_integrity.VERSION, "cadence": script_cadence.VERSION,
             "hook": hook_callback.VERSION, "grade_target": ep._SCRIPT_GATE_PASS,

@@ -33,6 +33,7 @@ py-modules = [
     "storyboard_repair",
     "retention_polish",
     "script_stages",
+    "scene_expansion",
     "script_cadence",
     "script_readiness",
     "script_contracts",

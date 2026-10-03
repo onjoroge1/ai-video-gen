@@ -12,7 +12,8 @@ def content_hash(script):
         "engine": script.get("_story_engine"), "contract": script.get("_story_contract"),
         "cold_open": script.get("_cold_open"), "cold_open_claim_refs": script.get("_cold_open_claim_refs"),
         "scenes": [{k: scene.get(k) for k in ("scene_id", "narration", "event", "causal_role",
-                    "caused_by", "derivation", "scope", "chapter", "continues", "_story_compiler_version")}
+                    "caused_by", "derivation", "scope", "chapter", "continues", "_story_compiler_version",
+                    "beat_id", "context_refs", "parallel_case_id")}
                    for scene in script.get("scenes") or []]})
 
 

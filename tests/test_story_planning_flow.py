@@ -244,7 +244,7 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                         "Now people were deliberately producing the very animals that the "
                         "programme was intended to remove.",
                 }.get(b["causal_role"], "")
-                value["scenes"].append({"narration": text, "image_prompt": "A rat beside a tail counter.",
+                value["scenes"].append({"scene_id": b["scene_id"], "narration": text, "image_prompt": "A rat beside a tail counter.",
                     "scene_type": "real_world_example", "environment_type": "city",
                     "text_overlay": "", "text_sub": "", "shot_type": "medium"})
         else:
@@ -273,10 +273,11 @@ def test_accepted_facts_reach_expansion_fidelity_and_storyboard(monkeypatch):
     assert [s["causal_role"] for s in scenes] == ["setup", "intervention", "false_resolution",
                                                   "hinge", "mechanism", "escalation", "reversal", "tool"]
     assert "1902" not in prompts[-1] and "1902" not in scenes[0]["event"]["text"]
-    assert {r["claim_id"] for r in scenes[4]["claim_refs"]} == {"c2", "c4", "c6", "c7"}
+    assert {r["claim_id"] for r in scenes[4]["claim_refs"]} == {"c1", "c2", "c4", "c6", "c7"}
     assert scenes[4]["derivation"]["source_ids"] == ["fact_2"]
     assert scenes[4]["caused_by"] == scenes[1]["scene_id"]
-    assert scenes[3]["context_refs"] == [scenes[4]["beat_id"], scenes[5]["beat_id"]]
+    assert scenes[3]["context_refs"] == [scenes[4]["beat_id"], scenes[5]["beat_id"],
+                                        scenes[0]["beat_id"], scenes[1]["beat_id"]]
     assert all(s["caused_by"] in {b["scene_id"] for b in scenes[:i]}
                for i, s in enumerate(scenes) if i)
     cascade = research.validate_story_fact_model(script, dossier, judge=judge,

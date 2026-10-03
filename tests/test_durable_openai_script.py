@@ -39,20 +39,26 @@ def test_openai_budget_blocks_before_sdk_call(tmp_path):
     assert client.chat.completions.seen is None
 
 
-def test_output_only_schema_replays_under_durable_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("kind", ["edit", "expansion"])
+def test_output_only_schema_replays_under_durable_budget(tmp_path, monkeypatch, kind):
     from unittest.mock import Mock
     import storyboard_repair as repair
+    import scene_expansion
     store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
     client = _FakeClient(_Raw('{"scenes": []}', usage=_Usage(100, 80)))
     create = Mock(wraps=client.chat.completions.create)
     monkeypatch.setattr(client.chat.completions, 'create', create)
     adapter = _OpenAIMessages(client)
+    tool = (repair.response_tool(['scene_001']) if kind == 'edit'
+            else scene_expansion.response_tool(['scene_001']))
     for worker in ('a', 'b'):
         with activate(runtime(tmp_path, store, blob, worker)):
-            response = adapter.create(max_tokens=100, tools=[repair.response_tool(['scene_001'])],
-                tool_choice={'type': 'tool', 'name': repair.EDIT_TOOL})
+            response = adapter.create(max_tokens=100, tools=[tool],
+                tool_choice={'type': 'tool', 'name': tool['name']})
             assert repair.response_data(response) == {'scenes': []}
     assert create.call_count == 1
-    assert create.call_args.kwargs['response_format']['json_schema']['strict']
+    schema = create.call_args.kwargs['response_format']['json_schema']
+    assert schema['name'] == tool['name'] and schema['schema'] == tool['input_schema']
+    assert schema['strict'] is (kind == 'edit')
     with activate(runtime(tmp_path, store, blob, 'c')), pytest.raises(ValueError, match='research'):
         adapter.create(tools=[{'type': 'web_search_20260318'}])
