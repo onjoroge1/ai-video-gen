@@ -4406,6 +4406,44 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     return {"job_id": job_id, "resuming": True}
 
 
+@app.get("/studio/jobs/{job_id}")
+async def studio_job_page(job_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
+        raise HTTPException(400, "Invalid job ID")
+    return FileResponse(STATIC_DIR / "studio-job.html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/studio/jobs/{job_id}")
+async def studio_job_snapshot(job_id: str, after: int = 0):
+    import studio_jobs
+    if not _durable_execution_required():
+        raise HTTPException(409, "Durable execution is not enabled")
+    try:
+        store, _ = _durable_components()
+        row = await asyncio.to_thread(store.get_job, job_id)
+        if not row:
+            raise HTTPException(404, "Job not found")
+        events = await asyncio.to_thread(store.events, job_id, max(0, after), 500)
+        return JSONResponse(studio_jobs.snapshot(row, events), headers={"Cache-Control": "no-store"})
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(503, "Job status temporarily unavailable") from exc
+
+
+@app.get("/api/studio/jobs/{job_id}/artifacts")
+async def studio_job_artifacts(job_id: str):
+    import studio_jobs
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
+        raise HTTPException(400, "Invalid job ID")
+    if not _durable_execution_required():
+        raise HTTPException(409, "Durable execution is not enabled")
+    try:
+        store, blob = _durable_components()
+        result = await asyncio.to_thread(studio_jobs.artifacts, job_id, store, blob)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    except durable_execution.StorageUnavailable as exc:
+        raise HTTPException(503, "Saved artifacts temporarily unavailable") from exc
+
+
 @app.get("/api/explainer/status/{job_id}")
 async def explainer_status_stream(job_id: str, request: Request, after: int = 0):
     durable = _durable_execution_required()

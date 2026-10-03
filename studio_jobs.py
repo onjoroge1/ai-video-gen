@@ -1,0 +1,57 @@
+"""Read-only, checkpoint-bound Studio diagnostics. Never dispatches provider work."""
+import json
+from pathlib import Path
+import tempfile
+
+from fastapi import HTTPException
+import durable_execution
+
+ACTIVE = {"queued", "rendering", "running", "retry"}
+REPORTS = {
+    "readiness": "retention_readiness.json",
+    "claims": "claim_ledger_report.json",
+    "storyboard": "illustrated_storyboard.json",
+    "storyboard_failure": "semantic_failure_illustrated-storyboard.json",
+    "manifest": "generation_manifest.json",
+    "polish": "retention_polish_v1.json",
+}
+
+
+def snapshot(row, events):
+    return {"id": row["id"], "status": row.get("status"),
+            "active": row.get("status") in ACTIVE, "error": row.get("error"),
+            "question": (row.get("request") or {}).get("question", ""),
+            "spent_cost_usd": row.get("spent_cost_usd"),
+            "max_cost_usd": row.get("max_cost_usd"),
+            "checkpoint_sha256": (row.get("checkpoint") or {}).get("sha256"),
+            "events": [{"seq": e["seq"], "type": e["event_type"], "data": e["data"]}
+                       for e in events]}
+
+
+def artifacts(job_id, store, blob):
+    row = store.get_job(job_id)
+    if not row:
+        raise HTTPException(404, "Job not found")
+    checkpoint = row.get("checkpoint") or {}
+    result = {"checkpoint_sha256": checkpoint.get("sha256"), "script": None,
+              "reports": {}, "unavailable": []}
+    if not checkpoint:
+        return result
+    # Always restore the requested snapshot, never an earlier process-local job cache.
+    with tempfile.TemporaryDirectory(prefix="studio-read-") as directory:
+        runtime = durable_execution.DurableRuntime(
+            job_id=job_id, worker_id="read-only", output_dir=directory, store=store, blob=blob)
+        runtime.restore_checkpoint(checkpoint)
+        for key, filename in {"script": "_state.json", **REPORTS}.items():
+            path = Path(directory) / filename
+            if not path.exists():
+                continue
+            try:
+                value = json.loads(path.read_text())
+                if key == "script":
+                    result["script"] = value.get("script")
+                else:
+                    result["reports"][key] = value
+            except (OSError, ValueError, AttributeError):
+                result["unavailable"].append(key)
+    return result
