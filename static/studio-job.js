@@ -29,6 +29,7 @@ async function loadArtifacts() {
     const ready = script && script._script_readiness;
     const approved = lastSnapshot && lastSnapshot.status === 'awaiting_script_approval' && ready && ready.passed;
     el('artifact-status').textContent = (approved ? 'Ready for editorial review.' : script ? 'Saved draft — final approval not confirmed.' : 'No assembled script in this checkpoint yet.') +
+      ' Source: ' + (saved.script_source || 'not available') +
       ' Checkpoint: ' + (saved.checkpoint_sha256 || 'not saved') +
       ((saved.unavailable || []).length ? ' Unreadable artifacts: ' + saved.unavailable.join(', ') : '');
     if (script) {

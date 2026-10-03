@@ -647,10 +647,17 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
             continue
         situation = step["situation"].casefold()
         for index, case in enumerate(cases):
+            # Generic geography is shared by primary and comparison stories. In
+            # "Pacific island birds (Guam)", Guam identifies the comparison; island
+            # does not. Retain short distinctive names such as Guam and use full words.
+            generic = {"island", "islands", "bird", "birds", "country", "countries",
+                       "region", "regions", "animal", "animals", "forest", "forests",
+                       "public", "health", "colonial"}
             domain_words = [word for word in re.findall(r"[a-z]+", _text(case.get("domain")).lower())
-                            if len(word) > 4 and word not in _STOPWORDS and word not in own_words]
+                            if len(word) >= 4 and word not in _STOPWORDS
+                            and word not in generic and word not in own_words]
             hit = next((word for word in domain_words
-                        if re.search(rf"\b{re.escape(word)}", situation)), "")
+                        if re.search(rf"\b{re.escape(word)}\b", situation)), "")
             if hit:
                 issues.append(_issue(
                     "PARALLEL_CASE_OUT_OF_PLACE",

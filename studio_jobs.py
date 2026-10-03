@@ -8,6 +8,8 @@ import durable_execution
 
 ACTIVE = {"queued", "rendering", "running", "retry"}
 REPORTS = {
+    "claim_failure": "semantic_failure_claim-ledger.json",
+    "runtime_claim_failure": "semantic_failure_runtime-claim-ledger.json",
     "readiness": "retention_readiness.json",
     "claims": "claim_ledger_report.json",
     "storyboard": "illustrated_storyboard.json",
@@ -54,4 +56,16 @@ def artifacts(job_id, store, blob):
                     result["reports"][key] = value
             except (OSError, ValueError, AttributeError):
                 result["unavailable"].append(key)
+        # Pre-spend refusals happen before _state.json is written. Keep their exact
+        # narration available without labeling it approved or selecting an arbitrary file.
+        failures = [v for k, v in result["reports"].items()
+                    if k in {"claim_failure", "runtime_claim_failure", "storyboard_failure"}
+                    and isinstance(v, dict) and isinstance(v.get("script"), dict)
+                    and v["script"].get("scenes")]
+        if row.get("status") == "error" and failures:
+            failed = max(failures, key=lambda v: str(v.get("failed_at") or ""))
+            result["script"] = failed["script"]
+            result["script_source"] = "failed diagnostic: " + str(failed.get("stage") or "unknown")
+        elif result["script"]:
+            result["script_source"] = "saved state"
     return result

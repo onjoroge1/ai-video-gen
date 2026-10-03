@@ -609,10 +609,10 @@ def test_the_script_fingerprint_covers_what_would_make_a_reuse_wrong():
 
     # A different evidence ledger is a different script.
     assert ep._script_fingerprint(**{**base, "research_dossier": {"claims": [{"claim_id": "c99"}]}}) != same
-    # Claim ORDER is not meaningful, so it must not split the cache.
+    # The full ordered dossier is prompt input since PR151; changing it invalidates reuse.
     reordered = {"claims": [{"claim_id": "c02"}, {"claim_id": "c01"}]}
     forward = {"claims": [{"claim_id": "c01"}, {"claim_id": "c02"}]}
-    assert ep._script_fingerprint(**{**base, "research_dossier": reordered}) == \
+    assert ep._script_fingerprint(**{**base, "research_dossier": reordered}) != \
         ep._script_fingerprint(**{**base, "research_dossier": forward})
 
 
@@ -1264,7 +1264,7 @@ def test_a_beat_id_addressed_failure_resolves_to_its_scene():
     report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07"}]}
     # An unresolvable id must refuse the repair rather than silently rewriting scene 0.
     ep.repair_claim_join_failures(script, {"claims": []}, report)
-    assert report["errors"][0]["scene"] == 2
+    assert report["errors"][0]["scene"] == "event_07"
     ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}
     assert ep.repair_claim_join_failures(script, {"claims": []}, ghost) == (script, 0.0)
 

@@ -3794,7 +3794,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
                     "model": ANTHROPIC_MODEL, "evidence": research_dossier,
-                    "policy": "script_flow_v2", "diagnostic": _diagnostic_render()}
+                    "policy": "script_flow_v3", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
     if _saved_plan is not None:
@@ -5822,7 +5822,7 @@ def rewrite_repeated_scenes(script: dict, dossier: dict, dupes: list[dict],
         "all_scenes": said,
         "rewrite": [{"scene": index,
                      "repeats_scene": next(d["duplicate_of"] for d in dupes if d["scene"] == index),
-                     "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+                     "event": event_of(scenes[index - 1])["text"],
                      "role": _s(scenes[index - 1].get("causal_role") or scenes[index - 1].get("story_role")),
                      "narration": _s(scenes[index - 1].get("narration"))}
                     for index in targets],
@@ -5886,7 +5886,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # land; `script["hook"]` is re-derived from the repaired sentence below.
         "HOOK_EXCEEDS_STORY",
     }
-    errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    errors = [dict(item) for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
     scenes_now = script.get("scenes") or []
     # The fact-model codes address a scene by beat_id ("event_04"), the older ones by 1-based
     # index. Resolved here so one repair path serves both rather than two paths drifting apart.
@@ -5901,18 +5901,31 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             item["scene"] = 1 if scenes_now else 0
         elif isinstance(marker, str) and not marker.isdigit():
             item["scene"] = by_beat.get(marker, 0)
-    if not errors or any(item.get("code") not in repairable or not item.get("scene")
-                         for item in errors):
+    # An unrelated hard failure must not suppress valid local repairs. It remains
+    # in the original report and the unchanged final validator still blocks it.
+    errors = [item for item in errors if item.get("code") in repairable and item.get("scene")]
+    if not errors:
         return script, 0.0
     indexes = sorted({int(item["scene"]) for item in errors})
     scenes = script.get("scenes") or []
     if any(index < 1 or index > len(scenes) for index in indexes):
         return script, 0.0
+    indexes = indexes[:4]
+    errors = [item for item in errors if int(item["scene"]) in indexes]
+    all_ids = {_s(c.get("claim_id")) for c in dossier.get("claims") or [] if isinstance(c, dict)}
+    from story_fact_model import event_of
+    scene_claim_ids = {}
+    for index in indexes:
+        refs = event_of(scenes[index - 1])["claim_refs"]
+        scene_claim_ids[index] = set(refs) & all_ids if refs else all_ids
+    permitted_ids = set().union(*scene_claim_ids.values())
     payload = {
         "operator_direction": operator_direction,
-        "claims": claim_context_for_prompt(dossier),
+        "claims": claim_context_for_prompt({**dossier, "claims": [c for c in dossier.get("claims") or []
+                  if c.get("claim_id") in permitted_ids]}),
         "failures": errors,
         "scenes": [{"scene": index,
+            "allowed_claim_ids": sorted(scene_claim_ids[index]),
             "continues_previous": bool(_s(scenes[index - 1].get("continues"))),
             "beat_part": f"{int(scenes[index - 1].get('beat_part') or 1)} of "
                          f"{int(scenes[index - 1].get('beat_part_count') or 1)}",
@@ -5921,10 +5934,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             # The event is the ceiling. Without it the repair is told a sentence is wrong and not
             # what it is allowed to say instead, which is how a rewrite trades one overshoot for
             # another.
-            "event": (scenes[index - 1].get("event") or {}).get("text", ""),
+            "event": event_of(scenes[index - 1])["text"],
             # Named, not left to be noticed. See unsupported_actors.
             "actors_the_event_does_not_name": unsupported_actors(
-                (scenes[index - 1].get("event") or {}).get("text", ""),
+                event_of(scenes[index - 1])["text"],
                 _s(scenes[index - 1].get("narration"))),
             **{
             key: scenes[index - 1].get(key)
@@ -5949,8 +5962,6 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         repaired = data.get("scenes") if isinstance(data, dict) else None
         if not isinstance(repaired, list) or len(repaired) != len(indexes):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
-        allowed_ids = {_s(claim.get("claim_id")) for claim in dossier.get("claims") or []
-                       if isinstance(claim, dict)}
         candidate = json.loads(json.dumps(script))
         seen = set()
         for item in repaired:
@@ -5969,7 +5980,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                             if int(error.get("scene") or 0) == index}
             if "unbound_factual_scene" in failed_codes and not refs:
                 return script, round(response_cost + float(parse_cost or 0.0), 4)
-            if any(not isinstance(ref, dict) or _s(ref.get("claim_id")) not in allowed_ids
+            if any(not isinstance(ref, dict) or _s(ref.get("claim_id")) not in scene_claim_ids[index]
                    for ref in refs):
                 return script, round(response_cost + float(parse_cost or 0.0), 4)
             target = candidate["scenes"][index - 1]
@@ -10422,7 +10433,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "model": ANTHROPIC_MODEL, "contract": 2})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -11708,14 +11719,20 @@ def run_explainer_pipeline(
                     operator_direction=operator_direction)
                 if not repair_cost:
                     break
+                _paid_cost = round(float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+                repaired_script = json.loads(json.dumps(repaired_script))
+                rederive_narration_bindings(repaired_script, log, research_dossier)
+                repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
+                _after_count = len(repaired_validation.get("errors") or [])
+                if not repaired_validation.get("passed") and _after_count >= _before_count:
+                    script["_script_cost_usd"] = _paid_cost
+                    log("Claim ledger repair rejected: failures did not decrease; keeping prior draft")
+                    break
                 script = repaired_script
-                script["_script_cost_usd"] = round(
-                    float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
-                rederive_narration_bindings(script, log, research_dossier)
-                claim_validation = _validate_claims(script, research_dossier, aux_costs)
+                script["_script_cost_usd"] = _paid_cost
+                claim_validation = repaired_validation
                 script["_claim_validation"] = claim_validation
                 scenes = script.get("scenes", [])
-                _after_count = len(claim_validation.get("errors") or [])
                 log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
                     + ("PASS" if claim_validation.get("passed")
                        else f"{_before_count} -> {_after_count} failing"))
