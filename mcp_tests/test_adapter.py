@@ -47,7 +47,7 @@ def test_protocol_discovery_and_all_tools_use_existing_api(bundle_id):
             assert {tool.name for tool in discovered.tools} == {
                 "get_video_capabilities", "propose_video", "propose_directed_pilot",
                 "get_video_status", "get_video_diagnostics", "resume_video",
-                "get_video_artifacts"}
+                "get_video_artifacts", "propose_bolt_kids_episode"}
             for name, args in [
                 ("get_video_capabilities", {}),
                 ("propose_video", {"topic": "Stoats", "duration_sec": 300, "cost_ceiling_usd": 10}),
@@ -101,7 +101,7 @@ def test_upstream_failure_is_tool_error_without_retry_or_credential_leak():
 
 
 @pytest.mark.parametrize('artifact', ['nature-visual-review', 'nature-semantic-review',
-                                      'storyboard-repair', 'storyboard-failure'])
+                                      'storyboard-repair', 'storyboard-failure', 'kids-gates', 'kids-quality', 'kids-episode', 'kids-timeline'])
 def test_reviews_and_storyboard_failures_are_scoped_saved_reads_over_real_protocol(artifact):
     calls = []
     def upstream(request):
@@ -159,3 +159,24 @@ def test_streamable_http_auth_and_protocol():
 def test_upstream_origin_rejects_unsafe_configuration(origin):
     with pytest.raises(ValueError):
         ReelForgeClient(origin)
+
+
+def test_kids_proposal_uses_shared_approval_without_leaking_claim_token():
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        assert request.method == "POST" and request.url.path == "/api/agent/actions"
+        assert json.loads(request.content) == {
+            "operation": "bolt_kids_episode", "spec": {"schema_version": "bolt_kids_episode_v1"},
+            "cost_ceiling_usd": 10}
+        return httpx.Response(200, json={"action_id": ACTION, "claim_token": "must-not-leak", "status": "pending"})
+    server = create_server(ReelForgeClient("https://studio.example", transport=httpx.MockTransport(upstream)))
+    async def run():
+        async with create_connected_server_and_client_session(server) as session:
+            result = await session.call_tool("propose_bolt_kids_episode", {
+                "spec": {"schema_version": "bolt_kids_episode_v1"}, "cost_ceiling_usd": 10})
+            assert not result.isError
+            assert "approval_url" in result.model_dump_json()
+            assert "must-not-leak" not in result.model_dump_json()
+    anyio.run(run)
+    assert len(calls) == 1

@@ -235,3 +235,11 @@ One `render_disk_recovery_v1` continuation may resume an exact checkpoint after 
 in `error` or `storage_error`, subject to the same no-lease, no-reservation, remaining-budget and
 only-unfinished-zero-cost-FFmpeg checks. A consumed disk marker blocks another requeue. This is
 infrastructure recovery under the existing approval, not a new video or a relaxed quality gate.
+
+
+## Bolt Kids
+
+The independent preschool flow is documented in `docs/BOLT_KIDS_FLOW.md`. Read it before editing
+`bolt_video/kids/`. Keep existing flow behavior/approval hashes intact. Required Kids songs and
+actions cannot silently fall back. Passing structural/sampled checks is not proven audience
+engagement; final full-video human review remains hash-bound and non-spending.

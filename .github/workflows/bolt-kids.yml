@@ -1,0 +1,34 @@
+name: Bolt Kids gated flow
+on:
+  pull_request:
+    paths: ['bolt_video/kids/**', 'tests/test_bolt_kids*', 'app.py', 'agent_actions.py', '.github/workflows/bolt-kids.yml']
+  push:
+    branches: [feat/bolt-kids-flow]
+    paths: ['bolt_video/kids/**', 'tests/test_bolt_kids*', 'app.py', 'agent_actions.py', '.github/workflows/bolt-kids.yml']
+permissions:
+  contents: read
+jobs:
+  kids:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KIDS_TEST_ARTIFACT_DIR: /tmp/kids-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install -r requirements.txt pytest
+      - name: Run isolated Kids contracts, real media and shared approval tests
+        run: python -m pytest tests/test_bolt_kids* --junitxml=/tmp/kids-results.xml
+      - name: Upload synthetic media evidence (not a production episode)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kids-synthetic-verification
+          path: |
+            /tmp/kids-results.xml
+            /tmp/kids-smoke
+          retention-days: 7

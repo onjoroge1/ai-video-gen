@@ -26,8 +26,9 @@ import db
 DIRECTED_PILOT_OPERATION = "directed_pilot"
 DIRECTED_FULL_FILM_OPERATION = "directed_full_film"
 GENERIC_ILLUSTRATED_OPERATION = "generic_illustrated"
+KIDS_OPERATION = "bolt_kids_episode"
 OPERATIONS = {DIRECTED_PILOT_OPERATION, DIRECTED_FULL_FILM_OPERATION,
-              GENERIC_ILLUSTRATED_OPERATION}
+              GENERIC_ILLUSTRATED_OPERATION, KIDS_OPERATION}
 # Compatibility name used by older tests and callers.
 OPERATION = DIRECTED_PILOT_OPERATION
 class AgentActionError(RuntimeError):
@@ -247,6 +248,15 @@ def public_action(action: dict, *, include_private: bool = False) -> dict:
                    creative_profile=payload.get("creative_profile") or {},
                    providers=payload.get("providers") or {},
                    estimate_basis=payload.get("estimate_basis") or "")
+    elif operation == KIDS_OPERATION:
+        spec = payload.get("spec") or {}
+        out.update(scope=payload.get("scope"), duration_sec=spec.get("target_duration_sec"),
+                   video_format="landscape", production_flow="bolt_kids_v1",
+                   estimate_basis=payload.get("estimate_basis") or "",
+                   providers=payload.get("providers") or {},
+                   editorial_status="required", publishable=False,
+                   voice_cast={c["id"]: c["voice"] for c in spec.get("characters", [])},
+                   review_path=f"/bolt-kids?action={action.get('action_id')}")
     if include_private:
         out["job_id"] = action.get("job_id") or ""
         out["job"] = action.get("job") or {}
@@ -502,7 +512,7 @@ class PostgresAgentActionRepository:
                 raise AgentActionForbidden("Invalid agent action claim token")
             if effective_status(action) == "expired":
                 raise AgentActionConflict("Agent action expired")
-            if (action.get("operation") == GENERIC_ILLUSTRATED_OPERATION
+            if (action.get("operation") in {GENERIC_ILLUSTRATED_OPERATION, KIDS_OPERATION}
                     and action["status"] in {"executing", "queued"} and action.get("job_id")):
                 conn.commit()
                 return action
@@ -513,7 +523,7 @@ class PostgresAgentActionRepository:
             # A process dying between INSERT job and mark_queued can safely replay the
             # same job id; Postgres enqueue is ON CONFLICT DO NOTHING.
             job_id = (hashlib.sha256(action_id.encode()).hexdigest()[:24]
-                      if action.get("operation") == GENERIC_ILLUSTRATED_OPERATION else None)
+                      if action.get("operation") in {GENERIC_ILLUSTRATED_OPERATION, KIDS_OPERATION} else None)
             cur.execute("""
                 UPDATE agent_actions SET status='executing',consumed_at=now(),job_id=%s
                 WHERE action_id=%s RETURNING *""", (job_id, action_id))
