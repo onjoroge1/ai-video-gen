@@ -18,6 +18,7 @@ singletons and an escalation sequenced after its own reversal.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import causal_story as cs
@@ -296,3 +297,56 @@ def mechanism_deadline_pct(engine: dict | None, default: float) -> float:
     the ending would reject the story rather than improve it.
     """
     return float((engine or {}).get("mechanism_deadline_pct") or default)
+
+
+def evidence_compatibility(engine_id: str, dossier: dict | None) -> dict[str, Any]:
+    """Reject the one engine confusion that can be decided from sourced facts alone.
+
+    ``backfiring_solution`` is not the generic "a fix caused harm" shape.  Its contract requires
+    people to exploit a reward, quota, price, or rule.  Species introductions/removals are the
+    sibling ``removed_keystone`` shape when the dossier describes an ecological cascade and does
+    not describe that human incentive response.
+
+    This deliberately does *not* try to classify every engine with keywords.  It only enforces a
+    hard negative premise already declared above, and only from primary-story claims.  Comparable
+    cases are excluded so a cane-toad dossier cannot become a bounty story merely because it cites
+    Hanoi as an analogy.
+    """
+    chosen = resolve_id(engine_id)
+    claims = []
+    for claim in ((dossier or {}).get("claims") or []):
+        if not isinstance(claim, dict):
+            continue
+        text = " ".join(str(claim.get(key) or "") for key in ("claim", "support_quote"))
+        if (str(claim.get("scope") or "").casefold() == "parallel_case"
+                or str(claim.get("parallel_case_id") or "").strip()
+                or text.lstrip().casefold().startswith("comparable case")):
+            continue
+        claims.append(text.casefold())
+    corpus = " ".join(claims)
+    if chosen != BACKFIRING_SOLUTION or not corpus:
+        return {"compatible": True, "engine": chosen, "replacement": "", "reason": ""}
+
+    incentive = re.search(
+        r"\b(bount(?:y|ies)|reward(?:ed|s)?|paid|payment|subsid(?:y|ies)|quota|fine|"
+        r"price per|compensat(?:e|ed|ion)|cash per)\b", corpus)
+    exploited = re.search(
+        r"\b(exploit(?:ed|ing)?|gam(?:e|ed|ing) the|bred|breed|breeding|farmed|farming|"
+        r"kept alive|released alive|claimants?|profited?|profit from|circumvent(?:ed|ing)?)\b",
+        corpus)
+    ecological_action = re.search(
+        r"\b(introduc(?:e|ed|tion)|released?|imported?|translocat(?:e|ed|ion)|"
+        r"eradicate(?:d|ion)?|removed?|culled?)\b", corpus)
+    ecological_effect = re.search(
+        r"\b(ecosystem|ecological|invasive|predat(?:or|ion)|prey|native (?:bird|species)|"
+        r"food web|population decline|local extinction|chicks?|eggs?)\b", corpus)
+
+    if ecological_action and ecological_effect and not (incentive and exploited):
+        return {
+            "compatible": False,
+            "engine": chosen,
+            "replacement": REMOVED_KEYSTONE,
+            "reason": ("the sourced primary story is a species introduction/removal and ecological "
+                       "cascade, with no evidence that people exploited an incentive"),
+        }
+    return {"compatible": True, "engine": chosen, "replacement": "", "reason": ""}

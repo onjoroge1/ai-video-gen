@@ -2590,7 +2590,9 @@ def _engine_support_note(engine_id: str) -> str:
 
 
 def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
-                         research_dossier: dict | None = None) -> str:
+                         research_dossier: dict | None = None,
+                         excluded_engines: tuple[str, ...] = (),
+                         failure_report: str = "") -> str:
     """Choose the narrative engine BEFORE the beat sheet is written.
 
     The engine used to be chosen after the sheet existed, by _assign_causal_spine, and that call is
@@ -2614,8 +2616,21 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
     # and a preference expressed in prose loses to the model's read of which shape the topic has.
     # An engine whose required beats cannot fit the runtime is not a preference to weigh; it is a
     # plan that fails arithmetic, so it is removed from the menu rather than argued against.
-    feasible = _feasible_engines(duration_sec)
+    excluded = {_s(engine).strip() for engine in excluded_engines if _s(engine).strip()}
+    runtime_feasible = [engine for engine in _feasible_engines(duration_sec)
+                        if engine not in excluded]
+    evidence_rejections = {
+        engine: _se.evidence_compatibility(engine, research_dossier)
+        for engine in runtime_feasible
+    }
+    feasible = [engine for engine in runtime_feasible
+                if evidence_rejections[engine].get("compatible")]
     if not feasible:
+        if runtime_feasible:
+            reasons = "; ".join(_s(item.get("reason")) for item in evidence_rejections.values()
+                                if not item.get("compatible"))
+            raise ValueError("No narrative engine is compatible with the sourced premise"
+                             + (f": {reasons}" if reasons else ""))
         shortest = min((_minimum_feasible_runtime(engine_id, duration_sec) or 10**6)
                        for engine_id in _se.ENGINES)
         raise ValueError(
@@ -2640,6 +2655,10 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
                           if research_dossier else "")
                        + _se.catalogue(feasible)
                        + "\n" + _rc.runtime_fit_block(duration_sec, only=feasible)
+                       + (("\n\nTHE PREVIOUS ENGINE FAILED ITS FACTUAL ROLE CONTRACT. Choose a "
+                           "different engine whose required causal functions the sourced events "
+                           "can actually perform. Do not repair the old engine by inventing facts. "
+                           "Failure report:\n" + failure_report[:3000]) if failure_report else "")
                        + "\nPrefer a reference opening that fits this runtime WHEN the story also "
                        "fits that engine. If the truthful engine needs compression, keep the "
                        "engine and explain the required compression. Never change the facts or "
@@ -2666,6 +2685,12 @@ def _select_story_engine(question: str, duration_sec: int, cost_sink=None, *,
             print(f"[engine] {chosen} chosen before the beat sheet"
                   + _engine_support_note(chosen))
             return chosen
+        rejected = evidence_rejections.get(chosen) or {}
+        replacement = _s(rejected.get("replacement"))
+        if not rejected.get("compatible", True) and replacement in feasible:
+            print(f"[engine] {chosen} rejected by sourced premise: {rejected.get('reason')}; "
+                  f"using {replacement}")
+            return replacement
         if chosen in _se.ENGINES:
             print(f"[engine] {chosen} does not fit {duration_sec}s; it was not offered")
     except Exception as exc:
@@ -3183,7 +3208,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                              causal_lane: bool = False,
                              adherence: str = "",
                              pinned_engine: str = "",
-                             cost_sink: list | None = None) -> dict:
+                             cost_sink: list | None = None,
+                             _engine_switch_attempted: bool = False) -> dict:
     """Long-form: BEAT SHEET → batched expansion → state-once dedup.
 
     The old approach generated independent chapters that each saw only the previous chapter's last
@@ -3241,14 +3267,21 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         import causal_story as _cs
         import story_engines as _se
 
-        # DECIDED HERE, before a single beat is written. On a replan the engine is already known,
-        # so no second selection call is made and the retry rewrites the sheet against the SAME
-        # contract that just failed instead of a fresh one.
+        # DECIDED HERE, before a single beat is written. A restored/pinned job still crosses the
+        # same evidence boundary: a stale wrong engine must not make a fresh planner invent the
+        # incentive its contract asks for.
         selection_costs = []
         sheet_engine_id = (pinned_engine if pinned_engine in _se.ENGINES
                            else _select_story_engine(question, duration_sec, selection_costs,
                                                      research_dossier=research_dossier))
         cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(selection_costs))
+        _compatibility = _se.evidence_compatibility(sheet_engine_id, research_dossier)
+        _replacement = _s(_compatibility.get("replacement"))
+        if (not _compatibility.get("compatible") and _replacement in _se.ENGINES
+                and _engine_runtime_fit(_replacement, duration_sec)["fits"]):
+            print(f"[engine] {sheet_engine_id} rejected by sourced premise: "
+                  f"{_compatibility.get('reason')}; using {_replacement}")
+            sheet_engine_id = _replacement
         sheet_engine = _se.get(sheet_engine_id)
         blueprint_block = _retrieve_blueprint(sheet_engine_id, adherence, duration_sec)
         # One role per beat requires space for every required role and repeated escalation, so the
@@ -3914,6 +3947,40 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             else:
                 print("  ✗ spine retry did not compile — trying research repair on the original: "
                       + "; ".join(_s(i.get("code")) for i in (_retry_roles.get("issues") or [])))
+        _failure_summary = _sfm.spine_summary(_sb, _spine)
+        if (not _spine["passed"] and not _diagnostic_render()
+                and not _engine_switch_attempted and not _approved
+                # One role miss is commonly a narrow citation gap and belongs to research repair.
+                # A wrong engine breaks several independent causal functions at once: the stoat
+                # run rejected both intervention and false_resolution before its mechanism could
+                # even be supported. Require that stronger signal before changing story shape.
+                and _failure_summary.count("[ROLE_CONTRACT_FAILED]") >= 2):
+            # A citation re-ask cannot make an event perform a causal function it does not have.
+            # Let the selector choose once more with the failed engine removed, then rebuild the
+            # planner prompt and sheet under that new contract. This is a bounded restart: the
+            # recursive run cannot switch again, and no prose/media has been purchased yet.
+            _switch_costs: list[float] = []
+            try:
+                _next_engine = _select_story_engine(
+                    question, duration_sec, _switch_costs,
+                    research_dossier=research_dossier,
+                    excluded_engines=(sheet_engine_id,), failure_report=_failure_summary)
+            except ValueError:
+                _next_engine = ""
+            cost += _charge(cost_sink, _ledger.ENGINE_SELECT, sum(_switch_costs),
+                            "engine switch after role-contract failure")
+            if _next_engine and _next_engine != sheet_engine_id:
+                print(f"[engine] role contract rejected {sheet_engine_id}; rebuilding the sheet "
+                      f"once with {_next_engine}")
+                _switched = _generate_script_chunked(
+                    question, duration_sec, style, image_guidance, n_scenes, series,
+                    improve_note, operator_direction, story_format, research_dossier,
+                    causal_lane, adherence, _next_engine, cost_sink,
+                    _engine_switch_attempted=True)
+                _switched["_script_cost_usd"] = round(
+                    float(_switched.get("_script_cost_usd") or 0.0) + cost, 6)
+                _switched["_engine_switched_from"] = sheet_engine_id
+                return _switched
         if not _spine["passed"] and not _diagnostic_render():
             from durable_execution import current as _current_runtime
             import research_coverage

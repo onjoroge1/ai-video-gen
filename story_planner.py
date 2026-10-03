@@ -113,6 +113,7 @@ def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
     """Deterministic score for one beat sheet; 100 is a sheet the gates would wave through."""
     import causal_story as cs
     import story_compiler
+    import story_engines
     import story_fact_model as sfm
     from longform_research import events_for_runtime
     import explainer_pipeline as ep
@@ -122,6 +123,12 @@ def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
     score = 100.0
     if not beats:
         return {"score": 0.0, "issues": ["no beats"], "beats": 0}
+    compatibility = story_engines.evidence_compatibility(engine_id, research_dossier)
+    if not compatibility.get("compatible"):
+        score -= 60
+        issues.append(
+            f"engine mismatch: {engine_id} — {compatibility.get('reason')} "
+            f"(use {compatibility.get('replacement')})")
     claims = ep._spine_claims(research_dossier or {})
     roles = story_compiler.compile_roles(beats, engine_id, claims)
     if not roles.get("compiled") or not roles.get("passed"):
