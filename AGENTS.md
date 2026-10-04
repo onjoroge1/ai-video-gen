@@ -1,5 +1,7 @@
 # ReelForge Agent Rendering Protocol
 
+> Illustrated delivery recovery is active (2026-10-04). Read `docs/DELIVERY_RECOVERY.md` before changing this lane. Keep writer experiments separate and do not promote this recovery on test counts alone. No approval or budget exception is granted by the recovery hold.
+
 This file is the canonical contract for AI agents that want to request a paid ReelForge video render.
 
 ## Core rule: one approval per immutable spend boundary

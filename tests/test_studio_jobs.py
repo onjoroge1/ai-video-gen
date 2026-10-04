@@ -115,3 +115,22 @@ def test_routes_are_private_and_snapshot_does_not_restore_or_dispatch(monkeypatc
             store.get_job.return_value = None
             assert (await client.get('/api/studio/jobs/missing')).status_code == 404
     asyncio.run(run())
+
+
+def test_input_repairs_are_visible_without_conferring_approval(tmp_path, monkeypatch):
+    store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
+    worker = runtime(tmp_path, store, blob, 'writer')
+    script = {'title': 'Unapproved repaired input', 'scenes': [],
+        '_context_migration': {'version': 'test', 'changes': []},
+        '_numerical_resolution': {'version': 'test', 'changes': []}}
+    (Path(worker.output_dir) / '_state.json').write_text(json.dumps({'script': script}))
+    store.job['checkpoint'] = worker.checkpoint('repaired-input')
+    store.job['status'] = 'error'
+    monkeypatch.setattr(store, 'get_job', lambda _: store.job, raising=False)
+    monkeypatch.setattr(studio_jobs.durable_execution.DurableRuntime, 'paid_value',
+                        Mock(side_effect=AssertionError('read must never spend')))
+    saved = studio_jobs.artifacts('job-1', store, blob)
+    assert saved['reports']['input_repairs'] == {
+        k: script[k] for k in ('_context_migration', '_numerical_resolution')}
+    assert saved['approval_current'] is False
+    assert store.job['status'] == 'error'

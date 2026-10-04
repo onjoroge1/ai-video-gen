@@ -63,7 +63,7 @@ def is_retryable(verdict: dict) -> bool:
 # has judged. Under durable resume that is a stale PASS on a checkpoint, not just a stale value.
 _CLAIM_KEY_FIELDS = ("claim", "support_quote", "source_url", "geographic_scope",
                      "timescale", "confidence", "support_provenance", "source_published_at",
-                     "as_of", "metric")
+                     "as_of", "metric", "numerical_resolution")
 
 
 def _text(value: Any) -> str:
@@ -195,7 +195,7 @@ def _claim_block(claim: dict) -> str:
     url = str(claim.get("source_url") or "").strip()
     if url:
         lines.append(f"    source: {url}")
-    for field in ("geographic_scope", "timescale", "confidence", "source_published_at", "as_of", "metric"):
+    for field in ("geographic_scope", "timescale", "confidence", "source_published_at", "as_of", "metric", "numerical_resolution"):
         if claim.get(field):
             lines.append(f"    {field}: {claim[field]}")
     return "\n".join(lines)

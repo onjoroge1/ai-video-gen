@@ -1,0 +1,428 @@
+{
+  "scope": "Offline saved-input boundary comparison, NOT the PR146 film control or a live semantic acceptance test",
+  "baseline_commit": "3769b61209c1c614f4890b03a3cb5d6123b5d41b",
+  "fixture_origin_commit": "115500c45c594eca2e91f5c50b291023e5bd64df",
+  "historical_control_commit_reference": "b6f6137d08ee58c4f50643bd7a135902dc556642",
+  "historical_control_media_recovered": false,
+  "completed_reviewed_videos": 0,
+  "provider_calls": 0,
+  "production_changed": false,
+  "fixture_provenance": [
+    {
+      "pr": 164,
+      "basis": "Complete claim_failure.script object decoded before the surrounding observed report truncation. Corrected historical claim_refs arrays which PR166 had serialized as strings; active narration/evidence unchanged.",
+      "observed_file_sha256": "33c491f28fec20cb82af58f9911e0003b42f0e07dab18507c56397f986ef887a"
+    },
+    {
+      "pr": 165,
+      "basis": "Archived PR166 polish.input_script fixture. Available observation truncates at 200000 characters. Active scenes, research dossier and hook match the complete visible fields. Historical nested claim_refs types differ in the archived snapshot. Full-object identity cannot be independently certified from this truncated observation.",
+      "observed_file_sha256": "b07fb8b8455bd59f05e492df3981271f3f49f5e5a527aa0538adadb941b6fb85"
+    }
+  ],
+  "before": {
+    "provider_calls": 0,
+    "blocked_network_attempts": 0,
+    "approval_granted": false,
+    "acceptance_policy": {
+      "version": "script_acceptance_v4",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "narrative_template": "seven_section_v2",
+      "presentation_context": "canonical_case_v1",
+      "entailment": "entailment_v6",
+      "integrity": "script_integrity_v5",
+      "cadence": "concrete_scene_cadence_v1",
+      "hook": "hook_callback_v1",
+      "grade_target": 78,
+      "grade_floor": 70,
+      "runtime_hard": false
+    },
+    "scope": "Offline prepare/restore only; synthetic job/checkpoint envelope, no model judgments or film reconstruction",
+    "results": [
+      {
+        "pr": 164,
+        "source_sha256": "8a3ef03a712d26578b0d3bee5b3108b3048806913af320fabec15c7955e05939",
+        "result_sha256": "921cdd1db5d023d9596b2c2fc5b7a216f1e4b95121599c43bfc7fc83f385e39b",
+        "child_identity": "sr-05f840410a6d0a44fc9eabdbbf76",
+        "parent_unchanged": true,
+        "historical_cascade_unchanged": true,
+        "context": {
+          "event_04:hinge": {
+            "refs": [
+              "event_04"
+            ],
+            "resolved": [
+              "event_04"
+            ]
+          },
+          "event_09:tool": {
+            "refs": [
+              "event_04",
+              "event_09"
+            ],
+            "resolved": [
+              "event_04",
+              "event_09"
+            ]
+          }
+        },
+        "claim_c22": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) in cases where the agent could be identified.",
+        "input_repairs": {},
+        "changed_narration": []
+      },
+      {
+        "pr": 165,
+        "source_sha256": "d54a21be8f518bb85d4a25db098e98c8740b5be5563d3818968b168564cbb014",
+        "result_sha256": "5c1622ab8a43c506d4b77bf20346c7a9f63486a6bbbb2799078b1c844bb3449b",
+        "child_identity": "sr-6c5a5c8b01293614713c05f23f7c",
+        "parent_unchanged": true,
+        "historical_cascade_unchanged": true,
+        "context": {
+          "event_04:hinge": {
+            "refs": [
+              "event_04"
+            ],
+            "resolved": [
+              "event_04"
+            ]
+          },
+          "event_09:tool": {
+            "refs": [
+              "event_04",
+              "event_09"
+            ],
+            "resolved": [
+              "event_04",
+              "event_09"
+            ]
+          }
+        },
+        "claim_c22": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) in cases where the agent could be identified.",
+        "input_repairs": {},
+        "changed_narration": []
+      }
+    ]
+  },
+  "after": {
+    "provider_calls": 0,
+    "blocked_network_attempts": 0,
+    "approval_granted": false,
+    "acceptance_policy": {
+      "version": "script_acceptance_v4",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "narrative_template": "seven_section_v2",
+      "presentation_context": "recovery_saved_context_v1",
+      "entailment": "entailment_v6",
+      "integrity": "script_integrity_v5",
+      "cadence": "concrete_scene_cadence_v1",
+      "hook": "hook_callback_v1",
+      "grade_target": 78,
+      "grade_floor": 70,
+      "runtime_hard": false
+    },
+    "scope": "Offline prepare/restore only; synthetic job/checkpoint envelope, no model judgments or film reconstruction",
+    "results": [
+      {
+        "pr": 164,
+        "source_sha256": "8a3ef03a712d26578b0d3bee5b3108b3048806913af320fabec15c7955e05939",
+        "result_sha256": "77ce326a6441dc1c5fbba3b480a22f323efb6c4b77c204d6d07cde81b8515be0",
+        "child_identity": "sr-2ca86692fec1dee932a8f5d8b325",
+        "parent_unchanged": true,
+        "historical_cascade_unchanged": true,
+        "context": {
+          "event_04:hinge": {
+            "refs": [
+              "event_04",
+              "event_01",
+              "event_02"
+            ],
+            "resolved": [
+              "event_04",
+              "event_01",
+              "event_02"
+            ]
+          },
+          "event_09:tool": {
+            "refs": [
+              "event_04",
+              "event_09",
+              "event_01",
+              "event_02"
+            ],
+            "resolved": [
+              "event_04",
+              "event_09",
+              "event_01",
+              "event_02"
+            ]
+          }
+        },
+        "claim_c22": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death: 19 of 31 deaths where the cause could be identified.",
+        "input_repairs": {
+          "_context_migration": {
+            "version": "recovery_saved_context_v1",
+            "source_sha256": "921cdd1db5d023d9596b2c2fc5b7a216f1e4b95121599c43bfc7fc83f385e39b",
+            "narration_sha256": "cdb27758bfc7fc964a1b9fea05bf48a27f5045942d658c5b54bf264df982c44b",
+            "changes": [
+              {
+                "beat_id": "event_04:hinge",
+                "before": {
+                  "context_refs": [
+                    "event_04"
+                  ],
+                  "parallel_case_id": null
+                },
+                "after": {
+                  "context_refs": [
+                    "event_04",
+                    "event_01",
+                    "event_02"
+                  ],
+                  "parallel_case_id": ""
+                }
+              },
+              {
+                "beat_id": "event_09:tool",
+                "before": {
+                  "context_refs": [
+                    "event_04",
+                    "event_09"
+                  ],
+                  "parallel_case_id": null
+                },
+                "after": {
+                  "context_refs": [
+                    "event_04",
+                    "event_09",
+                    "event_01",
+                    "event_02"
+                  ],
+                  "parallel_case_id": ""
+                }
+              }
+            ]
+          },
+          "_numerical_resolution": {
+            "version": "northland_count_only_v1",
+            "source_sha256": "5d86680bf37a9b16a19fc0adbffd0cd09efa993974af5cce744e927a44035866",
+            "claim_id": "c22",
+            "original_claim": {
+              "claim": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) in cases where the agent could be identified.",
+              "claim_id": "c22",
+              "material": true,
+              "timescale": "years",
+              "claim_kind": "outcome",
+              "confidence": "high",
+              "source_url": "https://www.cambridge.org/core/journals/bird-conservation-international/article/experimental-management-of-brown-kiwi-apteryx-mantelli-in-central-northland-new-zealand/C1928428882BB8312EC0EF0DF07BABC3",
+              "assumptions": [
+                "Only cases where the cause could be identified are counted"
+              ],
+              "calculation": "19/31 = 61-63% of identified-cause deaths attributed to stoats",
+              "source_type": "primary",
+              "support_quote": "Causes of mortality in 31 cases where the agent could be identified were: Stoats 19 (63%), cats 4 (13%), drowning 3 (10%)",
+              "quote_verified": true,
+              "runner_up_kind": "event",
+              "geographic_scope": "local",
+              "planning_support": "supported",
+              "source_reachable": true,
+              "support_provenance": "verbatim",
+              "allowed_exaggeration": false,
+              "runner_up_confidence": 0.5,
+              "claim_kind_confidence": 0.8
+            },
+            "changes": [
+              {
+                "path": "scenes[4].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              },
+              {
+                "path": "scenes[4].narration",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "scenes[4].claim_refs[0].narration_phrase_model",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "scenes[4].claim_refs[1].narration_phrase_model",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "_spine.beats[5].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              },
+              {
+                "path": "_spine.compiled.effective_beats[5].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              }
+            ]
+          }
+        },
+        "changed_narration": [
+          {
+            "beat_id": "event_07",
+            "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+            "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+          }
+        ]
+      },
+      {
+        "pr": 165,
+        "source_sha256": "d54a21be8f518bb85d4a25db098e98c8740b5be5563d3818968b168564cbb014",
+        "result_sha256": "ec590ecb7ad9ae8c1483aaab471906362fbb8541569614c780f35683e304d299",
+        "child_identity": "sr-874727cf3749d5f0a9604ddcc66b",
+        "parent_unchanged": true,
+        "historical_cascade_unchanged": true,
+        "context": {
+          "event_04:hinge": {
+            "refs": [
+              "event_04",
+              "event_01",
+              "event_02"
+            ],
+            "resolved": [
+              "event_04",
+              "event_01",
+              "event_02"
+            ]
+          },
+          "event_09:tool": {
+            "refs": [
+              "event_04",
+              "event_09",
+              "event_01",
+              "event_02"
+            ],
+            "resolved": [
+              "event_04",
+              "event_09",
+              "event_01",
+              "event_02"
+            ]
+          }
+        },
+        "claim_c22": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death: 19 of 31 deaths where the cause could be identified.",
+        "input_repairs": {
+          "_context_migration": {
+            "version": "recovery_saved_context_v1",
+            "source_sha256": "5c1622ab8a43c506d4b77bf20346c7a9f63486a6bbbb2799078b1c844bb3449b",
+            "narration_sha256": "6f0dbfc681272423f5d92efb156708de120b13113be367cb0063454ccdbb3565",
+            "changes": [
+              {
+                "beat_id": "event_04:hinge",
+                "before": {
+                  "context_refs": [
+                    "event_04"
+                  ],
+                  "parallel_case_id": null
+                },
+                "after": {
+                  "context_refs": [
+                    "event_04",
+                    "event_01",
+                    "event_02"
+                  ],
+                  "parallel_case_id": ""
+                }
+              },
+              {
+                "beat_id": "event_09:tool",
+                "before": {
+                  "context_refs": [
+                    "event_04",
+                    "event_09"
+                  ],
+                  "parallel_case_id": null
+                },
+                "after": {
+                  "context_refs": [
+                    "event_04",
+                    "event_09",
+                    "event_01",
+                    "event_02"
+                  ],
+                  "parallel_case_id": ""
+                }
+              }
+            ]
+          },
+          "_numerical_resolution": {
+            "version": "northland_count_only_v1",
+            "source_sha256": "e40781912871185de70d6ba05ec98a2105605d4dc6c77ad245ee8ab797c41e2f",
+            "claim_id": "c22",
+            "original_claim": {
+              "allowed_exaggeration": false,
+              "assumptions": [
+                "Only cases where the cause could be identified are counted"
+              ],
+              "calculation": "19/31 = 61-63% of identified-cause deaths attributed to stoats",
+              "claim": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) in cases where the agent could be identified.",
+              "claim_id": "c22",
+              "claim_kind": "outcome",
+              "claim_kind_confidence": 0.8,
+              "confidence": "high",
+              "geographic_scope": "local",
+              "material": true,
+              "planning_support": "supported",
+              "quote_verified": true,
+              "runner_up_confidence": 0.5,
+              "runner_up_kind": "event",
+              "source_reachable": true,
+              "source_type": "primary",
+              "source_url": "https://www.cambridge.org/core/journals/bird-conservation-international/article/experimental-management-of-brown-kiwi-apteryx-mantelli-in-central-northland-new-zealand/C1928428882BB8312EC0EF0DF07BABC3",
+              "support_provenance": "verbatim",
+              "support_quote": "Causes of mortality in 31 cases where the agent could be identified were: Stoats 19 (63%), cats 4 (13%), drowning 3 (10%)",
+              "timescale": "years"
+            },
+            "changes": [
+              {
+                "path": "scenes[4].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              },
+              {
+                "path": "scenes[4].narration",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "scenes[4].claim_refs[0].narration_phrase_model",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "scenes[4].claim_refs[1].narration_phrase_model",
+                "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+                "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+              },
+              {
+                "path": "_spine.beats[5].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              },
+              {
+                "path": "_spine.compiled.effective_beats[5].event.text",
+                "before": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+                "after": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, responsible for 19 of 31 identified-cause chick deaths where the agent could be identified."
+              }
+            ]
+          }
+        },
+        "changed_narration": [
+          {
+            "beat_id": "event_07",
+            "before": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats killed 19 of 31 chicks, about 63 percent. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit.",
+            "after": "The clearest picture comes from the kiwi. In a central Northland study of brown kiwi, researchers tracked chick deaths and found stoats were the single largest identified cause. Where the agent could be identified, stoats were responsible for 19 of 31 identified-cause chick deaths. Young kiwi are vulnerable until they reach roughly a kilogram at six to eight months, which is exactly the window stoats exploit."
+          }
+        ]
+      }
+    ]
+  }
+}

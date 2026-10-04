@@ -73,4 +73,9 @@ def restore(revision, *, stop_after_script):
             script.pop(key, None)
         if script.get("_narrative_mode") == "seven_section":
             script.pop("_narrative_document", None)
+    if revision["mode"] in {"evaluate", "redraft"}:
+        import script_replay
+        script = (script_replay.reconcile_numbers(script)
+                  if revision["mode"] == "redraft"
+                  else script_replay.prepare_input(script))
     return script
