@@ -21,7 +21,7 @@ def eligible(row):
 def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling_usd):
     if not eligible(row):
         raise ValueError("This job must use its original approval or recovery workflow")
-    if mode not in {"evaluate", "render"}:
+    if mode not in {"evaluate", "render", "redraft"}:
         raise ValueError("Unknown script revision mode")
     if not checkpoint_sha256 or checkpoint_sha256 != (row.get("checkpoint") or {}).get("sha256") \
             or checkpoint_sha256 != saved.get("checkpoint_sha256"):
@@ -34,6 +34,15 @@ def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling
         raise ValueError("The saved script has no evidence ledger")
     request = deepcopy(row["request"])
     request.pop("script_revision", None)
+    if mode == "redraft":
+        import narrative_template
+        engine = script.get("_story_engine")
+        if engine not in narrative_template.ENGINES:
+            raise ValueError("Seven-section drafting currently supports intervention/consequence stories")
+        request["narrative_mode"] = narrative_template.MODE
+    if mode == "evaluate" and script.get("_narrative_mode") == "seven_section" \
+            and script.get("_production_status") == "planned":
+        raise ValueError("This script already has production shots; use a new seven-section draft to rewrite it")
     if mode == "render":
         if row.get("status") != "awaiting_script_approval":
             raise ValueError("Evaluate the saved draft before approving it for rendering")
@@ -43,15 +52,15 @@ def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling
                 "parent_checkpoint_sha256": checkpoint_sha256, "script": script,
                 "source_sha256": digest(script), "content_sha256": content_sha256,
                 "policy": script_contracts.acceptance_policy(), "cost_ceiling_usd": cost_ceiling_usd}
-    request.update(stop_after_script=mode == "evaluate", revision_note="", script_revision=revision)
+    request.update(stop_after_script=mode != "render", revision_note="", script_revision=revision)
     # Same saved draft, settings, policy, operation and cap can buy only one child job.
     return "sr-" + digest(request)[:28], request
 
 
 def restore(revision, *, stop_after_script):
-    if (revision.get("version") != VERSION or revision.get("mode") not in {"evaluate", "render"}
+    if (revision.get("version") != VERSION or revision.get("mode") not in {"evaluate", "render", "redraft"}
             or revision.get("policy") != script_contracts.acceptance_policy()
-            or (revision["mode"] == "evaluate") != stop_after_script):
+            or (revision["mode"] != "render") != stop_after_script):
         raise ValueError("Saved script revision policy or operation changed")
     script = deepcopy(revision.get("script"))
     if not script or digest(script) != revision.get("source_sha256") \
@@ -62,4 +71,6 @@ def restore(revision, *, stop_after_script):
     if revision["mode"] == "evaluate":
         for key in ("_script_readiness", "_final_factcheck_review", "_final_retention_review"):
             script.pop(key, None)
+        if script.get("_narrative_mode") == "seven_section":
+            script.pop("_narrative_document", None)
     return script

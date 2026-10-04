@@ -39,11 +39,11 @@ async function loadArtifacts() {
     if (script) {
       const title = document.createElement('h3'); title.textContent = script.title || 'Saved draft'; el('script').append(title);
       for (const [index, scene] of (script.scenes || []).entries()) {
-        const heading = document.createElement('h3'); heading.textContent = `Scene ${index + 1} · ${scene.causal_role || ''}`;
+        const heading = document.createElement('h3'); heading.textContent = script._production_status === 'unplanned' ? `Paragraph ${index + 1} · ${(scene.narrative_section || '').replaceAll('_', ' ')}` : `Scene ${index + 1} · ${scene.causal_role || ''}`;
         const narration = document.createElement('p'); narration.textContent = scene.narration || '';
         el('script').append(heading, narration);
       }
-      for (const key of ['_script_readiness','_final_retention_review','_final_factcheck_review','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review','_edit_audit']) {
+      for (const key of ['_narrative_outline','_narrative_document','_narrative_draft','_script_readiness','_final_retention_review','_final_factcheck_review','_grade','_hook_contract','_claim_validation','_script_integrity','_retention_validation','_factcheck_review','_cadence_review','_edit_audit']) {
         if (script[key] != null) report(key, script[key]);
       }
     }
@@ -55,12 +55,12 @@ async function loadArtifacts() {
 el('load').onclick = loadArtifacts;
 async function createRevision(mode) {
   if (creatingRevision || !savedArtifact || !lastSnapshot || !lastSnapshot.script_revision_eligible) return;
-  const cap = Number(el(mode === 'evaluate' ? 'evaluation-cap' : 'render-cap').value);
+  const cap = Number(el(mode === 'evaluate' ? 'evaluation-cap' : mode === 'redraft' ? 'redraft-cap' : 'render-cap').value);
   if (!Number.isFinite(cap) || cap <= 0 || cap > 10) {
     el('revision-status').textContent = 'Enter a cost cap above $0 and at most $10.'; return;
   }
   creatingRevision = true;
-  el('evaluate-script').disabled = el('render-script').disabled = true;
+  el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = true;
   try {
     const response = await fetch(base + '/script-revisions', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -74,10 +74,11 @@ async function createRevision(mode) {
     fetch(result.dispatch_url, {method:'POST', keepalive:true}).catch(() => {});
     location.assign(result.studio_url);
   } catch (error) { el('revision-status').textContent = error.message; }
-  finally { creatingRevision = false; el('evaluate-script').disabled = el('render-script').disabled = false; }
+  finally { creatingRevision = false; el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = false; }
 }
 el('evaluate-script').onclick = () => createRevision('evaluate');
 el('render-script').onclick = () => createRevision('render');
+el('redraft-script').onclick = () => createRevision('redraft');
 el('resume').onclick = async () => {
   if (resuming || !lastSnapshot || !(lastSnapshot.provider_resumable || lastSnapshot.planning_review_resumable)) return;
   resuming = true; el('resume').disabled = true; clearTimeout(pollTimer);
