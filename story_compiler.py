@@ -663,6 +663,17 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
         by_function.setdefault(function, []).append(beat)
         out.append(beat)
 
+    import causal_story as cs
+    for role in sorted({b["role"] for b in out} - set(cs._REPEATABLE) - {"context"}):
+        if role == "intervention" and len(by_function.get(ef.CHANGES_INCENTIVE) or []) > 1:
+            continue  # the more specific MULTIPLE_INCENTIVE_CHANGES diagnostic below
+        occupants = [b["beat_id"] for b in out if b["role"] == role]
+        if len(occupants) > 1:
+            issues.append(sfm._issue("DUPLICATE_STORY_ROLE",
+                f"{role} has multiple factual beats: {', '.join(occupants)}. Give this single "
+                "story turn one beat; classify supporting facts under their actual repeatable "
+                "function or context. Preserve all event text and citations."))
+
     for function in mapping.missing(by_function):
         issues.append(sfm._issue(
             "MISSING_EVENT_FUNCTION",
@@ -704,9 +715,9 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
             "passed": not issues}
 
 
-# The complete set of issue codes compile_roles can emit. All three are mechanical: the planner
+# The complete set of issue codes compile_roles can emit. These are mechanical: the planner
 # omitted an event_function, declared one outside the engine's vocabulary, or declared the
-# single-slot incentive change on more than one beat. None is an editorial judgement and none
+# single-slot story role on more than one beat. None is an editorial judgement and none
 # needs new research -- the model can satisfy all three from the same facts once it is told which
 # beat is wrong.
 #
@@ -715,7 +726,8 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
 # line-ranged grep missed MISSING_EVENT_FUNCTION, and that test is what caught it -- a code
 # missing from here is not a retry that misbehaves, it is a run that dies with no path forward.
 MECHANICAL_COMPILE_CODES = frozenset({
-    "MISSING_EVENT_FUNCTION", "UNKNOWN_EVENT_FUNCTION", "MULTIPLE_INCENTIVE_CHANGES"})
+    "MISSING_EVENT_FUNCTION", "UNKNOWN_EVENT_FUNCTION", "MULTIPLE_INCENTIVE_CHANGES",
+    "DUPLICATE_STORY_ROLE"})
 
 
 def compile_correction(result: dict) -> str:
@@ -902,6 +914,16 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                 if derivation.get("kind") == "behavior_inversion":
                     refs = refs + [mechanism["beat_id"]]
                 beat["context_refs"] = list(dict.fromkeys(r for r in refs if r != beat["beat_id"]))
+            # Later consequences/callbacks can name the original problem and intervention.
+            # Bind only these accepted same-case anchors, never the whole claim ledger.
+            if beat.get("role") not in {"setup", "intervention", "context"}:
+                anchors = [b["beat_id"] for b in out[:i]
+                           if b.get("role") in {"setup", "intervention"}
+                           and sfm.scope_of(b) == sfm.scope_of(beat)
+                           and b.get("parallel_case_id") == beat.get("parallel_case_id")
+                           and sfm.event_of(b)["text"]]
+                beat["context_refs"] = list(dict.fromkeys(
+                    (beat.get("context_refs") or []) + anchors))
             refs = sfm.event_of(beat)["claim_refs"]
             if beat.get("context_refs"):
                 refs = sorted(set(refs) | {ref for parent in out

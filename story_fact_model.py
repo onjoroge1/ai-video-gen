@@ -311,6 +311,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
     """
     issues: list[dict] = []
     ids = [_text(b.get("beat_id")) or f"beat_{i + 1:02d}" for i, b in enumerate(beats or [])]
+    by_id = dict(zip(ids, beats or []))
     for bid in set(ids):
         if ids.count(bid) > 1:
             issues.append(_issue("DUPLICATE_BEAT_ID", f"beat identity {bid} is repeated", beat_id=bid))
@@ -326,6 +327,15 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         scope = scope_of(beat)
         event = event_of(beat)
         narration = _text(beat.get("narration"))
+
+        refs = beat.get("context_refs") or []
+        if (not isinstance(refs, list) or any(not isinstance(ref, str) or ref == beat_id
+                or ref not in by_id or not event_of(by_id[ref])["text"]
+                or scope_of(by_id[ref]) != scope
+                or by_id[ref].get("parallel_case_id") != beat.get("parallel_case_id")
+                for ref in refs)):
+            issues.append(_issue("INVALID_CONTEXT_REF", "Context must name other factual beats "
+                                 "from the same case", beat_id=beat_id))
 
         # 1. A comparison may only occupy the generalization.
         if scope == PARALLEL_CASE and role and role != COMPARISON_ROLE:
@@ -553,6 +563,8 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
     for beat_id, beat in by_id.items():
         narration = _text(beat.get("narration"))
         if not narration:
+            continue
+        if beat_id in blocked:
             continue
         event = event_of(beat)
         ceiling = event["text"]
@@ -1200,6 +1212,18 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
         "still_failing": still_failing,
         "cascade": report,
     }
+
+
+def context_events(beat, beats):
+    """Explicit context for writers/editors; evidence acceptance stays in the cascade."""
+    refs = beat.get("context_refs") or []
+    refs = [ref for ref in refs if isinstance(ref, str)] if isinstance(refs, list) else []
+    found = {}
+    for parent in beats:
+        ident = parent.get("beat_id")
+        if ident in refs and ident not in found:
+            found[ident] = {"beat_id": ident, "event": event_of(parent)}
+    return [found[ref] for ref in refs if ref in found]
 
 
 def expansion_input(beat):

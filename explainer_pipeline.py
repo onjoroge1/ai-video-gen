@@ -3825,7 +3825,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     "approved": _approved, "stop_after_plan": bool(_control.get("stop_after_plan")),
                     "channel": _TOPIC_CHANNEL.get(),
                     "model": script_contracts.model_identity(), "evidence": research_dossier,
-                    "policy": "script_flow_v6", "diagnostic": _diagnostic_render()}
+                    "policy": "script_flow_v7", "diagnostic": _diagnostic_render()}
     _plan_inputs = copy.deepcopy(_plan_inputs)
     _saved_plan = script_stages.load("accepted-plan", _plan_inputs)
     if _saved_plan is not None:
@@ -4249,6 +4249,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # here let expansion silently discard Alex's intention, the evidence state, and the continuity
     # anchor even though the planner had supplied them.
     def _expansion_beat(beat: dict) -> dict:
+        identity = (_compiler.scene_identities(beat, beat["n"],
+                    part_index=int(beat.get("beat_part") or 1) - 1,
+                    part_count=int(beat.get("beat_part_count") or 1)) if causal_lane else {})
         if causal_lane:
             # Only the accepted event is factual input. Planner beliefs, outcomes and
             # visual descriptions have NOT passed evidence entailment.
@@ -4256,7 +4259,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             beat = story_fact_model.expansion_input(beat)
         return {
             "n": beat.get("n"), "role": _s(beat.get("role")) or "beat",
-            **({"beat_id": beat.get("beat_id")} if causal_lane else {}),
+            **({"beat_id": beat.get("beat_id"), "scene_id": identity["scene_id"]}
+               if causal_lane else {}),
             "beat": _s(beat.get("beat")),
             "human_present": _plan_bool(beat.get("human_present"), True),
             "human_intention": _s(beat.get("human_intention")),
@@ -4286,6 +4290,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 # came to compress against a budget it was never shown.
                 "event": beat.get("event") or {},
                 "context_refs": beat.get("context_refs") or [],
+                "context_events": story_fact_model.context_events(beat, beats),
                 "presentation_device": beat.get("presentation_device") or "",
                 "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
         }
@@ -4317,29 +4322,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                   if image_guidance else "")
 
     # 2) EXPANSION — batched, each batch sees the full sheet, dramatizing ONLY its assigned beats.
-    # Ten rather than sixteen: every scene carries a paragraph-length image_prompt plus ~16 story
-    # fields, claim_refs and now a role, and sixteen of those overran the response budget — a run
-    # died on "Unterminated string" at char 41222, which is almost exactly 16 scenes of this shape.
-    # Smaller batches cost more calls but cannot silently truncate a script mid-object.
-    per_batch = 10
+    # Four causal rows keep structured responses bounded; missing rows retry individually.
+    # The legacy lane retains its ten-scene text-JSON batches.
+    per_batch = 4 if causal_lane else 10
     all_scenes = []
     bi = 0
-    # One retry per batch when the writer returns the wrong NUMBER of scenes. Measured on the
-    # first penguin script: a replanned 10-beat batch came back as 9 scenes because the writer
-    # folded the closing beat (a device that adds no fact) into the reversal, and the run died
-    # rather than relabel. Asking once more, with the count and the reason spelled out, is cheaper
-    # than a whole new draft; a second miss still refuses.
-    count_retry_at, count_note = None, ""
     _expansion_inputs = copy.deepcopy({"plan": _plan_inputs, "beats": beats, "format": effective_story_format})
     _expansion_saved = script_stages.load("expansion-progress", _expansion_inputs)
     if _expansion_saved is not None:
         all_scenes, bi, cost = (_expansion_saved[k] for k in ("scenes", "next_batch", "cost"))
-        count_retry_at = _expansion_saved["count_retry_at"]
-        count_note = _expansion_saved["count_note"]
     def _save_expansion():
         script_stages.save("expansion-progress", _expansion_inputs,
-            {"scenes": all_scenes, "next_batch": bi, "cost": cost,
-             "count_retry_at": count_retry_at, "count_note": count_note})
+            {"scenes": all_scenes, "next_batch": bi, "cost": cost})
     while bi < n_scenes:
         batch = beats[bi:bi + per_batch]
         lo, hi = batch[0]["n"], batch[-1]["n"]
@@ -4372,6 +4366,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "mud-brick homes overnight\", which invents a number, a secrecy, a building material "
             "and a timescale nobody researched. A beat whose event.text is empty asserts no "
             "history: write it as pure connective or rhetoric and it needs no evidence at all."
+            " Explicit context_events are also available for a brief causal connection or earned "
+            "callback. Refer to those accepted facts without re-explaining earlier scenes. They "
+            "do not authorize new motives, dates, outcomes or facts from unrelated beats."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
         from claim_entailment import MEANING_RULES
         opening_direction += "\n" + MEANING_RULES + (
@@ -4423,7 +4420,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'BEFORE revealing the answer. NEVER narrate the video\'s own structure: the role label in '
             'brackets is INTERNAL — do not speak it or any scaffolding word aloud ("first payoff", '
             '"here\'s the peak", "the reveal", "the hook", "prediction gate", "stage two"); the viewer '
-            f'must FEEL the beat through its content, not hear it announced:\n{assigned}\n{seam}'
+            'must FEEL the beat through its content, not hear it announced:\n'
+            + (f'<ASSIGNED_SCENES>\n{assigned}\n</ASSIGNED_SCENES>\n{seam}' if causal_lane
+               else f'{assigned}\n{seam}')
             + ('Use each assigned narration_words as its individual word budget, including '
                'chapter markers. The later demonstrations have larger budgets than the opening'
                if causal_lane else f'Each narration ≈ {wpm} words')
@@ -4458,12 +4457,25 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                'Do NOT re-summarize or restate any '
                'earlier fact. Any call to action comes AFTER the payoff, never interrupting it.'
                if is_last and not causal_lane else "")
-            + count_note
         )
-        c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
+        if causal_lane:
+            import scene_expansion
+            def request_scenes(prompt, tool):
+                response = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=16000,
+                    system=_SCRIPT_SYSTEM, messages=[{"role": "user", "content": prompt}],
+                    tools=[tool], tool_choice={"type": "tool", "name": tool["name"]})
+                paid = _charge(cost_sink, _ledger.EXPANSION, _msg_cost(response.usage),
+                               f"beats {lo}-{hi}")
+                return response, paid
+            rows, paid = scene_expansion.expand([_expansion_beat(b) for b in batch],
+                ch_prompt + _DESIGN_SYSTEM_TEXT, request_scenes)
+            cost += paid
+            part = {"scenes": rows}
+        else:
+            c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
                                       messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
-        cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
-        if getattr(c, "stop_reason", "") == "max_tokens":
+            cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
+        if not causal_lane and getattr(c, "stop_reason", "") == "max_tokens":
             # Retry a smaller, differently keyed request. Completed prefixes are retained and
             # the durable wrapper preserves the already charged incomplete response on resume.
             if len(batch) > 1:
@@ -4473,23 +4485,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise ValueError(
                 f"Scene expansion hit the token ceiling on beats {lo}-{hi}; the script JSON was cut "
                 "off even with one beat. No further automatic retry.")
-        part, rc = _parse_script_json(c.content[0].text,
-                                     cost_sink=_ledger.StageCostSink(cost_sink, _ledger.EXPANSION))
-        cost += rc
-        if causal_lane and len(part.get("scenes") or []) != len(batch):
-            returned = len(part.get("scenes") or [])
-            if count_retry_at != bi:
-                count_retry_at = bi
-                count_note = (f" RETURN EXACTLY {len(batch)} SCENES for this batch, one per assigned "
-                              "beat in the assigned order. A closing beat that adds no new fact is "
-                              f"still its own scene. The previous reply returned {returned}.")
-                print(f"[script] expansion returned {returned} scenes for {len(batch)} beats "
-                      f"{lo}-{hi}; asking once more for the exact count")
-                _save_expansion()
-                continue
-            raise ValueError(f"Scene expansion returned {returned} scenes "
-                             f"for {len(batch)} beats; refusing to shift the causal labels.")
-        count_note = ""
+        if not causal_lane:
+            part, rc = _parse_script_json(c.content[0].text,
+                                         cost_sink=_ledger.StageCostSink(cost_sink, _ledger.EXPANSION))
+            cost += rc
         for batch_index, s in enumerate(part.get("scenes") or []):
             beat = batch[batch_index] if batch_index < len(batch) else {}
             s["human_present"] = _plan_bool(beat.get("human_present"), True)
@@ -5485,11 +5484,13 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
     baseline = _validate_claims(working, research_dossier, validation_costs) if grounded else {}
     if baseline.get("retryable"):
         return script, ["Fact-check unavailable: evidence review incomplete; narration unchanged"], round(sum(validation_costs), 4)
+    from story_fact_model import context_events
     payload = {
         "title": _s(script.get("title")) or question,
         "question": question,
         "narration": lines,
         "events": [{"scene": i, "event": sc.get("event"),
+                    "context_events": context_events(sc, scenes),
                     "role": sc.get("causal_role"), "derived": bool(sc.get("derivation"))}
                    for i, sc in enumerate(scenes, 1)],
         "read_only_lead": {"hook": script.get("hook"), "cold_open": script.get("_cold_open")},
@@ -5535,7 +5536,7 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
             rederive_narration_bindings(candidate, lambda _: None, research_dossier)
             reviewed = _validate_claims(candidate, research_dossier, reconciliation_costs)
             from script_integrity import improves
-            accepted = improves(baseline, reviewed)
+            accepted = improves(baseline, reviewed, original=working, candidate=candidate)
             import script_edit_audit
             script_edit_audit.record(script, candidate, baseline, reviewed, "factcheck", accepted,
                                      "validated improvement" if accepted else "no improvement, new integrity failure or unavailable review")
@@ -5590,6 +5591,8 @@ _CLAIM_REPAIR_SYSTEM = (
 )
 from claim_entailment import MEANING_RULES as _SCRIPT_MEANING_RULES
 _CLAIM_REPAIR_SYSTEM += ("\n" + _SCRIPT_MEANING_RULES +
+    " Explicit context_events are part of the narration ceiling for causal connections and "
+    "callbacks. They do not replace the local event or authorize unrelated ledger claims. "
     " Resolve an ambiguous pronoun by naming its subject from the scene's own event. "
     "Introduce a comparison's location from that event. Preserve these introductions "
     "when shortening. A judge's supported_core is a suggestion, not evidence: verify it "
@@ -5713,7 +5716,7 @@ def _validated_claim_trim(script, dossier, report, cost_sink, log):
         return script, report, 0
     rederive_narration_bindings(candidate, pending_logs.append, dossier)
     reviewed = _validate_claims(candidate, dossier, cost_sink)
-    accepted = improves(report, reviewed)
+    accepted = improves(report, reviewed, original=script, candidate=candidate)
     import script_edit_audit
     script_edit_audit.record(script, candidate, report, reviewed, "claim-trim", accepted,
                              "validated improvement" if accepted else "no improvement or new integrity failure")
@@ -5983,6 +5986,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         "HOOK_EXCEEDS_STORY",
     }
     errors = [dict(item) for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    title_errors = [item for item in errors if item.get("code") == "TITLE_EXCEEDS_STORY"]
     scenes_now = script.get("scenes") or []
     # The fact-model codes address a scene by beat_id ("event_04"), the older ones by 1-based
     # index. Resolved here so one repair path serves both rather than two paths drifting apart.
@@ -6000,7 +6004,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     # An unrelated hard failure must not suppress valid local repairs. It remains
     # in the original report and the unchanged final validator still blocks it.
     errors = [item for item in errors if item.get("code") in repairable and item.get("scene")]
-    if not errors:
+    if not errors and not title_errors:
         return script, 0.0
     indexes = sorted({int(item["scene"]) for item in errors})
     scenes = script.get("scenes") or []
@@ -6009,11 +6013,14 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
     indexes = indexes[:4]
     errors = [item for item in errors if int(item["scene"]) in indexes]
     all_ids = {_s(c.get("claim_id")) for c in dossier.get("claims") or [] if isinstance(c, dict)}
-    from story_fact_model import event_of
+    from story_fact_model import event_of, context_events
     scene_claim_ids = {}
     for index in indexes:
-        refs = event_of(scenes[index - 1])["claim_refs"]
-        scene_claim_ids[index] = set(refs) & all_ids if refs else all_ids
+        refs = event_of(scenes[index - 1])["claim_refs"] + [ref
+                for parent in context_events(scenes[index - 1], scenes)
+                for ref in parent["event"]["claim_refs"]]
+        scene_claim_ids[index] = (set(refs) & all_ids if refs or script.get("_compiled_story")
+                                  else all_ids)
         if any(e.get("code") == "METRIC_MEANING_CHANGED" and int(e["scene"]) == index for e in errors):
             # The correct measure may already exist elsewhere in the ledger. A proposed event
             # correction still has to pass the same source, scope and narration cascade.
@@ -6023,7 +6030,15 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         if any(e.get("code") == "HOOK_EXCEEDS_STORY" for e in errors):
             scene_claim_ids[1].update(ref for sc in scenes for ref in event_of(sc)["claim_refs"] if ref in all_ids)
     permitted_ids = set().union(*scene_claim_ids.values())
+    if title_errors:
+        permitted_ids.update(ref for sc in scenes for ref in event_of(sc)["claim_refs"] if ref in all_ids)
     payload = {
+        "title": script.get("title"),
+        "title_repair": ({"failures": title_errors,
+            "events": [event_of(sc) for sc in scenes if event_of(sc)["text"]],
+            "instruction": "Return a corrected title grounded only in these events. Preserve intent "
+                "versus consequence: do not imply an accidental outcome was deliberately sought."}
+            if title_errors else None),
         "operator_direction": operator_direction,
         "read_only_lead": {"hook": script.get("hook"), "cold_open": script.get("_cold_open"),
                            "cold_open_claim_refs": script.get("_cold_open_claim_refs", [])},
@@ -6045,6 +6060,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             # what it is allowed to say instead, which is how a rewrite trades one overshoot for
             # another.
             "event": event_of(scenes[index - 1])["text"],
+            "context_events": context_events(scenes[index - 1], scenes),
             # Named, not left to be noticed. See unsupported_actors.
             "actors_the_event_does_not_name": unsupported_actors(
                 event_of(scenes[index - 1])["text"],
@@ -6057,6 +6073,7 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             "using an existing ledger measure with its exact outcome, denominator, scope and date. "
             "Keep the scene's purpose. All proposals are independently validated; never invent evidence.",
         "output_schema": {
+            **({"title": "corrected evidence-grounded title"} if title_errors else {}),
             "event_updates": [{"scene": 1, "event": {"text": "corrected factual ceiling",
                                                      "claim_refs": ["existing claim id"]}}],
             "scenes": [{"scene": 1, "narration": "complete corrected narration",
@@ -6073,11 +6090,19 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
         usage = response.usage
         response_cost = _msg_cost(usage)
-        data, parse_cost = _parse_script_json(response.content[0].text)
+        # A malformed edit consumes its bounded attempt; it must not buy an unbounded
+        # secondary JSON-repair request outside this editor's scene/evidence contract.
+        from storyboard_repair import response_data
+        data, parse_cost = response_data(response), 0.0
         repaired = data.get("scenes") if isinstance(data, dict) else None
         if not isinstance(repaired, list) or len(repaired) != len(indexes):
             return script, round(response_cost + float(parse_cost or 0.0), 4)
         candidate = json.loads(json.dumps(script))
+        if title_errors:
+            title = data.get("title")
+            if not isinstance(title, str) or not title.strip():
+                return script, round(response_cost, 4)
+            candidate["title"] = title.strip()
         seen = set()
         for item in repaired:
             if not isinstance(item, dict):
@@ -10689,6 +10714,8 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                 pinned_engine=_s(best.get("_story_engine")),
                 improve_note="DETERMINISTIC CONTRACT FAILURES: " + fixes,
             )
+        except DurableExecutionError:
+            raise
         except (ValueError, RuntimeError) as exc:
             # A replan that cannot itself pass the spine or compile is a failed CANDIDATE, not a
             # failed run: the draft it was meant to improve already passed every gate that
@@ -10768,7 +10795,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
                     f"{json.dumps(best_g.get('scores') or {})}.")
         elif best_g["overall"] < _SCRIPT_GATE_PASS:
             log(f"Script graded {best_g['overall']}/100 — under the {_SCRIPT_GATE_PASS} target but "
-                f"above the {_SCRIPT_GATE_FLOOR} floor; shipping as-is.")
+                f"above the {_SCRIPT_GATE_FLOOR} floor; preliminary draft retained, final gates pending.")
     return best
 
 
@@ -11909,7 +11936,8 @@ def run_explainer_pipeline(
                     repaired_validation = _validate_claims(repaired_script, research_dossier, aux_costs)
                     _after_count = len(repaired_validation.get("errors") or [])
                     from script_integrity import improves
-                    accepted = improves(claim_validation, repaired_validation)
+                    accepted = improves(claim_validation, repaired_validation,
+                                        original=script, candidate=repaired_script)
                     import script_edit_audit
                     script_edit_audit.record(script, repaired_script, claim_validation, repaired_validation,
                                              "claim-repair", accepted, "validated improvement" if accepted
@@ -11926,8 +11954,8 @@ def run_explainer_pipeline(
                     log(f"Claim ledger repair {_repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
                         + ("PASS" if claim_validation.get("passed")
                            else f"{_before_count} -> {_after_count} failing"))
-                    if _after_count >= _before_count:
-                        break
+                    # Acceptance already requires progress against the reconciled baseline;
+                    # a newly noticed defect in unchanged prose does not undo that progress.
                 if not claim_validation.get("passed"):
                     # Last resort before refusing: delete the sentence that carries only an
                     # unsupported detail, then judge the script again. See _trim_unsupported_sentences.

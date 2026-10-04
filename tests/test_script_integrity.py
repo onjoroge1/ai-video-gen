@@ -42,6 +42,35 @@ def test_exact_content_cached_and_edits_to_prose_or_evidence_rejudge():
     assert calls[-1]["scenes"][0]["evidence"][0]["support_quote"] == "A changed quotation."
 
 
+def test_known_local_defect_cannot_disappear_when_an_unrelated_scene_changes():
+    script, cache = draft(), {}
+    script["scenes"].append({"scene_id": "s2", "narration": "A separate closing question."})
+    assert not si.review(script, DOSSIER, judge=lambda _: issue(), cache=cache)["passed"]
+    script["scenes"][1]["narration"] = "What does that mean for the birds?"
+    result = si.review(script, DOSSIER, judge=lambda _: {"issues": []}, cache=cache)
+    assert not result["passed"] and result["errors"][0]["code"] == "METRIC_MEANING_CHANGED"
+    script["scenes"][0]["narration"] = "Stoats cause half of kiwi chick deaths."
+    assert si.review(script, DOSSIER, judge=lambda _: {"issues": []}, cache=cache)["passed"]
+
+
+def test_global_defect_is_rejudged_when_other_scenes_supply_missing_context():
+    script, cache = draft(), {}
+    assert not si.review(script, DOSSIER, judge=lambda _: issue("HOOK_PROMISE_UNPAID"), cache=cache)["passed"]
+    script["scenes"].append({"scene_id": "s2", "narration": "The missing answer."})
+    assert si.review(script, DOSSIER, judge=lambda _: {"issues": []}, cache=cache)["passed"]
+
+
+def test_old_whole_story_clean_cache_cannot_erase_a_later_local_finding():
+    script, cache = draft(), {}
+    script["scenes"].append({"scene_id": "s2", "narration": "First ending."})
+    assert si.review(script, DOSSIER, judge=lambda _: {"issues": []}, cache=cache)["passed"]
+    script["scenes"][1]["narration"] = "Second ending."
+    assert not si.review(script, DOSSIER, judge=lambda _: issue(), cache=cache)["passed"]
+    script["scenes"][1]["narration"] = "First ending."
+    judge = Mock(side_effect=AssertionError("whole-story response is cached"))
+    assert not si.review(script, DOSSIER, judge=judge, cache=cache)["passed"]
+
+
 @pytest.mark.parametrize("bad", [{}, {"issues": "none"}, issue(scene=99),
     issue(quote="not in the narration"), issue(code="STYLE_PREFERENCE"), issue(scene=True)])
 def test_invalid_review_retries_once_fails_closed_and_is_not_cached(bad):
