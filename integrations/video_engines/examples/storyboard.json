@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "status": "draft",
+  "title": "An incentive changes a choice — template demo",
+  "flow": "motion_scene",
+  "aspect_ratio": "16:9",
+  "narration_script": "A reward changes the choice. The result is different.",
+  "reference_ids": [],
+  "claim_ids": [],
+  "provenance": "reelforge",
+  "shots": [
+    {"id":"setup","start":0,"end":4,"narration":"A reward changes the choice.","visual":"One token moves between two labeled choices.","first_frame":"A token sits beside option A.","change":"The reward appears beside option B; the token moves toward it.","last_frame":"The token sits beside option B.","treatment":"motion_canvas","reference_ids":[],"claim_ids":[]},
+    {"id":"payoff","start":4,"end":8,"narration":"The result is different.","visual":"The consequence panel fills as tokens arrive.","first_frame":"The consequence panel is empty.","change":"The chosen token enters the panel.","last_frame":"The panel contains the token.","treatment":"motion_canvas","reference_ids":[],"claim_ids":[]}
+  ]
+}

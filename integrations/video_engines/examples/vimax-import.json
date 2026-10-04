@@ -1,0 +1,6 @@
+{
+  "title": "ViMax import fixture",
+  "narration_script": "A reward changes the choice.",
+  "shots": [{"idx":0,"cam_idx":0,"is_last":true,"visual_desc":"A token moves toward a reward.","ff_desc":"Token beside option A.","lf_desc":"Token beside option B.","motion_desc":"Token crosses toward B.","audio_desc":"Soft movement cue, not narration."}],
+  "alignment": [{"idx":0,"start":0,"end":4,"narration":"A reward changes the choice."}]
+}
