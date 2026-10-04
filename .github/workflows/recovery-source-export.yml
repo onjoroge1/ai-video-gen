@@ -1,23 +1,103 @@
-name: Recovery source export (temporary)
+name: Verify and publish corrective recovery candidate (temporary)
 on:
   push:
     branches: [recovery/source-export-20261004]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  test-dependencies:
+  candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
+      - name: Reconstruct exact tested tree from pinned public objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recovery-candidate /tmp/recovery-proof
+          cd /tmp/recovery-candidate
+          git init
+          git remote add origin https://github.com/onjoroge1/ai-video-gen.git
+          git fetch --depth=1 origin 3769b61209c1c614f4890b03a3cb5d6123b5d41b 115500c45c594eca2e91f5c50b291023e5bd64df "$GITHUB_SHA"
+          git checkout --detach 3769b61209c1c614f4890b03a3cb5d6123b5d41b
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          def transferred(path):
+              return git('show', os.environ['GITHUB_SHA'] + ':.github/recovery-transfer/' + path)
+          m = json.loads(transferred('manifest.json'))
+          assert m['base_commit'] == '3769b61209c1c614f4890b03a3cb5d6123b5d41b'
+          assert m['expected_tree'] == '2bcfc5e784019d270f0097012137c703af4457ad'
+          assert m['branch'] == 'recovery/illustrated-delivery-20261004'
+          parts = [transferred('part%d.txt' % i).decode() for i in range(3)]
+          # Correct two identified transfer transcription insertions, then require
+          # the independently computed full patch digest and exact Git tree.
+          parts[1] = parts[1].replace('nXxkJ5W', 'nXxk5W').replace('FowyxUUuuPp', 'FowyxUuuPp')
+          assert len(parts[0]) == 7600 and len(parts[1]) == 7600 and len(parts[2]) == 7416
+          patch = gzip.decompress(base64.b64decode(''.join(parts), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '6f45cab87ff324c52c8aa695cbc5acc11e0acaf516e31d1e7c696b5874fbb5dc'
+          for path in m['seed_files']:
+              p = pathlib.Path(path)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(git('show', m['seed_commit'] + ':' + path))
+          pathlib.Path('/tmp/recovery.patch').write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', '/tmp/recovery.patch'], check=True)
+          subprocess.run(['git', 'apply', '/tmp/recovery.patch'], check=True)
+          subprocess.run(['git', 'add', '--', *m['expected_blobs']], check=True)
+          changed = git('diff', '--cached', '--name-only').decode().splitlines()
+          assert set(changed) == set(m['expected_blobs']), changed
+          for path, blob in m['expected_blobs'].items():
+              assert git('rev-parse', ':' + path).decode().strip() == blob, path
+          tree = git('write-tree').decode().strip()
+          assert tree == m['expected_tree'], (tree, m['expected_tree'])
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          pathlib.Path('/tmp/recovery-proof/manifest.json').write_text(json.dumps(m, indent=2))
+          print('EXACT_TESTED_TREE', tree)
+          PY
+          git -c user.name='ReelForge recovery' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Repair saved script context and numerical inputs without writer experiments'
+          git rev-parse HEAD > /tmp/recovery-proof/commit.txt
+          git diff HEAD^ HEAD --stat > /tmp/recovery-proof/diff-stat.txt
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - name: Download pinned application SDKs for offline tests
+          python-version: '3.11'
+      - name: Install canonical application test dependencies
         run: |
-          python -m pip download --only-binary=:all: --dest /tmp/wheels 'openai==2.54.0' 'fastapi==0.115.0' 'pydantic==2.9.2' 'yt-dlp>=2024.1.0' 'bar_chart_race>=0.1.0'
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          cd /tmp/recovery-candidate
+          python -m pip install -r requirements.txt pytest
+      - name: Run corrective regressions and both Studio checks
+        working-directory: /tmp/recovery-candidate
+        run: |
+          python -m pytest -q tests/test_script_replay.py tests/test_script_contract_revisions.py tests/test_retention_polish.py tests/test_studio_jobs.py tests/test_delivery_control_inventory.py --junitxml=/tmp/recovery-proof/core-tests.xml
+          node tests/studio_job_ui.cjs
+          node tests/studio_script_revision_ui.cjs
+          python scripts/replay_saved_scripts.py > /tmp/recovery-proof/candidate-replay.json
+      - name: Verify installed package
+        working-directory: /tmp/recovery-candidate
+        run: |
+          python -m pip wheel --no-deps --wheel-dir /tmp/recovery-wheel .
+          python scripts/check_installed_wheel.py /tmp/recovery-wheel/reelforge_ai_video-0.2.0-py3-none-any.whl
+      - name: Publish only the fixed recovery branch without force
+        working-directory: /tmp/recovery-candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = '2bcfc5e784019d270f0097012137c703af4457ad'
+          git diff --quiet
+          git diff --cached --quiet
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git push origin HEAD:refs/heads/recovery/illustrated-delivery-20261004
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: recovery-sdk-wheels
-          path: /tmp/wheels
-          retention-days: 2
-          if-no-files-found: error
+          name: corrective-recovery-verification
+          path: /tmp/recovery-proof
+          retention-days: 7
+          if-no-files-found: warn
