@@ -902,7 +902,8 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                       # refused a story whose spine had passed in full.
                       "caused_by": ((anchor.get("caused_by") or anchor["beat_id"])
                                     if role == "hinge" else anchor["beat_id"]),
-                      "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
+                      "chapter": anchor.get("chapter") or 1, "scope": sfm.scope_of(anchor),
+                      "parallel_case_id": sfm.case_identity(anchor)[1],
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
             out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
         for i, beat in enumerate(out):
@@ -919,8 +920,7 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
             if beat.get("role") not in {"setup", "intervention", "context"}:
                 anchors = [b["beat_id"] for b in out[:i]
                            if b.get("role") in {"setup", "intervention"}
-                           and sfm.scope_of(b) == sfm.scope_of(beat)
-                           and b.get("parallel_case_id") == beat.get("parallel_case_id")
+                           and sfm.case_identity(b) == sfm.case_identity(beat)
                            and sfm.event_of(b)["text"]]
                 beat["context_refs"] = list(dict.fromkeys(
                     (beat.get("context_refs") or []) + anchors))

@@ -296,6 +296,15 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None,
     return out
 
 
+def case_identity(beat):
+    """Canonical case key: absent/blank IDs denote the same primary story.
+
+    Scope remains part of the key; named comparison cases never collapse into
+    each other or into the primary story.
+    """
+    return scope_of(beat), _text(beat.get("parallel_case_id"))
+
+
 def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
                        claims: dict | None = None, engine_id: str = "") -> list[dict]:
     """The invariants that need no model, run before any judge call is bought.
@@ -331,8 +340,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         refs = beat.get("context_refs") or []
         if (not isinstance(refs, list) or any(not isinstance(ref, str) or ref == beat_id
                 or ref not in by_id or not event_of(by_id[ref])["text"]
-                or scope_of(by_id[ref]) != scope
-                or by_id[ref].get("parallel_case_id") != beat.get("parallel_case_id")
+                or case_identity(by_id[ref]) != case_identity(beat)
                 for ref in refs)):
             issues.append(_issue("INVALID_CONTEXT_REF", "Context must name other factual beats "
                                  "from the same case", beat_id=beat_id))
@@ -1221,7 +1229,9 @@ def context_events(beat, beats):
     found = {}
     for parent in beats:
         ident = parent.get("beat_id")
-        if ident in refs and ident not in found:
+        if (ident in refs and ident not in found and ident != beat.get("beat_id")
+                and case_identity(parent) == case_identity(beat)
+                and event_of(parent)["text"]):
             found[ident] = {"beat_id": ident, "event": event_of(parent)}
     return [found[ref] for ref in refs if ref in found]
 

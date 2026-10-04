@@ -1,0 +1,197 @@
+{
+  "source_job": "sr-3decb63eed0999aa6cdbfa026c7a",
+  "engine": "removed_keystone",
+  "beats": [
+    {
+      "n": 1,
+      "beat_id": "event_01",
+      "beat": "The problem before the fix: rabbits were destroying sheep pasture.",
+      "event_function": "establishes_balance",
+      "caused_by": "",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "By the late 1800s, rabbits were destroying the sheep pasture New Zealand's farms depended on, and controlling them became the goal.",
+        "claim_refs": [
+          "c05"
+        ]
+      },
+      "changes_state": {
+        "from": "farmland overrun by rabbits damaging pasture",
+        "to": "pressure to find a predator that would cut the rabbit population"
+      },
+      "role": "setup",
+      "causal_role": "setup",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 2,
+      "beat_id": "event_02",
+      "beat": "The decision: import stoats to hunt rabbits.",
+      "event_function": "species_moved",
+      "caused_by": "event_01",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Stoats, ferrets and weasels were introduced as early as 1879, and stoats were imported and released in 1884, specifically to control the rabbits.",
+        "claim_refs": [
+          "c05",
+          "c04",
+          "c06"
+        ]
+      },
+      "changes_state": {
+        "from": "no stoats in New Zealand",
+        "to": "stoats released into the landscape to reduce rabbits"
+      },
+      "role": "intervention",
+      "causal_role": "intervention",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 3,
+      "beat_id": "event_03",
+      "beat": "The warning that was waved away.",
+      "event_function": "context",
+      "caused_by": "event_02",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Ornithologists, including Walter Buller, protested the release, but their warnings were ignored.",
+        "claim_refs": [
+          "c08",
+          "c06"
+        ]
+      },
+      "changes_state": {
+        "from": "scientists raising concerns before release",
+        "to": "release proceeding despite the objections"
+      },
+      "role": "context",
+      "causal_role": "context",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 4,
+      "beat_id": "event_04",
+      "beat": "The interaction the plan left out: stoats don't stay with the rabbits.",
+      "event_function": "hidden_link",
+      "caused_by": "event_02",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "The stoats spread into forests and areas with no rabbits at all, where they fed on poorly-flighted native birds and their eggs.",
+        "claim_refs": [
+          "c13"
+        ]
+      },
+      "changes_state": {
+        "from": "stoats expected to prey on rabbits in pasture",
+        "to": "stoats preying on native birds far from any rabbit"
+      },
+      "role": "mechanism",
+      "causal_role": "mechanism",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 6,
+      "beat_id": "event_06",
+      "beat": "The law that kept them, long after the harm was clear.",
+      "event_function": "context",
+      "caused_by": "event_04",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Until 1936, stoats, ferrets and weasels were protected by law for their rabbit-controlling abilities even as they wrecked bird populations.",
+        "claim_refs": [
+          "c10",
+          "c08"
+        ]
+      },
+      "changes_state": {
+        "from": "stoats already harming native birds",
+        "to": "stoats legally protected despite that harm"
+      },
+      "role": "context",
+      "causal_role": "context",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 7,
+      "beat_id": "event_07",
+      "beat": "The kiwi chick on the menu, measured.",
+      "event_function": "population_responds",
+      "caused_by": "event_04",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "In a central Northland study of brown kiwi, stoats were the single largest identified cause of chick death, killing 19 of 31 chicks (63%) where the agent could be identified.",
+        "claim_refs": [
+          "c22",
+          "c24"
+        ]
+      },
+      "changes_state": {
+        "from": "kiwi chicks hatching into stoat-occupied forest",
+        "to": "most identified chick deaths caused by stoats"
+      },
+      "role": "escalation",
+      "causal_role": "escalation",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 8,
+      "beat_id": "event_08",
+      "beat": "The decline, generalised across the mainland.",
+      "event_function": "population_responds",
+      "caused_by": "event_07",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "A meta-analysis found the critical factor in the kiwi's decline on the mainland was predation by introduced mammals, especially stoats killing chicks.",
+        "claim_refs": [
+          "c23",
+          "c17"
+        ]
+      },
+      "changes_state": {
+        "from": "localised chick losses",
+        "to": "stoat predation identified as the critical driver of mainland kiwi decline"
+      },
+      "role": "escalation",
+      "causal_role": "escalation",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    },
+    {
+      "n": 9,
+      "beat_id": "event_09",
+      "beat": "What the country became: a place that must be managed.",
+      "event_function": "system_resettles",
+      "caused_by": "event_08",
+      "scope": "primary_story",
+      "parallel_case_id": "",
+      "event": {
+        "text": "Today only about 5% of Northland's brown kiwi chicks reach adulthood, their biggest threats being stoats and feral cats, and stoats are hard to control because they are suspicious of baits and traps.",
+        "claim_refs": [
+          "c19",
+          "c30"
+        ]
+      },
+      "changes_state": {
+        "from": "forests with self-sustaining kiwi",
+        "to": "forests where kiwi survive only where predators are constantly managed"
+      },
+      "role": "reversal",
+      "causal_role": "reversal",
+      "_story_engine": "removed_keystone",
+      "_story_compiler_version": "story_compiler_v2"
+    }
+  ]
+}
