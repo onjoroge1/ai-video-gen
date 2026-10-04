@@ -46,6 +46,10 @@ def brief(plan, beats, dossier, engine):
     ids = [b.get("beat_id") for b in beats]
     if not ids or not all(ids) or len(ids) != len(set(ids)):
         raise ValueError("SEVEN_SECTION_INVALID_BEAT_IDS")
+    issues = facts.validate_structure(beats)
+    if issues:
+        raise ValueError("SEVEN_SECTION_PRESENTATION_STRUCTURE: " + "; ".join(
+            f"{issue['code']} at {issue.get('beat_id', '?')}" for issue in issues))
     rows = []
     singleton_roles = [b.get("causal_role") or b.get("role") for b in beats
                        if (b.get("causal_role") or b.get("role")) != "escalation"]

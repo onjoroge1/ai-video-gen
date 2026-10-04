@@ -100,3 +100,27 @@ exact projection protects words, not the factual correctness of generated images
 runtime remains advisory when the deployment's existing policy makes it advisory;
 the current planner still plans a cold open that this writer does not prepend.
 The template and old flow can therefore still incur planning and repair costs.
+
+### PR164 live regression: case identity at the presentation boundary
+
+The production test `sr-3decb63eed0999aa6cdbfa026c7a` passed the draft contract
+on its first attempt, then failed the claim ledger with `INVALID_CONTEXT_REF`
+for `event_04:hinge` and `event_09:tool`. Factual beats stored an empty
+`parallel_case_id`; compiler-generated devices omitted it. Direct equality
+mistook `None` and `""` for different cases. The accepted factual beats from
+that run are retained in `tests/fixtures/pr164_stoat_accepted_beats.json`.
+
+`story_fact_model.case_identity` now owns context case matching: normalized
+scope plus trimmed case ID. Missing/blank primary IDs agree, while different
+named cases and different scopes remain separate. Devices inherit their anchor's
+scope/case; context resolution refuses self, nonfactual, and cross-case sources.
+The seven-section brief validates presentation structure before drafting.
+`presentation_context=canonical_case_v1` versions semantic acceptance and new
+revision identity, so old validation results cannot masquerade as current passes.
+
+A saved failed script can be evaluated through the existing bounded Studio
+revision action without rewriting its words or repeating research/planning.
+The original failed job stays failed. Normalizing identity only fixes the
+structural defect; factual, editorial, and final approval gates still apply.
+The PR164 draft's preliminary grade was 72 (cadence 62); this change makes no
+claim that its creative quality or factual support is sufficient.

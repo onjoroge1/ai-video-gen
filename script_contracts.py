@@ -17,6 +17,7 @@ def acceptance_policy():
     import script_integrity
     return {"version": "script_acceptance_v4", **model_identity(),
             "narrative_template": "seven_section_v2",
+            "presentation_context": "canonical_case_v1",
             "entailment": claim_entailment.ENTAILMENT_CONTRACT_VERSION,
             "integrity": script_integrity.VERSION, "cadence": script_cadence.VERSION,
             "hook": hook_callback.VERSION, "grade_target": ep._SCRIPT_GATE_PASS,
