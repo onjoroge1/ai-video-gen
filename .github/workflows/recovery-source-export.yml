@@ -1,0 +1,35 @@
+name: Recovery source export (temporary)
+on:
+  push:
+    branches: [recovery/source-export-20261004]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Export pinned public source trees only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recovery-source
+          for entry in main:3769b61209c1c614f4890b03a3cb5d6123b5d41b pr166:115500c45c594eca2e91f5c50b291023e5bd64df pr146:b6f6137d08ee58c4f50643bd7a135902dc556642; do
+            name="${entry%%:*}"
+            sha="${entry##*:}"
+            git fetch --depth=1 origin "$sha"
+            git ls-tree -r "$sha" > "/tmp/recovery-source/$name-tree.txt"
+            git log -1 --format=fuller "$sha" > "/tmp/recovery-source/$name-commit.txt"
+            git archive "$sha" | gzip -1 > "/tmp/recovery-source/$name.tar.gz"
+          done
+          sha256sum /tmp/recovery-source/*.tar.gz > /tmp/recovery-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recovery-pinned-source
+          path: /tmp/recovery-source
+          retention-days: 2
+          if-no-files-found: error
