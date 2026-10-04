@@ -20,7 +20,7 @@ the acceptance and recovery fixes this path needs.
 3. Give one writer the complete accepted events, explicit context events and
    ledger. Request an evidence-bound outline, three hook candidates, a selected
    promise/payoff pair, and every stable paragraph ID in one continuous draft.
-   Missing section evidence blocks drafting. Parallel effects must not be
+   Use the submission tool with explicit section/paragraph/claim IDs. Missing section evidence blocks drafting. Parallel effects must not be
    presented as a sourced chain just because the presentation is sequential.
 4. Use existing fact-checking, evidence/integrity checks, convergent targeted
    repairs, runtime checks and final editorial grading on paragraph units. No
@@ -39,6 +39,37 @@ This initial template supports single-case intervention/consequence stories unde
 `removed_keystone` and `backfiring_solution`. Comparison-case/generalization
 outlines and other engines are rejected rather than forced into the template.
 The existing `scene_first` mode remains the default and the comparison baseline.
+
+## Rejected drafts and one bounded repair (v2)
+
+`seven_section_draft.json` retains the accepted plan and evidence identities,
+each candidate (including malformed/truncated response text), field paths and
+validation errors, per-attempt cost, and attempt status. It is private Studio
+diagnostic data, not a script approval. Studio displays available candidate
+paragraphs as unapproved and never enables rendering from this report.
+
+The contract writer has two attempts total: the initial draft and at most one
+repair. The repair receives the same accepted plan and evidence plus exact
+field errors. Valid, unambiguous narration paragraphs are locked; a metadata
+repair cannot rewrite them. A hook error can unlock the opening paragraph.
+Explicit unresolved evidence gaps stop immediately rather than buying a
+cosmetic repair. Missing fields, malformed output, and contract errors may use
+the one repair. No factual or editorial gate is relaxed by structural acceptance.
+
+The candidate and attempt counter are saved in the same checkpoint before
+the repair call. Worker continuation reuses that state and durable provider
+responses; operational, budget and storage failures propagate without buying
+an extra draft. Exhausted attempts stay exhausted on replay. The job's existing
+cap and provider reservation policy apply to both attempts.
+
+The first live v1 test (`sr-68a3046dc3f25996bf3b7c92b305`) stopped with the generic
+`SEVEN_SECTION_OUTLINE` error at $0.69, before fact-checking. Its exact rejected
+response was not exposed by the old diagnostics, so the new recovery tests use
+explicit synthetic failure cases, not an invented reproduction of that output.
+This v2 change does not automatically restart that terminal v1 job or reinterpret
+its approval policy. After deployment, create a new bounded draft from its
+original evidence parent (`2bc5ef3a`); the updated policy gives that child a new
+identity. Subsequent v2 continuations retain the plan and repair allowance.
 
 ## Using Studio
 

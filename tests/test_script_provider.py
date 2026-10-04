@@ -275,3 +275,15 @@ def test_narration_edit_tool_translates_to_strict_openai_schema():
     assert sent['response_format']['json_schema'] == {
         'name': repair.EDIT_TOOL, 'strict': True, 'schema': tool['input_schema']}
     assert repair.response_data(response) == {'scenes': []}
+
+
+def test_seven_section_draft_tool_preserves_schema_on_openai():
+    import narrative_template as template
+    tool = template.draft_tool({'claims': [{'claim_id': 'c1'}],
+                                'paragraphs': [{'paragraph_id': 'event_01'}]})
+    client = OpenAIScriptClient(_FakeClient(_Raw('{"paragraphs": []}')))
+    client.messages.create(messages=[{'role': 'user', 'content': 'draft'}],
+        tools=[tool], tool_choice={'type': 'tool', 'name': template.DRAFT_TOOL})
+    schema = client.messages._client.chat.completions.seen['response_format']['json_schema']
+    assert schema['name'] == template.DRAFT_TOOL
+    assert schema['schema'] == tool['input_schema']

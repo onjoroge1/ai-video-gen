@@ -47,6 +47,19 @@ async function loadArtifacts() {
         if (script[key] != null) report(key, script[key]);
       }
     }
+    const draftReport = (saved.reports || {}).narrative_draft;
+    if (!script && draftReport && Array.isArray(draftReport.attempts)) {
+      const attempted = draftReport.attempts.slice().reverse().find(a => a.candidate && Array.isArray(a.candidate.paragraphs));
+      if (attempted) {
+        el('artifact-status').textContent = 'Unapproved seven-section draft — final checks have not passed. Checkpoint: ' + (saved.checkpoint_sha256 || 'not saved');
+        const title = document.createElement('h3'); title.textContent = `Draft attempt ${attempted.attempt} · not approved`; el('script').append(title);
+        for (const [index, paragraph] of attempted.candidate.paragraphs.entries()) {
+          const heading = document.createElement('h3'); heading.textContent = `Paragraph ${index + 1}`;
+          const text = document.createElement('p'); text.textContent = paragraph && typeof paragraph.narration === 'string' ? paragraph.narration : '[Invalid paragraph — inspect narrative_draft report]';
+          el('script').append(heading, text);
+        }
+      }
+    }
     for (const [key, value] of Object.entries(saved.reports || {})) report(key, value);
     artifactKey = saved.checkpoint_sha256;
   } catch (error) { el('artifact-status').textContent = 'Saved script unavailable: ' + error.message; }
