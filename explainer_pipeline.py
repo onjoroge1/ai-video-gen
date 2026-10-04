@@ -1711,6 +1711,9 @@ def _ensure_lead_spoken(script: dict, log=lambda message: None) -> bool:
     after the fact-check, the editor's revision and a resume. The cold open's claim refs are
     restored on scene 1 the same way the writer set them.
     """
+    if script.get("_narrative_mode") == "seven_section":
+        # The continuous writer owns the opening. Never prepend a second lead.
+        return False
     scenes = script.get("scenes") or []
     hook = _s(script.get("hook")).strip()
     cold = _s(script.get("_cold_open")).strip()
@@ -2582,6 +2585,23 @@ _TOPIC_CHANNEL: contextvars.ContextVar = contextvars.ContextVar("reelforge_topic
 # Planner control for the causal lane: where to write/read the plan approval files and whether
 # to stop after the plan. Set per run next to the channel; read by _generate_script_chunked.
 _PLAN_CONTROL: contextvars.ContextVar = contextvars.ContextVar("reelforge_plan_control", default={})
+_NARRATIVE_MODE: contextvars.ContextVar = contextvars.ContextVar("reelforge_narrative_mode", default="scene_first")
+
+
+def _narrative_request_scope(fn):
+    """A completed/failed job cannot change a later job's writing strategy."""
+    from functools import wraps
+    import inspect
+    signature = inspect.signature(fn)
+    @wraps(fn)
+    def run(*args, **kwargs):
+        bound = signature.bind_partial(*args, **kwargs)
+        token = _NARRATIVE_MODE.set(bound.arguments.get("narrative_mode", "scene_first"))
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _NARRATIVE_MODE.reset(token)
+    return run
 
 
 def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[str]:
@@ -4120,6 +4140,13 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "research_dossier": research_dossier,
             "roles": _roles if causal_lane else {},
         })
+    if causal_lane and _NARRATIVE_MODE.get() == "seven_section":
+        import narrative_template
+        script = narrative_template.generate(plan, beats, research_dossier or {}, sheet_engine_id,
+            question, duration_sec, runtime_word_bounds(duration_sec, len(beats))[0],
+            operator_direction, cost_sink)
+        script["_script_cost_usd"] = round(script["_script_cost_usd"] + cost, 6)
+        return script
     mystery_suitable, mystery_reasons = _evaluate_mystery_suitability(plan, beats)
     plan["mystery_suitable"] = mystery_suitable
     effective_story_format = requested_story_format
@@ -10579,6 +10606,7 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     return hashlib.sha256("|".join([
         str(duration_sec), _s(video_format), _s(story_format), str(bool(causal_lane)),
         _s(operator_direction), claims, prompt_source, script_stages.digest(script_contracts.acceptance_policy()),
+        _NARRATIVE_MODE.get(),
     ]).encode()).hexdigest()
 
 
@@ -10611,7 +10639,7 @@ def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
         pass
 
 
-@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), **script_contracts.acceptance_policy()})
+@script_stages.cached("graded-script", context=lambda: {"channel": _TOPIC_CHANNEL.get(), "narrative_mode": _NARRATIVE_MODE.get(), **script_contracts.acceptance_policy()})
 def generate_graded_script(question, duration_sec, style, image_guidance, video_format, series,
                            cost_sink=None, log=lambda m: None, operator_direction: str = "",
                            story_format: str = "standard_explainer",
@@ -10641,7 +10669,7 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         _causal_contract_report(best, question) if causal_lane else (True, []))
     # Attempts are numbered because the message below used to say "replanning once" whatever the
     # retry budget was, which is false for any budget above one and hides how close a run came.
-    _attempts = max(0, _LONGFORM_CONTRACT_RETRIES)
+    _attempts = 0 if best.get("_narrative_mode") == "seven_section" else max(0, _LONGFORM_CONTRACT_RETRIES)
     _replans = 0
     for _attempt in range(1, _attempts + 1):
         if best_validation.get("passed") and best_causal_ok:
@@ -11411,6 +11439,7 @@ def _review_story_structure(script: dict, requested_format: str, video_format: s
         return {"available": True, "error": str(exc)}
 
 
+@_narrative_request_scope
 def run_explainer_pipeline(
     question: str,
     output_dir: str,
@@ -11441,6 +11470,7 @@ def run_explainer_pipeline(
     stop_after_plan: bool = False,
     revision_note: str = "",
     script_revision: dict | None = None,
+    narrative_mode: str = "scene_first",
     fresh_script: bool = False,
     text_cost_sink=None,
 ) -> dict:
@@ -11453,6 +11483,11 @@ def run_explainer_pipeline(
     # Carried as a context variable rather than threaded through three signatures: the selector sits
     # under generate_graded_script -> _generate_script_chunked, and every caller of those would
     # otherwise need a new positional-safe keyword for a value only the Nature channel sets.
+    if narrative_mode not in {"scene_first", "seven_section"}:
+        raise ValueError("Unknown narrative_mode")
+    if narrative_mode == "seven_section" and (visual_style != "illustrated_story"
+            or video_format != "landscape" or story_format != "standard_explainer" or controlled_pilot):
+        raise ValueError("Seven-section narration requires an ordinary illustrated landscape story")
     _TOPIC_CHANNEL.set((topic_channel or "").strip().lower())
     _PLAN_CONTROL.set({"output_dir": output_dir, "stop_after_plan": bool(stop_after_plan)})
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
@@ -11577,6 +11612,7 @@ def run_explainer_pipeline(
         video_format=video_format, motion_mode=resolved_motion_mode,
         threshold_profile=threshold_profile)
     generation_manifest["visual_style"] = visual_style
+    generation_manifest["narrative_mode"] = narrative_mode
     if stable_standard_longform:
         generation_manifest["pipeline_profile"] = "stable_standard_longform"
     if illustrated_story_on:
@@ -11752,8 +11788,23 @@ def run_explainer_pipeline(
 
     if resumed and illustrated_story_on and script.get("_script_readiness", {}).get("passed"):
         import script_finalizer
-        script_finalizer.verify_approved(script, research_dossier, question, duration_sec,
-                                         factcheck_required=fact_check)
+        if (script.get("_narrative_mode") == "seven_section"
+                and script.get("_production_status") == "planned"):
+            import narrative_template
+            # A continuation can land between projection and its final review.
+            # Verify the approved parent and its exact projection; the projected
+            # script still faces final evidence/readiness gates below.
+            source_script = (revision_input if script_revision and script_revision.get("mode") == "render"
+                             else copy.deepcopy(script.get("_projection_source") or {}))
+            if not source_script:
+                raise script_stages.RecoveryError("Saved narration projection has no approved source")
+            source_script["_research_dossier"] = research_dossier
+            script_finalizer.verify_approved(source_script, research_dossier,
+                question, duration_sec, factcheck_required=fact_check)
+            narrative_template.verify_child_projection(script, source_script)
+        else:
+            script_finalizer.verify_approved(script, research_dossier, question, duration_sec,
+                                             factcheck_required=fact_check)
         frozen_script = True
     if frozen_script and not resumed:
         import script_finalizer
@@ -11778,7 +11829,13 @@ def run_explainer_pipeline(
         if script_revision:
             script = revision_input
             research_dossier = script.get("_research_dossier") or {}
-            log("Saved script revision: using the parent words and ledger; research and planning skipped")
+            if script_revision["mode"] == "redraft":
+                import narrative_template
+                log("Seven-section draft: reusing the saved evidence and accepted factual plan")
+                script = narrative_template.from_saved(script, question, duration_sec,
+                    operator_direction, aux_costs)
+            else:
+                log("Saved script revision: using the parent words and ledger; research and planning skipped")
         elif video_format == "social":
             # Social gate: generate → enforce conceit → grade_short, regenerate weak drafts, keep best.
             script, short_grade = generate_graded_short(question, duration_sec, style, image_guidance,
@@ -12283,42 +12340,71 @@ def run_explainer_pipeline(
         with open(claim_report_path, "w") as handle:
             json.dump(claim_validation or {}, handle, indent=2, ensure_ascii=False)
 
-        rederive_narration_bindings(script, log, research_dossier)
-        evidence_plan = compile_evidence_plan(script)
-        evidence_validation = evidence_plan.get("validation") or {}
-        script["_evidence_plan"] = evidence_plan
-        if (not evidence_validation.get("passed") and not _diagnostic_render()
-                and not sourcing_advisory):
-            raise ValueError(
-                "Evidence-state plan failed before TTS/image spend: "
-                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
-            )
-        evidence_plan_path = os.path.join(output_dir, "evidence_asset_plan.json")
-        evidence_validation_path = os.path.join(output_dir, "evidence_validation.json")
-        continuity_pack_path = os.path.join(output_dir, "continuity_pack.json")
-        motion_report_path = os.path.join(output_dir, "motion_report.json")
-        opening_freeze_path = os.path.join(output_dir, "opening_freeze.json")
-        animatic_report_path = os.path.join(output_dir, "animatic_gate.json")
-        animatic_preview_path = os.path.join(output_dir, "animatic_preview.mp4")
-        rendered_contract_path = os.path.join(output_dir, "rendered_contract.json")
-        rendered_contact_sheet_path = os.path.join(output_dir, "rendered_contact_sheet.jpg")
-        human_review_path = os.path.join(output_dir, "human_review.json")
-        with open(evidence_plan_path, "w") as handle:
-            json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
-        with open(evidence_validation_path, "w") as handle:
-            json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
-        with open(continuity_pack_path, "w") as handle:
-            json.dump(evidence_plan["continuity_pack"], handle, indent=2, ensure_ascii=False)
-        counts = evidence_asset_counts(evidence_plan)
-        log("Evidence compiler: PASS — %(planned_state_count)d states, "
-            "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
-            "%(exact_reuse_count)d exact callback reuse" % counts)
+        narrative_projection_created = False
+        text_only_template = script.get("_narrative_mode") == "seven_section" and stop_after_script
+        if script.get("_narrative_mode") == "seven_section":
+            import narrative_template
+            narrative_template.freeze(script)
+            if script.get("_production_status") == "planned":
+                # A worker may have yielded after shot planning but before final
+                # review. The parent's approval covers paragraphs, not this projection.
+                import script_readiness
+                narrative_projection_created = (script.get("_script_readiness") or {}).get(
+                    "content_sha256") != script_readiness.content_hash(script)
+            if not stop_after_script and script.get("_production_status") != "planned":
+                # Final text checks are required before purchasing its shot plan.
+                import script_finalizer
+                text_readiness = (script_finalizer.verify_approved(
+                    script, research_dossier, question, duration_sec, factcheck_required=fact_check)
+                    if frozen_script else script_finalizer.evaluate(
+                        script, research_dossier, question, duration_sec,
+                        factcheck_required=fact_check, cost_sink=aux_costs))
+                if not text_readiness["passed"]:
+                    raise ValueError("SCRIPT_NOT_READY: " + ", ".join(text_readiness["errors"]))
+                script = narrative_template.realize(script, aux_costs)
+                scenes = script["scenes"]
+                narrative_projection_created = True
+                _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                        video_format, label="narrative-production-planned")
+        if text_only_template:
+            log("Script-only: reviewed continuous narration; production shot planning deferred")
+        else:
+            rederive_narration_bindings(script, log, research_dossier)
+            evidence_plan = compile_evidence_plan(script)
+            evidence_validation = evidence_plan.get("validation") or {}
+            script["_evidence_plan"] = evidence_plan
+            if (not evidence_validation.get("passed") and not _diagnostic_render()
+                    and not sourcing_advisory):
+                raise ValueError(
+                    "Evidence-state plan failed before TTS/image spend: "
+                    + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+                )
+            evidence_plan_path = os.path.join(output_dir, "evidence_asset_plan.json")
+            evidence_validation_path = os.path.join(output_dir, "evidence_validation.json")
+            continuity_pack_path = os.path.join(output_dir, "continuity_pack.json")
+            motion_report_path = os.path.join(output_dir, "motion_report.json")
+            opening_freeze_path = os.path.join(output_dir, "opening_freeze.json")
+            animatic_report_path = os.path.join(output_dir, "animatic_gate.json")
+            animatic_preview_path = os.path.join(output_dir, "animatic_preview.mp4")
+            rendered_contract_path = os.path.join(output_dir, "rendered_contract.json")
+            rendered_contact_sheet_path = os.path.join(output_dir, "rendered_contact_sheet.jpg")
+            human_review_path = os.path.join(output_dir, "human_review.json")
+            with open(evidence_plan_path, "w") as handle:
+                json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
+            with open(evidence_validation_path, "w") as handle:
+                json.dump(evidence_validation, handle, indent=2, ensure_ascii=False)
+            with open(continuity_pack_path, "w") as handle:
+                json.dump(evidence_plan["continuity_pack"], handle, indent=2, ensure_ascii=False)
+            counts = evidence_asset_counts(evidence_plan)
+            log("Evidence compiler: PASS — %(planned_state_count)d states, "
+                "%(distinct_source_count)d distinct, %(reframe_count)d reframes, "
+                "%(exact_reuse_count)d exact callback reuse" % counts)
 
     if illustrated_story_on:
         import script_finalizer
         readiness = (script_finalizer.verify_approved(
             script, research_dossier, question, duration_sec, factcheck_required=fact_check)
-            if frozen_script else script_finalizer.evaluate(
+            if frozen_script and not narrative_projection_created else script_finalizer.evaluate(
                 script, research_dossier, question, duration_sec,
                 factcheck_required=fact_check, cost_sink=aux_costs))
         _write_generation_manifest(os.path.join(output_dir, "script_readiness.json"), readiness)
@@ -12329,6 +12415,9 @@ def run_explainer_pipeline(
             raise ValueError("SCRIPT_NOT_READY: " + ", ".join(readiness["errors"]))
         script["_frozen_content_sha256"] = readiness["content_sha256"]
         frozen_script = True
+        if narrative_projection_created:
+            _save_script_checkpoint(state_path, script, style_mode, short_grade,
+                                    video_format, label="script-projection-accepted")
         if script_revision:
             _write_generation_manifest(os.path.join(output_dir, "script_revision.json"), {
                 **{k: v for k, v in script_revision.items() if k != "script"},

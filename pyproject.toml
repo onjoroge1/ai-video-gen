@@ -34,6 +34,7 @@ py-modules = [
     "retention_polish",
     "script_stages",
     "scene_expansion",
+    "narrative_template",
     "script_cadence",
     "script_readiness",
     "script_contracts",

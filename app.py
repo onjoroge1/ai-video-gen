@@ -1206,6 +1206,7 @@ class ExplainerRequest(BaseModel):
     # Stop after the script passes every pre-spend gate and write it for editorial approval;
     # nothing beyond text is bought. The approved rerun reuses the cached script.
     stop_after_script: bool = False
+    narrative_mode: Literal["scene_first", "seven_section"] = "scene_first"
     # Server-created immutable seed. Public generation cannot supply it.
     script_revision: dict | None = None
     # An editor's targeted note: revise the cached script beat by beat instead of writing a
@@ -1609,6 +1610,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     topic_channel=request.topic_channel,
                     stop_after_script=request.stop_after_script,
                     script_revision=request.script_revision,
+                    narrative_mode=request.narrative_mode,
                     max_cost_usd=(request.script_revision or {}).get("cost_ceiling_usd", ep.MAX_COST_USD),
                     revision_note=request.revision_note,
                     controlled_pilot=request.controlled_pilot,
@@ -4058,6 +4060,9 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
         raise HTTPException(403, "Script revisions must use the saved Studio job workflow")
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
+    if request.narrative_mode == "seven_section" and (request.visual_style != "illustrated_story"
+            or request.video_format != "landscape" or request.story_format != "standard_explainer"):
+        raise HTTPException(400, "Seven-section narration requires Illustrated Story, landscape and Standard structure")
     if request.topic_channel and (request.visual_style != "illustrated_story"
                                   or request.video_format != "landscape"):
         raise HTTPException(status_code=400, detail=(
@@ -4455,7 +4460,7 @@ class StudioProviderResumeRequest(BaseModel):
 
 
 class StudioScriptRevisionRequest(BaseModel):
-    mode: Literal["evaluate", "render"]
+    mode: Literal["evaluate", "render", "redraft"]
     checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     cost_ceiling_usd: float = Field(gt=0, le=10, allow_inf_nan=False)
