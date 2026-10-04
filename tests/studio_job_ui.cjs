@@ -22,5 +22,12 @@ function element() { return {textContent:'', children:[], append(...v){this.chil
  assert.equal(elements.get('status').textContent,'error');assert.match(elements.get('artifact-status').textContent,/approval not confirmed/);
  assert.equal(elements.get('script').children[0].textContent,'<script>unsafe</script>');
  assert.equal(elements.get('events').children.length,2);
+ context.fetch=async()=>({ok:true,json:async()=>({checkpoint_sha256:'rejected',script:null,
+   reports:{narrative_draft:{status:'failed',attempts:[{attempt:1,candidate:{paragraphs:[{narration:'<script>rejected words</script>'}]},issues:[{path:'outline[2].section'}]}]}}})});
+ await elements.get('load').onclick();
+ assert.match(elements.get('artifact-status').textContent,/Unapproved seven-section draft/);
+ assert.equal(elements.get('script').children[2].textContent,'<script>rejected words</script>');
+ assert.equal(elements.get('revision-actions').hidden,true);
+ assert.equal(elements.get('render-action').hidden,true);
  console.log('Studio UI retry, cursor, terminal artifacts and text rendering passed');
 })().catch(error=>{console.error(error);process.exitCode=1});

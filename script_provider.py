@@ -281,7 +281,7 @@ class _OpenAIMessages:
         requested_tools = _ignored.get("tools") or []
         choice = _ignored.get("tool_choice") or {}
         tool_name = requested_tools[0].get("name") if len(requested_tools) == 1 else None
-        narration_schema = (tool_name in {"submit_narration_edits", "submit_expanded_scenes"}
+        narration_schema = (tool_name in {"submit_narration_edits", "submit_expanded_scenes", "submit_seven_section_draft"}
                             and choice == {"type": "tool", "name": tool_name})
         if narration_schema:
             kwargs["response_format"] = {"type": "json_schema", "json_schema": {

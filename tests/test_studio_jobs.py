@@ -57,6 +57,24 @@ def test_artifact_reader_handles_missing_and_corrupt_saved_files(tmp_path, monke
     assert error.value.status_code == 404
 
 
+def test_rejected_narration_is_private_diagnostic_not_an_approved_script(tmp_path, monkeypatch):
+    store, blob = MemoryStore(), MemoryBlob(tmp_path / 'blob')
+    worker = runtime(tmp_path, store, blob, 'writer')
+    report = {'status': 'failed', 'attempts': [
+        {'candidate': {'paragraphs': [{'narration': 'Rejected prose.'}]},
+         'issues': [{'path': 'outline[2].section', 'code': 'SEVEN_SECTION_OUTLINE'}]}]}
+    (Path(worker.output_dir) / 'seven_section_draft.json').write_text(json.dumps(report))
+    store.job['checkpoint'] = worker.checkpoint('draft-failed')
+    store.job['status'] = 'error'
+    monkeypatch.setattr(store, 'get_job', lambda _: store.job, raising=False)
+    monkeypatch.setattr(studio_jobs.durable_execution.DurableRuntime, 'paid_value',
+                        Mock(side_effect=AssertionError('read must never spend')))
+    saved = studio_jobs.artifacts('job-1', store, blob)
+    assert saved['reports']['narrative_draft'] == report
+    assert saved['script'] is None
+    assert not saved.get('approval_current') and 'content_sha256' not in saved
+
+
 def test_routes_are_private_and_snapshot_does_not_restore_or_dispatch(monkeypatch):
     import asyncio
     import httpx

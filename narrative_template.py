@@ -7,6 +7,7 @@ paragraphs through the scene adapter until the text is frozen for production.
 from copy import deepcopy
 import json
 import re
+from pathlib import Path
 
 import script_stages
 import story_fact_model as facts
@@ -14,7 +15,10 @@ import story_compiler as compiler
 from storyboard_repair import response_data
 from script_repair import broken_repair
 
-VERSION = "seven_section_v1"
+VERSION = "seven_section_v2"
+DRAFT_REPORT = "seven_section_draft.json"
+DRAFT_TOOL = "submit_seven_section_draft"
+MAX_DRAFT_ATTEMPTS = 2
 MODE = "seven_section"
 ENGINES = {"removed_keystone", "backfiring_solution"}
 SECTIONS = (
@@ -101,7 +105,7 @@ def draft_prompt(evidence, question, duration, word_target, direction):
         "Spend the remaining space explaining the mechanism and distinct sourced consequences, "
         "not repeating the premise. Evidence limits override filling runtime.\n"
         + "Operator direction: " + direction + "\nEVIDENCE BRIEF:\n" + json.dumps(evidence, ensure_ascii=False)
-        + '\nReturn ONLY JSON: {"hook_candidates":["...","...","..."],"selected_hook":0,'
+        + '\nSubmit this object using the supplied tool: {"hook_candidates":["...","...","..."],"selected_hook":0,'
           '"supported_answer":"...","callback_image":"...","closing_question":"...",'
           '"outline":[{"section":"hook","new_contribution":"...","claim_ids":["..."]},'
           '... seven sections in the supplied order ...],"paragraphs":[{"paragraph_id":"...",'
@@ -110,38 +114,209 @@ def draft_prompt(evidence, question, duration, word_target, direction):
     )
 
 
-def validate_draft(value, evidence):
-    if not isinstance(value, dict) or value.get("evidence_gaps") != []:
-        raise ValueError("SEVEN_SECTION_EVIDENCE_GAP: writer could not support the complete story")
-    rows = value.get("paragraphs")
+class DraftValidationError(ValueError):
+    def __init__(self, issues):
+        self.issues = issues
+        # Only fixed diagnostic text and paths enter the progress feed. The full
+        # candidate and offending values belong in the private Studio report.
+        super().__init__("; ".join(f"{i['code']} at {i['path']}: {i['message']}" for i in issues))
+
+
+def draft_issues(value, evidence):
+    """Collect all contract errors without conflating them with factual review."""
+    issues = []
+    def add(code, path, message):
+        issues.append({"code": "SEVEN_SECTION_" + code, "path": path, "message": message})
+    if not isinstance(value, dict):
+        add("SHAPE", "$", "Expected a draft object")
+        return issues
+    if not isinstance(value.get("evidence_gaps"), list):
+        add("SHAPE", "evidence_gaps", "Expected an array; use an empty array when no evidence is missing")
+    elif value["evidence_gaps"]:
+        add("EVIDENCE_GAP", "evidence_gaps", "Must explicitly report no unresolved evidence gaps")
     expected = [r["paragraph_id"] for r in evidence["paragraphs"]]
-    if (not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows)
-            or [r.get("paragraph_id") for r in rows] != expected):
-        raise ValueError("SEVEN_SECTION_COVERAGE: missing, duplicated, reordered or unknown paragraph")
-    if any(broken_repair(r.get("narration")) for r in rows):
-        raise ValueError("SEVEN_SECTION_BROKEN_NARRATION")
+    rows = value.get("paragraphs")
+    if not isinstance(rows, list):
+        add("COVERAGE", "paragraphs", "Expected the assigned paragraph array")
+        rows = []
+    elif [r.get("paragraph_id") if isinstance(r, dict) else None for r in rows] != expected:
+        add("COVERAGE", "paragraphs", "IDs must match the assigned paragraphs exactly once and in order")
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            add("SHAPE", f"paragraphs[{i}]", "Expected a paragraph object")
+        elif not isinstance(row.get("narration"), str) or broken_repair(row["narration"]):
+            add("BROKEN_NARRATION", f"paragraphs[{i}].narration", "Expected complete, nonempty prose")
     candidates, selected = value.get("hook_candidates"), value.get("selected_hook")
-    if (not isinstance(candidates, list) or len(candidates) != 3 or type(selected) is not int
-            or not 0 <= selected < 3 or any(not isinstance(h, str) for h in candidates)):
-        raise ValueError("SEVEN_SECTION_HOOK_CHOICES")
-    hook = candidates[selected].strip()
-    if (broken_repair(hook) or len(hook.split()) > 18
-            or len(re.split(r"[.!?]+\s*", hook.rstrip(".!?"))) != 1
-            or not rows[0]["narration"].startswith(hook)):
-        raise ValueError("SEVEN_SECTION_HOOK: selected promise must open the narration verbatim")
+    valid_candidates = (isinstance(candidates, list) and len(candidates) == 3
+                        and all(isinstance(h, str) and h.strip() for h in candidates))
+    if not valid_candidates:
+        add("HOOK_CHOICES", "hook_candidates", "Expected three nonempty hook strings")
+    if type(selected) is not int or not 0 <= selected < 3:
+        add("HOOK_CHOICES", "selected_hook", "Expected an integer from zero to two")
+    elif valid_candidates:
+        hook = candidates[selected].strip()
+        if (broken_repair(hook) or len(hook.split()) > 18
+                or len(re.split(r"[.!?]+\s*", hook.rstrip(".!?"))) != 1):
+            add("HOOK", f"hook_candidates[{selected}]", "Selected hook must be one complete sentence of at most 18 words")
+        if (not rows or not isinstance(rows[0], dict)
+                or not isinstance(rows[0].get("narration"), str)
+                or not rows[0]["narration"].startswith(hook)):
+            add("HOOK", "paragraphs[0].narration", "Narration must start with the selected hook verbatim")
     outline = value.get("outline")
+    section_ids = [s for s, _ in SECTIONS]
     known = {c["claim_id"] for c in evidence["claims"]}
-    if (not isinstance(outline, list) or any(not isinstance(r, dict) for r in outline)
-            or [r.get("section") for r in outline] != [s for s, _ in SECTIONS]
-            or any(not isinstance(r.get("new_contribution"), str) or not r["new_contribution"].strip()
-                   or not isinstance(r.get("claim_ids"), list) or not r["claim_ids"]
-                   or any(not isinstance(c, str) or c not in known for c in r["claim_ids"])
-                   for r in outline)):
-        raise ValueError("SEVEN_SECTION_OUTLINE: every section needs a distinct contribution and known evidence")
+    if not isinstance(outline, list):
+        add("OUTLINE", "outline", "Expected the seven-section outline array")
+    else:
+        if len(outline) != len(section_ids):
+            add("OUTLINE", "outline", "Expected exactly seven sections")
+        for i, row in enumerate(outline):
+            path = f"outline[{i}]"
+            if not isinstance(row, dict):
+                add("OUTLINE", path, "Expected a section object")
+                continue
+            if i >= len(section_ids) or row.get("section") != section_ids[i]:
+                add("OUTLINE", path + ".section", "Expected " + (section_ids[i] if i < len(section_ids) else "no additional section"))
+            if not isinstance(row.get("new_contribution"), str) or not row["new_contribution"].strip():
+                add("OUTLINE", path + ".new_contribution", "Expected a nonempty description of this section's contribution")
+            refs = row.get("claim_ids")
+            if not isinstance(refs, list) or not refs:
+                add("OUTLINE", path + ".claim_ids", "Expected at least one supplied claim ID")
+            else:
+                for j, ref in enumerate(refs):
+                    if not isinstance(ref, str) or ref not in known:
+                        add("OUTLINE", path + f".claim_ids[{j}]", "Claim ID is not in the supplied evidence")
     for field in ("supported_answer", "callback_image", "closing_question"):
         if not isinstance(value.get(field), str) or not value[field].strip():
-            raise ValueError("SEVEN_SECTION_PROMISE: missing " + field)
-    return hook
+            add("PROMISE", field, "Expected a nonempty string")
+    return issues
+
+
+def validate_draft(value, evidence):
+    issues = draft_issues(value, evidence)
+    if issues:
+        raise DraftValidationError(issues)
+    return value["hook_candidates"][value["selected_hook"]].strip()
+
+
+def draft_tool(evidence):
+    string = {"type": "string", "minLength": 1}
+    def obj(properties):
+        return {"type": "object", "additionalProperties": False,
+                "required": list(properties), "properties": properties}
+    def array(items, **bounds):
+        return {"type": "array", "items": items, **bounds}
+    return {"name": DRAFT_TOOL, "description": "Submit the complete evidence-bound narration draft.",
+        "input_schema": obj({
+            "hook_candidates": array(string, minItems=3, maxItems=3),
+            "selected_hook": {"type": "integer", "minimum": 0, "maximum": 2},
+            "supported_answer": string, "callback_image": string, "closing_question": string,
+            "outline": array(obj({"section": {"type": "string", "enum": [s for s, _ in SECTIONS]},
+                "new_contribution": string, "claim_ids": array({"type": "string", "enum":
+                    [c["claim_id"] for c in evidence["claims"]]}, minItems=1)}), minItems=7, maxItems=7),
+            "paragraphs": array(obj({"paragraph_id": {"type": "string", "enum":
+                [r["paragraph_id"] for r in evidence["paragraphs"]]}, "narration": string}),
+                minItems=len(evidence["paragraphs"]), maxItems=len(evidence["paragraphs"])),
+            "evidence_gaps": array(string), "editorial_weaknesses": array(string)})}
+
+
+def _locked_paragraphs(attempt, evidence):
+    """A metadata repair is not permission to rewrite already valid narration."""
+    value = attempt.get("candidate")
+    rows = value.get("paragraphs") if isinstance(value, dict) else None
+    if not isinstance(rows, list):
+        return {}
+    known = {r["paragraph_id"] for r in evidence["paragraphs"]}
+    ids = [r.get("paragraph_id") for r in rows if isinstance(r, dict)]
+    hook_issue = any(i["code"].startswith("SEVEN_SECTION_HOOK") for i in attempt["issues"])
+    return {r["paragraph_id"]: r["narration"] for r in rows
+        if isinstance(r, dict) and isinstance(r.get("paragraph_id"), str)
+        and r["paragraph_id"] in known and ids.count(r["paragraph_id"]) == 1
+        and isinstance(r.get("narration"), str) and not broken_repair(r["narration"])
+        and not (hook_issue and r["paragraph_id"] == evidence["paragraphs"][0]["paragraph_id"])}
+
+
+def _save_draft_state(inputs, state, plan, evidence):
+    from durable_execution import current
+    runtime = current()
+    if runtime:
+        report = {**deepcopy(state), "version": VERSION,
+            "input_sha256": script_stages.digest(inputs),
+            "accepted_plan_sha256": script_stages.digest(plan),
+            "evidence_sha256": script_stages.digest(evidence),
+            "accepted_plan": plan, "evidence_brief": evidence,
+            "max_attempts": MAX_DRAFT_ATTEMPTS, "approval": "not_evaluated"}
+        path = Path(runtime.output_dir) / DRAFT_REPORT
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False))
+        temporary.replace(path)
+    # The report and attempt counter enter the same durable checkpoint before
+    # another paid call. Provider replay handles an interrupted, unresolved call.
+    script_stages.save("seven-section-draft-progress", inputs, state)
+
+
+def _draft_with_repair(plan, evidence, prompt, cost_sink):
+    import explainer_pipeline as ep
+    import script_contracts
+    inputs = {"version": VERSION, "plan": plan, "evidence": evidence, "prompt": prompt,
+              "policy": script_contracts.acceptance_policy()}
+    state = script_stages.load("seven-section-draft-progress", inputs)
+    if state is None:
+        state = {"attempts": [], "status": "running", "cost_usd": 0.0}
+        _save_draft_state(inputs, state, plan, evidence)
+    while state["status"] in {"running", "repair_pending"}:
+        if len(state["attempts"]) >= MAX_DRAFT_ATTEMPTS:
+            raise script_stages.RecoveryError("Seven-section draft attempt budget is exhausted")
+        locked = {}
+        request_prompt = prompt
+        if state["attempts"]:
+            previous = state["attempts"][-1]
+            locked = _locked_paragraphs(previous, evidence)
+            request_prompt += ("\nONE BOUNDED CONTRACT REPAIR. The accepted plan and evidence above are "
+                "immutable. Correct only the reported fields; preserve all locked narration verbatim. "
+                "Do not research, replan, add claims, or invent citations. If evidence is missing, "
+                "report evidence_gaps. Return the entire candidate through the submission tool.\n"
+                + json.dumps({"previous_attempt": previous, "locked_paragraphs": locked}, ensure_ascii=False))
+        request_prompt += "\nUse the submission tool. Exact outline section order: " + json.dumps([s for s, _ in SECTIONS])
+        response = ep._claude().messages.create(model=ep.ANTHROPIC_MODEL, max_tokens=12000,
+            system="You are a factual documentary writer. Submit the requested draft using the tool.",
+            messages=[{"role": "user", "content": request_prompt}], tools=[draft_tool(evidence)],
+            tool_choice={"type": "tool", "name": DRAFT_TOOL})
+        cost = ep._charge(cost_sink, ep._ledger.EXPANSION, ep._msg_cost(response.usage),
+                          "continuous narration" if not state["attempts"] else "narration contract repair")
+        # Retain generated text/tool input, not provider metadata or reasoning blocks.
+        raw = [{"type": b.type, **({"text": b.text} if b.type == "text" else
+                {"name": b.name, "input": b.input.model_dump() if hasattr(b.input, "model_dump") else b.input})}
+               for b in response.content if getattr(b, "type", None) in {"text", "tool_use"}]
+        try:
+            value = response_data(response, tool_name=DRAFT_TOOL)
+        except (ValueError, TypeError, AttributeError):
+            value = None
+            issues = [{"code": "SEVEN_SECTION_RESPONSE", "path": "$",
+                       "message": "Expected one complete submission-tool or JSON draft response"}]
+        else:
+            issues = draft_issues(value, evidence)
+        if locked:
+            rows = value.get("paragraphs") if isinstance(value, dict) else None
+            for ident, narration in locked.items():
+                matches = [r for r in rows or [] if isinstance(r, dict) and r.get("paragraph_id") == ident] if isinstance(rows, list) else []
+                if len(matches) != 1 or matches[0].get("narration") != narration:
+                    index = next(i for i, row in enumerate(evidence["paragraphs"]) if row["paragraph_id"] == ident)
+                    issues.append({"code": "SEVEN_SECTION_REPAIR_CHANGED", "path": f"paragraphs[{index}].narration",
+                                   "message": "Repair changed or omitted locked narration"})
+        state["cost_usd"] += cost
+        state["attempts"].append({"attempt": len(state["attempts"]) + 1, "candidate": value,
+            "response": raw, "stop_reason": getattr(response, "stop_reason", None),
+            "issues": issues, "cost_usd": cost})
+        state["status"] = ("accepted" if not issues else "failed" if
+            len(state["attempts"]) >= MAX_DRAFT_ATTEMPTS or any(
+                i["code"] == "SEVEN_SECTION_EVIDENCE_GAP" for i in issues) else "repair_pending")
+        _save_draft_state(inputs, state, plan, evidence)
+    if state["status"] != "accepted":
+        raise DraftValidationError(state["attempts"][-1]["issues"])
+    value = state["attempts"][-1]["candidate"]
+    validate_draft(value, evidence)
+    return deepcopy(value), state["cost_usd"]
 
 
 @script_stages.cached("seven-section-draft", context=lambda: {"version": VERSION,
@@ -151,13 +326,7 @@ def generate(plan, beats, dossier, engine, question, duration, word_target,
     import explainer_pipeline as ep
     evidence = brief(plan, beats, dossier, engine)
     prompt = draft_prompt(evidence, question, duration, word_target, direction)
-    # One coherent drafting call. Provider replay owns interruptions; malformed or
-    # incomplete prose is a saved terminal result, not permission for endless retries.
-    response = ep._claude().messages.create(model=ep.ANTHROPIC_MODEL, max_tokens=12000,
-        system="You are a factual documentary writer. Return the requested JSON only.",
-        messages=[{"role": "user", "content": prompt}])
-    cost = ep._charge(cost_sink, ep._ledger.EXPANSION, ep._msg_cost(response.usage), "continuous narration")
-    value = response_data(response)
+    value, cost = _draft_with_repair(plan, evidence, prompt, cost_sink)
     hook = validate_draft(value, evidence)
     scenes = []
     source_ids = {b["beat_id"]: f"scene_{i:03d}" for i, b in enumerate(beats, 1)}
