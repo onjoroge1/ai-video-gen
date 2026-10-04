@@ -8,6 +8,7 @@ import durable_execution
 
 ACTIVE = {"queued", "processing", "rendering", "running", "retry"}
 REPORTS = {
+    "comparison": "script_comparison.json",
     "narrative_draft": "seven_section_draft.json",
     "claim_failure": "semantic_failure_claim-ledger.json",
     "runtime_claim_failure": "semantic_failure_runtime-claim-ledger.json",

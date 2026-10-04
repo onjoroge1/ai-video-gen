@@ -41,5 +41,9 @@ function element() { return {textContent:'',value:'3',children:[],append(...v){t
   await elements.get('redraft-script').onclick();
   const redraft=requests.filter(r=>r.url.endsWith('/script-revisions')).at(-1);
   assert.deepEqual(JSON.parse(redraft.options.body),{mode:'redraft',cost_ceiling_usd:5,checkpoint_sha256:'checkpoint',content_sha256:'words'});
+  context.document.getElementById('comparison-cap').value='5';
+  await elements.get('compare-script').onclick();
+  const comparison=requests.filter(r=>r.url.endsWith('/script-revisions')).at(-1);
+  assert.deepEqual(JSON.parse(comparison.options.body),{mode:'compare',cost_ceiling_usd:5,checkpoint_sha256:'checkpoint',content_sha256:'words'});
   console.log('Studio revision action, cap, artifact binding and duplicate-click checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});

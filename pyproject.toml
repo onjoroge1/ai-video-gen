@@ -40,6 +40,8 @@ py-modules = [
     "script_contracts",
     "script_finalizer",
     "script_revisions",
+    "script_replay",
+    "script_comparison",
     "planning_evidence",
     "planning_review_recovery",
     "hook_callback",

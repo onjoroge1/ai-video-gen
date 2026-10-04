@@ -4460,7 +4460,7 @@ class StudioProviderResumeRequest(BaseModel):
 
 
 class StudioScriptRevisionRequest(BaseModel):
-    mode: Literal["evaluate", "render", "redraft"]
+    mode: Literal["evaluate", "render", "redraft", "compare"]
     checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     cost_ceiling_usd: float = Field(gt=0, le=10, allow_inf_nan=False)

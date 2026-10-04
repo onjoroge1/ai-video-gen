@@ -21,7 +21,7 @@ def eligible(row):
 def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling_usd):
     if not eligible(row):
         raise ValueError("This job must use its original approval or recovery workflow")
-    if mode not in {"evaluate", "render", "redraft"}:
+    if mode not in {"evaluate", "render", "redraft", "compare"}:
         raise ValueError("Unknown script revision mode")
     if not checkpoint_sha256 or checkpoint_sha256 != (row.get("checkpoint") or {}).get("sha256") \
             or checkpoint_sha256 != saved.get("checkpoint_sha256"):
@@ -34,13 +34,13 @@ def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling
         raise ValueError("The saved script has no evidence ledger")
     request = deepcopy(row["request"])
     request.pop("script_revision", None)
-    if mode == "redraft":
+    if mode in {"redraft", "compare"}:
         import narrative_template
         engine = script.get("_story_engine")
         if engine not in narrative_template.ENGINES:
             raise ValueError("Seven-section drafting currently supports intervention/consequence stories")
         request["narrative_mode"] = narrative_template.MODE
-    if mode == "evaluate" and script.get("_narrative_mode") == "seven_section" \
+    if mode in {"evaluate", "compare"} and script.get("_narrative_mode") == "seven_section" \
             and script.get("_production_status") == "planned":
         raise ValueError("This script already has production shots; use a new seven-section draft to rewrite it")
     if mode == "render":
@@ -58,7 +58,7 @@ def prepare(row, saved, *, mode, checkpoint_sha256, content_sha256, cost_ceiling
 
 
 def restore(revision, *, stop_after_script):
-    if (revision.get("version") != VERSION or revision.get("mode") not in {"evaluate", "render", "redraft"}
+    if (revision.get("version") != VERSION or revision.get("mode") not in {"evaluate", "render", "redraft", "compare"}
             or revision.get("policy") != script_contracts.acceptance_policy()
             or (revision["mode"] != "render") != stop_after_script):
         raise ValueError("Saved script revision policy or operation changed")
@@ -73,4 +73,9 @@ def restore(revision, *, stop_after_script):
             script.pop(key, None)
         if script.get("_narrative_mode") == "seven_section":
             script.pop("_narrative_document", None)
+    if revision["mode"] in {"evaluate", "redraft", "compare"}:
+        import script_replay
+        script = (script_replay.reconcile_numbers(script)
+                  if revision["mode"] == "redraft"
+                  else script_replay.prepare_input(script))
     return script

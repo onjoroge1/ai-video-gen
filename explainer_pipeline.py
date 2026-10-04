@@ -11509,7 +11509,9 @@ def run_explainer_pipeline(
         # Validate before any provider call, including worker resumes.
         revision_input = script_revisions.restore(script_revision, stop_after_script=stop_after_script)
         _write_generation_manifest(os.path.join(output_dir, "script_revision.json"), {
-            k: v for k, v in script_revision.items() if k != "script"})
+            **{k: v for k, v in script_revision.items() if k != "script"},
+            "input_repairs": {k: revision_input[k] for k in ("_context_migration", "_numerical_resolution")
+                              if k in revision_input}})
     script_operator_direction = (
         illustrated_story_lane.story_direction(question, operator_direction)
         if illustrated_story_on else operator_direction
@@ -11829,6 +11831,12 @@ def run_explainer_pipeline(
         if script_revision:
             script = revision_input
             research_dossier = script.get("_research_dossier") or {}
+            if script_revision["mode"] == "compare":
+                import script_comparison
+                from longform_rendered_gate import HumanReviewRequired
+                script_comparison.run(script, question, duration_sec, operator_direction,
+                                      output_dir, aux_costs, log)
+                raise HumanReviewRequired("Matched writer comparison ready in Studio; drafts are unapproved")
             if script_revision["mode"] == "redraft":
                 import narrative_template
                 log("Seven-section draft: reusing the saved evidence and accepted factual plan")
@@ -12421,6 +12429,8 @@ def run_explainer_pipeline(
         if script_revision:
             _write_generation_manifest(os.path.join(output_dir, "script_revision.json"), {
                 **{k: v for k, v in script_revision.items() if k != "script"},
+                "input_repairs": {k: revision_input[k] for k in ("_context_migration", "_numerical_resolution")
+                                  if k in revision_input},
                 "result_content_sha256": readiness["content_sha256"], "result": readiness})
     if stop_after_script:
         # Every pre-spend gate has passed and nothing paid beyond text has been bought. Write the

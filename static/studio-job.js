@@ -47,6 +47,15 @@ async function loadArtifacts() {
         if (script[key] != null) report(key, script[key]);
       }
     }
+    const comparison = (saved.reports || {}).comparison;
+    if (comparison) {
+      el('artifact-status').textContent = 'Writing comparison — unapproved drafts. Model reviews do not establish audience retention.';
+      for (const [label, text] of Object.entries(comparison.blind_drafts || {})) {
+        const heading = document.createElement('h3'); heading.textContent = 'Draft ' + label;
+        const body = document.createElement('pre'); body.textContent = text;
+        el('script').append(heading, body);
+      }
+    }
     const draftReport = (saved.reports || {}).narrative_draft;
     if (!script && draftReport && Array.isArray(draftReport.attempts)) {
       const attempted = draftReport.attempts.slice().reverse().find(a => a.candidate && Array.isArray(a.candidate.paragraphs));
@@ -68,12 +77,12 @@ async function loadArtifacts() {
 el('load').onclick = loadArtifacts;
 async function createRevision(mode) {
   if (creatingRevision || !savedArtifact || !lastSnapshot || !lastSnapshot.script_revision_eligible) return;
-  const cap = Number(el(mode === 'evaluate' ? 'evaluation-cap' : mode === 'redraft' ? 'redraft-cap' : 'render-cap').value);
+  const cap = Number(el(mode === 'evaluate' ? 'evaluation-cap' : mode === 'redraft' ? 'redraft-cap' : mode === 'compare' ? 'comparison-cap' : 'render-cap').value);
   if (!Number.isFinite(cap) || cap <= 0 || cap > 10) {
     el('revision-status').textContent = 'Enter a cost cap above $0 and at most $10.'; return;
   }
   creatingRevision = true;
-  el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = true;
+  el('compare-script').disabled = el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = true;
   try {
     const response = await fetch(base + '/script-revisions', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -87,11 +96,12 @@ async function createRevision(mode) {
     fetch(result.dispatch_url, {method:'POST', keepalive:true}).catch(() => {});
     location.assign(result.studio_url);
   } catch (error) { el('revision-status').textContent = error.message; }
-  finally { creatingRevision = false; el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = false; }
+  finally { creatingRevision = false; el('compare-script').disabled = el('redraft-script').disabled = el('evaluate-script').disabled = el('render-script').disabled = false; }
 }
 el('evaluate-script').onclick = () => createRevision('evaluate');
 el('render-script').onclick = () => createRevision('render');
 el('redraft-script').onclick = () => createRevision('redraft');
+el('compare-script').onclick = () => createRevision('compare');
 el('resume').onclick = async () => {
   if (resuming || !lastSnapshot || !(lastSnapshot.provider_resumable || lastSnapshot.planning_review_resumable)) return;
   resuming = true; el('resume').disabled = true; clearTimeout(pollTimer);
