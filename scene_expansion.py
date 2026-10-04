@@ -28,7 +28,7 @@ def response_tool(ids):
                         "additionalProperties": True}}}}}
 
 
-def reconcile(value, ids):
+def reconcile(value, ids, frozen=None):
     """Never infer a missing ID from position, or choose between duplicate IDs."""
     rows = value.get("scenes") if isinstance(value, dict) else None
     if not isinstance(rows, list):
@@ -48,11 +48,14 @@ def reconcile(value, ids):
         if not isinstance(narration, str) or not narration.strip():
             errors.append(f"Empty narration: {ident}")
             continue
+        if frozen is not None and narration != frozen[ident]:
+            errors.append(f"Rewritten frozen narration: {ident}")
+            continue
         accepted[ident] = deepcopy(row)
     return accepted, errors
 
 
-def expand(rows, prompt, request):
+def expand(rows, prompt, request, *, preserve_narration=False):
     """request(prompt, tool) -> (provider response, accounted cost).
 
     Initial batches are small. A second attempt addresses one missing/invalid row
@@ -63,6 +66,9 @@ def expand(rows, prompt, request):
     if not ids or any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
         raise ValueError("Expansion requires unique assigned scene IDs")
     inputs = {"version": VERSION, "rows": rows, "prompt": prompt}
+    frozen = {r["scene_id"]: r["narration"] for r in rows} if preserve_narration else None
+    if preserve_narration:
+        inputs["preserve_narration"] = True
     state = script_stages.load("scene-expansion", inputs) or {
         "accepted": {}, "attempts": {i: 0 for i in ids}, "cost": 0.0,
         "status": "running", "errors": []}
@@ -100,7 +106,7 @@ def expand(rows, prompt, request):
         for ident in selected:
             state["attempts"][ident] += 1
         try:
-            accepted, errors = reconcile(response_data(response, tool_name=TOOL), selected)
+            accepted, errors = reconcile(response_data(response, tool_name=TOOL), selected, frozen)
         except (ValueError, TypeError, AttributeError):
             accepted, errors = {}, ["Incomplete or malformed scene response"]
         state["accepted"].update(accepted)

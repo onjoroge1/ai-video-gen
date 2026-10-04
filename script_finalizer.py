@@ -9,6 +9,9 @@ from script_stages import digest
 def evaluate(script, dossier, question, duration, *, factcheck_required, cost_sink=None):
     import explainer_pipeline as ep
     import illustrated_story
+    if script.get("_narrative_mode") == "seven_section":
+        import narrative_template
+        narrative_template.verify_projection(script)
     claims = ep._validate_claims(script, dossier, cost_sink)
     factual_review = {"passed": bool(claims.get("passed")) and not claims.get("retryable"),
                       "content_sha256": script_readiness.content_hash(script),
@@ -38,12 +41,19 @@ def evaluate(script, dossier, question, duration, *, factcheck_required, cost_si
         "meaning": "Semantic acceptance does not establish independent page retrieval or currentness"}
     report["question"] = question
     report["duration_sec"] = duration
+    if script.get("_narrative_mode") == "seven_section":
+        report["production_planned"] = script.get("_production_status") == "planned"
+        if not report["production_planned"]:
+            report["warnings"].append("Production shots are not planned; visual gates run before media spending")
     script["_script_readiness"] = report
     return report
 
 
 def verify_approved(script, dossier, question, duration, *, factcheck_required):
     """Restore a decision only for identical words, evidence and policy. No paid work."""
+    if script.get("_narrative_mode") == "seven_section":
+        import narrative_template
+        narrative_template.verify_projection(script)
     report = script.get("_script_readiness") or {}
     if not (report.get("version") == script_readiness.VERSION and report.get("passed")
             and report.get("content_sha256") == script_readiness.content_hash(script)

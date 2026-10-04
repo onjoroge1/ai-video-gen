@@ -11,9 +11,12 @@ def content_hash(script):
         "title": script.get("title"), "hook": script.get("hook"),
         "engine": script.get("_story_engine"), "contract": script.get("_story_contract"),
         "cold_open": script.get("_cold_open"), "cold_open_claim_refs": script.get("_cold_open_claim_refs"),
+        "narrative_mode": script.get("_narrative_mode"),
+        "narrative_document": script.get("_narrative_document"),
+        "production_status": script.get("_production_status"),
         "scenes": [{k: scene.get(k) for k in ("scene_id", "narration", "event", "causal_role",
                     "caused_by", "derivation", "scope", "chapter", "continues", "_story_compiler_version",
-                    "beat_id", "context_refs", "parallel_case_id")}
+                    "beat_id", "context_refs", "parallel_case_id", "paragraph_id", "narrative_section", "narration_span")}
                    for scene in script.get("scenes") or []]})
 
 

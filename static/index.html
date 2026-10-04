@@ -1638,6 +1638,15 @@
       </div>
 
       <div class="field" style="margin-top:14px;">
+        <label for="expl-narrative-mode">Story writing</label>
+        <select id="expl-narrative-mode">
+          <option value="scene_first">Current scene-first flow</option>
+          <option value="seven_section">Seven-section continuous narration (test)</option>
+        </select>
+        <span class="field-hint">For illustrated intervention stories: write the full narration, check its evidence and storytelling, then plan shots. Script-only skips shot planning.</span>
+      </div>
+
+      <div class="field" style="margin-top:14px;">
         <label>Format</label>
         <div style="display:flex; gap:10px;">
           <button type="button" class="toggle-btn active" id="fmt-landscape"
@@ -3267,6 +3276,7 @@
       image_guidance: document.getElementById('expl-theme').value.trim(),
       fact_check:     document.getElementById('expl-factcheck').checked,
       stop_after_script: document.getElementById('expl-script-only').checked,
+      narrative_mode: document.getElementById('expl-narrative-mode').value,
       video_format:   explFormat,
       speech_bubble:  document.getElementById('expl-bubble').checked,
       motion_mode:    explFormat === 'social' ? null : document.getElementById('expl-motion-mode').value,
