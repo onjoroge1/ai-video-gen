@@ -12,12 +12,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Download application import dependencies for offline tests
+      - name: Download pinned application SDKs for offline tests
         run: |
-          python -m pip download --only-binary=:all: --dest /tmp/wheels 'anthropic==0.125.0' 'psycopg2-binary>=2.9.9' 'vercel==0.7.0' 'google-genai>=1.0.0' 'google-cloud-texttospeech==2.17.2' 'socksio==1.0.0'
+          python -m pip download --only-binary=:all: --dest /tmp/wheels 'openai==2.54.0' 'fastapi==0.115.0' 'pydantic==2.9.2' 'yt-dlp>=2024.1.0' 'bar_chart_race>=0.1.0'
       - uses: actions/upload-artifact@v4
         with:
-          name: recovery-offline-wheels
+          name: recovery-sdk-wheels
           path: /tmp/wheels
           retention-days: 2
           if-no-files-found: error
