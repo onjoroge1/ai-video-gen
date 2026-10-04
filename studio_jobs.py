@@ -87,6 +87,10 @@ def artifacts(job_id, store, blob):
         if result["script"]:
             import script_readiness
             result["content_sha256"] = script_readiness.content_hash(result["script"])
+            repairs = {k: result["script"][k] for k in ("_context_migration", "_numerical_resolution")
+                       if k in result["script"]}
+            if repairs:
+                result["reports"]["input_repairs"] = repairs
             import script_finalizer
             import script_revisions
             result["approval_current"] = False
