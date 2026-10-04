@@ -399,6 +399,8 @@ def finished_library_format(*, visual_style: str, video_format: str, short_templ
     would leave both the copy and the suite green while every illustrated render silently went
     back to being an "explainer".
     """
+    if visual_style == "bolt_kids":
+        return "bolt_kids"
     if directed_full_film:
         return "directed-v1-full"
     if directed_spec:
@@ -1232,6 +1234,8 @@ class ExplainerRequest(BaseModel):
     visual_style: Literal["cinematic", "illustrated_story"] = "cinematic"
     # Internal, immutable topic recipe; only an approved generic_illustrated action sets this.
     illustrated_authorization: dict = Field(default_factory=dict)
+    # Internal only: dedicated Kids orchestration, never an explainer preset.
+    kids_authorization: dict = Field(default_factory=dict)
     # Internal directed-v1 fields. Public callers must use the validation/process endpoints,
     # which bind paid approval to an immutable spec hash before constructing this request.
     directed_spec: dict | None = None
@@ -1274,7 +1278,7 @@ class DirectedLongformProcessRequest(BaseModel):
 class AgentActionCreateRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
-    operation: Literal["directed_pilot", "directed_full_film", "generic_illustrated"] = "directed_pilot"
+    operation: Literal["directed_pilot", "directed_full_film", "generic_illustrated", "bolt_kids_episode"] = "directed_pilot"
     topic: str = Field(default="", max_length=500)
     duration_sec: int = Field(default=90, ge=agent_actions.ILLUSTRATED_MIN_SECONDS,
                               le=agent_actions.ILLUSTRATED_MAX_SECONDS, strict=True)
@@ -1401,7 +1405,15 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         loop = asyncio.get_event_loop()
         # Directed v1 is a separate, operator-authored job.  It never enters the model-authored
         # explainer pipeline and this internal branch is reachable only through validate/process.
-        if request.directed_spec:
+        if request.kids_authorization:
+            from bolt_video.kids.pipeline import render_episode
+            _validate_kids_request_authorization(request)
+            envelope = request.kids_authorization
+            result = await loop.run_in_executor(None, lambda: _run_with_runtime(lambda:
+                render_episode(envelope["payload"], envelope["sha256"],
+                               envelope["cost_ceiling_usd"], output_dir,
+                               durable_runtime, log=push)))
+        elif request.directed_spec:
             import directed_longform as dl
 
             directed = dl.DirectedLongformSpec.model_validate(request.directed_spec)
@@ -1761,6 +1773,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 directed_full_film=bool(request.directed_full_film)),
             "question": request.question, "scene_count": result["scene_count"],
             "visual_style": effective_visual_style,
+            **({"production_flow": "bolt_kids_v1", "publishable": False} if request.kids_authorization else {}),
             **_illustrated_library_fields(result, effective_visual_style),
             "topic_channel": request.topic_channel,
             "actual_cost": result.get("actual_cost"), "duration_sec": result.get("duration_sec"),
@@ -1802,7 +1815,11 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                   "full-delivery": result.get("full_delivery_report_path"),
                   "diagnostic-preview": result.get("diagnostic_preview_path"),
                   "readiness": result.get("readiness_json_path"),
-                  "opening_preview": result.get("first_minute_preview_path")},
+                  "opening_preview": result.get("first_minute_preview_path"),
+                  "kids-gates": result.get("kids_gate_path"),
+                  "kids-episode": result.get("kids_spec_path"),
+                  "kids-soundtrack": result.get("kids_soundtrack_path"),
+                  **(result.get("kids_media_paths") or {} if request.kids_authorization else {})},
             durable_runtime=durable_runtime)
         if not durable_runtime:
             _clear_inprogress(job_id)   # local compatibility index only
@@ -2572,6 +2589,24 @@ def _directed_pilot_request(spec, report: dict) -> ExplainerRequest:
     )
 
 
+def _kids_request(payload: dict, digest: str, ceiling: float) -> ExplainerRequest:
+    from bolt_video.kids.config import authorize
+    episode = authorize(payload, digest, ceiling)
+    return ExplainerRequest(question=episode.title, duration_sec=120, video_format="landscape",
+        kids_authorization={"payload": payload, "sha256": digest, "cost_ceiling_usd": ceiling})
+
+
+def _validate_kids_request_authorization(request: ExplainerRequest) -> None:
+    auth = request.kids_authorization
+    if not auth:
+        return
+    if set(auth) != {"payload", "sha256", "cost_ceiling_usd"}:
+        raise ValueError("Malformed Kids authorization")
+    normalized = _kids_request(auth["payload"], auth["sha256"], auth["cost_ceiling_usd"])
+    if request.model_dump() != normalized.model_dump():
+        raise ValueError("Kids request was modified after approval")
+
+
 def _validate_illustrated_request_authorization(request: ExplainerRequest) -> None:
     """Fail before paid calls if a queued recipe or current provider selection has drifted."""
     from provider_readiness import illustrated_provider_manifest
@@ -2849,6 +2884,11 @@ def _public_agent_event(event: dict) -> dict | None:
 def _agent_action_plan(action: dict) -> dict:
     payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
     promotion = payload.get("promotion") if isinstance(payload.get("promotion"), dict) else {}
+    if action.get("operation") == agent_actions.KIDS_OPERATION:
+        spec = payload.get("spec") or {}
+        return {"pilot_seconds": None, "window_start_sec": 0, "window_end_sec": 120,
+                "narration_total": 0, "images_total": 0, "motion_total": 0,
+                "totals_known": False}
     if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
         return {
             "pilot_seconds": None, "window_start_sec": 0,
@@ -3099,6 +3139,10 @@ async def agent_capabilities():
             "latest_nature_contract": "nature_short_v4",
             "retention_storyboard_minimum": 82,
         },
+        "kids": {"operation": "bolt_kids_episode", "schema": "bolt_kids_episode_v1",
+                 "duration_sec": 120, "input_mode": "reviewed_episode_spec",
+                 "studio_path": "/bolt-kids", "editorial_approval_required": True,
+                 "live_pilot_verified": False},
         "publishes_to_youtube": False,
     }
 
@@ -3113,6 +3157,8 @@ async def _agent_bound_job(action_id: str) -> str:
 
 
 _AGENT_DIAGNOSTIC_FILES = {
+    "kids-gates": "kids_gates.json", "kids-episode": "kids_episode.json",
+    "kids-quality": "kids_quality.json", "kids-timeline": "audio_timing_report.json",
     "script": "_state.json", "grade": "grade.txt",
     # Keep the stable artifact name while returning the newest attempted repair. Older jobs
     # have only v1; opening-budget recoveries write v2 alongside it.
@@ -3160,7 +3206,8 @@ def _read_agent_diagnostic(job_id: str, artifact: str) -> str:
 @app.get("/api/agent/actions/{action_id}/diagnostics")
 async def agent_diagnostics(action_id: str, artifact: Literal[
         "research-handoff", "script", "grade", "rendered-contract", "evidence-validation",
-        "nature-visual-review", "nature-semantic-review", "storyboard-repair", "storyboard-failure"
+        "nature-visual-review", "nature-semantic-review", "storyboard-repair", "storyboard-failure",
+        "kids-gates", "kids-episode", "kids-quality", "kids-timeline"
         ] = "research-handoff", offset: int = 0):
     """Private, paginated saved evidence. Never rerun a provider to answer a read."""
     if offset < 0:
@@ -3258,7 +3305,10 @@ async def agent_artifacts(action_id: str):
     except durable_execution.StorageUnavailable:
         raise HTTPException(status_code=503, detail="Finished artifact storage is unavailable") from None
     allowed = {"video", "txt", "srt", "desc", "grade", "thumb", "script",
-               "rendered-contract", "research", "research-handoff"}
+               "rendered-contract", "research", "research-handoff", "kids-gates", "kids-episode",
+               "kids-soundtrack", "storyboard", "animatic-preview", "timing", "generation-manifest"}
+    if record.get("format") == "bolt_kids":
+        allowed.update(key for key in (record.get("artifacts") or {}) if key.startswith("kids-"))
     return {"action_id": action_id, "job_id": job_id,
             "available": bool(record), "requires_studio_session": True,
             "artifacts": [{"kind": kind, "path": f"/api/finished/{job_id}/artifact/{kind}"}
@@ -3271,7 +3321,20 @@ async def create_agent_action(request: AgentActionCreateRequest):
     import directed_longform as dl
 
     operation = request.operation
-    if operation == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+    if operation == agent_actions.KIDS_OPERATION:
+        from bolt_video.kids.config import build_payload, cost_cap
+        from bolt_video.kids.models import canonical_hash
+        if (request.spec is None or request.bundled_spec_id or request.topic or request.creative_direction
+                or request.parent_action_id or request.parent_job_id or "duration_sec" in request.model_fields_set):
+            raise HTTPException(422, "Kids requires its complete episode spec and cost ceiling, without other flow fields")
+        try:
+            payload = build_payload(request.spec, float(request.cost_ceiling_usd))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        authorization_hash = canonical_hash(payload)
+        estimate, deployment_cap = payload["estimated_cost_usd"], cost_cap()
+        title = payload["spec"]["title"]
+    elif operation == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
         from provider_readiness import illustrated_provider_manifest
         if (not request.topic.strip() or request.spec is not None or request.bundled_spec_id
                 or request.parent_action_id or request.parent_job_id):
@@ -3556,6 +3619,18 @@ async def execute_agent_action(action_id: str, request: Request,
     action = None
     try:
         action = await asyncio.to_thread(agent_actions.repository().get, action_id)
+        if action and action.get("operation") == agent_actions.KIDS_OPERATION:
+            if not agent_actions.verify_claim_token(action, token):
+                raise agent_actions.AgentActionForbidden("Invalid agent action claim token")
+            if action.get("status") == "queued" and action.get("job_id"):
+                return {**agent_actions.public_action(action),
+                        "dispatch_path": f"/api/agent/actions/{action_id}/dispatch",
+                        "status_path": f"/api/agent/actions/{action_id}"}
+            from bolt_video.kids.config import readiness, authorize
+            episode = authorize(action["payload"], action["spec_sha256"], float(action["cost_ceiling_usd"]))
+            configuration = readiness(episode)
+            if not configuration["configured"]:
+                raise HTTPException(503, {"code": "KIDS_CONFIGURATION_MISSING", **configuration})
         if action and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
             if not agent_actions.verify_claim_token(action, token):
                 raise agent_actions.AgentActionForbidden("Invalid agent action claim token")
@@ -3573,7 +3648,9 @@ async def execute_agent_action(action_id: str, request: Request,
                 })
         action = await asyncio.to_thread(
             agent_actions.repository().claim, action_id, claim_token=token)
-        if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+        if action.get("operation") == agent_actions.KIDS_OPERATION:
+            directed_request = _kids_request(action["payload"], action["spec_sha256"], float(action["cost_ceiling_usd"]))
+        elif action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
             directed_request = ExplainerRequest(
                 **action["payload"]["request"],
                 illustrated_authorization={"payload": action["payload"],
@@ -3597,7 +3674,7 @@ async def execute_agent_action(action_id: str, request: Request,
                 action["payload"], expected_sha256=action["spec_sha256"], authorize_paid=True)
             directed_request = _directed_pilot_request(spec, report)
         queue_options = {}
-        if action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION:
+        if action.get("operation") in {agent_actions.GENERIC_ILLUSTRATED_OPERATION, agent_actions.KIDS_OPERATION}:
             queue_options["job_id"] = action["job_id"]
         queued = await _enqueue_explainer_request(
             directed_request, background_tasks,
@@ -3607,7 +3684,7 @@ async def execute_agent_action(action_id: str, request: Request,
     except agent_actions.AgentActionError as exc:
         raise _agent_action_http_error(exc) from exc
     except (Exception, durable_execution.AmbiguousProviderOutcome) as exc:
-        if (action and action.get("operation") == agent_actions.GENERIC_ILLUSTRATED_OPERATION
+        if (action and action.get("operation") in {agent_actions.GENERIC_ILLUSTRATED_OPERATION, agent_actions.KIDS_OPERATION}
                 and isinstance(exc, HTTPException) and exc.status_code >= 500):
             # Keep the already-bound job recoverable after queue/storage unavailability.
             raise
@@ -4068,6 +4145,8 @@ async def explainer_generate(request: ExplainerRequest, background_tasks: Backgr
         raise HTTPException(status_code=400, detail=(
             "Channel stories currently use Illustrated Story in landscape. "
             "Choose those settings to generate this episode."))
+    if request.kids_authorization:
+        raise HTTPException(status_code=403, detail="Kids authorization is internal; use a bolt_kids_episode action")
     if request.illustrated_authorization:
         raise HTTPException(status_code=403, detail=(
             "Illustrated authorization is internal; create a generic_illustrated agent action"))
@@ -4124,7 +4203,11 @@ async def _run_durable_explainer_worker(job_id: str | None = None) -> dict:
             if claimed.get("checkpoint"):
                 await asyncio.to_thread(runtime.restore_checkpoint, claimed["checkpoint"])
             request = ExplainerRequest(**(claimed.get("request") or {}))
-            runtime.cache_local_renders = request.visual_style == "illustrated_story"
+            runtime.cache_local_renders = request.visual_style == "illustrated_story" or bool(request.kids_authorization)
+            if request.kids_authorization:
+                _validate_kids_request_authorization(request)
+                if float(claimed["max_cost_usd"]) != float(request.kids_authorization["cost_ceiling_usd"]):
+                    raise ValueError("Kids durable cap differs from approved cap")
             if getattr(request, "illustrated_authorization", None):
                 _validate_illustrated_request_authorization(request)
                 approved_cap = float(request.illustrated_authorization["cost_ceiling_usd"])
@@ -5228,6 +5311,10 @@ def _serve_index():
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
+
+# Dedicated Kids studio uses the same private-access middleware and action/worker lifecycle.
+from bolt_video.kids.api import router as _kids_router
+app.include_router(_kids_router(_durable_components, _agent_approver, FINISHED_DIR))
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 

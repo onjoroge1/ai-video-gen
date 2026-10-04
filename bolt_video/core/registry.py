@@ -15,6 +15,8 @@ class FormatDescriptor:
 
 FORMAT_REGISTRY = {
     f.id.value: f for f in (
+        FormatDescriptor(VideoFormatId.BOLT_KIDS, "Bolt Kids", "16:9", "episode_spec",
+                         "Two-minute robot-hosted animal adventure with dialogue, songs and dedicated gates. Open /bolt-kids."),
         FormatDescriptor(VideoFormatId.SHORT_EXPLAINER, "Short", "9:16", "topic",
                          "Fast curiosity-gap explainer."),
         FormatDescriptor(VideoFormatId.LONG_EXPLAINER, "Explainer", "16:9", "topic",

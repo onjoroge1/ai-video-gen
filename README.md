@@ -2,6 +2,10 @@
 
 ReelForge turns a topic or narration script into a packaged YouTube video. It currently supports:
 
+- **Bolt Kids** — dedicated two-minute robot-hosted animal adventures with character dialogue,
+  original/saved songs, explicit response pauses, source/action/encoded gates and hash-bound
+  editorial review. Start at `/bolt-kids`; see [`docs/BOLT_KIDS_FLOW.md`](docs/BOLT_KIDS_FLOW.md).
+
 - **Short** — vertical curiosity-gap explainers.
 - **Explainer** — beat-sheet-driven long-form videos with quality gates and resumable work.
 - **Simulation** — vertical “change by N every period” stories whose math is compiled in code.
