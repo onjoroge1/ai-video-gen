@@ -119,3 +119,27 @@ def no_meta_phrases(output, context) -> dict:
     texts = [((row or {}).get("narration") or "") for row in data.get("scenes") or []]
     hits = [t[:60] for t in texts if re.search(r"explained like|in this video|let'?s dive|welcome back", t, re.I)]
     return {"pass": not hits, "score": 0.0 if hits else 1.0, "reason": "; ".join(hits) or "none"}
+
+
+def template_score(output, context) -> dict:
+    """story_template.score_fill over the filled scenes; pass at 75 or more."""
+    import story_template as st
+    v = context.get("vars") or {}
+    filled = _json(output)
+    if not isinstance(filled, dict):
+        return {"pass": False, "score": 0.0, "reason": "not a JSON object"}
+    report = st.score_fill(filled, v.get("engine") or "removed_keystone",
+                           _fixture(v["dossier"]), int(v.get("duration") or 300))
+    return {"pass": report["score"] >= 75, "score": report["score"] / 100.0,
+            "reason": f"{report['score']}/100; {report.get('scenes')}sc/{report.get('words')}w "
+                      f"{report.get('repeats')} repeats; " + ("; ".join(report["issues"]) or "clean")}
+
+
+def template_no_repeats(output, context) -> dict:
+    import explainer_pipeline as ep
+    filled = _json(output) or {}
+    scenes = [{"narration": (s or {}).get("narration", ""), "causal_role": (s or {}).get("role", ""),
+               "beat_id": f"s{i}", "continues": ""} for i, s in enumerate(filled.get("scenes") or [])]
+    dupes = ep.duplicate_narration(scenes)
+    return {"pass": not dupes, "score": 0.0 if dupes else 1.0,
+            "reason": "; ".join(f"{d['scene']}~{d['duplicate_of']}" for d in dupes) or "no repeats"}

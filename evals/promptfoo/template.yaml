@@ -1,0 +1,44 @@
+# The scene-level story template (story_template): one writer call fills a fixed per-engine scene
+# skeleton, no beat-to-scene splitter. Judged by score_fill and the repeat detector. No render.
+#
+#   set -a; source <(grep -E '^OPENAI_API_KEY=' .env); set +a
+#   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/template.yaml
+description: "ReelForge scene template fill, judged by the deterministic gates"
+
+providers:
+  - id: openai:chat:gpt-5.6-luna
+    label: luna
+
+prompts:
+  - id: file://prompts.py:template
+    label: template
+
+defaultTest:
+  assert:
+    - type: is-json
+    - type: python
+      value: file://asserts.py:template_score
+    - type: python
+      value: file://asserts.py:template_no_repeats
+    - type: python
+      value: file://asserts.py:plan_has_cold_open
+
+tests:
+  - description: cane toads (introduced species)
+    vars:
+      question: "Introducing Cane Toads to Eat Beetles Made Australia Toxic to Predators"
+      dossier: dossier_canetoad.json
+      engine: removed_keystone
+      duration: 300
+  - description: Yellowstone wolves (removed species)
+    vars:
+      question: "Yellowstone Killed Its Wolves to Protect the Elk and the Elk Ate the Park"
+      dossier: dossier_wolves.json
+      engine: removed_keystone
+      duration: 300
+  - description: killer bees (the story that repeated itself)
+    vars:
+      question: "Brazil Imported African Bees to Make More Honey and Twenty-Six Swarms Escaped as the Killer Bees"
+      dossier: dossier_killerbees.json
+      engine: removed_keystone
+      duration: 300

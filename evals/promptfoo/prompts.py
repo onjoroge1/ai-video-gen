@@ -42,3 +42,15 @@ def editor(context: dict) -> list[dict]:
     payload = se.build_payload(script, script.get("_research_dossier"), defects)
     return [{"role": "system", "content": se._SYSTEM},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+
+
+def template(context: dict) -> list[dict]:
+    """The scene-template fill request for one cached dossier (story_template)."""
+    import story_template as st
+    v = context.get("vars") or {}
+    dossier = _fixture(v["dossier"])
+    user = st.fill_prompt(v["question"], int(v.get("duration") or 300),
+                          v.get("engine") or "removed_keystone", dossier,
+                          operator_direction=v.get("direction") or "")
+    return [{"role": "system", "content": st._SYSTEM},
+            {"role": "user", "content": user}]
