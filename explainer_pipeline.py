@@ -4574,7 +4574,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _have = sum(len(_s(sc.get("narration")).split()) for sc in all_scenes)
         if _have < _min_words:
             _short = []
+            # NOT THE OPENING. Scene one already carries the hook and the cold open on top of
+            # its own narration, and the opening group's word budget exists to land the mechanism
+            # before its deadline -- expanding there pushed the storyboard's opening budget over
+            # and the repair could not pull it back (2026-10-05). The length the film is missing
+            # belongs in the escalation band, which is the part that compounds anyway.
+            _opening_roles = {"setup", "intervention", "false_resolution"}
             for _i, _sc in enumerate(all_scenes):
+                if _i == 0 or _s(_sc.get("causal_role")).lower() in _opening_roles:
+                    continue
                 _want = int(causal_budgets.get(_sc.get("story_beat_n") or (_i + 1), 0) or 0)
                 _got = len(_s(_sc.get("narration")).split())
                 if _want and _got < _want * 0.85:
