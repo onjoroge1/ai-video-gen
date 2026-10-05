@@ -150,6 +150,15 @@ _FIDELITY_SYSTEM = (
     "climate' for an event about bees doing poorly in Brazil). Setting is staging, not history.\n"
     "- the ordinary English for a state the event or its claims already assert ('became "
     "established' for a claim saying the population became established)\n"
+    # Third measured round. The judge began flagging things the narration never said, derived by
+    # negation from a word it did say: "natural colony" was refused for implying "the colony was
+    # not inside a research apiary" and "not inside a transport crate". A reader cannot be
+    # misled by a proposition the sentence does not contain.
+    "- an implication you derived by NEGATION rather than something the narration states. If the "
+    "line says 'a wild colony', it does not assert 'the colony was not in a crate'; judge the "
+    "words on the page, not their complement.\n"
+    "- collapsing several stated places or dates into the ordinary umbrella for them ('across the "
+    "Southwest' for Arizona, New Mexico and California)\n"
     "A rhetorical question does not assert that its premise happened. Framing that moves the story "
     "along is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"

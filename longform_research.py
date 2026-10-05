@@ -864,7 +864,16 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
             errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
                            "message": "the cold open cites no claim from the ledger"})
         else:
-            verdict = ce.narration_fidelity("\n".join(cited), cold_open, judge=judge, cache=cache,
+            # The cold open is an IMAGE DESCRIPTION by contract -- it exists to say what the
+            # first frame shows -- so its visual staging is not a historical assertion. It was
+            # refused for "the swarm is dark" and "the setting is a grove" (2026-10-05). What it
+            # still may not do is invent an ACTOR or an ACTION: "a beekeeper backs away" is a
+            # person doing a thing, and that is a claim.
+            cold_ceiling = ("\n".join(cited) + "\nThis sentence describes the film's FIRST IMAGE. "
+                            "Colour, light, weather, vegetation and framing are staging, not "
+                            "history: never flag them. Flag only an invented actor, an invented "
+                            "action, a number, a date or a named place.")
+            verdict = ce.narration_fidelity(cold_ceiling, cold_open, judge=judge, cache=cache,
                                             cost_sink=cost_sink)
             if ce.is_retryable(verdict):
                 errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": "cold_open",
