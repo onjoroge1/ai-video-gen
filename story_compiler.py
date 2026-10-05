@@ -108,6 +108,12 @@ def _repeat_to_reach_count(mapping, duration) -> str:
         'later, and the scenes that remain absorb its time.\n')
 
 
+def _hook_rules() -> str:
+    """The hook contract, kept in hook_patterns beside the scorer that measures it."""
+    import hook_patterns
+    return hook_patterns.HOOK_RULES
+
+
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     """The factual planner never receives the narration layer's competing role slots."""
     mapping = ef.map_for(engine_id)
@@ -115,7 +121,7 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     import causal_story
     schema = {
         "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
-                               "and the concrete title subject",
+                               "and the concrete title subject; see THE HOOK rules below",
         "throughline": "",
         "cold_open": {"text": "ONE sentence, at most 22 words, spoken right after the hook: the "
                               "visible AFTERMATH of the fix gone wrong, as a viewer would see it "
@@ -188,6 +194,10 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'placed first is pruned later and has already pushed the mechanism late.\n'
         + '\n'.join(f'{name}: {ef.WHAT_EACH_FUNCTION_IS[name]}'
                     for name in functions)
+        # THE HOOK. All three delivered films used one construction -- actor did X to
+        # achieve Y, then the bad thing -- which states the purpose AND the outcome,
+        # closing the question the film exists to answer. Measured 30, 45 and 55 of 100.
+        + _hook_rules()
         # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup before
         # the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR thumbnail left at
         # 41 s on average. The reference films earn their setup by showing the damage first.

@@ -3830,6 +3830,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 print("  ✗ compile retry still does not compile — failing on the original")
         # The cold open is checked here, where a miss costs one planner call. Left to the
         # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
+        # The hook's pattern score is advisory and printed, never blocking: it reads syntax
+        # only, so a semantically surprising hook can legitimately score 70.
+        try:
+            import hook_patterns as _hp
+            _hs = _hp.score_hook(_s(plan.get("hook")))
+            _on = ", ".join(k for k, v in _hs["patterns"].items() if v) or "none"
+            print(f"[hook] {_hs['score']}/100 ({_on}) - {_s(plan.get('hook'))!r}")
+            for _n in _hs["notes"]:
+                print(f"  . {_n}")
+        except Exception:
+            pass
         _cold_fix = _cold_open_correction(plan, research_dossier)
         if _cold_fix and _roles.get("compiled"):
             print("Beat sheet has no usable cold open — re-asking the planner once")
