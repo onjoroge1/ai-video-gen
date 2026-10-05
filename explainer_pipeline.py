@@ -1599,6 +1599,18 @@ _NARRATION_CADENCE = (
     'do NOT write every line as a dramatic climax — when every line shouts, none of them lands. Use '
     'CALM, quieter setup lines and NEUTRAL mechanism lines so the genuine payoffs hit with contrast, '
     'and drop a short beat (a 3-4 word line) right AFTER a big reveal to let it breathe.'
+    # A SHORT BEAT REACTS, IT DOES NOT ASSERT. This rule asks for punchy declaratives and the
+    # claim ledger then refuses them as unsupported history -- two subsystems pulling opposite
+    # ways. Six killer bees launches died there, on lines like "A swarm did not need a hive
+    # box.", "The forest colonies were not gentle." and "The mainland boundary shifted again."
+    # Each introduces a NEW proposition nothing cited backs. "It was gone." does not: it points
+    # at something the previous sentence established. That is the whole difference.
+    ' A SHORT BEAT MUST POINT BACK, NEVER FORWARD. Write it as a reaction to the fact the scene '
+    'has ALREADY stated -- "It was gone.", "Nobody noticed.", "Too late." -- using a pronoun or '
+    '"that"/"this" to lean on what you just said. A short line that introduces a NEW claim about '
+    'the world ("The forest colonies were not gentle.", "A swarm did not need a hive box.") is a '
+    'sourced assertion with no source, and it will be cut. If a short beat cannot be written as a '
+    'reaction, write no short beat in that scene.'
 )
 
 
