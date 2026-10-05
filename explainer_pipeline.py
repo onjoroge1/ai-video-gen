@@ -4535,6 +4535,65 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         all_scenes, dc = _dedupe_narration(all_scenes, beats, throughline)
         cost += dc
 
+    # THE WORD BUDGET IS MEASURED, NOT REQUESTED. Every scene is handed a `narration_words`
+    # budget and the prompt says to use it, and the writer ignores it: the delivered killer bees
+    # film came in at 421 words against a 706-963 allowance and ran 155s for a 300s request. The
+    # runtime refit downstream is advisory and rewrites narration AFTER the claims are bound, so
+    # the cheap, safe place to fix length is here, while the scenes are still plain text.
+    #
+    # One pass. The short scenes are named with their budgets and the writer is told to deepen
+    # what each already says -- no new facts, because the claim ledger refuses them a stage later.
+    if causal_lane and all_scenes:
+        _min_words = runtime_word_bounds(duration_sec, len(all_scenes))[1]
+        _have = sum(len(_s(sc.get("narration")).split()) for sc in all_scenes)
+        if _have < _min_words:
+            _short = []
+            for _i, _sc in enumerate(all_scenes):
+                _want = int(causal_budgets.get(_sc.get("story_beat_n") or (_i + 1), 0) or 0)
+                _got = len(_s(_sc.get("narration")).split())
+                if _want and _got < _want * 0.85:
+                    _short.append({"id": _i + 1, "words_now": _got, "words_wanted": _want,
+                                   "role": _s(_sc.get("causal_role") or _sc.get("story_role")),
+                                   "event": _s((_sc.get("event") or {}).get("text"))[:240],
+                                   "narration": _s(_sc.get("narration"))})
+            if _short:
+                print(f"[length] {_have} words for a {_min_words}-word floor; "
+                      f"expanding {len(_short)} short scene(s)")
+                try:
+                    _rsp = _claude().messages.create(
+                        model=ANTHROPIC_MODEL, max_tokens=8000, system=_SCRIPT_SYSTEM,
+                        messages=[{"role": "user", "content":
+                                   "These scenes of a documentary narration are under their word "
+                                   "budget, so the film runs short. Rewrite EACH to about its "
+                                   "words_wanted by DEEPENING what it already says: the same "
+                                   "facts in more sensory, more concrete, better-paced language, "
+                                   "a second sentence that dwells on the same moment, a "
+                                   "consequence the event already contains stated plainly.\n"
+                                   "You may NOT add a fact the scene's `event` does not contain: "
+                                   "no number, date, place, named person, quantity or motive that "
+                                   "is not already there. A later gate refuses invented detail and "
+                                   "the scene will be cut.\n"
+                                   "Keep the role, keep the order, keep the meaning.\n\n"
+                                   + json.dumps(_short, ensure_ascii=False)
+                                   + '\n\nReturn ONLY JSON: {"scenes":[{"id":<int>,'
+                                     '"narration":"..."}]}'}])
+                    cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(_rsp.usage),
+                                    f"length top-up ({len(_short)} scenes)")
+                    _out, _pc = _parse_script_json(_rsp.content[0].text)
+                    cost += _pc
+                    _by_id = {int(r.get("id") or 0): _s(r.get("narration"))
+                              for r in (_out or {}).get("scenes") or [] if isinstance(r, dict)}
+                    _grew = 0
+                    for _i, _sc in enumerate(all_scenes):
+                        _new = _by_id.get(_i + 1)
+                        if _new and len(_new.split()) > len(_s(_sc.get("narration")).split()):
+                            _sc["narration"] = _new
+                            _grew += 1
+                    _now = sum(len(_s(sc.get("narration")).split()) for sc in all_scenes)
+                    print(f"[length] expanded {_grew} scene(s): {_have} -> {_now} words")
+                except Exception as _exc:                 # noqa: BLE001 - length is not worth a crash
+                    print(f"[length] top-up unavailable ({type(_exc).__name__}); keeping the draft")
+
     for i, s in enumerate(all_scenes):
         s["id"] = i + 1
     plan["story_format_requested"] = requested_story_format
@@ -12384,6 +12443,7 @@ def run_explainer_pipeline(
                         illustrated_story_lane.visual_style_suffix(
                             framing, role=_s(scene.get("causal_role") or scene.get("story_role")))
                         + illustrated_story_lane.shot_framing(_s(scene.get("shot_type")))
+                        + illustrated_story_lane.NO_DIAGRAM
                         if illustrated_story_on else style_suffix)
                     prompt = _evidence_state_prompt(
                         scene, state, evidence_plan["continuity_pack"], scene_suffix)
@@ -13533,7 +13593,8 @@ def run_explainer_pipeline(
         if _backfire_packaged:
             thumbnail_path = _backfire.generate_thumbnail(
                 script.get("title", question), question, full_transcript, output_dir,
-                cost_sink=img_costs, report=_thumb_report, log=log)
+                cost_sink=img_costs, report=_thumb_report, log=log,
+                illustrated=illustrated_story_on)
         else:
             thumbnail_path = generate_thumbnail(
                 script.get("title", question), question, style_mode, video_format, output_dir,

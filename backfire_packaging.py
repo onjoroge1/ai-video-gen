@@ -230,10 +230,22 @@ def fallback_pair(question: str) -> dict:
             "consequence_subject": "the aftermath", "consequence_scene": f"the aftermath of {question}"}
 
 
-def image_prompt(pair: dict) -> str:
-    """The model draws two scenes and nothing else; overlays are composited afterwards."""
+def image_prompt(pair: dict, illustrated: bool = False) -> str:
+    """The model draws two scenes and nothing else; overlays are composited afterwards.
+
+    `illustrated` makes the thumbnail match the film. The delivered killer bees thumbnail was a
+    photoreal bee macro in front of a hand-drawn cut-paper film: side by side they read as two
+    different products, and a viewer who clicks the photo arrives at an illustration.
+    """
+    medium = (
+        "A hand-drawn editorial illustration in layered torn cut-paper with visible deckled "
+        "edges, ink contour lines, flat gouache colour and paper grain -- unmistakably a hand-made "
+        "collage drawing and never a photograph or a 3D render -- used as a YouTube thumbnail "
+        "background split into two panels by a straight "
+        if illustrated else
+        "A photoreal, cinematic YouTube thumbnail background split into two panels by a straight ")
     return (
-        "A photoreal, cinematic YouTube thumbnail background split into two panels by a straight "
+        medium +
         "diagonal line running from top-center to bottom-center-left, slightly tilted. "
         # BOTH panels need a dominant foreground subject. A delivered thumbnail (2026-10-05) put
         # a distant hillside in the right panel: at feed size it read as green texture with a
@@ -388,7 +400,8 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
 
 def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                        cost_sink: list | None = None, report: dict | None = None,
-                       log=lambda message: None, pairs: list[dict] | None = None) -> str:
+                       log=lambda message: None, pairs: list[dict] | None = None,
+                       illustrated: bool = False) -> str:
     """Render one composed thumbnail per candidate pair, keep the fewest-fails by the vision grader.
 
     `pairs` overrides the model's strategy: an operator naming the crossed-out subject and the
@@ -407,10 +420,10 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
         bg = os.path.join(out_dir, f"_thumb_backfire_bg_{index}.jpg")
         vpath = os.path.join(out_dir, f"_thumb_backfire_{index}.jpg")
         try:
-            ep.generate_image(image_prompt(pair), bg, cost_sink=cost_sink, size="1536x1024")
+            ep.generate_image(image_prompt(pair, illustrated), bg, cost_sink=cost_sink, size="1536x1024")
         except ep.ContentBlocked:
             try:
-                ep.generate_image(image_prompt(pair) + " SAFE REDRAW: calm, symbolic, non-graphic.",
+                ep.generate_image(image_prompt(pair, illustrated) + " SAFE REDRAW: calm, symbolic, non-graphic.",
                                   bg, cost_sink=cost_sink, size="1536x1024")
             except Exception:
                 ep.make_fallback_frame(bg, "", w=1280, h=720)

@@ -498,6 +498,13 @@ def visual_style_suffix(framing: str = "", role: str = "") -> str:
         + framing
         + " No text, letters, numbers, labels, arrows, UI, watermark, or accidental writing; "
         "the renderer adds all typography and diagram overlays."
+        # YEARS ARE THE LEAK. Six frames of the delivered killer bees film carried "1956", "26",
+        # "1994", "1990" and "2005" burned into the picture, because a visual description that
+        # says "by 2005 the range reached Florida" reads to the image model as an instruction to
+        # WRITE the year. The ban has to name the specific thing that keeps appearing.
+        + " In particular NEVER draw a year, a date, a count or any digit anywhere in the frame, "
+        "and never a map legend, chart axis, signpost, banner or plaque carrying one: show the "
+        "moment itself and let the renderer caption it."
     )
 
 
@@ -515,6 +522,7 @@ def negative_prompt() -> str:
         "comic strip, comic panels, multi-panel layout, storyboard sheet, contact sheet, grid of "
         "images, split screen, panel borders, gutters, insets, numbered boxes, caption boxes, "
         "speech bubbles, any lettering or text, titles, headlines, signage text, labels, "
+        "years, dates, digits, numerals, map legends, chart axes, plaques, banners, "
         "photorealism, cinematic photography, 3D render, plastic skin, anime, comic-book "
         "superhero style, detailed rendered faces, excessive detail, distorted hands, extra "
         "limbs, watermarks, modern clothing, inconsistent characters, crowded "
@@ -640,6 +648,18 @@ _SHOT_FRAMING = {
     "aerial": (" FRAMING: a high AERIAL view, with one foreground element large in the near field "
                "so the frame is not uniformly distant."),
 }
+
+
+# What a scene must SHOW rather than diagram. Measured on the delivered killer bees film: four
+# frames were tinted maps of the Americas with dots on them and several more were flat overhead
+# dioramas, so "cinematic staging" had no subject to stage. A map is a picture of information;
+# this channel draws the moment the information is about.
+NO_DIAGRAM = (
+    " Draw the MOMENT, never a diagram of it: no maps, no territory outlines, no pins, dots or "
+    "arrows on a region, no charts, no timelines, no cutaway schematics and no specimen boards. "
+    "If the beat is about somewhere spreading or arriving, show one concrete thing in one real "
+    "place at eye level -- a swarm over a roadside orchard, a hive on a porch, a stand of trees "
+    "going quiet -- not the geography it happened across.")
 
 
 def shot_framing(shot_type: str) -> str:
