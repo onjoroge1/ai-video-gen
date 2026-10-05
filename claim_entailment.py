@@ -125,6 +125,22 @@ _FIDELITY_SYSTEM = (
     "- figurative language and non-factual emphasis\n"
     "- causal connectives already entailed by the event sequence\n"
     "- restating the event as a scene rather than a summary\n"
+    # Measured on the killer bees film (2026-10-05): ten of twelve blocking failures were
+    # ordinary descriptive writing, not invented history -- "the queen excluders had blocked the
+    # bees' movement" (that is what a queen excluder IS), "each swarm carried a queen" (that is
+    # what swarming IS), "they expanded beyond the original escape site" against an event saying
+    # they "expanded their range through South and Central America". Six launches died here or
+    # at the spine. A boundary no reasonable sentence can pass stops protecting the channel and
+    # starts preventing it from publishing, so the rule is narrowed to what it always said it
+    # was: invented HISTORY, not concrete language about the history the event already contains.
+    "- a definitional or common-knowledge property of something the event already names (a queen "
+    "excluder excludes queens; a swarm contains a queen; a colony occupies a cavity). The event "
+    "naming the thing carries what the thing IS.\n"
+    "- a paraphrase that restates the event in different words, or narrows it to part of its own "
+    "scope ('expanded beyond the escape site' for an event saying the range expanded across a "
+    "continent)\n"
+    "- naming a concrete instance of a category the event states, where the instance is ordinary "
+    "for that category ('tree trunks' for an event saying 'cavities')\n"
     "A rhetorical question does not assert that its premise happened. Framing that moves the story "
     "along is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"
@@ -137,7 +153,10 @@ _FIDELITY_SYSTEM = (
     "- direct quotes\n"
     "- causal mechanisms the event does not contain\n"
     "\nFlag a detail only if a viewer would come away believing a specific thing about the world "
-    "that the event does not support. Return ONLY JSON."
+    "that the event does not support. Ask yourself: is this a NEW fact a reader could look up and "
+    "find the event does not back, or is it the same fact told in concrete words? Only the first "
+    "is a violation. A named person, a number, a date, a place, a motive or an invented action "
+    "is always the first. Return ONLY JSON."
 )
 
 

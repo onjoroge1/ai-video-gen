@@ -4836,7 +4836,12 @@ def _cached_research_dossier(question: str, request: str, log) -> dict | None:
 
 
 def _store_research_dossier(question: str, dossier: dict, request: str = "") -> None:
-    if not _research_cache_enabled():
+    # RESEARCH_CACHE=0 means REFRESH, not "never cache". It used to skip the write as well as
+    # the read, so a forced fresh search was thrown away: the killer bees run bought a 51-claim
+    # dossier covering the import fact the cached 44-claim one lacked, discarded it, and the
+    # next launch fell straight back to the stale dossier and died at the spine again
+    # (2026-10-05). RESEARCH_CACHE_WRITE=0 is the real "do not write" switch.
+    if os.environ.get("RESEARCH_CACHE_WRITE", "1") != "1":
         return
     path = _research_cache_path(question, request)
     try:

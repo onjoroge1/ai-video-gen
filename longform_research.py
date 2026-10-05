@@ -751,11 +751,17 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         lead = _text(beats[0].get("narration"))
         if lead.casefold().startswith(cold_spoken.casefold()):
             beats[0] = dict(beats[0], narration=lead[len(cold_spoken):].lstrip(" .,;:—-").strip())
-        # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
-        # opening ends on the problem the video resolves ("But if the chick hatches before she
-        # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
-        # beats. Judged against beat one alone it was refused every time (job 2e2c7498). Questions
-        # in the opening scene are lifted out and judged with the hook against the whole story.
+    # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
+    # opening ends on the problem the video resolves ("But if the chick hatches before she
+    # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
+    # beats. Judged against beat one alone it was refused every time (job 2e2c7498). Questions
+    # in the opening scene are lifted out and judged with the hook against the whole story.
+    #
+    # NOT nested under the cold open. Adding the cold-open lift above put this inside its guard
+    # (2026-10-02), so a film without a cold open -- every film written before the contract, and
+    # the penguin fixture -- silently stopped lifting its opening questions and judged them
+    # against beat one again, which is the exact failure this block exists to prevent.
+    if beats:
         opening_sentences = [s for s in re.split(r"(?<=[.!?])\s+", _text(beats[0].get("narration")))
                              if s]
         questions = [s for s in opening_sentences if s.rstrip().endswith("?")]
