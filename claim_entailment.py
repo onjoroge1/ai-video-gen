@@ -141,6 +141,15 @@ _FIDELITY_SYSTEM = (
     "continent)\n"
     "- naming a concrete instance of a category the event states, where the instance is ordinary "
     "for that category ('tree trunks' for an event saying 'cavities')\n"
+    # Second measured round on the same film: the judge flagged "the bees were in a landscape",
+    # "across open ground", "the hive boxes stood open" and "Brazil's tropical climate" as
+    # unsupported history. None of those is a fact a viewer could be misled about. Spatial and
+    # environmental description of a scene the event already locates is writing, not evidence.
+    "- where the scene physically is and what it looks like, when the event already locates it "
+    "('across open ground', 'among the trees', 'the hive boxes stood open', 'Brazil's tropical "
+    "climate' for an event about bees doing poorly in Brazil). Setting is staging, not history.\n"
+    "- the ordinary English for a state the event or its claims already assert ('became "
+    "established' for a claim saying the population became established)\n"
     "A rhetorical question does not assert that its premise happened. Framing that moves the story "
     "along is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"
@@ -156,7 +165,9 @@ _FIDELITY_SYSTEM = (
     "that the event does not support. Ask yourself: is this a NEW fact a reader could look up and "
     "find the event does not back, or is it the same fact told in concrete words? Only the first "
     "is a violation. A named person, a number, a date, a place, a motive or an invented action "
-    "is always the first. Return ONLY JSON."
+    "is always the first. If you find yourself flagging a phrase that merely says where the scene "
+    "is, what it looked like, or restates the event in plainer words, you are being too strict: "
+    "that is the writing, and refusing it does not protect anyone. Return ONLY JSON."
 )
 
 

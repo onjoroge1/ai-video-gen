@@ -207,6 +207,18 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         'image of the film is that aftermath. It must not restate the hook, name a number the '
         'claim does not hold, or explain anything; it shows the damage and the setup then earns '
         'it. Make opening_object the subject as it appears in that aftermath image.\n'
+        # ORDERING IS STRUCTURAL. The setup role reads "the target problem BEFORE an
+        # introduction", so the planner wrote "Brazilian honey production was low BEFORE the
+        # African bees arrived" -- and the evidence boundary refused it three sheets running,
+        # because the source states the low production and its cause but never its timing
+        # relative to an arrival (2026-10-05). The sheet's order already carries the sequence;
+        # an event only has to state its own fact.
+        + 'STATE EACH EVENT AS ITS OWN FACT, NOT AS ITS POSITION IN THE STORY. The order of '
+        'the sheet already says what came before what, so never write "before X", "after Y", '
+        '"by then", "already" or "still" into an event unless the source itself states that '
+        'timing. "European honey bees produced little honey in Brazil" is supportable; '
+        '"European honey bees produced little honey BEFORE the African bees arrived" asserts '
+        'a sequence the source does not carry, and it will be refused.\n'
         + '\nThe compiler assigns story roles, derives the mechanism and reversal, and adds '
         'presentation transitions and the closing question. Every event you supply needs a '
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
