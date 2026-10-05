@@ -611,9 +611,18 @@ def validate_research_dossier(dossier: dict) -> dict:
             "Every claim rests on a source that could not be retrieved; nothing in this ledger "
             "was read at its cited URL."))
 
+    blocking = [e for e in errors if e.get("severity") != "soft"]
     return {
         "version": 1,
-        "passed": not errors,
+        # A soft fidelity overshoot does not block. The judge flags any phrase it cannot derive
+        # from the event, which over fifteen runs meant "the bees were in a landscape", "across
+        # open ground", "a natural colony" (refused for implying the colony was not in a crate)
+        # and "across the Southwest" for three named states. None of those can mislead anyone.
+        # What CAN is an invented number, date, named person or place, so those stay blocking and
+        # everything else is reported. Three rounds of narrowing the judge's prose produced a new
+        # crop of over-reaches each time; the threshold was the thing that was wrong.
+        "passed": not blocking,
+        "soft_findings": [e for e in errors if e.get("severity") == "soft"],
         "claim_count": len(claims),
         "citation_count": len(citation_urls),
         "attested_unfetchable_count": len(attested_only),
@@ -799,6 +808,7 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                        "unsupported_details": row.get("unsupported_details")})
     for row in report["fidelity"]:
         errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
+                       "severity": fidelity_severity(row.get("unsupported_details") or []),
                        "message": f"{row['beat_id']}: the narration asserts more than its event "
                                   f"({row['verdict']}): "
                                   + ", ".join(row.get("unsupported_details") or []),
@@ -990,6 +1000,39 @@ def validate_claim_joins(script: dict, dossier: dict) -> dict:
             len(scene.get("claim_refs") or []) for scene in scenes if isinstance(scene, dict)),
         "errors": errors,
     }
+
+
+_MATERIAL_DETAIL = re.compile(
+    r"\d"                                   # any digit: a count or a year
+    # Spelled-out numbers and quantities. "twenty-six swarms escaped" is the measured case: the
+    # evidence says twenty-six QUEENS escaped with swarms of European workers, and the wrong
+    # noun rode the number through five runs. A number in words is still a number.
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|"
+    r"fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|billions?|dozens?|"
+    r"scores?|half|double|triple)\b"
+    r"|\b(?:[A-Z][a-z]{2,})\b"              # a proper noun: a person or a place
+    r"|\b(?:farmer|worker|hunter|beekeeper|official|scientist|researcher|rancher|trapper|"
+    r"settler|keeper|breeder|geneticist|entomologist)s?\b",  # an invented actor
+    re.I if False else 0)
+
+
+def fidelity_severity(details: list) -> str:
+    """Is this narration overshoot material enough to stop a render?
+
+    MATERIAL: the detail carries a number, a date, a named person or place, or an actor doing
+    something. Those are the things a viewer could repeat as fact and be wrong about, and they
+    are exactly what the repair prompt has always told the writer not to invent.
+
+    SOFT: everything else -- setting, paraphrase, the ordinary word for a state the event already
+    asserts. Reported, never blocking.
+    """
+    for detail in details or []:
+        text = detail if isinstance(detail, str) else str(detail)
+        # Strip a leading sentence-capital so "The swarm is dark" is not read as a proper noun.
+        probe = re.sub(r"^(?:The|A|An|That|This|It|They|No)\s+", "", text.strip())
+        if _MATERIAL_DETAIL.search(probe):
+            return "material"
+    return "soft"
 
 
 def claim_context_for_prompt(dossier: dict) -> list[dict]:
