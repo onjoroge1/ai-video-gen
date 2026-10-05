@@ -43,3 +43,65 @@ def test_one_material_detail_makes_the_whole_finding_blocking():
 
 def test_no_details_is_soft():
     assert fidelity_severity([]) == "soft"
+
+
+def _report(fidelity_details, **over):
+    """A cascade report shaped like story_fact_model.validate_cascade returns."""
+    import story_fact_model as sfm
+    base = {"structural": [], "evidence": [], "unavailable": [], "passed": False,
+            "structure_status": sfm.STRUCTURE_PASS, "indeterminate_kinds": [],
+            "skipped_for_structure": [],
+            "fidelity": [{"beat_id": f"b{i}", "passed": False, "verdict": "partially_entailed",
+                          "unsupported_details": d}
+                         for i, d in enumerate(fidelity_details)]}
+    base.update(over)
+    return base
+
+
+def test_soft_only_fidelity_lets_the_ledger_pass(monkeypatch):
+    """The cascade marks itself failed for ANY fidelity row, so filtering errors alone was never
+    enough: the verdict has to be rebuilt from the parts. Fifteen runs died on exactly this."""
+    import longform_research as lr
+    import story_fact_model as sfm
+    monkeypatch.setattr(sfm, "validate_cascade",
+                        lambda *a, **k: _report([["The bees were in a landscape."],
+                                                 ["across open ground"]]))
+    monkeypatch.setattr(sfm, "_validate_relationships", lambda *a, **k: [])
+    monkeypatch.setattr(lr, "script_has_events", lambda s: True, raising=False)
+    out = lr.validate_story_fact_model(
+        {"hook": "", "scenes": [{"beat_id": "b0", "causal_role": "setup",
+                                 "event": {"text": "x", "claim_refs": []}, "narration": "y"}]},
+        {"claims": []})
+    assert out["passed"], out["errors"]
+    assert len(out["soft_findings"]) == 2
+
+
+def test_one_material_fidelity_row_still_blocks(monkeypatch):
+    import longform_research as lr
+    import story_fact_model as sfm
+    monkeypatch.setattr(sfm, "validate_cascade",
+                        lambda *a, **k: _report([["The bees were in a landscape."],
+                                                 ["twenty-six swarms escaped"]]))
+    monkeypatch.setattr(sfm, "_validate_relationships", lambda *a, **k: [])
+    monkeypatch.setattr(lr, "script_has_events", lambda s: True, raising=False)
+    out = lr.validate_story_fact_model(
+        {"hook": "", "scenes": [{"beat_id": "b0", "causal_role": "setup",
+                                 "event": {"text": "x", "claim_refs": []}, "narration": "y"}]},
+        {"claims": []})
+    assert not out["passed"]
+
+
+def test_structural_and_evidence_failures_still_block_absolutely(monkeypatch):
+    import longform_research as lr
+    import story_fact_model as sfm
+    monkeypatch.setattr(sfm, "validate_cascade",
+                        lambda *a, **k: _report([], evidence=[{"beat_id": "b0", "verdict": "unsupported",
+                                                               "reason": "no", "supported_core": "",
+                                                               "unsupported_details": []}]))
+    monkeypatch.setattr(sfm, "_validate_relationships", lambda *a, **k: [])
+    monkeypatch.setattr(lr, "script_has_events", lambda s: True, raising=False)
+    out = lr.validate_story_fact_model(
+        {"hook": "", "scenes": [{"beat_id": "b0", "causal_role": "setup",
+                                 "event": {"text": "x", "claim_refs": []}, "narration": "y"}]},
+        {"claims": []})
+    assert not out["passed"]

@@ -902,12 +902,29 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": row["beat_id"],
                        "message": f"{row['beat_id']}: {row['stage']} entailment could not be "
                                   f"judged — {row.get('reason')}", "retryable": True})
+    # SOFT OVERSHOOT DOES NOT BLOCK. `report["passed"]` is False whenever the cascade recorded
+    # any fidelity row, so filtering `errors` alone never reached the decision -- which is why
+    # fifteen runs still died after the severity classifier landed. The verdict is rebuilt here
+    # from the parts: structure, evidence and relationships still block absolutely, and of the
+    # fidelity rows only the MATERIAL ones do (a number, a date, a named person or place, an
+    # invented actor). Everything else is carried in soft_findings and reported.
+    soft_fidelity, material_fidelity = [], []
+    for row in report["fidelity"]:
+        bucket = (soft_fidelity
+                  if fidelity_severity(row.get("unsupported_details") or []) == "soft"
+                  else material_fidelity)
+        bucket.append(row)
+    blocking_errors = [e for e in errors
+                       if not e.get("retryable") and e.get("severity") != "soft"]
     return {
         "version": 2,
-        # Every error blocks, including the hook's. A finding that reaches `errors` and not
-        # `passed` is a gate that reports a problem and lets the run through anyway.
-        "passed": (report["passed"] and all(r["passed"] for r in relationships)
-                   and not [e for e in errors if not e.get("retryable")]),
+        "passed": (report["structure_status"] != sfm.STRUCTURE_FAIL
+                   and not report["structural"] and not report["evidence"]
+                   and not material_fidelity
+                   and all(r["passed"] for r in relationships)
+                   and not blocking_errors),
+        "soft_findings": [{"scene": r.get("beat_id"),
+                           "details": r.get("unsupported_details") or []} for r in soft_fidelity],
         "structure_status": report["structure_status"],
         "claim_count": len(_claim_index(dossier)),
         "errors": errors,
