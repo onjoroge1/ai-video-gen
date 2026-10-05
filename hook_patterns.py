@@ -126,7 +126,10 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
         "denied_or_withheld": bool(_DENIAL.search(line)) or bool(_WITHHELD.search(line))
                               or bool(_IMPERATIVE.search(line)),
         # A bare number with nothing to measure it against is the thing the corpus never does.
-        "yardstick": (not has_number) or bool(_COMPARISON.search(line)),
+        # A hook with NO number used to pass this vacuously, which inflated a 78 that had no
+        # figure in it at all. The device is "a quantity made legible", so no quantity is not a
+        # pass: the corpus puts a sourced number in almost every opening.
+        "yardstick": has_number and bool(_COMPARISON.search(line)),
         "held_clock": bool(_TIMEFRAME.search(line)),
     }
     score = sum(w for d, w in _WEIGHTS.items() if found[d])
@@ -144,7 +147,10 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
     if not found["denied_or_withheld"]:
         notes.append("nothing is withheld or denied: name a category instead of the species, or "
                      "kill the obvious explanation first")
-    if has_number and not found["yardstick"]:
+    if not has_number:
+        notes.append("no sourced quantity: the corpus puts a figure in almost every opening "
+                     "('860 volts', '2,000 pounds', '6,000 kinds of mammals')")
+    elif not found["yardstick"]:
         notes.append("a bare number with nothing to measure it against ('860 volts' needs 'your "
                      "home outlet runs at 110')")
     if _VAGUE.search(line):
