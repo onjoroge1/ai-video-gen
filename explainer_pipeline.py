@@ -3770,8 +3770,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         _n = max(1, int(os.environ.get("PLAN_CANDIDATES", str(_planner.PLAN_CANDIDATES_DEFAULT)) or 1))
         _cands, _scores, _plan_cost = [], [], 0.0
         for _k in range(_n):
-            _p, _c = _ask_planner()
-            _plan_cost += _c
+            # A DEGENERATE SAMPLE IS NOT A SHEET. One planner call came back with no events and
+            # an empty hook; the spine reported SHEET_CARRIES_NO_EVENTS and the run died in 74
+            # seconds (2026-10-05). With a single candidate there is no sibling to fall back on,
+            # so an empty sample is re-asked rather than carried. This is robustness and has
+            # nothing to do with choosing BETWEEN sheets, which is what went wrong before.
+            _p, _c = None, 0.0
+            for _try in range(3):
+                _p, _one = _ask_planner()
+                _plan_cost += _one
+                if _beats_of(_p) and _s(_p.get("hook")).strip():
+                    break
+                print(f"[plan] sample {_k + 1} came back empty "
+                      f"({len(_beats_of(_p))} beats, hook {_s(_p.get('hook'))[:30]!r}) - re-asking")
             _cands.append(_p)
             _scores.append(_planner.score_plan(_p, sheet_engine_id, research_dossier, duration_sec))
         _best = _planner.choose_plan(_scores)
