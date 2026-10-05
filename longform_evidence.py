@@ -82,8 +82,15 @@ def build_continuity_pack(script: dict) -> dict:
     """Create stable IDs for the identities, clothing, first-act location, and callback object."""
     scenes = script.get("scenes") or []
     contract = _story_contract(script)
-    opening_object = _text(contract.get("opening_object"))
-    callback_object = _text(contract.get("final_callback_object"))
+    # SCRUB THE OPENING OBJECT AT THE SOURCE. Its label is appended to the opening state's
+    # required_objects AFTER the per-object scrub has already run, so an unverifiable word in it
+    # reaches the pixel verifier unchallenged. Killer bees (2026-10-05): the cold-open contract
+    # makes opening_object the vivid aftermath subject, the planner wrote "a swarm of Africanized
+    # bees", and the verifier refused every redraw because "Africanized species cannot be verified
+    # from the visible pixels alone" -- a true statement about any drawing of a bee. The callback
+    # label is scrubbed with it so the two still match.
+    opening_object, _opening_gone = scrub_unverifiable(_text(contract.get("opening_object")))
+    callback_object, _callback_gone = scrub_unverifiable(_text(contract.get("final_callback_object")))
     first_anchor = next((_text(scene.get("continuity_anchor")) for scene in scenes
                          if _text(scene.get("continuity_anchor"))), "")
     location_label = _text(contract.get("recurring_location")) or first_anchor
