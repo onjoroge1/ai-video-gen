@@ -105,3 +105,33 @@ def test_structural_and_evidence_failures_still_block_absolutely(monkeypatch):
                                  "event": {"text": "x", "claim_refs": []}, "narration": "y"}]},
         {"claims": []})
     assert not out["passed"]
+
+
+KNOWN = ("african honey bees were imported into brazil in 1956 by kerr. european honey bees were "
+         "already present. twenty-six queens escaped with small swarms. a local beekeeper removed "
+         "the queen excluders in october 1957.")
+
+
+def test_a_name_the_evidence_already_carries_is_not_an_invention():
+    """The film's own subject was tripping the rule: "Brazil's European bees" and "the forest
+    gained African honey bee colonies" were classed material because the words are capitalised,
+    while every claim in the dossier says them."""
+    for detail in ("Brazil's European bees",
+                   "The forest gained African honey bee colonies.",
+                   "Twenty-six African queens with small swarms later escaped."):
+        assert fidelity_severity([detail], KNOWN) == "soft", detail
+
+
+def test_a_name_the_evidence_does_not_carry_still_blocks():
+    assert fidelity_severity(["Warwick Kerr personally carried them"], KNOWN) == "material"
+    assert fidelity_severity(["The colony was found in 1990"], KNOWN) == "material"
+
+
+def test_an_actor_is_material_even_when_the_evidence_mentions_that_role():
+    """The risk is the ACTION, not the noun: the dossier mentions a beekeeper, which does not
+    license "a beekeeper backs away through the grove"."""
+    assert fidelity_severity(["A beekeeper backs away through the grove."], KNOWN) == "material"
+
+
+def test_without_a_known_blob_the_old_strictness_holds():
+    assert fidelity_severity(["Brazil's European bees"]) == "material"

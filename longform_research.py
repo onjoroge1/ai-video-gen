@@ -808,7 +808,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                        "unsupported_details": row.get("unsupported_details")})
     for row in report["fidelity"]:
         errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
-                       "severity": fidelity_severity(row.get("unsupported_details") or []),
+                       "severity": fidelity_severity(row.get("unsupported_details") or [],
+                                                     _known_evidence_text(dossier)),
                        "message": f"{row['beat_id']}: the narration asserts more than its event "
                                   f"({row['verdict']}): "
                                   + ", ".join(row.get("unsupported_details") or []),
@@ -911,7 +912,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     soft_fidelity, material_fidelity = [], []
     for row in report["fidelity"]:
         bucket = (soft_fidelity
-                  if fidelity_severity(row.get("unsupported_details") or []) == "soft"
+                  if fidelity_severity(row.get("unsupported_details") or [],
+                                       _known_evidence_text(dossier)) == "soft"
                   else material_fidelity)
         bucket.append(row)
     blocking_errors = [e for e in errors
@@ -1019,6 +1021,34 @@ def validate_claim_joins(script: dict, dossier: dict) -> dict:
     }
 
 
+_ACTOR_NOUN = re.compile(
+    r"\b(farmer|worker|hunter|beekeeper|official|scientist|researcher|rancher|trapper|settler|"
+    r"keeper|breeder|geneticist|entomologist|man|woman|crowd|people|villager|child)s?\b", re.I)
+
+
+def _known_evidence_text(dossier: dict) -> str:
+    """Everything the evidence actually says, as one lowercase blob, cached on the dossier.
+
+    Used to tell an invented name from the film's own subject.
+    """
+    if not isinstance(dossier, dict):
+        return ""
+    cached = dossier.get("_known_text")
+    if isinstance(cached, str):
+        return cached
+    parts = []
+    for claim in (dossier.get("claims") or []):
+        if isinstance(claim, dict):
+            parts.append(_text(claim.get("claim")))
+            parts.append(_text(claim.get("support_quote")))
+    blob = " ".join(parts).casefold()
+    try:
+        dossier["_known_text"] = blob
+    except Exception:
+        pass
+    return blob
+
+
 _MATERIAL_DETAIL = re.compile(
     r"\d"                                   # any digit: a count or a year
     # Spelled-out numbers and quantities. "twenty-six swarms escaped" is the measured case: the
@@ -1033,7 +1063,7 @@ _MATERIAL_DETAIL = re.compile(
     re.I if False else 0)
 
 
-def fidelity_severity(details: list) -> str:
+def fidelity_severity(details: list, known_text: str = "") -> str:
     """Is this narration overshoot material enough to stop a render?
 
     MATERIAL: the detail carries a number, a date, a named person or place, or an actor doing
@@ -1043,11 +1073,24 @@ def fidelity_severity(details: list) -> str:
     SOFT: everything else -- setting, paraphrase, the ordinary word for a state the event already
     asserts. Reported, never blocking.
     """
+    # A NAME THE EVIDENCE ALREADY CONTAINS IS NOT AN INVENTED NAME. Without this the film's own
+    # subject trips the rule: "Brazil's European bees" and "The forest gained African honey bee
+    # colonies" were both classed material because "Brazil" and "African" are capitalised, while
+    # every claim in the dossier says them. Only a name the evidence does NOT carry can mislead.
+    known = (known_text or "").casefold()
     for detail in details or []:
         text = detail if isinstance(detail, str) else str(detail)
         # Strip a leading sentence-capital so "The swarm is dark" is not read as a proper noun.
         probe = re.sub(r"^(?:The|A|An|That|This|It|They|No)\s+", "", text.strip())
-        if _MATERIAL_DETAIL.search(probe):
+        # An ACTOR is material whatever the evidence says, because the risk is the action, not
+        # the noun: "a beekeeper backs away" invents a person doing something even though the
+        # dossier mentions beekeepers. Names and numbers get the exemption; people do not.
+        if _ACTOR_NOUN.search(probe):
+            return "material"
+        for match in _MATERIAL_DETAIL.finditer(probe):
+            token = match.group(0).strip()
+            if known and len(token) > 2 and token.casefold() in known:
+                continue              # the evidence says it; it is not an invention
             return "material"
     return "soft"
 
