@@ -123,9 +123,13 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
     n_total = target_scene_count(duration_sec)
     counts = _role_counts(engine_id, n_total)
     n_total = sum(counts.values())
-    total_words = runtime_word_bounds(duration_sec, n_total)[0]
+    total_words, words_lo, words_hi = runtime_word_bounds(duration_sec, n_total)
     per_scene = total_words / max(1, n_total)
-    lo, hi = max(6, int(math.floor(per_scene * 0.7))), int(math.ceil(per_scene * 1.3))
+    # A WIDE band is written to its floor. The first three template fills came back at 526-600
+    # words against a 663-919 allowance and would have run 196-222s for a 300s request, under the
+    # allowed floor (2026-10-04). The band is narrow and centred on the target, and fill_prompt
+    # states the whole-film total as well, because a per-scene range alone does not add up.
+    lo, hi = max(6, int(math.floor(per_scene * 0.9))), int(math.ceil(per_scene * 1.2))
     scene_seconds = float(duration_sec or 0) / max(1, n_total)
     states = max(2, min(MAX_STATES_PER_SCENE, round(scene_seconds / TARGET_VISUAL_STATE_SECONDS)))
     slots: list[dict] = []
@@ -135,6 +139,9 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
             n += 1
             slots.append({
                 "scene": n,
+                "film_words_min": words_lo,
+                "film_words_max": words_hi,
+                "film_words_target": total_words,
                 "role": role,
                 "label": _role_label(engine_id, role),
                 "words_min": lo,
@@ -180,11 +187,17 @@ def fill_prompt(question: str, duration_sec: float, engine_id: str,
               '"scenes": [{"scene": <int>, "role": "<role>", "narration": "...", '
               '"visual": "one line, what the viewer sees", '
               '"claim_refs": [{"claim_id": "id", "narration_phrase": "the exact sentence it supports"}]}]}')
+    total = slots[0]["film_words_target"]
+    w_lo, w_hi = slots[0]["film_words_min"], slots[0]["film_words_max"]
     out = [
         f'Write a {int(duration_sec)}-second factual explainer: "{question}".',
         f'Engine: {engine_id}. Fill EVERY one of the {n} scene slots below, in order, exactly one '
-        'scene object per slot with the same scene number and role. Each scene is one spoken '
-        'passage within its word budget; keep inside the budget so the film lands on time.',
+        'scene object per slot with the same scene number and role.',
+        f'TOTAL LENGTH IS A HARD BUDGET: the finished narration must come to {w_lo}-{w_hi} words '
+        f'across all {n} scenes, about {total} words, because it is read aloud at roughly three '
+        f'words a second to fill {int(duration_sec)} seconds. Write each scene at the TOP of its '
+        'per-scene range, not the bottom. A film that comes in short is rejected and rewritten, '
+        'so spend the words: give each scene its full detail, its picture, its consequence.',
         '',
         'HARD RULES, each enforced by a check after you write:',
         '- Every scene says something the earlier scenes did NOT. Never restate an earlier scene; '
@@ -300,8 +313,17 @@ def score_fill(filled: dict, engine_id: str, research_dossier: dict | None,
         score -= 5 * len(meta)
         issues.append(f"meta narration in scenes {meta}")
 
+    # Runtime: the whole point of the word budgets. Measured in the same units the pipeline uses.
+    from runtime_planner import estimate_narration_seconds
     words_total = sum(len(_text(s.get("narration")).split()) for s in scenes)
+    est = estimate_narration_seconds([{"narration": _text(s.get("narration"))} for s in scenes])
+    tol = max(2.5, float(duration_sec) * 0.15)
+    if scenes and not (duration_sec - tol <= est <= duration_sec + tol):
+        short_by = abs(est - duration_sec) / max(1.0, float(duration_sec))
+        score -= min(25, 25 * short_by / 0.25)
+        issues.append(f"runtime: {est:.0f}s for a {int(duration_sec)}s request "
+                      f"(allowed {duration_sec - tol:.0f}-{duration_sec + tol:.0f}s, {words_total} words)")
     return {"score": round(max(0.0, score), 1), "issues": issues, "scenes": len(scenes),
-            "slots": len(slots), "words": words_total,
+            "slots": len(slots), "words": words_total, "estimated_seconds": round(est, 1),
             "escalation_scenes": sum(1 for s in slots if s["band"] == "escalation"),
             "repeats": len(dupes)}

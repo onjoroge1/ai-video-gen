@@ -79,3 +79,16 @@ def test_fill_prompt_names_every_slot_and_the_ledger():
     assert f"{n}. [takeaway]" in prompt or "[takeaway]" in prompt
     assert "1. [setup]" in prompt and "BINDING RESEARCH CLAIM LEDGER" in prompt
     assert "cold open" in prompt.lower()
+
+
+def test_score_fill_catches_a_film_that_comes_in_short():
+    """The first three template fills ran 196-222s for a 300s request and the gate passed them
+    at 100/100 because it measured no runtime at all (2026-10-04)."""
+    dossier = {"claims": [{"claim_id": "c1", "claim": "x", "source_url": "https://x"}]}
+    fill = _good_fill()
+    for scene in fill["scenes"]:                      # halve every scene: a short film
+        scene["narration"] = " ".join(scene["narration"].split()[:8]) + "."
+    report = st.score_fill(fill, "removed_keystone", dossier, 300)
+    assert report["estimated_seconds"] < 255
+    assert any("runtime" in i for i in report["issues"])
+    assert report["score"] < 100
