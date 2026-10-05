@@ -235,18 +235,30 @@ def image_prompt(pair: dict) -> str:
     return (
         "A photoreal, cinematic YouTube thumbnail background split into two panels by a straight "
         "diagonal line running from top-center to bottom-center-left, slightly tilted. "
-        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} Fill the left panel with "
-        f"a large, sharp, centered close-up of {pair['crossed_out_subject']} facing the camera, "
-        "correct anatomy, natural lighting, shallow depth of field, real habitat blurred behind. "
-        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} Show "
-        f"{pair['consequence_subject']} as a crowded, dramatic wide scene with many individuals, "
-        "high detail, dramatic but natural light. "
+        # BOTH panels need a dominant foreground subject. A delivered thumbnail (2026-10-05) put
+        # a distant hillside in the right panel: at feed size it read as green texture with a
+        # yellow arrow pointing at nothing, and the left panel was a mat of small insects with no
+        # single thing to look at. A thumbnail is looked at for under a second at about 350px.
+        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} ONE single "
+        f"{pair['crossed_out_subject']} fills at least 70% of the left panel, shot as a tight "
+        "macro portrait facing the camera with its eyes sharp and catchlit, every texture "
+        "resolved, the habitat thrown far out of focus behind it. One subject, not a group. "
+        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} Put "
+        f"{pair['consequence_subject']} LARGE IN THE NEAR FOREGROUND, sharp and unmistakable and "
+        "filling the lower half of the panel, with the rest of the scene massing away behind it "
+        "to show scale. Never a distant vista: if the consequence is a crowd or a swarm, the "
+        "nearest individuals must be close enough to read clearly. "
         "Keep the TOP 22% of the RIGHT panel simple and uncluttered (sky, dark ground or blurred "
         "background) so a headline can be placed there. "
-        "Documentary photography look, high contrast, saturated but realistic color, designed to "
-        "read on a small mobile screen. Absolutely NO text, letters, numbers, logos, arrows, "
-        "circles, symbols, borders or watermarks. No gore, blood, corpses, injuries or people's "
-        "faces. No cartoon or vector styling."
+        "Documentary photography look, high contrast, saturated but realistic color, strong "
+        "subject-to-background separation, designed to read instantly on a small mobile screen. "
+        "Absolutely NO text, letters, numbers, logos, arrows, borders or watermarks. "
+        # The renderer composites the prohibition ring. The model drawing its own produced a
+        # thumbnail with TWO crossed-out symbols stacked on the same subject (2026-10-05).
+        "CRITICALLY: do NOT draw any prohibition sign, red circle, ring, cross, X, slash or "
+        "crossed-out marking anywhere in the image. The subject is shown plain and unmarked; the "
+        "red circle is added afterwards by the renderer and a second one ruins the thumbnail. "
+        "No gore, blood, corpses, injuries or people's faces. No cartoon or vector styling."
     )
 
 
