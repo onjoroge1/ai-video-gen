@@ -25,7 +25,21 @@ import os
 import re
 from typing import Any
 
-PLAN_CANDIDATES_DEFAULT = 3
+# ONE. Asking for several sheets and letting score_plan choose was an own-goal: the scorer docks
+# 25 * (1 - distinct_ratio) and penalises a sheet with fewer beats than the runtime target, so it
+# SELECTS FOR AMBITION -- more beats, each asserting a distinct fact -- while never checking
+# whether the evidence supports them. The very next gate, the spine, requires every required role
+# to be evidenced. More distinct facts means more claims needed and a higher chance one required
+# role is unsupported.
+#
+# Measured: the three films that shipped (cane toad, wolves, killer bees v1) were all planned with
+# a single sheet. After candidates landed, twelve consecutive killer bees launches failed and the
+# spine refused a DIFFERENT required role almost every time -- setup three times, reversal three,
+# intervention twice, mechanism once -- which is the signature of selecting on the wrong axis.
+#
+# The mechanism is kept and still works; PLAN_CANDIDATES=3 restores it for experiments. It should
+# not come back as a default until score_plan can see evidence support, not just structure.
+PLAN_CANDIDATES_DEFAULT = 1
 DISTINCT_EVENT_JACCARD = 0.5
 APPROVED_PLAN_FILE = "plan.approved.json"
 PLAN_FILE = "plan.json"
