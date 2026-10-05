@@ -11332,6 +11332,10 @@ def run_explainer_pipeline(
     if illustrated_story_on:
         generation_manifest["creative_lane"] = "illustrated_story_v1"
         generation_manifest["creative_profile"] = illustrated_story_lane.CREATIVE_PROFILE
+        # Stated, not inferred: the operator asked whether a delivered film actually used the
+        # scene template and nothing in the artifacts answered it.
+        generation_manifest["story_template"] = bool(
+            (os.environ.get("STORY_TEMPLATE", "") or "").strip().lower() in ("1", "true", "yes", "on"))
     if requested_motion_mode != resolved_motion_mode:
         generation_manifest["motion_fallback"] = {
             "requested": requested_motion_mode,

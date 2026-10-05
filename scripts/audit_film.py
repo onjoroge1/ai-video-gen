@@ -85,6 +85,14 @@ def audit_script(job: str) -> dict:
     meta = [i + 1 for i, s in enumerate(scenes)
             if re.search(r"in this video|explained like|as we saw|let'?s dive", _text(s.get("narration")), re.I)]
     hooklen = len(_text(script.get("hook")).split())
+    hook_score = 0
+    try:
+        import hook_patterns as hp
+        hook_score = hp.score_hook(_text(script.get("hook")))["score"]
+    except Exception:
+        pass
+    # Did this film actually come from the scene template? The manifest records the slot plan.
+    used_template = bool(script.get("_template_slots") or manifest.get("story_template"))
     return _section("Script", [
         ("no repeated scenes", not dupes, f"{len(dupes)} repeat pair(s)", 3),
         ("cold open spoken in scene 1", bool(cold) and cold.rstrip(".!?").casefold() in first.casefold(),
@@ -97,6 +105,8 @@ def audit_script(job: str) -> dict:
         ("no meta narration", not meta, f"scenes {meta}" if meta else "none", 1),
         ("engagement grade at or above 70", bool(grade) and grade >= 70,
          f"{grade}/100" if grade is not None else "ungraded", 2),
+        ("hook carries the opening devices", hook_score >= 70, f"{hook_score}/100", 2),
+        ("built from the scene template", used_template, "yes" if used_template else "no", 1),
     ])
 
 
