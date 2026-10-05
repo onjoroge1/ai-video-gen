@@ -230,6 +230,15 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         'image of the film is that aftermath. It must not restate the hook, name a number the '
         'claim does not hold, or explain anything; it shows the damage and the setup then earns '
         'it. Make opening_object the subject as it appears in that aftermath image.\n'
+        # NO PEOPLE UNLESS THE CLAIMS PUT THEM THERE. "a beekeeper backs away", "a beekeeper
+        # backs through the grove" and "people retreat" were written into four cold opens and
+        # refused each time: a person performing an action is an actor, and no cited claim had
+        # one. The aftermath is a STATE of the world, which is what the picture needs anyway.
+        + 'The cold open may NOT contain a person doing anything -- no beekeeper, farmer, worker, '
+        'hunter or crowd, and nobody fleeing, backing away, watching or reacting -- unless a cited '
+        'claim actually places that person there. Describe the state of the world instead: what '
+        'escaped, what died, what is covered, what is empty. A person acting is a claim and it '
+        'will be refused.\n'
         # ORDERING IS STRUCTURAL. The setup role reads "the target problem BEFORE an
         # introduction", so the planner wrote "Brazilian honey production was low BEFORE the
         # African bees arrived" -- and the evidence boundary refused it three sheets running,
