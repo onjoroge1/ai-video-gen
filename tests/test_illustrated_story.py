@@ -268,9 +268,47 @@ def test_the_style_has_its_own_identity_and_simple_continuity_anchors():
     suffix = visual_style_suffix()
     assert "natural skin tones" in suffix
     assert "cut-paper" in suffix
-    assert "mineral teal, terracotta and ivory" in suffix
+    assert "mustard" in suffix                      # the one fixed accent across every plate
     assert "never by facial detail" in suffix
     assert "detailed rendered faces" in negative_prompt()
+
+
+def test_the_plate_changes_with_the_story_role_and_the_medium_does_not():
+    """Three delivered films measured a circular hue spread of 4.6 degrees because the ivory
+    field never moved. The ink and the cut paper are the identity; the stock is the variable."""
+    import illustrated_story as lane
+    plates = {role: lane.visual_style_suffix(role=role)
+              for role in ("setup", "hinge", "escalation", "reversal")}
+    for suffix in plates.values():
+        assert "cut-paper" in suffix and "mustard" in suffix        # identity holds
+        assert "hero subject" in suffix                             # staging holds
+    assert len({lane.plate_for(r) for r in plates}) == 4            # every stock differs
+    assert "midnight-navy" in plates["hinge"]
+    assert "scarlet" in plates["reversal"]
+    assert lane.plate_for("") == lane.plate_for("setup")            # default is the ivory stock
+
+
+def test_shot_grammar_rebalances_a_landscape_heavy_plan():
+    """The delivered killer bees plan was 11% close and 67% wide with six consecutive wides."""
+    import illustrated_story as lane
+    scenes = ([{"shot_type": "wide", "causal_role": "escalation"} for _ in range(18)]
+              + [{"shot_type": "medium", "causal_role": "setup"} for _ in range(6)]
+              + [{"shot_type": "close", "causal_role": "reversal"} for _ in range(3)])
+    assert not lane.shot_grammar_report(scenes)["passed"]
+    lane.enforce_shot_grammar(scenes)
+    report = lane.shot_grammar_report(scenes)
+    assert report["passed"], report["fails"]
+    assert report["close_ratio"] >= lane.CLOSE_MIN_RATIO
+    assert report["longest_wide_run"] <= lane.MAX_CONSECUTIVE_WIDES
+
+
+def test_shot_framing_reaches_the_prompt_for_every_size():
+    """shot_type only drove the Ken Burns move, so every image came back a landscape."""
+    import illustrated_story as lane
+    assert "CLOSE-UP" in lane.shot_framing("close")
+    assert "DETAIL" in lane.shot_framing("detail")
+    assert "WIDE" in lane.shot_framing("wide")
+    assert lane.shot_framing("") == lane.shot_framing("medium")
 
 
 def test_the_lane_now_has_a_negative_prompt():

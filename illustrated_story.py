@@ -405,8 +405,80 @@ CREATIVE_PROFILE = "ink_cut_paper_v1"
 CAPTION_STYLE = "illustrated_ink"
 
 
-def visual_style_suffix(framing: str = "") -> str:
-    """Our ink/cut-paper treatment; continuity comes from simple stable character anchors."""
+# ── Paper plates: one stock per story role ──────────────────────────────────────
+#
+# The delivered films measured a CIRCULAR hue spread of 4.6 degrees across three complete
+# videos: every frame sat on the same ivory field at saturation 0.16-0.21, and the first 60
+# seconds of the cane toad film was flatter than its own average, which is where the audience
+# left (41s of 281s). Recolouring the OBJECTS cannot move that, because the paper is the field
+# and the field is most of the frame. So the ink, the hatching, the deckled edge and the mustard
+# story accent stay fixed for the whole series -- that is the identity -- and the STOCK the scene
+# is printed on changes at every story turn.
+#
+# Measured on a six-beat continuity test (2026-10-04): circular hue SD 91.4 degrees over 6 of 12
+# sectors, cut-to-cut mean |dRGB| 47.8 against the delivered films' 16.7-21.3, and all six frames
+# still read as one hand-made series.
+PLATES = {
+    "setup": ("Printed on warm ivory rag stock: pale ivory-cream paper is the FIELD and covers "
+              "most of the frame, with straw and kraft-tan cut-paper shapes and deep umber "
+              "blocks. No blue field, no grey field."),
+    "intervention": ("Printed on agricultural green stock: the paper itself is a flat olive-green "
+                     "covering most of the frame, with ledger-green and dark moss cut-paper "
+                     "shapes and pale lime highlights. No ivory, no cream, nothing warm."),
+    "false_resolution": ("Printed on pale sky-cyan stock: the paper is a clean pale cyan filling "
+                         "the frame, with mineral teal and slate-teal cut-paper shapes and one "
+                         "small warm paper accent. The brightest, cleanest plate in the film -- "
+                         "the part that appeared to work is the prettiest frame. No ivory field, "
+                         "nothing amber."),
+    "hinge": ("Printed on near-black midnight-navy stock: the paper itself is a very dark "
+              "blue-black covering almost the entire frame, with faint steel-blue shapes barely "
+              "lifting out of it. The darkest frame in the film. No ivory, nothing bright, no "
+              "open sky."),
+    "mechanism": ("Printed on blueprint-blue stock: the paper is a mid blueprint blue filling the "
+                  "frame, with deeper indigo and near-black navy cut-paper blocks and chalk-white "
+                  "drawing shapes. No ivory, no cream, nothing warm."),
+    "escalation": ("Printed on magenta-madder stock: the paper is a saturated rose-madder filling "
+                   "the frame, with deep wine and claret cut shapes and dusty rose highlights. "
+                   "No ivory, no blue field, nothing cool."),
+    "reversal": ("Printed on scarlet-oxide stock: the paper is a deep saturated scarlet filling "
+                 "the frame, with blood-oxide and near-black red cut shapes and one "
+                 "scorched-apricot highlight. The most saturated frame in the film. No ivory, "
+                 "nothing pale."),
+    "generalization": ("Printed on rust-orange stock: the paper is a hot rust orange covering the "
+                       "frame, with burnt sienna and dark oxide cut shapes and pale apricot "
+                       "highlights. No ivory, nothing cool."),
+    "tool": ("Printed on bleached stone stock: the paper is a pale colour-drained stone with cool "
+             "grey-green and bone cut shapes. The least saturated plate in the film; the mustard "
+             "story object is the only warm thing left. No strong colour of any kind."),
+    "context": ("Printed on warm ivory rag stock: pale ivory-cream paper is the field, with straw "
+                "and kraft-tan cut-paper shapes. No blue field."),
+}
+_DEFAULT_PLATE = PLATES["setup"]
+
+# The composition rules, lifted from a reference frame that measured far better than ours and
+# then stripped of its medium: a hero subject at dominant scale, a softened foreground, a low
+# raking light that rims every cut edge, and the subject arranged as a directional flow. None of
+# this requires leaving illustration, and all of it is expressible in the prompt.
+_STAGING = (
+    " Cinematic staging: ONE hero subject rendered at dominant scale in the near foreground with "
+    "crisp ink detail; the cut-paper shapes immediately in front of it simplified and softened as "
+    "if thrown out of focus; the background receding through progressively flatter, paler paper "
+    "layers. A low raking light rims every cut-paper edge with a bright warm line and throws long "
+    "shadows toward the viewer. One unmistakable story action, a strong readable silhouette, and "
+    "clear negative space in the lower third for captions.")
+
+
+def plate_for(role: str) -> str:
+    """The paper stock this story role is printed on."""
+    return PLATES.get((role or "").strip().lower(), _DEFAULT_PLATE)
+
+
+def visual_style_suffix(framing: str = "", role: str = "") -> str:
+    """Our ink/cut-paper treatment on this role's paper stock, staged for depth.
+
+    `role` selects the plate (see PLATES). Omitted, the warm ivory setup stock applies, which is
+    what every frame of the first three films used.
+    """
     return (
         " Compose ONE single continuous scene that fills the whole frame: a single moment, seen "
         "once, from one camera. Never a grid, never panels, never a storyboard sheet, never "
@@ -417,11 +489,12 @@ def visual_style_suffix(framing: str = "") -> str:
         "period-appropriate clothing. Identity is carried by "
         "clothing colour, silhouette, headwear and props — never by facial detail. Visible ink "
         "contour lines, restrained crosshatching, flat gouache colour blocks and a little paper "
-        "grain. Palette: deep ink navy, mineral teal, terracotta and ivory, with a small mustard "
-        "accent for the changing story object. Readable silhouettes, layered foreground, middle ground and "
-        "background, one unmistakable story action per frame, and clear negative space in the "
-        "lower third for captions. Reuse the same clothing colours, props and location design "
-        "whenever they recur. Composition must read instantly at phone size."
+        "grain. A single small mustard-yellow paper accent marks the changing story object, on every "
+        "plate. Readable silhouettes, layered foreground, middle ground and "
+        "background, one unmistakable story action per frame. Reuse the same clothing colours, props and location design "
+        "whenever they recur. Composition must read instantly at phone size. "
+        + plate_for(role)
+        + _STAGING
         + framing
         + " No text, letters, numbers, labels, arrows, UI, watermark, or accidental writing; "
         "the renderer adds all typography and diagram overlays."
@@ -448,3 +521,128 @@ def negative_prompt() -> str:
         "focal point, multiple unrelated actions, generic stock illustration, blank white balloon "
         "heads, sepia parchment vignette, purple-on-white caption cards"
     )
+
+
+# ── Shot grammar ───────────────────────────────────────────────────────────────
+#
+# Measured across the three delivered films: close + detail was 4/25, 3/22 and 3/27 scenes,
+# while wide + aerial ran 9/25, 14/22 and 18/27. The films are a sequence of landscapes with
+# almost no face or object at scale, which is the other half of why they read as static. The
+# writer picks shot_type per scene and nothing ever checked the distribution.
+CLOSE_TYPES = ("close", "detail")
+WIDE_TYPES = ("wide", "aerial")
+CLOSE_MIN_RATIO = 0.40
+WIDE_MAX_RATIO = 0.28
+MAX_CONSECUTIVE_WIDES = 1
+MAX_SAME_TYPE_RUN = 2
+
+# Which shot sizes each role should favour, most-preferred first. A diagram beat belongs in the
+# detail register at hand scale, not as a map seen from orbit.
+_ROLE_PREFERENCE = {
+    "setup": ("detail", "close", "medium", "wide"),
+    "intervention": ("medium", "close", "detail"),
+    "false_resolution": ("detail", "wide", "medium"),
+    "hinge": ("detail", "close"),
+    "mechanism": ("close", "detail", "medium"),
+    "escalation": ("close", "detail", "medium", "wide"),
+    "reversal": ("close", "medium", "detail"),
+    "tool": ("medium", "close"),
+}
+
+
+def shot_grammar_report(scenes: list) -> dict:
+    """How the plan's shot sizes measure against the grammar. Deterministic, no model."""
+    types = [str((s or {}).get("shot_type") or "medium").strip().lower() for s in scenes or []]
+    n = max(1, len(types))
+    close = sum(1 for t in types if t in CLOSE_TYPES)
+    wide = sum(1 for t in types if t in WIDE_TYPES)
+    run_w, worst_w, run_s, worst_s, prev = 0, 0, 0, 0, None
+    for t in types:
+        run_w = run_w + 1 if t in WIDE_TYPES else 0
+        worst_w = max(worst_w, run_w)
+        run_s = run_s + 1 if t == prev else 1
+        worst_s = max(worst_s, run_s)
+        prev = t
+    fails = []
+    if close / n < CLOSE_MIN_RATIO:
+        fails.append(f"close+detail {close}/{len(types)} ({close / n:.0%}) under {CLOSE_MIN_RATIO:.0%}")
+    if wide / n > WIDE_MAX_RATIO:
+        fails.append(f"wide+aerial {wide}/{len(types)} ({wide / n:.0%}) over {WIDE_MAX_RATIO:.0%}")
+    if worst_w > MAX_CONSECUTIVE_WIDES:
+        fails.append(f"{worst_w} consecutive wides (max {MAX_CONSECUTIVE_WIDES})")
+    if worst_s > MAX_SAME_TYPE_RUN:
+        fails.append(f"{worst_s} consecutive scenes share one shot size (max {MAX_SAME_TYPE_RUN})")
+    return {"close": close, "wide": wide, "n": len(types), "close_ratio": round(close / n, 2),
+            "wide_ratio": round(wide / n, 2), "longest_wide_run": worst_w,
+            "longest_same_run": worst_s, "fails": fails, "passed": not fails}
+
+
+def enforce_shot_grammar(scenes: list, log=lambda message: None) -> int:
+    """Rewrite shot_type so the plan meets the grammar. Returns how many scenes changed.
+
+    Deterministic and content-aware only through the role preference: it never reorders scenes
+    or touches narration, it only decides how close the camera sits. Wides are converted first
+    (they are the surplus), choosing each scene's most-preferred close size for its role.
+    """
+    rows = [s for s in (scenes or []) if isinstance(s, dict)]
+    if not rows:
+        return 0
+    changed = 0
+
+    def typ(s):
+        return str(s.get("shot_type") or "medium").strip().lower()
+
+    def role(s):
+        return str(s.get("causal_role") or s.get("story_role") or "").strip().lower()
+
+    def preferred_close(s):
+        for cand in _ROLE_PREFERENCE.get(role(s), ("close", "detail")):
+            if cand in CLOSE_TYPES:
+                return cand
+        return "close"
+
+    n = len(rows)
+    # 1. Raise the close ratio, converting wides before mediums.
+    need = int(CLOSE_MIN_RATIO * n + 0.999) - sum(1 for s in rows if typ(s) in CLOSE_TYPES)
+    if need > 0:
+        order = ([s for s in rows if typ(s) in WIDE_TYPES]
+                 + [s for s in rows if typ(s) == "medium"])
+        for s in order[:need]:
+            s["shot_type"] = preferred_close(s)
+            changed += 1
+    # 2. Break runs of wides and runs of one size.
+    for i in range(1, len(rows)):
+        if typ(rows[i]) in WIDE_TYPES and typ(rows[i - 1]) in WIDE_TYPES:
+            rows[i]["shot_type"] = preferred_close(rows[i])
+            changed += 1
+    for i in range(MAX_SAME_TYPE_RUN, len(rows)):
+        if len({typ(rows[j]) for j in range(i - MAX_SAME_TYPE_RUN, i + 1)}) == 1:
+            current = typ(rows[i])
+            rows[i]["shot_type"] = preferred_close(rows[i]) if current not in CLOSE_TYPES else "medium"
+            changed += 1
+    if changed:
+        report = shot_grammar_report(rows)
+        log(f"Shot grammar: adjusted {changed} scene(s) -> close+detail {report['close_ratio']:.0%}, "
+            f"wide+aerial {report['wide_ratio']:.0%}, longest wide run {report['longest_wide_run']}")
+    return changed
+
+
+_SHOT_FRAMING = {
+    "detail": (" FRAMING: a DETAIL shot. One object, surface or pair of hands fills the frame at "
+               "hand scale. The wider location is barely present."),
+    "close": (" FRAMING: a CLOSE-UP. The single subject fills at least two thirds of the frame; if "
+              "it is an animal or a person, the head and eyes are large and clearly readable. No "
+              "establishing landscape."),
+    "medium": (" FRAMING: a MEDIUM shot. The subject occupies about half the frame with just "
+               "enough surroundings to place it."),
+    "wide": (" FRAMING: a WIDE shot. The landscape is the subject, but keep ONE foreground element "
+             "large and sharp so the eye has somewhere to land."),
+    "aerial": (" FRAMING: a high AERIAL view, with one foreground element large in the near field "
+               "so the frame is not uniformly distant."),
+}
+
+
+def shot_framing(shot_type: str) -> str:
+    """Prompt language for a scene's shot size. Without this the size only changed the Ken Burns
+    move and every image came back a landscape regardless of the plan."""
+    return _SHOT_FRAMING.get((shot_type or "medium").strip().lower(), _SHOT_FRAMING["medium"])

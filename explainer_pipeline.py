@@ -11708,6 +11708,7 @@ def run_explainer_pipeline(
         script["_topic_channel"] = _TOPIC_CHANNEL.get()
         if nature_channel.is_nature(_TOPIC_CHANNEL.get()):
             _nature_subject_sheet(question, script, aux_costs, log)
+        illustrated_story_lane.enforce_shot_grammar(script.get("scenes") or [], log)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
             script, storyboard = _repair_illustrated_storyboard(
@@ -12284,8 +12285,15 @@ def run_explainer_pipeline(
                     refs = _evidence_reference_paths(
                         state, human_ok=human_ok, mascot_ok=mascot_ok,
                         continuity_source=continuity_source)
+                    # The plate is chosen per SCENE, not per film: the whole point of the
+                    # palette arc is that the stock changes as the story turns.
+                    scene_suffix = (
+                        illustrated_story_lane.visual_style_suffix(
+                            framing, role=_s(scene.get("causal_role") or scene.get("story_role")))
+                        + illustrated_story_lane.shot_framing(_s(scene.get("shot_type")))
+                        if illustrated_story_on else style_suffix)
                     prompt = _evidence_state_prompt(
-                        scene, state, evidence_plan["continuity_pack"], style_suffix)
+                        scene, state, evidence_plan["continuity_pack"], scene_suffix)
                     cached = (asset_resume_allowed and os.path.isfile(state_path)
                               and os.path.getsize(state_path) > 0)
                     if not cached:
