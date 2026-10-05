@@ -1080,6 +1080,16 @@ def fidelity_severity(details: list, known_text: str = "") -> str:
     known = (known_text or "").casefold()
     for detail in details or []:
         text = detail if isinstance(detail, str) else str(detail)
+        # THE JUDGE'S OWN PROSE IS NOT THE NARRATION'S CLAIM. Findings arrive phrased as
+        # commentary -- "Calling it a defensive response", "Saying the queens escaped rather
+        # than..." -- and the capitalised framing verb was being read as a proper noun, so a
+        # dispute about WORD CHOICE blocked renders as if a name had been invented.
+        # A complaint about what something is CALLED is soft: the viewer is not misled about a
+        # fact by "defensive response" instead of "defensive behaviour".
+        if re.match(r"^(calling|saying|describing|characteri[sz]ing|labell?ing|terming|"
+                    r"referring to|treating|framing|implying|suggesting|asserting that it is)\b",
+                    text.strip(), re.I):
+            continue
         # Strip a leading sentence-capital so "The swarm is dark" is not read as a proper noun.
         probe = re.sub(r"^(?:The|A|An|That|This|It|They|No)\s+", "", text.strip())
         # An ACTOR is material whatever the evidence says, because the risk is the action, not

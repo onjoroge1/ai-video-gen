@@ -135,3 +135,19 @@ def test_an_actor_is_material_even_when_the_evidence_mentions_that_role():
 
 def test_without_a_known_blob_the_old_strictness_holds():
     assert fidelity_severity(["Brazil's European bees"]) == "material"
+
+
+def test_a_dispute_about_word_choice_is_soft():
+    """The judge phrases findings as commentary -- "Calling it a defensive response" -- and the
+    capitalised framing verb was read as a proper noun, so word-choice disputes blocked renders.
+    A viewer is not misled about a fact by "defensive response" instead of "defensive behaviour".
+    """
+    for detail in ('Calling it a defensive response',
+                   'Calling them "African honey-bee" queens rather than Africanized queens',
+                   'Saying the queens escaped rather than were released',
+                   'Describing the spread as continuous'):
+        assert fidelity_severity([detail], KNOWN) == "soft", detail
+
+
+def test_word_choice_exemption_does_not_swallow_an_invented_actor():
+    assert fidelity_severity(["A beekeeper backs away through the grove"], KNOWN) == "material"
