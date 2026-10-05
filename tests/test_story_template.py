@@ -92,3 +92,33 @@ def test_score_fill_catches_a_film_that_comes_in_short():
     assert report["estimated_seconds"] < 255
     assert any("runtime" in i for i in report["issues"])
     assert report["score"] < 100
+
+
+def test_the_slot_plan_is_a_role_budget_the_planner_can_be_asked_for():
+    """One slot is one scene, so the plan is the film's structure, not a suggestion."""
+    plan = st.role_counts("removed_keystone", 300)
+    assert sum(plan.values()) == len(st.build_slots("removed_keystone", 300))
+    assert plan["escalation"] >= st.MIN_ESCALATION_SCENES
+    for role in ("setup", "intervention", "mechanism", "escalation", "reversal"):
+        assert plan.get(role, 0) >= 1
+
+
+def test_the_planner_prompt_asks_for_the_slot_plan_exactly():
+    import story_compiler as sc
+    plan = st.role_counts("removed_keystone", 300)
+    prompt = sc.factual_plan_prompt("q", 300, 20, "removed_keystone", slot_plan=plan)
+    assert f"Return EXACTLY {sum(plan.values())} factual events" in prompt
+    assert "escalation: %d event(s)" % plan["escalation"] in prompt
+    assert "DIFFERENT documented step" in prompt          # the anti-repetition rule
+    # Without a slot plan the legacy ask is unchanged.
+    legacy = sc.factual_plan_prompt("q", 300, 20, "removed_keystone")
+    assert "Return about" in legacy and "Return EXACTLY" not in legacy
+
+
+def test_the_beat_splitter_is_skipped_under_the_template(monkeypatch):
+    """The split is what let one beat become two scenes the claim repair then merged."""
+    import explainer_pipeline as ep
+    monkeypatch.setenv("STORY_TEMPLATE", "1")
+    assert ep._story_template_on()
+    monkeypatch.setenv("STORY_TEMPLATE", "0")
+    assert not ep._story_template_on()

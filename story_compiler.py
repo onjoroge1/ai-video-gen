@@ -108,13 +108,35 @@ def _repeat_to_reach_count(mapping, duration) -> str:
         'later, and the scenes that remain absorb its time.\n')
 
 
+def _slot_plan_ask(slot_plan: dict, mapping) -> str:
+    """Ask for exactly the scene skeleton the template defines, role by role.
+
+    One event becomes one scene and nothing is split afterwards, which is what stopped the
+    killer bees film duplicating itself. The escalation band is where a sheet goes wrong: asked
+    for "about 16 events" the planner returned seven escalations resting on three facts and the
+    grader scored repetition 8/100. Asked for N escalations each carrying a DIFFERENT documented
+    step, the same dossier yielded twelve distinct ones.
+    """
+    rows = [f"  {role}: {count} event(s)" for role, count in slot_plan.items() if count]
+    total = sum(slot_plan.values())
+    return (
+        f'Return EXACTLY {total} factual events, distributed across the story roles like this:\n'
+        + "\n".join(rows) + "\n"
+        'Each event becomes exactly ONE scene, so the count is the film\'s structure and not a '
+        'suggestion. Every event in the escalation band must carry a DIFFERENT documented step '
+        'of the compounding -- a further reach, a further scale, a further cost, a new place or '
+        'a new date -- and no two may be the same development in different words. If the '
+        'evidence genuinely cannot supply that many distinct escalations, return fewer and say '
+        'so in the throughline rather than restating one development.\n')
+
+
 def _hook_rules() -> str:
     """The hook contract, kept in hook_patterns beside the scorer that measures it."""
     import hook_patterns
     return hook_patterns.HOOK_RULES
 
 
-def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
+def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None):
     """The factual planner never receives the narration layer's competing role slots."""
     mapping = ef.map_for(engine_id)
     functions = tuple(mapping.to_role)
@@ -157,11 +179,12 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         # noise, and it trained nothing: the same 8 events came back whether 15 or 57 was asked
         # for. events_for_runtime is the number the research was commissioned to support, from the
         # scene length the writer can actually illustrate, so the two halves now agree.
-        f'Engine: {engine_id}. Return about '
+        f'Engine: {engine_id}. ' + (_slot_plan_ask(slot_plan, mapping) if slot_plan else
+        f'Return about '
         f'{max(len(mapping.required), events_for_runtime(duration))} distinct factual '
         'events, including each required function exactly once; add only distinct supported '
-        'consequences or optional context. Do not pad the list.\n'
-        'Required functions: ' + ', '.join(mapping.required) + '.\n'
+        'consequences or optional context. Do not pad the list.\n')
+        + 'Required functions: ' + ', '.join(mapping.required) + '.\n'
         # HOW to reach that count, which the ask never said. The required functions are singletons,
         # so asking for 12 events from an engine with 6 required functions is asking for 6 more
         # from somewhere -- and the only somewhere the compiler accepts is the repeatable roles.

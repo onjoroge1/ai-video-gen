@@ -94,6 +94,16 @@ def target_scene_count(duration_sec: float) -> int:
     return max(MIN_SCENES, min(MAX_SCENES, round(float(duration_sec or 0) / SCENE_SECONDS)))
 
 
+def role_counts(engine_id: str, duration_sec: float) -> dict[str, int]:
+    """Public: how many SCENES each story role gets at this runtime.
+
+    The planner is asked for exactly this many events per role, so one event becomes one scene
+    and nothing is split afterwards. The escalation band is the flexible one; it is also the
+    band that must carry genuinely distinct facts, which is what the beat sheet is told.
+    """
+    return _role_counts(engine_id, target_scene_count(duration_sec))
+
+
 def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
     """Distribute n_total scenes across the engine's roles by weight; escalation takes the slack."""
     roles = role_order(engine_id)

@@ -3662,8 +3662,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "Make the opening beats shorter than the later demonstrations.\n"
             + blueprint_block)
     if causal_lane and _ef.map_for(sheet_engine_id):
+        # STORY_TEMPLATE=1: the engine's scene skeleton drives the ask, so one event becomes one
+        # scene and nothing is split afterwards. The split is where the killer bees film
+        # duplicated itself, and asking for "about N events" is what let the planner return seven
+        # escalations resting on three facts (grader: repetition 8/100). Asked role by role for a
+        # DISTINCT documented step per escalation, the same dossier yielded twelve.
+        _slot_plan = None
+        if _story_template_on():
+            import story_template as _tmpl
+            _slot_plan = _tmpl.role_counts(sheet_engine_id, duration_sec)
+            print(f"[template] slot plan {_slot_plan} -> {sum(_slot_plan.values())} scenes")
         beat_prompt = _compiler.factual_plan_prompt(
-            question, duration_sec, n_scenes, sheet_engine_id, cast_rules)
+            question, duration_sec, n_scenes, sheet_engine_id, cast_rules, slot_plan=_slot_plan)
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         beat_prompt += (
@@ -4107,7 +4117,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # From here `beats` IS the slot list, so everything downstream -- batching, the
         # scenes-per-batch guard, the budget subscript, the evidence-id fallback -- keeps working
         # on a dense 1:1 list and needs no special case.
-        beats, causal_budgets = _compiler.split_beats_into_slots(beats, causal_budgets)
+        # Under STORY_TEMPLATE the skeleton already asked for one event per scene, so splitting
+        # would re-introduce exactly the thing the template exists to remove: two scenes written
+        # from one beat, which the claim repair then pulls toward the same sentence.
+        if not _story_template_on():
+            beats, causal_budgets = _compiler.split_beats_into_slots(beats, causal_budgets)
         _parts = sum(1 for b in beats if int(b.get("beat_part") or 1) > 1)
         if _parts:
             n_scenes = len(beats)
@@ -9824,6 +9838,15 @@ def _script_gate_hard() -> bool:
     """True when the operator wants a below-floor draft to ABORT before any image/TTS/Veo spend.
     Accepts 1/true/yes/on (a bare `SCRIPT_GATE_HARD=1` that does nothing is a costly footgun)."""
     return (os.environ.get("SCRIPT_GATE_HARD") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _story_template_on() -> bool:
+    """STORY_TEMPLATE=1 — plan to the engine's scene skeleton instead of 'about N events'.
+
+    One slot is one scene with its own word budget and its own claim, so the beat-to-scene split
+    never runs and each escalation has to carry a different documented step.
+    """
+    return (os.environ.get("STORY_TEMPLATE", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _claim_ledger_hard() -> bool:
