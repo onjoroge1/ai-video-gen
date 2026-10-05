@@ -52,8 +52,14 @@ _INSTITUTION = re.compile(
     r"\b(bureau|government|governments|ministry|department|agency|authorities|officials|"
     r"commission|council|administration|service|institute|programme|program|board|committee|"
     r"scientists|researchers|biologists|geneticist|entomologist)\b", re.I)
-# Two capitalised tokens in a row that are not sentence-initial: a personal name.
-_PERSONAL_NAME = re.compile(r"(?<!^)(?<![.!?]\s)\b[A-Z][a-z]+\s+[A-Z][a-z]+\b")
+# Two capitalised tokens in a row: a personal name. NOT excluded at sentence start -- that is
+# exactly where ours put them ("Warwick Kerr brought African bees to Brazil..."), and an earlier
+# version of this regex carried a (?<!^) guard that scored that hook as institution-free.
+# A place name alone is fine ("Brazil wanted more honey"); a PERSON as the actor is not.
+_PERSONAL_NAME = re.compile(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\b")
+# Place names are two-word-capitalised sometimes but are not actors; allow the common ones.
+_PLACE = re.compile(r"\b(South Africa|North America|South America|New Zealand|United States|"
+                    r"Rio Claro|Sao Paulo|S\u00e3o Paulo|Costa Rica|Puerto Rico|New Mexico)\b")
 # The verbs that put the viewer in the frame.
 _IMPERATIVE = re.compile(
     r"^\s*(?:all right,?\s+|ok(?:ay)?,?\s+|so,?\s+|now,?\s+)?"
@@ -109,7 +115,8 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
     words = len(line.split())
 
     viewer = bool(_SECOND_PERSON.search(line))
-    institution = bool(_INSTITUTION.search(line)) or bool(_PERSONAL_NAME.search(line))
+    named = [m for m in _PERSONAL_NAME.findall(line) if not _PLACE.search(m)]
+    institution = bool(_INSTITUTION.search(line)) or bool(named)
     has_number = bool(_NUMBER.search(line))
     spoils = bool(_INTERVENTION_VERB.search(line)) and bool(_RESULT.search(line))
     found = {
@@ -171,5 +178,11 @@ HOOK_RULES = (
     "only beside 'your home outlet runs at 110 to 240'.\n"
     "  HOLD A CLOCK OPEN: a duration joined to something that still has not resolved -- 'sixty "
     "years later it still isn't in your grocery store'.\n"
+    "If the ledger gives you ONE PAIR OF HANDS, use them instead of a country. The bee dossier "
+    "carries 'in October 1957, a local beekeeper noticed the queen excluders and removed them' -- "
+    "that is the whole disaster in one gesture, and the hook we shipped said 'Brazil'. A person "
+    "doing a small thing beats an institution doing a large one, as long as a claim puts them "
+    "there.\n"
     "Every number, date and name in the hook must come from a cited claim; an invented one is "
-    "refused by a later gate. No clickbait filler ('you won't believe', 'changed everything').\n")
+    "refused by a later gate, and a duration you COMPUTED from two sourced dates (1957 to 1990 "
+    "becoming 'thirty-three years') counts as invented. No clickbait filler.\n")

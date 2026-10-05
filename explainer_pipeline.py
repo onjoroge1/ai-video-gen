@@ -3874,6 +3874,32 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 print(f"  . {_n}")
         except Exception:
             pass
+        # THE HOOK IS RE-ASKED WHEN IT MISSES THE CONTRACT. Printing the score and continuing is
+        # what let "Warwick Kerr brought African bees to Brazil" reach a render: the rules said
+        # no named researcher as the subject, the planner wrote one, and nothing stopped it.
+        try:
+            import hook_patterns as _hp
+            _hs = _hp.score_hook(_s(plan.get("hook")))
+            if _hs["score"] < 70 and _roles.get("compiled"):
+                print(f"[hook] {_hs['score']}/100 - re-asking once")
+                _hook_fix = ("\n\nTHE HOOK YOU RETURNED MISSES THE CONTRACT: "
+                             + _s(plan.get("hook")) + "\n"
+                             + "\n".join("- " + n for n in _hs["notes"])
+                             + "\nRewrite ONLY the hook, keeping every other field identical. "
+                               "Put the listener in it with a literal 'you' or 'your', do not "
+                               "make an institution or a named person the subject, and do not "
+                               "state the intervention and its result in the same sentence. Use "
+                               "only facts the ledger already supports.")
+                _hp_plan, _hp_cost = _ask_planner(_hook_fix)
+                cost += _hp_cost
+                _new = _hp.score_hook(_s(_hp_plan.get("hook")))
+                if _new["score"] > _hs["score"] and _beats_of(_hp_plan):
+                    plan["hook"] = _s(_hp_plan.get("hook"))
+                    print(f"[hook] {_new['score']}/100 - {plan['hook']!r}")
+                else:
+                    print(f"[hook] retry did not improve ({_new['score']}/100); keeping the original")
+        except Exception:
+            pass
         _cold_fix = _cold_open_correction(plan, research_dossier)
         if _cold_fix and _roles.get("compiled"):
             print("Beat sheet has no usable cold open — re-asking the planner once")
