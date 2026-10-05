@@ -25,7 +25,18 @@ from typing import Any
 # About this many seconds per scene. The delivered cane toad and killer bees films settled near
 # 10.5 s/scene (27 scenes for ~285 s) with 4-5 visual states each, which the rendered gate passed
 # once the holds were split. The template aims for that shape directly.
-SCENE_SECONDS = 10.5
+# Scenes must be long enough to HOLD their visual states. A scene carries about 3 states and a
+# state under ~1.5s reads as a flash frame, so a scene needs roughly 6s of narration minimum.
+#
+# At 10.5 this planned 29 scenes for a 300s ask, but the writer delivered 147s of narration, so
+# scenes averaged 5.1s and the shortest hit 4.3s -- the evidence planner refused with "3 states
+# cannot fit 4.30s without sub-minimum cuts" (2026-10-05). The slot COUNT reached the planner
+# while the per-slot WORD budget did not, so 29 slots simply split the normal budget 29 ways.
+#
+# Until the word budget is enforced end to end, size the skeleton for the narration these topics
+# actually yield rather than the nominal target. 15s gives 20 slots at 300s, which holds its
+# states even when the writer lands at half the requested runtime.
+SCENE_SECONDS = 15.0
 MIN_SCENES = 12
 MAX_SCENES = 40
 MIN_ESCALATION_SCENES = 2
