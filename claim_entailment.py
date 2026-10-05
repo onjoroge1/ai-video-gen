@@ -253,7 +253,20 @@ def _default_judge(payload: dict) -> dict:
                 "own source passage actually states it. A passage describing what something was "
                 "intended, planned or expected to do does not establish that it did. Where a "
                 "passage is marked page_recovered it was matched by word overlap rather than "
-                "quoted by the researcher, so read it especially literally.\n" + _RETURN_SHAPE)
+                "quoted by the researcher, so read it especially literally.\n"
+                # CONJUNCTION IS NOT INFERENCE. Measured repeatedly on the killer bees film: one
+                # claim stated Kerr's 1956 import, another the 1956 introduction of A. m.
+                # scutellata, and the beat saying both was refused because "they do not state
+                # them together". Sources record facts in pieces; a film states them in
+                # sentences. If claim A supports X and claim B supports Y, then "X and Y" is
+                # supported, and demanding a single passage carrying the whole sentence makes
+                # every multi-fact beat unprovable.
+                "TAKEN TOGETHER MEANS CONJUNCTION. If one claim supports X and another supports "
+                "Y, the statement 'X and Y' IS supported -- you do not need one passage stating "
+                "both. What still needs its own evidence is any LINK the statement asserts "
+                "between them: that X caused Y, that X was done in order to achieve Y, that Y "
+                "followed X in time, or any quantity or date neither passage gives.\n"
+                + _RETURN_SHAPE)
 
     response = ep._claude().messages.create(
         model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system,
