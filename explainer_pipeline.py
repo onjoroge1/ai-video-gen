@@ -3891,6 +3891,37 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             cost += sum(_spine_cost)
             _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
+        # THE OTHER CANDIDATES ARE ALREADY PAID FOR. choose_plan ranks sheets on STRUCTURE --
+        # beat count, distinctness, cold open -- which says nothing about whether the evidence
+        # supports them, so the winner can be refused here while a sibling would have passed.
+        # Measured on killer bees (2026-10-05): three candidates all scored 100 and a different
+        # required role failed on each launch, six runs running. Sweeping the runners-up costs
+        # one compile and one prepare each and no new planner call.
+        if (not _spine["passed"] and not _diagnostic_render()
+                and isinstance(locals().get("_cands"), list) and len(_cands) > 1):
+            _order = sorted(range(len(_cands)),
+                            key=lambda i: -(_scores[i].get("score") or 0))
+            for _idx in _order:
+                if _cands[_idx] is plan or _spine["passed"]:
+                    continue
+                _alt_beats = _beats_of(_cands[_idx])
+                _alt_roles = _compiler.compile_roles(_alt_beats, sheet_engine_id, _claims_for_roles)
+                if not _alt_roles.get("passed"):
+                    continue
+                _alt_prepared = _planning.prepare(
+                    _alt_beats, sheet_engine_id, _claims_for_roles,
+                    _lr_claims_by_case(research_dossier), question=question,
+                    repair=_repair_incentive_citations, cost_sink=cost_sink, cache=_cache)
+                cost += _alt_prepared["cost_usd"]
+                if _alt_prepared["compiled"]["passed"]:
+                    plan, beats, _roles = _cands[_idx], _alt_beats, _alt_roles
+                    _spine, _sb = _alt_prepared["compiled"], _alt_prepared["beats"]
+                    style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                    throughline = _s(plan.get("throughline")).strip() or throughline
+                    print(f"  candidate #{_idx + 1} carries a supported spine - using it")
+                    print(_sfm.spine_summary(_sb, _spine))
+                    break
+                print(f"  candidate #{_idx + 1} is also unsupported")
         if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled"):
             # ONE RE-ASK WITH THE VERDICT QUOTED BACK, before buying more research. The failure
             # this catches is a citation choice, not a shortage of evidence: the penguin run
