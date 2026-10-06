@@ -3945,24 +3945,41 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         try:
             import hook_patterns as _hp
             _hs = _hp.score_hook(_s(plan.get("hook")))
-            if _hs["score"] < 70 and _roles.get("compiled"):
-                print(f"[hook] {_hs['score']}/100 - re-asking once")
+            # TWO BOUNDED RE-ASKS, AND THE FOURTH DEVICE NAMED. The three devices the contract
+            # calls required sum to exactly 68 (28+20+20) against a 70 contract, and the
+            # correction text asked for only those three -- so 68 was the steady state on every
+            # run (48 -> 68, accepted, fails the audit's 70). The planner reached 82 once, by
+            # luck ("never" happened to read as a denial). The correction now demands one of the
+            # optional devices too, and a second re-ask fires while the first improved and the
+            # contract is still unmet. The shortfall, if any, is measured again on the SHIPPED
+            # hook at the end of the run and reported there.
+            _tries = 0
+            while _hs["score"] < 70 and _roles.get("compiled") and _tries < 2:
+                _tries += 1
+                print(f"[hook] {_hs['score']}/100 - re-asking ({_tries}/2)")
                 _hook_fix = ("\n\nTHE HOOK YOU RETURNED MISSES THE CONTRACT: "
                              + _s(plan.get("hook")) + "\n"
                              + "\n".join("- " + n for n in _hs["notes"])
                              + "\nRewrite ONLY the hook, keeping every other field identical. "
                                "Put the listener in it with a literal 'you' or 'your', do not "
                                "make an institution or a named person the subject, and do not "
-                               "state the intervention and its result in the same sentence. Use "
-                               "only facts the ledger already supports.")
+                               "state the intervention and its result in the same sentence. AND "
+                               "use at least ONE of: deny the obvious reading ('that is not even "
+                               "the strangest part', 'nobody checked'); measure a number against "
+                               "something the viewer owns; or hold a clock open (a duration joined "
+                               "to something still unresolved). Every number, date and name must "
+                               "come from a cited claim. Use only facts the ledger already "
+                               "supports.")
                 _hp_plan, _hp_cost = _ask_planner(_hook_fix)
                 cost += _hp_cost
                 _new = _hp.score_hook(_s(_hp_plan.get("hook")))
                 if _new["score"] > _hs["score"] and _beats_of(_hp_plan):
                     plan["hook"] = _s(_hp_plan.get("hook"))
                     print(f"[hook] {_new['score']}/100 - {plan['hook']!r}")
+                    _hs = _new
                 else:
-                    print(f"[hook] retry did not improve ({_new['score']}/100); keeping the original")
+                    print(f"[hook] retry did not improve ({_new['score']}/100); keeping the current one")
+                    break
         except Exception:
             pass
         _cold_fix = _cold_open_correction(plan, research_dossier)
@@ -6019,7 +6036,12 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # land; `script["hook"]` is re-derived from the repaired sentence below.
         "HOOK_EXCEEDS_STORY",
     }
-    errors = [item for item in (report or {}).get("errors") or [] if isinstance(item, dict)]
+    # ONLY WHAT WOULD BLOCK. A soft finding does not stop the ledger, so rewriting a scene for
+    # one buys nothing and costs the film its words. The deterministic trim already filters this
+    # way (see _trim_unsupported_sentences); this rewrite did not, so two sibling mechanisms
+    # disagreed about which findings deserve a repair.
+    errors = [item for item in (report or {}).get("errors") or []
+              if isinstance(item, dict) and item.get("severity") != "soft"]
     scenes_now = script.get("scenes") or []
     # The fact-model codes address a scene by beat_id ("event_04"), the older ones by 1-based
     # index. Resolved here so one repair path serves both rather than two paths drifting apart.
@@ -6105,6 +6127,22 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                    for ref in refs):
                 return script, round(response_cost + float(parse_cost or 0.0), 4)
             target = candidate["scenes"][index - 1]
+            # A REPAIR CORRECTS; IT DOES NOT COMPRESS. The repair prompt says "Preserve ... length"
+            # and the delivered bee film shows what that instruction is worth: 566 words went in,
+            # 222 came out, and the runtime contract then reported an 82-second film against a
+            # 300-second request. The repair hands the model the one-sentence EVENT as the
+            # ceiling and the model rewrites the scene down to it -- 13 events x ~17 words is the
+            # 222 that shipped. The trim and the fact-check both refuse a rewrite that drops more
+            # than a third of a line; this was the one narration-rewriting stage that did not.
+            # A held scene keeps its original text AND bindings (the repaired claim_refs describe
+            # the repaired sentence, not the kept one) and is reported to the caller.
+            _before = len(_s(scenes[index - 1].get("narration")).split())
+            _after = len(narration.split())
+            if _before >= 12 and _after < _before * 0.65:
+                candidate.setdefault("_repair_held", []).append(
+                    {"scene": index, "before": _before, "after": _after})
+                seen.add(index)
+                continue
             target["narration"] = narration
             target["evidence_id"] = evidence_id
             target["claim_refs"] = refs
@@ -6137,7 +6175,16 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                 # the log and only turned up by auditing the delivered film.
                 try:
                     import hook_patterns as _hp
-                    sentences.sort(key=lambda line: _hp.score_hook(line)["score"], reverse=True)
+                    # A TRAILING FRAGMENT IS NOT A HOOK. A later sentence displaces the first
+                    # only if it is a sentence -- eight words or more. "The sewers filled."
+                    # outscored "Officials paid a bounty per rat tail..." purely because the
+                    # first line names officials, and a three-word fragment would have opened
+                    # the film.
+                    first, rest = sentences[0], [line for line in sentences[1:]
+                                                 if len(line.split()) >= 8]
+                    sentences = sorted([first] + rest,
+                                       key=lambda line: _hp.score_hook(line)["score"],
+                                       reverse=True)
                     was = _hp.score_hook(_s(candidate.get("hook")))["score"]
                     now = _hp.score_hook(sentences[0])["score"]
                     if now < was:
@@ -7775,8 +7822,19 @@ def _generation_manifest_payload(*, video_format: str, motion_mode: str,
             # no dated snapshot of this model exists to pin to, so this is a request identifier
             # like every other entry. Labelling it otherwise recorded false provenance for the
             # model behind the evidence verifier and the blind story judge.
-            {"purpose": "research_script_factcheck_and_visual_judges", "provider": "anthropic",
+            # Two entries, because two clients. The research dossier is fetched through
+            # _anthropic_native(); the script, fact-check, claim repair and every judge go
+            # through _claude(), which returns the OpenAI client under SCRIPT_PROVIDER=openai.
+            # One entry crediting Anthropic for all of it recorded false provenance for a run
+            # whose sixteen logged script calls all ran on gpt-5.6-luna.
+            {"purpose": "research_dossier", "provider": "anthropic",
              "model_id": ANTHROPIC_MODEL, "identifier_stability": "request_identifier"},
+            {"purpose": "script_factcheck_repair_and_judges",
+             "provider": script_provider.active_provider(),
+             "model_id": (script_provider.openai_script_model()
+                          if script_provider.active_provider() == script_provider.OPENAI
+                          else ANTHROPIC_MODEL),
+             "identifier_stability": "request_identifier"},
             {"purpose": "evidence_and_scene_images", "provider": "openai",
              "model_id": IMAGE_MODEL, "identifier_stability": "request_identifier"},
             {"purpose": "narration", "provider": "openai", "model_id": TTS_MODEL,
@@ -8912,6 +8970,31 @@ def _build_chapters(scene_starts: list, picks: list) -> list:
     return out if len(out) >= 3 else []
 
 
+# YouTube rejects the whole upload ("invalidTags") for ONE tag over 30 characters. The uploader
+# has filtered silently since the cane toad re-cut (2026-10-02); the description's Tags line never
+# did, so the exact-premise tags the prompt calls the channel's "matchmaker" -- 6 of 16 on the
+# bee film, 7 of 16 on V2, all 35-42 characters -- were written for the reader and dropped on the
+# way to the API, and the audit failed the line for it. One rule now, applied where the tags are
+# written; scripts/youtube_upload.py keeps its copy as defence in depth.
+TAG_MAX_CHARS = 30
+TAG_TOTAL_CHARS = 480
+
+
+def api_safe_tags(tags) -> list[str]:
+    """The tags YouTube will accept, in order, de-duplicated, under the per-tag and total caps."""
+    cleaned: list[str] = []
+    total = 0
+    for raw in tags or []:
+        tag = _s(raw).replace("<", "").replace(">", "").replace('"', "").strip()
+        if not tag or len(tag) > TAG_MAX_CHARS or tag.lower() in {t.lower() for t in cleaned}:
+            continue
+        if total + len(tag) + 2 > TAG_TOTAL_CHARS:
+            break
+        cleaned.append(tag)
+        total += len(tag) + 2
+    return cleaned
+
+
 def generate_description(title: str, hook: str, transcript: str, out_dir: str,
                          cost_sink: list | None = None, question: str = "",
                          video_format: str = "landscape", scene_narr: list | None = None,
@@ -8935,7 +9018,21 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
             scene_starts.append(acc)
             acc += max(0.0, float(d or 0.0))   # clamp: a bad (neg) dur must not make starts descend
         total = acc
-    want_chapters = (not social) and len(scene_starts) >= 6 and total >= 120
+    # CHAPTERS ARE GATED BY YOUTUBE'S RULE, NOT BY A 120-SECOND TASTE RULE -- and SOURCES are not
+    # gated by chapters at all. The 102.6-second bee film got the compact description with no
+    # CHAPTERS, no IN THIS VIDEO, no QUESTIONS and no SOURCES while description_sources() held
+    # five cited URLs, because every long-form block sat inside one `if want_chapters:` whose
+    # condition was `total >= 120` (a rule from the first commit). _build_chapters already
+    # enforces what YouTube actually requires -- first at 0:00, at least three, ten seconds
+    # apart -- so chapters are asked for whenever that many slots exist, and the sources,
+    # bullets and CTA follow the FORMAT, which is what they were always about.
+    long_form = not social
+    chapter_slots, last_kept = 0, None
+    for start in scene_starts:
+        if last_kept is None or start - last_kept >= 10:
+            chapter_slots += 1
+            last_kept = start
+    want_chapters = long_form and chapter_slots >= 3
 
     scene_lines = ""
     if want_chapters and scene_narr:
@@ -8967,7 +9064,9 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         f"(4) 2-4 FORMAT tags appropriate to THIS format ({fmt_word}): e.g. {fmt_tag_examples}. "
         "NEVER include generic front-loaders like 'shorts','viral','trending','fyp','facts','animation' "
         "(and never use 'shorts'-style tags on a long-form video, or vice-versa) — they identify "
-        "nothing and waste the metadata.\n"
+        "nothing and waste the metadata. EVERY TAG MUST BE 30 CHARACTERS OR FEWER: YouTube rejects "
+        "longer tags and they are dropped before upload, so shorten an exact-premise tag by dropping "
+        "function words, never by cutting it mid-phrase.\n"
         + ('Return JSON: {"summary": "2-3 SHORT paragraphs (plain text, \\n\\n between them); the '
            'FIRST sentence names the topic + the core question", "chapters": [{"scene": <int scene '
            'number from the list>, "title": "3-6 word chapter label"}] (6-9 chapters that mark where '
@@ -8977,7 +9076,7 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
            '"hashtags": ["4-6 relevant hashtags WITHOUT the # sign"], "tags": ["~15-18 topic-specific '
            'tags following the TAG ARCHITECTURE, in order (5 exact-premise, 5 consequence, 3 '
            'subject-category, 2-4 format)"]}'
-           if want_chapters else
+           if long_form else
            'Return JSON: {"summary": "1-2 SHORT punchy paragraphs; first sentence names the topic", '
            '"hashtags": ["4-6 hashtags WITHOUT the # sign"], "tags": ["~15-18 topic-specific tags '
            'following the TAG ARCHITECTURE, in order (5 exact-premise, 5 consequence, 3 subject-category, '
@@ -9001,6 +9100,7 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
             chapters = _build_chapters(scene_starts, o.get("chapters") or [])
             if chapters:
                 parts.append("⏱️ CHAPTERS\n" + "\n".join(f"{ts} {ti}" for ts, ti in chapters))
+        if long_form:
             itv = [_s(b).strip().lstrip("-•").strip() for b in (o.get("in_this_video") or []) if _s(b).strip()]
             if itv:
                 parts.append("🔎 IN THIS VIDEO\n" + "\n".join(f"• {b}" for b in itv[:7]))
@@ -9014,7 +9114,7 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         tags = [_s(t).strip().lstrip("#").strip() for t in (o.get("hashtags") or []) if _s(t).strip()]
         if tags:
             parts.append(" ".join("#" + t.replace(" ", "") for t in tags[:6]))
-        kw = [_s(t).strip() for t in (o.get("tags") or []) if _s(t).strip()]
+        kw = api_safe_tags(o.get("tags") or [])
         if kw:
             parts.append("Tags: " + ", ".join(kw[:18]))   # full 5/5/3/2-4 architecture
         parts.append(_DESC_DISCLOSURE)
@@ -9841,14 +9941,21 @@ _THUMB_GRADE_SYSTEM = (
 )
 
 
-def grade_thumbnail(image_path: str, title: str, cost_sink: list | None = None) -> dict | None:
-    """Vision-grade a finished thumbnail against the 8-point checklist. Returns
-    {items, fails, redesign_note} or None (best-effort). 'fails >= 3' → redesign."""
+def grade_thumbnail(image_path: str, title: str, cost_sink: list | None = None,
+                    system: str | None = None) -> dict | None:
+    """Vision-grade a finished thumbnail against an 8-point checklist. Returns
+    {items, fails, redesign_note} or None (best-effort). 'fails >= 3' → redesign.
+
+    `system` lets a packaging grammar supply its own checklist in the same JSON shape. The
+    default was written for the flat-vector science channel and fails the Backfire split-frame
+    by construction (item 7 rewards exactly the vector style that grammar forbids), which is why
+    every Backfire thumbnail shipped "weak" and the flag carried no information.
+    """
     try:
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         r = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=500, system=_THUMB_GRADE_SYSTEM,
+            model=ANTHROPIC_MODEL, max_tokens=500, system=system or _THUMB_GRADE_SYSTEM,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
                 {"type": "text", "text": f'Title shown next to this thumbnail: "{title}". Grade it.'}]}],
@@ -11773,7 +11880,12 @@ def run_explainer_pipeline(
         # 1b. Fact-check pass — verify the science, correct errors before rendering.
         if fact_check and scenes:
             log("stage:Fact-checking script...")
+            _words_before_fc = sum(len(_s(sc.get("narration")).split())
+                                   for sc in (script.get("scenes") or []))
             script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
+            _words_after_fc = sum(len(_s(sc.get("narration")).split())
+                                  for sc in (script.get("scenes") or []))
+            log(f"words: {_words_before_fc} -> {_words_after_fc} (fact-check)")
             script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
             if fc_notes:
                 log(f"Fact-check: {len(fc_notes)} correction(s) applied")
@@ -11834,12 +11946,25 @@ def run_explainer_pipeline(
                 if claim_validation.get("passed"):
                     break
                 _before_count = len(claim_validation.get("errors") or [])
+                _words_before = sum(len(_s(sc.get("narration")).split())
+                                    for sc in (script.get("scenes") or []))
                 repaired_script, repair_cost = repair_claim_join_failures(
                     script, research_dossier, claim_validation,
                     operator_direction=operator_direction)
                 if not repair_cost:
                     break
                 script = repaired_script
+                # THE WORD COUNT IS LOGGED AT EVERY STAGE THAT REWRITES NARRATION. The only two
+                # counts in a whole run were the length top-up and the runtime contract, and the
+                # 344 words lost between them were attributed to three different stages by three
+                # commits in one evening. A number here is read, not inferred.
+                _words_after = sum(len(_s(sc.get("narration")).split())
+                                   for sc in (script.get("scenes") or []))
+                _held = script.pop("_repair_held", None) or []
+                log(f"words: {_words_before} -> {_words_after} (claim repair pass "
+                    f"{_repair_pass + 1})" + (f"; {len(_held)} scene(s) kept their original line "
+                                             "because the rewrite cut more than a third"
+                                             if _held else ""))
                 script["_script_cost_usd"] = round(
                     float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
                 rederive_narration_bindings(script, log, research_dossier)
@@ -12194,9 +12319,20 @@ def run_explainer_pipeline(
         script["_evidence_plan"] = evidence_plan
         if (not evidence_validation.get("passed") and not _diagnostic_render()
                 and not sourcing_advisory):
+            # THE ONE PRE-SPEND GATE THAT LEFT NO DIAGNOSTIC. Three attempts died here in one
+            # evening with run_error.txt holding a single sentence, printed twice, naming no
+            # scene; the failing beat was recoverable only because _state.json happened to
+            # match. Every sibling gate persists its full payload first; this one now does too,
+            # and the message names the scene. The plan JSON is NOT written here: in a reused
+            # job dir that would overwrite the delivered run's plan.
+            _persist_semantic_failure(
+                output_dir=output_dir, stage="evidence-plan", script=script,
+                research_dossier=research_dossier, report=evidence_validation,
+                operator_direction=operator_direction, log=log)
             raise ValueError(
                 "Evidence-state plan failed before TTS/image spend: "
-                + "; ".join(item["message"] for item in evidence_validation.get("errors", [])[:8])
+                + "; ".join(f"scene {item.get('scene')}: {item['message']}"
+                            for item in evidence_validation.get("errors", [])[:8])
             )
         evidence_plan_path = os.path.join(output_dir, "evidence_asset_plan.json")
         evidence_validation_path = os.path.join(output_dir, "evidence_validation.json")
@@ -13933,6 +14069,45 @@ def run_explainer_pipeline(
         reasons.append("thumbnail is a BLANK fallback (image generation failed) — near-zero CTR")
     elif _thumb_report.get("weak"):
         reasons.append(f"thumbnail graded weak ({_thumb_report.get('fails')}/8 checks failed) — likely low CTR")
+    # THE HOOK CONTRACT, MEASURED ON WHAT SHIPPED. The planner's hook is scored and re-asked, and
+    # then a repair can replace it; the delivered bee film opened on a 40/100 event summary with
+    # the viewer absent and nothing in run_result said so. Scored here on the final text.
+    try:
+        import hook_patterns as _hp_final
+        _final_hook = _hp_final.score_hook(_s(script.get("hook")))
+        if _final_hook["score"] < 70:
+            reasons.append(f"hook scores {_final_hook['score']}/100 against the 70 contract"
+                           + (f" ({_final_hook['notes'][0]})" if _final_hook.get("notes") else ""))
+    except Exception:                       # noqa: BLE001 - reporting must not fail the film
+        pass
+    # Retention readiness has hard failures that cap it at 69 and nothing consumed them: the
+    # delivered film's 43 of 44 cuts were unaligned (semantic_sync) and the only trace was an
+    # info line. A hard failure is a reason.
+    if readiness and readiness.get("hard_failures"):
+        reasons.append("retention readiness hard failure(s): "
+                       + ", ".join(str(h) for h in readiness["hard_failures"]))
+    # The rendered contract's own verdict. The delivered film's rendered_contract.json carried
+    # publishable:false, calibrated:false and an uncertified_reason, and none of it reached this
+    # list or the log, because the reasons block read only hard_failures (empty at 87/100).
+    try:
+        _frc = full_render_contract if isinstance(full_render_contract, dict) else {}
+    except NameError:
+        _frc = {}
+    if _frc.get("publishable") is False:
+        reasons.append("rendered contract says publishable: false"
+                       + (f" ({_frc.get('uncertified_reason')})"
+                          if _frc.get("uncertified_reason") else ""))
+    # Editorial approval is advisory under the stable Standard profile, and the render log then
+    # said "frozen approved opening reused" with human_review.json reading decision: pending.
+    # Advisory means it does not block; it does not mean it goes unsaid.
+    try:
+        if human_review_path and os.path.isfile(human_review_path):
+            with open(human_review_path) as _hr_handle:
+                _decision = (json.load(_hr_handle) or {}).get("decision")
+            if _decision != "approve":
+                reasons.append(f"editorial approval: {_decision or 'pending'}")
+    except Exception:                       # noqa: BLE001 - reporting must not fail the film
+        pass
     status = "degraded" if reasons else "ok"
 
     size_mb = os.path.getsize(output_path) / 1024 / 1024

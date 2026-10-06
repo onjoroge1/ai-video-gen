@@ -841,6 +841,20 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                 claim = _text((index.get(ref) or {}).get("claim"))
                 if claim and claim not in cited:
                     cited.append(claim)
+        # THE HOOK'S CEILING IS THE DOSSIER, NOT ONLY THE BEATS THAT SURVIVED. "You cannot tell
+        # Africanized bees from European bees by sight" is a verified claim in the dossier and
+        # scored 68/100; it was refused as HOOK_EXCEEDS_STORY because no compiled BEAT carried
+        # that fact, and the repair replaced it with the setup event (40/100, viewer absent). A
+        # hook may promise any fact the research supports; it is the film's first line, not a
+        # scene bound to one event. Claims the evidence boundary rejected are still excluded
+        # upstream of `index`, so nothing unsupported is admitted here.
+        # ...but only while there IS a story: if no beat survived the evidence boundary the
+        # hook has nothing to promise, and a dossier full of true claims does not change that.
+        if supported:
+            for claim_row in index.values():
+                claim_text = _text((claim_row or {}).get("claim"))
+                if claim_text and claim_text not in cited:
+                    cited.append(claim_text)
         story = " ".join([_sfm.event_of(beat)["text"] for beat in supported] + cited)
         if not story:
             # Nothing survived, so there is no ceiling to measure against. Reported as the hook

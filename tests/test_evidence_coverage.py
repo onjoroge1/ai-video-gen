@@ -355,7 +355,14 @@ def test_production_rechecks_repaired_sheet_before_buying_expansion(monkeypatch)
     def create(**request):
         prompt = request["messages"][0]["content"]
         if "Plan the sourced factual events" in prompt:
-            plan_calls.append(prompt)
+            # A hook re-ask and a cold-open correction reuse the planner prompt with a
+            # correction appended; neither is a plan call. The fixture's hook misses the
+            # opening contract on purpose (no second person) and its sheet has no cold open,
+            # so both corrections fire and are answered, but only the two PLANS are counted:
+            # the original sheet and the spine re-ask that precedes the research repair.
+            if ("MISSES THE CONTRACT" not in prompt
+                    and "returned without a usable cold_open" not in prompt):
+                plan_calls.append(prompt)
             return SimpleNamespace(content=[SimpleNamespace(text=json.dumps({
                 "beats": beats, "hook": "Why did the introduction change the ecosystem?"}))],
                 usage=SimpleNamespace(input_tokens=10, output_tokens=10))

@@ -135,25 +135,39 @@ def role_counts(engine_id: str, duration_sec: float) -> dict[str, int]:
 
 
 def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
-    """Distribute n_total scenes across the engine's roles by weight; escalation takes the slack."""
-    roles = role_order(engine_id)
-    weights = {r: ROLE_WEIGHTS.get(r, 0.1) for r in roles}
-    scale = sum(weights.values())
-    counts = {r: max(1, int(round(n_total * weights[r] / scale))) for r in roles}
-    # Reconcile to exactly n_total by moving scenes to/from the escalation band.
-    counts["escalation"] = max(MIN_ESCALATION_SCENES,
-                               counts.get("escalation", 0) + (n_total - sum(counts.values())))
-    # If reconciliation overshot (tiny n), trim non-escalation roles down toward 1.
-    while sum(counts.values()) > n_total:
-        donor = max((r for r in roles if r != "escalation" and counts[r] > 1),
-                    key=lambda r: counts[r], default=None)
-        if donor is None:
-            counts["escalation"] = max(MIN_ESCALATION_SCENES, counts["escalation"] - 1)
-            if counts["escalation"] <= MIN_ESCALATION_SCENES and sum(counts.values()) > n_total:
-                break
-        else:
-            counts[donor] -= 1
-    return counts
+    """Distribute n_total COMPILED scenes across the engine's roles; escalation takes the slack.
+
+    LEGAL FOR THE COMPILER, OR THE PLANNER IS HANDED A SHAPE THE NEXT GATE REFUSES. The weighted
+    version asked, at 300s, for 2 setups, 3 mechanisms and 3 reversals -- and causal_story lets
+    only escalation and generalization repeat (DUPLICATE_ROLE). A planner that obeyed the slot
+    plan wrote two reversals and was replanned at a cost of $1.43; one that disobeyed returned
+    context beats that were pruned. Either way about 13 of 20 beats compiled, each one-event
+    scene inherited ~55 words it could not fill without inventing, and the length top-up was
+    refused on 7-11 scenes of every attempt.
+
+    So every role the compiler treats as a singleton gets exactly ONE event; "takeaway" gets
+    none, because the compiler appends its own tool device and the prompt forbids the planner
+    supplying one; two slots are reserved for that hinge and tool so n_total counts COMPILED
+    scenes, which is what the runtime is sized on; and the remainder is escalation (plus one
+    generalization where the engine has it). At 300s / 20 scenes: five singletons, thirteen
+    escalations, hinge, tool. ROLE_WEIGHTS still describes the intended RUNTIME share of each
+    role; it no longer sets event counts for roles that may only occur once.
+    """
+    import causal_story as _cs
+    order = role_order(engine_id)
+    repeatable = {str(r).casefold() for r in _cs._REPEATABLE}
+    roles = [r for r in order if r != "takeaway"]
+    singles = [r for r in roles if r.casefold() not in repeatable]
+    repeats = [r for r in roles if r.casefold() in repeatable]
+    counts = {r: 1 for r in singles}
+    devices = 2                                  # hinge + tool, appended by the compiler
+    remainder = max(0, n_total - len(singles) - devices)
+    if "generalization" in repeats and remainder > MIN_ESCALATION_SCENES:
+        counts["generalization"] = 1
+        remainder -= 1
+    if "escalation" in repeats:
+        counts["escalation"] = max(MIN_ESCALATION_SCENES, remainder)
+    return {r: counts.get(r, 0) for r in order}
 
 
 def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
@@ -162,7 +176,7 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
     from longform_evidence import MAX_STATES_PER_SCENE, TARGET_VISUAL_STATE_SECONDS
     n_total = target_scene_count(duration_sec)
     counts = _role_counts(engine_id, n_total)
-    n_total = sum(counts.values())
+    n_total = sum(counts.values()) + 2          # + the compiler's hinge and tool devices
     total_words, words_lo, words_hi = runtime_word_bounds(duration_sec, n_total)
     per_scene = total_words / max(1, n_total)
     # A WIDE band is written to its floor. The first three template fills came back at 526-600
@@ -174,7 +188,28 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
     states = max(2, min(MAX_STATES_PER_SCENE, round(scene_seconds / TARGET_VISUAL_STATE_SECONDS)))
     slots: list[dict] = []
     n = 0
+
+    def _device(scene_n: int, role: str, label: str, lo_w: int, hi_w: int, states_n: int) -> dict:
+        # THE COMPILER'S OWN BEATS, SHOWN WHERE THEY LAND. The planner is never asked for a
+        # hinge or a takeaway (causal_story adds both as presentation devices), so _role_counts
+        # gives them no event slot -- but the skeleton a writer or an eval reads should show the
+        # film that will exist, which has them. No claim: a device carries no sourced event.
+        return {
+            "scene": scene_n, "film_words_min": words_lo, "film_words_max": words_hi,
+            "film_words_target": total_words, "role": role, "label": label,
+            "words_min": lo_w, "words_max": hi_w, "states": states_n, "band": "device",
+            "band_index": 1, "band_count": 1, "is_cold_open": False, "needs_claim": False,
+        }
+
     for role in role_order(engine_id):
+        if role == "mechanism":
+            n += 1
+            slots.append(_device(n, "hinge", "the one short line where the plan stops working "
+                                            "(ten words or fewer; compiler-added)", 4, 10, 1))
+        if role == "takeaway":
+            n += 1
+            slots.append(_device(n, "takeaway", _role_label(engine_id, "takeaway"), lo, hi, states))
+            continue
         for k in range(counts.get(role, 0)):
             n += 1
             slots.append({

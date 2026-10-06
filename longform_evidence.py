@@ -63,6 +63,13 @@ def _story_contract(script: dict) -> dict:
 
 
 def _opening_scene_count(scenes: list[dict]) -> int:
+    # The opening is the first 30% of runtime by story_pct. A role-based definition (everything
+    # before the first mechanism) was tried and reverted: the storyboard's LATE_MECHANISM mark is
+    # 20% while this window is 30%, so the first mechanism scene is judged as an opening beat --
+    # a real disagreement between two windows -- but the opening flag has consumers (cut ratios,
+    # the continuity-location prompt line, the s001 reference fallback) and tests that expect the
+    # 30% window, and the failure that killed three runs was the state CEILING, fixed in
+    # validate_evidence_plan. Narrowing the window is a separate decision.
     if not scenes:
         return 0
     explicit = []
@@ -508,9 +515,10 @@ def states_required_for_capacity(capacity: int) -> int:
 
     validate_evidence_plan sees `state_capacity` -- `seconds // MIN_EVIDENCE_STATE_SECONDS` --
     not the narration, so it cannot call states_required_for_words directly. Inverting gives
-    seconds within one 1.5s step, which is precise enough for a CEILING and errs upward, which is
-    the safe direction: a ceiling that is slightly too generous accepts a good plan, one that is
-    slightly too tight rejects a plan the writer was told to produce.
+    seconds within one 1.5s step. NOTE: relative to the writer's ask this errs DOWNWARD, not
+    upward as this docstring once claimed -- the floored seconds lose up to 1.5s, so a 43-49
+    word scene is asked for 7 and capped at 6. The validator now also carries the recorded
+    `states_requested`, which is why the two no longer disagree.
     """
     capacity = max(0, int(capacity or 0))
     if not capacity:
@@ -848,6 +856,9 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "evidence_id": _text(scene.get("evidence_id")),
             "opening": opening,
             "state_capacity": capacity,
+            # What the prompt told the writer this scene needs, so the validator can honour it.
+            "states_requested": states_required_for_words(
+                len(_text(scene.get("narration")).split())),
             "states": states,
         })
 
@@ -1026,11 +1037,21 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # produce the hold-derived count and then failed for producing it has been handed two
         # rules that cannot both hold -- the same shape as the 3-4/2-4 band this lane just lost.
         # Six remains the floor of the ceiling, so nothing tightens for a short opening.
-        ceiling = max(6, states_required_for_capacity(capacity))
+        # ...AND IT CANNOT SIT BELOW WHAT THE WRITER WAS TOLD. state_count_rule asks for
+        # ceil(N / 2.588 / 2.75) states and says "There is no upper band"; the capacity-derived
+        # ceiling uses 2.86 w/s with floored seconds. For a 43-49-word scene -- the top of the
+        # template's own per-scene band -- the ask is 7 and this ceiling was 6, and the writer's
+        # measured habit is to return one more than asked. Three attempts died on exactly that:
+        # scene 3 asked 6 gave 7, scene 5 asked 7 gave 8, ceiling 6 both times. The +1 is that
+        # measured over-production; _states_that_fit still trims to capacity, so it can never
+        # exceed physics.
+        requested = int(scene_plan.get("states_requested") or 0)
+        ceiling = max(6, states_required_for_capacity(capacity), requested + 1)
         if opening and not floor <= len(states) <= ceiling:
             errors.append(_issue(
                 "opening_state_count",
-                f"Every opening beat requires {floor} to {ceiling} evidence states."
+                f"Opening beat has {len(states)} evidence states; this beat allows {floor} to "
+                f"{ceiling} (capacity {capacity}, writer asked for {requested})."
                 + ("" if floor == 2 else
                    " This beat is too short to hold two, so one is the whole budget."),
                 scene=scene_index + 1))

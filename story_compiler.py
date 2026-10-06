@@ -127,7 +127,9 @@ def _slot_plan_ask(slot_plan: dict, mapping) -> str:
         'of the compounding -- a further reach, a further scale, a further cost, a new place or '
         'a new date -- and no two may be the same development in different words. If the '
         'evidence genuinely cannot supply that many distinct escalations, return fewer and say '
-        'so in the throughline rather than restating one development.\n')
+        'so in the throughline rather than restating one development. Do NOT supply a hinge or a '
+        'closing takeaway: the compiler adds both as presentation beats, which is why they are '
+        'absent from the counts above.\n')
 
 
 def _hook_rules() -> str:
@@ -196,7 +198,10 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         # then it spread, then it smothered forests, then it cost millions to fight. Those are four
         # separate sourced events, each a real step, and the engine has exactly one function that
         # can carry them in sequence.
-        + _repeat_to_reach_count(mapping, duration)
+        # ONE OWNER OF THE EVENT COUNT. With a slot plan present this clause said "EXACTLY ONCE
+        # ... 16 events" beside the plan's "Return EXACTLY 18"; two counts in one prompt is the
+        # same disagreement as two gates on one sentence, so the slot plan speaks alone.
+        + ("" if slot_plan else _repeat_to_reach_count(mapping, duration))
         # WHERE the incentive changes, not just that it does. The compiler DERIVES the mechanism
         # from the changes_incentive beat, and causal_story:450 fails any mechanism whose start_sec
         # is past `runtime_sec * pct` -- 60s of a 300s film. Every event before changes_incentive

@@ -88,8 +88,11 @@ _TIMEFRAME = re.compile(
 _INTERVENTION_VERB = re.compile(
     r"\b(imported|introduced|released|brought|shipped|planted|stocked|killed|removed|"
     r"eradicated|culled|exterminated)\b", re.I)
+# "but", "yet" and "until" join an intervention to its outcome as surely as "then" does:
+# "Brazil imported African bees, BUT their queens escaped" states the whole film and was scored
+# as withholding it.
 _RESULT = re.compile(
-    r"\b(then|and|so|which|causing|leading to|-|—)\b.*\b(died|spread|collapsed|destroyed|"
+    r"\b(then|and|so|which|causing|leading to|but|yet|until|-|—)\b.*\b(died|spread|collapsed|destroyed|"
     r"escaped|exploded|vanished|overran|ate|poisoned|wiped|backfired|multiplied)\b", re.I)
 _VAGUE = re.compile(
     r"\b(you (?:won'?t|will never) believe|changed everything|this one trick|shocking|"

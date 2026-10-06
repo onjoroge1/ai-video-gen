@@ -97,10 +97,19 @@ def test_score_fill_catches_a_film_that_comes_in_short():
 def test_the_slot_plan_is_a_role_budget_the_planner_can_be_asked_for():
     """One slot is one scene, so the plan is the film's structure, not a suggestion."""
     plan = st.role_counts("removed_keystone", 300)
-    assert sum(plan.values()) == len(st.build_slots("removed_keystone", 300))
+    # The plan counts EVENTS the planner is asked for; the skeleton adds the compiler's hinge
+    # and tool, which the planner must not supply. Asking for them produced DUPLICATE_ROLE
+    # replans (three reversals asked, one allowed) and a tool beat written as a fact.
+    assert sum(plan.values()) + 2 == len(st.build_slots("removed_keystone", 300))
     assert plan["escalation"] >= st.MIN_ESCALATION_SCENES
     for role in ("setup", "intervention", "mechanism", "escalation", "reversal"):
         assert plan.get(role, 0) >= 1
+    # Legal for the compiler: nothing outside causal_story._REPEATABLE may be asked for twice.
+    import causal_story as cs
+    for role, count in plan.items():
+        if role.casefold() not in {str(r).casefold() for r in cs._REPEATABLE}:
+            assert count <= 1, f"{role} asked for {count} events; the compiler allows one"
+    assert plan.get("takeaway", 0) == 0
 
 
 def test_the_planner_prompt_asks_for_the_slot_plan_exactly():
