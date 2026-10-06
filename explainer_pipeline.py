@@ -1759,6 +1759,34 @@ def _ensure_lead_spoken(script: dict, log=lambda message: None) -> bool:
     return changed
 
 
+def _carry_better_hook(current: dict, retry: dict, *, stage: str) -> dict:
+    """A planner re-ask fixes one field and may quietly rewrite the hook along with it.
+
+    The cold-open and spine re-asks tell the planner to keep every other field identical, and it
+    does not. Measured on killer bees (2026-10-06, attempt 3): the hook re-ask had just reached
+    90/100 ("You see a local beekeeper near Rio Claro in October 1957; twenty-six queens are the
+    part nobody checked") and the cold-open retry that followed replaced the whole plan, hook
+    included, with a 48 that opened on Warwick Kerr -- the hook that shipped, with nothing in
+    the log to say where the 90 went. The retry wins the field it was asked to fix; the hook
+    stays with whichever plan scores higher, and a swap is printed.
+    """
+    if not isinstance(retry, dict) or not isinstance(current, dict):
+        return retry
+    try:
+        import hook_patterns as _hp
+        kept, proposed = _s(current.get("hook")).strip(), _s(retry.get("hook")).strip()
+        if not kept or proposed == kept:
+            return retry
+        was, now = _hp.score_hook(kept)["score"], _hp.score_hook(proposed)["score"]
+        if now < was:
+            print(f"[hook] {stage} retry proposed a weaker hook ({now}/100 < {was}/100); "
+                  f"keeping {kept!r}")
+            return dict(retry, hook=kept)
+    except Exception:          # noqa: BLE001 - scoring must not break a planner retry
+        pass
+    return retry
+
+
 def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
     """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
 
@@ -3914,6 +3942,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
             _retry_plan, _retry_cost = _ask_planner(_correction)
             cost += _retry_cost
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="compile")
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
@@ -3990,6 +4019,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             print("Beat sheet has no usable cold open — re-asking the planner once")
             _retry_plan, _retry_cost = _ask_planner(_cold_fix)
             cost += _retry_cost
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="cold-open")
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
@@ -4075,9 +4105,32 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             print("Spine unsupported — re-asking the planner once with the report quoted back")
             _retry_plan, _retry_cost = _ask_planner(_spine_correction)
             cost += _retry_cost
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="spine")
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
+            # THE FIRST PLAN GETS compile_correction WHEN ITS SHEET DOES NOT COMPILE; the spine
+            # retry was simply discarded with the same report in hand ("spine retry did not
+            # compile — trying research repair on the original"), which threw away the one
+            # planner call that had the spine failure quoted back to it. Same mechanical
+            # correction, same single re-ask, same fail-closed rule: compile_correction returns
+            # "" for any code outside the mechanical set.
+            if not _retry_roles.get("passed"):
+                _retry_cc = _compiler.compile_correction(_retry_roles)
+                if _retry_cc:
+                    print("  spine retry did not compile — re-asking once with the compile "
+                          "report: " + "; ".join(_s(i.get("code"))
+                                                 for i in (_retry_roles.get("issues") or [])))
+                    _retry_plan2, _retry_cost2 = _ask_planner(
+                        _spine_correction + "\n\n" + _retry_cc)
+                    cost += _retry_cost2
+                    _retry_plan2 = _carry_better_hook(plan, _retry_plan2, stage="spine")
+                    _retry_beats2 = _beats_of(_retry_plan2)
+                    _retry_roles2 = _compiler.compile_roles(
+                        _retry_beats2, sheet_engine_id, _claims_for_roles)
+                    if _retry_roles2.get("passed"):
+                        _retry_plan, _retry_beats, _retry_roles = (
+                            _retry_plan2, _retry_beats2, _retry_roles2)
             if _retry_roles.get("passed"):
                 _retry_prepared = _planning.prepare(
                     _retry_beats, sheet_engine_id, _claims_for_roles,
@@ -6240,6 +6293,48 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # A response received from the provider is billable even when its JSON or semantic repair
         # is unusable. Never turn a paid failed repair into zero recorded spend.
         return script, round(response_cost, 4)
+
+
+def _opening_assets_policy(result: dict, log=print) -> bool:
+    """Can a scene whose evidence images were PARTLY rejected still render? Decide once, here.
+
+    Three aborts read `evidence_ok`, which means "every state accepted". Measured on killer bees
+    (2026-10-06, attempt 1): an 8-state opening had 7 accepted and the 8th rejected after two
+    redraws for a figure the inspector saw, and the run died 1128 s in holding a 774-word draft,
+    a passing 284 s runtime contract and a passing storyboard -- the best script of the day. The
+    fallback attempt that then shipped ran 222 s on a 28-graded script.
+
+    The shot compiler already drops a rejected state and shares its seconds among the neighbours
+    (longform_shots.compile_scene_shots), so the render never needed that state. The rule: the
+    master (state 1) must be accepted, and at least 70% of the states, never fewer than two. A
+    scene inside the rule keeps its accepted states and loses the rejected ones FROM THE PLAN --
+    the list is the plan's own object -- so the plan the validator reads matches the images the
+    render has. Outside the rule the abort stands, exactly as before.
+    """
+    if result.get("evidence_ok"):
+        return True
+    states = result.get("evidence_states")
+    if not isinstance(states, list) or not states:
+        return False
+    accepted = [s for s in states if s.get("asset_status") in {"accepted", "reused_exact"}]
+    rejected = [s for s in states if s not in accepted]
+    floor = max(2, math.ceil(0.7 * len(states)))
+    if states[0] not in accepted or len(accepted) < floor:
+        return False
+    total = len(states)
+    states[:] = accepted
+    result["evidence_ok"] = True
+    result["img_ok"] = True
+    result["note"] = "evidence-accepted-after-drop"
+    result["evidence_dropped"] = [
+        {"state_id": s.get("state_id"), "asset_id": s.get("asset_id"),
+         "reasons": list(s.get("rejection_reasons") or [])} for s in rejected]
+    log(f"  ⚠ scene {int(result.get('i') or 0) + 1}: {len(rejected)} of {total} evidence "
+        f"state(s) rejected after redraws and dropped from the plan ({len(accepted)} accepted, "
+        "master kept); their seconds go to the neighbouring states — "
+        + "; ".join(f"{_s(s.get('state_id'))}: {'; '.join(_s(r) for r in (s.get('rejection_reasons') or ['unknown']))[:100]}"
+                    for s in rejected))
+    return True
 
 
 def _enforce_requested_runtime(
@@ -10389,6 +10484,33 @@ def _lr_claims_by_case(dossier: dict) -> dict:
     return _claims_by_parallel_case(dossier or {})
 
 
+def _blocking_codes(validation: dict, causal_errors: list) -> list[str]:
+    """Every code standing between a draft and the render, read from BOTH reports.
+
+    The long-form contract wraps each storyboard error as code `engine_story_contract` and keeps
+    the storyboard's own "CODE: message" as the message. So a draft whose only defect was an
+    11-word hinge arrived at the replan loop as a FAILED contract carrying one opaque error, and
+    the two checks below -- which asked `validation["passed"]` first, or compared the wrapper
+    code -- sent it to a replan. Measured on killer bees (2026-10-06, attempt 3): the replan cost
+    a 90-scoring hook and a 774-word draft; the hinge was then rewritten to 10 words two stages
+    later anyway, by the repair that had existed all along. Read the code out of the message.
+    """
+    codes = []
+    for item in (validation or {}).get("errors") or []:
+        if isinstance(item, dict):
+            code = _s(item.get("code"))
+            if code == "engine_story_contract":
+                code = _s(item.get("message")).split(":", 1)[0]
+        else:
+            code = _s(item).split(":", 1)[0]
+        codes.append(code.strip())
+    # Causal errors arrive as dicts or as "CODE: message" strings; read the code either way.
+    for item in causal_errors or []:
+        code = _s(item.get("code")) if isinstance(item, dict) else _s(item).split(":", 1)[0]
+        codes.append(code.strip())
+    return [code for code in codes if code]
+
+
 def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
     """Is hook length the only thing standing between this draft and the render?
 
@@ -10396,10 +10518,7 @@ def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
     catastrophic answer to a sentence that is two words long, because the sheet it returns is a
     different story whose evidence has to be re-established from scratch.
     """
-    codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
-    # Causal errors arrive as dicts or as "CODE: message" strings; read the code either way.
-    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item).split(":", 1)[0].strip()
-              for item in causal_errors or []]
+    codes = _blocking_codes(validation, causal_errors)
     # Both are the hook's shape, and both are what _ensure_hook_fits_budget rewrites.
     return bool(codes) and all(code in ("LONG_HOOK", "MULTI_SENTENCE_HOOK") for code in codes)
 
@@ -10649,18 +10768,22 @@ def _revise_for_axis(script: dict, weakest: str, notes: str, cost_sink: list | N
 def _only_repairable_timing_blocks(validation: dict, causal_errors: list) -> bool:
     """Is a narration-timing miss (LATE_MECHANISM / NO_CALLBACK) the only thing blocking?
 
-    True only when the long-form contract itself passed and every causal error is one of the
-    codes the storyboard repair owns. Any other causal failure, or a failed contract, still
-    replans as before.
+    True when every blocking code -- in the causal report AND in the long-form contract, which
+    wraps the same storyboard findings (see _blocking_codes) -- is one the bounded edits own.
+    Any other failure still replans as before, and so does a failed contract that reports no
+    code at all: an unexplained failure is not a known-bounded one.
     """
-    if not (validation or {}).get("passed") or not causal_errors:
+    if not causal_errors:
+        return False
+    validation = validation or {}
+    if not validation.get("passed") and not validation.get("errors"):
         return False
     import storyboard_repair
     # Hook and hinge word budgets are rewritten to fit right before the storyboard gate
     # (_ensure_hook_fits_budget, _ensure_hinge_fits_budget); the two timing codes have the
     # storyboard repair. All four are one-sentence edits of a validated draft.
     bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE"}
-    codes = [str(e).split(":", 1)[0].strip() for e in causal_errors]
+    codes = _blocking_codes(validation, causal_errors)
     return all(code in bounded for code in codes)
 
 
@@ -13188,7 +13311,7 @@ def run_explainer_pipeline(
     # A render bug once torched a full 120-image run; this caps that loss at ~1 image.
     log("Smoke-testing the render on scene 1 before generating the rest...")
     r0 = _gen_assets((0, scenes[0]))   # generates scene-1 image + audio (counts toward cost)
-    if video_format != "social" and not r0.get("evidence_ok"):
+    if video_format != "social" and not _opening_assets_policy(r0, log):
         evidence_validation = validate_evidence_plan(
             evidence_plan, require_verified_assets=True, opening_only=True)
         with open(evidence_plan_path, "w") as handle:
@@ -13279,7 +13402,7 @@ def run_explainer_pipeline(
     opening_results = [r0] + opening_rest
 
     if video_format != "social":
-        if any(not result.get("evidence_ok") for result in opening_results):
+        if any(not _opening_assets_policy(result, log) for result in opening_results):
             with open(evidence_plan_path, "w") as handle:
                 json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
             if not _diagnostic_render() and not sourcing_advisory:

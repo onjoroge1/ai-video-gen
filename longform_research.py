@@ -712,6 +712,34 @@ def _claims_by_parallel_case(dossier: dict) -> dict:
     return out
 
 
+def _strip_spoken_lead(lead: str, spoken: str) -> tuple[str, bool]:
+    """Lift `spoken` (the hook, or the cold open) off the front of scene 1's narration.
+
+    Verbatim first. Failing that, the FIRST SENTENCE of the narration is lifted when it is the
+    same sentence in different clothes -- six in ten of its words shared with `spoken`. The old
+    check was an exact prefix match, which held only while the hook field and the spoken lead
+    were edited together; a hook rewritten in one place and not the other (a repair that
+    rebuilt the field from a rewritten opener, a cold open the writer re-punctuated) left the
+    lead inside beat one, where it was judged against beat one's event and refused as the
+    unsupported claim it never was. Strip the separator too: a hook already ending in "?"
+    leaves ". Explained like you are five..." behind otherwise.
+    """
+    lead = _text(lead)
+    spoken = _text(spoken).strip()
+    if not lead or not spoken:
+        return lead, False
+    if lead.casefold().startswith(spoken.casefold()):
+        return lead[len(spoken):].lstrip(" .,;:—-").strip(), True
+    parts = re.split(r"(?<=[.!?])\s+", lead, maxsplit=1)
+    first = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    words_a = set(re.findall(r"[a-z0-9']+", first.casefold()))
+    words_b = set(re.findall(r"[a-z0-9']+", spoken.casefold()))
+    if len(words_a) >= 4 and words_b and len(words_a & words_b) / len(words_a | words_b) >= 0.6:
+        return rest, True
+    return lead, False
+
+
 def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=None,
                               cost_sink: list | None = None) -> dict:
     """The cascade, in the shape `validate_claim_joins` callers already expect.
@@ -742,11 +770,9 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
              for index, scene in enumerate(scenes, 1)]
     if hook and beats:
         lead = _text(beats[0].get("narration"))
-        if lead.casefold().startswith(hook.casefold()):
-            # Strip the separator too. A hook already ending in "?" leaves ". Explained like you
-            # are five..." behind, and a narration opening on a bare full stop is both a worse
-            # sentence for the judge to read and a worse one for the narrator to say.
-            beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+        stripped, lifted = _strip_spoken_lead(lead, hook)
+        if lifted:
+            beats[0] = dict(beats[0], narration=stripped)
     # THE COLD OPEN IS NOT AN ASSERTION ABOUT BEAT ONE EITHER. It is the aftermath sentence
     # spoken after the hook (2026-10-02), cited to its own claims; judged against beat one's
     # setup event it was refused on the first killer bees resume ("an escaped swarm ... a
@@ -758,8 +784,9 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         cold_spoken = cold_spoken[0].upper() + cold_spoken[1:]
     if cold_spoken and beats:
         lead = _text(beats[0].get("narration"))
-        if lead.casefold().startswith(cold_spoken.casefold()):
-            beats[0] = dict(beats[0], narration=lead[len(cold_spoken):].lstrip(" .,;:—-").strip())
+        stripped, lifted = _strip_spoken_lead(lead, cold_spoken)
+        if lifted:
+            beats[0] = dict(beats[0], narration=stripped)
     # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
     # opening ends on the problem the video resolves ("But if the chick hatches before she
     # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
