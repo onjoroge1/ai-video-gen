@@ -2056,6 +2056,19 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
         return script, cost
     hook = " ".join(_s((parsed or {}).get("hook")).split())
     first = _s(script["scenes"][0].get("narration"))
+    # A REVISION MAY NOT UNDO THE HOOK CONTRACT. This pass re-asks the model for the whole
+    # script and took its hook back verbatim, which is how "Warwick Kerr brought African bees to
+    # Brazil" returned AFTER the planner retry had already replaced it with a 78-scoring
+    # beekeeper opening. The revision knows nothing about the contract, so it only wins when it
+    # actually scores better.
+    if hook:
+        try:
+            import hook_patterns as _hp
+            if _hp.score_hook(hook)["score"] < _hp.score_hook(_s(script.get("hook")))["score"]:
+                log(f"revision proposed a weaker hook ({hook[:48]!r}); keeping the current one")
+                hook = ""
+        except Exception:
+            pass
     if hook and first.lower().startswith(hook.lower()[:40]):
         script["hook"] = hook
     elif not _lead_hook:
@@ -2968,6 +2981,12 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     opening = max(0, int(total_words * se.mechanism_deadline_pct(
         se.get(engine_id), cs.MECHANISM_DEADLINE_PCT)) - prefix_words)
     budgets = {}
+    # SCENE ONE PAYS FOR THE LEAD IT CARRIES. finalize_narration prepends the hook and the cold
+    # open to the first scene, so its spoken length is its own budget PLUS ~26 words. Subtracting
+    # the prefix from the global total (as this did) spreads the cost across every beat and
+    # leaves scene one over its own allowance: measured at 45 words against an opening budget the
+    # storyboard repair then could not pull back, twice in one evening.
+    _lead_owed = prefix_words
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
     for group, words in groups:
@@ -2988,6 +3007,12 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
         # long_visual_hold for LATE_MECHANISM -- causal_story:450 fails any mechanism starting
         # after runtime * pct, which is 60s here. The split exists to hold that position.
         _cap_beat_budgets(budgets, group)
+    # Charge the spoken lead to the scene that actually speaks it. A floor of 8 keeps scene one
+    # from collapsing to nothing when the lead is long.
+    if beats and _lead_owed:
+        _first = beats[0].get("n")
+        if _first in budgets:
+            budgets[_first] = max(8, budgets[_first] - _lead_owed)
     return budgets
 
 
