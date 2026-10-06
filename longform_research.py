@@ -1129,6 +1129,16 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
             # a single digit too short to look up.
             if known and len(token) >= 2 and token.casefold() in known:
                 continue              # the evidence says it; it is not an invention
+            # A MORPHOLOGICAL VARIANT OF A NAME THE EVIDENCE CARRIES IS NOT A NEW NAME. The
+            # exemption was a literal substring test, so a dossier full of "Brazil" and "African"
+            # still classed "Brazilian" and "Africanized" as invented, and those two words
+            # blocked run after run on a film whose subject is Africanized bees in Brazil.
+            # WORDS ONLY: a token with a digit in it must match exactly, because "1957" and
+            # "1958" are different facts and no amount of shared prefix makes them the same one.
+            folded = token.casefold()
+            if (known and len(folded) >= 5 and folded.isalpha()
+                    and any(folded[:n] in known for n in range(len(folded), 4, -1))):
+                continue
             return "material"
     return "soft"
 
