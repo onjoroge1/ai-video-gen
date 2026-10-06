@@ -6670,6 +6670,28 @@ def _illustrated_is_cast_free() -> bool:
     return (os.environ.get("ILLUSTRATED_CAST", "none") or "none").strip().lower() != "stock"
 
 
+_COUNT_WORDS = re.compile(
+    r"\b(?:\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+    r"fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|"
+    r"seventy|eighty|ninety|hundred|thousand|million|dozens?)(?:-(?:one|two|three|four|five|six|"
+    r"seven|eight|nine))?\b", re.I)
+
+
+def _count_free(text: str) -> str:
+    """The narration phrase with its quantities removed, for the IMAGE prompt only.
+
+    "Twenty-six honey bee queens" is a fact the narrator speaks; it is not a picture. Quoted
+    verbatim as the first sentence of the image prompt it did two things: the model wrote the
+    number into the frame (six frames of the delivered film carried years), and the inspector
+    then failed visible_information because it "does not visibly establish twenty-six queens" --
+    a count no illustration can verify. The anchor phrase in the PLAN stays verbatim; four gates
+    key on it for timing. Only the prompt's copy loses its numbers.
+    """
+    cleaned = _COUNT_WORDS.sub("", text or "")
+    cleaned = re.sub(r"\s+([,;.])", r"\1", cleaned)          # "October ," -> "October,"
+    return re.sub(r"\s{2,}", " ", cleaned).strip(" ,;")
+
+
 def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
                            style_suffix: str) -> str:
     required = "; ".join(_s(item) for item in state.get("required_objects") or [])
@@ -6720,7 +6742,7 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
         )
     return (
         f"Create one evidence-state frame for this narration phrase: "
-        f"{_s(state.get('anchor_phrase'))}. PURPOSE: {_s(state.get('purpose'))}. "
+        f"{_count_free(_s(state.get('anchor_phrase')))}. PURPOSE: {_s(state.get('purpose'))}. "
         f"STATE BEFORE: {_s(state.get('state_before'))}. STATE NOW/AFTER: "
         f"{_s(state.get('state_after'))}. REQUIRED AND CLEARLY VISIBLE: {required}. "
         f"FORBIDDEN: {forbidden}. {absence}{cast} "
@@ -6814,7 +6836,10 @@ _EVIDENCE_VERIFY_SYSTEM = (
     "\"clothing_matches\":true|false|null,\"location_matches\":true|false|null,"
     "\"opening_object_matches\":true|false|null,\"bolt_present\":true|false,"
     "\"reasons\":[\"specific visible failure\"]}. visible_information is true only when the "
-    "requested state/evidence is actually readable, not merely because the image differs."
+    "requested state/evidence is actually readable, not merely because the image differs. "
+    "A QUANTITY, YEAR OR COUNT spoken in the narration is NOT a visual requirement: never fail "
+    "visible_information, and never list a reason, because a stated number cannot be counted "
+    "in the picture. Judge the subject, the action and the state, not the arithmetic."
 )
 
 
@@ -12820,7 +12845,8 @@ def run_explainer_pipeline(
                     # palette arc is that the stock changes as the story turns.
                     scene_suffix = (
                         illustrated_story_lane.visual_style_suffix(
-                            framing, role=_s(scene.get("causal_role") or scene.get("story_role")))
+                            framing, role=_s(scene.get("causal_role") or scene.get("story_role")),
+                            people=not bool(state.get("pure_evidence")))
                         + illustrated_story_lane.shot_framing(_s(scene.get("shot_type")))
                         + illustrated_story_lane.NO_DIAGRAM
                         if illustrated_story_on else style_suffix)

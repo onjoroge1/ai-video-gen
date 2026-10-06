@@ -485,21 +485,31 @@ def plate_for(role: str) -> str:
     return PLATES.get((role or "").strip().lower(), _DEFAULT_PLATE)
 
 
-def visual_style_suffix(framing: str = "", role: str = "") -> str:
+def visual_style_suffix(framing: str = "", role: str = "", people: bool = True) -> str:
     """Our ink/cut-paper treatment on this role's paper stock, staged for depth.
 
     `role` selects the plate (see PLATES). Omitted, the warm ivory setup stock applies, which is
     what every frame of the first three films used.
+
+    `people=False` is for a PURE-EVIDENCE state. The prompt's cast line says "No characters. Show
+    only physical evidence" and the verifier rejects any person in the frame -- while this suffix
+    described "simplified human figures with natural skin tones ... expressive hands" on every
+    frame. Two instructions about the same picture; the model drew the figures, the inspector
+    refused them twice, and the run died at its first opening asset after fifteen minutes of
+    planning spend. The figure description is only appended where figures are allowed.
     """
+    figures = (
+        "Simplified human figures with natural skin tones, varied angular face silhouettes, "
+        "small simple facial features, expressive hands and period-appropriate clothing. "
+        "Identity is carried by clothing colour, silhouette, headwear and props — never by "
+        "facial detail. " if people else
+        "No human figures in this frame: objects, animals, places and documents only. ")
     return (
         " Compose ONE single continuous scene that fills the whole frame: a single moment, seen "
         "once, from one camera. Never a grid, never panels, never a storyboard sheet, never "
         "borders, gutters, insets, numbered boxes or caption strips. "
         " Visual treatment: hand-drawn editorial history illustration with layered cut-paper "
-        "shapes on clean ivory stock. Simplified human figures with natural skin tones, varied "
-        "angular face silhouettes, small simple facial features, expressive hands and "
-        "period-appropriate clothing. Identity is carried by "
-        "clothing colour, silhouette, headwear and props — never by facial detail. Visible ink "
+        "shapes on clean ivory stock. " + figures + "Visible ink "
         "contour lines, restrained crosshatching, flat gouache colour blocks and a little paper "
         "grain. A single small mustard-yellow paper accent marks the changing story object, on every "
         "plate. Readable silhouettes, layered foreground, middle ground and "
