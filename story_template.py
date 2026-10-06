@@ -44,12 +44,21 @@ MIN_ESCALATION_SCENES = 2
 # Share of the scene count per role. Escalation dominates because the compounding IS the story;
 # the others are proportioned from the delivered films' beat counts. Normalised over the roles an
 # engine actually has, then escalation absorbs the rounding remainder.
+# STATE THE PRINCIPLE EARLY. These weights set how much of the RUNTIME each role gets, and the
+# three roles before the mechanism held 33% of it -- so a film built exactly to this template put
+# its mechanism a third of the way in, and the storyboard gate failed it for landing past the 20%
+# mark. The template was handing the planner a shape the next gate refuses.
+#
+# causal_story says it plainly: "the planner has to be given a TARGET near where the references
+# actually sit (~18%) instead of a ceiling to drift up against, because a ceiling gets treated as
+# a target." The opening block is now 16.7% of the runtime, so the mechanism arrives before the
+# deadline rather than three seconds after it, and the escalation band keeps what the setup loses.
 ROLE_WEIGHTS = {
-    "setup": 0.17,
-    "intervention": 0.08,
-    "false_resolution": 0.08,
-    "mechanism": 0.13,
-    "escalation": 0.40,
+    "setup": 0.08,
+    "intervention": 0.04,
+    "false_resolution": 0.04,
+    "mechanism": 0.14,
+    "escalation": 0.46,
     "reversal": 0.12,
     "takeaway": 0.04,
 }
@@ -64,8 +73,15 @@ ENGINE_ROLE_ORDER = {
 }
 _DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal", "takeaway")
 
-_TAKEAWAY_MEANING = ("one spoken sentence naming the pattern the story proves; no new fact, no "
-                     "number, no proper noun the film has not already said")
+# The close RETURNS TO THE OPENING OBJECT. Both reference films end on the thing they opened on,
+# the storyboard gate fails a close that does not (NO_CALLBACK), and this instruction used to say
+# only what the takeaway may not contain -- so a film built to the template was refused for
+# obeying it.
+_TAKEAWAY_MEANING = ("one spoken sentence naming the pattern the story proves, and it must come "
+                     "back to the OPENING OBJECT named in the story contract -- the thing the "
+                     "cold open showed -- so the film closes where it began, with its meaning "
+                     "changed; no new fact, no number, no proper noun the film has not already "
+                     "said")
 
 _STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
          "then", "than", "this", "these", "those", "their", "they", "them", "its", "for", "but",
