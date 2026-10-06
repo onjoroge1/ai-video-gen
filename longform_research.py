@@ -1050,7 +1050,7 @@ def _known_evidence_text(dossier: dict) -> str:
 
 
 _MATERIAL_DETAIL = re.compile(
-    r"\d"                                   # any digit: a count or a year
+    r"\d+"                                  # a count or a year, whole so it can be matched in evidence
     # Spelled-out numbers and quantities. "twenty-six swarms escaped" is the measured case: the
     # evidence says twenty-six QUEENS escaped with swarms of European workers, and the wrong
     # noun rode the number through five runs. A number in words is still a number.
@@ -1099,7 +1099,10 @@ def fidelity_severity(details: list, known_text: str = "") -> str:
             return "material"
         for match in _MATERIAL_DETAIL.finditer(probe):
             token = match.group(0).strip()
-            if known and len(token) > 2 and token.casefold() in known:
+            # A figure the evidence states is not invented either: "October 1957" and "26
+            # queens" are both in the dossier verbatim, and were blocking because the match was
+            # a single digit too short to look up.
+            if known and len(token) >= 2 and token.casefold() in known:
                 continue              # the evidence says it; it is not an invention
             return "material"
     return "soft"
