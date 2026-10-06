@@ -160,7 +160,12 @@ def main(job: str) -> int:
                  f"hue SD {spread:.1f} deg over {len(frames)} sampled frames "
                  f"(same measure: V1 {_BASELINE_HUE['killerbees01']}, "
                  f"V2 {_BASELINE_HUE['killerbees02']})"))
-    grammar = illustrated_story.shot_grammar_report(board.get("beats") or scenes)
+    # SHOT SIZE LIVES ON THE SCRIPT SCENES, not on the storyboard beats. Reading the beats
+    # reported 0% close-ups for a film that is 55% close-ups, which would have been published as
+    # "the imagery never improved" -- the exact claim this script exists to settle.
+    graded_scenes = [sc for sc in scenes if sc.get("shot_type")]
+    grammar = illustrated_story.shot_grammar_report(
+        graded_scenes or [b for b in (board.get("beats") or []) if b.get("shot_type")] or scenes)
     close = grammar.get("close_ratio", 0.0)
     wide = grammar.get("wide_ratio", 0.0)
     rows.append(("close-ups carry the film", close >= 0.40, f"{close:.0%} close"))
