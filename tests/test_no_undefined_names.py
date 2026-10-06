@@ -42,8 +42,11 @@ def _undefined(path):
             name = sym.get_name()
             if not sym.is_referenced():
                 continue
-            if (sym.is_parameter() or sym.is_assigned() or sym.is_imported()
-                    or sym.is_global() or sym.is_free()
+            # is_global() is also true for an IMPLICIT global -- any name a function reads
+            # without binding -- so it exempted exactly the names this test exists to catch.
+            # A declared `global x` is fine only if the module binds x; an implicit one has to
+            # be a real module global or a builtin.
+            if (sym.is_parameter() or sym.is_assigned() or sym.is_imported() or sym.is_free()
                     or name in module_globals or name in BUILTINS or name in enclosing):
                 continue
             found.append(f"{table.get_name()}: {name}")
