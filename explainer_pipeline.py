@@ -2981,12 +2981,6 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     opening = max(0, int(total_words * se.mechanism_deadline_pct(
         se.get(engine_id), cs.MECHANISM_DEADLINE_PCT)) - prefix_words)
     budgets = {}
-    # SCENE ONE PAYS FOR THE LEAD IT CARRIES. finalize_narration prepends the hook and the cold
-    # open to the first scene, so its spoken length is its own budget PLUS ~26 words. Subtracting
-    # the prefix from the global total (as this did) spreads the cost across every beat and
-    # leaves scene one over its own allowance: measured at 45 words against an opening budget the
-    # storyboard repair then could not pull back, twice in one evening.
-    _lead_owed = prefix_words
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
     for group, words in groups:
@@ -3007,12 +3001,11 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
         # long_visual_hold for LATE_MECHANISM -- causal_story:450 fails any mechanism starting
         # after runtime * pct, which is 60s here. The split exists to hold that position.
         _cap_beat_budgets(budgets, group)
-    # Charge the spoken lead to the scene that actually speaks it. A floor of 8 keeps scene one
-    # from collapsing to nothing when the lead is long.
-    if beats and _lead_owed:
-        _first = beats[0].get("n")
-        if _first in budgets:
-            budgets[_first] = max(8, budgets[_first] - _lead_owed)
+    # NOTE: the lead is NOT charged again to scene one here. `available` and `opening` above
+    # already subtract prefix_words, so the opening group's SPOKEN total -- its budgets plus the
+    # prepended hook and cold open -- lands exactly on its share. Subtracting it a second time
+    # from the first beat double-charges it and was caught by
+    # test_causal_opening_budget_includes_hook_and_keeps_short_hinge.
     return budgets
 
 
