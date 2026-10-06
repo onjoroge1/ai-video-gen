@@ -2991,7 +2991,10 @@ def expansion_survives_the_ledger(new_narration: str, event_text: str, *,
                                      cost_sink=cost_sink)
     if verdict.get("passed"):
         return True, []
-    return False, verdict.get("unsupported_details") or []
+    # The REASON matters as much as the details: a provider outage and a genuine overshoot both
+    # arrive as "not passed" with nothing listed, and only one of them is about the writing.
+    return False, (verdict.get("unsupported_details")
+                   or [verdict.get("reason") or verdict.get("verdict") or "no verdict"])
 
 
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
@@ -4676,9 +4679,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                         _old = _s(_sc.get("narration"))
                         if not _new or len(_new.split()) <= len(_old.split()):
                             continue
+                        # A DEVICE BEAT HAS NO EVENT, and is short on purpose. The hinge lands
+                        # in ten words or it is not a turn, and the tool is a direct address;
+                        # neither is measured against a factual event, so neither is expanded.
+                        if not _s((_sc.get("event") or {}).get("text")):
+                            _held += 1
+                            print(f"[length] scene {_i + 1} is a device beat with no event; "
+                                  "left short by design")
+                            continue
                         _keep, _why = expansion_survives_the_ledger(
                             _new, _s((_sc.get("event") or {}).get("text")),
-                            cache=script.setdefault("_entailment_cache", {}),
+                            cache=_cache,
                             cost_sink=cost_sink)
                         if not _keep:
                             _held += 1

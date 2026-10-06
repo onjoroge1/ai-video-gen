@@ -247,6 +247,17 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                 value["scenes"].append({"narration": text, "image_prompt": "A rat beside a tail counter.",
                     "scene_type": "real_world_example", "environment_type": "city",
                     "text_overlay": "", "text_sub": "", "shot_type": "medium"})
+        elif "under their word budget" in prompt:
+            # THE LENGTH TOP-UP. A causal script that lands under its floor is expanded once, so
+            # a 300-second request stops delivering a 155-second film. It is a real, intended
+            # purchase and the fixture names it rather than letting it read as unplanned spend.
+            # Each line comes back longer using only words it already contains, which is what the
+            # expansion guard requires: anything else and the claim ledger refuses the script.
+            start = prompt.index("[{")
+            short = json.JSONDecoder().raw_decode(prompt[start:])[0]
+            value = {"scenes": [{"id": row["id"],
+                                 "narration": row["narration"] + " " + row["narration"]}
+                                for row in short]}
         else:
             pytest.fail("unexpected language-model request: " + prompt[:100])
         return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(value))],

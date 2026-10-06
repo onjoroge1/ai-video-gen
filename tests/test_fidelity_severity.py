@@ -42,7 +42,22 @@ def test_one_material_detail_makes_the_whole_finding_blocking():
 
 
 def test_no_details_is_soft():
+    """A judge that kept a factual core and itemised nothing has flagged nothing to strip."""
     assert fidelity_severity([]) == "soft"
+    assert fidelity_severity([], "", "partially_entailed") == "soft"
+
+
+def test_an_unsupported_verdict_blocks_even_with_nothing_itemised():
+    """Severity softens `partially_entailed` and nothing else.
+
+    "Hundreds of secret overnight rat farms appeared" was rejected by the judge as unsupported
+    with no itemised details, and the severity filter read the empty list as soft and let it
+    through -- a fail-open hole in the one boundary that stops invented narration. Unsupported
+    means no factual core was found at all; there is nothing left to be lenient about.
+    """
+    assert fidelity_severity([], "", "unsupported") == "material"
+    assert fidelity_severity(["across open ground"], "", "unsupported") == "material"
+    assert fidelity_severity([], "", "unavailable") == "material"
 
 
 def _report(fidelity_details, **over):

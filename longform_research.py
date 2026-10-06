@@ -809,7 +809,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     for row in report["fidelity"]:
         errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
                        "severity": fidelity_severity(row.get("unsupported_details") or [],
-                                                     _known_evidence_text(dossier)),
+                                                     _known_evidence_text(dossier),
+                                                     row.get("verdict") or ""),
                        "message": f"{row['beat_id']}: the narration asserts more than its event "
                                   f"({row['verdict']}): "
                                   + ", ".join(row.get("unsupported_details") or []),
@@ -913,7 +914,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
     for row in report["fidelity"]:
         bucket = (soft_fidelity
                   if fidelity_severity(row.get("unsupported_details") or [],
-                                       _known_evidence_text(dossier)) == "soft"
+                                       _known_evidence_text(dossier),
+                                       row.get("verdict") or "") == "soft"
                   else material_fidelity)
         bucket.append(row)
     blocking_errors = [e for e in errors
@@ -1066,7 +1068,7 @@ _MATERIAL_DETAIL = re.compile(
     re.I if False else 0)
 
 
-def fidelity_severity(details: list, known_text: str = "") -> str:
+def fidelity_severity(details: list, known_text: str = "", verdict: str = "") -> str:
     """Is this narration overshoot material enough to stop a render?
 
     MATERIAL: the detail carries a number, a date, a named person or place, or an actor doing
@@ -1075,7 +1077,15 @@ def fidelity_severity(details: list, known_text: str = "") -> str:
 
     SOFT: everything else -- setting, paraphrase, the ordinary word for a state the event already
     asserts. Reported, never blocking.
+
+    Only `partially_entailed` can ever be soft. A judge that says `unsupported` has found no
+    factual core at all, and one that lists nothing has told us nothing to weigh -- both fail
+    closed. Without that, "Hundreds of secret overnight rat farms appeared" passed the gate
+    because the judge rejected it without itemising why, which is a fail-open hole in the one
+    boundary that stops invented narration.
     """
+    if verdict and verdict != "partially_entailed":
+        return "material"
     # A NAME THE EVIDENCE ALREADY CONTAINS IS NOT AN INVENTED NAME. Without this the film's own
     # subject trips the rule: "Brazil's European bees" and "The forest gained African honey bee
     # colonies" were both classed material because "Brazil" and "African" are capitalised, while
