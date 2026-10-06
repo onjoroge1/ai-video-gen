@@ -316,8 +316,14 @@ def geometry(tw: int, th: int) -> dict:
 
 
 def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
-            headline: tuple[str, str] = HEADLINE) -> str:
-    """Fit the two-scene background and draw divider, prohibition ring, arrow and headline."""
+            headline: tuple[str, str] = HEADLINE, ring_overlay: bool = True) -> str:
+    """Fit the two-scene background and draw divider, prohibition ring, arrow and headline.
+
+    `ring_overlay=False` leaves the ring out, for a background that already contains one. The
+    delivered killer bees thumbnail carried TWO crossed-out circles: the prompt tells the model
+    not to draw one and it drew one anyway, and the renderer then added its own on top. An
+    instruction the model can ignore is not a guarantee, so the count is now enforced here.
+    """
     geo = geometry(tw, th)
     base = ImageOps.fit(Image.open(bg_path).convert("RGB"), (tw, th)).convert("RGBA")
 
@@ -337,8 +343,9 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
         d.ellipse(box, outline=c, width=width)
         d.line(slash, fill=c, width=width)
 
-    _glow(base, lambda d, c: ring(d, c, w + 14), RED, 14, 170)
-    ring(ImageDraw.Draw(base), (*RED, 255), w)
+    if ring_overlay:
+        _glow(base, lambda d, c: ring(d, c, w + 14), RED, 14, 170)
+        ring(ImageDraw.Draw(base), (*RED, 255), w)
 
     # Curved yellow arrow from under the ring into the consequence panel, black outlined.
     p0, p1, p2 = geo["arrow"]
@@ -398,6 +405,45 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
+_RING_QUESTION = (
+    "Look at this artwork. Does it ALREADY CONTAIN a drawn prohibition symbol -- a red or black "
+    "circle, ring, oval outline, crossed-out sign, diagonal slash, X or no-entry symbol -- drawn "
+    "as part of the picture? A round object that is simply part of the scene (the sun, a plate, a "
+    "wheel, a honeycomb cell) is NOT a prohibition symbol. "
+    'Return ONLY JSON: {"ring": true|false}.'
+)
+
+
+def detect_drawn_ring(image_path: str, cost_sink: list | None = None,
+                      log=lambda message: None) -> bool:
+    """Did the model draw a prohibition symbol the renderer is about to duplicate?
+
+    Best-effort: on any failure this returns False and the renderer behaves as it always has,
+    because a missing vision call must not cost a finished film its packaging. It SAYS so,
+    though -- an earlier version swallowed a missing ANTHROPIC_API_KEY and reported "no ring",
+    which is the same silent-fallback shape that let two circles reach YouTube in the first place.
+    """
+    import base64
+
+    import explainer_pipeline as ep
+    try:
+        with open(image_path, "rb") as handle:
+            b64 = base64.b64encode(handle.read()).decode()
+        rsp = ep._claude().messages.create(
+            model=ep.ANTHROPIC_MODEL, max_tokens=100,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                             "data": b64}},
+                {"type": "text", "text": _RING_QUESTION}]}])
+        if cost_sink is not None:
+            cost_sink.append(ep._msg_cost(rsp.usage))
+        out, _ = ep._parse_script_json(rsp.content[0].text)
+        return bool(isinstance(out, dict) and out.get("ring"))
+    except Exception as exc:               # noqa: BLE001 - never block packaging on this
+        log(f"ring check unavailable ({type(exc).__name__}); assuming the artwork has none")
+        return False
+
+
 def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                        cost_sink: list | None = None, report: dict | None = None,
                        log=lambda message: None, pairs: list[dict] | None = None,
@@ -431,7 +477,23 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
         except Exception:
             ep.make_fallback_frame(bg, "", w=1280, h=720)
             fell = True
-        compose(bg, vpath)
+        # Exactly one crossed-out circle reaches the viewer. One redraw, then the overlay yields.
+        keep_ring = True
+        if detect_drawn_ring(bg, cost_sink, log):
+            log("thumbnail artwork drew its own prohibition ring; redrawing once")
+            try:
+                ep.generate_image(
+                    image_prompt(pair, illustrated)
+                    + " REDRAW: the previous attempt drew a crossed-out circle. Draw the two "
+                      "scenes ONLY. No ring, no circle outline, no slash, no X, no prohibition "
+                      "sign anywhere in the frame.",
+                    bg, cost_sink=cost_sink, size="1536x1024")
+            except Exception:              # noqa: BLE001 - keep the first attempt
+                pass
+            if detect_drawn_ring(bg, cost_sink, log):
+                log("artwork still carries a ring; leaving the overlay ring off this candidate")
+                keep_ring = False
+        compose(bg, vpath, ring_overlay=keep_ring)
         grade = ep.grade_thumbnail(vpath, title, cost_sink=cost_sink)
         rendered.append({"pair": pair, "path": vpath, "fails": (grade or {}).get("fails")})
         if best_grade is None or (grade or {}).get("fails", 99) < best_grade.get("fails", 99):
