@@ -38,9 +38,21 @@ _LOCATION_BY_ROLE = {
     cs.TOOL: "opening_location",
     cs.VERDICT: "opening_location",
 }
-# The reference videos both narrate at ~180 words per minute. Scenes carry no timing before TTS,
-# so the mechanism-placement check needs an estimate, and the measured rate is the honest one.
-REFERENCE_WPM = 180.0
+# OUR voice, not the reference channel's. Scenes carry no timing before TTS, so the
+# mechanism-placement check needs an estimate -- and this was 180, measured on the two reference
+# VIDEOS, while the films it is used to predict are narrated by us. Measured on what we actually
+# shipped, decoding each mp4 and counting its spoken words:
+#
+#     killerbees01   601 words / 238.7s = 151 wpm
+#     killerbees02   452 words / 179.1s = 151 wpm
+#     canetoad01     792 words / 281.7s = 169 wpm
+#     wolves01       646 words / 229.8s = 169 wpm
+#
+# The illustrated lane sits at 151 and the older pair at 169; none of them at 180. Overestimating
+# the rate underestimates the runtime, which tightens every deadline expressed as a PERCENTAGE of
+# it -- a 608-word script was called a 122s film and then failed LATE_MECHANISM against a 24s
+# ceiling that should have been 48s. Re-measure this if the voice speed changes.
+REFERENCE_WPM = 151.0
 
 
 def _text(value: Any) -> str:

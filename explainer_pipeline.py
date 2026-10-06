@@ -5665,8 +5665,13 @@ def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: 
     not the scene's last sentence. Returns the number of sentences dropped; the caller re-binds
     and re-validates, so this can only ever turn a failure into a judged pass, never assert one.
     """
+    # ONLY WHAT ACTUALLY BLOCKS. A soft finding does not stop the ledger, so deleting a sentence
+    # for one buys nothing and costs the film its length: a 608-word script was trimmed to 361 --
+    # 41% of the narration gone -- and the runtime contract then reported 133s against a 300s
+    # target. The short films were never a writing fault; this is where the words went.
     errors = [item for item in (report or {}).get("errors") or []
-              if isinstance(item, dict) and item.get("code") == "NARRATION_EXCEEDS_EVENT"]
+              if isinstance(item, dict) and item.get("code") == "NARRATION_EXCEEDS_EVENT"
+              and item.get("severity") != "soft"]
     scenes = script.get("scenes") or []
     by_beat = {}
     for position, scene in enumerate(scenes, 1):
