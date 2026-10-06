@@ -57,13 +57,20 @@ def test_mapped_setup_reaches_semantic_review_without_shared_words(engine, funct
     assert judge.call_count == 1 and judge.call_args.args[0]["kind"] == "function"
 
 
-@pytest.mark.parametrize("verdict", ["unsupported", "contradicted", "unavailable"])
-def test_semantic_rejection_or_outage_cannot_pass_narrowing(verdict):
+# An OUTAGE is asked twice; a REJECTION is asked once. An unreadable or unavailable reply is an
+# operational fault rather than a finding about the evidence, and one such fault killed a whole
+# spine after research and planning were already bought, so the judge gets a second chance before
+# the gate fails closed. A verdict that genuinely rejects the beat is not re-asked: the answer is
+# already a finding, and asking again would only buy a second opinion on settled evidence.
+@pytest.mark.parametrize("verdict,calls", [
+    ("unsupported", 1), ("contradicted", 1), ("unavailable", 2)])
+def test_semantic_rejection_or_outage_cannot_pass_narrowing(verdict, calls):
     saved, partial = snapshot()
     judge = Mock(return_value={"verdict": verdict})
     kept, narrowed, blocked = facts.narrow_required_roles(
         [saved["draft_beats"][0]], {"event_1": partial}, "removed_keystone", judge=judge)
-    assert not narrowed and blocked and judge.call_count == 1
+    assert not narrowed and blocked, "an outage or rejection must never narrow a role through"
+    assert judge.call_count == calls
     assert kept[0]["event"]["text"] != CORE
 
 
