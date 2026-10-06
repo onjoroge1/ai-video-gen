@@ -117,10 +117,26 @@ def _slot_plan_ask(slot_plan: dict, mapping) -> str:
     grader scored repetition 8/100. Asked for N escalations each carrying a DIFFERENT documented
     step, the same dossier yielded twelve distinct ones.
     """
-    rows = [f"  {role}: {count} event(s)" for role, count in slot_plan.items() if count]
-    total = sum(slot_plan.values())
+    # IN THE VOCABULARY THE SCHEMA ACCEPTS. The rows were written in ROLE names (setup,
+    # escalation...) while the schema demands an event_function (establishes_balance,
+    # population_responds...). Asked for "escalation: 13 event(s)", the planner labelled the
+    # compounding steps with the only generic function it had -- `context` -- and the delivered
+    # film compiled seven scenes from an 18-beat sheet. Each row now names the function(s) that
+    # become that role, and a role no function produces is omitted from the ask and the count.
+    by_role: dict[str, list[str]] = {}
+    for function_name, role in (getattr(mapping, "to_role", None) or {}).items():
+        by_role.setdefault(role, []).append(function_name)
+    rows, total = [], 0
+    for role, count in slot_plan.items():
+        if not count:
+            continue
+        functions = by_role.get(role)
+        if not functions:
+            continue
+        rows.append(f"  {' or '.join(functions)}: {count} event(s)  -- these become the {role}")
+        total += count
     return (
-        f'Return EXACTLY {total} factual events, distributed across the story roles like this:\n'
+        f'Return EXACTLY {total} factual events, labelled with these event_function values:\n'
         + "\n".join(rows) + "\n"
         'Each event becomes exactly ONE scene, so the count is the film\'s structure and not a '
         'suggestion. Every event in the escalation band must carry a DIFFERENT documented step '

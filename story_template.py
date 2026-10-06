@@ -154,13 +154,24 @@ def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
     role; it no longer sets event counts for roles that may only occur once.
     """
     import causal_story as _cs
+    import event_functions as _ef
     order = role_order(engine_id)
     repeatable = {str(r).casefold() for r in _cs._REPEATABLE}
     roles = [r for r in order if r != "takeaway"]
     singles = [r for r in roles if r.casefold() not in repeatable]
     repeats = [r for r in roles if r.casefold() in repeatable]
+    # A ROLE NO FUNCTION CAN PRODUCE IS THE COMPILER'S, NOT THE PLANNER'S. backfiring_solution
+    # DERIVES its mechanism from the changes_incentive beat and splices it in; no event_function
+    # maps to "mechanism" there, and the same prompt says "do not supply a mechanism". Asking for
+    # one event the planner has no label for forced a wrong function or a short count -- the
+    # same two-counts-in-one-prompt disagreement, one engine over. removed_keystone's mechanism
+    # IS planner-written (hidden_link), so it keeps its event.
+    mapping = _ef.map_for(engine_id)
+    producible = set((mapping.to_role or {}).values()) if mapping else set(roles)
+    compiler_owned = [r for r in singles if r not in producible]
+    singles = [r for r in singles if r in producible]
     counts = {r: 1 for r in singles}
-    devices = 2                                  # hinge + tool, appended by the compiler
+    devices = 2 + len(compiler_owned)            # hinge + tool (+ any derived role), compiler-added
     remainder = max(0, n_total - len(singles) - devices)
     if "generalization" in repeats and remainder > MIN_ESCALATION_SCENES:
         counts["generalization"] = 1

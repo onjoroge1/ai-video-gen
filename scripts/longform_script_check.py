@@ -156,6 +156,7 @@ def run_sample(args, sample_id: int, log=print) -> dict:
             if repair_cost:
                 costs.append(repair_cost)
                 script = repaired
+                script.pop("_repair_held", None)       # a per-pass note, not script state
                 ep.rederive_narration_bindings(script, log)
                 joins = ep._validate_claims(script, dossier, costs)
                 log("Claim ledger repair: "

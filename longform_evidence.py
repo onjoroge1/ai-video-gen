@@ -807,11 +807,24 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
         beats = _visual_beats(scene)
+        # THE ASK IS WHAT THE WRITER WAS TOLD, ON THE WORDS IT COUNTED. Fact-check and repair may
+        # shorten a line by up to a third afterwards; recomputing the ask from the shortened line
+        # put the ceiling below the count the writer obeyed and then recorded a false "asked for"
+        # number in the diagnostic. The writer stamps _words_as_written; the larger count wins.
+        words_now = len(_text(scene.get("narration")).split())
+        requested = states_required_for_words(max(words_now, int(scene.get("_words_as_written") or 0)))
+        fitted = _states_that_fit(beats, scene, measured.get(scene_index),
+                                  reserve=1 if scene_index == reserved_for_callback else 0)
+        if opening:
+            # COMPILE AND VALIDATE AGREE ON ONE NUMBER. state_count_rule tells the writer there is
+            # no upper band; validate_evidence_plan has one for opening beats. Rather than tell the
+            # writer two things, the compiler trims an opening scene to the ceiling the validator
+            # will apply, so that gate can only ever fail on the floor -- and the trimmed count is
+            # still what the runtime holds, because _states_that_fit already fitted it to seconds.
+            fitted = fitted[:max(6, states_required_for_capacity(capacity), requested + 1)]
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
-            for state_index, beat in enumerate(
-                _states_that_fit(beats, scene, measured.get(scene_index),
-                                 reserve=1 if scene_index == reserved_for_callback else 0))
+            for state_index, beat in enumerate(fitted)
         ]
         repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         seconds = measured.get(scene_index)
@@ -857,8 +870,7 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "opening": opening,
             "state_capacity": capacity,
             # What the prompt told the writer this scene needs, so the validator can honour it.
-            "states_requested": states_required_for_words(
-                len(_text(scene.get("narration")).split())),
+            "states_requested": requested,
             "states": states,
         })
 

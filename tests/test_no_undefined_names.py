@@ -32,7 +32,12 @@ def _undefined(path):
     found = []
 
     def walk(table, enclosing):
-        local = {s.get_name() for s in table.get_symbols()}
+        # Only names the enclosing scopes BIND count as available. The first version carried
+        # every symbol an enclosing table merely referenced, so a `log(...)` call inside a
+        # function with no `log` parameter passed because other functions take one -- and the
+        # NameError it raised at runtime was swallowed by a broad except for a full day.
+        local = {s.get_name() for s in table.get_symbols()
+                 if s.is_assigned() or s.is_parameter() or s.is_imported()}
         for sym in table.get_symbols():
             name = sym.get_name()
             if not sym.is_referenced():

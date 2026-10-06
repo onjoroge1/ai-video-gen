@@ -3972,6 +3972,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                "supports.")
                 _hp_plan, _hp_cost = _ask_planner(_hook_fix)
                 cost += _hp_cost
+                if not isinstance(_hp_plan, dict):
+                    print("[hook] re-ask returned nothing usable; keeping the current one")
+                    break
                 _new = _hp.score_hook(_s(_hp_plan.get("hook")))
                 if _new["score"] > _hs["score"] and _beats_of(_hp_plan):
                     plan["hook"] = _s(_hp_plan.get("hook"))
@@ -3980,8 +3983,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 else:
                     print(f"[hook] retry did not improve ({_new['score']}/100); keeping the current one")
                     break
-        except Exception:
-            pass
+        except Exception as _hook_exc:         # noqa: BLE001 - a paid call that failed is logged
+            print(f"[hook] re-ask unavailable: {type(_hook_exc).__name__}: {str(_hook_exc)[:120]}")
         _cold_fix = _cold_open_correction(plan, research_dossier)
         if _cold_fix and _roles.get("compiled"):
             print("Beat sheet has no usable cold open — re-asking the planner once")
@@ -4509,6 +4512,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         count_note = ""
         for batch_index, s in enumerate(part.get("scenes") or []):
             beat = batch[batch_index] if batch_index < len(batch) else {}
+            # The evidence-state ask is ceil(words / 2.588 / 2.75), computed by the writer on the
+            # words it has just written. Fact-check and repair may shorten the line by up to a
+            # third afterwards, and a ceiling recomputed from the shortened line sat below the
+            # ask the writer actually obeyed. Stamped here so compile_evidence_plan can honour it.
+            s["_words_as_written"] = len(_s(s.get("narration")).split())
             s["human_present"] = _plan_bool(beat.get("human_present"), True)
             s["human_action"] = _s(beat.get("human_intention"))
             s["bolt_mode"] = _s(beat.get("bolt_mode")) or "absent"
@@ -6132,11 +6140,23 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             # 222 came out, and the runtime contract then reported an 82-second film against a
             # 300-second request. The repair hands the model the one-sentence EVENT as the
             # ceiling and the model rewrites the scene down to it -- 13 events x ~17 words is the
-            # 222 that shipped. The trim and the fact-check both refuse a rewrite that drops more
-            # than a third of a line; this was the one narration-rewriting stage that did not.
+            # 222 that shipped. The fact-check refuses a rewrite that drops more than a third of a
+            # line; this stage did not. (The deterministic trim deletes whole unsupported
+            # sentences by design, so under a HARD ledger it may still remove what this hold
+            # preserves -- a refusal there is the honest outcome, not a collapse.)
             # A held scene keeps its original text AND bindings (the repaired claim_refs describe
             # the repaired sentence, not the kept one) and is reported to the caller.
-            _before = len(_s(scenes[index - 1].get("narration")).split())
+            _original = _s(scenes[index - 1].get("narration"))
+            if index == 1 and "HOOK_EXCEEDS_STORY" in failed_codes:
+                # SCENE ONE CARRIES THE SPOKEN LEAD. finalize_narration prepends the hook and the
+                # cold open, so a repair that correctly drops a refused hook reads as a 50% cut of
+                # the scene and was being held -- which left the refused hook in place and let the
+                # block below re-derive it from text that had not changed. The hold is measured
+                # on the body the event actually governs.
+                for _lead in (_s(script.get("hook")), _s(script.get("_cold_open"))):
+                    if _lead and _original.startswith(_lead):
+                        _original = _original[len(_lead):].lstrip()
+            _before = len(_original.split())
             _after = len(narration.split())
             if _before >= 12 and _after < _before * 0.65:
                 candidate.setdefault("_repair_held", []).append(
@@ -6159,7 +6179,17 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # only the narration leaves the old, over-reaching sentence in the field that the
         # description, the thumbnail and the next finalize_narration all read from -- and
         # finalize_narration would put it straight back into the narration it was just cut from.
-        if any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY" for error in errors):
+        _scene_one_held = any(int(h.get("scene") or 0) == 1
+                              for h in candidate.get("_repair_held") or [])
+        if _scene_one_held and any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY"
+                                   for error in errors):
+            # NOTHING WAS REPAIRED, SO THERE IS NO REPAIRED OPENER TO DERIVE FROM. Deriving from
+            # the unchanged scene installed the refused hook again -- or the cold-open sentence,
+            # which then stacked a second lead when finalize_narration ran. The planner's hook
+            # stands and the finding stays open for the ledger to report.
+            print("hook left as planned: scene 1's repair was held, so the opener is unchanged")
+        if (any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY" for error in errors)
+                and not _scene_one_held):
             opener = _s(candidate["scenes"][0].get("narration")).strip()
             sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", opener)[:2]
                          if part.strip()]
@@ -6191,8 +6221,10 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
                         candidate["_hook_downgraded"] = {
                             "from_score": was, "to_score": now,
                             "from": _s(candidate.get("hook")), "to": sentences[0]}
-                        log(f"hook rebuilt from the supported opener: {was}/100 -> {now}/100 "
-                            "(the planner's hook asserted more than the evidence supports)")
+                        # print, not log: this function has no logger, and a `log(...)` here
+                        # raised NameError into the try below, so this note never once appeared.
+                        print(f"hook rebuilt from the supported opener: {was}/100 -> {now}/100 "
+                              "(the planner's hook asserted more than the evidence supports)")
                 except Exception:          # noqa: BLE001 - scoring must not break the repair
                     pass
                 candidate["hook"] = sentences[0]
@@ -9114,7 +9146,13 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         tags = [_s(t).strip().lstrip("#").strip() for t in (o.get("hashtags") or []) if _s(t).strip()]
         if tags:
             parts.append(" ".join("#" + t.replace(" ", "") for t in tags[:6]))
-        kw = api_safe_tags(o.get("tags") or [])
+        _raw_tags = [_s(t).strip() for t in (o.get("tags") or []) if _s(t).strip()]
+        kw = api_safe_tags(_raw_tags)
+        if len(kw) < len(_raw_tags):
+            # The prompt states the 30-character rule; the guard behind it must not be silent,
+            # or the model ignoring the rule has no visible consequence.
+            print(f"[tags] {len(_raw_tags) - len(kw)} of {len(_raw_tags)} dropped as not API-safe: "
+                  + "; ".join(t for t in _raw_tags if t not in kw)[:300])
         if kw:
             parts.append("Tags: " + ", ".join(kw[:18]))   # full 5/5/3/2-4 architecture
         parts.append(_DESC_DISCLOSURE)
@@ -11963,7 +12001,9 @@ def run_explainer_pipeline(
                 _held = script.pop("_repair_held", None) or []
                 log(f"words: {_words_before} -> {_words_after} (claim repair pass "
                     f"{_repair_pass + 1})" + (f"; {len(_held)} scene(s) kept their original line "
-                                             "because the rewrite cut more than a third"
+                                             "because the rewrite cut more than a third: "
+                                             + ", ".join(f"scene {h['scene']} {h['before']}->{h['after']}"
+                                                         for h in _held)
                                              if _held else ""))
                 script["_script_cost_usd"] = round(
                     float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
@@ -14072,14 +14112,17 @@ def run_explainer_pipeline(
     # THE HOOK CONTRACT, MEASURED ON WHAT SHIPPED. The planner's hook is scored and re-asked, and
     # then a repair can replace it; the delivered bee film opened on a 40/100 event summary with
     # the viewer absent and nothing in run_result said so. Scored here on the final text.
-    try:
-        import hook_patterns as _hp_final
-        _final_hook = _hp_final.score_hook(_s(script.get("hook")))
-        if _final_hook["score"] < 70:
-            reasons.append(f"hook scores {_final_hook['score']}/100 against the 70 contract"
-                           + (f" ({_final_hook['notes'][0]})" if _final_hook.get("notes") else ""))
-    except Exception:                       # noqa: BLE001 - reporting must not fail the film
-        pass
+    # Only where the hook is SPOKEN: _ensure_lead_spoken prepends it only for a compiled story,
+    # and in the default and social lanes script["hook"] is a description line nobody hears.
+    if script.get("_compiled_story"):
+        try:
+            import hook_patterns as _hp_final
+            _final_hook = _hp_final.score_hook(_s(script.get("hook")))
+            if _final_hook["score"] < 70:
+                reasons.append(f"hook scores {_final_hook['score']}/100 against the 70 contract"
+                               + (f" ({_final_hook['notes'][0]})" if _final_hook.get("notes") else ""))
+        except Exception:                   # noqa: BLE001 - reporting must not fail the film
+            pass
     # Retention readiness has hard failures that cap it at 69 and nothing consumed them: the
     # delivered film's 43 of 44 cuts were unaligned (semantic_sync) and the only trace was an
     # info line. A hard failure is a reason.
@@ -14089,14 +14132,21 @@ def run_explainer_pipeline(
     # The rendered contract's own verdict. The delivered film's rendered_contract.json carried
     # publishable:false, calibrated:false and an uncertified_reason, and none of it reached this
     # list or the log, because the reasons block read only hard_failures (empty at 87/100).
+    # PUBLISH BLOCKERS ARE A SEPARATE LIST. Under the stable Standard profile the rendered
+    # contract is publishable:false on every run (the thresholds are uncalibrated) and editorial
+    # approval is pending on every run (no reviewer is in the loop), so putting them in `reasons`
+    # made every film "degraded" by construction and the status bit carried no information --
+    # the same shape as the thumbnail flag that fired on every Backfire film. They are true, they
+    # are reported, and they are not quality findings.
+    publish_blockers: list[str] = []
     try:
         _frc = full_render_contract if isinstance(full_render_contract, dict) else {}
     except NameError:
         _frc = {}
     if _frc.get("publishable") is False:
-        reasons.append("rendered contract says publishable: false"
-                       + (f" ({_frc.get('uncertified_reason')})"
-                          if _frc.get("uncertified_reason") else ""))
+        publish_blockers.append("rendered contract says publishable: false"
+                                + (f" ({_frc.get('uncertified_reason')})"
+                                   if _frc.get("uncertified_reason") else ""))
     # Editorial approval is advisory under the stable Standard profile, and the render log then
     # said "frozen approved opening reused" with human_review.json reading decision: pending.
     # Advisory means it does not block; it does not mean it goes unsaid.
@@ -14105,9 +14155,11 @@ def run_explainer_pipeline(
             with open(human_review_path) as _hr_handle:
                 _decision = (json.load(_hr_handle) or {}).get("decision")
             if _decision != "approve":
-                reasons.append(f"editorial approval: {_decision or 'pending'}")
+                publish_blockers.append(f"editorial approval: {_decision or 'pending'}")
     except Exception:                       # noqa: BLE001 - reporting must not fail the film
         pass
+    if publish_blockers:
+        log("ℹ PUBLISH BLOCKERS: " + "; ".join(publish_blockers))
     status = "degraded" if reasons else "ok"
 
     size_mb = os.path.getsize(output_path) / 1024 / 1024
@@ -14151,6 +14203,7 @@ def run_explainer_pipeline(
         "actual_cost":   actual_cost,
         "status":        status,        # "ok" | "degraded"
         "degraded_reasons": reasons,
+        "publish_blockers": publish_blockers,
         "transcript_path": transcript_path,
         "srt_path":         srt_path,
         "description_path": description_path,

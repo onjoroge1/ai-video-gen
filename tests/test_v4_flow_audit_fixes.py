@@ -67,6 +67,9 @@ def test_the_evidence_plan_gate_persists_a_diagnostic_before_raising():
     assert 'stage="evidence-plan"' in block
     assert "_persist_semantic_failure(" in block
     assert "scene {item.get('scene')}" in block
+    # ...and it must run BEFORE the raise, or it is dead code that still satisfies the strings.
+    assert block.index("_persist_semantic_failure(") < block.index(
+        '"Evidence-state plan failed before TTS/image spend: "')
 
 
 # --- the runtime sink ------------------------------------------------------------------------
@@ -88,10 +91,12 @@ def _repair_fixture(original_words: int):
     return script, dossier, report
 
 
-def _repair_provider(monkeypatch, repaired_narration: str):
+def _repair_provider(monkeypatch, repaired_narration: str, claim_id: str = "c08"):
+    # The claim_id must be one the dossier allows, or the repair silently returns the original
+    # script -- which once made a "held" test pass for the wrong reason.
     body = json.dumps({"scenes": [{"scene": 1, "evidence_id": "e01",
                                    "narration": repaired_narration,
-                                   "claim_refs": [{"claim_id": "c08", "evidence_id": "e01",
+                                   "claim_refs": [{"claim_id": claim_id, "evidence_id": "e01",
                                                    "narration_phrase": repaired_narration}]}]})
     def create(**kwargs):
         return SimpleNamespace(content=[SimpleNamespace(text=body)],
@@ -215,3 +220,116 @@ def test_the_hook_ceiling_is_the_dossier_not_only_the_surviving_beats():
     assert hook_ceilings, "the hook was never judged"
     assert "cannot be told apart by eye" in hook_ceilings[0], (
         "a dossier claim no beat cites must still be inside the hook's ceiling")
+
+
+# --- review findings on commit 5d14bad ---------------------------------------------------------
+
+def test_a_held_scene_one_does_not_rederive_the_hook(monkeypatch):
+    """Three reviewers independently: when scene 1's rewrite is held, the hook block read the
+    UNCHANGED opener and installed the refused hook or the cold open as the hook. The delivered
+    film opened on Warwick Kerr for exactly this reason."""
+    hook = "Officials paid a cent per rat tail and bred more rats."
+    cold = "Your city's sewers filled with rats that nobody ever counted."
+    body = ("Hanoi's new sewers created ideal habitat for rats, and the colonial administration "
+            "offered a bounty for every tail that was handed in at the municipal office.")
+    script = {"hook": hook, "_cold_open": cold,
+              "scenes": [{"scene_id": "event_01", "beat_id": "event_01", "evidence_id": "e01",
+                          "narration": f"{hook} {cold} {body}",
+                          "event": {"text": "Hanoi's new sewers created ideal habitat for rats."},
+                          "claim_refs": [{"claim_id": "c04", "evidence_id": "e01",
+                                          "narration_phrase": body}]}]}
+    dossier = {"claims": [{"claim_id": "c04", "claim": "The sewers created rat habitat."}]}
+    report = {"errors": [{"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                          "message": "promises more", "unsupported_details": ["a cent per tail"]}]}
+    _repair_provider(monkeypatch, "Hanoi's sewers made habitat for rats.", claim_id="c04")
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0
+    assert repaired.get("_repair_held"), "the collapsed body must be HELD, not silently refused"
+    assert repaired["scenes"][0]["narration"] == script["scenes"][0]["narration"], "held"
+    assert repaired["hook"] == hook, "the hook must not be re-derived from an unrepaired opener"
+
+
+def test_dropping_only_the_refused_hook_is_not_compression(monkeypatch):
+    """Scene 1 carries hook + cold open; a repair that removes just the refused hook is a 20%
+    cut of the scene but a 0% cut of the body the event governs, and must be applied."""
+    hook = "Officials paid a cent per rat tail and bred more rats."
+    cold = "Your city's sewers filled with rats that nobody ever counted."
+    body = ("Hanoi's new sewers created ideal habitat for rats, and the colonial administration "
+            "offered a bounty for every tail handed in at the municipal office.")
+    script = {"hook": hook, "_cold_open": cold,
+              "scenes": [{"scene_id": "event_01", "beat_id": "event_01", "evidence_id": "e01",
+                          "narration": f"{hook} {cold} {body}",
+                          "event": {"text": "Hanoi's new sewers created ideal habitat for rats."},
+                          "claim_refs": [{"claim_id": "c04", "evidence_id": "e01",
+                                          "narration_phrase": body}]}]}
+    dossier = {"claims": [{"claim_id": "c04", "claim": "The sewers created rat habitat."}]}
+    report = {"errors": [{"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                          "message": "promises more", "unsupported_details": ["a cent per tail"]}]}
+    _repair_provider(monkeypatch, f"{cold} {body}", claim_id="c04")
+    repaired, _ = ep.repair_claim_join_failures(script, dossier, report)
+    assert repaired["scenes"][0]["narration"] == f"{cold} {body}"
+    assert not repaired.get("_repair_held")
+
+
+def test_the_slot_plan_speaks_the_schemas_vocabulary():
+    """Asked for "escalation: 13 event(s)" the planner labelled the steps `context` and the film
+    compiled to seven scenes. The rows now name the event_function the schema accepts."""
+    import story_compiler as sc
+    import story_template as st
+    plan = st.role_counts("removed_keystone", 300)
+    prompt = sc.factual_plan_prompt("q", 300, 20, "removed_keystone", slot_plan=plan)
+    assert "population_responds" in prompt and "hidden_link" in prompt
+    assert "escalation: 13 event(s)" not in prompt, "role names are not what the schema accepts"
+    assert f"Return EXACTLY {sum(plan.values())} factual events" in prompt
+
+
+def test_a_derived_role_is_the_compilers_and_is_not_asked_for():
+    """backfiring_solution derives its mechanism; no event_function produces one, and the same
+    prompt forbids supplying it. Asking for one forced a wrong label or a short count."""
+    import story_compiler as sc
+    import story_template as st
+    plan = st.role_counts("backfiring_solution", 300)
+    assert plan.get("mechanism", 0) == 0
+    assert sum(plan.values()) + 3 == st.target_scene_count(300), "hinge + tool + derived mechanism"
+    prompt = sc.factual_plan_prompt("q", 300, 20, "backfiring_solution", slot_plan=plan)
+    assert "mechanism: 1 event" not in prompt
+    assert f"Return EXACTLY {sum(plan.values())} factual events" in prompt
+
+
+def test_the_ask_is_measured_on_the_words_the_writer_counted():
+    """A 49-word opening scene asked for 7 and the writer returned 8; a repair cut it to 40 and
+    the recomputed ask said 6 -- a false number in the diagnostic and a ceiling below the ask."""
+    script = _evidence_script()
+    scene = script["scenes"][0]
+    scene["_words_as_written"] = 49
+    plan = le.compile_evidence_plan(script)
+    assert plan["scenes"][0]["states_requested"] == le.states_required_for_words(49)
+
+
+def test_an_opening_scene_is_trimmed_to_the_ceiling_the_validator_applies():
+    """The writer is told there is no upper band; the validator has one. Compile now trims an
+    opening scene to that ceiling, so the gate can only fail on the floor."""
+    script = _evidence_script()
+    scene = script["scenes"][0]
+    base = dict(scene["visual_beats"][0]) if isinstance(scene.get("visual_beats", [None])[0], dict) \
+        else {"anchor_phrase": "x"}
+    scene["visual_beats"] = [dict(base, anchor_phrase=f"beat {i}") for i in range(12)]
+    scene["narration"] = " ".join(["word"] * 45)
+    plan = le.compile_evidence_plan(script)
+    report = le.validate_evidence_plan(plan)
+    assert "opening_state_count" not in {e["code"] for e in report["errors"]}
+
+
+def test_the_final_hook_contract_applies_only_to_a_spoken_hook():
+    """Default and social lanes carry a description hook nobody hears; scoring it against the
+    spoken-opening contract degraded every such run for a line that never shipped."""
+    source = open(ep.__file__, encoding="utf-8").read()
+    idx = source.index("import hook_patterns as _hp_final")
+    assert 'if script.get("_compiled_story"):' in source[idx - 400:idx]
+
+
+def test_publish_blockers_are_reported_apart_from_quality_degradation():
+    source = open(ep.__file__, encoding="utf-8").read()
+    assert '"publish_blockers": publish_blockers,' in source
+    idx = source.index('publish_blockers.append("rendered contract says publishable: false"')
+    assert 'reasons.append("rendered contract says publishable' not in source

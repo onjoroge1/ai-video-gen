@@ -117,7 +117,10 @@ def test_the_planner_prompt_asks_for_the_slot_plan_exactly():
     plan = st.role_counts("removed_keystone", 300)
     prompt = sc.factual_plan_prompt("q", 300, 20, "removed_keystone", slot_plan=plan)
     assert f"Return EXACTLY {sum(plan.values())} factual events" in prompt
-    assert "escalation: %d event(s)" % plan["escalation"] in prompt
+    # Rows name the event_function the schema accepts, not the role: asked for "escalation: 13"
+    # the planner labelled the steps `context` and the film compiled to seven scenes.
+    assert "population_responds: %d event(s)" % plan["escalation"] in prompt
+    assert "these become the escalation" in prompt
     assert "DIFFERENT documented step" in prompt          # the anti-repetition rule
     # Without a slot plan the legacy ask is unchanged.
     legacy = sc.factual_plan_prompt("q", 300, 20, "removed_keystone")
