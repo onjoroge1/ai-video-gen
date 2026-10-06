@@ -850,7 +850,21 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                       "supports the hook's promise"})
             verdict = None
         else:
-            verdict = ce.narration_fidelity(story, hook, judge=judge, cache=cache,
+            # THE HOOK ADDRESSES THE VIEWER, and that address is rhetoric, not history. The
+            # opening contract requires a literal "you" or "your" -- it is the single device the
+            # corpus never omits and our films never had -- and the ledger was refusing exactly
+            # that: "Your honey jar could trace back to Warwick Kerr's African bees" was flagged
+            # as an unsupported claim because no document records the viewer's honey jar. Two
+            # requirements in one pipeline cannot disagree about the same sentence; the cold open
+            # already carries this kind of ceiling, and the hook now does too. Its FACTS are
+            # still bound: a name, a number, a date or a place in the hook must be supported.
+            hook_ceiling = (story + "\n\nThis sentence is the film's FIRST LINE, spoken TO THE "
+                            "VIEWER. Second-person framing is a rhetorical address, not a factual "
+                            "assertion: 'your kitchen', 'your honey jar', 'your hive', 'you are "
+                            "standing there' are never flagged, and neither is a hypothetical "
+                            "('could', 'might') built on one. Flag ONLY an invented actor, an "
+                            "invented action, a number, a date or a named place.")
+            verdict = ce.narration_fidelity(hook_ceiling, hook, judge=judge, cache=cache,
                                             cost_sink=cost_sink)
         if verdict is None:
             pass
@@ -860,6 +874,13 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                            "retryable": True})
         elif not verdict["passed"]:
             errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           # Scored like every other overshoot. Without a severity these blocked
+                           # unconditionally, so a cold open whose SOLE objection was the word
+                           # "Brazilian" -- on a film about Brazil -- killed the run, while six
+                           # genuinely soft findings beside it were correctly waved through.
+                           "severity": fidelity_severity(
+                               verdict.get("unsupported_details") or [],
+                               _known_evidence_text(dossier), verdict.get("verdict") or ""),
                            "message": "the hook promises more than the supported events deliver ("
                                       f"{verdict['verdict']}): "
                                       + ", ".join(verdict.get("unsupported_details") or []),
@@ -893,6 +914,9 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                "retryable": True})
             elif not verdict["passed"]:
                 errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
+                               "severity": fidelity_severity(
+                                   verdict.get("unsupported_details") or [],
+                                   _known_evidence_text(dossier), verdict.get("verdict") or ""),
                                "message": "the cold open shows more than its cited claims support ("
                                           f"{verdict['verdict']}): "
                                           + ", ".join(verdict.get("unsupported_details") or []),

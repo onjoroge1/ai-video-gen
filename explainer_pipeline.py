@@ -11814,15 +11814,23 @@ def run_explainer_pipeline(
                     # the research-dossier investigation looking for a parser bug that did not
                     # exist. An operator cannot judge whether a rule is too broad or a script is
                     # genuinely unsourced without seeing the line.
+                    # SHOW WHAT BLOCKED, NOT THE FIRST SIX. A soft finding is reported and does
+                    # not stop the run, so listing errors in order put six harmless fidelity notes
+                    # in the message while the two findings that actually refused the script --
+                    # a hook and a cold open -- fell off the end. Hours went into the wrong gate
+                    # because of it. Blocking errors come first now, and are labelled.
+                    _ordered = sorted(claim_validation.get("errors", []),
+                                      key=lambda e: e.get("severity") == "soft")
                     detail = []
-                    for item in claim_validation.get("errors", [])[:6]:
+                    for item in _ordered[:6]:
                         index = item.get("scene")
                         text = ""
                         if isinstance(index, int) and 1 <= index <= len(script.get("scenes") or []):
                             role = _s(script["scenes"][index - 1].get("story_role"))
                             text = (f" [scene {index}, role={role or '?'}: "
                                     f"{_s(script['scenes'][index - 1].get('narration'))[:90]}]")
-                        detail.append(f"{item['message']}{text}")
+                        mark = "" if item.get("severity") == "soft" else "[BLOCKING] "
+                        detail.append(f"{mark}{item['message']}{text}")
                     _persist_semantic_failure(
                         output_dir=output_dir, stage="claim-ledger", script=script,
                         research_dossier=research_dossier, report=claim_validation,
