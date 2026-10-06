@@ -6,6 +6,11 @@ the four defects reported against the shipped killer bees film, plus the ~300 se
 each as a single pass/fail with the measured number beside it. It exists because three of those
 four defects were visible in the delivered artifact and none was caught before upload.
 
+The hook and title are read the way the audit reads them (audit_film._script_sources: run_result.json
+first, _state.json second) and the hook floor is the audit's HOOK_FLOOR, so the two scripts cannot
+disagree about the film's opening again: this one said 68 and read _state.json while the audit and
+the pipeline's degraded reason said 70 and read run_result.json.
+
     python3 scripts/accept_v4.py jobs/bees_a
 """
 from __future__ import annotations
@@ -24,6 +29,8 @@ try:                                   # the API keys live in .env, not the shel
     load_dotenv(os.path.join(ROOT, ".env"))
 except Exception:
     pass
+
+from scripts import audit_film  # noqa: E402  shared: hook/title sources, staleness, the hook floor
 
 
 # Measured by THIS function on the delivered films, so the delta is like for like. An earlier
@@ -120,12 +127,18 @@ def main(job: str) -> int:
     import hook_patterns
     import illustrated_story
 
-    state = _load(os.path.join(job, "_state.json"))
+    # run_result.json is written once by the attempt that produced the film; _state.json is
+    # rewritten by every attempt in the dir, so the scenes below may describe a later one. The
+    # staleness test is the audit's, against the same film, and each row that reads the scenes
+    # says so when it fires.
+    src = audit_film._script_sources(job)
+    script = src["script"] or {}
     manifest = _load(os.path.join(job, "generation_manifest.json"))
     board = _load(os.path.join(job, "illustrated_storyboard.json"))
-    script = state.get("script") or {}
     scenes = script.get("scenes") or []
     mp4 = os.path.join(job, "explainer.mp4")
+    stale = audit_film._state_staleness(job, mp4)
+    state_note = " (from a _state.json newer than the film)" if stale else ""
     rows = []
 
     # 1 --- the template, and the runtime it was sized for
@@ -135,18 +148,18 @@ def main(job: str) -> int:
                  f"story_template={manifest.get('story_template')!r}"))
     per = seconds / max(1, len(scenes))
     rows.append(("scene length matches the template", len(scenes) >= 16 and 10 <= per <= 22,
-                 f"{len(scenes)} scenes, {per:.1f}s each"))
+                 f"{len(scenes)} scenes, {per:.1f}s each{state_note}"))
 
-    # 2 --- the hook
-    hook = str(script.get("hook") or "")
+    # 2 --- the hook, as it went out with the film
+    hook = src["hook"]
     graded = hook_patterns.score_hook(hook)
     devices = [d for d, ok in graded["patterns"].items() if ok]
     rows.append(("hook puts the viewer in it", graded["patterns"]["viewer_present"],
                  f"second person {'present' if graded['patterns']['viewer_present'] else 'ABSENT'}"))
     rows.append(("hook withholds the outcome", graded["patterns"]["outcome_withheld"], ""))
     rows.append(("hook is not an institution", graded["patterns"]["no_institution"], ""))
-    rows.append((f"hook scores >= 68 ({graded['score']}/100)", graded["score"] >= 68,
-                 ", ".join(devices)))
+    rows.append((f"hook scores >= {audit_film.HOOK_FLOOR} ({graded['score']}/100)",
+                 graded["score"] >= audit_film.HOOK_FLOOR, ", ".join(devices)))
     rows.append(("hook within 18 words", graded["words"] <= 18, f"{graded['words']} words"))
 
     # 3 --- the imagery, SAMPLED FROM THE FILM
@@ -168,8 +181,8 @@ def main(job: str) -> int:
         graded_scenes or [b for b in (board.get("beats") or []) if b.get("shot_type")] or scenes)
     close = grammar.get("close_ratio", 0.0)
     wide = grammar.get("wide_ratio", 0.0)
-    rows.append(("close-ups carry the film", close >= 0.40, f"{close:.0%} close"))
-    rows.append(("wides are rationed", wide <= 0.28, f"{wide:.0%} wide"))
+    rows.append(("close-ups carry the film", close >= 0.40, f"{close:.0%} close{state_note}"))
+    rows.append(("wides are rationed", wide <= 0.28, f"{wide:.0%} wide{state_note}"))
 
     # 4 --- the thumbnail
     thumb = os.path.join(job, "thumbnail.jpg")
@@ -179,12 +192,15 @@ def main(job: str) -> int:
 
     width = max(len(name) for name, _, _ in rows)
     print(f"\nACCEPTANCE — {job}\n" + "=" * (width + 30))
+    if stale:
+        print(f"  WARNING  {stale}")
     for name, ok, note in rows:
         print(f"  {'PASS' if ok else 'FAIL'}  {name.ljust(width)}  {note}")
     failed = [name for name, ok, _ in rows if not ok]
     print("=" * (width + 30))
     print(f"  {len(rows) - len(failed)}/{len(rows)} met" + (f"; FAILING: {'; '.join(failed)}" if failed else ""))
-    print(f"  hook: {hook!r}\n")
+    print(f"  hook: {hook!r} (from {src['hook_from'] or 'nowhere on disk'})")
+    print(f"  title: {src['title']!r} (from {src['title_from'] or 'nowhere on disk'})\n")
     return 1 if failed else 0
 
 
