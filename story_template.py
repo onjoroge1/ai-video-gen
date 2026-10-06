@@ -80,8 +80,11 @@ _DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal"
 _TAKEAWAY_MEANING = ("one spoken sentence naming the pattern the story proves, and it must come "
                      "back to the OPENING OBJECT named in the story contract -- the thing the "
                      "cold open showed -- so the film closes where it began, with its meaning "
-                     "changed; no new fact, no number, no proper noun the film has not already "
-                     "said")
+                     "changed. It is RHETORIC, NOT A SOURCED EVENT: give it an EMPTY event and "
+                     "no claim_refs, because a closing beat that carries a factual event is "
+                     "refused (CLOSING_BEAT_ASSERTS_HISTORY) -- the close is built from what the "
+                     "story already proved, never adding to it. So: no new fact, no number, no "
+                     "proper noun the film has not already said")
 
 _STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
          "then", "than", "this", "these", "those", "their", "they", "them", "its", "for", "but",
