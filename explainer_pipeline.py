@@ -11810,7 +11810,12 @@ def run_explainer_pipeline(
                        else f"{_before_count} -> {_after_count} failing"))
                 if _after_count >= _before_count:
                     break
-            if not claim_validation.get("passed"):
+            # DELETING NARRATION BUYS NOTHING WHEN NOTHING WILL BLOCK. The trim is the last
+            # resort before the ledger REFUSES a script, so under an advisory ledger it is pure
+            # loss: a waived run was trimmed to 222 words against a 716-word floor and came out
+            # as an 82-second film, deleting sentences for findings that were only ever going to
+            # be logged. The findings are still reported either way.
+            if not claim_validation.get("passed") and _claim_ledger_hard() and not sourcing_advisory:
                 # Last resort before refusing: delete the sentence that carries only an
                 # unsupported detail, then judge the script again. See _trim_unsupported_sentences.
                 # Up to three rounds: a trim can surface a failure the judge had not yet reached
