@@ -1058,6 +1058,9 @@ _MATERIAL_DETAIL = re.compile(
     r"fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|billions?|dozens?|"
     r"scores?|half|double|triple)\b"
     r"|\b(?:[A-Z][a-z]{2,})\b"              # a proper noun: a person or a place
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|"
+    r"forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozens?|"
+    r"decades?|centur(?:y|ies))\b"        # an invented quantity or duration, spelled out
     r"|\b(?:farmer|worker|hunter|beekeeper|official|scientist|researcher|rancher|trapper|"
     r"settler|keeper|breeder|geneticist|entomologist)s?\b",  # an invented actor
     re.I if False else 0)
@@ -1090,8 +1093,20 @@ def fidelity_severity(details: list, known_text: str = "") -> str:
                     r"referring to|treating|framing|implying|suggesting|asserting that it is)\b",
                     text.strip(), re.I):
             continue
-        # Strip a leading sentence-capital so "The swarm is dark" is not read as a proper noun.
-        probe = re.sub(r"^(?:The|A|An|That|This|It|They|No)\s+", "", text.strip())
+        # SENTENCE CASE IS NOT A PROPER NOUN. Stripping a fixed list of leading articles left
+        # every other opening word capitalised, so "Across open ground", "Dividing into new
+        # colonies" and "More occupied branches appearing" were all read as names and blocked
+        # renders. A finding always starts capitalised; that position carries no information.
+        # A real name survives because a name is rarely alone -- "Warwick Kerr" keeps its Kerr --
+        # and a lone sentence-initial place is covered by the evidence exemption below.
+        stripped = text.strip()
+        # ...but only when the SECOND word is not capitalised too. "Warwick Kerr" is a real name
+        # and must keep its Warwick: the evidence carries "kerr" and not "warwick", so dropping
+        # the first word's case let the exemption match Kerr and wave the invented first name
+        # through. Two capitals in a row is a name; one at the start is just a sentence.
+        probe = stripped
+        if stripped and not re.match(r"^\S+\s+[A-Z]", stripped):
+            probe = stripped[0].lower() + stripped[1:]
         # An ACTOR is material whatever the evidence says, because the risk is the action, not
         # the noun: "a beekeeper backs away" invents a person doing something even though the
         # dossier mentions beekeepers. Names and numbers get the exemption; people do not.

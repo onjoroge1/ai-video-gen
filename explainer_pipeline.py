@@ -2966,6 +2966,34 @@ def _cold_open_correction(plan: dict, research_dossier: dict | None) -> str:
             + ". Return the whole sheet again with cold_open fixed and everything else kept.")
 
 
+def expansion_survives_the_ledger(new_narration: str, event_text: str, *,
+                                  cache: dict | None = None,
+                                  cost_sink: list | None = None, judge=None) -> tuple:
+    """Would the claim ledger accept this expanded line? Returns (keep, details).
+
+    The length top-up asks the writer to say the same thing at greater length and it sometimes
+    says MORE instead -- "They were queens", "brought for a breeding program" -- which the ledger
+    then refuses, failing the WHOLE script rather than merely leaving it short. A 300-second
+    request became a failed run that way.
+
+    This asks the ledger's own judge, and keeps an expansion ONLY if it fully passes. The gate
+    itself tolerates soft overshoot, because by then refusing costs a finished script; here
+    refusing costs nothing but length, and the draft line is always available. Blocking a strict
+    superset of what the ledger blocks is what makes the two impossible to put in disagreement.
+
+    An earlier attempt guessed instead, flagging any content word the event did not already
+    contain, and held back "slowly", "clear" and "thing" -- a guard that strict starves every
+    film, which is the opposite failure.
+    """
+    import claim_entailment as _ce
+
+    verdict = _ce.narration_fidelity(event_text, new_narration, judge=judge, cache=cache,
+                                     cost_sink=cost_sink)
+    if verdict.get("passed"):
+        return True, []
+    return False, verdict.get("unsupported_details") or []
+
+
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
@@ -4635,14 +4663,34 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     cost += _pc
                     _by_id = {int(r.get("id") or 0): _s(r.get("narration"))
                               for r in (_out or {}).get("scenes") or [] if isinstance(r, dict)}
-                    _grew = 0
+                    # AN EXPANSION IS ONLY KEPT IF ITS EVENT SUPPORTS IT. The prompt above says
+                    # not to add facts and the writer adds them anyway -- "They were queens",
+                    # "brought for a breeding program" -- and the claim ledger then refuses the
+                    # whole script, which is how a 300s request became a failed run rather than a
+                    # short one. Any content word the expansion introduces that its own event,
+                    # its claims and the original line do not already carry means the scene keeps
+                    # the draft it had. Shorter is recoverable; refused is not.
+                    _grew, _held = 0, 0
                     for _i, _sc in enumerate(all_scenes):
                         _new = _by_id.get(_i + 1)
-                        if _new and len(_new.split()) > len(_s(_sc.get("narration")).split()):
-                            _sc["narration"] = _new
-                            _grew += 1
+                        _old = _s(_sc.get("narration"))
+                        if not _new or len(_new.split()) <= len(_old.split()):
+                            continue
+                        _keep, _why = expansion_survives_the_ledger(
+                            _new, _s((_sc.get("event") or {}).get("text")),
+                            cache=script.setdefault("_entailment_cache", {}),
+                            cost_sink=cost_sink)
+                        if not _keep:
+                            _held += 1
+                            print(f"[length] scene {_i + 1} expansion asserts more than its "
+                                  f"event ({'; '.join(str(d) for d in _why)[:120]}); "
+                                  "keeping the draft line")
+                            continue
+                        _sc["narration"] = _new
+                        _grew += 1
                     _now = sum(len(_s(sc.get("narration")).split()) for sc in all_scenes)
-                    print(f"[length] expanded {_grew} scene(s): {_have} -> {_now} words")
+                    print(f"[length] expanded {_grew} scene(s): {_have} -> {_now} words"
+                          + (f" ({_held} held back as unsupported)" if _held else ""))
                 except Exception as _exc:                 # noqa: BLE001 - length is not worth a crash
                     print(f"[length] top-up unavailable ({type(_exc).__name__}); keeping the draft")
 
