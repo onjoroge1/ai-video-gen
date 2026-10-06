@@ -330,6 +330,19 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         and not include_human
     )
     people_allowed = nature_channel.people_allowed(pack.get("channel"))
+    # THE WRITER'S EXPLICIT FORBID WINS OVER THE PURPOSE DEFAULT. A `consequence` beat whose
+    # forbidden_objects already say "people" -- "Brazil needed a pollinator": flowers, a few bees,
+    # a hive box -- was ALSO given anonymous_people_required by the purpose rule above. The prompt
+    # then demanded "an anonymous, period-correct person must be clearly visible" and forbade
+    # people in the same breath; the model drew the person, the inspector refused it twice, and
+    # a run with a passing ledger, a passing runtime contract and a passing storyboard died at
+    # its first opening asset. One state cannot carry both; the beat's own words decide.
+    _people_words = ("people", "person", "persons", "human", "humans", "figure", "figures",
+                     "crowd", "worker", "workers", "farmer", "farmers", "beekeeper", "beekeepers")
+    if any(any(w in _text(item).casefold().split() for w in _people_words)
+           for item in _list(beat.get("forbidden_objects"))):
+        anonymous_people_required = False
+        include_human = False
     if not people_allowed:
         # Nature: the animal performs the verb. The rule above drew researchers beside the
         # penguins and people assembling the huddle (job 59d6106d).

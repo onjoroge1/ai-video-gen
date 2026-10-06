@@ -354,3 +354,19 @@ def test_the_judge_is_told_a_place_the_claims_name_is_not_an_invention():
     import claim_entailment as ce
     shape = ce._FIDELITY_RETURN_SHAPE
     assert "do NOT already contain" in shape and "Rio Claro" in shape
+
+
+def test_a_beat_that_forbids_people_is_not_also_required_to_show_one():
+    """State 1.8 of a run carried anonymous_people_required=True and forbidden_objects=['people']
+    at once; the prompt demanded a visible person and forbade people, and the inspector refused
+    the person it was told to draw. The writer's explicit forbid decides."""
+    script = _evidence_script()
+    scene = script["scenes"][1]
+    beat = scene["visual_beats"][0] if isinstance(scene["visual_beats"][0], dict) else {"anchor_phrase": "x"}
+    beat.update({"purpose": "consequence", "forbidden_objects": ["people", "Bolt"],
+                 "required_objects": ["tropical flowers", "hive box"]})
+    scene["visual_beats"][0] = beat
+    plan = le.compile_evidence_plan(script)
+    state = plan["scenes"][1]["states"][0]
+    assert state.get("anonymous_people_required") is False
+    assert any("people" in _.casefold() for _ in state.get("forbidden_objects") or [])
