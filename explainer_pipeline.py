@@ -6123,9 +6123,32 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
         # finalize_narration would put it straight back into the narration it was just cut from.
         if any(_s(error.get("code")) == "HOOK_EXCEEDS_STORY" for error in errors):
             opener = _s(candidate["scenes"][0].get("narration")).strip()
-            first = re.split(r"(?<=[.!?])\s+", opener, maxsplit=1)[0].strip()
-            if first:
-                candidate["hook"] = first
+            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", opener)[:2]
+                         if part.strip()]
+            if sentences:
+                # TAKE THE BEST SENTENCE AVAILABLE, AND SAY WHAT IT COST. This path always took
+                # the FIRST sentence, which is the setup event, so a planner hook of 68/100
+                # ("You cannot tell Africanized bees from European bees by sight") was delivered
+                # as "European honey bees were better adapted to temperate environments" -- an
+                # event summary scoring 20, with the viewer absent, which is the exact defect the
+                # opening contract exists to prevent. The replacement is still necessary: the old
+                # hook asserted more than the evidence supports. But the choice among supported
+                # sentences is free, and the downgrade must not be silent -- it was invisible in
+                # the log and only turned up by auditing the delivered film.
+                try:
+                    import hook_patterns as _hp
+                    sentences.sort(key=lambda line: _hp.score_hook(line)["score"], reverse=True)
+                    was = _hp.score_hook(_s(candidate.get("hook")))["score"]
+                    now = _hp.score_hook(sentences[0])["score"]
+                    if now < was:
+                        candidate["_hook_downgraded"] = {
+                            "from_score": was, "to_score": now,
+                            "from": _s(candidate.get("hook")), "to": sentences[0]}
+                        log(f"hook rebuilt from the supported opener: {was}/100 -> {now}/100 "
+                            "(the planner's hook asserted more than the evidence supports)")
+                except Exception:          # noqa: BLE001 - scoring must not break the repair
+                    pass
+                candidate["hook"] = sentences[0]
         cost = (response_cost + float(parse_cost or 0.0))
         return candidate, round(cost, 4)
     except Exception:
