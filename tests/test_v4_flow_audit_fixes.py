@@ -333,3 +333,24 @@ def test_publish_blockers_are_reported_apart_from_quality_degradation():
     assert '"publish_blockers": publish_blockers,' in source
     idx = source.index('publish_blockers.append("rendered contract says publishable: false"')
     assert 'reasons.append("rendered contract says publishable' not in source
+
+
+def test_an_unrepairable_finding_does_not_abort_the_repair(monkeypatch):
+    """A COLD_OPEN_EXCEEDS_CLAIM row made repair_claim_join_failures return with no call, so the
+    scenes it could have repaired went straight to the trim and the hard lane refused."""
+    script, dossier, report = _repair_fixture(15)
+    report["errors"].append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
+                             "message": "the cold open shows more than its cited claims support",
+                             "unsupported_details": ["Brazilian"]})
+    fixed = "Officials paid a bounty per rat tail and the city's sewers kept filling with rats."
+    _repair_provider(monkeypatch, fixed)
+    repaired, cost = ep.repair_claim_join_failures(script, dossier, report)
+    assert cost > 0, "the repairable scene was still sent"
+    assert repaired["scenes"][0]["narration"] == fixed
+
+
+def test_the_judge_is_told_a_place_the_claims_name_is_not_an_invention():
+    """"near Rio Claro" was rated material by the judge against claims that say Rio Claro."""
+    import claim_entailment as ce
+    shape = ce._FIDELITY_RETURN_SHAPE
+    assert "do NOT already contain" in shape and "Rio Claro" in shape

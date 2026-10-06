@@ -6064,8 +6064,14 @@ def repair_claim_join_failures(script: dict, dossier: dict, report: dict,
             item["scene"] = 1 if scenes_now else 0
         elif isinstance(marker, str) and not marker.isdigit():
             item["scene"] = by_beat.get(marker, 0)
-    if not errors or any(item.get("code") not in repairable or not item.get("scene")
-                         for item in errors):
+    # SKIP WHAT CANNOT BE REPAIRED; DO NOT ABORT ON IT. One COLD_OPEN_EXCEEDS_CLAIM finding --
+    # a code this function does not handle -- made the whole repair return without a call, so
+    # the scenes it COULD have repaired went straight to the trim and the refusal. The
+    # unrepairable findings stay in the report for the ledger to decide; only the repairable
+    # ones are sent, and nothing is sent when there are none.
+    errors = [item for item in errors
+              if item.get("code") in repairable and item.get("scene")]
+    if not errors:
         return script, 0.0
     indexes = sorted({int(item["scene"]) for item in errors})
     scenes = script.get("scenes") or []
