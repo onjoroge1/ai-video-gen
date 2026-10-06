@@ -4459,6 +4459,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 print(f"[script] expansion returned {returned} scenes for {len(batch)} beats "
                       f"{lo}-{hi}; asking once more for the exact count")
                 continue
+            # A SMALLER ASK BEFORE A DEAD RUN. One re-ask with the exact count, then halve the
+            # batch -- the same recovery the token-ceiling path above already uses, and for the
+            # same reason: the model is being asked for more scenes in one reply than it will
+            # reliably return. Three clean lanes died here with a finished script and a finished
+            # spine behind them, which is the most expensive possible place to give up.
+            if len(batch) > 1:
+                per_batch = max(1, len(batch) // 2)
+                count_retry_at = -1
+                count_note = ""
+                print(f"[script] expansion still returned {returned} for {len(batch)} beats "
+                      f"{lo}-{hi}; halving the batch to {per_batch}")
+                continue
             raise ValueError(f"Scene expansion returned {returned} scenes "
                              f"for {len(batch)} beats; refusing to shift the causal labels.")
         count_note = ""
