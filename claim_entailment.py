@@ -103,9 +103,14 @@ def _normalise(reply: Any, fallback_reason: str) -> dict:
     # throws away what makes it useful. "Unsupported" says remove the assertion; "partially" says
     # there is a valid factual core worth keeping and these specific inventions to strip. The
     # repair instruction is deterministic only if both halves survive.
-    return {"verdict": verdict, "passed": verdict in PASSING_VERDICTS,
-            "supported_core": _text(reply.get("supported_core")),
-            "unsupported_details": details, "reason": _text(reply.get("reason"))}
+    severity = _text(reply.get("severity")).lower()
+    out = {"verdict": verdict, "passed": verdict in PASSING_VERDICTS,
+           "supported_core": _text(reply.get("supported_core")),
+           "unsupported_details": details, "reason": _text(reply.get("reason"))}
+    # Only a value we recognise is carried; an absent or odd one leaves the caller to classify.
+    if severity in ("material", "soft"):
+        out["severity"] = severity
+    return out
 
 
 _EVIDENCE_SYSTEM = (
@@ -191,6 +196,33 @@ _RETURN_SHAPE = (
 )
 
 
+# THE JUDGE RATES ITS OWN FINDING. Which overshoots matter was being inferred downstream by a
+# regex over the judge's prose, and every phrasing it had not met cost a render: "Across open
+# ground" read as a proper noun, "Brazilian" as an invented place, "a beekeeper opening a box" as
+# an invented actor, while "the bees were specifically queens" passed as harmless. The judge has
+# just read both texts and knows which it found; asking costs nothing and guesses nothing.
+_FIDELITY_RETURN_SHAPE = (
+    'Return ONLY JSON: {"verdict":"entailed|partially_entailed|unsupported|contradicted",'
+    '"supported_core":"the part that IS supported, stated plainly, or \'\' if none",'
+    '"unsupported_details":["the specific detail that is not supported", "..."],'
+    '"severity":"material|soft",'
+    '"reason":"one sentence"}.\n'
+    'Use "entailed" only when EVERY factual element is supported. Use "partially_entailed" when '
+    'some are and some are not, and list the ones that are not. Use "contradicted" when something '
+    'asserted is incompatible with the source material.\n'
+    'SEVERITY is about the DETAILS you listed, and it is the most important field here:\n'
+    '  "material" - the narration states something a viewer could repeat as a fact and be wrong: '
+    'a number, a quantity, a date, a named person, a named place, or an event or action that did '
+    'not happen. Anything that would need a correction.\n'
+    '  "soft" - everything else. Paraphrase, a synonym, word choice, visual staging (colour, '
+    'light, weather, landscape), an ordinary description of a state the event already asserts, a '
+    'morphological variant of a name the event uses, or a detail that merely restates the event '
+    'in different words. Nobody is misled by it.\n'
+    'If the only thing wrong is HOW something is worded, that is "soft". Reserve "material" for a '
+    'fact that is actually wrong or actually invented.'
+)
+
+
 def _claim_block(claim: dict) -> str:
     """One claim rendered with the evidence it rests on, for the evidence judge."""
     lines = [f"- [{claim.get('claim_id') or '?'}] {claim.get('claim')}"]
@@ -232,7 +264,7 @@ def _default_judge(payload: dict) -> dict:
         body = (f"EVENT (the factual ceiling):\n{payload['event']}\n\n"
                 f"NARRATION:\n{payload['narration']}\n\n"
                 "Does the narration introduce any factual detail the event does not contain?\n"
-                + _RETURN_SHAPE)
+                + _FIDELITY_RETURN_SHAPE)
     else:
         # Show the SOURCE PASSAGE, not just the model's paraphrase of it.
         #

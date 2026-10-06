@@ -810,7 +810,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
                        "severity": fidelity_severity(row.get("unsupported_details") or [],
                                                      _known_evidence_text(dossier),
-                                                     row.get("verdict") or ""),
+                                                     row.get("verdict") or "",
+                                                     row.get("severity") or ""),
                        "message": f"{row['beat_id']}: the narration asserts more than its event "
                                   f"({row['verdict']}): "
                                   + ", ".join(row.get("unsupported_details") or []),
@@ -880,7 +881,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                            # genuinely soft findings beside it were correctly waved through.
                            "severity": fidelity_severity(
                                verdict.get("unsupported_details") or [],
-                               _known_evidence_text(dossier), verdict.get("verdict") or ""),
+                               _known_evidence_text(dossier), verdict.get("verdict") or "",
+                               verdict.get("severity") or ""),
                            "message": "the hook promises more than the supported events deliver ("
                                       f"{verdict['verdict']}): "
                                       + ", ".join(verdict.get("unsupported_details") or []),
@@ -916,7 +918,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                 errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
                                "severity": fidelity_severity(
                                    verdict.get("unsupported_details") or [],
-                                   _known_evidence_text(dossier), verdict.get("verdict") or ""),
+                                   _known_evidence_text(dossier), verdict.get("verdict") or "",
+                                   verdict.get("severity") or ""),
                                "message": "the cold open shows more than its cited claims support ("
                                           f"{verdict['verdict']}): "
                                           + ", ".join(verdict.get("unsupported_details") or []),
@@ -939,7 +942,8 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         bucket = (soft_fidelity
                   if fidelity_severity(row.get("unsupported_details") or [],
                                        _known_evidence_text(dossier),
-                                       row.get("verdict") or "") == "soft"
+                                       row.get("verdict") or "",
+                                       row.get("severity") or "") == "soft"
                   else material_fidelity)
         bucket.append(row)
     blocking_errors = [e for e in errors
@@ -1135,7 +1139,8 @@ def _digits_for_words(text: str) -> str:
     return _SPELLED.sub(swap, text or "")
 
 
-def fidelity_severity(details: list, known_text: str = "", verdict: str = "") -> str:
+def fidelity_severity(details: list, known_text: str = "", verdict: str = "",
+                      judged: str = "") -> str:
     """Is this narration overshoot material enough to stop a render?
 
     MATERIAL: the detail carries a number, a date, a named person or place, or an actor doing
@@ -1153,6 +1158,12 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
     """
     if verdict and verdict != "partially_entailed":
         return "material"
+    # THE JUDGE'S OWN RATING WINS. It has just read the event and the narration and knows whether
+    # it found an invented fact or a rephrasing; everything below is an inference from its prose,
+    # and each phrasing the regex had not met cost a render. The regex stays for judges that do
+    # not answer, for cached verdicts recorded before the field existed, and for the tests.
+    if judged in ("material", "soft"):
+        return judged
     # A NAME THE EVIDENCE ALREADY CONTAINS IS NOT AN INVENTED NAME. Without this the film's own
     # subject trips the rule: "Brazil's European bees" and "The forest gained African honey bee
     # colonies" were both classed material because "Brazil" and "African" are capitalised, while
@@ -1212,7 +1223,12 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
             for word in re.findall(r"[a-z]{5,}", probe.casefold()):
                 if word == noun or word in known or word in _ORDINARY_ENGLISH:
                     continue
-                if not any(word[:n] in known for n in range(len(word), 4, -1)):
+                # Match the word's STEM at a word boundary in the evidence. A bare prefix
+                # substring stopping at five characters never got "opening" back to "open", so
+                # "a beekeeper opening a box" counted as an invented action against a dossier
+                # that says a beekeeper opened boxes. Anchoring at \b is what keeps a four-letter
+                # stem honest: it has to begin a word in the evidence, not land inside one.
+                if not re.search(r"\b" + re.escape(word[:4]), known):
                     return "material"
         for match in _MATERIAL_DETAIL.finditer(probe):
             token = match.group(0).strip()
