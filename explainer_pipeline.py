@@ -6542,6 +6542,9 @@ def _write_image_result(datum, output_path: str) -> None:
         urllib.request.urlretrieve(datum.url, output_path)
 
 
+_IMAGE_JPEG_QUALITY = max(70, min(100, int(os.environ.get("IMAGE_JPEG_QUALITY", "95"))))
+
+
 def _normalize_generated_image(output_path: str) -> None:
     """Make the on-disk encoding match a JPEG suffix.
 
@@ -6556,11 +6559,15 @@ def _normalize_generated_image(output_path: str) -> None:
     try:
         with Image.open(output_path) as source:
             image = source.convert("RGB").copy()
-        # These files are render inputs, not archival masters.  A five-minute directed film can
-        # have roughly one hundred of them plus derived overlays in Vercel's bounded /tmp.  Q82
-        # is visually transparent once H.264 encodes the moving frame, while keeping the complete
-        # working set comfortably below the function filesystem ceiling.
-        image.save(output_path, "JPEG", quality=82, optimize=True, progressive=True)
+        # Q82 WAS NOT VISUALLY TRANSPARENT FOR THIS STYLE. The claim below the old setting was
+        # written for photoreal frames; the illustrated lane is crisp ink contours and flat gouache
+        # blocks -- exactly what JPEG ringing and 4:2:0 chroma blur land on -- and the frame is
+        # then upscaled 2.5x into the supersample and zoomed into, so every artifact is enlarged.
+        # The operator saw it on a desktop as "lower quality images". Q95 with 4:4:4 chroma is
+        # about three times the file size (roughly 1.2 MB a frame, ~150 MB a film) and is kept
+        # local; the serverless /tmp ceiling that motivated 82 can set IMAGE_JPEG_QUALITY=82.
+        image.save(output_path, "JPEG", quality=_IMAGE_JPEG_QUALITY, subsampling=0,
+                   optimize=True, progressive=True)
     except (OSError, ValueError):
         # Provider validation and the durable non-empty/hash checks remain authoritative. Keep
         # unusual-but-valid SDK/test payloads untouched instead of turning a space optimization
@@ -7743,22 +7750,33 @@ _CENTER_Y = "ih/2-(ih/zoom/2)"
 _PUSH_TO_DETAIL_Z = 1.0 / DETAIL_REFRAME_CROP
 
 
+# THE ZOOM CEILING IS AN UPSCALE FACTOR. The source frame is 1,536 px wide; zoompan at 1.14
+# shows ~1,350 px of it and the corner zooms at 1.16 show ~1,320, all stretched onto 1,920. On
+# a phone that is invisible; on a desktop it is the softness the operator reported. 1.08 keeps
+# ~1,420 px in frame. The move is still visible -- it is the ease, not the amplitude, that reads
+# as motion -- and KEN_BURNS_ZOOM restores the old look for a lane that wants it.
+_KB_ZOOM = max(1.0, float(os.environ.get("KEN_BURNS_ZOOM", "1.08")))
+
+
 def _motion(preset: str, n: int) -> tuple[str, str, str]:
     """Return (z_expr, x_expr, y_expr) for a zoompan preset over n frames."""
     r = f"on/{n}"                       # 0 → 1 linear ramp
     ease = f"(1-(1-{r})*(1-{r}))"       # ease-out (decelerate)
-    ZMAX = "1.14"
+    ZMAX = f"{_KB_ZOOM:.2f}"
+    AMP = f"{_KB_ZOOM - 1.0:.2f}"
+    ZCORNER = f"{_KB_ZOOM + 0.02:.2f}"
+    ACORNER = f"{_KB_ZOOM - 1.0 + 0.02:.2f}"
 
     presets = {
         "locked":        ("1.0", _CENTER_X, _CENTER_Y),
-        "kenburns_in":  (f"min(1.0+0.14*{ease}\\,{ZMAX})", _CENTER_X, _CENTER_Y),
-        "kenburns_out": (f"max({ZMAX}-0.14*{ease}\\,1.0)", _CENTER_X, _CENTER_Y),
-        "pan_right":    ("1.14", f"(iw-iw/zoom)*{ease}",            _CENTER_Y),
-        "pan_left":     ("1.14", f"(iw-iw/zoom)*(1-{ease})",        _CENTER_Y),
-        "pan_up":       ("1.14", _CENTER_X, f"(ih-ih/zoom)*(1-{ease})"),
-        "pan_down":     ("1.14", _CENTER_X, f"(ih-ih/zoom)*{ease}"),
-        "zoom_tl":      (f"min(1.0+0.16*{ease}\\,1.16)", "0", "0"),
-        "zoom_br":      (f"min(1.0+0.16*{ease}\\,1.16)", "iw-iw/zoom", "ih-ih/zoom"),
+        "kenburns_in":  (f"min(1.0+{AMP}*{ease}\\,{ZMAX})", _CENTER_X, _CENTER_Y),
+        "kenburns_out": (f"max({ZMAX}-{AMP}*{ease}\\,1.0)", _CENTER_X, _CENTER_Y),
+        "pan_right":    (ZMAX, f"(iw-iw/zoom)*{ease}",            _CENTER_Y),
+        "pan_left":     (ZMAX, f"(iw-iw/zoom)*(1-{ease})",        _CENTER_Y),
+        "pan_up":       (ZMAX, _CENTER_X, f"(ih-ih/zoom)*(1-{ease})"),
+        "pan_down":     (ZMAX, _CENTER_X, f"(ih-ih/zoom)*{ease}"),
+        "zoom_tl":      (f"min(1.0+{ACORNER}*{ease}\\,{ZCORNER})", "0", "0"),
+        "zoom_br":      (f"min(1.0+{ACORNER}*{ease}\\,{ZCORNER})", "iw-iw/zoom", "ih-ih/zoom"),
         # A continuous push from the master's full frame onto the exact centre crop a detail
         # reframe would have cut to. The end zoom is 1/DETAIL_REFRAME_CROP, so the last frame of
         # the move IS the reframe -- same pixels the vision inspector accepted, arrived at by
@@ -8263,7 +8281,7 @@ def _make_scene_segment(
         inputs = ["-i", motion_video]
         bg_chain = (
             f"setpts={retime:.6f}*PTS,"
-            f"scale={vw}:{vh}:force_original_aspect_ratio=increase,"
+            f"scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=lanczos,"
             f"crop={vw}:{vh},fps={fps},setsar=1"
         )
     else:
@@ -8280,7 +8298,8 @@ def _make_scene_segment(
         # decodes and queues additional full-resolution copies that are never used.
         inputs = ["-i", image_path]
         bg_chain = (
-            f"scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch},"
+            # lanczos, not the default bicubic: this is a 2.5x enlargement of line art.
+            f"scale={cw}:{ch}:force_original_aspect_ratio=increase:flags=lanczos,crop={cw}:{ch},"
             f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={n_frames}:s={vw}x{vh}:fps={fps},"
             "setsar=1"
         )
