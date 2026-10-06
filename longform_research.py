@@ -1092,6 +1092,21 @@ _MATERIAL_DETAIL = re.compile(
     re.I if False else 0)
 
 
+# Ordinary English carries no claim, so it cannot be an invented action. Only consulted when an
+# actor the evidence names is already established -- a narrower question than "is this word in
+# the dossier", which refused "Brazilian beekeepers LEARNED what the escaped queens COULD do".
+_ORDINARY_ENGLISH = frozenset("""
+about above after again against along among around because become became before began begin
+being below between beyond could would should might must still their there these those through
+under until where which while whose after where learned learning seemed seeming started starting
+continued continuing moved moving turned turning looked looking found finding known taken given
+going coming every other another something nothing anything everything people place thing things
+time times years year later early often never always really simply almost nearly enough across
+within without toward towards itself himself herself themselves ourselves yourself first second
+third final later little large small great whole close closer early earlier quickly slowly
+""".split())
+
+
 _NUMBER_WORD = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
     "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
@@ -1195,7 +1210,7 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
             # removed the queen excluders" is the dossier's own sentence, while "a beekeeper
             # backs away through the grove" borrows a real person for an invented moment.
             for word in re.findall(r"[a-z]{5,}", probe.casefold()):
-                if word == noun or word in known:
+                if word == noun or word in known or word in _ORDINARY_ENGLISH:
                     continue
                 if not any(word[:n] in known for n in range(len(word), 4, -1)):
                     return "material"

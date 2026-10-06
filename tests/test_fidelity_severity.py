@@ -210,3 +210,19 @@ def test_an_actor_the_evidence_never_mentions_still_blocks():
                              "partially_entailed") == "material"
     assert fidelity_severity(["A geneticist redesigned them."], known,
                              "partially_entailed") == "material"
+
+
+def test_ordinary_english_is_not_an_invented_action():
+    """The actor-action check refused "Brazilian beekeepers LEARNED what the escaped queens COULD do".
+
+    Requiring every substantial word to appear in the dossier is the same over-strictness that
+    made the first expansion guard hold back "slowly", "clear" and "thing". A documented actor
+    may be described in English.
+    """
+    known = ("african honey bees were imported into brazil in 1956. 26 queens escaped. "
+             "a local beekeeper removed the queen excluders.")
+    assert fidelity_severity(["Brazilian beekeepers learned what the escaped queens could do"],
+                             known, "partially_entailed") == "soft"
+    # ...and the invented moment still blocks: "backs" and "grove" are not ordinary English.
+    assert fidelity_severity(["A beekeeper backs away through the grove."], known,
+                             "partially_entailed") == "material"
