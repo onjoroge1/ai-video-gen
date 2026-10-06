@@ -5547,7 +5547,9 @@ _FACTCHECK_SYSTEM = (
     "consistently says one thing (e.g. 'soldiers') but the title says another (e.g. 'a marching band'), "
     "you MUST rewrite the title to use the narration's subject — they cannot disagree. Also fix a title "
     "that is historically inaccurate (the bridge-resonance cases were SOLDIERS in step, not bands). Keep "
-    "the new title punchy. Preserve tone, length, and order. Return "
+    "the new title punchy. Preserve tone, length, and order: a corrected line should be about as "
+    "long as the one it replaces, because this pass fixes facts and does not tighten prose. "
+    "Do NOT shorten a line you have no correction for. Return "
     'ONLY valid JSON: {"title": "corrected or unchanged title", "narration": ["corrected line per scene, '
     'same count and order"], "notes": ["short note per correction"]}. If a line or the title is already '
     "accurate, return it unchanged."
@@ -5587,9 +5589,26 @@ def factcheck_script(script: dict, question: str, research_dossier: dict | None 
         fixed = data.get("narration", [])
         notes = [n for n in (data.get("notes") or []) if n and n.strip()]
         if isinstance(fixed, list) and len(fixed) == len(scenes):
+            # A FACT-CHECK CORRECTS; IT DOES NOT COMPRESS. The prompt says "Preserve tone,
+            # length, and order" and the pass still returned a 619-word script as 255 words --
+            # a 59% cut delivered as "corrections" -- and the runtime contract then reported a
+            # 93-second film against a 300-second target. An instruction the model can ignore is
+            # not a guarantee, so a rewrite that drops more than a third of a line is treated as
+            # compression and the original is kept. Deleting an unsupported assertion is the
+            # claim ledger's job, and it runs next with the evidence in front of it.
+            shrunk = 0
             for sc, new in zip(scenes, fixed):
-                if isinstance(new, str) and new.strip():
-                    sc["narration"] = new.strip()
+                if not (isinstance(new, str) and new.strip()):
+                    continue
+                before = len(_s(sc.get("narration")).split())
+                after = len(new.split())
+                if before >= 12 and after < before * 0.65:
+                    shrunk += 1
+                    continue
+                sc["narration"] = new.strip()
+            if shrunk:
+                notes.append(f"kept {shrunk} original line(s): the rewrite cut more than a third "
+                             "of the words, which is compression rather than correction")
         new_title = data.get("title")
         if isinstance(new_title, str) and new_title.strip() and new_title.strip() != _s(script.get("title")):
             notes.append(f'title → "{new_title.strip()}" (subject/accuracy)')
