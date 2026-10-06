@@ -822,13 +822,27 @@ def scene_count_for(duration_sec: int, video_format: str = "landscape") -> int:
     return max(8, min(240, round(duration_sec / secs_per_scene)))
 
 
+def _first_json_value(text: str):
+    """The first complete JSON value in `text`, ignoring anything after it.
+
+    "Extra data: line 1 column 12464" is a COMPLETE object followed by prose -- the model
+    answered and then kept talking. json.loads refuses the whole string for it, and two lanes
+    died mid-run on exactly that, one of them inside the repair call that exists to rescue the
+    first failure. raw_decode reads one value and stops, which is all we ever wanted.
+    """
+    start = min((i for i in (text.find("{"), text.find("[")) if i >= 0), default=-1)
+    if start < 0:
+        raise json.JSONDecodeError("no JSON value found", text or "", 0)
+    return json.JSONDecoder().raw_decode(text, start)[0]
+
+
 def _parse_script_json(raw: str, *, cost_sink=None):
     """Strip fences and parse; return (obj, repair_cost). One repair retry on failure."""
     raw = raw.strip()
     if "```" in raw:
         raw = raw[raw.find("{"): raw.rfind("}") + 1] if "{" in raw else raw
     try:
-        return json.loads(raw), 0.0
+        return _first_json_value(raw), 0.0
     except json.JSONDecodeError:
         fix = _claude().messages.create(
             model=ANTHROPIC_MODEL, max_tokens=16000,
@@ -841,7 +855,9 @@ def _parse_script_json(raw: str, *, cost_sink=None):
         ft = fix.content[0].text.strip()
         if "```" in ft:
             ft = ft[ft.find("{"): ft.rfind("}") + 1]
-        return json.loads(ft), cost
+        # The repair is the LAST line of defence; parsing it strictly throws the run away after
+        # paying for the fix. It gets the same tolerance the first attempt does.
+        return _first_json_value(ft), cost
 
 
 # Above this many scenes, generate the script in chapters (one Claude call can't emit
