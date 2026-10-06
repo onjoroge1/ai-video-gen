@@ -24,8 +24,13 @@ from test_durable_execution_phase6 import MemoryBlob, MemoryStore, runtime
 from test_durable_anthropic_response import Provider, payload
 
 OPENING = "a cane toad sitting in a Queensland sugarcane furrow"
-LIVE_ERROR = ("Illustrated storyboard failed: LATE_MECHANISM: the mechanism lands at 49s, "
-              "past the 44s mark (20% of runtime); state the principle early and spend the rest "
+# The two second-figures moved when REFERENCE_WPM was corrected from 180 to our own measured
+# 151: the same script is now estimated as a LONGER film, so the mechanism's start and the 20%
+# deadline both shift later in proportion. The failure being reproduced is identical in kind --
+# a mechanism past its deadline and a close that never returns to the opening object -- and 180
+# was measured on the reference channel's videos, not on anything we narrate.
+LIVE_ERROR = ("Illustrated storyboard failed: LATE_MECHANISM: the mechanism lands at 58s, "
+              "past the 52s mark (20% of runtime); state the principle early and spend the rest "
               "of the video earning it; NO_CALLBACK: the closing step never returns to "
               f"'{OPENING}'; both reference closes come back to the thing the story opened on")
 

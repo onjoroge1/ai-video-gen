@@ -1092,6 +1092,34 @@ _MATERIAL_DETAIL = re.compile(
     re.I if False else 0)
 
 
+_NUMBER_WORD = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_SPELLED = re.compile(
+    r"\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-](one|two|three|four|five|six|"
+    r"seven|eight|nine)\b|\b(" + "|".join(_NUMBER_WORD) + r")\b", re.I)
+
+
+def _digits_for_words(text: str) -> str:
+    """Spell numbers the way the evidence does, so a figure it states is not called invented.
+
+    The dossier says "26" and the narration says "Twenty-six", and the exemption is a substring
+    test -- so the film's own headline number read as a fabrication and blocked the run. Both
+    forms mean the same fact; only the spelling differs.
+    """
+    def swap(match):
+        tens, units, single = match.group(1), match.group(2), match.group(3)
+        if tens and units:
+            return str(_NUMBER_WORD[tens.lower()] + _NUMBER_WORD[units.lower()])
+        return str(_NUMBER_WORD[single.lower()]) if single else match.group(0)
+
+    return _SPELLED.sub(swap, text or "")
+
+
 def fidelity_severity(details: list, known_text: str = "", verdict: str = "") -> str:
     """Is this narration overshoot material enough to stop a render?
 
@@ -1114,7 +1142,10 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
     # subject trips the rule: "Brazil's European bees" and "The forest gained African honey bee
     # colonies" were both classed material because "Brazil" and "African" are capitalised, while
     # every claim in the dossier says them. Only a name the evidence does NOT carry can mislead.
-    known = (known_text or "").casefold()
+    # BOTH SIDES SPELLED THE SAME WAY. The evidence writes "26" in one dossier and "twenty-six"
+    # in another, and the narration picks whichever it likes; normalising only one side simply
+    # moves the false positive to the other dossier.
+    known = _digits_for_words((known_text or "").casefold())
     for detail in details or []:
         text = detail if isinstance(detail, str) else str(detail)
         # THE JUDGE'S OWN PROSE IS NOT THE NARRATION'S CLAIM. Findings arrive phrased as
@@ -1141,11 +1172,33 @@ def fidelity_severity(details: list, known_text: str = "", verdict: str = "") ->
         probe = stripped
         if stripped and not re.match(r"^\S+\s+[A-Z]", stripped):
             probe = stripped[0].lower() + stripped[1:]
-        # An ACTOR is material whatever the evidence says, because the risk is the action, not
-        # the noun: "a beekeeper backs away" invents a person doing something even though the
-        # dossier mentions beekeepers. Names and numbers get the exemption; people do not.
-        if _ACTOR_NOUN.search(probe):
-            return "material"
+        # "Twenty-six" and "26" are the same figure; the evidence writes one of them.
+        probe = _digits_for_words(probe)
+        # AN ACTOR THE EVIDENCE PUTS THERE IS NOT AN INVENTED ACTOR. This rule used to be
+        # absolute -- a person doing a thing is a claim, whatever the dossier says -- and that is
+        # right for "a beekeeper backs away" invented out of nothing. It is wrong for the bee
+        # dossier's own sentence: "in October 1957, a local beekeeper noticed the queen excluders
+        # and removed them". That is the documented turning point of the film, the hook rules
+        # tell the planner to open on exactly that gesture, and this classifier was refusing
+        # every script that obeyed them. Two requirements cannot disagree about one sentence.
+        #
+        # So the actor gets the same exemption names and numbers get, and no more: an actor the
+        # evidence does not mention is still material, and whatever that actor is said to DO is
+        # still measured by the rules below and by the judge that produced this finding.
+        actor = _ACTOR_NOUN.search(probe)
+        if actor:
+            noun = actor.group(0).strip().casefold().rstrip("s")
+            if not (known and noun in known):
+                return "material"
+            # The actor is documented, so what remains is whether the ACTION is. Every
+            # substantial word has to be one the evidence already uses: "a local beekeeper
+            # removed the queen excluders" is the dossier's own sentence, while "a beekeeper
+            # backs away through the grove" borrows a real person for an invented moment.
+            for word in re.findall(r"[a-z]{5,}", probe.casefold()):
+                if word == noun or word in known:
+                    continue
+                if not any(word[:n] in known for n in range(len(word), 4, -1)):
+                    return "material"
         for match in _MATERIAL_DETAIL.finditer(probe):
             token = match.group(0).strip()
             # A figure the evidence states is not invented either: "October 1957" and "26

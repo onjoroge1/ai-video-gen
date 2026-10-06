@@ -166,3 +166,47 @@ def test_a_dispute_about_word_choice_is_soft():
 
 def test_word_choice_exemption_does_not_swallow_an_invented_actor():
     assert fidelity_severity(["A beekeeper backs away through the grove"], KNOWN) == "material"
+
+
+def test_a_spelled_number_the_evidence_writes_in_digits_is_not_invented():
+    """The dossier says "26"; the narration says "Twenty-six". Same fact, different spelling.
+
+    The exemption is a substring test, so the film's own headline number read as a fabrication
+    and blocked the run -- on a video titled for those twenty-six queens.
+    """
+    known = ("african honey bees were imported into brazil in 1956. 26 queens escaped with small "
+             "swarms. 29 colonies were kept in hive boxes.")
+    assert fidelity_severity(["Twenty-six African queens, small swarms"], known,
+                             "partially_entailed") == "soft"
+    assert fidelity_severity(["Twenty-nine colonies remained."], known,
+                             "partially_entailed") == "soft"
+
+
+def test_a_figure_the_evidence_does_not_carry_is_still_invented():
+    """A duration COMPUTED from two sourced dates is exactly what the hook rules call invented."""
+    known = "african honey bees were imported into brazil in 1956. 26 queens escaped."
+    assert fidelity_severity(["Thirty-three years later."], known, "partially_entailed") == "material"
+    assert fidelity_severity(["The year was 1962."], known, "partially_entailed") == "material"
+
+
+def test_an_actor_the_evidence_puts_there_is_not_invented():
+    """The bee dossier's own sentence was blocking every script that used it.
+
+    "In October 1957, a local beekeeper noticed the queen excluders and removed them" is the
+    documented turning point of the film, and the hook rules tell the planner to open on exactly
+    that gesture. The actor rule was absolute -- a person doing a thing is a claim, whatever the
+    dossier says -- so the classifier refused every script that obeyed those rules.
+    """
+    known = ("in october 1957 a local beekeeper noticed the queen excluders and removed them. "
+             "26 queens escaped.")
+    assert fidelity_severity(["A local beekeeper removed the queen excluders."], known,
+                             "partially_entailed") == "soft"
+
+
+def test_an_actor_the_evidence_never_mentions_still_blocks():
+    """The exemption is for the documented actor, not for actors in general."""
+    known = ("in october 1957 a local beekeeper noticed the queen excluders and removed them.")
+    assert fidelity_severity(["A rancher burned the hives."], known,
+                             "partially_entailed") == "material"
+    assert fidelity_severity(["A geneticist redesigned them."], known,
+                             "partially_entailed") == "material"
