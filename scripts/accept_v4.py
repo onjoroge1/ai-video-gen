@@ -152,6 +152,7 @@ def main(job: str) -> int:
 
     # 2 --- the hook, as it went out with the film
     hook = src["hook"]
+    hook_patterns.register_people(_load(os.path.join(job, "research_dossier.json")) or {})
     graded = hook_patterns.score_hook(hook)
     devices = [d for d, ok in graded["patterns"].items() if ok]
     rows.append(("hook puts the viewer in it", graded["patterns"]["viewer_present"],

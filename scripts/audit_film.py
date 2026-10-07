@@ -256,6 +256,7 @@ def audit_script(job: str, film: str = "", stale: str | None = None) -> dict:
     hook_score = 0
     try:
         import hook_patterns as hp
+        hp.register_people(_load_json(os.path.join(job, "research_dossier.json")) or {})
         hook_score = hp.score_hook(hook)["score"]
     except Exception:
         pass

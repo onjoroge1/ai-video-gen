@@ -98,6 +98,53 @@ _VAGUE = re.compile(
     r"\b(you (?:won'?t|will never) believe|changed everything|this one trick|shocking|"
     r"mind[- ]blowing|insane)\b", re.I)
 
+# Surnames the research names, registered once per run by the pipeline. The two-token regex above
+# catches "Warwick Kerr" and nothing else: "You watch Kerr import African bees for Brazilian
+# honey" scored 68 with no_institution PASSING (killer bees 2026-10-06, attempt 3), and a lone
+# surname is still a named researcher nobody has met. A surname is only known from the dossier,
+# so this is a registry, not a regex: "Brazil's" must not read as a person.
+_PEOPLE: set[str] = set()
+# Capitalised words that start a two-token match but are not a given name.
+_NOT_A_GIVEN_NAME = frozenset({
+    "the", "in", "on", "at", "by", "for", "a", "an", "and", "but", "when", "after", "before",
+    "feral", "greater", "south", "north", "east", "west", "new", "united", "bee", "bees",
+    "african", "africanized", "european", "brazilian", "american", "central", "northern",
+    "southern", "eastern", "western", "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december", "dr", "mr", "mrs", "ms",
+})
+
+
+def register_people(dossier) -> set:
+    """Learn the surnames the research names, so a lone 'Kerr' scores as the person it is.
+
+    Reads two-token capitalised names out of the dossier's claim texts (or a plain list of
+    claim strings), drops place names and the capitalised adjectives that start a false match
+    ("The Africanized", "South African", "Feral Africanized"), and keeps the SURNAME. Replaces
+    the previous registry: one run, one dossier.
+    """
+    claims = dossier.get("claims") if isinstance(dossier, dict) else dossier
+    texts = []
+    for item in claims or []:
+        texts.append(str(item.get("claim") or "") if isinstance(item, dict) else str(item or ""))
+    found = set()
+    for text in texts:
+        for match in _PERSONAL_NAME.findall(text):
+            if _PLACE.search(match):
+                continue
+            first, last = match.split()
+            if first.lower() in _NOT_A_GIVEN_NAME or last.lower() in _NOT_A_GIVEN_NAME:
+                continue
+            found.add(last)
+    _PEOPLE.clear()
+    _PEOPLE.update(found)
+    return set(found)
+
+
+def _registered_people_in(line: str) -> list:
+    return [name for name in sorted(_PEOPLE)
+            if re.search(r"\b" + re.escape(name) + r"(?:'s)?\b", line)]
+
+
 DEVICES = ("viewer_present", "no_institution", "outcome_withheld",
            "denied_or_withheld", "yardstick", "held_clock")
 # Weighted so the three the corpus never violates dominate.
@@ -119,6 +166,7 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
 
     viewer = bool(_SECOND_PERSON.search(line))
     named = [m for m in _PERSONAL_NAME.findall(line) if not _PLACE.search(m)]
+    named += _registered_people_in(line)
     institution = bool(_INSTITUTION.search(line)) or bool(named)
     has_number = bool(_NUMBER.search(line))
     spoils = bool(_INTERVENTION_VERB.search(line)) and bool(_RESULT.search(line))

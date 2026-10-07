@@ -3961,6 +3961,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # only, so a semantically surprising hook can legitimately score 70.
         try:
             import hook_patterns as _hp
+            # Every score_hook call in this run -- here, the re-asks, the repair's opener
+            # choice, the final report -- now knows the dossier's surnames.
+            _known_people = _hp.register_people(research_dossier)
+            if _known_people:
+                print(f"[hook] people the research names: {', '.join(sorted(_known_people))}")
             _hs = _hp.score_hook(_s(plan.get("hook")))
             _on = ", ".join(k for k, v in _hs["patterns"].items() if v) or "none"
             print(f"[hook] {_hs['score']}/100 ({_on}) - {_s(plan.get('hook'))!r}")
