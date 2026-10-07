@@ -371,3 +371,28 @@ def test_a_beat_that_forbids_people_is_not_also_required_to_show_one():
     state = plan["scenes"][1]["states"][0]
     assert state.get("anonymous_people_required") is False
     assert any("people" in _.casefold() for _ in state.get("forbidden_objects") or [])
+
+
+def test_the_hinge_is_one_picture_for_the_floor_and_the_compiler_alike():
+    """Killer bees V10 attempt 2 (2026-10-07): the ten-word hinge sits in the opening with a ~4 s
+    hold (capacity 2); the writer gives it one visual beat, the plan holds one state, and the
+    floor said '2 to 6' after every opening image had been bought. One rule, both places."""
+    plan = le.compile_evidence_plan(_evidence_script())
+    scene = next(s for s in plan["scenes"] if s["opening"])
+    scene["states"] = scene["states"][:1]
+    scene["state_capacity"] = 2
+    scene["states_requested"] = 2
+    scene["story_role"] = "hinge"
+    codes = {e["code"] for e in le.validate_evidence_plan(plan)["errors"]}
+    assert "opening_state_count" not in codes
+    assert "insufficient_distinct_evidence_assets" not in codes
+    # Any other opening role at capacity 2 still needs two.
+    scene["story_role"] = "setup"
+    codes = {e["code"] for e in le.validate_evidence_plan(plan)["errors"]}
+    assert "opening_state_count" in codes
+    # And the compiler asks the hinge for exactly one state, so the two cannot disagree.
+    script = _evidence_script()
+    script["scenes"][1]["story_role"] = "hinge"
+    script["scenes"][1]["causal_role"] = "hinge"
+    hinge_plan = le.compile_evidence_plan(script)
+    assert hinge_plan["scenes"][1]["states_requested"] == 1

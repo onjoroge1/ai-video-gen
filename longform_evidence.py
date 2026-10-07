@@ -826,6 +826,9 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         # number in the diagnostic. The writer stamps _words_as_written; the larger count wins.
         words_now = len(_text(scene.get("narration")).split())
         requested = states_required_for_words(max(words_now, int(scene.get("_words_as_written") or 0)))
+        # One picture for the hinge, the same number the validator's floor accepts (see there).
+        if _text(scene.get("story_role") or scene.get("causal_role")).casefold() == "hinge":
+            requested = 1
         fitted = _states_that_fit(beats, scene, measured.get(scene_index),
                                   reserve=1 if scene_index == reserved_for_callback else 0)
         if opening:
@@ -1055,7 +1058,13 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # A one-state opening beat is still a still frame, and for a beat with the runtime to do
         # better that is still an error. This exempts only the beats physics already decided for.
         capacity = int(scene_plan.get("state_capacity") or 0)
-        floor = 2 if capacity >= 2 else 1
+        # THE HINGE IS ONE PICTURE. The story contract caps it at ten words because "a long hinge
+        # is not a hinge", and the writer gives that one abrupt sentence one visual beat -- so the
+        # plan holds one state while a ~4 s hold has capacity 2, and the floor refused it (killer
+        # bees V10 attempt 2, 2026-10-07: 'Opening beat has 1 evidence states; this beat allows 2
+        # to 6', after every opening image had been bought). Same floor the compiler asks for.
+        is_hinge = _text(scene_plan.get("story_role")).casefold() == "hinge"
+        floor = 1 if is_hinge else (2 if capacity >= 2 else 1)
         # The ceiling has to move with the narration, or it contradicts the hold rule. Six was a
         # flat literal: fine for a 40-word opening, which needs 4, and unsatisfiable for a
         # 100-word one, which needs 10 to stay under MAX_VISUAL_STATE_SECONDS. A writer told to
@@ -1193,7 +1202,7 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # demanding a second asset for a state that does not exist. Where the runtime can hold two
         # states, needing two distinct assets is still a real contract and still reported.
         if (opening and capacity >= 2 and len(accepted_distinct) < 2
-                and not verified_detail):
+                and not verified_detail and not is_hinge):
             errors.append(_issue(
                 "insufficient_distinct_evidence_assets",
                 "Opening beats need two distinct source/state assets unless a detail reframe is verified.",
