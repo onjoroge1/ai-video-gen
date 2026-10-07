@@ -948,7 +948,8 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
 
 
 def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
-                       opening_object: str = "", duration_sec: float = 0.0) -> list[dict]:
+                       opening_object: str = "", duration_sec: float = 0.0,
+                       callback_kind: str = "object") -> list[dict]:
     """Add narration devices after factual acceptance, without relabeling factual nodes.
 
     `hook` (the spoken lead: hook line + cold open) lets the close device be written to the
@@ -1031,6 +1032,14 @@ def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
             if role == closing:
                 refs.append(reversal["beat_id"])
                 refs += [c for c in carriers if c not in refs]
+                # A close that returns to the original human NEED (operator brief, 2026-10-07)
+                # re-speaks the setup's fact -- the thin harvest, the low production -- so the
+                # setup joins its ceiling; CLOSING_BEAT_ASSERTS_HISTORY is untouched because the
+                # device still carries no event of its own.
+                if str(callback_kind or "").lower() == "need":
+                    setup = next((b for b in out if b["role"] == "setup"), None)
+                    if setup and setup["beat_id"] not in refs:
+                        refs.append(setup["beat_id"])
                 if carriers:
                     print(f"[compiler] close ceiling: planted={sorted(planted)} spoken={spoken} "
                           f"carriers={carriers}")

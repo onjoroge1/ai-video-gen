@@ -116,6 +116,10 @@ MUTATIONS = {
         s, "Nothing here touches the chain at all. Nor does this sentence, which only fills space."),
     "SYNTHESIS_ADDS_HISTORY": lambda s: _with_synthesis(
         s, "The bounty paid for tails, so farms bred cobras. Then Texas banned the trade in 1911."),
+    # Under the ladder a body beat may not re-tell the opening: the last escalation repeats the setup.
+    "OPENING_RESTATED":    lambda s: (s.update(opening_contract="ladder_v1"),
+                                      next(x for x in reversed(s["steps"]) if x["role"] == "escalation")
+                                      .update(situation=s["steps"][0]["situation"])),
     "JOINT_BAND":          lambda s: s.update(sentence_mix_contract="joints_v1"),
     "ADDRESS_BAND":        lambda s: (s.update(sentence_mix_contract="joints_v1"),
                                       [x.update(situation=re.sub(r"\b[Yy]ou(?:r)?\b", "they", x["situation"]))

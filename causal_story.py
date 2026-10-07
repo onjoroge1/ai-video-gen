@@ -162,6 +162,11 @@ CLOSE_CONTRACT = "planted_callback_v1"
 # the 20% mechanism deadline, the object-only callback -- are REPORTED for it, not enforced. The
 # reference explainer lands its mechanism at 23% and never speaks an aftermath first.
 OPENING_CONTRACT = "ladder_v1"
+# How much of an opening beat's content a body beat may share before it is re-telling it. Below
+# duplicate_narration's 0.75 on purpose: a body scene that says the import again in fresh words
+# shares most of its content words with the intervention without being a verbatim repeat.
+OPENING_RESTATEMENT_OVERLAP = 0.6
+OPENING_ROLES = (SETUP, INTERVENTION, FALSE_RESOLUTION)
 LADDER_ADVISORY_CODES = frozenset({
     "LATE_MECHANISM", "LONG_HOOK", "MULTI_SENTENCE_HOOK", "NO_CALLBACK", "COLD_OPEN_MISSING",
     "LONG_COLD_OPEN", "MULTI_SENTENCE_COLD_OPEN", "COLD_OPEN_META", "COLD_OPEN_RESTATES_HOOK"})
@@ -904,6 +909,37 @@ def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
             synthesis["step_id"]))
 
 
+def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
+    """THE BODY BEGINS AFTER THE CONSEQUENCE (operator brief, 2026-10-07: the most important rule).
+
+    The opening spends the problem, the decision and the escape; a body beat that tells any of
+    them again restarts the film. Measured as content-word overlap between each body step (after
+    the first escalation, excluding the synthesis and the close, which return by contract) and
+    the setup / intervention / false-resolution steps.
+    """
+    first_escalation = next((s["index"] for s in steps if s["role"] == ESCALATION), None)
+    if first_escalation is None:
+        return
+    opening = [s for s in steps if s["role"] in OPENING_ROLES and s["index"] < first_escalation]
+    body = [s for s in steps if s["index"] > first_escalation
+            and s["role"] not in CLOSING_ROLES + (SYNTHESIS, GENERALIZATION)]
+    for step in body:
+        for earlier in opening:
+            a = {w for w in re.findall(r"[a-z]{3,}", step["situation"].lower()) if w not in _STOPWORDS}
+            b = {w for w in re.findall(r"[a-z]{3,}", earlier["situation"].lower()) if w not in _STOPWORDS}
+            if not a or not b:
+                continue
+            overlap = len(a & b) / min(len(a), len(b))
+            if overlap >= OPENING_RESTATEMENT_OVERLAP and len(a & b) >= 4:
+                issues.append(_issue(
+                    "OPENING_RESTATED",
+                    f"{step['step_id']} re-tells the {earlier['role']} ({overlap:.0%} of its content "
+                    f"words); the body continues from the consequence -- refer back with an article "
+                    "or a pronoun and move on",
+                    step["step_id"]))
+                break
+
+
 def _check_planted_callback(payload: dict, steps: list[dict], issues: list[dict],
                             short_form: bool, warnings: list[dict]) -> None:
     """The close re-speaks the number the lead planted and lands in two to four sentences.
@@ -993,6 +1029,7 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
             [step["continues"] for step in steps]))
 
     if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
+        _check_opening_restated(steps, issues)
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
         issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
         warnings.extend(demoted)

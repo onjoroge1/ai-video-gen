@@ -1841,6 +1841,178 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
     return best, cost
 
 
+def _opening_scene_span(scenes: list) -> list[int]:
+    """Indices of the scenes the opening occupies: setup through the first escalation (or hinge
+    when no escalation precedes one), in order. Empty when the roles are not there."""
+    roles = [_s(s.get("causal_role") or s.get("story_role")).lower() for s in scenes]
+    end = next((i for i, r in enumerate(roles) if r == "escalation"), None)
+    if end is None:
+        end = next((i for i, r in enumerate(roles) if r == "hinge"), None)
+    if end is None:
+        return []
+    return list(range(0, end + 1))
+
+
+def _opening_identity_findings(script: dict, dossier: dict | None) -> list[dict]:
+    """Every capitalised name in the opening must be a name the dossier carries.
+
+    The opening is where a planner invents a person ("a scientist", "Dr. Silva") to carry the
+    want; the brief keeps real-person identity a blocking check, including inside "you"
+    sentences. Deterministic: two-token capitalised names (not place names) in the opening
+    narration that appear nowhere in the dossier's claims.
+    """
+    import hook_patterns as _hp
+    claims = " ".join(_s(c.get("claim")) for c in ((dossier or {}).get("claims") or [])
+                      if isinstance(c, dict)).casefold()
+    if not claims:
+        return []
+    findings = []
+    scenes = script.get("scenes") or []
+    for index in _opening_scene_span(scenes):
+        text = _s(scenes[index].get("narration"))
+        for match in _hp._PERSONAL_NAME.findall(text):
+            if _hp._PLACE.search(match):
+                continue
+            first = match.split()[0].lower()
+            if first in _hp._NOT_A_GIVEN_NAME:
+                continue
+            if match.casefold() not in claims:
+                findings.append({"code": "OPENING_UNKNOWN_NAME", "severity": "material",
+                                 "scene": index + 1,
+                                 "message": f"scene {index + 1} names {match!r}, and no claim in the "
+                                            "dossier does; a person in the opening is a sourced fact"})
+    return findings
+
+
+_OPENING_REVIEW_SYSTEM = (
+    "You are an editor reading the OPENING of a narrated explainer. Judge it as a reader, not a "
+    "fact-checker. Return ONLY JSON: {\"clarity\":0-10,\"rationale\":0-10,\"movement\":0-10,"
+    "\"efficiency\":0-10,\"tangibility\":0-10,\"body_restates_opening\":true|false,"
+    "\"evidence\":{\"clarity\":\"quoted words\",\"rationale\":\"...\",\"movement\":\"...\","
+    "\"efficiency\":\"...\",\"tangibility\":\"...\"},\"fix\":\"the single most useful change, one sentence\"}")
+
+
+def _evaluate_opening(script: dict, cost_sink=None, log=lambda message: None) -> dict | None:
+    """One semantic read of the whole opening (operator brief, 2026-10-07): clarity, rationale,
+    movement, efficiency, tangibility -- scored 0-10 each with quoted evidence -- plus whether the
+    body re-tells any opening beat. No positional or wording tests. Reported, never blocking;
+    None when the judge is unavailable."""
+    scenes = script.get("scenes") or []
+    span = _opening_scene_span(scenes)
+    if not span:
+        return None
+    opening = [_s(scenes[i].get("narration")) for i in span]
+    body = [_s(s.get("narration")) for s in scenes[span[-1] + 1:]]
+    words_to_consequence = sum(len(t.split()) for t in opening)
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=700, system=_OPENING_REVIEW_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "THE OPENING (first scenes, in order):\n" + "\n".join(f"- {t}" for t in opening)
+                       + "\n\nTHE BODY THAT FOLLOWS (for the restatement question only):\n"
+                       + "\n".join(f"- {t}" for t in body[:8])
+                       + "\n\nQuestions. Clarity: after the second sentence, can a viewer say who they are, "
+                         "what they need, and what the decision was? Rationale: does the viewer understand "
+                         "WHY the decision was made, from the opening alone (agreement is not required)? "
+                         "Movement: does the situation change beat by beat, and does the opening end on "
+                         "something gone wrong rather than on description; is anything said twice? "
+                         "Efficiency: could a sentence go without losing the need, the rationale, or the "
+                         "turn? Tangibility: is the need something felt, seen or counted? "
+                         "body_restates_opening: does the body re-tell the problem, the decision or the "
+                         "consequence instead of continuing from it?"}])
+        _charge(cost_sink, _ledger.GRADE, _msg_cost(response.usage), "opening editorial read")
+        parsed, _pc = _parse_script_json(response.content[0].text)
+    except Exception as exc:                        # noqa: BLE001 - a read that failed is logged
+        log(f"Opening read unavailable: {type(exc).__name__}: {str(exc)[:100]}")
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    axes = ("clarity", "rationale", "movement", "efficiency", "tangibility")
+    scores = {a: max(0, min(10, int(parsed.get(a) or 0))) for a in axes}
+    review = {"scores": scores, "score": sum(scores.values()) * 2,
+              "body_restates_opening": bool(parsed.get("body_restates_opening")),
+              "evidence": parsed.get("evidence") if isinstance(parsed.get("evidence"), dict) else {},
+              "fix": _s(parsed.get("fix")).strip(), "words_to_consequence": words_to_consequence,
+              "opening_scenes": [i + 1 for i in span]}
+    log("Opening read: " + " ".join(f"{a} {scores[a]}" for a in axes)
+        + f" — {words_to_consequence} words to the consequence"
+        + (" — BODY RESTATES THE OPENING" if review["body_restates_opening"] else "")
+        + (f" — fix: {review['fix']}" if review["fix"] else ""))
+    return review
+
+
+def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_sink=None,
+                         cache: dict | None = None, log=lambda message: None) -> tuple[dict, float]:
+    """At most ONE targeted revision of the opening scenes on the read's fix, with the previous
+    valid version kept as the fallback: the rewrite is adopted only if every rewritten scene
+    stays inside its ledger ceiling, keeps its sourced phrases, and the re-read scores no lower."""
+    import copy
+    import story_fact_model as _sfm
+    if not review or not _s(review.get("fix")) or review.get("score", 0) >= 80:
+        return script, 0.0
+    scenes = script.get("scenes") or []
+    span = _opening_scene_span(scenes)
+    if not span:
+        return script, 0.0
+    claims = {_s(c.get("claim_id")): c for c in ((dossier or {}).get("claims") or []) if isinstance(c, dict)}
+    by_id = {_s(sc.get("beat_id")): sc for sc in scenes if _s(sc.get("beat_id"))}
+    rows = [{"id": i + 1, "causal_role": _s(scenes[i].get("causal_role")),
+             "narration": _s(scenes[i].get("narration")),
+             "event": _sfm.event_of(scenes[i])["text"],
+             "locked_phrases": [_s(r.get("narration_phrase")) for r in scenes[i].get("claim_refs") or []
+                                if isinstance(r, dict) and _s(r.get("narration_phrase"))]} for i in span]
+    cost = 0.0
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=4000, system=_SCRIPT_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "Revise the OPENING scenes of a sourced narration to make exactly this change, and "
+                       f"nothing else: {review['fix']}\n"
+                       "Rules: every phrase in locked_phrases stays verbatim; add no number, date, place, "
+                       "named person, quantity or motive the scene's event does not carry; keep each "
+                       "scene within 15 words of its current length; a scene you do not need to touch "
+                       "is returned unchanged.\n\n" + json.dumps(rows, ensure_ascii=False)
+                       + '\n\nReturn ONLY JSON: {"scenes":[{"id":<int>,"narration":"..."}]}'}])
+        cost += _charge(cost_sink, _ledger.GRADE, _msg_cost(response.usage), "opening revision")
+        parsed, _pc = _parse_script_json(response.content[0].text)
+        cost += _pc or 0.0
+    except Exception as exc:                        # noqa: BLE001
+        log(f"Opening revision unavailable ({type(exc).__name__}); keeping the opening")
+        return script, cost
+    by_index = {int(r.get("id") or 0): " ".join(_s(r.get("narration")).split())
+                for r in (parsed or {}).get("scenes") or [] if isinstance(r, dict)}
+    candidate = copy.deepcopy(script)
+    changed = 0
+    for i in span:
+        new = by_index.get(i + 1)
+        sc = candidate["scenes"][i]
+        old = _s(sc.get("narration"))
+        if not new or new == old:
+            continue
+        if abs(len(new.split()) - len(old.split())) > 15:
+            log(f"Opening revision held: scene {i + 1} changed length by more than 15 words"); return script, cost
+        if any(_s(r.get("narration_phrase")) and _s(r.get("narration_phrase")).casefold() not in new.casefold()
+               for r in sc.get("claim_refs") or [] if isinstance(r, dict)):
+            log(f"Opening revision held: scene {i + 1} dropped a sourced phrase"); return script, cost
+        ceiling = _sfm.scene_ceiling(sc, by_id, claims)
+        if ceiling.strip():
+            ok, why = expansion_survives_the_ledger(new, ceiling, cache=cache, cost_sink=cost_sink)
+            if not ok:
+                log(f"Opening revision held: scene {i + 1} asserts more than its ceiling "
+                    f"({'; '.join(str(d) for d in why)[:100]})"); return script, cost
+        sc["narration"] = new
+        changed += 1
+    if not changed:
+        log("Opening revision: no scene changed; keeping the opening"); return script, cost
+    again = _evaluate_opening(candidate, cost_sink, log=lambda m: None)
+    if again is None or again.get("score", 0) < review.get("score", 0):
+        log(f"Opening revision held: re-read scored {(again or {}).get('score')} against "
+            f"{review.get('score')}; the previous opening stands"); return script, cost
+    candidate["_opening_review"] = dict(again, revised_from=review)
+    log(f"Opening revised ({changed} scene(s)): {review.get('score')} -> {again.get('score')}")
+    return candidate, cost
+
+
 def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
     """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
 
@@ -4494,7 +4666,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         beats = (_compiler.presentation_beats(
                      _sb, sheet_engine_id,
                      hook=" ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0]]).strip(),
-                     opening_object=_s(plan.get("opening_object")), duration_sec=duration_sec)
+                     opening_object=_s(plan.get("opening_object")), duration_sec=duration_sec,
+                     callback_kind=(_plan_opening(plan).get("callback") or {}).get("kind", "object"))
                  if _roles.get("compiled") and _spine["passed"] else _sb)
         for i, beat in enumerate(beats):
             beat["n"] = i + 1
@@ -12819,6 +12992,23 @@ def run_explainer_pipeline(
             script["scenes"] = _scenes
             if _mix_changed:
                 rederive_narration_bindings(script, log, research_dossier)
+        if script.get("_opening_contract"):
+            # REAL PEOPLE ONLY. A name in the opening that no claim carries is refused like any
+            # unsourced fact (advisory under CLAIM_LEDGER_HARD=0, as the ledger is).
+            _unknown = _opening_identity_findings(script, research_dossier)
+            for _f in _unknown:
+                log(f"  ✗ [OPENING{'' if _claim_ledger_hard() else ', CLAIM_LEDGER_HARD=0'}] {_f['message']}")
+            if _unknown and _claim_ledger_hard():
+                raise ValueError("Opening names a person the dossier does not: "
+                                 + "; ".join(f["message"] for f in _unknown))
+            # THE EDITORIAL READ: semantic, whole-opening, reported; one revision with fallback.
+            _review = _evaluate_opening(script, aux_costs, log)
+            if _review:
+                script["_opening_review"] = _review
+                script, _rev_cost = _revise_opening_once(
+                    script, _review, research_dossier, aux_costs, script.get("_entailment_cache"), log)
+                if script.get("_opening_review", {}).get("revised_from"):
+                    rederive_narration_bindings(script, log, research_dossier)
         # The evidence plan's callback state is labelled from the contract; equal labels are a
         # rule the planner is asked for and the plan gate enforces. Made true here.
         _align_callback_object(script, log)
