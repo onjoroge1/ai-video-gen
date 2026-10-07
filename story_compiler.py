@@ -143,9 +143,9 @@ def _slot_plan_ask(slot_plan: dict, mapping) -> str:
         'of the compounding -- a further reach, a further scale, a further cost, a new place or '
         'a new date -- and no two may be the same development in different words. If the '
         'evidence genuinely cannot supply that many distinct escalations, return fewer and say '
-        'so in the throughline rather than restating one development. Do NOT supply a hinge or a '
-        'closing takeaway: the compiler adds both as presentation beats, which is why they are '
-        'absent from the counts above.\n')
+        'so in the throughline rather than restating one development. Do NOT supply a hinge, a '
+        'synthesis (recap) or a closing takeaway: the compiler adds all three as presentation '
+        'beats, which is why they are absent from the counts above.\n')
 
 
 def _hook_rules() -> str:
@@ -276,7 +276,7 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         'presentation transitions and the closing question. Every event you supply needs a '
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
-        'not an inversion. Do not supply a hinge, mechanism, tool, or editorial role field.\n'
+        'not an inversion. Do not supply a hinge, mechanism, synthesis, tool, or editorial role field.\n'
         + ('First decide whether this episode REMOVES a species or INTRODUCES one, then follow the '
            'matching definitions above all the way through. An introduced species cannot perform '
            'a setup function in that place before it arrived.\n'
@@ -918,8 +918,16 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
     return out
 
 
-def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
-    """Add narration devices after factual acceptance, without relabeling factual nodes."""
+def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
+                       opening_object: str = "", duration_sec: float = 0.0) -> list[dict]:
+    """Add narration devices after factual acceptance, without relabeling factual nodes.
+
+    `hook` (the spoken lead: hook line + cold open) lets the close device be written to the
+    planted-number contract: its instruction names the number as the hook said it, and the beats
+    whose events carry that number join the close's context_refs, so the fidelity ceiling the
+    close is judged against contains the figure it is asked to re-speak. Without a hook the close
+    is built exactly as before.
+    """
     if ef.map_for(engine_id):
         import story_engines
         order = story_engines.expected_order(engine_id)
@@ -955,11 +963,26 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # close on a verdict, which for strange_behaviour is a restatement the planner is never
         # asked to source (see event_functions.STRANGE_BEHAVIOUR).
         closing = story_engines.closing_role(engine_id)
+        import causal_story as _cs
+        import hook_patterns as _hp
+        planted = _hp.planted_numbers(hook) if hook else set()
+        # The number AS THE HOOK SAID IT, so the writer re-speaks the same token and the
+        # normaliser on both sides agrees ("twenty-six", not "26").
+        spoken = [m.group(0) for m in re.finditer(r"\b(?:\d[\d,]*|[a-z]+(?:-[a-z]+)?)\b", hook, re.I)
+                  if _hp.planted_numbers(m.group(0)) & planted] if planted else []
+        shape = (_cs.close_contract_text(spoken, opening_object)
+                 if hook else "Return to the opening object; no new facts.")
         close_text = {
-            "verdict": ("Close by restating the opening behaviour or claim in one sentence now "
-                        "that the story has shown what it does; return to the opening object; "
-                        "attribute no verdict to anyone; no new facts."),
-        }.get(closing, "Close with one useful question the viewer can reuse; no new facts.")
+            "verdict": ("Close by restating the opening behaviour or claim now that the story has "
+                        "shown what it does; attribute no verdict to anyone. " + shape),
+        }.get(closing, "Close with one useful question the viewer can reuse. " + shape)
+        # Carriers: accepted beats whose event speaks a planted number. They join the close's
+        # context_refs below so the ceiling the close is judged against contains the figure.
+        carriers = [b["beat_id"] for b in out
+                    if planted & _hp.planted_numbers(sfm.event_of(b)["text"])] if planted else []
+        if planted and not carriers:
+            print(f"[compiler] close ceiling: planted={sorted(planted)} but no accepted event "
+                  "carries the number; the hook ceiling (HOOK_EXCEEDS_STORY) owns that failure")
         for role, anchor, text in (
             ("hinge", mechanism, hinge_text),
             (closing, reversal, close_text),
@@ -978,6 +1001,10 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                 (mechanism.get("derivation") or {}).get("witness_ids") or [])
             if role == closing:
                 refs.append(reversal["beat_id"])
+                refs += [c for c in carriers if c not in refs]
+                if carriers:
+                    print(f"[compiler] close ceiling: planted={sorted(planted)} spoken={spoken} "
+                          f"carriers={carriers}")
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
                       "causal_role": role, "presentation_device": role, "context_refs": refs,
                       "event": {"text": "", "claim_refs": []}, "beat": text,
@@ -991,6 +1018,34 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                       "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
             out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
+        # THE SYNTHESIS DEVICE: the chain re-walked, between the reversal (or generalization) and
+        # the close. Built like the hinge and the close -- empty event, context_refs -- so the
+        # fidelity cascade judges its narration against the concatenation of every chain event it
+        # points at; a word none of them carry is refused there, and _check_synthesis refuses it
+        # for free before that. Only when the runtime can hold it (causal_story.synthesis_planned).
+        if (_cs.synthesis_planned(story_engines.get(engine_id), duration_sec)
+                and not any(b.get("role") == "synthesis" for b in out)):
+            chain_ids = [mechanism["beat_id"]] + [
+                b["beat_id"] for b in out
+                if b.get("role") == "escalation" and not b.get("continues")] + [reversal["beat_id"]]
+            synthesis = {
+                "beat_id": f"{reversal['beat_id']}:synthesis", "role": "synthesis",
+                "causal_role": "synthesis", "presentation_device": "synthesis",
+                "context_refs": list(dict.fromkeys(chain_ids)),
+                "event": {"text": "", "claim_refs": []},
+                "beat": ("SYNTHESIS: in two to four sentences, at most the assigned narration_words, "
+                         "re-walk EVERY mechanism and escalation beat above IN ORDER, each as its "
+                         "cause and its cost ('the grids came off, so the queens left; they bred, so "
+                         "the hives turned'), using only words those beats already said. No new "
+                         "fact, number, name or place; re-speaking a number an earlier beat said is "
+                         "allowed. It is the one beat that restates, and the only one."),
+                "caused_by": reversal["beat_id"],
+                "chapter": reversal.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
+                "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
+            close_index = next((i for i, b in enumerate(out) if b.get("role") == closing), len(out))
+            out.insert(close_index, synthesis)
+            print(f"[compiler] synthesis device added: {duration_sec or 'unknown'}s request vs "
+                  f"{_cs.SYNTHESIS_MIN_RUNTIME_SEC:.0f}s floor, context_refs={len(chain_ids)} beats")
         for i, beat in enumerate(out):
             beat["n"] = i + 1
             beat["chapter"] = min(4, i * 4 // len(out) + 1)
@@ -1022,12 +1077,13 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                         "escalation": ("mechanism", "false_resolution", "intervention"),
                         "reversal": ("escalation", "mechanism", "intervention"),
                         "generalization": ("reversal", "escalation"),
-                        "tool": ("reversal", "escalation", "mechanism"),
+                        "synthesis": ("reversal", "escalation", "mechanism"),
+                        "tool": ("synthesis", "reversal", "escalation", "mechanism"),
                         # A verdict close has the same ancestry as a tool close. It was absent
                         # here because no mapped engine closed on a verdict until the Nature
                         # engines; the first penguin script to reach narration failed
                         # ORPHAN_STEP on a verdict whose cause this table had blanked.
-                        "verdict": ("reversal", "escalation", "mechanism")}
+                        "verdict": ("synthesis", "reversal", "escalation", "mechanism")}
         for beat in out:
             role = beat["causal_role"]
             inherited = previous.get(role) if role in ("escalation", "generalization") else None

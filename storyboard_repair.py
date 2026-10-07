@@ -21,7 +21,13 @@ BUDGET_FILENAME = BUDGET_VERSION + ".json"
 BUDGET_REJECTION_REASON = "Repair still exceeds the opening word budget"
 FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
-REPAIRABLE = {"LATE_MECHANISM", "NO_CALLBACK"}
+SYNTHESIS_CODES = {"SYNTHESIS_TOO_THIN", "SYNTHESIS_TOO_LONG", "SYNTHESIS_SKIPS_A_BEAT",
+                   "SYNTHESIS_ADDS_HISTORY"}
+REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
+              | SYNTHESIS_CODES)
+CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
+# Two to four sentences on an 18-word close needs more than the old +20.
+CLOSE_GROWTH_WORDS = 40
 
 REJECTION_SUMMARIES = {
     "JSON_PARSE": "The repair response could not be parsed as JSON.",
@@ -99,11 +105,19 @@ def plan(script, board):
     body_words = sum(counts[mechanism:])
     opening_limit = max(0, math.floor(pct * body_words / (1 - pct)) - 1)
     selected = set(range(mechanism)) if "LATE_MECHANISM" in codes else set()
-    if "NO_CALLBACK" in codes:
+    if codes & CLOSE_CODES:
         selected.add(close)
+    synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
+    if codes & SYNTHESIS_CODES and synthesis is not None:
+        selected.add(synthesis)
+    planted = sorted(cs.lead_numbers({"line": script.get("hook"),
+                                      "cold_open": script.get("_cold_open")}))
     return {"errors": errors, "scene_ids": [ids[i] for i in sorted(selected)],
             "mechanism_index": mechanism, "close_index": close,
             "opening_word_limit": opening_limit, "opening_object": opening,
+            "planted_numbers": planted if script.get("_close_contract") else [],
+            "synthesis_index": synthesis,
+            "close_contract": str(script.get("_close_contract") or ""),
             "deadline_fraction": pct, "original_counts": counts}
 
 
@@ -124,7 +138,15 @@ def prompt(script, edit):
         "word limit; count whitespace-separated words before returning JSON. "
         "When the close is requested, return explicitly to the FULL opening_object in natural "
         "spoken narration and connect it to the earned conclusion. Keep the close at least its "
-        "original word count, and no more than 20 words longer. Keep a hinge at most 10 words. "
+        f"original word count, and no more than {CLOSE_GROWTH_WORDS} words longer. "
+        + (cs.close_contract_text(edit.get("planted_numbers") or [], edit.get("opening_object", ""))
+           + " " if edit.get("close_contract") else "")
+        + ("When the synthesis scene is requested, rewrite it as 2-4 sentences that re-walk EVERY "
+           "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
+           "already said; add no number, name, date or place they did not. "
+           if edit.get("synthesis_index") is not None and edit["scene_ids"]
+           and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]) else "")
+        + "Keep a hinge at most 10 words. "
         "Use the immutable events and claim references to preserve what each scene asserts.\n"
         + json.dumps({"edit": edit, "hook": script.get("hook"), "scenes": rows}, ensure_ascii=False))
 
@@ -158,8 +180,17 @@ def apply_response(script, edit, response):
     close = edit["close_index"]
     if scenes[close]["scene_id"] in updates:
         if (edit["opening_object"].casefold() not in scenes[close]["narration"].casefold()
-                or not edit["original_counts"][close] <= counts[close] <= edit["original_counts"][close] + 20):
+                or not edit["original_counts"][close] <= counts[close]
+                <= edit["original_counts"][close] + CLOSE_GROWTH_WORDS):
             raise ValueError("Repair did not preserve the closing budget and concrete callback")
+        if edit.get("close_contract"):
+            import hook_patterns
+            planted = set(edit.get("planted_numbers") or [])
+            if planted and not (planted & hook_patterns.planted_numbers(scenes[close]["narration"])):
+                raise ValueError("Repair did not re-speak the planted number")
+            if not cs.CLOSE_MIN_SENTENCES <= cs._close_sentences(scenes[close]["narration"]) \
+                    <= cs.CLOSE_MAX_SENTENCES:
+                raise ValueError("Repair did not land the close in the sentence band")
     hook = str(script.get("hook") or "")
     if hook and hook in script["scenes"][0]["narration"] and hook not in scenes[0]["narration"]:
         raise ValueError("Repair changed the spoken hook")

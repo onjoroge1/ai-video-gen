@@ -81,6 +81,65 @@ _COMPARISON = re.compile(
 _NUMBER = re.compile(
     r"\b(\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|"
     r"forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\b", re.I)
+# ONE NORMALISER FOR "26" AND "twenty-six". score_hook only asks whether a number is PRESENT;
+# the close gate (causal_story._check_close) asks whether the SAME number comes back, so digits,
+# compound number words ("twenty-six", "twenty six", "two thousand") and scale words fold to one
+# value here, and nowhere else. 1 is excluded on purpose: "one" is a determiner in most hooks
+# ("one of them", "her only egg"), and a close forced to say "one" would be matching a word, not
+# returning a figure.
+_UNITS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+          "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+          "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+         "eighty": 80, "ninety": 90}
+_SCALES = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+_NUMBER_TOKEN = re.compile(r"\d[\d,]*(?:\.\d+)?|[a-z]+(?:-[a-z]+)?", re.I)
+
+
+def planted_numbers(text: str) -> set:
+    """Every number >= 2 the text speaks, as values: {'twenty-six queens', '26 queens'} -> {26}."""
+    values, current, has_number = set(), 0, False
+    def _flush():
+        nonlocal current, has_number
+        if has_number and current >= 2:
+            values.add(current)
+        current, has_number = 0, False
+    for token in _NUMBER_TOKEN.findall(_text(text).replace("—", " ").replace("–", " ")):
+        lower = token.lower()
+        if lower[0].isdigit():
+            _flush()
+            try:
+                value = float(lower.replace(",", ""))
+            except ValueError:
+                continue
+            if value >= 2 and value == int(value):
+                values.add(int(value))
+            continue
+        parts = lower.split("-")
+        handled = False
+        for part in parts:
+            if part in _UNITS or part in _TENS:
+                current += _UNITS.get(part) or _TENS.get(part)
+                has_number, handled = True, True
+            elif part in _SCALES:
+                current = (current or 1) * _SCALES[part]
+                has_number, handled = True, True
+            elif part == "and" and has_number:
+                handled = True
+        if not handled:
+            _flush()
+    _flush()
+    return values
+
+
+_NEGATION = re.compile(r"\b(?:no|without|never had|nor)\s+(?:a\s+|an\s+|any\s+)?([a-z][a-z-]{2,})", re.I)
+
+
+def negation_nouns(text: str) -> set:
+    """The nouns a negation list denies: 'no electricity, no fans, no ice' -> {electricity, fans, ice}."""
+    return {m.lower() for m in _NEGATION.findall(_text(text))}
+
+
 _TIMEFRAME = re.compile(
     r"\b(\d{3,4}|within|since|for \d+|in (?:just )?\w+ (?:years?|months?|decades?)|"
     r"years? later|decades? later|still|today|to this day|ever since|and counting)\b", re.I)

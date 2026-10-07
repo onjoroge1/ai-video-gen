@@ -154,7 +154,7 @@ def test_bad_edits_are_rejected(change):
     if change == 'blank': response['scenes'][0]['narration'] = ''
     if change == 'still_late': response['scenes'][0]['narration'] += ' extra' * 20
     if change == 'no_callback': response['scenes'][-1]['narration'] = words('A generic lesson.', 40)
-    if change == 'pad_close': response['scenes'][-1]['narration'] += ' padding' * 30
+    if change == 'pad_close': response['scenes'][-1]['narration'] += ' padding' * 50   # the cap is CLOSE_GROWTH_WORDS (40)
     with pytest.raises(ValueError):
         repair.apply_response(script, repair.plan(script, board(script)), response)
 

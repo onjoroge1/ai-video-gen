@@ -58,8 +58,12 @@ ROLE_WEIGHTS = {
     "intervention": 0.04,
     "false_resolution": 0.04,
     "mechanism": 0.14,
-    "escalation": 0.46,
+    "escalation": 0.40,
     "reversal": 0.12,
+    # The chain re-spoken before the close. The value is causal_story's, so the template, the
+    # word budgeter and the validator cannot hold three numbers for one beat; escalation gives
+    # it up, because the recap is paid for out of the demonstrations it recaps.
+    "synthesis": 0.06,
     "takeaway": 0.04,
 }
 
@@ -67,24 +71,39 @@ ROLE_WEIGHTS = {
 # `tool`; it is not a sourced event, so it never cites a claim.
 ENGINE_ROLE_ORDER = {
     "removed_keystone": ("setup", "intervention", "false_resolution", "mechanism",
-                         "escalation", "reversal", "takeaway"),
+                         "escalation", "reversal", "synthesis", "takeaway"),
     "backfiring_solution": ("setup", "intervention", "false_resolution", "mechanism",
-                            "escalation", "reversal", "takeaway"),
+                            "escalation", "reversal", "synthesis", "takeaway"),
 }
-_DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal", "takeaway")
+_DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal", "synthesis",
+                  "takeaway")
+
+_SYNTHESIS_MEANING = ("the whole chain heard at once: two to four sentences that re-walk EVERY "
+                      "mechanism and escalation scene above, in order, each as its cause and its "
+                      "cost, using only words those scenes already said. It is the one scene "
+                      "allowed to restate, and it adds nothing: no new fact, number, name or "
+                      "place (a check compares every such token against the earlier scenes, and "
+                      "a check counts whether each chain scene is echoed). Compiler-added: give it "
+                      "an EMPTY event and no claim_refs.")
 
 # The close RETURNS TO THE OPENING OBJECT. Both reference films end on the thing they opened on,
 # the storyboard gate fails a close that does not (NO_CALLBACK), and this instruction used to say
 # only what the takeaway may not contain -- so a film built to the template was refused for
 # obeying it.
-_TAKEAWAY_MEANING = ("one spoken sentence naming the pattern the story proves, and it must come "
-                     "back to the OPENING OBJECT named in the story contract -- the thing the "
-                     "cold open showed -- so the film closes where it began, with its meaning "
-                     "changed. It is RHETORIC, NOT A SOURCED EVENT: give it an EMPTY event and "
-                     "no claim_refs, because a closing beat that carries a factual event is "
-                     "refused (CLOSING_BEAT_ASSERTS_HISTORY) -- the close is built from what the "
-                     "story already proved, never adding to it. So: no new fact, no number, no "
-                     "proper noun the film has not already said")
+def _takeaway_meaning() -> str:
+    import causal_story as _cs
+    return (f"{_cs.CLOSE_MIN_SENTENCES} to {_cs.CLOSE_MAX_SENTENCES} spoken sentences naming the "
+            "pattern the story proves: the FIRST re-speaks the number the hook planted, in the "
+            "hook's own words; the LAST comes back to the OPENING OBJECT named in the story "
+            "contract -- the thing the cold open showed -- so the film closes where it began, "
+            "with its meaning changed. It is RHETORIC, NOT A SOURCED EVENT: give it an EMPTY "
+            "event and no claim_refs, because a closing beat that carries a factual event is "
+            "refused (CLOSING_BEAT_ASSERTS_HISTORY) -- the close is built from what the story "
+            "already proved, never adding to it. So: no new fact, no proper noun the film has "
+            "not already said, and no number EXCEPT the one the hook already said")
+
+
+_TAKEAWAY_MEANING = _takeaway_meaning()
 
 _STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
          "then", "than", "this", "these", "those", "their", "they", "them", "its", "for", "but",
@@ -110,6 +129,8 @@ def _role_label(engine_id: str, role: str) -> str:
     meanings = dict(getattr(mapping, "role_meanings", {}) or {}) if mapping else {}
     if role == "takeaway":
         return _TAKEAWAY_MEANING
+    if role == "synthesis":
+        return _SYNTHESIS_MEANING
     return meanings.get(role) or {
         "setup": "the world before the fix",
         "intervention": "the deliberate fix, introduced",
@@ -131,10 +152,17 @@ def role_counts(engine_id: str, duration_sec: float) -> dict[str, int]:
     and nothing is split afterwards. The escalation band is the flexible one; it is also the
     band that must carry genuinely distinct facts, which is what the beat sheet is told.
     """
-    return _role_counts(engine_id, target_scene_count(duration_sec))
+    return _role_counts(engine_id, target_scene_count(duration_sec),
+                        synthesis=_synthesis_planned(engine_id, duration_sec))
 
 
-def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
+def _synthesis_planned(engine_id: str, duration_sec: float) -> bool:
+    import causal_story as _cs
+    import story_engines as _se
+    return _cs.synthesis_planned(_se.get(engine_id), duration_sec)
+
+
+def _role_counts(engine_id: str, n_total: int, *, synthesis: bool = False) -> dict[str, int]:
     """Distribute n_total COMPILED scenes across the engine's roles; escalation takes the slack.
 
     LEGAL FOR THE COMPILER, OR THE PLANNER IS HANDED A SHAPE THE NEXT GATE REFUSES. The weighted
@@ -157,7 +185,7 @@ def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
     import event_functions as _ef
     order = role_order(engine_id)
     repeatable = {str(r).casefold() for r in _cs._REPEATABLE}
-    roles = [r for r in order if r != "takeaway"]
+    roles = [r for r in order if r not in ("takeaway", "synthesis")]
     singles = [r for r in roles if r.casefold() not in repeatable]
     repeats = [r for r in roles if r.casefold() in repeatable]
     # A ROLE NO FUNCTION CAN PRODUCE IS THE COMPILER'S, NOT THE PLANNER'S. backfiring_solution
@@ -171,7 +199,8 @@ def _role_counts(engine_id: str, n_total: int) -> dict[str, int]:
     compiler_owned = [r for r in singles if r not in producible]
     singles = [r for r in singles if r in producible]
     counts = {r: 1 for r in singles}
-    devices = 2 + len(compiler_owned)            # hinge + tool (+ any derived role), compiler-added
+    # hinge + tool (+ synthesis above SYNTHESIS_MIN_RUNTIME_SEC) (+ any derived role): compiler-added
+    devices = 2 + int(synthesis) + len(compiler_owned)
     remainder = max(0, n_total - len(singles) - devices)
     if "generalization" in repeats and remainder > MIN_ESCALATION_SCENES:
         counts["generalization"] = 1
@@ -186,8 +215,9 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
     from runtime_planner import runtime_word_bounds
     from longform_evidence import MAX_STATES_PER_SCENE, TARGET_VISUAL_STATE_SECONDS
     n_total = target_scene_count(duration_sec)
-    counts = _role_counts(engine_id, n_total)
-    n_total = sum(counts.values()) + 2          # + the compiler's hinge and tool devices
+    synthesis = _synthesis_planned(engine_id, duration_sec)
+    counts = _role_counts(engine_id, n_total, synthesis=synthesis)
+    n_total = sum(counts.values()) + 2 + int(synthesis)   # + the compiler's hinge, tool, synthesis
     total_words, words_lo, words_hi = runtime_word_bounds(duration_sec, n_total)
     per_scene = total_words / max(1, n_total)
     # A WIDE band is written to its floor. The first three template fills came back at 526-600
@@ -217,6 +247,15 @@ def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
             n += 1
             slots.append(_device(n, "hinge", "the one short line where the plan stops working "
                                             "(ten words or fewer; compiler-added)", 4, 10, 1))
+        if role == "synthesis":
+            if synthesis:
+                import causal_story as _cs
+                n += 1
+                slots.append(_device(n, "synthesis", _role_label(engine_id, "synthesis"),
+                                     _cs.SYNTHESIS_MIN_WORDS,
+                                     min(hi, int(round(total_words * _cs.SYNTHESIS_RUNTIME_SHARE))),
+                                     states))
+            continue
         if role == "takeaway":
             n += 1
             slots.append(_device(n, "takeaway", _role_label(engine_id, "takeaway"), lo, hi, states))
@@ -287,7 +326,9 @@ def fill_prompt(question: str, duration_sec: float, engine_id: str,
         '',
         'HARD RULES, each enforced by a check after you write:',
         '- Every scene says something the earlier scenes did NOT. Never restate an earlier scene; '
-        'refer back with an article or pronoun ("the queens", "that bend") instead of repeating it.',
+        'refer back with an article or pronoun ("the queens", "that bend") instead of repeating it. '
+        'THE ONE EXCEPTION is the [synthesis] slot, which MUST restate: it re-walks every mechanism '
+        'and escalation scene in order as cause -> cost, in 2-4 sentences, from their own words only.',
         '- Every scene after the first OPENS on a joint to the scene before it: the gap it left '
         '("But ...", "Except ...", "Not quite.", "Even ...", a question the viewer would ask) or '
         'its consequence ("So ..."). One sentence in three compares, evaluates, or addresses the '
@@ -296,7 +337,8 @@ def fill_prompt(question: str, duration_sec: float, engine_id: str,
         'motive or quantity absent from the ledger. A scene with no sourced fact is pure connective '
         'tissue and needs no claim.',
         '- The cold open shows the damage; it does not restate the hook or explain anything.',
-        '- The takeaway names the pattern in one sentence and introduces no new fact or proper noun.',
+        '- The takeaway is two to four sentences: the first re-speaks the number the hook planted, '
+        'the last returns to the opening object; it introduces no new fact or proper noun.',
         '- No meta narration: never say "in this video", "explained like you are five", "as we saw".',
         '',
         'SCENE TEMPLATE:',

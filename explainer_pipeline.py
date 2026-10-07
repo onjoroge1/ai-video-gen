@@ -2794,7 +2794,8 @@ def _assign_causal_spine(beats: list, question: str, duration_sec: int,
         "- Required singleton roles appear EXACTLY ONCE. Optional roles may be absent. "
         "Only escalation and generalization repeat.\n"
         "- Beat 1 is the setup. The last beat is the tool or the verdict.\n"
-        "- Nothing follows the reversal except generalization and the close.\n"
+        "- Nothing follows the reversal except generalization, the synthesis (the chain re-walked, "
+        "only in films long enough to carry one) and the close.\n"
         "- THE HINGE follows its selected engine's order. Where there is a false_resolution, "
         "it breaks that apparent success; for accidental_invention it states the anomaly. "
         "It is REQUIRED and must always be present. It is a flat statement, never a question, and "
@@ -3094,7 +3095,8 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
         a, b = before["fact_run_scenes"]
         for index in range(max(2, a), b + 1):
             wanted.setdefault(index, []).append(
-                "turn one fact sentence into a comparison, an evaluation, or a line to the viewer")
+                "add ONE short sentence that compares, evaluates, or speaks to the viewer (or "
+                "convert a sentence that is not in locked_phrases)")
     if "ADDRESS_BAND" in codes or "MIX_BAND" in codes:
         for index in range(2, len(scenes) + 1):
             wanted.setdefault(index, []).append(
@@ -3116,6 +3118,11 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
             "id": index, "causal_role": _s(sc.get("causal_role")),
             "previous_scene_ends": " ".join(_s(scenes[index - 2].get("narration")).split()[-14:]),
             "narration": _s(sc.get("narration")),
+            # Sourced phrases: the ledger bound a claim to these exact words, so they must
+            # survive verbatim. Measured on V9: all 13 rewrites were held because the model was
+            # told to "convert a sentence" and converted the sourced one.
+            "locked_phrases": [_s(ref.get("narration_phrase")) for ref in sc.get("claim_refs") or []
+                               if isinstance(ref, dict) and _s(ref.get("narration_phrase"))],
             "event": event["text"],
             "claims_cited": [_s((claims.get(ref) or {}).get("claim")) for ref in event["claim_refs"]
                              if _s((claims.get(ref) or {}).get("claim"))],
@@ -3142,8 +3149,10 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
                        "\"picture\") or compares and evaluates it; it adds no fact.\n"
                        "You may NOT add a number, date, place, named person, quantity or motive that "
                        "neither the scene's `event` nor its `claims_cited` contain -- a judge refuses "
-                       "the rewrite and the draft line stays. Keep every other sentence of the scene "
-                       "VERBATIM; stay at or under `words_max` words.\n\n"
+                       "the rewrite and the draft line stays. Every phrase in `locked_phrases` is "
+                       "sourced and MUST appear verbatim (a joint may be added IN FRONT of such a "
+                       "sentence: 'So ' + the sentence). Keep every other sentence VERBATIM; add or "
+                       "convert only unsourced sentences; stay at or under `words_max` words.\n\n"
                        + json.dumps(rows, ensure_ascii=False)
                        + '\n\nReturn ONLY JSON: {"scenes":[{"id":<int>,"narration":"..."}]}'}])
         cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(_rsp.usage),
@@ -3215,15 +3224,25 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     budgets = {}
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
+    from longform_research import illustratable_beat_words as _cap_words
+    synthesis_words = min(_cap_words(), int(total_words * cs.SYNTHESIS_RUNTIME_SHARE))
     for group, words in groups:
         pending = list(group)
         # A hinge is deliberately shorter; redistribute its unused words within this window.
+        # The synthesis takes its share of the FILM (not an even share of the group), capped at
+        # one illustratable scene: the recap is paid for by the demonstrations it recaps.
         for beat in list(pending):
             if beat.get("causal_role") == cs.HINGE:
                 value = min(cs.MAX_HINGE_WORDS, words // max(1, len(pending)))
-                budgets[beat["n"]] = value
-                words -= value
-                pending.remove(beat)
+            elif beat.get("causal_role") == cs.SYNTHESIS:
+                value = min(synthesis_words, words)
+                print(f"[budget] synthesis beat {beat['n']}: {value} words "
+                      f"({value / max(1, total_words):.1%} of {total_words}, cap {_cap_words()})")
+            else:
+                continue
+            budgets[beat["n"]] = value
+            words -= value
+            pending.remove(beat)
         for i, beat in enumerate(pending):
             value = words // (len(pending) - i)
             budgets[beat["n"]] = value
@@ -3903,8 +3922,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "the exact id. A local payoff need not be the governing mechanism. "
             "Use story_role as a secondary description of the same event, never as a second "
             "ordering contract. Keep facts, uncertainty, timescales, and claim joins intact. "
-            "End in the declared closing role and return to the opening object with changed "
-            "meaning. Do not append an escalation after the reversal.\n"
+            "End in the declared closing role; the compiler writes the closing device to a fixed "
+            "shape (the hook's planted number first, the opening object last), so do not supply "
+            "one. Do not append an escalation after the reversal.\n"
             + f"Requested runtime: {duration_sec}s; total narration target: {total_words} words. "
             f"Mechanism deadline: {engine_deadline}% of spoken runtime "
             f"({duration_sec * engine_deadline / 100:.1f}s at the requested length). "
@@ -4351,7 +4371,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
                                              spine=_spine, beats=_sb)
         # These are the narrowed, pruned and re-cited objects that were actually accepted.
-        beats = (_compiler.presentation_beats(_sb, sheet_engine_id)
+        beats = (_compiler.presentation_beats(
+                     _sb, sheet_engine_id,
+                     hook=" ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0]]).strip(),
+                     opening_object=_s(plan.get("opening_object")), duration_sec=duration_sec)
                  if _roles.get("compiled") and _spine["passed"] else _sb)
         for i, beat in enumerate(beats):
             beat["n"] = i + 1
@@ -4586,7 +4609,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         seam = ("" if is_first else
                 f'\nThe previous scene ended: "{prev_tail}". Continue DIRECTLY as one video — no recap, '
                 'no "welcome back"/"in this chapter", do not re-introduce the topic.\n'
-                f'ALREADY SAID (every earlier scene; never restate any of it):\n{said}\n')
+                f'ALREADY SAID (every earlier scene; never restate any of it -- except in a "synthesis" '
+                f'row, which must re-walk the mechanism and escalation lines below):\n{said}\n')
         assigned = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in batch)
         opening_direction = (
             " Preserve the assigned causal roles and order. The mechanism is explained only in "
@@ -4603,7 +4627,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "fact, told well. It may NOT become \"hundreds of secret rat farms sprang up behind "
             "mud-brick homes overnight\", which invents a number, a secrecy, a building material "
             "and a timescale nobody researched. A beat whose event.text is empty asserts no "
-            "history: write it as pure connective or rhetoric and it needs no evidence at all."
+            "history: write it as pure connective or rhetoric and it needs no evidence at all -- "
+            "EXCEPT the beat whose causal_role is \"synthesis\", which re-speaks facts the beats "
+            "in its context_refs already evidenced and may use nothing those beats did not say."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
         _cold_text = _plan_cold_open(plan)[0] if causal_lane else ""
         if causal_lane and is_first and _cold_text:
@@ -4616,9 +4642,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 'anchored on the first words of the cold open sentence. One picture cannot hold '
                 'across both sentences. Scene 1\'s own narration then begins the setup; its later '
                 'states show the setup.')
+        # Its own alias: `_cs` is bound later in this function, so the shared name is unbound here.
+        import causal_story as _cs_close
+        import hook_patterns as _hp_close
+        _lead_numbers = _cs_close.lead_numbers({"line": _s(plan.get("hook")),
+                                                "cold_open": _plan_cold_open(plan)[0]})
+        _spoken_numbers = [m.group(0) for m in re.finditer(
+            r"\b(?:\d[\d,]*|[a-z]+(?:-[a-z]+)?)\b",
+            " ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0]]), re.I)
+            if _hp_close.planted_numbers(m.group(0)) & _lead_numbers]
         ending_direction = (
-            f" This batch contains the ENDING. Follow the assigned engine's closing role and "
-            f"return to the exact opening object {_s(plan.get('opening_object'))!r}. "
+            f" This batch contains the ENDING. Follow the assigned engine's closing role. "
+            + _cs_close.close_contract_text(_spoken_numbers, _s(plan.get("opening_object")))
+            + " Spend the closing beat's full narration_words on it. "
             "Do not invent another false resolution or escalation after the reversal."
             if causal_lane and is_last else "")
         ch_prompt = (
@@ -4630,7 +4666,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + sheet_block
             + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned row below into exactly ONE scene, '
             'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
-            'belongs to another row). '
+            'belongs to another row -- the one exception is a row whose causal_role is "synthesis", '
+            'which MUST re-walk the mechanism and escalation rows in 2-4 sentences from their own '
+            'words, adding no fact; STATE-ONCE below does not bind that one row). '
             # A row carrying continues_previous is the NEXT BREATH of the row before it, not a new
             # idea and not a recap. Said plainly because the STATE-ONCE rule immediately below
             # forbids back-references, and without this a continuation reads as an instruction to
@@ -4642,7 +4680,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             '("as we saw", "as mentioned", "remember", "recall", "earlier", "this is why", "in other '
             'words") — forward connectives that open a scene on a gap or a consequence ("But", "So", '
             '"Except", "Not quite") are NOT back-references: a joint moves the story on, "this is why" '
-            're-explains; do NOT restate the central answer or the hook premise in these scenes; a scene\'s '
+            're-explains; do NOT restate the central answer or the hook premise in these scenes -- the ONE '
+            'exception is the closing beat, whose first sentence re-speaks the number the hook planted and '
+            'nothing else from the hook; a scene\'s '
             'opening words must NOT echo the previous scene\'s ending (echo = four or more of its words '
             'repeated verbatim; a pronoun or article pointing back is not an echo, and is how a joint '
             'refers back).'
@@ -4917,7 +4957,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             # before its deadline -- expanding there pushed the storyboard's opening budget over
             # and the repair could not pull it back (2026-10-05). The length the film is missing
             # belongs in the escalation band, which is the part that compounds anyway.
-            _opening_roles = {"setup", "intervention", "false_resolution"}
+            # Nor the devices with a content cap: the top-up "deepens what each already says", and
+            # a deepened recap is a longer recap -- SYNTHESIS_TOO_LONG at the storyboard.
+            _opening_roles = {"setup", "intervention", "false_resolution", "hinge", "synthesis"}
             for _i, _sc in enumerate(all_scenes):
                 if _i == 0 or _s(_sc.get("causal_role")).lower() in _opening_roles:
                     continue
@@ -5049,6 +5091,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # Written under the joint rule, so the storyboard gate may hold it to the bands.
         "_sentence_mix_contract": (_cs.SENTENCE_MIX_CONTRACT
                                    if causal_lane and _roles.get("compiled") else ""),
+        # The close was WRITTEN to the planted-number contract (ending_direction reads the same
+        # constant), so the storyboard gate may hold it to that contract.
+        "_close_contract": (_cs.CLOSE_CONTRACT if causal_lane and _roles.get("compiled") else ""),
         "style_mode": style_mode,
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
@@ -6123,6 +6168,18 @@ def duplicate_narration(scenes: list[dict]) -> list[dict]:
     """
     found = []
     for i, scene in enumerate(scenes or []):
+        # The synthesis restates by contract (causal_story.SYNTHESIS): it is measured by
+        # _check_synthesis, not here. Exempt only as the LATER scene, so a close that copies the
+        # synthesis is still caught; logged when the exemption bites.
+        if _s(scene.get("causal_role")).lower() == "synthesis":
+            hits = [j + 1 for j in range(i)
+                    if (lambda o: o[0] >= DUPLICATE_NARRATION_OVERLAP
+                        and o[1] >= DUPLICATE_NARRATION_JACCARD)(
+                        _narration_overlap(scene.get("narration"), scenes[j].get("narration")))]
+            if hits:
+                print(f"[dedupe] synthesis scene {i + 1} exempt from repeat detection; "
+                      f"would have matched scenes {hits}")
+            continue
         # The parent of a continuation is compared first, so a part that restates its own beat
         # is recorded as that and not as a repeat of some earlier scene it also resembles.
         parent = next((j for j in range(i)
@@ -10867,7 +10924,9 @@ _SCRIPT_GRADE_SYSTEM = (
     "VIEWER GUESSING (the answer stays genuinely uncertain), not plateau into a fact-list?\n"
     "- ending: does the climax land as ONE earned payoff and the final line resonate (specific + "
     "shareable), not a generic 'remember to...' PSA?\n"
-    "- repetition: is each core idea stated ONCE (no concept re-explained, no answer re-stated)?\n"
+    "- repetition: is each core idea stated ONCE (no concept re-explained, no answer re-stated)? A "
+    "single 2-4 sentence recap of the whole chain placed just before the ending is a structural beat "
+    "the format uses deliberately; do not count that one beat as repetition.\n"
     "- cadence: does the narration vary sentence length (short punch beats + real questions), not a "
     "monotone of same-length declaratives?\n"
     "Be harsh; most drafts land 60-78. Return ONLY JSON: {\"hook\":int,\"story\":int,\"ending\":int,"
@@ -12616,6 +12675,25 @@ def run_explainer_pipeline(
             _nature_subject_sheet(question, script, aux_costs, log)
         illustrated_story_lane.enforce_shot_grammar(script.get("scenes") or [], log)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
+        if script.get("_close_contract"):
+            # The measured close, pass or fail, so a close that scraped by is as visible as one
+            # that missed.
+            import hook_patterns as _hp_gate
+            import causal_story as _cs_gate
+            _span = _cs_gate.closing_span(_cs_gate._normalize_steps([
+                {"role": _s(sc.get("causal_role")).lower(), "situation": _s(sc.get("narration"))}
+                for sc in (script.get("scenes") or [])]))
+            _span_text = " ".join(st["situation"] for st in _span)
+            log("Close callback: planted=%s span_roles=%s span_numbers=%s close_sentences=%d "
+                "close_words=%d" % (
+                    sorted(_cs_gate.lead_numbers({"line": _s(script.get("hook")),
+                                                  "cold_open": _s(script.get("_cold_open"))})),
+                    [st["role"] for st in _span],
+                    sorted(_hp_gate.planted_numbers(_span_text)),
+                    _cs_gate._close_sentences(_span[-1]["situation"]) if _span else 0,
+                    len(_span[-1]["situation"].split()) if _span else 0))
+            for _w in (storyboard.get("validation") or {}).get("warnings") or []:
+                log(f"  ⚠ [STORYBOARD, advisory] {_w}")
         if not (storyboard.get("validation") or {}).get("passed"):
             script, storyboard = _repair_illustrated_storyboard(
                 script, question, research_dossier, output_dir, aux_costs, log)

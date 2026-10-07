@@ -35,6 +35,7 @@ _LOCATION_BY_ROLE = {
     cs.ESCALATION: "action_location",
     cs.REVERSAL: "consequence_location",
     cs.GENERALIZATION: "consequence_location",
+    cs.SYNTHESIS: "consequence_location",
     cs.TOOL: "opening_location",
     cs.VERDICT: "opening_location",
 }
@@ -356,6 +357,9 @@ def build_storyboard(script: dict, question: str) -> dict:
         # MIX_BAND, FACT_RUN) are asked of scripts the chunked writer stamped, never of a
         # transcript, a fixture or an older checkpoint.
         "sentence_mix_contract": _text(script.get("_sentence_mix_contract")),
+        # The planted-number close is asked of scripts the chunked writer stamped, never of a
+        # transcript or an older checkpoint (two reference closes never return their numeral).
+        "close_contract": _text(script.get("_close_contract")),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made
@@ -411,7 +415,9 @@ def build_storyboard(script: dict, question: str) -> dict:
         "chapter_count": causal["chapter_count"],
         "story_engine": causal.get("engine", ""),
         "estimated_runtime_sec": round(spoken, 1),
-        "validation": {"passed": not validation_errors, "errors": validation_errors},
+        "validation": {"passed": not validation_errors, "errors": validation_errors,
+                       "warnings": [f"{w['code']}: {w['message']}"
+                                    for w in causal.get("warnings") or []]},
     }
     script["_illustrated_story"] = storyboard
     return storyboard
@@ -463,12 +469,16 @@ PLATES = {
     "generalization": ("Printed on rust-orange stock: the paper is a hot rust orange covering the "
                        "frame, with burnt sienna and dark oxide cut shapes and pale apricot "
                        "highlights. No ivory, nothing cool."),
+    # The re-walk is printed on the reversal's stock: the end state heard again, not a new turn;
+    # a silent fallback to the ivory setup plate would read as the film restarting.
+    "synthesis": None,   # resolved to PLATES["reversal"] right after this table
     "tool": ("Printed on bleached stone stock: the paper is a pale colour-drained stone with cool "
              "grey-green and bone cut shapes. The least saturated plate in the film; the mustard "
              "story object is the only warm thing left. No strong colour of any kind."),
     "context": ("Printed on warm ivory rag stock: pale ivory-cream paper is the field, with straw "
                 "and kraft-tan cut-paper shapes. No blue field."),
 }
+PLATES["synthesis"] = PLATES["reversal"]
 _DEFAULT_PLATE = PLATES["setup"]
 
 # The composition rules, lifted from a reference frame that measured far better than ours and
@@ -580,6 +590,7 @@ _ROLE_PREFERENCE = {
     "mechanism": ("close", "detail", "medium"),
     "escalation": ("close", "detail", "medium", "wide"),
     "reversal": ("close", "medium", "detail"),
+    "synthesis": ("detail", "close", "medium"),
     "tool": ("medium", "close"),
 }
 
