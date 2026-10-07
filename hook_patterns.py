@@ -319,8 +319,9 @@ def score_hook(hook: str, *, subject_words: set | None = None, ladder: bool = Fa
 # the writer. The beats are PLANNING beats, not sentences: a line of narration or a single picture
 # may carry two, and the writer combines them as the telling needs.
 OPENING_RULES = (
-    "THE OPENING. The film opens inside one person's practical problem, in the second person by "
-    "default (\"Imagine you're a beekeeper in Brazil\"), and reaches the first unintended "
+    "THE OPENING. The hook field is NOT a summary of the story; it is the frame: \"Imagine you're a "
+    "beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.\" The film opens "
+    "inside one person's practical problem, in the second person by default, and reaches the first unintended "
     "consequence before the body of the story begins. Plan it as five beats in `opening`:\n"
     "  frame -- the role the viewer occupies; a role the ledger's events involve. Second person is "
     "the default, not a rule; if the story is told better from beside the person, say so in "

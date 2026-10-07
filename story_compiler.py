@@ -203,8 +203,11 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
     if "mechanism" not in mapping.derived:
         schema["beats"][0].pop("incentive", None)
     if ladder:
-        schema["hook"] = ("the FRAME sentence that opens the film: the role the viewer occupies, "
-                          "second person by default; see THE OPENING below")
+        schema["hook"] = ("the FRAME that opens the film, e.g. \"Imagine you're a beekeeper in Brazil, "
+                          "trying to fill jars from bees that struggle in the heat.\" -- the role the "
+                          "viewer occupies and their need, second person by default; NOT a summary of "
+                          "the story, no named actor as subject, nothing that has happened yet; see "
+                          "THE OPENING below")
         schema.pop("cold_open", None)
         schema["opening_object"] = ("the physical thing the problem names (the jars, the field); "
                                     "the close returns to it or to the need")

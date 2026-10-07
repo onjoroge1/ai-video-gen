@@ -79,3 +79,17 @@ def test_the_storyboard_carries_the_stamp_to_the_validator(monkeypatch):
     assert seen["opening_contract"] == cs.OPENING_CONTRACT
     lane.build_storyboard(copy.deepcopy(_script()), "q")
     assert seen["opening_contract"] == ""
+
+
+def test_the_planner_prompt_has_one_definition_of_the_hook_field(monkeypatch):
+    """V11 and V12 (2026-10-07): the causal rules defined the hook as a named actor causing the
+    disaster, beside THE OPENING defining it as a frame; the planner returned the actor sentence."""
+    from test_causal_lane_integration import _capture_beat_prompt
+    monkeypatch.setenv("OPENING_MODE", "ladder")
+    prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    assert "whose SUBJECT is a named actor" not in prompt
+    assert "the FRAME that opens the film" in prompt and "NOT a summary of the story" in prompt
+    assert "THE OPENING." in prompt
+    monkeypatch.setenv("OPENING_MODE", "hook")
+    prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
+    assert "THE OPENING." not in prompt and "the FRAME that opens the film" not in prompt

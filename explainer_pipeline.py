@@ -3900,7 +3900,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                       "actors the history had -- 'colonial officials', 'the bounty clerks', "
                       "'Delhi residents', 'the breeders' -- or use no name at all. Set "
                       "human_present and mascot_present to false on every scene.\n")
-        causal_rules = (cast_rules + 
+        # TWO DEFINITIONS OF ONE FIELD. This paragraph defined the hook as a named actor doing the
+        # sensible thing and causing the disaster -- and travelled into the ladder's planner prompt
+        # beside THE OPENING, which defines the same field as a frame. V11 and V12 (2026-10-07)
+        # both returned the actor sentence. Under the ladder the field has one owner.
+        _hook_paragraph = (
+            "\nThe \"hook\" field is the FRAME of THE OPENING (rules below): one sentence that puts "
+            "the viewer in the role the problem belongs to, second person by default, naming no "
+            "institution and narrating nothing that has happened yet.\n"
+            if _opening_mode() == "ladder" else
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
             "the situation inverts. Write it as a complete grammatical sentence whose SUBJECT is a "
             "named actor, and let that one actor carry both halves: they do the sensible thing AND "
@@ -3912,7 +3920,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "much worse\", \"Why the British starved the Indians\", \"America freed the slaves "
             "and paid their owners instead\", \"America once considered fighting a weed with "
             "hippopotamuses\". Opening on \"How\" or \"Why\" is idiomatic here and is usually "
-            "the cleanest route to one subject and two verbs.\n"
+            "the cleanest route to one subject and two verbs.\n")
+        causal_rules = (cast_rules + _hook_paragraph +
             "\nTHE FACT MODEL — separate what HAPPENED from how you SAY it:\n"
             "F1. event.text is the historian's sentence: the bare fact, no imagery, no rhetoric. "
             "The beat's narration is written from it later and may be as vivid as you like, so put "
