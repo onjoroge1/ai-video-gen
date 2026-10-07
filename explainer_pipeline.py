@@ -1759,7 +1759,7 @@ def _ensure_lead_spoken(script: dict, log=lambda message: None) -> bool:
     return changed
 
 
-def _carry_better_hook(current: dict, retry: dict, *, stage: str) -> dict:
+def _carry_better_hook(current: dict, retry: dict, *, stage: str, ladder: bool = False) -> dict:
     """A planner re-ask fixes one field and may quietly rewrite the hook along with it.
 
     The cold-open and spine re-asks tell the planner to keep every other field identical, and it
@@ -1777,7 +1777,8 @@ def _carry_better_hook(current: dict, retry: dict, *, stage: str) -> dict:
         kept, proposed = _s(current.get("hook")).strip(), _s(retry.get("hook")).strip()
         if not kept or proposed == kept:
             return retry
-        was, now = _hp.score_hook(kept)["score"], _hp.score_hook(proposed)["score"]
+        was, now = (_hp.score_hook(kept, ladder=ladder)["score"],
+                    _hp.score_hook(proposed, ladder=ladder)["score"])
         if now < was:
             print(f"[hook] {stage} retry proposed a weaker hook ({now}/100 < {was}/100); "
                   f"keeping {kept!r}")
@@ -3214,6 +3215,68 @@ def _plan_opening(plan: dict) -> dict:
     return out if out["consequence"] else {}
 
 
+# Which opening beats each ROW of the opening may speak (hook_patterns.OPENING_WRITER_RULES: the
+# problem in the setup row; the solution and transition in the intervention row and the
+# false_resolution row; the consequence in the hinge row that follows). The mechanism row and the
+# escalations are the BODY and get nothing: stamping the whole _opening_scene_span handed the
+# hybridization scene the escape and legitimised the very re-tell the body rule forbids.
+_OPENING_ROW_BEATS = {
+    "setup": ("problem",),
+    "intervention": ("solution", "transition", "consequence"),
+    "false_resolution": ("solution", "transition", "consequence"),
+    "hinge": ("consequence",),
+}
+_CLOSING_ROW_BEATS = ("consequence",)   # the callback re-speaks the opening's figure
+
+
+def _attach_opening_ceiling(scenes: list, plan: dict, research_dossier: dict | None) -> list[int]:
+    """Stamp `opening_ceiling` (verified claim ids) on the opening rows and the close.
+
+    The writer of the opening is told to combine the planner's opening beats; the ledger, the
+    sentence-mix edit and the opening revision all judge a scene against
+    story_fact_model.scene_ceiling, which reads this field. Without it the opening was refused for
+    saying what it was instructed to say (killer bees V12, 2026-10-07: 3 of 9 material findings
+    sat in the opening rows), and the close's planted-number callback ("Twenty-six queens
+    escaped") had no ceiling owner because the figure lives in the opening, not in a body event.
+    Only claim ids the dossier carries are admitted; the planner's prose is not. Returns the
+    indices stamped, in order.
+    """
+    opening = _plan_opening(plan)
+    if not opening or not scenes:
+        return []
+    known = {_s(c.get("claim_id")) for c in ((research_dossier or {}).get("claims") or [])
+             if isinstance(c, dict)}
+    refs = opening.get("claim_refs") or {}
+
+    def ids_for(keys) -> list[str]:
+        out = []
+        for key in keys:
+            out += [r for r in refs.get(key, []) if r in known and r not in out]
+        return out
+
+    import causal_story as _cs_rows
+    stamped = []
+    seen_hinge = False
+    for index, scene in enumerate(scenes):
+        if not isinstance(scene, dict):
+            continue
+        role = _s(scene.get("causal_role") or scene.get("story_role")).lower()
+        if role == "mechanism" or seen_hinge and role not in _cs_rows.CLOSING_ROLES:
+            if role == "mechanism":
+                seen_hinge = True   # the body has begun whether or not a hinge row preceded it
+            continue
+        keys = _OPENING_ROW_BEATS.get(role) or (_CLOSING_ROW_BEATS if role in _cs_rows.CLOSING_ROLES else ())
+        if role == "hinge":
+            seen_hinge = True
+        if not keys:
+            continue
+        ids = ids_for(keys)
+        if ids:
+            scene["opening_ceiling"] = {"claim_refs": ids}
+            stamped.append(index)
+    return stamped
+
+
 def _plan_cold_open(plan: dict) -> tuple[str, list[str]]:
     """The planner's cold open as (sentence, claim_refs); ("", []) when it wrote none."""
     raw = plan.get("cold_open") if isinstance(plan, dict) else None
@@ -4397,7 +4460,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
             _retry_plan, _retry_cost = _ask_planner(_correction)
             cost += _retry_cost
-            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="compile")
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="compile", ladder=_ladder)
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
@@ -4510,7 +4573,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             print("Beat sheet has no usable cold open — re-asking the planner once")
             _retry_plan, _retry_cost = _ask_planner(_cold_fix)
             cost += _retry_cost
-            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="cold-open")
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="cold-open", ladder=_ladder)
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
@@ -4596,7 +4659,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             print("Spine unsupported — re-asking the planner once with the report quoted back")
             _retry_plan, _retry_cost = _ask_planner(_spine_correction)
             cost += _retry_cost
-            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="spine")
+            _retry_plan = _carry_better_hook(plan, _retry_plan, stage="spine", ladder=_ladder)
             _retry_beats = _beats_of(_retry_plan)
             _retry_roles = _compiler.compile_roles(
                 _retry_beats, sheet_engine_id, _claims_for_roles)
@@ -4615,7 +4678,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     _retry_plan2, _retry_cost2 = _ask_planner(
                         _spine_correction + "\n\n" + _retry_cc)
                     cost += _retry_cost2
-                    _retry_plan2 = _carry_better_hook(plan, _retry_plan2, stage="spine")
+                    _retry_plan2 = _carry_better_hook(plan, _retry_plan2, stage="spine", ladder=_ladder)
                     _retry_beats2 = _beats_of(_retry_plan2)
                     _retry_roles2 = _compiler.compile_roles(
                         _retry_beats2, sheet_engine_id, _claims_for_roles)
@@ -4682,7 +4745,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # These are the narrowed, pruned and re-cited objects that were actually accepted.
         beats = (_compiler.presentation_beats(
                      _sb, sheet_engine_id,
-                     hook=" ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0]]).strip(),
+                     # the lead that plants the callback number: hook + cold open, or under the
+                     # ladder the opening's consequence (causal_story.lead_numbers reads the same)
+                     hook=" ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0],
+                                    _s(_plan_opening(plan).get("consequence")) if _ladder else ""]).strip(),
                      opening_object=_s(plan.get("opening_object")), duration_sec=duration_sec,
                      callback_kind=(_plan_opening(plan).get("callback") or {}).get("kind", "object"))
                  if _roles.get("compiled") and _spine["passed"] else _sb)
@@ -4945,8 +5011,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if causal_lane and _ladder:
             import hook_patterns as _hp_open
             opening_direction += (
-                (" " + _hp_open.OPENING_WRITER_RULES + " OPENING PLAN (combine these beats; "
-                 "every fact in them is already cited): "
+                (" " + _hp_open.OPENING_WRITER_RULES + " OPENING PLAN (combine these beats; the "
+                 "claims they cite are in your ceiling -- say nothing a listed missing_claim "
+                 "would be needed for): "
                  + json.dumps(_plan_opening(plan), ensure_ascii=False))
                 if is_first else (" " + _hp_open.OPENING_BODY_RULE))
         if causal_lane and is_first and _cold_text:
@@ -4962,11 +5029,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # Its own alias: `_cs` is bound later in this function, so the shared name is unbound here.
         import causal_story as _cs_close
         import hook_patterns as _hp_close
-        _lead_numbers = _cs_close.lead_numbers({"line": _s(plan.get("hook")),
-                                                "cold_open": _plan_cold_open(plan)[0]})
+        _lead_text = {"line": _s(plan.get("hook")), "cold_open": _plan_cold_open(plan)[0],
+                      "consequence": _s(_plan_opening(plan).get("consequence")) if _ladder else ""}
+        _lead_numbers = _cs_close.lead_numbers(_lead_text)
         _spoken_numbers = [m.group(0) for m in re.finditer(
-            r"\b(?:\d[\d,]*|[a-z]+(?:-[a-z]+)?)\b",
-            " ".join([_s(plan.get("hook")), _plan_cold_open(plan)[0]]), re.I)
+            r"\b(?:\d[\d,]*|[a-z]+(?:-[a-z]+)?)\b", " ".join(_lead_text.values()), re.I)
             if _hp_close.planted_numbers(m.group(0)) & _lead_numbers]
         ending_direction = (
             f" This batch contains the ENDING. Follow the assigned engine's closing role. "
@@ -5391,6 +5458,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                                   "narration_phrase": _spoken})
             all_scenes[0]["claim_refs"] = _refs
 
+    if _ladder and all_scenes:
+        _attach_opening_ceiling(all_scenes, plan, research_dossier)
     if causal_lane and _roles.get("compiled"):
         # Joints and sentence mix are measured here, on the finished scenes, and repaired once.
         all_scenes, _mix_cost, _ = _ensure_sentence_mix_in_band(
@@ -13053,6 +13122,8 @@ def run_explainer_pipeline(
             log("Close callback: planted=%s span_roles=%s span_numbers=%s close_sentences=%d "
                 "close_words=%d" % (
                     sorted(_cs_gate.lead_numbers({"line": _s(script.get("hook")),
+                                                  "consequence": _s((script.get("_opening") or {}).get("consequence")
+                                                                    if isinstance(script.get("_opening"), dict) else ""),
                                                   "cold_open": _s(script.get("_cold_open"))})),
                     [st["role"] for st in _span],
                     sorted(_hp_gate.planted_numbers(_span_text)),

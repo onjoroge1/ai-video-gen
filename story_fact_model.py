@@ -231,7 +231,9 @@ def scene_ceiling(beat: dict, by_id: dict, claims: dict | None) -> str:
     """The factual ceiling ONE scene's narration is judged against, built in one place.
 
     The event, then the events of its context_refs (a presentation device such as the hinge or
-    the close speaks from the beats it points at), then the verified claims the event rests on.
+    the close speaks from the beats it points at), then the verified claims the event rests on --
+    plus, for a scene of the human-first opening or its close, the verified claims behind the
+    planner's opening beats (`opening_ceiling.claim_refs`, stamped per row by the pipeline).
     validate_cascade has always built this string inline; the pre-gate narration edits (the
     length top-up, the sentence-mix edit) must refuse exactly what the cascade refuses, so they
     import this instead of judging against the bare event -- which made them stricter than the
@@ -239,13 +241,24 @@ def scene_ceiling(beat: dict, by_id: dict, claims: dict | None) -> str:
     """
     event = event_of(beat)
     ceiling = event["text"]
+    cited_ids = list(event["claim_refs"])
     refs = beat.get("context_refs") or [] if (beat.get("presentation_device")
                                               or beat.get("context_refs")) else []
     if refs:
         ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs
                                           if ref in by_id])
+    # A scene of the human-first opening (and the close that calls back to it) also rests on the
+    # VERIFIED CLAIMS behind the planner's opening beats -- the writer is told to combine those
+    # beats, and a ceiling of the scene's own event alone refused what it was instructed to say
+    # (killer bees V12, 2026-10-07: "the imported bees were specifically queens", "entered a
+    # research apiary's hive boxes", and the close's "twenty-six", all stated by dossier claims).
+    # Claim ids only: the planner's prose is not checked against its claims and never widens a
+    # ceiling. Stamped per row by explainer_pipeline._attach_opening_ceiling.
+    opening = beat.get("opening_ceiling") if isinstance(beat.get("opening_ceiling"), dict) else {}
+    cited_ids += [_text(r) for r in (opening.get("claim_refs") or [])
+                  if _text(r) and _text(r) not in cited_ids]
     cited_texts = []
-    for ref in event["claim_refs"]:
+    for ref in cited_ids:
         claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
         if claim_text and claim_text not in cited_texts:
             cited_texts.append(claim_text)

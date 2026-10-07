@@ -110,8 +110,10 @@ def plan(script, board):
     synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
     if codes & SYNTHESIS_CODES and synthesis is not None:
         selected.add(synthesis)
+    opening_plan = script.get("_opening") if isinstance(script.get("_opening"), dict) else {}
     planted = sorted(cs.lead_numbers({"line": script.get("hook"),
-                                      "cold_open": script.get("_cold_open")}))
+                                      "cold_open": script.get("_cold_open"),
+                                      "consequence": opening_plan.get("consequence")}))
     return {"errors": errors, "scene_ids": [ids[i] for i in sorted(selected)],
             "mechanism_index": mechanism, "close_index": close,
             "opening_word_limit": opening_limit, "opening_object": opening,

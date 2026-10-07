@@ -350,6 +350,9 @@ def build_storyboard(script: dict, question: str) -> dict:
         "runtime_sec": round(spoken, 1),
         "hook": {"line": _text(script.get("hook")),
                  "cold_open": _text(script.get("_cold_open")),
+                 # the ladder's planting sentence (causal_story.lead_numbers)
+                 "consequence": _text((script.get("_opening") or {}).get("consequence")
+                                      if isinstance(script.get("_opening"), dict) else ""),
                  # Held only on scripts planned under the cold-open contract: a checkpoint or
                  # cached script written before it carries no key and is judged as before.
                  "require_cold_open": "_cold_open" in script},

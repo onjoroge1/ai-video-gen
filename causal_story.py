@@ -738,16 +738,26 @@ def closing_span(steps: list[dict]) -> list[dict]:
 
 
 def lead_numbers(hook: dict) -> set:
-    """The numbers the spoken lead plants: hook line + cold open, the format tag held aside."""
+    """The numbers the spoken lead plants, the format tag held aside.
+
+    Hook line + cold open under the hook contract; under the human-first opening the frame carries
+    no number by design, so the opening's CONSEQUENCE is the lead that plants one (the twenty-six
+    queens). Without it the callback contract was inert on every ladder film (killer bees V11/V12,
+    2026-10-07: planted=[]), and a close that re-spoke the figure anyway had no ceiling for it.
+    """
     import hook_patterns
     line = " ".join([_text((hook or {}).get("line")), _text((hook or {}).get("cold_open"))])
     tag = _text((hook or {}).get("format_tag"))
-    return hook_patterns.planted_numbers(line) - hook_patterns.planted_numbers(tag)
+    planted = hook_patterns.planted_numbers(line) - hook_patterns.planted_numbers(tag)
+    # The consequence is a dated sentence ("In October 1957, ... 26 queens"); its year is a
+    # setting, not the figure the close returns to.
+    consequence = hook_patterns.planted_numbers(_text((hook or {}).get("consequence")))
+    return planted | {n for n in consequence if not 1500 <= n <= 2100}
 
 
 def close_contract_text(spoken_numbers: list, opening_object: str) -> str:
     """The one description of the close's shape, read by the planner, the writer and the repair."""
-    number = (f"its FIRST sentence re-speaks the number the hook planted, in the hook's own words "
+    number = (f"its FIRST sentence re-speaks the number the opening planted, in the opening's own words "
               f"({', '.join(repr(n) for n in spoken_numbers)}), and nothing else from the hook; "
               if spoken_numbers else "")
     return (f"The close is {CLOSE_MIN_SENTENCES} to {CLOSE_MAX_SENTENCES} sentences: {number}"
