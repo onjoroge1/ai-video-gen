@@ -1788,7 +1788,7 @@ def _carry_better_hook(current: dict, retry: dict, *, stage: str) -> dict:
 
 
 def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
-                              tries: int = 3, floor: int = 70) -> tuple[str, float]:
+                              tries: int = 3, floor: int = 70, ladder: bool = False) -> tuple[str, float]:
     """A hook-only rewrite when the planner cannot reach the contract: best of `tries`, kept
     only if it scores higher than what the plan has.
 
@@ -1802,14 +1802,14 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
     import hook_patterns as _hp
     import causal_story as _cs
     current = _s(plan.get("hook")).strip()
-    best, best_score = current, _hp.score_hook(current)["score"] if current else 0
+    best, best_score = current, _hp.score_hook(current, ladder=ladder)["score"] if current else 0
     claims = [_s(c.get("claim")) for c in ((dossier or {}).get("claims") or [])
               if isinstance(c, dict) and _s(c.get("claim"))][:60]
     cost = 0.0
     for attempt in range(1, tries + 1):
         if best_score >= floor:
             break
-        notes = _hp.score_hook(best)["notes"] if best else ["no hook"]
+        notes = _hp.score_hook(best, ladder=ladder)["notes"] if best else ["no hook"]
         try:
             response = _claude().messages.create(
                 model=ANTHROPIC_MODEL, max_tokens=300,
@@ -1834,7 +1834,7 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
         except Exception as exc:               # noqa: BLE001 - a paid call that failed is logged
             print(f"[hook] rewrite {attempt}/{tries} unavailable: {type(exc).__name__}: {str(exc)[:100]}")
             break
-        score = _hp.score_hook(candidate)["score"] if candidate else 0
+        score = _hp.score_hook(candidate, ladder=ladder)["score"] if candidate else 0
         print(f"[hook] rewrite {attempt}/{tries}: {score}/100 - {candidate!r}")
         if candidate and score > best_score and len(candidate.split()) <= _cs.MAX_HOOK_WORDS:
             best, best_score = candidate, score
@@ -3017,6 +3017,31 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         return ""
 
 
+def _opening_mode() -> str:
+    """How the film opens. "ladder" (default): the human-first opening -- frame, problem,
+    solution, transition, consequence -- with no aftermath cold open (operator brief,
+    2026-10-07). OPENING_MODE=hook restores the one-line hook plus cold open."""
+    return (os.environ.get("OPENING_MODE", "ladder") or "ladder").strip().lower()
+
+
+def _plan_opening(plan: dict) -> dict:
+    """The planner's OPENING block, normalised; {} when it wrote none (or wrote it empty)."""
+    raw = plan.get("opening") if isinstance(plan, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    out = {k: _s(raw.get(k)).strip() for k in
+           ("voice", "frame", "problem", "solution", "transition", "consequence", "question")}
+    callback = raw.get("callback") if isinstance(raw.get("callback"), dict) else {}
+    out["callback"] = {"kind": _s(callback.get("kind")).strip().lower() or "object",
+                       "text": _s(callback.get("text")).strip()}
+    refs = raw.get("claim_refs") if isinstance(raw.get("claim_refs"), dict) else {}
+    out["claim_refs"] = {k: [_s(r).strip() for r in (v or []) if _s(r).strip()]
+                         for k, v in refs.items() if isinstance(v, list)}
+    out["missing_claims"] = [_s(m).strip() for m in (raw.get("missing_claims") or [])
+                             if _s(m).strip()]
+    return out if out["consequence"] else {}
+
+
 def _plan_cold_open(plan: dict) -> tuple[str, list[str]]:
     """The planner's cold open as (sentence, claim_refs); ("", []) when it wrote none."""
     raw = plan.get("cold_open") if isinstance(plan, dict) else None
@@ -3543,6 +3568,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     THE WHOLE beat sheet, so no batch can re-teach another's beat; (3) run a final 'state once'
     pass that rewrites any line that still repeats. Each Claude call stays small enough that the
     JSON never truncates."""
+    # The opening mode is decided once the planner returns (see the hook block); bound here so
+    # every later reference in this function -- the writer's directions, the returned script --
+    # has a value on paths that never reach that block.
+    _ladder = False
     # Plan to the calibrated spoken-runtime window from the first generation call. The hard runtime
     # contract later verifies the landed draft and only invokes a compression pass when the model
     # actually misses, instead of intentionally generating an overlong script and always rewriting it.
@@ -4010,7 +4039,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _slot_plan = _tmpl.role_counts(sheet_engine_id, duration_sec)
             print(f"[template] slot plan {_slot_plan} -> {sum(_slot_plan.values())} scenes")
         beat_prompt = _compiler.factual_plan_prompt(
-            question, duration_sec, n_scenes, sheet_engine_id, cast_rules, slot_plan=_slot_plan)
+            question, duration_sec, n_scenes, sheet_engine_id, cast_rules, slot_plan=_slot_plan,
+            opening_mode=_opening_mode())
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         beat_prompt += (
@@ -4203,6 +4233,16 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # storyboard gate it would kill a draft whose research, spine and ledger were paid for.
         # The hook's pattern score is advisory and printed, never blocking: it reads syntax
         # only, so a semantically surprising hook can legitimately score 70.
+        # THE LADDER: the planner wrote an OPENING, so the hook IS its frame sentence and is
+        # scored as a frame (the three devices a frame can carry). A plan without an opening
+        # block -- an older cache, a stub, OPENING_MODE=hook -- takes the hook path as before.
+        _ladder = _opening_mode() == "ladder" and bool(_plan_opening(plan))
+        if _ladder:
+            _frame = _s(_plan_opening(plan).get("frame")).strip()
+            if _frame:
+                plan["hook"] = _frame
+            print(f"[opening] ladder: frame={_s(plan.get('hook'))!r}; consequence="
+                  f"{_s(_plan_opening(plan).get('consequence'))[:90]!r}")
         try:
             import hook_patterns as _hp
             # Every score_hook call in this run -- here, the re-asks, the repair's opener
@@ -4210,7 +4250,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _known_people = _hp.register_people(research_dossier)
             if _known_people:
                 print(f"[hook] people the research names: {', '.join(sorted(_known_people))}")
-            _hs = _hp.score_hook(_s(plan.get("hook")))
+            _hs = _hp.score_hook(_s(plan.get("hook")), ladder=_ladder)
             _on = ", ".join(k for k, v in _hs["patterns"].items() if v) or "none"
             print(f"[hook] {_hs['score']}/100 ({_on}) - {_s(plan.get('hook'))!r}")
             for _n in _hs["notes"]:
@@ -4222,7 +4262,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # no named researcher as the subject, the planner wrote one, and nothing stopped it.
         try:
             import hook_patterns as _hp
-            _hs = _hp.score_hook(_s(plan.get("hook")))
+            _hs = _hp.score_hook(_s(plan.get("hook")), ladder=_ladder)
             # TWO BOUNDED RE-ASKS, AND THE FOURTH DEVICE NAMED. The three devices the contract
             # calls required sum to exactly 68 (28+20+20) against a 70 contract, and the
             # correction text asked for only those three -- so 68 was the steady state on every
@@ -4253,7 +4293,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 if not isinstance(_hp_plan, dict):
                     print("[hook] re-ask returned nothing usable; keeping the current one")
                     break
-                _new = _hp.score_hook(_s(_hp_plan.get("hook")))
+                _new = _hp.score_hook(_s(_hp_plan.get("hook")), ladder=_ladder)
                 if _new["score"] > _hs["score"] and _beats_of(_hp_plan):
                     plan["hook"] = _s(_hp_plan.get("hook"))
                     print(f"[hook] {_new['score']}/100 - {plan['hook']!r}")
@@ -4265,17 +4305,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             # THE PLANNER COULD NOT REACH THE CONTRACT: ask for the sentence alone, best of three,
             # kept only if it scores higher. See _rewrite_hook_to_contract.
             if _hs["score"] < 70 and _roles.get("compiled"):
-                _rewritten, _rw_cost = _rewrite_hook_to_contract(plan, research_dossier, cost_sink)
+                _rewritten, _rw_cost = _rewrite_hook_to_contract(plan, research_dossier, cost_sink,
+                                                                 ladder=_ladder)
                 cost += _rw_cost
                 if _rewritten and _rewritten != _s(plan.get("hook")):
                     plan["hook"] = _rewritten
-                    _hs = _hp.score_hook(_rewritten)
+                    _hs = _hp.score_hook(_rewritten, ladder=_ladder)
                     print(f"[hook] {_hs['score']}/100 after the hook-only rewrite - {_rewritten!r}")
                 else:
                     print(f"[hook] {_hs['score']}/100 stands: no rewrite scored higher")
         except Exception as _hook_exc:         # noqa: BLE001 - a paid call that failed is logged
             print(f"[hook] re-ask unavailable: {type(_hook_exc).__name__}: {str(_hook_exc)[:120]}")
-        _cold_fix = _cold_open_correction(plan, research_dossier)
+        _cold_fix = "" if _ladder else _cold_open_correction(plan, research_dossier)
         if _cold_fix and _roles.get("compiled"):
             print("Beat sheet has no usable cold open — re-asking the planner once")
             _retry_plan, _retry_cost = _ask_planner(_cold_fix)
@@ -4710,7 +4751,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "EXCEPT the beat whose causal_role is \"synthesis\", which re-speaks facts the beats "
             "in its context_refs already evidenced and may use nothing those beats did not say."
             if causal_lane else _opening_expansion_direction(effective_story_format, is_first))
-        _cold_text = _plan_cold_open(plan)[0] if causal_lane else ""
+        _cold_text = _plan_cold_open(plan)[0] if (causal_lane and not _ladder) else ""
+        if causal_lane and _ladder:
+            import hook_patterns as _hp_open
+            opening_direction += (
+                (" " + _hp_open.OPENING_WRITER_RULES + " OPENING PLAN (combine these beats; "
+                 "every fact in them is already cited): "
+                 + json.dumps(_plan_opening(plan), ensure_ascii=False))
+                if is_first else (" " + _hp_open.OPENING_BODY_RULE))
         if causal_lane and is_first and _cold_text:
             opening_direction += (
                 f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
@@ -5128,7 +5176,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # The hook is passed in because it is SPOKEN. Until now it reached only the YouTube description
     # and the video's first words were the numeral "Step one."
     _narration_repairs = []
-    _cold_open, _cold_refs = _plan_cold_open(plan) if causal_lane else ("", [])
+    _cold_open, _cold_refs = _plan_cold_open(plan) if (causal_lane and not _ladder) else ("", [])
     if causal_lane:
         import causal_story as _cs
         for _scene in all_scenes:
@@ -5165,8 +5213,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     return {
         "title": _s(plan.get("title")) or question,
         "hook": _s(plan.get("hook")),
-        "_cold_open": _cold_open,
-        "_cold_open_claim_refs": _cold_refs,
+        # Under the ladder there is no cold open, and the KEY is absent so the storyboard's
+        # require_cold_open stays off; under the hook contract both travel as before.
+        **({} if _ladder else {"_cold_open": _cold_open, "_cold_open_claim_refs": _cold_refs}),
+        # The human-first opening the planner wrote and the writer combined; the storyboard gate
+        # routes the hook/cold-open/deadline codes to warnings for a script stamped with it.
+        **({"_opening_contract": "ladder_v1", "_opening": _plan_opening(plan)} if _ladder else {}),
         # Written under the joint rule, so the storyboard gate may hold it to the bands.
         "_sentence_mix_contract": (_cs.SENTENCE_MIX_CONTRACT
                                    if causal_lane and _roles.get("compiled") else ""),

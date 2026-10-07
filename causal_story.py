@@ -156,6 +156,15 @@ CLOSING_ROLES = (TOOL, VERDICT)
 # corpus it was derived from is measuring the wrong thing. Scripts the chunked writer stamps are
 # held to it; transcripts and older checkpoints are judged as before.
 CLOSE_CONTRACT = "planted_callback_v1"
+# THE HUMAN-FIRST OPENING (operator brief, 2026-10-07). A script stamped `_opening_contract`
+# earned its opening by want -> rationale -> turn rather than by an aftermath sentence inside ten
+# seconds, so the gates fitted to the shorts -- the hook word and sentence caps, the cold open,
+# the 20% mechanism deadline, the object-only callback -- are REPORTED for it, not enforced. The
+# reference explainer lands its mechanism at 23% and never speaks an aftermath first.
+OPENING_CONTRACT = "ladder_v1"
+LADDER_ADVISORY_CODES = frozenset({
+    "LATE_MECHANISM", "LONG_HOOK", "MULTI_SENTENCE_HOOK", "NO_CALLBACK", "COLD_OPEN_MISSING",
+    "LONG_COLD_OPEN", "MULTI_SENTENCE_COLD_OPEN", "COLD_OPEN_META", "COLD_OPEN_RESTATES_HOOK"})
 CLOSE_MIN_SENTENCES, CLOSE_MAX_SENTENCES = 2, 4
 MIN_NEGATION_LIST = 3
 # Articles carry no callback signal. Matching on the first word of "the extraction system" meant
@@ -982,6 +991,11 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
         issues.extend(sentence_mix_issues(
             [step["situation"] for step in steps], [step["role"] for step in steps],
             [step["continues"] for step in steps]))
+
+    if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
+        demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
+        issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
+        warnings.extend(demoted)
 
     return {
         "schema_version": SCHEMA_VERSION,

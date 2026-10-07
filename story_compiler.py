@@ -154,11 +154,24 @@ def _hook_rules() -> str:
     return hook_patterns.HOOK_RULES
 
 
-def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None):
-    """The factual planner never receives the narration layer's competing role slots."""
+def _opening_rules() -> str:
+    """The human-first opening, kept beside the hook rules it replaces under the ladder."""
+    import hook_patterns
+    return hook_patterns.OPENING_RULES
+
+
+def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None,
+                        opening_mode="hook"):
+    """The factual planner never receives the narration layer's competing role slots.
+
+    `opening_mode`: "hook" asks for the one-line hook plus an aftermath cold open (the contract
+    fitted to the 64-second shorts); "ladder" asks for the human-first OPENING -- frame, problem,
+    solution, transition, consequence -- and no cold open (operator brief, 2026-10-07).
+    """
     mapping = ef.map_for(engine_id)
     functions = tuple(mapping.to_role)
     import causal_story
+    ladder = str(opening_mode or "hook").strip().lower() == "ladder"
     schema = {
         "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
                                "and the concrete title subject; see THE HOOK rules below",
@@ -189,6 +202,20 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
     # invent a field to fill -- the same shape as asking for a chapter marker and then stripping it.
     if "mechanism" not in mapping.derived:
         schema["beats"][0].pop("incentive", None)
+    if ladder:
+        schema["hook"] = ("the FRAME sentence that opens the film: the role the viewer occupies, "
+                          "second person by default; see THE OPENING below")
+        schema.pop("cold_open", None)
+        schema["opening_object"] = ("the physical thing the problem names (the jars, the field); "
+                                    "the close returns to it or to the need")
+        schema["opening"] = {
+            "voice": "second_person | close_third",
+            "frame": "the same sentence as hook", "problem": "", "solution": "",
+            "transition": "", "consequence": "", "question": "optional, one question",
+            "callback": {"kind": "object | need", "text": ""},
+            "claim_refs": {"problem": ["claim_id"], "solution": ["claim_id"],
+                           "transition": ["claim_id"], "consequence": ["claim_id"]},
+            "missing_claims": ["what the ledger does not say, e.g. why the act was taken"]}
     return (
         f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
         # `count - 3` reads as "one event per scene", but `count` is scene_count_for(duration),
@@ -241,25 +268,27 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         # THE HOOK. All three delivered films used one construction -- actor did X to
         # achieve Y, then the bad thing -- which states the purpose AND the outcome,
         # closing the question the film exists to answer. Measured 30, 45 and 55 of 100.
-        + _hook_rules()
-        # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup before
-        # the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR thumbnail left at
-        # 41 s on average. The reference films earn their setup by showing the damage first.
-        + 'COLD OPEN: besides the hook, write cold_open -- one sentence of at most 22 words that '
-        'SHOWS the aftermath of the fix gone wrong as a picture the viewer can see, cited to a '
-        'claim. It is spoken right after the hook, before the first setup event, and the first '
-        'image of the film is that aftermath. It must not restate the hook, name a number the '
-        'claim does not hold, or explain anything; it shows the damage and the setup then earns '
-        'it. Make opening_object the subject as it appears in that aftermath image.\n'
-        # NO PEOPLE UNLESS THE CLAIMS PUT THEM THERE. "a beekeeper backs away", "a beekeeper
-        # backs through the grove" and "people retreat" were written into four cold opens and
-        # refused each time: a person performing an action is an actor, and no cited claim had
-        # one. The aftermath is a STATE of the world, which is what the picture needs anyway.
-        + 'The cold open may NOT contain a person doing anything -- no beekeeper, farmer, worker, '
-        'hunter or crowd, and nobody fleeing, backing away, watching or reacting -- unless a cited '
-        'claim actually places that person there. Describe the state of the world instead: what '
-        'escaped, what died, what is covered, what is empty. A person acting is a claim and it '
-        'will be refused.\n'
+        + (_opening_rules() if ladder else
+           _hook_rules()
+           # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup
+           # before the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR
+           # thumbnail left at 41 s on average. The reference films earn their setup by showing
+           # the damage first. Under the ladder the opening earns it the other way round.
+           + 'COLD OPEN: besides the hook, write cold_open -- one sentence of at most 22 words that '
+           'SHOWS the aftermath of the fix gone wrong as a picture the viewer can see, cited to a '
+           'claim. It is spoken right after the hook, before the first setup event, and the first '
+           'image of the film is that aftermath. It must not restate the hook, name a number the '
+           'claim does not hold, or explain anything; it shows the damage and the setup then earns '
+           'it. Make opening_object the subject as it appears in that aftermath image.\n'
+           # NO PEOPLE UNLESS THE CLAIMS PUT THEM THERE. "a beekeeper backs away", "a beekeeper
+           # backs through the grove" and "people retreat" were written into four cold opens and
+           # refused each time: a person performing an action is an actor, and no cited claim had
+           # one. The aftermath is a STATE of the world, which is what the picture needs anyway.
+           + 'The cold open may NOT contain a person doing anything -- no beekeeper, farmer, worker, '
+           'hunter or crowd, and nobody fleeing, backing away, watching or reacting -- unless a cited '
+           'claim actually places that person there. Describe the state of the world instead: what '
+           'escaped, what died, what is covered, what is empty. A person acting is a claim and it '
+           'will be refused.\n')
         # ORDERING IS STRUCTURAL. The setup role reads "the target problem BEFORE an
         # introduction", so the planner wrote "Brazilian honey production was low BEFORE the
         # African bees arrived" -- and the evidence boundary refused it three sheets running,

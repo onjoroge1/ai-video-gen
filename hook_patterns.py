@@ -215,8 +215,15 @@ def _text(v) -> str:
     return v.strip() if isinstance(v, str) else ""
 
 
-def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
-    """Which corpus devices an opening carries, and a 0-100. Deterministic, no provider."""
+def score_hook(hook: str, *, subject_words: set | None = None, ladder: bool = False) -> dict:
+    """Which corpus devices an opening carries, and a 0-100. Deterministic, no provider.
+
+    `ladder`: the sentence is the FRAME of a human-first opening ("Imagine you're a beekeeper in
+    Brazil"), not the whole promise. Only the three devices the frame can carry are scored, on
+    the same weights re-normalised to 100, and the quantity, yardstick and clock notes are not
+    issued: under the ladder the facts arrive where the story reaches them (operator brief,
+    2026-10-07), and the number bonus is what pulled "26" and "1956" into sentence one.
+    """
     line = _text(hook)
     if not line:
         return {"score": 0, "patterns": {d: False for d in DEVICES},
@@ -242,7 +249,13 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
         "yardstick": has_number and bool(_COMPARISON.search(line)),
         "held_clock": bool(_TIMEFRAME.search(line)),
     }
-    score = sum(w for d, w in _WEIGHTS.items() if found[d])
+    if ladder:
+        # Equal thirds, so a frame missing ANY of the three required devices lands under the 70
+        # contract (67): on the corpus weights a Kerr frame with the viewer in it scored 71.
+        frame = ("viewer_present", "no_institution", "outcome_withheld")
+        score = round(100 * sum(1 for d in frame if found[d]) / len(frame))
+    else:
+        score = sum(w for d, w in _WEIGHTS.items() if found[d])
 
     notes = []
     if not viewer:
@@ -254,10 +267,12 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
     if spoils:
         notes.append("it states the intervention AND its result, so the film has nothing left "
                      "to tell")
-    if not found["denied_or_withheld"]:
+    if not found["denied_or_withheld"] and not ladder:
         notes.append("nothing is withheld or denied: name a category instead of the species, or "
                      "kill the obvious explanation first")
-    if not has_number:
+    if ladder:
+        pass                      # the frame carries no number; the facts arrive later by design
+    elif not has_number:
         notes.append("no sourced quantity: the corpus puts a figure in almost every opening "
                      "('860 volts', '2,000 pounds', '6,000 kinds of mammals')")
     elif not found["yardstick"]:
@@ -272,6 +287,62 @@ def score_hook(hook: str, *, subject_words: set | None = None) -> dict:
     return {"score": score, "patterns": found, "notes": notes, "words": words,
             "has_number": has_number}
 
+
+# THE HUMAN-FIRST OPENING (operator brief, 2026-10-07). One source of text for the planner and
+# the writer. The beats are PLANNING beats, not sentences: a line of narration or a single picture
+# may carry two, and the writer combines them as the telling needs.
+OPENING_RULES = (
+    "THE OPENING. The film opens inside one person's practical problem, in the second person by "
+    "default (\"Imagine you're a beekeeper in Brazil\"), and reaches the first unintended "
+    "consequence before the body of the story begins. Plan it as five beats in `opening`:\n"
+    "  frame -- the role the viewer occupies; a role the ledger's events involve. Second person is "
+    "the default, not a rule; if the story is told better from beside the person, say so in "
+    "opening.voice.\n"
+    "  problem -- what this person needs and what prevents it, tangible: something felt, seen or "
+    "counted. Cite the claims that establish the obstacle. A factual statement inside a 'you' "
+    "sentence ('your bees are European bees') is still a factual statement and must be cited.\n"
+    "  solution -- the decision someone makes, and its rationale as the source gives it. The viewer "
+    "should UNDERSTAND why the decision was made; they do not have to agree with it. The person "
+    "who decides may be named when a claim names them; the viewer's role stays the vantage point.\n"
+    "  transition -- the move to where the story turns: the place and the arrangement the claims "
+    "describe.\n"
+    "  consequence -- the first unintended consequence as the sourced event, including the ordinary "
+    "act that caused it. If the ledger gives the actor's reason, include it; if it does not, say "
+    "nothing about why and list it in opening.missing_claims. Never supply a motive the sources "
+    "do not.\n"
+    "  question -- optional: the one question the rest of the film answers, asked once.\n"
+    "  callback -- what the close returns to: the opening object (the jars) OR the original human "
+    "need (a harvest that pays), whichever the story can honestly pay off.\n"
+    "Let the facts enter as the story needs them; a date, a place or a count belongs wherever the "
+    "story reaches it, and nothing requires or forbids one in the first sentence. Reach the "
+    "consequence as efficiently as the story allows -- there is no fixed length.\n"
+    "THE BODY BEGINS AFTER THE CONSEQUENCE. The events you plan for the body continue the story "
+    "from the consequence onward. Do not plan the problem, the decision or the escape again as "
+    "body events; the opening has spent them. The first body event is what happened next.\n"
+    "WHERE TO STAND: choose the viewer's vantage from what the ledger involves, preferring in this "
+    "order: the person with the need the plan was meant to serve; the person who made the "
+    "ordinary mistake, when a claim says what they saw or knew; a sensation everyone has had that "
+    "the story turns on; a belief the viewer already holds that the ledger corrects. Scientists, "
+    "officials and named people appear in the story as the facts place them. The hook field is "
+    "the frame sentence itself.\n")
+
+OPENING_WRITER_RULES = (
+    "THIS BATCH OPENS THE FILM. The plan's opening beats -- frame, problem, solution, transition, "
+    "consequence -- are yours to combine: a sentence may carry two, a picture may carry one. Begin "
+    "with the frame as planned (it is the hook and is prepended for you; do not write it again). "
+    "Make the need tangible early. Give the decision its rationale as the sources give it; the "
+    "viewer should understand it. Where the plan lists a missing claim, leave that thing unsaid. "
+    "Do not repeat a clause across beats, and do not announce what is coming. Visuals for the "
+    "opening show the viewer's vantage from inside it -- hands, tools, the thing they need -- not "
+    "the place from outside; required objects are things a paper cut-out can be. The problem lives "
+    "in the setup row; the solution and the transition in the intervention row (and the "
+    "false_resolution row where there is one); the consequence in the first escalation or hinge "
+    "row that follows.")
+
+OPENING_BODY_RULE = (
+    "THE BODY PICKS UP WHERE THE OPENING STOPPED: after the consequence. Nothing in these rows "
+    "re-tells the problem, the decision or the escape; refer back with an article or a pronoun "
+    "(\"those queens\", \"the screens\") and move on.")
 
 HOOK_RULES = (
     "THE HOOK is the first sentence the viewer hears, at most 18 words, and it is spoken TO ONE "

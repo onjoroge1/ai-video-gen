@@ -360,6 +360,8 @@ def build_storyboard(script: dict, question: str) -> dict:
         # The planted-number close is asked of scripts the chunked writer stamped, never of a
         # transcript or an older checkpoint (two reference closes never return their numeral).
         "close_contract": _text(script.get("_close_contract")),
+        # The human-first opening: the shorts-fitted opening gates become warnings for it.
+        "opening_contract": _text(script.get("_opening_contract")),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made

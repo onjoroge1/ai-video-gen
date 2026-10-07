@@ -371,6 +371,8 @@ def test_the_hook_word_cap_reaches_the_field_that_defines_the_hook(monkeypatch):
     The cap lived in the story direction while the beat sheet defined the hook as "One-sentence
     YouTube description hook" with no limit, and a live run returned twenty words.
     """
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
     assert f"at most {cs.MAX_HOOK_WORDS} words" in prompt
     assert f"at most {cs.MAX_HOOK_WORDS} words" not in _capture_beat_prompt(monkeypatch)
@@ -1052,6 +1054,8 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
 
     Same failure the mechanism deadline had, and it cost twelve renders that time.
     """
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
 
     # No instruction may ask for an abstraction in place of the subject.
@@ -1069,6 +1073,8 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
 
 def test_the_hook_rule_does_not_quote_a_failed_hook(monkeypatch):
     """Bad examples prime. The corpus exemplars carry the rule; our own failures do not."""
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
     for failure in ("a menace", "erase a menace", "more of it"):
         assert failure not in causal, f"the prompt quotes a hook it is trying to prevent: {failure!r}"
