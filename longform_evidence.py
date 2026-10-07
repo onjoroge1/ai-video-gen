@@ -305,7 +305,14 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     # Scene-level mascot presence is permission, not a command to paste Bolt into every view.
     include_bolt = (bool(scene.get("mascot_present")) and not pure_evidence
                     and bool(beat.get("bolt_visible", purpose == "action")))
-    include_human = bool(scene.get("human_present")) and bool(
+    # human_visible is a request for A PERSON, and only the lane that HAS a recurring host may
+    # read it as a request for him: the image prompt's include_human branch says "Alex performs
+    # the declared action" and attaches his reference sheet. Once the writer is told (as it now
+    # is) that human_visible means "an anonymous, period-correct person belongs in this frame",
+    # leaving this ungated would paste the avatar into every cast-free film that takes the
+    # instruction. In a cast-free story the same flag routes to the anonymous figure below.
+    cast_free = _text(pack.get("cast")) == "none"
+    include_human = (not cast_free) and bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
     # Cast-free means no recurring host, not an empty world. Frames where someone DOES something,
     # or where something is done TO someone, need the period-coded people who perform or suffer the
@@ -324,9 +331,11 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     # pure-evidence purposes are excluded above, so a document or a diagram never grows a bystander.
     anonymous_people_required = bool(
         not pure_evidence
-        and beat.get("anonymous_people_required", purpose in {
-            "action", "consequence", "decision", "intervention", "reaction", "assistance",
-        })
+        and beat.get("anonymous_people_required",
+                     (cast_free and bool(beat.get("human_visible"))) or purpose in {
+                         "action", "consequence", "decision", "intervention", "reaction",
+                         "assistance",
+                     })
         and not include_human
     )
     people_allowed = nature_channel.people_allowed(pack.get("channel"))

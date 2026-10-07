@@ -1559,7 +1559,9 @@ _SCENE_FIELDS_RULES = (
     'is "white-knuckled tense grip" fails on the half that was decoration while the beaker it '
     'actually needed was sitting right there. List ONLY what must be visible for the claim to '
     'stand — usually one or two things, never a description of the shot), "forbidden_objects" '
-    '(array of objects/states that must be absent), '
+    '(array of objects/states that must be absent — list a thing here only when its presence '
+    'would make the frame WRONG, such as the escaped swarm in a frame set before the escape. '
+    'Do not list "people" as a reflex: forbid them only where the fact is that nobody was there), '
     '"source" (master|distinct|detail_reframe), "asset_strategy" '
     '(master|distinct|detail_reframe), "detail_target" (required only for detail_reframe), '
     # THE CONTRAST CASE, which the bare list did not supply. Measured on a delivered film: the
@@ -1573,7 +1575,12 @@ _SCENE_FIELDS_RULES = (
     'a payment being counted out. Those need the people it happened to, and marking them '
     'pure_evidence empties the frame. If a human hand or figure would make the moment legible, '
     'this is false), "human_visible" '
-    '(true only when Alex is visually needed), "bolt_visible" (true only when this exact state '
+    # "true only when Alex is visually needed" is read as "never" by a lane that has no Alex, and
+    # that is the field the image prompt keys its cast clause on. Same film, same measurement:
+    # 4 of 124 states asked for a person.
+    '(true when a person should be visible in this frame -- in a cast-free film that is an '
+    'anonymous, period-correct person doing the declared thing, not a named character; false for '
+    'a frame that is genuinely a thing on its own), "bolt_visible" (true only when this exact state '
     'shows Bolt performing the scene\'s permitted useful story work), "bolt_action" (the concrete '
     'measurement, test, warning, reaction, or assistance Bolt performs; empty when bolt_visible is '
     'false), "new_information" (PROVISIONAL only; true only for a '
@@ -3957,12 +3964,38 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # administration in 1890s Delhi. The narration naming a modern recurring host as the
         # historical actor is the same authenticity break as drawing him there, and the visual fix
         # cannot reach it -- by the time the images are made, the sentence is already written.
+        # NO RECURRING HOST IS NOT NO PEOPLE. The old wording ended "set human_present and
+        # mascot_present to false on every scene", and the writer generalised it to the pictures:
+        # on killer bees V12 (2026-10-07) it wrote "people" into forbidden_objects on 102 of 124
+        # image states by itself -- the code never forbids them on this channel -- so a film whose
+        # opening says "imagine you're a beekeeper" had no beekeeper in it, and the image model
+        # tried to put people back 12 times and was redrawn each time. The ban is on the recurring
+        # avatar, not on humans.
         cast_rules = ("" if not _illustrated_is_cast_free() else
                       "\nCAST: this story has NO recurring characters and NO named host. Never "
-                      "write Alex, Bolt, or any invented stand-in into the narration. Name the real "
-                      "actors the history had -- 'colonial officials', 'the bounty clerks', "
-                      "'Delhi residents', 'the breeders' -- or use no name at all. Set "
-                      "human_present and mascot_present to false on every scene.\n")
+                      "write Alex, Bolt, or any invented stand-in into the narration, and set "
+                      "mascot_present to false on every scene. That is a ban on the recurring "
+                      "avatar, NOT on people: name the real actors the history had -- 'colonial "
+                      "officials', 'the bounty clerks', 'Delhi residents', 'the breeders' -- or "
+                      "use no name at all.\n"
+                      "PEOPLE IN THE PICTURES: anonymous, period-correct people belong in this "
+                      "film wherever they make the moment legible -- someone inspecting the "
+                      "problem, making the decision, performing the action that changes the "
+                      "situation, or living the documented consequence. Mix the ways you show "
+                      "them: a medium shot of a person working, where face and posture read; "
+                      "their viewpoint on the thing they are dealing with; a close shot of hands, "
+                      "tools and the decisive action. Diagrams, animal behaviour and maps are "
+                      "right where they explain the mechanism better than a person could. Not "
+                      "every frame needs a person, and a film of hand close-ups is as empty as a "
+                      "film of none. Where the story opens inside one person's problem, that "
+                      "person's practical need stays legible as the events unfold.\n"
+                      "WHO IS WHO: a representative figure (the beekeeper the viewer is asked to "
+                      "imagine) supplies the viewpoint and stays visually consistent -- same "
+                      "clothing, same tools -- without ever becoming a named character. People "
+                      "the sources document carry only their documented actions, and look "
+                      "different from the representative figure and from each other. Invent no "
+                      "personal history, motive or reaction for anyone: show what a source says "
+                      "they did, and let the picture stop there.\n")
         # TWO DEFINITIONS OF ONE FIELD. This paragraph defined the hook as a named actor doing the
         # sensible thing and causing the disaster -- and travelled into the ladder's planner prompt
         # beside THE OPENING, which defines the same field as a frame. V11 and V12 (2026-10-07)
@@ -7484,17 +7517,26 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
         cast = "No characters. Show only physical evidence."
     elif state.get("anonymous_people_required"):
         cast = (
-            "No named or recurring characters. AN ANONYMOUS, PERIOD-CORRECT PERSON MUST BE "
-            "CLEARLY VISIBLE PERFORMING THE DECLARED ACTION -- hands on the tool, document, crop, "
-            "machine, or affected object. Show a readable verb, not a portrait or a person posing. "
+            "No named or recurring characters. AN ANONYMOUS, PERIOD-CORRECT PERSON IS CLEARLY "
+            "VISIBLE PERFORMING THE DECLARED ACTION. Frame it the way the moment reads best: a "
+            "medium shot of the person at work, where posture and face carry what they are doing; "
+            "their viewpoint on the thing they are handling; or a close shot of hands on the tool, "
+            "document, crop, machine or affected object. Show a readable verb, not a portrait or a "
+            "person posing -- and not a disembodied hand where a working figure would say more. "
             "Add other anonymous officials, workers, farmers, or crowds only when the moment needs "
             "them. Use the same round-headed style; identity comes from era-correct dress, headwear "
-            "and posture, never a recurring face or modern clothing.")
+            "and posture, never a recurring face or modern clothing. A representative figure the "
+            "story returns to keeps the same clothing and tools in every frame; a person the "
+            "sources document looks different from that figure, performs only the action the "
+            "narration states, and carries no invented reaction or motive in their face.")
     else:
         cast = (
             "No named or recurring characters. Populate the scene with anonymous, period-correct "
-            "officials, workers, farmers, or crowds when they make the event clearer. Use the same "
-            "round-headed style; identity comes from dress, headwear and posture, not faces.")
+            "officials, workers, farmers, or crowds when they make the event clearer -- a figure "
+            "at work in a medium shot reads better than an empty set. Use the same round-headed "
+            "style; identity comes from dress, headwear and posture, not faces. A representative "
+            "figure the story returns to keeps the same clothing and tools; documented people look "
+            "different from that figure and from each other.")
     if state.get("include_human") and state.get("include_bolt"):
         cast = ("Alex performs the declared investigation action while Bolt materially assists. "
                 + HUMAN_REF_LINE)
