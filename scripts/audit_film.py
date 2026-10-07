@@ -240,6 +240,15 @@ def _runtime_check(job: str, film: str, script: dict | None, scenes: list, info:
     return None
 
 
+def _frame_ok(script: dict) -> bool:
+    """Under the human-first opening there is no cold open; the frame is what opens the film."""
+    try:
+        import hook_patterns as hp
+        return bool(hp.frame_names_role(_text(script.get("hook"))))
+    except Exception:
+        return False
+
+
 def audit_script(job: str, film: str = "", stale: str | None = None) -> dict:
     import explainer_pipeline as ep
     import causal_story as cs
@@ -289,8 +298,10 @@ def audit_script(job: str, film: str = "", stale: str | None = None) -> dict:
     used_template = bool(script.get("_template_slots") or manifest.get("story_template"))
     checks = [
         ("no repeated scenes", not dupes, f"{len(dupes)} repeat pair(s)", 3),
-        ("cold open spoken in scene 1", bool(cold) and cold.rstrip(".!?").casefold() in first.casefold(),
-         (cold[:70] or "none"), 2),
+        (("frame puts the viewer in a role", _frame_ok(script), (_text(script.get("hook"))[:70] or "none"), 2)
+         if script.get("_opening_contract") else
+         ("cold open spoken in scene 1", bool(cold) and cold.rstrip(".!?").casefold() in first.casefold(),
+          (cold[:70] or "none"), 2)),
         runtime,
         hook_checks[0],
         ("most scenes cite a claim", cited >= 0.7 * max(1, len(scenes)),

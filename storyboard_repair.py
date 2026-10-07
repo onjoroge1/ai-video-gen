@@ -157,8 +157,19 @@ def apply_response(script, edit, response):
                                          for r in rows):
         raise ValueError("Repair must contain only scene IDs and narration")
     ids = [r["scene_id"] for r in rows]
-    if len(ids) != len(set(ids)) or set(ids) != set(edit["scene_ids"]):
+    if len(ids) != len(set(ids)):
         raise ValueError("Repair changed the permitted scene set")
+    # A row for a scene outside the permitted set is tolerated only when it returns that scene
+    # unchanged (models echo the whole script); a changed one is still refused. Every permitted
+    # scene must be present. V11 (2026-10-07) lost its one synthesis repair to an echoed script.
+    current = {s["scene_id"]: str(s.get("narration") or "").strip() for s in script["scenes"]}
+    permitted = set(edit["scene_ids"])
+    for r in rows:
+        if r["scene_id"] not in permitted and str(r.get("narration") or "").strip() != current.get(r["scene_id"]):
+            raise ValueError("Repair changed the permitted scene set")
+    if not permitted <= set(ids):
+        raise ValueError("Repair changed the permitted scene set")
+    rows = [r for r in rows if r["scene_id"] in permitted]
     candidate = deepcopy(script)
     updates = {r["scene_id"]: r["narration"] for r in rows}
     for s in candidate["scenes"]:

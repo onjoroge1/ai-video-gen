@@ -204,6 +204,25 @@ def _registered_people_in(line: str) -> list:
             if re.search(r"\b" + re.escape(name) + r"(?:'s)?\b", line)]
 
 
+# A FRAME puts the viewer in a role: "Imagine you're a beekeeper in Brazil", "You are a farmer
+# in Queensland", "Suppose you keep bees". The three corpus devices cannot tell that from a
+# flash-forward ("Imagine you backing away from twenty-six escaping queens" scored 100 on them,
+# V11 2026-10-07), so the ladder scorer also asks for the role and refuses an event verb.
+_FRAME_ROLE = re.compile(
+    r"\b(?:imagine|picture|suppose|say)\s+(?:that\s+)?(?:you'?re|you are|you)\s+(?:a|an|the|one of)\b|"
+    r"\byou'?re\s+(?:a|an|the|one of)\b|\byou are\s+(?:a|an|the|one of)\b|"
+    r"\byou (?:keep|run|farm|own|work|live)\b", re.I)
+_FRAME_EVENT = re.compile(
+    r"\b(?:escaped|escaping|imported|released|spread|collapsed|died|destroyed|exploded|"
+    r"backfired|killed|removed|lifted|noticed)\b", re.I)
+
+
+def frame_names_role(line: str) -> bool:
+    """Does this sentence give the viewer a role to occupy, without narrating an event?"""
+    line = _text(line)
+    return bool(_FRAME_ROLE.search(line)) and not _FRAME_EVENT.search(line)
+
+
 DEVICES = ("viewer_present", "no_institution", "outcome_withheld",
            "denied_or_withheld", "yardstick", "held_clock")
 # Weighted so the three the corpus never violates dominate.
@@ -251,9 +270,14 @@ def score_hook(hook: str, *, subject_words: set | None = None, ladder: bool = Fa
     }
     if ladder:
         # Equal thirds, so a frame missing ANY of the three required devices lands under the 70
-        # contract (67): on the corpus weights a Kerr frame with the viewer in it scored 71.
+        # contract (67): on the corpus weights a Kerr frame with the viewer in it scored 71. And
+        # a frame that names no role -- or narrates an event -- is capped under the contract
+        # however many devices it carries.
         frame = ("viewer_present", "no_institution", "outcome_withheld")
+        found["frame_role"] = frame_names_role(line)
         score = round(100 * sum(1 for d in frame if found[d]) / len(frame))
+        if not found["frame_role"]:
+            score = min(score, 50)
     else:
         score = sum(w for d, w in _WEIGHTS.items() if found[d])
 
@@ -271,7 +295,10 @@ def score_hook(hook: str, *, subject_words: set | None = None, ladder: bool = Fa
         notes.append("nothing is withheld or denied: name a category instead of the species, or "
                      "kill the obvious explanation first")
     if ladder:
-        pass                      # the frame carries no number; the facts arrive later by design
+        if not found.get("frame_role"):
+            notes.append("the frame gives the viewer no role to occupy, or narrates an event: it "
+                         "should read like 'Imagine you're a beekeeper in Brazil' -- a person with a "
+                         "practical problem, nothing that has happened yet")
     elif not has_number:
         notes.append("no sourced quantity: the corpus puts a figure in almost every opening "
                      "('860 volts', '2,000 pounds', '6,000 kinds of mammals')")

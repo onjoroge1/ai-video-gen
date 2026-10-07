@@ -10,7 +10,7 @@ from test_story_compiler import MACQUARIE
 
 def _steps(body_restates=False):
     rows = [("setup", "European bees struggled in Brazil's heat and the harvest came thin."),
-            ("intervention", "Kerr imported African queens to breed a bee that made honey in the heat."),
+            ("intervention", "In 1956 Kerr imported African queens to breed a bee that made honey in the heat."),
             ("hinge", "Except a visitor did not know what the screens were for."),
             ("mechanism", "Queens escaped and hybridized with the local population."),
             ("escalation", "A visiting beekeeper lifted the screens and twenty-six colonies left."),
@@ -136,3 +136,37 @@ def test_a_close_that_returns_to_the_need_has_the_setup_in_its_ceiling():
     close_need = next(b for b in by_need if b["role"] == "tool")
     close_object = next(b for b in by_object if b["role"] == "tool")
     assert setup in close_need["context_refs"] and setup not in close_object["context_refs"]
+
+
+def test_a_frame_must_name_a_role_and_not_narrate_an_event():
+    import hook_patterns as hp
+    good = hp.score_hook("Imagine you're a beekeeper in Brazil.", ladder=True)
+    assert good["score"] == 100 and good["patterns"]["frame_role"]
+    flash = hp.score_hook("Imagine you backing away from twenty-six escaping queens; that is not even the strangest part.", ladder=True)
+    assert flash["score"] <= 50 and not flash["patterns"]["frame_role"]
+    assert any("no role" in n for n in flash["notes"])
+    assert hp.frame_names_role("You are a farmer in Queensland with a cane field.")
+    assert not hp.frame_names_role("You're a beekeeper whose queens escaped in 1957.")
+
+
+def test_the_body_may_not_respeak_the_openings_markers_even_in_fresh_words():
+    steps = _steps()
+    steps[6]["situation"] = "By then Kerr's 1956 import had become a quiet landmark for Brazil's apiaries."
+    assert "OPENING_RESTATED" in _codes(steps)
+
+
+def test_the_repair_tolerates_an_echoed_but_unchanged_scene():
+    import storyboard_repair as repair
+    script = {"hook": "h", "scenes": [{"scene_id": "s1", "narration": "one"}, {"scene_id": "s2", "narration": "two"}]}
+    edit = {"errors": ["SYNTHESIS_TOO_LONG: x"], "scene_ids": ["s2"], "mechanism_index": 0, "close_index": 1,
+            "opening_object": "", "original_counts": [1, 1], "opening_word_limit": 99}
+    out = repair.apply_response(script, edit, {"scenes": [{"scene_id": "s1", "narration": "one"},
+                                                          {"scene_id": "s2", "narration": "two, shorter"}]})
+    assert out["scenes"][1]["narration"] == "two, shorter" and out["scenes"][0]["narration"] == "one"
+    try:
+        repair.apply_response(script, edit, {"scenes": [{"scene_id": "s1", "narration": "ONE CHANGED"},
+                                                        {"scene_id": "s2", "narration": "two, shorter"}]})
+    except ValueError as exc:
+        assert "permitted scene set" in str(exc)
+    else:
+        raise AssertionError("a changed scene outside the permitted set was accepted")

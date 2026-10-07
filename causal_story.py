@@ -909,6 +909,20 @@ def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
             synthesis["step_id"]))
 
 
+# Capitalised words that start sentences and carry no identity; everything else capitalised, and
+# every number, is a MARKER of the fact being told (a year, a count, a name, a place).
+_MARKER_STOP = frozenset({
+    "the", "a", "an", "in", "by", "so", "but", "then", "except", "after", "before", "when", "while",
+    "imagine", "picture", "your", "you", "their", "his", "her", "its", "those", "these", "that",
+    "this", "and", "not", "yet", "even", "now", "once", "still", "only", "instead", "what", "how",
+    "why", "with", "from", "for", "there", "here", "it", "they", "we", "if", "as", "at", "on", "to"})
+
+
+def _markers(text: str) -> set:
+    return {m for m in re.findall(r"\b(?:\d{2,4}|[A-Z][a-z]{2,})\b", _text(text))
+            if m.lower() not in _MARKER_STOP}
+
+
 def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
     """THE BODY BEGINS AFTER THE CONSEQUENCE (operator brief, 2026-10-07: the most important rule).
 
@@ -923,18 +937,27 @@ def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
     opening = [s for s in steps if s["role"] in OPENING_ROLES and s["index"] < first_escalation]
     body = [s for s in steps if s["index"] > first_escalation
             and s["role"] not in CLOSING_ROLES + (SYNTHESIS, GENERALIZATION)]
+    opening_markers = set().union(*(_markers(s["situation"]) for s in opening)) if opening else set()
     for step in body:
+        # The second trigger: the body re-speaks the opening's MARKERS -- a year or count AND a
+        # name -- from the opening as a whole. "In 1956 Kerr imported..." told again in fresh
+        # words shares few content stems and every marker (V11, 2026-10-07: the editorial read
+        # saw the re-telling, this check did not). A number is required among them so that the
+        # story's place name recurring in the body does not count as a re-telling.
+        shared_markers = _markers(step["situation"]) & opening_markers
+        marker_hit = len(shared_markers) >= 2 and any(m[0].isdigit() for m in shared_markers)
         for earlier in opening:
             a = {w for w in re.findall(r"[a-z]{3,}", step["situation"].lower()) if w not in _STOPWORDS}
             b = {w for w in re.findall(r"[a-z]{3,}", earlier["situation"].lower()) if w not in _STOPWORDS}
             if not a or not b:
                 continue
             overlap = len(a & b) / min(len(a), len(b))
-            if overlap >= OPENING_RESTATEMENT_OVERLAP and len(a & b) >= 4:
+            if (overlap >= OPENING_RESTATEMENT_OVERLAP and len(a & b) >= 4) or marker_hit:
                 issues.append(_issue(
                     "OPENING_RESTATED",
                     f"{step['step_id']} re-tells the {earlier['role']} ({overlap:.0%} of its content "
-                    f"words); the body continues from the consequence -- refer back with an article "
+                    f"words" + (f"; shares {sorted(shared_markers)}" if shared_markers else "")
+                    + "); the body continues from the consequence -- refer back with an article "
                     "or a pronoun and move on",
                     step["step_id"]))
                 break

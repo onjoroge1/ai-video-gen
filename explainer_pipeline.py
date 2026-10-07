@@ -4450,16 +4450,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 _hook_fix = ("\n\nTHE HOOK YOU RETURNED MISSES THE CONTRACT: "
                              + _s(plan.get("hook")) + "\n"
                              + "\n".join("- " + n for n in _hs["notes"])
-                             + "\nRewrite ONLY the hook, keeping every other field identical. "
-                               "Put the listener in it with a literal 'you' or 'your', do not "
-                               "make an institution or a named person the subject, and do not "
-                               "state the intervention and its result in the same sentence. AND "
-                               "use at least ONE of: deny the obvious reading ('that is not even "
-                               "the strangest part', 'nobody checked'); measure a number against "
-                               "something the viewer owns; or hold a clock open (a duration joined "
-                               "to something still unresolved). Every number, date and name must "
-                               "come from a cited claim. Use only facts the ledger already "
-                               "supports.")
+                             + ("\nRewrite ONLY hook and opening.frame (the same sentence), keeping "
+                                "every other field identical. It is the FRAME of the opening: one "
+                                "sentence that puts the viewer in the role the problem belongs to -- "
+                                "'Imagine you're a beekeeper in Brazil' -- a person with a practical "
+                                "need, in the second person, naming no institution or researcher and "
+                                "narrating nothing that has happened yet. The want and the facts "
+                                "follow in opening.problem."
+                                if _ladder else
+                                "\nRewrite ONLY the hook, keeping every other field identical. "
+                                "Put the listener in it with a literal 'you' or 'your', do not "
+                                "make an institution or a named person the subject, and do not "
+                                "state the intervention and its result in the same sentence. AND "
+                                "use at least ONE of: deny the obvious reading ('that is not even "
+                                "the strangest part', 'nobody checked'); measure a number against "
+                                "something the viewer owns; or hold a clock open (a duration joined "
+                                "to something still unresolved). Every number, date and name must "
+                                "come from a cited claim. Use only facts the ledger already "
+                                "supports."))
                 _hp_plan, _hp_cost = _ask_planner(_hook_fix)
                 cost += _hp_cost
                 if not isinstance(_hp_plan, dict):
