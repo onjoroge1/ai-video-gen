@@ -178,6 +178,8 @@ _ROLE_ACCEPTS = {
     # The close is a rhetorical device built from the story, not a new historical assertion.
     "tool": (),
     "verdict": (),
+    # The synthesis re-speaks evidenced beats through context_refs; it cites nothing itself.
+    "synthesis": (),
 }
 
 
@@ -472,7 +474,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         #     rhetorical device built from the story, not a new historical assertion — a measured
         #     sample gave its tool beat an event about Goodhart's 1975 law and marked it
         #     primary_story, which is neither this story nor a fact the close needs.
-        if role in ("tool", "verdict") and event["text"]:
+        if role in ("tool", "verdict", "synthesis") and event["text"]:
             issues.append(_issue(
                 "CLOSING_BEAT_ASSERTS_HISTORY",
                 f"beat {beat_id} is a {role} beat carrying a factual event; the close is built "
@@ -657,6 +659,7 @@ CENTRAL_FUNCTIONS = {
     "escalation": "HOW people exploit it, compounding",
     "reversal": "WHAT the system has become — the end state inverted",
     "tool": "hands back a reusable lens",
+    "synthesis": "re-walks the chain as cause -> cost pairs, adding nothing",
     "verdict": "states what the pattern proves",
 }
 # Roles whose duplicates may be collapsed into one beat. Everything else is a distinct causal job,

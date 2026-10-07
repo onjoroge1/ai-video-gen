@@ -59,8 +59,12 @@ ENGINES: dict[str, dict[str, Any]] = {
                     "ecological interaction, while an introduction creates a new one the plan "
                     "did not account for."),
         "reference": "macquarie-island cat eradication",
+        # The synthesis sits after the generalization and before the close; it is in the SEQUENCE
+        # and not in REQUIRED: the reference fixtures these engines were read from have no re-walk,
+        # so demanding it of every story would reject the corpus. The compiled lane demands it
+        # (see get()), because there the compiler itself adds the beat.
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
-                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.SYNTHESIS, cs.TOOL),
         "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL, cs.TOOL),
         "closing": cs.TOOL,
         # A cascade runs once. See causal_story's THIN_CHAIN: two escalations is right for a
@@ -79,8 +83,12 @@ ENGINES: dict[str, dict[str, Any]] = {
         "premise": ("PEOPLE respond to a reward, quota or rule and produce more of what it was "
                     "meant to remove. There must be an incentive somebody exploits."),
         "reference": "cobra-bounty video",
+        # The synthesis sits after the generalization and before the close; it is in the SEQUENCE
+        # and not in REQUIRED: the reference fixtures these engines were read from have no re-walk,
+        # so demanding it of every story would reject the corpus. The compiled lane demands it
+        # (see get()), because there the compiler itself adds the beat.
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
-                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.SYNTHESIS, cs.TOOL),
         "required": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
                      cs.ESCALATION, cs.REVERSAL, cs.TOOL),
         "closing": cs.TOOL,
@@ -115,8 +123,12 @@ ENGINES: dict[str, dict[str, Any]] = {
         # is pitched, it enjoys its false victory, a hinge stops it, and only then does the story
         # reveal why it would have failed. What differs is WHEN the principle can land, not the
         # order it lands in — hence the reveal deadline below rather than a reshuffled sequence.
+        # The synthesis sits after the generalization and before the close; it is in the SEQUENCE
+        # and not in REQUIRED: the reference fixtures these engines were read from have no re-walk,
+        # so demanding it of every story would reject the corpus. The compiled lane demands it
+        # (see get()), because there the compiler itself adds the beat.
         "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
-                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.TOOL),
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.SYNTHESIS, cs.TOOL),
         "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL,
                      cs.TOOL),
         "closing": cs.TOOL,
@@ -230,8 +242,15 @@ def get(engine_id: str, *, compiled: bool = False) -> dict:
     script that may otherwise be sound; validation against the default will report what is wrong.
     """
     engine = ENGINES.get(str(engine_id or "").strip().lower()) or ENGINES[DEFAULT_ENGINE]
-    if compiled and str(engine_id).strip().lower() == BACKFIRING_SOLUTION:
-        return dict(engine, compiled_compounding=True)
+    if compiled:
+        extra = {}
+        if str(engine_id).strip().lower() == BACKFIRING_SOLUTION:
+            extra["compiled_compounding"] = True
+        # The compiler adds the synthesis device itself, so the compiled lane may demand it.
+        if cs.SYNTHESIS in engine["sequence"]:
+            extra["compiled_synthesis"] = True
+        if extra:
+            return dict(engine, **extra)
     return engine
 
 

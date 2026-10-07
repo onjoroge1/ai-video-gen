@@ -34,6 +34,16 @@ def test_the_joint_regex_recognises_the_reference_joints_and_not_v8s_openings():
         assert not cs.is_joint(line)[0], line
 
 
+def test_a_demonstrative_opener_is_a_joint_and_a_joint_opener_is_interpretive():
+    """V9 (2026-10-06): 'That defensive population kept moving north.' points back and was not
+    counted; 'But the important detail was the speed of that expansion.' is framing, not a fact."""
+    assert cs.is_joint("That defensive population kept moving north.")[0]
+    assert cs.classify_sentence("But the population kept moving north.", opening=True) == "interpretive"
+    assert cs.classify_sentence("But the population kept moving north.") == "fact"
+    assert cs.classify_sentence("The important detail was the speed of that expansion.") == "interpretive"
+    assert cs.classify_sentence("Africanized venom is not more painful than ordinary venom.") == "interpretive"
+
+
 def test_a_hinge_joint_is_never_a_question():
     assert not cs.is_joint("Was the fix really working?", role=cs.HINGE)[0]
     assert cs.is_joint("Except the bees did not stay in their boxes.", role=cs.HINGE)[0]

@@ -263,7 +263,9 @@ def _causal_role_sets():
         # Where a viewer is invited to predict: the plan is stated, or appears to have worked.
         "prediction": frozenset({cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE}),
         # Blocks of pure explanation, which is what an attention gap is made of.
-        "exposition": frozenset({cs.SETUP, cs.MECHANISM, cs.GENERALIZATION}),
+        # The synthesis re-earns no attention and answers nothing new; it is exposition for the
+        # gap measure, so a recap beside a generalization is reported as one block.
+        "exposition": frozenset({cs.SETUP, cs.MECHANISM, cs.GENERALIZATION, cs.SYNTHESIS}),
     }
 
 

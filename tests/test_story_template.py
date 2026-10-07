@@ -100,7 +100,11 @@ def test_the_slot_plan_is_a_role_budget_the_planner_can_be_asked_for():
     # The plan counts EVENTS the planner is asked for; the skeleton adds the compiler's hinge
     # and tool, which the planner must not supply. Asking for them produced DUPLICATE_ROLE
     # replans (three reversals asked, one allowed) and a tool beat written as a fact.
-    assert sum(plan.values()) + 2 == len(st.build_slots("removed_keystone", 300))
+    # hinge + tool + synthesis at 300s; at 120s no synthesis slot is reserved.
+    assert sum(plan.values()) + 3 == len(st.build_slots("removed_keystone", 300))
+    short = st.role_counts("removed_keystone", 120)
+    assert sum(short.values()) + 2 == len(st.build_slots("removed_keystone", 120))
+    assert plan.get("synthesis", 0) == 0, "the planner is never asked for the synthesis event"
     assert plan["escalation"] >= st.MIN_ESCALATION_SCENES
     for role in ("setup", "intervention", "mechanism", "escalation", "reversal"):
         assert plan.get(role, 0) >= 1

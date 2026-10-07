@@ -290,7 +290,8 @@ def test_a_derived_role_is_the_compilers_and_is_not_asked_for():
     import story_template as st
     plan = st.role_counts("backfiring_solution", 300)
     assert plan.get("mechanism", 0) == 0
-    assert sum(plan.values()) + 3 == st.target_scene_count(300), "hinge + tool + derived mechanism"
+    assert sum(plan.values()) + 4 == st.target_scene_count(300), \
+        "hinge + tool + derived mechanism + synthesis (300s is above the synthesis floor)"
     prompt = sc.factual_plan_prompt("q", 300, 20, "backfiring_solution", slot_plan=plan)
     assert "mechanism: 1 event" not in prompt
     assert f"Return EXACTLY {sum(plan.values())} factual events" in prompt

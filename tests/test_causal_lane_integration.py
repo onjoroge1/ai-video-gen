@@ -76,7 +76,7 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
                      "28-40% first escalation", "STANDARD EXPLAINER. Deliver the first useful"):
         assert conflict not in causal
     assert "The compiler assigns story roles" in causal
-    assert "Do not supply a hinge, mechanism, tool" in causal
+    assert "Do not supply a hinge, mechanism, synthesis, tool" in causal
 
 
 def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
