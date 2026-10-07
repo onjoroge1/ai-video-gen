@@ -408,6 +408,22 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
             pack["human"]["reference_asset_id"], pack["human"]["clothing_id"]])
     if include_bolt:
         references.append(pack["bolt"]["reference_asset_id"])
+    # OBJECT CONTINUITY. A beat that declares object_reference: "opening" is drawn against the
+    # opening object's accepted plate (asset:s001:e01), the way a character is drawn against its
+    # identity reference, and the verifier compares the object to it. The operator's brief
+    # (2026-10-07): one consistent hive, grid and bee design across the excluder sequence; the
+    # Phase 0 clip drew three different hive boxes under one story.
+    object_reference_asset_id = ""
+    if _text(beat.get("object_reference")).casefold() == "opening":
+        object_reference_asset_id = _text(
+            (pack.get("opening_object") or {}).get("opening_source_asset_id"))
+        if object_reference_asset_id and object_reference_asset_id != asset_id:
+            references.append(object_reference_asset_id)
+    # EXPLANATORY CUTAWAY. A beat that declares explains: true draws the relationship inside one
+    # picture (a cutaway of the story object: workers through the grid, the queen held behind)
+    # instead of the moment seen from outside. Scoped to the one state that asks; the
+    # draw-the-moment rule still governs every other plate.
+    explains = bool(beat.get("explains"))
     return {
         "state_id": f"state:s{scene_index + 1:03d}:e{state_index + 1:02d}",
         "asset_id": asset_id,
@@ -435,6 +451,8 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         # report.
         "bolt_action": _derive_bolt_action(beat, scene, after) if include_bolt else "",
         "reference_ids": references,
+        "object_reference_asset_id": object_reference_asset_id,
+        "explains": explains,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",
         "location_id": pack["first_act_location"]["location_id"] if opening else "",

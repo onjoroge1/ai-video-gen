@@ -7084,7 +7084,8 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
 
 
 def _evidence_reference_paths(state: dict, *, human_ok: bool, mascot_ok: bool,
-                              continuity_source: str | None = None) -> list[str] | None:
+                              continuity_source: str | None = None,
+                              object_reference: str | None = None) -> list[str] | None:
     """Deterministic identity-first reference order; pure evidence can never receive Bolt."""
     refs: list[str] = []
     if state.get("include_human") and human_ok:
@@ -7096,7 +7097,24 @@ def _evidence_reference_paths(state: dict, *, human_ok: bool, mascot_ok: bool,
     if (continuity_source and not state.get("pure_evidence")
             and os.path.exists(continuity_source) and continuity_source not in refs):
         refs.append(continuity_source)
+    # The object reference (the opening object's accepted plate) is wanted by pure evidence
+    # too: the object IS the evidence, and the point is that it stays the same object.
+    if object_reference and os.path.exists(object_reference) and object_reference not in refs:
+        refs.append(object_reference)
     return refs or None
+
+
+def _scene_style_suffix(lane, scene: dict, state: dict, framing: str, illustrated_story_on: bool,
+                        style_suffix: str) -> str:
+    """The per-scene prompt suffix: plate stock by role, shot framing, and either the
+    draw-the-moment rule or, for the one state that declares `explains`, the cutaway rule."""
+    if not illustrated_story_on:
+        return style_suffix
+    return (lane.visual_style_suffix(
+                framing, role=_s(scene.get("causal_role") or scene.get("story_role")),
+                people=not bool(state.get("pure_evidence")))
+            + lane.shot_framing(_s(scene.get("shot_type")))
+            + (lane.EXPLAIN_CUTAWAY if state.get("explains") else lane.NO_DIAGRAM))
 
 
 # Redraws allowed per rejected evidence state before the run fails. Two, not one: the first redraw
@@ -7192,6 +7210,11 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
         f"{_s(state.get('state_after'))}. REQUIRED AND CLEARLY VISIBLE: {required}. "
         f"FORBIDDEN: {forbidden}. {absence}{cast} "
         + (f"CONTINUITY LOCATION: preserve {location}. " if state.get("opening") and location else "")
+        + (("OBJECT CONTINUITY: the last reference image shows "
+            f"{_s((continuity_pack.get('opening_object') or {}).get('label')) or 'the opening object'} "
+            "-- draw the SAME object: same shape, proportions, parts and construction; only the "
+            "paper stock and the state may change. ")
+           if state.get("object_reference_asset_id") else "")
         + (f"COMPOSITION: {_s(state.get('visual'))}. " if _s(state.get("visual")) else "")
         + "The image must prove the state change without labels, arrows, text, or narration cards. "
         + style_suffix
@@ -13358,16 +13381,14 @@ def run_explainer_pipeline(
                     continuity_source = source_path or (master_path if state_index else "")
                     refs = _evidence_reference_paths(
                         state, human_ok=human_ok, mascot_ok=mascot_ok,
-                        continuity_source=continuity_source)
+                        continuity_source=continuity_source,
+                        object_reference=evidence_asset_paths.get(
+                            _s(state.get("object_reference_asset_id")), ""))
                     # The plate is chosen per SCENE, not per film: the whole point of the
                     # palette arc is that the stock changes as the story turns.
-                    scene_suffix = (
-                        illustrated_story_lane.visual_style_suffix(
-                            framing, role=_s(scene.get("causal_role") or scene.get("story_role")),
-                            people=not bool(state.get("pure_evidence")))
-                        + illustrated_story_lane.shot_framing(_s(scene.get("shot_type")))
-                        + illustrated_story_lane.NO_DIAGRAM
-                        if illustrated_story_on else style_suffix)
+                    scene_suffix = _scene_style_suffix(
+                        illustrated_story_lane, scene, state, framing, illustrated_story_on,
+                        style_suffix)
                     prompt = _evidence_state_prompt(
                         scene, state, evidence_plan["continuity_pack"], scene_suffix)
                     cached = (asset_resume_allowed and os.path.isfile(state_path)

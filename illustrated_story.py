@@ -699,6 +699,20 @@ NO_DIAGRAM = (
     "going quiet -- not the geography it happened across.")
 
 
+# The one exception to NO_DIAGRAM, taken by a state that declares `explains`. The reference
+# explainer's strongest frames are relationships inside one picture (heat -> wall -> people; air
+# -> rooms -> exit); ours were scenery with a label on it. A cutaway of the STORY OBJECT itself --
+# never a map, never a chart -- in the same cut-paper stock, with the relationship carried by
+# shapes: what passes, what is held, what changes. Still no text or arrows; the renderer owns those.
+EXPLAIN_CUTAWAY = (
+    " EXPLANATORY CUTAWAY: this one frame explains a relationship, so draw the story object "
+    "itself larger than life and cut open -- a cut-paper cutaway in the same stock, not a map, "
+    "chart or specimen board -- with the relationship visible as SHAPES: what passes through, "
+    "what is held back, what has changed. One hero object, at most two kinds of element, nothing "
+    "written on it, no arrows; the composition alone must make the relationship readable in "
+    "half a second.")
+
+
 def shot_framing(shot_type: str) -> str:
     """Prompt language for a scene's shot size. Without this the size only changed the Ken Burns
     move and every image came back a landscape regardless of the plan."""
