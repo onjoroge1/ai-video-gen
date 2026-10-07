@@ -370,6 +370,12 @@ def test_production_rechecks_repaired_sheet_before_buying_expansion(monkeypatch)
             expansions.append(prompt)
             assert "repair_c1" in prompt and INTRO in prompt
             raise StopAtExpansion()
+        if "THE CURRENT HOOK MISSES THE CONTRACT" in prompt:
+            # The hook-only rewrite that follows a planner re-ask the contract still refuses;
+            # not a plan call either, and it buys no expansion.
+            return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(
+                {"hook": "Your garden could meet the introduced species; nobody asked what it would eat."}))],
+                usage=SimpleNamespace(input_tokens=10, output_tokens=10))
         pytest.fail("Unexpected provider request")
     class StopAtExpansion(Exception):
         pass
