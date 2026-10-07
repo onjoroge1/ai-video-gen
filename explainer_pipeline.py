@@ -9257,7 +9257,12 @@ def _assemble(
         "-i", concat_video,
         "-i", final_audio,
         "-map", "0:v", "-map", "1:a",
-        "-af", "loudnorm=I=-12:TP=-1:LRA=11",   # target -12: single-pass undershoots ~2 LU -> lands ~-14
+        # loudnorm's single-pass limiter pins SAMPLE peaks at -1 dBFS; the true (intersample)
+        # peak of those flat tops ran to +1.0 dBTP on killer bees V11 (2026-10-07; audit +0.86 at
+        # 295.99 s) where V10 had held -0.3. The AAC encode then adds ~0.3 dB. alimiter runs at
+        # loudnorm's 192 kHz output, so its ceiling is effectively a true-peak ceiling: -1.5 dBTP
+        # (0.841 linear) lands the decoded master near -1.2 dBTP, under the audit's -0.5 line.
+        "-af", "loudnorm=I=-12:TP=-1:LRA=11,alimiter=limit=0.841:attack=5:release=50:level=false",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest",
         output_path,
