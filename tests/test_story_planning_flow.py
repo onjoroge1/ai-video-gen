@@ -253,6 +253,11 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                 value["scenes"].append({"narration": text, "image_prompt": "A rat beside a tail counter.",
                     "scene_type": "real_world_example", "environment_type": "city",
                     "text_overlay": "", "text_sub": "", "shot_type": "medium"})
+        elif "THE CURRENT HOOK MISSES THE CONTRACT" in prompt:
+            # THE HOOK-ONLY REWRITE: asked for the sentence alone when the planner's hook misses
+            # the contract. A compliant answer is kept; the fixture's story is unchanged by it.
+            value = {"hook": "Your street could fill with cobras; nobody asked what the bounty "
+                             "actually measured."}
         elif "miss the film's sentence shape" in prompt:
             # THE SENTENCE-MIX EDIT (change #8): one bounded request after the lead is finalised.
             # Answering with no rewrites holds every draft line, which is a legal outcome.

@@ -1787,6 +1787,60 @@ def _carry_better_hook(current: dict, retry: dict, *, stage: str) -> dict:
     return retry
 
 
+def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
+                              tries: int = 3, floor: int = 70) -> tuple[str, float]:
+    """A hook-only rewrite when the planner cannot reach the contract: best of `tries`, kept
+    only if it scores higher than what the plan has.
+
+    The planner re-ask rewrites the WHOLE beat sheet to change one sentence (~$0.30 a call) and
+    on killer bees V10 (2026-10-07) returned 48 twice -- 'You watch Warwick Kerr bring African
+    bees to Brazil' -- so a hook naming a researcher shipped with every other gate green. This
+    asks a cheap call for the sentence alone, with the rules, the scorer's own notes and the
+    ledger's claims as the only facts it may use; the ledger's hook ceiling still judges the
+    result (HOOK_EXCEEDS_STORY), so an invented detail is refused there as before.
+    """
+    import hook_patterns as _hp
+    import causal_story as _cs
+    current = _s(plan.get("hook")).strip()
+    best, best_score = current, _hp.score_hook(current)["score"] if current else 0
+    claims = [_s(c.get("claim")) for c in ((dossier or {}).get("claims") or [])
+              if isinstance(c, dict) and _s(c.get("claim"))][:60]
+    cost = 0.0
+    for attempt in range(1, tries + 1):
+        if best_score >= floor:
+            break
+        notes = _hp.score_hook(best)["notes"] if best else ["no hook"]
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=300,
+                system="You write the first spoken sentence of a sourced explainer. Return ONLY JSON.",
+                messages=[{"role": "user", "content":
+                           _hp.HOOK_RULES
+                           + f"\nTITLE: {_s(plan.get('title'))}\nTHROUGHLINE: {_s(plan.get('throughline'))}\n"
+                           + "THE ONLY FACTS YOU MAY USE (every number, date and name must appear "
+                             "in one of these):\n" + "\n".join(f"- {c}" for c in claims)
+                           + f"\n\nTHE CURRENT HOOK MISSES THE CONTRACT: {best!r}\n"
+                           + "\n".join("- " + n for n in notes)
+                           + f"\nWrite ONE sentence of at most {_cs.MAX_HOOK_WORDS} words that fixes "
+                             "every note above. Return {\"hook\":\"...\"}"}])
+            # Charged to the beat-sheet stage: this call stands in for a planner re-ask inside
+            # script generation, and the ledger's script-stage total must equal _script_cost_usd.
+            # (HOOK_REPAIR is the post-generation stage and is excluded from that total.)
+            cost += _charge(cost_sink, _ledger.BEAT_SHEET, _msg_cost(response.usage),
+                            f"hook-only rewrite {attempt}/{tries}")
+            parsed, parse_cost = _parse_script_json(response.content[0].text)
+            cost += parse_cost or 0.0
+            candidate = " ".join(_s((parsed or {}).get("hook")).split())
+        except Exception as exc:               # noqa: BLE001 - a paid call that failed is logged
+            print(f"[hook] rewrite {attempt}/{tries} unavailable: {type(exc).__name__}: {str(exc)[:100]}")
+            break
+        score = _hp.score_hook(candidate)["score"] if candidate else 0
+        print(f"[hook] rewrite {attempt}/{tries}: {score}/100 - {candidate!r}")
+        if candidate and score > best_score and len(candidate.split()) <= _cs.MAX_HOOK_WORDS:
+            best, best_score = candidate, score
+    return best, cost
+
+
 def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]:
     """Bring an over-long hook inside the word budget by REWRITING it, never by truncating.
 
@@ -4205,8 +4259,20 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     print(f"[hook] {_new['score']}/100 - {plan['hook']!r}")
                     _hs = _new
                 else:
+                    # A second sample is cheap next to a 48 that ships; the loop used to stop
+                    # here, and did on V10 (48 -> 48, kept, delivered).
                     print(f"[hook] retry did not improve ({_new['score']}/100); keeping the current one")
-                    break
+            # THE PLANNER COULD NOT REACH THE CONTRACT: ask for the sentence alone, best of three,
+            # kept only if it scores higher. See _rewrite_hook_to_contract.
+            if _hs["score"] < 70 and _roles.get("compiled"):
+                _rewritten, _rw_cost = _rewrite_hook_to_contract(plan, research_dossier, cost_sink)
+                cost += _rw_cost
+                if _rewritten and _rewritten != _s(plan.get("hook")):
+                    plan["hook"] = _rewritten
+                    _hs = _hp.score_hook(_rewritten)
+                    print(f"[hook] {_hs['score']}/100 after the hook-only rewrite - {_rewritten!r}")
+                else:
+                    print(f"[hook] {_hs['score']}/100 stands: no rewrite scored higher")
         except Exception as _hook_exc:         # noqa: BLE001 - a paid call that failed is logged
             print(f"[hook] re-ask unavailable: {type(_hook_exc).__name__}: {str(_hook_exc)[:120]}")
         _cold_fix = _cold_open_correction(plan, research_dossier)
