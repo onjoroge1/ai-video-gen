@@ -422,6 +422,13 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     # identity reference, and the verifier compares the object to it. The operator's brief
     # (2026-10-07): one consistent hive, grid and bee design across the excluder sequence; the
     # Phase 0 clip drew three different hive boxes under one story.
+    # WHICH object is being carried. The reference is a whole accepted FRAME, and the prompt used
+    # to name the opening OBJECT as its subject -- so a beat that attaches the opening plate for
+    # hive continuity was told "the reference shows a row of glass honey jars, draw the same
+    # object", and the jars duly appeared at a 1956 research station in half the plates (killer
+    # bees redesign clip, 2026-10-07), along with the opening figure's straw hat on a different
+    # person's head. A beat may name what it actually needs carried.
+    object_reference_label = _text(beat.get("object_reference_label"))
     object_reference_asset_id = ""
     if _text(beat.get("object_reference")).casefold() == "opening":
         object_reference_asset_id = _text(
@@ -461,6 +468,7 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         "bolt_action": _derive_bolt_action(beat, scene, after) if include_bolt else "",
         "reference_ids": references,
         "object_reference_asset_id": object_reference_asset_id,
+        "object_reference_label": object_reference_label,
         "explains": explains,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",

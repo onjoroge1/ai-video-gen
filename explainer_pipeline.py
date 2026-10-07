@@ -7564,9 +7564,12 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
         f"FORBIDDEN: {forbidden}. {absence}{cast} "
         + (f"CONTINUITY LOCATION: preserve {location}. " if state.get("opening") and location else "")
         + (("OBJECT CONTINUITY: the last reference image shows "
-            f"{_s((continuity_pack.get('opening_object') or {}).get('label')) or 'the opening object'} "
+            f"{_s(state.get('object_reference_label')) or _s((continuity_pack.get('opening_object') or {}).get('label')) or 'the opening object'} "
             "-- draw the SAME object: same shape, proportions, parts and construction; only the "
-            "paper stock and the state may change. ")
+            "paper stock and the state may change. CARRY OVER THAT OBJECT ONLY: everything else "
+            "in the reference frame -- other props, furniture, people, clothing, the background "
+            "-- is not part of it and must not be copied into this frame unless this frame's own "
+            "required objects ask for it. ")
            if state.get("object_reference_asset_id") else "")
         + (f"COMPOSITION: {_s(state.get('visual'))}. " if _s(state.get("visual")) else "")
         + "The image must prove the state change without labels, arrows, text, or narration cards. "
