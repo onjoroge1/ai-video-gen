@@ -204,3 +204,25 @@ def test_the_storyboard_mints_the_codes_only_for_stamped_scripts():
     stamped["_sentence_mix_contract"] = cs.SENTENCE_MIX_CONTRACT
     board = lane.build_storyboard(stamped, "q")
     assert any(e.startswith("JOINT_BAND:") for e in board["validation"]["errors"]), board["validation"]["errors"]
+
+
+def test_an_address_shortfall_sends_only_enough_scenes(monkeypatch):
+    """V10 (2026-10-07): address 0.03 on ~50 sentences -- a three-sentence shortfall -- sent all
+    fifteen scenes for rewriting. The selection is the shortfall plus one, spread across the film."""
+    import json
+    fake = _FakeClaude(json.dumps({"scenes": []}))
+    monkeypatch.setattr(ep, "_claude", lambda: fake)
+    monkeypatch.setattr(ep, "_msg_cost", lambda usage: 0.01)
+    scenes = []
+    for i in range(16):
+        opener = "" if i == 0 else ["But ", "So ", "Except ", "Not quite: "][i % 4]
+        n = (f"{opener}the hives changed hands that season. It seemed like a small thing. "
+             "The colonies kept their habits.")
+        scenes.append({"beat_id": f"e{i}", "causal_role": "escalation", "narration": n,
+                       "event": {"text": n, "claim_refs": []}, "claim_refs": []})
+    mix = cs.measure_sentence_mix([s["narration"] for s in scenes])
+    assert mix["address_pct"] < cs.REFERENCE_BANDS["address_pct"][0] and mix["mix_pct"] >= 0.25
+    ep._ensure_sentence_mix_in_band(scenes, DOSSIER, [], {}, log=lambda m: None)
+    rows = json.loads(fake.last["messages"][0]["content"].split("\n\n", 1)[1].rsplit("\n\nReturn ONLY", 1)[0])
+    assert 1 <= len(rows) <= 5, [r["id"] for r in rows]
+    assert all(r["id"] != 1 for r in rows)

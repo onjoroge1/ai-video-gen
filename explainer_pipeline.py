@@ -3098,7 +3098,20 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
                 "add ONE short sentence that compares, evaluates, or speaks to the viewer (or "
                 "convert a sentence that is not in locked_phrases)")
     if "ADDRESS_BAND" in codes or "MIX_BAND" in codes:
-        for index in range(2, len(scenes) + 1):
+        # JUST ENOUGH SCENES, not every scene. A 0.05 floor on fifty sentences is a three-sentence
+        # shortfall; V10 sent all fifteen scenes for it, paid for fifteen rewrites and held most.
+        # The shortfall in sentences (plus one for slack) picks that many body scenes, spread
+        # evenly across the film so the address lands throughout rather than in one stretch.
+        total = max(1, before["sentences"])
+        need_address = max(0, math.ceil(_cs.REFERENCE_BANDS["address_pct"][0] * total)
+                           - round(before["address_pct"] * total)) if "ADDRESS_BAND" in codes else 0
+        need_mix = max(0, math.ceil(_cs.REFERENCE_BANDS["mix_pct"][0] * total)
+                       - round(before["mix_pct"] * total)) if "MIX_BAND" in codes else 0
+        needed = min(len(scenes) - 1, max(need_address, need_mix) + 1)
+        body = list(range(2, len(scenes) + 1))
+        step = len(body) / max(1, needed)
+        chosen = [body[min(len(body) - 1, int(i * step + step / 2))] for i in range(needed)]
+        for index in dict.fromkeys(chosen):
             wanted.setdefault(index, []).append(
                 "add or convert ONE sentence so it addresses the viewer or interprets the event "
                 "(same fact, seen from the viewer's side)")
