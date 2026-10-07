@@ -235,18 +235,28 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                 text += {
                     "mechanism": " A tail was the proof that earned payment. Fewer rats was the "
                         "intended result. Those are different things: a tail can be handed over "
-                        "while the animal that grew it remains alive.",
+                        "while the animal that grew it remains alive. Imagine holding one.",
                     "escalation": " A living rat could lose its tail and still be released. "
                         "The proof went one way; the living animal went another. A submitted "
-                        "tail therefore did not necessarily mean a rat had been eliminated.",
+                        "tail therefore did not necessarily mean a rat had been eliminated. "
+                        "Imagine holding one.",
                     "reversal": " Breeding rats produced animals whose tails could earn a bounty. "
                         "The policy began with a rat problem that officials wanted reduced. "
                         "Now people were deliberately producing the very animals that the "
-                        "programme was intended to remove.",
+                        "programme was intended to remove. Imagine holding one.",
                 }.get(b["causal_role"], "")
+                # The writer is asked to open every scene after the first on a JOINT and to keep
+                # one sentence in three addressed to the viewer (change #8); the storyboard gate
+                # measures both, so a compliant fake writes them the way a compliant model would.
+                if b["n"] > 1 and b.get("causal_role") not in ("hinge", "tool"):
+                    text = "So " + text[0].lower() + text[1:]
                 value["scenes"].append({"narration": text, "image_prompt": "A rat beside a tail counter.",
                     "scene_type": "real_world_example", "environment_type": "city",
                     "text_overlay": "", "text_sub": "", "shot_type": "medium"})
+        elif "miss the film's sentence shape" in prompt:
+            # THE SENTENCE-MIX EDIT (change #8): one bounded request after the lead is finalised.
+            # Answering with no rewrites holds every draft line, which is a legal outcome.
+            value = {"scenes": []}
         elif "under their word budget" in prompt:
             # THE LENGTH TOP-UP. A causal script that lands under its floor is expanded once, so
             # a 300-second request stops delivering a 155-second film. It is a real, intended

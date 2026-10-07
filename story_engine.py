@@ -182,8 +182,8 @@ _AGENDA_REVIEW = re.compile(r"\b(?:two|three|four|five)\s+(?:things|reasons|ways
 _DEFINITIONAL = re.compile(r"\b(?:a\s+process\s+called|which\s+is\s+called|is\s+called|known\s+as)\b",
                            re.IGNORECASE)
 
-_SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|you'?re|you'?ve|you'?ll|you'?d)\b",
-                            re.IGNORECASE)
+# One regex, three readers: causal_story owns it (its sentence-mix band measures the same words).
+from causal_story import SECOND_PERSON as _SECOND_PERSON  # noqa: E402
 
 _YEAR = re.compile(r"\b(?:1[0-9]{3}|20[0-2][0-9])\b")
 

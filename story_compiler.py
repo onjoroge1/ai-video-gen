@@ -937,15 +937,19 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # came back CONTRADICTED against the events, which is the boundary's strongest verdict.
         hinge_text = {
             "removed_keystone":
-                "Name the ecological interaction nobody counted, in one short sentence: what the "
-                "removal erased or the introduction created. Do not claim the programme looked "
-                "successful and do not say anyone exploited anything. No new historical detail.",
+                "Name the ecological interaction nobody counted, in one short sentence that "
+                "OPENS AS THE GAP ('Except ...', 'But ...', 'Not quite:') and is never a question: "
+                "what the removal erased or the introduction created. Do not claim the programme "
+                "looked successful and do not say anyone exploited anything. No new historical "
+                "detail.",
             "almost_happened_plan":
-                "Name what stopped the plan, in one short sentence. Do not claim it had already "
-                "succeeded. No new historical detail.",
+                "Name what stopped the plan, in one short sentence that OPENS AS THE GAP "
+                "('Except ...', 'But ...', 'Not quite:') and is never a question. Do not claim it "
+                "had already succeeded. No new historical detail.",
         }.get(engine_id,
-              "Break the apparent success in one short sentence, using only the supported "
-              "mechanism and exploit. No new historical detail.")
+              "Break the apparent success in one short sentence that OPENS AS THE GAP "
+              "('Except ...', 'But ...', 'Not quite:') and is never a question, using only the "
+              "supported mechanism and exploit. No new historical detail.")
         # The close device takes the ENGINE's closing role. Every mapped engine used to get a
         # `tool` close because the two mapped engines both closed on one; the Nature engines
         # close on a verdict, which for strange_behaviour is a restatement the planner is never

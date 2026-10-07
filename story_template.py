@@ -288,6 +288,10 @@ def fill_prompt(question: str, duration_sec: float, engine_id: str,
         'HARD RULES, each enforced by a check after you write:',
         '- Every scene says something the earlier scenes did NOT. Never restate an earlier scene; '
         'refer back with an article or pronoun ("the queens", "that bend") instead of repeating it.',
+        '- Every scene after the first OPENS on a joint to the scene before it: the gap it left '
+        '("But ...", "Except ...", "Not quite.", "Even ...", a question the viewer would ask) or '
+        'its consequence ("So ..."). One sentence in three compares, evaluates, or addresses the '
+        'viewer; never more than ten fact sentences in a row. A check measures all three.',
         '- A scene asserts only what its cited claims support: no number, date, place, named actor, '
         'motive or quantity absent from the ledger. A scene with no sourced fact is pure connective '
         'tissue and needs no claim.',

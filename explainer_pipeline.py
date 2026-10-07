@@ -3041,6 +3041,163 @@ def expansion_survives_the_ledger(new_narration: str, event_text: str, *,
                    or [verdict.get("reason") or verdict.get("verdict") or "no verdict"])
 
 
+_MIX_EDIT_MAX_GROWTH = 15          # words a rewritten scene may gain
+
+
+def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=None,
+                                 cache: dict | None = None, log=print,
+                                 stage: str = "generation") -> tuple[list, float, bool]:
+    """Joints and sentence mix are MEASURED, not requested. One bounded, evidence-checked edit.
+
+    The writer prompt asks every scene to open on a joint and one sentence in three to interpret
+    or address the viewer; this is the code behind that sentence. causal_story.sentence_mix_issues
+    measures the finished scenes; when a band is missed, ONE model call rewrites only the scenes
+    the measurement names, and each rewrite is kept only if it stays inside the ledger's own
+    ceiling for that scene (story_fact_model.scene_ceiling: event + context events + cited
+    claims, judged by the same judge the cascade uses), grows the scene by at most
+    _MIX_EDIT_MAX_GROWTH words, keeps every claim-bound sentence verbatim, keeps a hinge inside
+    MAX_HINGE_WORDS, and never touches scene 1 (its lead is the hook and cold open). Then the
+    bands are measured again and both readings are logged with the scenes held and why.
+
+    Same shape as the length top-up and _ensure_hinge_fits_budget; returns (scenes, cost, changed).
+    """
+    import causal_story as _cs
+    import story_fact_model as _sfm
+
+    def _texts():
+        return ([_s(sc.get("narration")) for sc in scenes],
+                [_s(sc.get("causal_role")).lower() for sc in scenes],
+                [_s(sc.get("continues")) for sc in scenes])
+
+    texts, roles, conts = _texts()
+    issues = _cs.sentence_mix_issues(texts, roles, conts)
+    before = _cs.measure_sentence_mix(texts, roles, conts) if len(scenes) >= 4 else None
+
+    def _summary(mix):
+        return (f"joints {mix['joints']}/{mix['openings']} (band >= "
+                f"{_cs.REFERENCE_BANDS['joint_pct'][0]:.2f}); address {mix['address_pct']:.2f}; "
+                f"mix {mix['mix_pct']:.2f} (band >= {_cs.REFERENCE_BANDS['mix_pct'][0]:.2f}); "
+                f"longest fact run {mix['longest_fact_run']} (band <= "
+                f"{_cs.REFERENCE_BANDS['longest_fact_run'][1]})")
+
+    if not issues:
+        if before:
+            log(f"[mix] {stage}: in band — {_summary(before)}")
+        return scenes, 0.0, False
+    codes = [i["code"] for i in issues]
+    # Which scenes get the edit: bare openings, the scenes of the longest fact run, and -- for the
+    # address/mix bands -- every body scene (scene 1 excepted), each told what it is missing.
+    wanted: dict[int, list] = {}
+    for index in before["bare_openings"]:
+        wanted.setdefault(index, []).append("open on a joint to the previous scene")
+    if "FACT_RUN" in codes:
+        a, b = before["fact_run_scenes"]
+        for index in range(max(2, a), b + 1):
+            wanted.setdefault(index, []).append(
+                "turn one fact sentence into a comparison, an evaluation, or a line to the viewer")
+    if "ADDRESS_BAND" in codes or "MIX_BAND" in codes:
+        for index in range(2, len(scenes) + 1):
+            wanted.setdefault(index, []).append(
+                "add or convert ONE sentence so it addresses the viewer or interprets the event "
+                "(same fact, seen from the viewer's side)")
+    wanted.pop(1, None)
+    if not wanted:
+        log(f"[mix] {stage}: out of band ({', '.join(codes)}) but no scene is editable")
+        return scenes, 0.0, False
+
+    claims = {_s(c.get("claim_id")): c for c in ((dossier or {}).get("claims") or [])
+              if isinstance(c, dict)}
+    by_id = {_s(sc.get("beat_id")): sc for sc in scenes if _s(sc.get("beat_id"))}
+    rows = []
+    for index in sorted(wanted):
+        sc = scenes[index - 1]
+        event = _sfm.event_of(sc)
+        rows.append({
+            "id": index, "causal_role": _s(sc.get("causal_role")),
+            "previous_scene_ends": " ".join(_s(scenes[index - 2].get("narration")).split()[-14:]),
+            "narration": _s(sc.get("narration")),
+            "event": event["text"],
+            "claims_cited": [_s((claims.get(ref) or {}).get("claim")) for ref in event["claim_refs"]
+                             if _s((claims.get(ref) or {}).get("claim"))],
+            "fix": wanted[index],
+            "words_max": len(_s(sc.get("narration")).split()) + _MIX_EDIT_MAX_GROWTH,
+        })
+    log(f"[mix] {stage}: {_summary(before)} — {'; '.join(codes)}; rewriting "
+        f"{len(rows)} scene(s): {', '.join(str(r['id']) for r in rows)}")
+    cost = 0.0
+    try:
+        _rsp = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=8000, system=_SCRIPT_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "These scenes of a sourced documentary narration miss the film's sentence "
+                       "shape. For EACH, apply exactly its `fix`:\n"
+                       "- a JOINT is the scene's first sentence opening on the gap the previous "
+                       "scene left (\"But that alone does not explain what came next\", \"Not "
+                       "quite.\", \"Even ...\"), on its consequence (\"So ...\"), or on the "
+                       "question the viewer would now ask. Refer back ONLY by pronoun or article; a "
+                       "hinge joint is the gap form, never a question, and a hinge stays at most "
+                       f"{_HINGE_WORDS} words.\n"
+                       "- an INTERPRETIVE or VIEWER-ADDRESSED sentence restates THIS scene's own "
+                       "event from the viewer's side (\"you\", \"your\", \"imagine\", "
+                       "\"picture\") or compares and evaluates it; it adds no fact.\n"
+                       "You may NOT add a number, date, place, named person, quantity or motive that "
+                       "neither the scene's `event` nor its `claims_cited` contain -- a judge refuses "
+                       "the rewrite and the draft line stays. Keep every other sentence of the scene "
+                       "VERBATIM; stay at or under `words_max` words.\n\n"
+                       + json.dumps(rows, ensure_ascii=False)
+                       + '\n\nReturn ONLY JSON: {"scenes":[{"id":<int>,"narration":"..."}]}'}])
+        cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(_rsp.usage),
+                        f"sentence-mix edit ({len(rows)} scenes)")
+        _out, _pc = _parse_script_json(_rsp.content[0].text)
+        cost += _pc or 0.0
+    except Exception as _exc:                       # noqa: BLE001 - shape is not worth a crash
+        log(f"[mix] {stage}: edit unavailable ({type(_exc).__name__}: {str(_exc)[:100]}); "
+            "keeping the draft")
+        return scenes, cost, False
+    by_index = {int(r.get("id") or 0): _s(r.get("narration"))
+                for r in (_out or {}).get("scenes") or [] if isinstance(r, dict)}
+    kept, held = [], []
+    for index in sorted(wanted):
+        new = " ".join(by_index.get(index, "").split())
+        sc = scenes[index - 1]
+        old = _s(sc.get("narration"))
+        if not new or new == old:
+            held.append(f"{index}: no rewrite")
+            continue
+        if len(new.split()) > len(old.split()) + _MIX_EDIT_MAX_GROWTH:
+            held.append(f"{index}: +{len(new.split()) - len(old.split())} words over the "
+                        f"+{_MIX_EDIT_MAX_GROWTH} cap")
+            continue
+        if (_s(sc.get("causal_role")).lower() == _cs.HINGE
+                and len(_cs._MARKER.sub("", new).split()) > _cs.MAX_HINGE_WORDS):
+            held.append(f"{index}: hinge {len(new.split())} words")
+            continue
+        missing = [_s(ref.get("narration_phrase")) for ref in sc.get("claim_refs") or []
+                   if isinstance(ref, dict) and _s(ref.get("narration_phrase"))
+                   and _s(ref.get("narration_phrase")).casefold() not in new.casefold()]
+        if missing:
+            held.append(f"{index}: dropped a sourced phrase ({missing[0][:40]!r})")
+            continue
+        ceiling = _sfm.scene_ceiling(sc, by_id, claims)
+        if not ceiling.strip():
+            held.append(f"{index}: no event to judge against")
+            continue
+        ok, why = expansion_survives_the_ledger(new, ceiling, cache=cache, cost_sink=cost_sink)
+        if not ok:
+            held.append(f"{index}: asserts more than its ceiling ({'; '.join(str(d) for d in why)[:80]})")
+            continue
+        sc["narration"] = new
+        kept.append(index)
+    texts, roles, conts = _texts()
+    after = _cs.measure_sentence_mix(texts, roles, conts)
+    still = [i["code"] for i in _cs.sentence_mix_issues(texts, roles, conts)]
+    log(f"[mix] {stage}: {len(kept)} scene(s) rewritten ({', '.join(str(k) for k in kept) or 'none'}), "
+        f"{len(held)} held back" + (f" ({'; '.join(held)[:300]})" if held else "")
+        + f" — after: {_summary(after)}"
+        + (f"; still out of band: {', '.join(still)}" if still else "; in band"))
+    return scenes, cost, bool(kept)
+
+
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
@@ -4483,11 +4640,26 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'stretch of the same thought, with its own fresh visual_beats. STATE-ONCE does not forbid '
             'this, because it is one continuous passage broken into shots of screen time. STATE-ONCE — repetition is the #1 score-killer: NO back-references '
             '("as we saw", "as mentioned", "remember", "recall", "earlier", "this is why", "in other '
-            'words"); do NOT restate the central answer or the hook premise in these scenes; a scene\'s '
-            'opening words must NOT echo the previous scene\'s ending.'
-            ' REWARD OVER INFORMATION: land a concrete, PICTUREABLE consequence (something the viewer '
+            'words") — forward connectives that open a scene on a gap or a consequence ("But", "So", '
+            '"Except", "Not quite") are NOT back-references: a joint moves the story on, "this is why" '
+            're-explains; do NOT restate the central answer or the hook premise in these scenes; a scene\'s '
+            'opening words must NOT echo the previous scene\'s ending (echo = four or more of its words '
+            'repeated verbatim; a pronoun or article pointing back is not an echo, and is how a joint '
+            'refers back).'
+            + ((' JOINTS, measured after you write: every scene after the first OPENS on a joint to the '
+                'scene before it — the gap it left ("But that alone does not explain what came next", '
+                '"Not quite.", "Even the thickest wall has a weakness") or its consequence ("So the grids '
+                'came off") or the question the viewer would now ask; refer back only by pronoun or article, '
+                'with no number, date, name or place the scene\'s own event does not carry. The hinge\'s '
+                'joint is always the gap form, never a question. ONE SENTENCE IN THREE compares, evaluates, '
+                'or addresses the viewer ("you", "your", "imagine", "picture") by restating this scene\'s '
+                'own event from the viewer\'s side; never more than ten fact sentences in a row across the '
+                'film. A check counts scene openings and sentence kinds and names the scenes that miss.')
+               if causal_lane else '')
+            + ' REWARD OVER INFORMATION: land a concrete, PICTUREABLE consequence (something the viewer '
             'can see happening) — not a bare number or definition; if a number does not earn a mental '
-            'image, cut it. Connect lines with BUT/THEREFORE/SO, never "and then". Show the CONSEQUENCE '
+            'image, cut it. Connect lines with BUT/THEREFORE/SO, never "and then" — inside a scene and '
+            'at its opening. Show the CONSEQUENCE '
             'before any diagram, and when a beat is a [prediction_gate], pose the guess to the viewer '
             'BEFORE revealing the answer. NEVER narrate the video\'s own structure: the role label in '
             'brackets is INTERNAL — do not speak it or any scaffolding word aloud ("first payoff", '
@@ -4499,7 +4671,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + f'.{theme_line}\n'
             + ((f'THE HINGE IS ONE SHORT SENTENCE: the assigned beat whose causal_role is '
                 f'"hinge" must have narration of AT MOST {_HINGE_WORDS} words IN TOTAL — one '
-                'flat statement marking the turn defined by its engine. Never a '
+                'flat statement marking the turn defined by its engine, opening as the gap '
+                '("Except ...", "But ...", "Not quite:"). Never a '
                 'question. Do not explain it, do not add a second sentence, do not soften it. It '
                 'is the turn of the whole video and it works by being abrupt.\n')
                if causal_lane else '')
@@ -4511,6 +4684,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                if causal_lane else '')
             + blueprint_block
             + _operator_block(operator_direction)
+            # The expansion writes the sentences; a correction about sentences has to reach it too.
+            # improve_note used to stop at the beat sheet, which plans events and cannot open a
+            # scene on a joint.
+            + (("\nPRIORITY FIX from the previous draft's measured contract — apply it while writing "
+                "these scenes: " + improve_note + "\n") if improve_note and causal_lane else "")
             + 'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
             + _NARRATION_CADENCE
@@ -4855,6 +5033,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             all_scenes[0]["claim_refs"] = _refs
 
     if causal_lane and _roles.get("compiled"):
+        # Joints and sentence mix are measured here, on the finished scenes, and repaired once.
+        all_scenes, _mix_cost, _ = _ensure_sentence_mix_in_band(
+            all_scenes, research_dossier, cost_sink, _cache, log=print, stage="generation")
+        cost += _mix_cost
         _compiler.refresh_story_positions(all_scenes)
         setup = next(b for b in beats if b.get("role") == "setup")
         plan["accepted_belief"] = _sfm.event_of(setup)["text"]
@@ -4864,6 +5046,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         "hook": _s(plan.get("hook")),
         "_cold_open": _cold_open,
         "_cold_open_claim_refs": _cold_refs,
+        # Written under the joint rule, so the storyboard gate may hold it to the bands.
+        "_sentence_mix_contract": (_cs.SENTENCE_MIX_CONTRACT
+                                   if causal_lane and _roles.get("compiled") else ""),
         "style_mode": style_mode,
         "scenes": all_scenes,
         "_narration_repairs": _narration_repairs,
@@ -6390,6 +6575,17 @@ def _enforce_requested_runtime(
             carrier = next((s for s in sentences if phrase.casefold() in s.casefold()), "")
             if carrier and carrier not in keep:
                 keep.append(carrier)
+        # A JOINT OPENER IS LOCKED LIKE A SOURCED SENTENCE. The compression advice says "remove
+        # redundant restatement", and a joint ("So the grids came off.") reads as restatement to
+        # a model counting words: the writer adds joints, the refit deletes them, and only the
+        # refit's output is measured -- the same shape as the 15-word-sentence loss recorded
+        # below. Restored verbatim by _restore_locked if the refit removes it.
+        if index > 0 and scene.get("causal_role"):
+            import causal_story as _cs
+            _opener = _cs.scene_opening(narration)
+            if (_opener and _cs.is_joint(_opener, _s(scene.get("causal_role")).lower())[0]
+                    and _opener not in keep):
+                keep.append(_opener)
         if keep:
             locked_sentences[index] = keep
             original[index] = narration
@@ -10787,7 +10983,9 @@ def _only_repairable_timing_blocks(validation: dict, causal_errors: list) -> boo
     # Hook and hinge word budgets are rewritten to fit right before the storyboard gate
     # (_ensure_hook_fits_budget, _ensure_hinge_fits_budget); the two timing codes have the
     # storyboard repair. All four are one-sentence edits of a validated draft.
-    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE"}
+    # The sentence-mix codes have _ensure_sentence_mix_in_band at generation and at the gate.
+    bounded = storyboard_repair.REPAIRABLE | {"LONG_HOOK", "SOFT_HINGE",
+                                              "JOINT_BAND", "ADDRESS_BAND", "MIX_BAND", "FACT_RUN"}
     codes = _blocking_codes(validation, causal_errors)
     return all(code in bounded for code in codes)
 
@@ -12398,6 +12596,16 @@ def run_explainer_pipeline(
         # grading were already bought.
         script, _hinge_cost = _ensure_hinge_fits_budget(
             script, aux_costs, log, research_dossier)
+        # Same class as LONG_HOOK / SOFT_HINGE: a sentence-shape miss on a validated draft gets
+        # one more bounded edit here, before the gate that measures it -- a replan, the
+        # fact-check or the refit may have rewritten the openings since generation.
+        if script.get("_sentence_mix_contract"):
+            _scenes, _mix_cost, _mix_changed = _ensure_sentence_mix_in_band(
+                script.get("scenes") or [], research_dossier, aux_costs,
+                script.get("_entailment_cache"), log=log, stage="gate")
+            script["scenes"] = _scenes
+            if _mix_changed:
+                rederive_narration_bindings(script, log, research_dossier)
         # The evidence plan's callback state is labelled from the contract; equal labels are a
         # rule the planner is asked for and the plan gate enforces. Made true here.
         _align_callback_object(script, log)

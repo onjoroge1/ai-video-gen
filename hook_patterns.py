@@ -45,8 +45,8 @@ from __future__ import annotations
 
 import re
 
-# The listener, present as a word.
-_SECOND_PERSON = re.compile(r"\b(you|your|yours|yourself|you're|you've|you'll|you'd)\b", re.I)
+# The listener, present as a word. One regex for the whole pipeline, owned by causal_story.
+from causal_story import SECOND_PERSON as _SECOND_PERSON  # noqa: E402
 # An institution or a named researcher standing where the listener should be.
 _INSTITUTION = re.compile(
     r"\b(bureau|government|governments|ministry|department|agency|authorities|officials|"

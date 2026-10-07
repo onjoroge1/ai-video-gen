@@ -131,7 +131,13 @@ _REPEATABLE = {ESCALATION, GENERALIZATION}
 _CHAPTER_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight")
 # Consume the marker's own punctuation too; leaving the full stop behind meant the "hinge"
 # measured after stripping still began with ". ".
-_MARKER = re.compile(r"^\s*step\s+(?:%s|\d+)\b[.:,;\u2014-]*\s*" % "|".join(_CHAPTER_WORDS), re.I)
+# "(?:\s+continued)?": the writer wrote "Step three continued." on a continuation row (killer bees
+# V8, scene 12) and the marker strip left the film saying "continued." as its first word.
+_MARKER = re.compile(r"^\s*step\s+(?:%s|\d+)\b(?:\s+continued)?[.:,;\u2014-]*\s*"
+                     % "|".join(_CHAPTER_WORDS), re.I)
+# A continuation marker the writer spoke on its own ("continued. At its northern peak..."), as an
+# older checkpoint still carries it.
+_LEAD_ARTIFACT = re.compile(r"^\s*continued\b[.:,;]?\s*", re.I)
 
 
 
@@ -738,6 +744,13 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     _check_reversal(payload, steps, issues)
     _check_parallel_cases(payload, steps, issues, short_form)
     _check_close(payload, steps, issues, short_form)
+    # The sentence-mix bands, for scripts written under the joint rule (payload carries the
+    # stamp the chunked writer put on the script). Fixtures and older checkpoints carry none and
+    # are judged as before -- the same scoping as require_cold_open.
+    if _text(payload.get("sentence_mix_contract")):
+        issues.extend(sentence_mix_issues(
+            [step["situation"] for step in steps], [step["role"] for step in steps],
+            [step["continues"] for step in steps]))
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -820,9 +833,175 @@ REFERENCE_BANDS = {
     "median_sentence":    (5, 12),
     "short_landing_pct":  (0.15, 0.50),
     "step_markers":       (4, 8),
+    # SENTENCE-MIX BANDS, scene grain, BLOCKING (see BLOCKING_BANDS). Fitted to a different
+    # reference from the six above: a 552 s mud-brick-cooling explainer whose story the operator
+    # wants to learn from. Measured there with the classifiers below, against the delivered killer
+    # bees V8 (2026-10-06), which graded story 41 / ending 29 and reads as "a list of facts":
+    #     scene openings that join to the scene before   0.57   vs   0.07
+    #     fact / interpretive / viewer-address sentences  0.67 / 0.25 / 0.08   vs   0.90 / 0.08 / 0.02
+    #     longest run of fact sentences                   10     vs   21
+    # The bands sit between the two. They are measured ONLY when a caller supplies scenes: a joint
+    # is a property of a scene OPENING, and a transcript has no scenes. The transcript corpus the
+    # six bands above were fitted to is never measured against these.
+    "joint_pct":          (0.45, 1.0),
+    "address_pct":        (0.05, 0.40),
+    "mix_pct":            (0.25, 0.80),
+    "longest_fact_run":   (0, 10),
 }
+# The bands grade() FAILS on. The six prose bands above stay score-only: words_per_minute is
+# already enforced by the runtime fit, and the others were never blocking.
+BLOCKING_BANDS = frozenset({"joint_pct", "address_pct", "mix_pct", "longest_fact_run"})
+# Scripts WRITTEN under the joint rule carry this stamp (explainer_pipeline stamps it beside the
+# cold open); the storyboard mints the four codes only for them. A checkpoint, a fixture or a
+# script written before the rule is judged as before -- the same scoping as require_cold_open.
+SENTENCE_MIX_CONTRACT = "joints_v1"
 _SENTENCE_SPLIT = re.compile(r"(?<=[.?!])\s+")
 _STEP_MARKER = re.compile(r"\bstep (one|two|three|four|five|six|seven|eight|\d+)\b", re.I)
+# ONE second-person regex for the whole pipeline. story_engine (review-only density) and
+# hook_patterns (the hook's boolean) import this object; three copies measuring one text is how
+# two gates come to disagree about which words count.
+SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|you'?re|you'?ve|you'?ll|you'?d)\b", re.I)
+# A JOINT opens a scene on the gap the previous scene left ("But X alone doesn't explain Y",
+# "Not quite.", "Even the thickest wall has a weakness") or on its consequence ("So ..."), or asks
+# the question the viewer would. Tested against the reference's fourteen section openings (eight
+# match) and V8's fifteen (one matches, the closing question).
+_JOINT = re.compile(
+    r"^\s*(?:but|yet|except|not quite|so|which is why|here'?s the (?:part|catch|problem|thing)|"
+    r"(?:and )?(?:there was )?one more|even|and yet|that alone|still|until|only|instead|now,|"
+    r"then why|why|how|what|the (?:problem|catch|trouble) (?:is|was))\b", re.I)
+# Sentence kinds. ADDRESS: the viewer is in it (second person or a perceptual imperative).
+# INTERPRETIVE: the sentence compares, evaluates, hedges, or asks -- and carries no year, because
+# "In 1957 it seemed to work" is a dated fact wearing a hedge. Everything else is a FACT sentence.
+_IMPERATIVE = re.compile(r"\b(?:imagine|picture|look|notice|think of|consider)\b", re.I)
+_INTERPRETIVE = re.compile(
+    r"\b(?:like|as if|the same (?:way|principle)|seems?|seemed|should|would|could|almost|not even|"
+    r"strangest|surprising|simple|opposite|think of|means|matters|why|how)\b", re.I)
+_YEAR = re.compile(r"\b\d{4}\b")
+
+
+def scene_opening(narration: str) -> str:
+    """The first spoken sentence of a scene, chapter marker and lead artefacts held aside."""
+    body = _LEAD_ARTIFACT.sub("", _MARKER.sub("", _text(narration)).strip())
+    parts = [s.strip() for s in _SENTENCE_SPLIT.split(body) if s.strip()]
+    return parts[0] if parts else ""
+
+
+def is_joint(opening: str, role: str = "") -> tuple[bool, str]:
+    """Does this opening sentence join to the scene before it? Returns (verdict, kind).
+
+    The hinge is excluded from the question form on purpose: HINGE_IS_A_QUESTION says a hinge
+    asserts, so for a hinge only the gap and consequence forms count -- "Except the problem is not
+    solved." is both a reference hinge and a joint.
+    """
+    opening = _text(opening)
+    if not opening:
+        return False, ""
+    if opening.endswith("?") and role != HINGE:
+        return True, "question"
+    if _JOINT.search(opening):
+        return True, "connective"
+    return False, ""
+
+
+def classify_sentence(sentence: str) -> str:
+    """'address' | 'interpretive' | 'fact' -- the calibration in the REFERENCE_BANDS comment."""
+    sentence = _text(sentence)
+    if SECOND_PERSON.search(sentence) or _IMPERATIVE.search(sentence):
+        return "address"
+    if (sentence.endswith("?") or _INTERPRETIVE.search(sentence)) and not _YEAR.search(sentence):
+        return "interpretive"
+    return "fact"
+
+
+def measure_sentence_mix(scenes: list, roles: list | None = None,
+                         continues: list | None = None) -> dict:
+    """Scene-grain prose shape: joints at scene openings, the sentence mix, the longest fact run.
+
+    Scene 1 is exempt from the joint measure (nothing precedes it) and so is a continuation scene
+    (`continues` set): it is the next breath of the row before it, not a new opening.
+    """
+    roles = list(roles or [""] * len(scenes))
+    continues = list(continues or [""] * len(scenes))
+    joints, bare = [], []
+    kinds, by_scene = [], []
+    for index, narration in enumerate(scenes):
+        text = _text(narration)
+        role = _text(roles[index] if index < len(roles) else "").lower()
+        if index > 0 and not _text(continues[index] if index < len(continues) else ""):
+            ok, _kind = is_joint(scene_opening(text), role)
+            joints.append(ok)
+            if not ok:
+                bare.append(index + 1)
+        sentences = [s for s in _SENTENCE_SPLIT.split(_MARKER.sub("", text).strip()) if s.strip()]
+        scene_kinds = [classify_sentence(s) for s in sentences]
+        kinds += scene_kinds
+        by_scene.append(scene_kinds)
+    run = best = 0
+    run_start = run_best = (0, 0)
+    position = 0
+    for scene_index, scene_kinds in enumerate(by_scene, 1):
+        for kind in scene_kinds:
+            position += 1
+            if kind == "fact":
+                if run == 0:
+                    run_start = (scene_index, position)
+                run += 1
+                if run > best:
+                    best, run_best = run, (run_start[0], scene_index)
+            else:
+                run = 0
+    total = max(1, len(kinds))
+    address = kinds.count("address") / total
+    interpretive = kinds.count("interpretive") / total
+    return {
+        "joint_pct": (sum(joints) / len(joints)) if joints else 1.0,
+        "joints": sum(joints), "openings": len(joints), "bare_openings": bare,
+        "address_pct": address, "interpretive_pct": interpretive,
+        "mix_pct": address + interpretive,
+        "fact_pct": kinds.count("fact") / total,
+        "longest_fact_run": best, "fact_run_scenes": list(run_best),
+        "sentences": len(kinds),
+    }
+
+
+def sentence_mix_issues(scenes: list, roles: list | None = None,
+                        continues: list | None = None) -> list[dict]:
+    """The blocking sentence-mix findings for a scripted film, each naming its scenes.
+
+    Nothing is measured on fewer than four scenes: a short-form draft has no middle to open on
+    joints, and these bands were fitted to a long explainer.
+    """
+    if not scenes or len(scenes) < 4:
+        return []
+    mix = measure_sentence_mix(scenes, roles, continues)
+    issues = []
+    lo, _hi = REFERENCE_BANDS["joint_pct"]
+    if mix["openings"] and mix["joint_pct"] < lo:
+        issues.append(_issue(
+            "JOINT_BAND",
+            f"{mix['joints']} of {mix['openings']} scene openings join to the scene before "
+            f"(band >= {lo:.2f}); scenes {', '.join(str(n) for n in mix['bare_openings'])} open on "
+            "a bare fact instead of the gap the previous scene left or its consequence"))
+    lo, _hi = REFERENCE_BANDS["address_pct"]
+    if mix["address_pct"] < lo:
+        issues.append(_issue(
+            "ADDRESS_BAND",
+            f"{mix['address_pct']:.2f} of sentences address the viewer (band >= {lo:.2f}) -- "
+            "'you', 'your', 'imagine', 'picture'"))
+    lo, _hi = REFERENCE_BANDS["mix_pct"]
+    if mix["mix_pct"] < lo:
+        issues.append(_issue(
+            "MIX_BAND",
+            f"{mix['mix_pct']:.2f} of sentences interpret, compare or address the viewer "
+            f"(band >= {lo:.2f}); {mix['fact_pct']:.2f} state facts"))
+    _lo, hi = REFERENCE_BANDS["longest_fact_run"]
+    if mix["longest_fact_run"] > hi:
+        a, b = mix["fact_run_scenes"]
+        issues.append(_issue(
+            "FACT_RUN",
+            f"{mix['longest_fact_run']} fact sentences in a row (band <= {hi}) across scenes "
+            f"{a}-{b}; one sentence in three should compare, evaluate or address the viewer"))
+    return issues
 
 
 def _band(name: str, value: float) -> dict:
@@ -831,42 +1010,62 @@ def _band(name: str, value: float) -> dict:
             "band": [low, high], "in_band": low <= value <= high}
 
 
-def measure_narration(text: str, runtime_sec: float, hook: str = "") -> dict:
+def measure_narration(text: str, runtime_sec: float, hook: str = "",
+                      scenes: list | None = None, roles: list | None = None,
+                      continues: list | None = None) -> dict:
     """Measure the prose properties the references share. Works on a transcript or a script.
 
     `hook` is separate because the two inputs differ in shape. In a transcript the hook IS the
     first sentence, so falling back to it is right. A generated script carries the hook in its own
     field and opens its narration on the first chapter marker, so measuring sentence one scored a
     12-word hook as two words — the sentence it read was "Step one."
+
+    `scenes` is the per-scene narration when the caller has one. The sentence-mix metrics are
+    scene-grain (a joint is a property of a scene OPENING), so without scenes they are not
+    measured at all -- not defaulted, not estimated. A transcript has no scenes.
     """
-    text = _text(text)
+    text = _text(text) or " ".join(_text(s) for s in (scenes or []))
     sentences = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
     if not sentences or runtime_sec <= 0:
         return {"measured": False, "metrics": []}
     lengths = sorted(len(s.split()) for s in sentences)
     short = [s for s in sentences if len(s.split()) <= 5]
-    return {
+    metrics = [
+        _band("words_per_minute", len(text.split()) / runtime_sec * 60),
+        _band("hook_words", len(_text(hook).split()) if _text(hook)
+              else len(sentences[0].split())),
+        _band("median_sentence", lengths[len(lengths) // 2]),
+        _band("short_landing_pct", len(short) / len(sentences)),
+        _band("step_markers", len(_STEP_MARKER.findall(text))),
+    ]
+    out = {
         "measured": True,
         "word_count": len(text.split()),
         "sentence_count": len(sentences),
-        "metrics": [
-            _band("words_per_minute", len(text.split()) / runtime_sec * 60),
-            _band("hook_words", len(_text(hook).split()) if _text(hook)
-                  else len(sentences[0].split())),
-            _band("median_sentence", lengths[len(lengths) // 2]),
-            _band("short_landing_pct", len(short) / len(sentences)),
-            _band("step_markers", len(_STEP_MARKER.findall(text))),
-        ],
+        "metrics": metrics,
+        "sentence_mix_measured": False,
     }
+    if scenes and len(scenes) >= 4:
+        mix = measure_sentence_mix(scenes, roles, continues)
+        metrics += [_band("joint_pct", mix["joint_pct"]), _band("address_pct", mix["address_pct"]),
+                    _band("mix_pct", mix["mix_pct"]),
+                    _band("longest_fact_run", mix["longest_fact_run"])]
+        out["sentence_mix_measured"] = True
+        out["sentence_mix"] = mix
+    return out
 
 
-def grade(payload: dict, narration: str = "") -> dict:
+def grade(payload: dict, narration: str = "", scenes: list | None = None,
+          roles: list | None = None, continues: list | None = None) -> dict:
     """Score a candidate story the way the reference videos score.
 
     Structure and prose are graded separately on purpose. The contract can guarantee the
     structure — that is what `validate_causal_story` checks and what the illustrated lane
     consumes. It cannot guarantee the prose: word rate, sentence rhythm and the short landings
     are a generation target the script model has to hit, and this is the ruler for it.
+
+    With `scenes`, the sentence-mix bands are measured too, and those FAIL: `passed` is False
+    when any BLOCKING_BANDS metric is out of band, and `failed_bands` names them.
     """
     payload = payload if isinstance(payload, dict) else {}
     structure = validate_causal_story(payload)
@@ -888,9 +1087,11 @@ def grade(payload: dict, narration: str = "") -> dict:
 
     prose = measure_narration(narration, runtime,
                               hook=_text((payload.get("hook") or {}).get("line")
-                                         if isinstance(payload.get("hook"), dict) else ""))
+                                         if isinstance(payload.get("hook"), dict) else ""),
+                              scenes=scenes, roles=roles, continues=continues)
     metrics = structural_metrics + (prose.get("metrics") or [])
     passing = [m for m in metrics if m["in_band"]]
+    failed_bands = [m for m in metrics if not m["in_band"] and m["metric"] in BLOCKING_BANDS]
     return {
         "schema_version": SCHEMA_VERSION,
         "structure_passed": structure["passed"],
@@ -899,6 +1100,9 @@ def grade(payload: dict, narration: str = "") -> dict:
         "metrics": metrics,
         "score": round(100.0 * len(passing) / len(metrics), 1) if metrics else 0.0,
         "out_of_band": [m for m in metrics if not m["in_band"]],
+        "sentence_mix_measured": bool(prose.get("sentence_mix_measured")),
+        "failed_bands": failed_bands,
+        "passed": bool(structure["passed"]) and not failed_bands,
     }
 
 

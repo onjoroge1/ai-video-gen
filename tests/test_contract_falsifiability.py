@@ -83,6 +83,19 @@ MUTATIONS = {
     "NULL_REVERSAL":       lambda s: s["steps"][9].update(situation=s["start_state"]),
     "NO_OPENING_OBJECT":   lambda s: s.update(opening_object=""),
     "NO_CALLBACK":         lambda s: s["steps"][-1].update(situation="Nothing relevant at all."),
+    # The sentence-mix bands fire only for scripts stamped with the joint contract; the cobra
+    # reference opens 1 of 11 steps on a joint, so the stamp alone trips JOINT_BAND.
+    "JOINT_BAND":          lambda s: s.update(sentence_mix_contract="joints_v1"),
+    "ADDRESS_BAND":        lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation=re.sub(r"\b[Yy]ou(?:r)?\b", "they", x["situation"]))
+                                       for x in s["steps"]]),
+    "MIX_BAND":            lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation="The bounty paid for every tail handed in.")
+                                       for x in s["steps"]]),
+    "FACT_RUN":            lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation="The bounty paid for every tail handed in. "
+                                                          "The count rose every month.")
+                                       for x in s["steps"]]),
     "THIN_GENERALIZATION": lambda s: s.update(parallel_cases=[]),
     "UNPARALLEL_CASE":     lambda s: s.update(parallel_cases=[{"domain": "d"}, {"domain": "e"}]),
     "ENGINE_MISSING_ROLE": lambda s: s["steps"][1].update(role="escalation"),

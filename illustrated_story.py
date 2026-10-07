@@ -352,6 +352,10 @@ def build_storyboard(script: dict, question: str) -> dict:
                  # Held only on scripts planned under the cold-open contract: a checkpoint or
                  # cached script written before it carries no key and is judged as before.
                  "require_cold_open": "_cold_open" in script},
+        # Same shape, one contract later: the sentence-mix bands (JOINT_BAND, ADDRESS_BAND,
+        # MIX_BAND, FACT_RUN) are asked of scripts the chunked writer stamped, never of a
+        # transcript, a fixture or an older checkpoint.
+        "sentence_mix_contract": _text(script.get("_sentence_mix_contract")),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made

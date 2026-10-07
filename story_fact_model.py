@@ -225,6 +225,34 @@ def scope_of(beat: dict) -> str:
     return scope if scope in SCOPES else PRIMARY_STORY
 
 
+def scene_ceiling(beat: dict, by_id: dict, claims: dict | None) -> str:
+    """The factual ceiling ONE scene's narration is judged against, built in one place.
+
+    The event, then the events of its context_refs (a presentation device such as the hinge or
+    the close speaks from the beats it points at), then the verified claims the event rests on.
+    validate_cascade has always built this string inline; the pre-gate narration edits (the
+    length top-up, the sentence-mix edit) must refuse exactly what the cascade refuses, so they
+    import this instead of judging against the bare event -- which made them stricter than the
+    gate they claimed to mirror (killer bees V7: 8 of 10 expansions held on the bare event).
+    """
+    event = event_of(beat)
+    ceiling = event["text"]
+    refs = beat.get("context_refs") or [] if (beat.get("presentation_device")
+                                              or beat.get("context_refs")) else []
+    if refs:
+        ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs
+                                          if ref in by_id])
+    cited_texts = []
+    for ref in event["claim_refs"]:
+        claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
+        if claim_text and claim_text not in cited_texts:
+            cited_texts.append(claim_text)
+    if cited_texts:
+        ceiling = "\n".join([ceiling, "CLAIMS THIS EVENT RESTS ON (also part of the ceiling):"]
+                            + [f"- {text}" for text in cited_texts])
+    return ceiling
+
+
 def event_of(beat: dict) -> dict:
     """The beat's factual event as {text, claim_refs}, normalised.
 
@@ -555,7 +583,6 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         if not narration:
             continue
         event = event_of(beat)
-        ceiling = event["text"]
         if beat.get("presentation_device") or beat.get("context_refs"):
             refs = beat.get("context_refs") or []
             if not refs or not all(outcomes.get(ref, {}).get("passed") for ref in refs):
@@ -565,7 +592,6 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
                 continue
             if event["text"] and not outcomes.get(beat_id, {}).get("passed"):
                 continue
-            ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs])
         elif not outcomes.get(beat_id, {}).get("passed"):
             continue
         # The ceiling is the event AND the verified claims it rests on, the same rule the hook
@@ -574,14 +600,8 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         # naming the gland because the summary said "feeds it by regurgitation" (job 2e2c7498,
         # 2026-09-25). Nothing the evidence boundary rejected can raise the ceiling: only beats
         # whose event passed reach this pass, and only their own cited claims are added.
-        cited_texts = []
-        for ref in event["claim_refs"]:
-            claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
-            if claim_text and claim_text not in cited_texts:
-                cited_texts.append(claim_text)
-        if cited_texts:
-            ceiling = "\n".join([ceiling, "CLAIMS THIS EVENT RESTS ON (also part of the ceiling):"]
-                                + [f"- {text}" for text in cited_texts])
+        # Built by scene_ceiling so the pre-gate edits judge against the same string.
+        ceiling = scene_ceiling(beat, by_id, claims)
         told = ce.narration_fidelity(ceiling, narration, judge=judge, cache=cache,
                                      cost_sink=cost_sink)
         if ce.is_retryable(told):
