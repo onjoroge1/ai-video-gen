@@ -39,7 +39,10 @@ def test_explains_is_carried_and_swaps_the_diagram_rule_for_one_state():
     plain = ep._scene_style_suffix(lane, scene, states[0], "", True, "")
     assert "EXPLANATORY CUTAWAY" in cut and "never a diagram" not in cut
     assert "never a diagram" in plain and "EXPLANATORY CUTAWAY" not in plain
-    assert "no arrows" in cut, "the renderer still owns arrows and text"
+    # Flow validation 2026-10-07, item 2: arrows are allowed on the cutaway plate only; text
+    # stays banned everywhere.
+    assert "ARROWS may show direction" in cut and "nothing written on it" in cut
+    assert "arrows" in plain and "ARROWS may show direction" not in plain
     assert ep._scene_style_suffix(lane, scene, states[1], "", False, "legacy") == "legacy"
 
 

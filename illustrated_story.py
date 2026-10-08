@@ -495,8 +495,8 @@ _STAGING = (
     "crisp ink detail; the cut-paper shapes immediately in front of it simplified and softened as "
     "if thrown out of focus; the background receding through progressively flatter, paler paper "
     "layers. A low raking light rims every cut-paper edge with a bright warm line and throws long "
-    "shadows toward the viewer. One unmistakable story action, a strong readable silhouette, and "
-    "clear negative space in the lower third for captions.")
+    "shadows toward the viewer. One unmistakable story action and a strong readable silhouette, "
+    "with calm negative space around the hero so the frame reads in half a second.")
 
 
 def plate_for(role: str) -> str:
@@ -708,14 +708,18 @@ NO_DIAGRAM = (
 # explainer's strongest frames are relationships inside one picture (heat -> wall -> people; air
 # -> rooms -> exit); ours were scenery with a label on it. A cutaway of the STORY OBJECT itself --
 # never a map, never a chart -- in the same cut-paper stock, with the relationship carried by
-# shapes: what passes, what is held, what changes. Still no text or arrows; the renderer owns those.
+# shapes: what passes, what is held, what changes. Arrows are allowed on THIS plate only (flow
+# validation 2026-10-07, item 2): the reference's mechanism frames carry heat into a wall and air
+# through a room as a few bold arrows, and the ban made ours scenery with a label. Text stays
+# banned; the renderer owns anything written.
 EXPLAIN_CUTAWAY = (
     " EXPLANATORY CUTAWAY: this one frame explains a relationship, so draw the story object "
     "itself larger than life and cut open -- a cut-paper cutaway in the same stock, not a map, "
     "chart or specimen board -- with the relationship visible as SHAPES: what passes through, "
-    "what is held back, what has changed. One hero object, at most two kinds of element, nothing "
-    "written on it, no arrows; the composition alone must make the relationship readable in "
-    "half a second.")
+    "what is held back, what has changed. A few bold cut-paper ARROWS may show direction (what "
+    "enters, what passes, what is held back), the one plate where arrows are allowed. One hero "
+    "object, at most two kinds of element, nothing written on it -- no letters, numbers or "
+    "labels; the composition alone must make the relationship readable in half a second.")
 
 
 def shot_framing(shot_type: str) -> str:

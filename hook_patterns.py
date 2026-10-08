@@ -372,6 +372,20 @@ OPENING_BODY_RULE = (
     "re-tells the problem, the decision or the escape; refer back with an article or a pronoun "
     "(\"those queens\", \"the screens\") and move on.")
 
+# The rules for a FRAME sentence on its own, for the hook-only rewrite under the ladder. The
+# rewrite used to send HOOK_RULES (a named actor, a number measured against something the viewer
+# owns, a clock held open) and then score the result as a frame -- asking for one thing and
+# grading another (flow validation 2026-10-07, item 6). These are the frame's own rules, in the
+# order the reference film uses them: the viewer's body first, the role second.
+FRAME_RULES = (
+    "THE FRAME is the first sentence the viewer hears. It puts the viewer in the role the problem "
+    "belongs to, in the second person: \"Imagine you're a beekeeper in Brazil, trying to fill jars "
+    "from bees that struggle in the heat.\" It names no institution and no researcher as its "
+    "subject, and it narrates nothing that has happened yet -- no import, no escape, no result. "
+    "Prefer what the viewer feels, risks or needs over their job title: \"You wake up, and the "
+    "air is already trying to kill you\" lands before \"you are an Egyptian builder\" would. A "
+    "number or a date belongs here only if the role cannot be felt without it. At most 18 words.")
+
 HOOK_RULES = (
     "THE HOOK is the first sentence the viewer hears, at most 18 words, and it is spoken TO ONE "
     "PERSON. Our films have opened on institutions for three videos running and the pipeline has "

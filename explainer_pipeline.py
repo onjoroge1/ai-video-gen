@@ -1602,6 +1602,25 @@ _SCENE_FIELDS_RULES = (
     'people or brands.'
 )
 
+# The two visual_beat fields the illustrated lane reads (longform_evidence.build_state) and no
+# prompt asked for (flow validation 2026-10-07, item 1): `explains` selects the explanatory
+# cutaway in place of the draw-the-moment rule, and `object_reference` draws the state against
+# the opening object's accepted plate. Both were wired on 2026-10-07 and set only by tests and a
+# hand-run harness, so in production the cutaway and the carried object never fired.
+_ILLUSTRATED_BEAT_RULES = (
+    ' TWO MORE visual_beat FIELDS, both optional: "explains" (boolean) and "object_reference" '
+    '(string). EXPLANATORY CUTAWAY: on the beat whose causal_role is "mechanism" (and on a '
+    '"synthesis" beat, if any), EXACTLY ONE visual_beat sets "explains": true. That frame draws '
+    'the relationship inside one picture -- the story object cut open, showing what passes, '
+    'what is held back and what changes (the heat entering the wall and the people inside it; '
+    'the workers passing the grid and the queen held behind it) -- and its "visual" names the '
+    'relationship, not the scenery. Every other visual_beat omits "explains" or sets it false. '
+    'OBJECT CONTINUITY: any visual_beat whose required_objects include the opening object (or '
+    'the hive, apparatus or structure the story is about) sets "object_reference": "opening" '
+    'and "object_reference_label" to the exact object it carries, in the state it is in ("the '
+    'wooden hive box with its entrance grid", never "the jars" when the jars are not in this '
+    'frame), so the same design is drawn every time it appears.')
+
 
 # Spoken-track rhythm. Without this the narration becomes a metronome of same-length declaratives
 # (the #1 TTS-monotony retention leak) — force length variance, punch beats, and varied openers.
@@ -1823,7 +1842,10 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
                 model=ANTHROPIC_MODEL, max_tokens=300,
                 system="You write the first spoken sentence of a sourced explainer. Return ONLY JSON.",
                 messages=[{"role": "user", "content":
-                           _hp.HOOK_RULES
+                           # The rules must match the scorer: a frame under the ladder, the hook
+                           # devices otherwise. HOOK_RULES under the ladder asked for a number
+                           # and an actor and then scored the sentence as a frame.
+                           (_hp.FRAME_RULES if ladder else _hp.HOOK_RULES)
                            + f"\nTITLE: {_s(plan.get('title'))}\nTHROUGHLINE: {_s(plan.get('throughline'))}\n"
                            + "THE ONLY FACTS YOU MAY USE (every number, date and name must appear "
                              "in one of these):\n" + "\n".join(f"- {c}" for c in claims)
@@ -3984,8 +4006,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                       "situation, or living the documented consequence. Mix the ways you show "
                       "them: a medium shot of a person working, where face and posture read; "
                       "their viewpoint on the thing they are dealing with; a close shot of hands, "
-                      "tools and the decisive action. Diagrams, animal behaviour and maps are "
-                      "right where they explain the mechanism better than a person could. Not "
+                      "tools and the decisive action. An explanatory cutaway of the story object "
+                      "(a visual_beat with explains: true) or animal behaviour is right where it "
+                      "explains the mechanism better than a person could; a map or chart never "
+                      "is. Not "
                       "every frame needs a person, and a film of hand close-ups is as empty as a "
                       "film of none. Where the story opens inside one person's problem, that "
                       "person's practical need stays legible as the events unfold.\n"
@@ -5148,6 +5172,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 "these scenes: " + improve_note + "\n") if improve_note and causal_lane else "")
             + 'Return ONLY JSON: {"scenes":[ ... ]} — exactly one scene per assigned beat, same order. '
             + _SCENE_FIELDS_RULES
+            + (_ILLUSTRATED_BEAT_RULES if causal_lane and _illustrated_is_cast_free() else "")
             + _NARRATION_CADENCE
             + _cadence_rule_block(effective_story_format)
             + opening_direction
@@ -7477,6 +7502,45 @@ def _illustrated_is_cast_free() -> bool:
     return (os.environ.get("ILLUSTRATED_CAST", "none") or "none").strip().lower() != "stock"
 
 
+def _illustrated_music_wanted() -> bool:
+    """ILLUSTRATED_MUSIC=1 turns the synthesized chamber bed back on. Off by default since the
+    2026-10-07 flow validation: the reference film has no bed, and ours masked every pause."""
+    return os.environ.get("ILLUSTRATED_MUSIC", "0") == "1"
+
+
+def _illustrated_captions_wanted() -> bool:
+    """ILLUSTRATED_CAPTIONS=1 restores the format's caption mode (headline card + karaoke) on the
+    illustrated lane. Off by default: no on-screen text, like the reference film."""
+    return os.environ.get("ILLUSTRATED_CAPTIONS", "0") == "1"
+
+
+# The story rows a listener needs a breath before: the turn, the explanation, the reversal and
+# the recap. The reference film has 19 silences of 0.6 s or more in nine minutes, clustered at
+# exactly these joints; ours had none, because scene audio is concatenated edge to edge.
+_STRUCTURAL_PAUSE_ROLES = frozenset({"hinge", "mechanism", "reversal", "synthesis"})
+STRUCTURAL_PAUSE_SECONDS = float(os.environ.get("STRUCTURAL_PAUSE_SECONDS", "0.7") or 0)
+
+
+def _structural_pause_seconds(scene: dict, index: int) -> float:
+    """Silence prepended to this scene's narration: STRUCTURAL_PAUSE_SECONDS on a structural row
+    after the first scene, else 0. STRUCTURAL_PAUSE_SECONDS=0 disables it."""
+    if index <= 0 or STRUCTURAL_PAUSE_SECONDS <= 0:
+        return 0.0
+    role = _s(scene.get("causal_role") or scene.get("story_role")).strip().lower()
+    return STRUCTURAL_PAUSE_SECONDS if role in _STRUCTURAL_PAUSE_ROLES else 0.0
+
+
+def _prepend_silence(src_path: str, dst_path: str, seconds: float) -> str:
+    """Write dst_path = `seconds` of silence followed by src_path, re-encoded as mp3. Whisper then
+    times the padded file, so every anchor downstream already includes the pause."""
+    _run_ffmpeg([
+        _ffmpeg_bin(), "-y", "-i", src_path,
+        "-af", f"adelay={int(round(seconds * 1000))}:all=1",
+        "-c:a", "libmp3lame", "-q:a", "2", dst_path,
+    ], timeout=120.0)
+    return dst_path
+
+
 _COUNT_WORDS = re.compile(
     r"\b(?:\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
     r"fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|"
@@ -7572,7 +7636,11 @@ def _evidence_state_prompt(scene: dict, state: dict, continuity_pack: dict,
             "required objects ask for it. ")
            if state.get("object_reference_asset_id") else "")
         + (f"COMPOSITION: {_s(state.get('visual'))}. " if _s(state.get("visual")) else "")
-        + "The image must prove the state change without labels, arrows, text, or narration cards. "
+        # An explanatory cutaway may carry arrows (item 2 of the 2026-10-07 flow validation);
+        # every other plate still may not. Text stays banned everywhere.
+        + ("The image must prove the relationship without labels, text, or narration cards. "
+           if state.get("explains") else
+           "The image must prove the state change without labels, arrows, text, or narration cards. ")
         + style_suffix
     )
 
@@ -7961,7 +8029,11 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
             i, scene = item
             path = os.path.join(aud_dir, f"scene_{i:02d}.mp3")
             digest_path = path + ".narration.sha256"
-            digest_payload = f"{TTS_MODEL}\0{voice}\0{_s(scene.get('narration'))}"
+            # The structural pause is part of what the file IS, so a changed pause setting
+            # regenerates the padded file rather than replaying a cached one without it.
+            pause = _structural_pause_seconds(scene, i)
+            digest_payload = (f"{TTS_MODEL}\0{voice}\0{_s(scene.get('narration'))}"
+                              + (f"\0pause={pause:.2f}" if pause else ""))
             digest = hashlib.sha256(digest_payload.encode("utf-8")).hexdigest()
             generated = False
             cached_digest = ""
@@ -7987,7 +8059,14 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                         f"Scene {i + 1} of {len(scenes)} has empty narration before TTS "
                         f"(story_role={_s(scene.get('story_role')) or '?'}). A rewrite pass "
                         "removed every word of it.")
-                generate_tts(narration_text, path, voice=voice)
+                if pause:
+                    # The paid TTS keeps its own durable record under the raw path; the pause
+                    # is a zero-cost FFmpeg step on top of it, so a resume re-pads for free.
+                    raw_path = path + ".raw.mp3"
+                    generate_tts(narration_text, raw_path, voice=voice)
+                    _prepend_silence(raw_path, path, pause)
+                else:
+                    generate_tts(narration_text, path, voice=voice)
                 with open(digest_path, "w") as handle:
                     handle.write(digest)
                 tts_costs.append(len(_s(scene.get("narration"))) * _RATE_TTS_CHAR)
@@ -8040,7 +8119,8 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 "i": i, "aud": path, "word_times": timings, "generated": generated,
                 "audio_transformation": {
                     "provider": "openai", "model": TTS_MODEL, "voice": voice,
-                    "speed_multiplier": 1.0, "operations": [],
+                    "speed_multiplier": 1.0,
+                    "operations": [f"structural_pause_prepended:{pause:.2f}s"] if pause else [],
                     "audio_sha256": audio_sha256,
                     "cache_status": "generated" if generated else "digest_verified_cache",
                 },
@@ -12496,6 +12576,12 @@ def run_explainer_pipeline(
     render_gates_advisory = _render_gates_advisory(stable_standard_longform, illustrated_story_on)
     fmt = FORMATS.get(video_format, FORMATS["landscape"])
     vw, vh, img_size, cap_mode = fmt["w"], fmt["h"], fmt["img_size"], fmt["captions"]
+    if illustrated_story_on and not _illustrated_captions_wanted():
+        # No on-screen text by default (flow validation 2026-10-07, item 4): the reference film
+        # has none, and our 3-word karaoke pills ("A WOODEN HIVE", "NOT A LACK") and the
+        # headline cards ("STEP TWO", "1995") fragmented the narration on every frame.
+        # ILLUSTRATED_CAPTIONS=1 restores the format's caption mode.
+        cap_mode = "none"
     resolved_motion_mode = (
         "social" if video_format == "social"
         else ("stills" if motion_mode is None and i2v is None
@@ -13371,7 +13457,16 @@ def run_explainer_pipeline(
             director = scene.get("text_director")
             if isinstance(director, dict):
                 director.update(accent_color="terracotta", subtitle_color="mineral_teal")
-        if bg_music_path is None:
+        if bg_music_path is None and not _illustrated_music_wanted():
+            # Narration only by default (flow validation 2026-10-07, item 9): the reference film
+            # has no bed, and ours filled every structural pause so the silence detector found
+            # none. ILLUSTRATED_MUSIC=1 restores the chamber score.
+            bg_music_path = ""
+            generation_manifest["music"] = {
+                "status": "disabled",
+                "reason": "illustrated default is narration only; set ILLUSTRATED_MUSIC=1 for the score"}
+            log("Music: off (illustrated default; ILLUSTRATED_MUSIC=1 enables the chamber score)")
+        elif bg_music_path is None:
             try:
                 from illustrated_score import render_score
                 _score_turns = [
@@ -13411,6 +13506,8 @@ def run_explainer_pipeline(
             " {mascot} is speaking to the viewer: keep ONE upper corner relatively clear for a"
             " speech bubble, and have {mascot} glance toward that corner. Keep the focal subject"
             " out of the very top strip.").format(mascot=MASCOT_NAME)
+    elif illustrated_story_on and cap_mode == "none":
+        framing = ""     # nothing is overlaid; the lane's own staging rule owns the composition
     else:
         framing = " Keep the focal subject out of the very top strip so a title caption can overlay."
     if illustrated_story_on:
@@ -15062,7 +15159,10 @@ def run_explainer_pipeline(
     if script.get("_compiled_story"):
         try:
             import hook_patterns as _hp_final
-            _final_hook = _hp_final.score_hook(_s(script.get("hook")))
+            # Scored under the contract the script was written to: a ladder frame is not a hook
+            # and scored 28 as one on V12 (flow validation 2026-10-07, item 6).
+            _final_hook = _hp_final.score_hook(
+                _s(script.get("hook")), ladder=(_s(script.get("_opening_contract")) == "ladder_v1"))
             if _final_hook["score"] < 70:
                 reasons.append(f"hook scores {_final_hook['score']}/100 against the 70 contract"
                                + (f" ({_final_hook['notes'][0]})" if _final_hook.get("notes") else ""))

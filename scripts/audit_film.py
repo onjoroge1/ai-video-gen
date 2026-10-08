@@ -266,7 +266,10 @@ def audit_script(job: str, film: str = "", stale: str | None = None) -> dict:
     try:
         import hook_patterns as hp
         hp.register_people(_load_json(os.path.join(job, "research_dossier.json")) or {})
-        hook_score = hp.score_hook(hook)["score"]
+        # A ladder frame is scored as a frame, the way the pipeline scores it; scoring it as a
+        # hook (named actor, number, clock) reported 28 on a frame the pipeline scored 100.
+        _ladder = (src.get("script") or {}).get("_opening_contract") == "ladder_v1"
+        hook_score = hp.score_hook(hook, ladder=bool(_ladder))["score"]
     except Exception:
         pass
     hook_checks = [
