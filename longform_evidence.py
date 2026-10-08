@@ -781,11 +781,26 @@ def _promote_opening_reframe(states: list, scene_index: int, opening: bool,
     """
     if not opening or capacity < 2:
         return []
+    repairs = []
+    # THE SECOND PICTURE OF AN OPENING SCENE IS A NEW PICTURE. V13 (2026-10-08): scene 1 was
+    # master + a crop of the master + distinct, and with the hold split into pans the film's
+    # first twelve seconds were one honeycomb image while the reference changes picture every
+    # three. A reframe later in the scene, after a second generated asset, stays a reframe.
+    if len(states) >= 2 and _text(states[1].get("asset_strategy")) == "detail_reframe":
+        states[1]["asset_strategy"] = "distinct"
+        states[1]["source_asset_id"] = ""
+        states[1]["detail_target"] = ""
+        repairs.append({
+            "code": "opening_reframe_promoted",
+            "scene": scene_index + 1,
+            "state_id": _text(states[1].get("state_id")),
+            "message": "the second state of an opening scene buys its own picture instead of "
+                       "cropping the first",
+        })
     generated = [state for state in states
                  if _text(state.get("asset_strategy")) in {"master", "distinct"}]
     if len(generated) >= 2:
-        return []
-    repairs = []
+        return repairs
     for state in states:
         if len(generated) >= 2:
             break

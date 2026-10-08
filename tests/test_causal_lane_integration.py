@@ -322,11 +322,13 @@ def test_editorial_gates_stay_advisory_while_sourcing_gates_rearm():
     which is the exact failure the recovery profile was written to end.
     """
     source = (Path(ep.__file__)).read_text(encoding="utf-8")
-    # Ten, deliberately. The tenth is the deterministic claim-ledger trim: it deletes sentences
+    # Eleven, deliberately. The tenth is the deterministic claim-ledger trim: it deletes sentences
     # to satisfy the ledger, so under an advisory ledger (where nothing would block) it is pure
     # loss -- a waived run was trimmed to 222 words and an 82-second film. A sourcing REPAIR
-    # that runs only when the sourcing gate can refuse is on the right flag.
-    assert source.count("not sourcing_advisory") == 10, "sourcing gate count changed"
+    # that runs only when the sourcing gate can refuse is on the right flag. The eleventh is the
+    # same repair-then-trim at the runtime-fit ledger's re-check (V13, 2026-10-08), on the same
+    # flag for the same reason.
+    assert source.count("not sourcing_advisory") == 11, "sourcing gate count changed"
 
     # Counting is not enough: a count-only assertion passed while the retention contract's
     # post-TTS twin had been swept onto the sourcing flag, because the total was still right.

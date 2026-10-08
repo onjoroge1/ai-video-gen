@@ -3576,6 +3576,38 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
     return scenes, cost, bool(kept)
 
 
+_SYNTHESIS_WORDS_PER_BEAT = int(os.environ.get("SYNTHESIS_WORDS_PER_BEAT", "7"))
+
+
+def _synthesis_must_echo(beats: list, beat: dict) -> list[dict]:
+    """For a synthesis row, the chain beats it must re-walk, each with the distinctive stems the
+    storyboard will look for (causal_story._check_synthesis). The writer was told "re-walk EVERY
+    mechanism and escalation" and on V13 touched six of nine; naming the beats and their words
+    turns the rule into a checklist. Empty for any other row."""
+    import causal_story as cs
+    if _s(beat.get("causal_role")) != cs.SYNTHESIS:
+        return []
+    chain = [b for b in beats
+             if b.get("causal_role") in (cs.MECHANISM, cs.ESCALATION)
+             and int(b.get("beat_part") or 1) <= 1
+             and (b.get("n") or 0) < (beat.get("n") or 0)]
+    stems_by_beat = {}
+    for b in chain:
+        text = _s((b.get("event") or {}).get("text")) or _s(b.get("beat"))
+        stems_by_beat[id(b)] = cs._content_stems(text)
+    counts: dict = {}
+    for stems in stems_by_beat.values():
+        for stem in stems:
+            counts[stem] = counts.get(stem, 0) + 1
+    out = []
+    for b in chain:
+        stems = stems_by_beat[id(b)]
+        distinctive = sorted(st for st in stems if counts.get(st, 0) <= 2) or sorted(stems)
+        out.append({"beat_id": b.get("beat_id") or b.get("n"), "role": _s(b.get("causal_role")),
+                    "echo_one_of": distinctive[:8]})
+    return out
+
+
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
@@ -3594,7 +3626,17 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
     from longform_research import illustratable_beat_words as _cap_words
-    synthesis_words = min(_cap_words(), int(total_words * cs.SYNTHESIS_RUNTIME_SHARE))
+    # THE RECAP IS PAID PER BEAT IT RE-WALKS. The 6% share gave V13's synthesis 49 words for nine
+    # chain beats -- five words a beat -- and it echoed six of them; its one paid repair echoed
+    # all nine and tipped the sentence-mix bands instead. The reference spends about ten words a
+    # mechanism. Floor of seven words per chain beat, ceiling the contract's own maximum; the
+    # storyboard splits a synthesis longer than one illustratable scene across two, as it did.
+    chain_beats = sum(1 for b in beats
+                      if b.get("causal_role") in (cs.MECHANISM, cs.ESCALATION)
+                      and int(b.get("beat_part") or 1) <= 1)
+    synthesis_words = min(cs.SYNTHESIS_MAX_WORDS,
+                          max(int(total_words * cs.SYNTHESIS_RUNTIME_SHARE),
+                              _SYNTHESIS_WORDS_PER_BEAT * chain_beats))
     for group, words in groups:
         pending = list(group)
         # A hinge is deliberately shorter; redistribute its unused words within this window.
@@ -3674,11 +3716,19 @@ def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
     import causal_story as cs
     from longform_research import illustratable_beat_words
     ceiling = illustratable_beat_words()
+    # The synthesis keeps its own ceiling, the contract's maximum, not the one-scene cap: its
+    # budget is paid per chain beat (see _causal_word_budgets) and the storyboard splits a long
+    # recap across two scenes. It is also kept out of the overflow spread below, like the hinge:
+    # a recap grown past SYNTHESIS_MAX_WORDS fails SYNTHESIS_TOO_LONG, and words laundered into
+    # it are not a recap.
     caps = {
-        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling)
-                    if beat.get("causal_role") == cs.HINGE else ceiling)
+        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling) if beat.get("causal_role") == cs.HINGE
+                    else max(ceiling, min(cs.SYNTHESIS_MAX_WORDS, budgets[beat["n"]]))
+                    if beat.get("causal_role") == cs.SYNTHESIS else ceiling)
         for beat in beats if beat.get("n") in budgets
     }
+    synthesis_numbers = {beat["n"] for beat in beats
+                         if beat.get("causal_role") == cs.SYNTHESIS and beat.get("n") in budgets}
     surplus = 0
     for number, cap in caps.items():
         if budgets[number] > cap:
@@ -3708,7 +3758,10 @@ def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
         # "a long hinge is not a hinge" -- and overflow must not launder words into it. Caught by
         # test_the_hinge_keeps_its_own_shorter_ceiling after an earlier version grew a 10-word
         # hinge to 123.
-        order = sorted(number for number, cap in caps.items() if cap >= ceiling) or sorted(caps)
+        order = (sorted(number for number, cap in caps.items()
+                        if cap >= ceiling and number not in synthesis_numbers)
+                 or sorted(number for number in caps if number not in synthesis_numbers)
+                 or sorted(caps))
         for index in range(surplus):
             budgets[order[index % len(order)]] += 1
     return budgets
@@ -5001,6 +5054,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 "context_refs": beat.get("context_refs") or [],
                 "presentation_device": beat.get("presentation_device") or "",
                 "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
+            # The synthesis row's checklist: every chain beat it must re-walk, with the words
+            # the storyboard will look for. See _synthesis_must_echo.
+            **({"must_echo": _synthesis_must_echo(beats, beat)}
+               if causal_lane and _synthesis_must_echo(beats, beat) else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -5122,7 +5179,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
             'belongs to another row -- the one exception is a row whose causal_role is "synthesis", '
             'which MUST re-walk the mechanism and escalation rows in 2-4 sentences from their own '
-            'words, adding no fact; STATE-ONCE below does not bind that one row). '
+            'words, adding no fact; STATE-ONCE below does not bind that one row. Its must_echo list '
+            'names every beat it must touch, in order, with words a check will look for: use at '
+            'least one echo_one_of word for EACH listed beat, as cause -> cost ("Thick walls stopped '
+            'the heat, but trapped the air"), open the row on a joint, and let one of its sentences '
+            'address the viewer so the row stays in the sentence-mix bands). '
             # A row carrying continues_previous is the NEXT BREATH of the row before it, not a new
             # idea and not a recap. Said plainly because the STATE-ONCE rule immediately below
             # forbids back-references, and without this a continuation reads as an instruction to

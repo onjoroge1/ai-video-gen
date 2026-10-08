@@ -196,7 +196,11 @@ def prompt(script, edit):
            + " " if edit.get("close_contract") else "")
         + ("When the synthesis scene is requested, rewrite it as 2-4 sentences that re-walk EVERY "
            "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
-           "already said; add no number, name, date or place they did not. "
+           "already said; add no number, name, date or place they did not. The error names the "
+           "scenes it never touched; each of those must be echoed by one of its own content "
+           "words. Open the scene on a joint to the scene before it (\"So\", \"Put together\", "
+           "\"One choice, the whole length of it\") and let one sentence address the viewer, so "
+           "the rewritten scene stays inside the sentence-mix bands that are checked with it. "
            if edit.get("synthesis_index") is not None and edit["scene_ids"]
            and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]) else "")
         + ("When a scene is listed in `restated`, it re-tells the opening beat named there (the "
