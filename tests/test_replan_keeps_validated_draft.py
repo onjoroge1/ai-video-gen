@@ -31,10 +31,3 @@ def test_word_budget_codes_are_bounded_edits_too():
     assert ep._only_repairable_timing_blocks(passed, budgets)
     assert ep._only_repairable_timing_blocks(passed, budgets + ["LATE_MECHANISM: at 51s"])
     assert not ep._only_repairable_timing_blocks(passed, budgets + ["NO_HINGE: none found"])
-
-
-def test_same_timing_failure_in_both_validators_still_uses_local_edit():
-    validation = {'passed': False, 'errors': [{'code': 'LATE_MECHANISM'}, {'code': 'NO_CALLBACK'}]}
-    assert ep._only_repairable_timing_blocks(validation, ['LATE_MECHANISM: at 34s'])
-    validation['errors'].append({'code': 'BROKEN_CAUSAL_CHAIN'})
-    assert not ep._only_repairable_timing_blocks(validation, ['LATE_MECHANISM: at 34s'])

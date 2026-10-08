@@ -5,11 +5,13 @@ Why Killing Every Cat Backfired", "The Rat Bounty Mistake That Created Millions 
 split-frame thumbnail with a red prohibition ring, a yellow arrow and the headline FATAL ERROR.
 No provider is called here: the composition is pure Pillow and the title check is pure text.
 """
+import json
 import os
 
 from PIL import Image
 
 import backfire_packaging as bp
+import explainer_pipeline as ep
 
 TRANSCRIPT = ("In 1935 Queensland released about one hundred and two toads from Hawaii. "
               "Within decades the toads had spread across 1 million square kilometres.")
@@ -101,3 +103,123 @@ def test_compose_headline_fits_inside_the_frame(tmp_path):
     # Nothing bright touches the far right column: the headline shrank to fit its box.
     assert all(sum(_sample(image, 399, y)) < 200 for y in range(0, 60, 4))
     assert os.path.getsize(out) > 0
+
+
+def test_illustrated_prompt_asks_for_one_medium_and_photoreal_still_asks_for_photography():
+    """Two media in one prompt produced a photo-textured drawing with neither medium's contrast.
+
+    The illustrated prompt opened with "never a photograph" and closed with "documentary photography
+    look ... no cartoon or vector styling"; the model split the difference. The photoreal branch
+    is the delivered grammar and keeps every word.
+    """
+    pair = {"crossed_out_subject": "a cane beetle", "crossed_out_scene": "A beetle on cane.",
+            "consequence_subject": "cane toads", "consequence_scene": "Hundreds of toads at night."}
+    drawn = bp.image_prompt(pair, illustrated=True)
+    photo = bp.image_prompt(pair)
+    assert "photography" not in drawn.lower()
+    assert "No cartoon or vector styling" not in drawn
+    assert "gouache" in drawn and "cut-paper shapes" in drawn
+    assert "Documentary photography look" in photo
+    assert photo.endswith("No cartoon or vector styling.")
+    # Everything that is not the medium is shared: overlays stay with the compositor in both.
+    for prompt in (drawn, photo):
+        assert "NO text" in prompt and "do NOT draw any prohibition sign" in prompt
+
+
+_PAIRS = [
+    {"crossed_out_subject": "a cane beetle", "crossed_out_scene": "A beetle on cane.",
+     "consequence_subject": "cane toads", "consequence_scene": "Hundreds of toads at night."},
+    {"crossed_out_subject": "a cane toad", "crossed_out_scene": "A toad on a road.",
+     "consequence_subject": "a dead quoll", "consequence_scene": "A quoll beside a toad."},
+]
+
+
+def _fake_image(prompt, output_path, *args, **kwargs):
+    Image.new("RGB", (96, 64), (90, 120, 60)).save(output_path)
+    return output_path
+
+
+def _verdict(fails, note):
+    keys = ("one_second", "crossed_subject_identifiable", "consequence_foreground",
+            "one_subject_per_panel", "headline_legible", "single_ring", "medium_matches",
+            "consequence_not_title_echo")
+    return {"items": {k: i >= fails for i, k in enumerate(keys)}, "fails": fails,
+            "redesign_note": note}
+
+
+def test_generate_thumbnail_writes_packaging_json_with_the_whole_verdict(monkeypatch, tmp_path):
+    """Every shipped thumbnail logged "weak (4/8)" and nothing recorded WHICH four or the fix.
+
+    write_report had no caller in the pipeline, so jobs/<job>/packaging.json never existed; the
+    per-item verdict was dropped at the rendered.append line. Both variants' items and the
+    grader's redesign_note must reach disk, alongside the keys explainer_pipeline reads.
+    """
+    monkeypatch.setenv("THUMB_VARIANTS", "2")
+    monkeypatch.setattr(ep, "generate_image", _fake_image)
+    monkeypatch.setattr(bp, "detect_drawn_ring", lambda *a, **k: False)
+    calls = []
+
+    def fake_grade(image_path, title, cost_sink=None):      # today's signature: no `system`
+        calls.append(image_path)
+        return _verdict(4, "subject too small") if len(calls) == 1 else _verdict(1, "fine")
+
+    monkeypatch.setattr(ep, "grade_thumbnail", fake_grade)
+    report = {}
+    out = bp.generate_thumbnail("The 102-Toad Mistake That Poisoned Australia's Predators",
+                                "cane toads", TRANSCRIPT, str(tmp_path), report=report,
+                                pairs=_PAIRS)
+    assert os.path.exists(out) and len(calls) == 2
+    path = os.path.join(str(tmp_path), "packaging.json")
+    assert os.path.exists(path), "packaging.json was not written by the pipeline path"
+    with open(path) as handle:
+        disk = json.load(handle)
+    assert disk == report
+    # The keys explainer_pipeline reads keep their shapes; the better variant was chosen.
+    assert disk["fails"] == 1 and disk["weak"] is False and disk["qa"] == "ok"
+    assert disk["chosen"] == 1 and disk["variants"] == 2 and disk["headline"] == "FATAL ERROR"
+    # The whole verdict per variant, not just the count.
+    assert [p["fails"] for p in disk["pairs"]] == [4, 1]
+    assert [p["redesign_note"] for p in disk["pairs"]] == ["subject too small", "fine"]
+    for entry in disk["pairs"]:
+        assert isinstance(entry["items"], dict) and len(entry["items"]) == 8
+        assert sum(not v for v in entry["items"].values()) == entry["fails"]
+    # A grader without a `system` keyword is called as before and the report says which list ran.
+    assert disk["checklist_version"] == "science_v1"
+
+
+def test_backfire_checklist_reaches_a_grader_that_accepts_one(monkeypatch, tmp_path):
+    """The science checklist fails the split-frame grammar by construction (item 7: "NOT photo").
+
+    The Backfire list is passed only when grade_thumbnail's signature names `system`; the report
+    records which checklist produced the score so 4/8 is a comparable number again.
+    """
+    monkeypatch.setenv("THUMB_VARIANTS", "1")
+    monkeypatch.setattr(ep, "generate_image", _fake_image)
+    monkeypatch.setattr(bp, "detect_drawn_ring", lambda *a, **k: False)
+    systems = []
+
+    def fake_grade(image_path, title, cost_sink=None, system=None):
+        systems.append(system)
+        return _verdict(2, "ring clips the subject")
+
+    monkeypatch.setattr(ep, "grade_thumbnail", fake_grade)
+    report = {}
+    bp.generate_thumbnail("The 102-Toad Mistake That Poisoned Australia's Predators", "cane toads",
+                          TRANSCRIPT, str(tmp_path), report=report, pairs=_PAIRS[:1],
+                          illustrated=True)
+    assert systems == [bp.thumb_grade_system(True)]
+    assert systems[0].startswith(bp.BACKFIRE_THUMB_GRADE_SYSTEM)
+    assert "cut-paper illustration" in systems[0] and "photoreal" in bp.thumb_grade_system(False)
+    assert report["checklist_version"] == "backfire_v1"
+    assert report["fails"] == 2 and report["pairs"][0]["redesign_note"] == "ring clips the subject"
+    # Same return contract as explainer_pipeline._THUMB_GRADE_SYSTEM: 8 named booleans, a count,
+    # one note -- so rep["fails"] / rep["weak"] / rep["qa"] mean the same thing under both lists.
+    for item in ("one_second", "crossed_subject_identifiable", "consequence_foreground",
+                 "one_subject_per_panel", "headline_legible", "single_ring", "medium_matches",
+                 "consequence_not_title_echo"):
+        assert item in bp.BACKFIRE_THUMB_GRADE_SYSTEM
+    numbered = [line.split(". ", 1)[0] for line in bp.BACKFIRE_THUMB_GRADE_SYSTEM.split("\n")
+                if line[:1].isdigit()]
+    assert numbered == [str(i) for i in range(1, 9)], numbered
+    for word in ('"items"', '"fails"', '"redesign_note"'):
+        assert word in bp.BACKFIRE_THUMB_GRADE_SYSTEM and word in ep._THUMB_GRADE_SYSTEM

@@ -25,7 +25,21 @@ import os
 import re
 from typing import Any
 
-PLAN_CANDIDATES_DEFAULT = 3
+# ONE. Asking for several sheets and letting score_plan choose was an own-goal: the scorer docks
+# 25 * (1 - distinct_ratio) and penalises a sheet with fewer beats than the runtime target, so it
+# SELECTS FOR AMBITION -- more beats, each asserting a distinct fact -- while never checking
+# whether the evidence supports them. The very next gate, the spine, requires every required role
+# to be evidenced. More distinct facts means more claims needed and a higher chance one required
+# role is unsupported.
+#
+# Measured: the three films that shipped (cane toad, wolves, killer bees v1) were all planned with
+# a single sheet. After candidates landed, twelve consecutive killer bees launches failed and the
+# spine refused a DIFFERENT required role almost every time -- setup three times, reversal three,
+# intervention twice, mechanism once -- which is the signature of selecting on the wrong axis.
+#
+# The mechanism is kept and still works; PLAN_CANDIDATES=3 restores it for experiments. It should
+# not come back as a default until score_plan can see evidence support, not just structure.
+PLAN_CANDIDATES_DEFAULT = 1
 DISTINCT_EVENT_JACCARD = 0.5
 APPROVED_PLAN_FILE = "plan.approved.json"
 PLAN_FILE = "plan.json"
@@ -47,24 +61,19 @@ def _words(text: str) -> set[str]:
 
 def planner_prompt(question: str, duration_sec: int, engine_id: str,
                    research_dossier: dict | None, *, operator_direction: str = "",
-                   series: str = "", improve_note: str = "", cast_free: bool = True,
-                   n_scenes: int | None = None, cast_rules: str | None = None) -> str:
+                   series: str = "", improve_note: str = "", cast_free: bool = True) -> str:
     """The exact beat-sheet request the pipeline sends for the causal lane."""
     import explainer_pipeline as ep
     import story_compiler
     from longform_research import claim_context_for_prompt
-    n_scenes = n_scenes if n_scenes is not None else ep.scene_count_for(duration_sec, "landscape")
-    cast_rules = cast_rules if cast_rules is not None else ("" if not cast_free else
+    n_scenes = ep.scene_count_for(duration_sec, "landscape")
+    cast_rules = ("" if not cast_free else
                   "\nCAST: this story has NO recurring characters and NO named host. Never "
                   "write Alex, Bolt, or any invented stand-in into the narration. Name the real "
                   "actors the history had -- 'colonial officials', 'the bounty clerks', "
                   "'Delhi residents', 'the breeders' -- or use no name at all. Set "
                   "human_present and mascot_present to false on every scene.\n")
-    import script_cadence
     prompt = story_compiler.factual_plan_prompt(question, duration_sec, n_scenes, engine_id, cast_rules)
-    prompt += script_cadence.BRIEF
-    import hook_callback
-    prompt += hook_callback.BRIEF
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         prompt += (
@@ -115,10 +124,9 @@ def distinct_events(beats: list[dict]) -> list[bool]:
 
 def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
                duration_sec: int) -> dict:
-    """Deterministic score for one beat sheet; semantic validation and final readiness are separate."""
+    """Deterministic score for one beat sheet; 100 is a sheet the gates would wave through."""
     import causal_story as cs
     import story_compiler
-    import story_engines
     import story_fact_model as sfm
     from longform_research import events_for_runtime
     import explainer_pipeline as ep
@@ -128,12 +136,6 @@ def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
     score = 100.0
     if not beats:
         return {"score": 0.0, "issues": ["no beats"], "beats": 0}
-    compatibility = story_engines.evidence_compatibility(engine_id, research_dossier)
-    if not compatibility.get("compatible"):
-        score -= 60
-        issues.append(
-            f"engine mismatch: {engine_id} — {compatibility.get('reason')} "
-            f"(use {compatibility.get('replacement')})")
     claims = ep._spine_claims(research_dossier or {})
     roles = story_compiler.compile_roles(beats, engine_id, claims)
     if not roles.get("compiled") or not roles.get("passed"):
@@ -224,12 +226,6 @@ def plan_markdown(plan: dict, report: dict | None = None, candidates: list[dict]
         lines.append(f"Plan score: {report.get('score')}/100"
                      + (" — " + "; ".join(report.get("issues") or []) if report.get("issues") else ""))
         lines.append("")
-    import hook_callback
-    pair = hook_callback.contract(plan)
-    if pair:
-        lines += ["Hook/callback writing plan (not evidence):"]
-        lines += [f"- {key}: {value}" for key, value in pair.items()]
-        lines.append("")
     if candidates:
         lines.append("Candidates: " + ", ".join(f"#{i + 1} {c.get('score')}" for i, c in enumerate(candidates)))
         lines.append("")
@@ -262,14 +258,3 @@ def approved_plan(output_dir: str) -> dict | None:
     with open(path, encoding="utf-8") as handle:
         plan = json.load(handle)
     return plan if isinstance(plan, dict) and plan.get("beats") else None
-
-
-def candidate_brief(index):
-    """Stable diversity: each candidate is replayable, but sends a different request."""
-    approaches = (
-        "Open on a concrete, sourced consequence; trace the decision that caused it.",
-        "Open on the original intervention and its promise; follow the first sourced sign of failure.",
-        "Open on a sourced physical object or animal; show how its meaning changes at the ending.",
-    )
-    return (f"\nCANDIDATE {index + 1}/3 — {approaches[index]} "
-            "Keep the required engine, evidence limits and roles. Do not invent a scene to fit this approach.")

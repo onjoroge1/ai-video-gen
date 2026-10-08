@@ -62,7 +62,25 @@ def _early_attention_functions(mapping) -> tuple:
 
 
 def _repeat_to_reach_count(mapping, duration) -> str:
-    """Add distinct evidenced events; optional attention functions remain optional."""
+    """How to reach the event count: variety first, then the functions that may recur.
+
+    THE OVERCORRECTION THIS FIXES. The first version of this clause named only the repeatable
+    functions, and the planner did exactly as told. Measured on a delivered 348s film, the spine
+    came back as
+
+        setup setup intervention intervention mechanism mechanism
+        escalation x16 reversal reversal generalization generalization
+
+    -- sixteen consecutive escalations, and `intended_effect` never used at all. Two costs. The
+    shape is monotonous: after the mechanism the story just gets worse sixteen times. And the film
+    ran 83.3 seconds before its first attention beat, because the one optional role that could have
+    supplied an earlier one was never asked for.
+
+    An engine's optional attention roles come first, one each, before the count is topped up with
+    repeats. For removed_keystone that is `intended_effect` -- the plan appearing to work before the
+    mechanism explains why it could not -- which is both the missing early attention beat and the
+    beat that makes the reversal land.
+    """
     repeatable = _repeatable_functions(mapping)
     if not repeatable:
         return ""
@@ -71,32 +89,93 @@ def _repeat_to_reach_count(mapping, duration) -> str:
     if not extra:
         return ""
     early = _early_attention_functions(mapping)[:extra]
+    variety = (
+        f'FIRST, spend {len(early)} of them on {", ".join(early)} -- once each, in engine order. '
+        'These are not optional decoration: they are the beats that re-earn attention, and without '
+        'them the film runs minutes on explanation before anything turns. '
+        if early else "")
+    remaining = extra - len(early)
+    repeats = (
+        f'{"THEN supply" if early else "Supply"} {remaining} further '
+        f'{"event" if remaining == 1 else "events"} using the only functions that may recur: '
+        f'{", ".join(repeatable)}. Each must be a distinct sourced step in the compounding -- a '
+        'further reach, a further scale, a further cost -- in the order it happened. '
+        if remaining > 0 else "")
     return (
-        f'The count is a coverage target, never permission to invent an event. '
-        f'Optional attention functions ({", ".join(early) or "none"}) may appear once each '
-        'ONLY when the ledger supports their meaning. Omit them when unsupported. '
-        f'For additional events use {", ".join(repeatable)}: each must add a distinct '
-        'documented action, consequence, scale or cost, in the order it happened. '
-        'An expectation must be narrated as an expectation, not initial success. '
-        'If the evidence supports fewer events, return fewer; do not pad with context or '
-        'repeat the same fact to reach the requested runtime.\n')
+        f'Every required function above appears EXACTLY ONCE, so {len(mapping.required)} of those '
+        f'{wanted} events are already spoken for and {extra} remain. ' + variety + repeats +
+        'Do not reach the count with `context` events: an unsupported context event is pruned '
+        'later, and the scenes that remain absorb its time.\n')
 
 
-def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
-    """The factual planner never receives the narration layer's competing role slots."""
+def _slot_plan_ask(slot_plan: dict, mapping) -> str:
+    """Ask for exactly the scene skeleton the template defines, role by role.
+
+    One event becomes one scene and nothing is split afterwards, which is what stopped the
+    killer bees film duplicating itself. The escalation band is where a sheet goes wrong: asked
+    for "about 16 events" the planner returned seven escalations resting on three facts and the
+    grader scored repetition 8/100. Asked for N escalations each carrying a DIFFERENT documented
+    step, the same dossier yielded twelve distinct ones.
+    """
+    # IN THE VOCABULARY THE SCHEMA ACCEPTS. The rows were written in ROLE names (setup,
+    # escalation...) while the schema demands an event_function (establishes_balance,
+    # population_responds...). Asked for "escalation: 13 event(s)", the planner labelled the
+    # compounding steps with the only generic function it had -- `context` -- and the delivered
+    # film compiled seven scenes from an 18-beat sheet. Each row now names the function(s) that
+    # become that role, and a role no function produces is omitted from the ask and the count.
+    by_role: dict[str, list[str]] = {}
+    for function_name, role in (getattr(mapping, "to_role", None) or {}).items():
+        by_role.setdefault(role, []).append(function_name)
+    rows, total = [], 0
+    for role, count in slot_plan.items():
+        if not count:
+            continue
+        functions = by_role.get(role)
+        if not functions:
+            continue
+        rows.append(f"  {' or '.join(functions)}: {count} event(s)  -- these become the {role}")
+        total += count
+    return (
+        f'Return EXACTLY {total} factual events, labelled with these event_function values:\n'
+        + "\n".join(rows) + "\n"
+        'Each event becomes exactly ONE scene, so the count is the film\'s structure and not a '
+        'suggestion. Every event in the escalation band must carry a DIFFERENT documented step '
+        'of the compounding -- a further reach, a further scale, a further cost, a new place or '
+        'a new date -- and no two may be the same development in different words. If the '
+        'evidence genuinely cannot supply that many distinct escalations, return fewer and say '
+        'so in the throughline rather than restating one development. Do NOT supply a hinge, a '
+        'synthesis (recap) or a closing takeaway: the compiler adds all three as presentation '
+        'beats, which is why they are absent from the counts above.\n')
+
+
+def _hook_rules() -> str:
+    """The hook contract, kept in hook_patterns beside the scorer that measures it."""
+    import hook_patterns
+    return hook_patterns.HOOK_RULES
+
+
+def _opening_rules() -> str:
+    """The human-first opening, kept beside the hook rules it replaces under the ladder."""
+    import hook_patterns
+    return hook_patterns.OPENING_RULES
+
+
+def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None,
+                        opening_mode="hook"):
+    """The factual planner never receives the narration layer's competing role slots.
+
+    `opening_mode`: "hook" asks for the one-line hook plus an aftermath cold open (the contract
+    fitted to the 64-second shorts); "ladder" asks for the human-first OPENING -- frame, problem,
+    solution, transition, consequence -- and no cold open (operator brief, 2026-10-07).
+    """
     mapping = ef.map_for(engine_id)
     functions = tuple(mapping.to_role)
     import causal_story
+    ladder = str(opening_mode or "hook").strip().lower() == "ladder"
     schema = {
-        "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, naming the concrete "
-                               "title subject; a natural question or statement",
+        "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
+                               "and the concrete title subject; see THE HOOK rules below",
         "throughline": "",
-        "hook_contract": {
-            "viewer_question": "the concrete question the hook promises to answer",
-            "supported_answer": "the answer the supplied evidence and events can establish",
-            "contrast": "documented intent versus consequence, or empty if unsupported",
-            "callback_image": "the opening object or image whose meaning changes at the close",
-            "closing_question": "optional application of the earned answer; not a repeat of the hook"},
         "cold_open": {"text": "ONE sentence, at most 22 words, spoken right after the hook: the "
                               "visible AFTERMATH of the fix gone wrong, as a viewer would see it "
                               "(a dead predator with the toad in its jaws, a river bank stripped "
@@ -123,6 +202,23 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
     # invent a field to fill -- the same shape as asking for a chapter marker and then stripping it.
     if "mechanism" not in mapping.derived:
         schema["beats"][0].pop("incentive", None)
+    if ladder:
+        schema["hook"] = ("the FRAME that opens the film, e.g. \"Imagine you're a beekeeper in Brazil, "
+                          "trying to fill jars from bees that struggle in the heat.\" -- the role the "
+                          "viewer occupies and their need, second person by default; NOT a summary of "
+                          "the story, no named actor as subject, nothing that has happened yet; see "
+                          "THE OPENING below")
+        schema.pop("cold_open", None)
+        schema["opening_object"] = ("the physical thing the problem names (the jars, the field); "
+                                    "the close returns to it or to the need")
+        schema["opening"] = {
+            "voice": "second_person | close_third",
+            "frame": "the same sentence as hook", "problem": "", "solution": "",
+            "transition": "", "consequence": "", "question": "optional, one question",
+            "callback": {"kind": "object | need", "text": ""},
+            "claim_refs": {"problem": ["claim_id"], "solution": ["claim_id"],
+                           "transition": ["claim_id"], "consequence": ["claim_id"]},
+            "missing_claims": ["what the ledger does not say, e.g. why the act was taken"]}
     return (
         f'Plan the sourced factual events for a {duration}-second illustrated video: "{question}".\n'
         # `count - 3` reads as "one event per scene", but `count` is scene_count_for(duration),
@@ -131,11 +227,12 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         # noise, and it trained nothing: the same 8 events came back whether 15 or 57 was asked
         # for. events_for_runtime is the number the research was commissioned to support, from the
         # scene length the writer can actually illustrate, so the two halves now agree.
-        f'Engine: {engine_id}. Return about '
+        f'Engine: {engine_id}. ' + (_slot_plan_ask(slot_plan, mapping) if slot_plan else
+        f'Return about '
         f'{max(len(mapping.required), events_for_runtime(duration))} distinct factual '
         'events, including each required function exactly once; add only distinct supported '
-        'consequences or optional context. Do not pad the list.\n'
-        'Required functions: ' + ', '.join(mapping.required) + '.\n'
+        'consequences or optional context. Do not pad the list.\n')
+        + 'Required functions: ' + ', '.join(mapping.required) + '.\n'
         # HOW to reach that count, which the ask never said. The required functions are singletons,
         # so asking for 12 events from an engine with 6 required functions is asking for 6 more
         # from somewhere -- and the only somewhere the compiler accepts is the repeatable roles.
@@ -147,7 +244,10 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         # then it spread, then it smothered forests, then it cost millions to fight. Those are four
         # separate sourced events, each a real step, and the engine has exactly one function that
         # can carry them in sequence.
-        + _repeat_to_reach_count(mapping, duration)
+        # ONE OWNER OF THE EVENT COUNT. With a slot plan present this clause said "EXACTLY ONCE
+        # ... 16 events" beside the plan's "Return EXACTLY 18"; two counts in one prompt is the
+        # same disagreement as two gates on one sentence, so the slot plan speaks alone.
+        + ("" if slot_plan else _repeat_to_reach_count(mapping, duration))
         # WHERE the incentive changes, not just that it does. The compiler DERIVES the mechanism
         # from the changes_incentive beat, and causal_story:450 fails any mechanism whose start_sec
         # is past `runtime_sec * pct` -- 60s of a 300s film. Every event before changes_incentive
@@ -161,28 +261,54 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules=""):
         #
         # So the budget is stated as a count the planner can act on. Context is not free: it is
         # the most common thing to put first and the most expensive place to put it.
-        + (f'At most {_max_events_before_incentive(duration, engine_id)} event(s) may come BEFORE '
-           'the one that changes the incentive. Its derived mechanism must land early. '
-           'Optional context belongs after this change, if supported.\n'
-           if "mechanism" in mapping.derived else
-           'Place the documented mechanism early, using the selected engine definitions. '
-           'Do not invent an incentive or reward scheme for an ecological interaction.\n')
+        + f'At most {_max_events_before_incentive(duration, engine_id)} event(s) may come BEFORE '
+        'the one that changes the incentive. The mechanism is derived from that beat and must land '
+        'early, so the events before it are a hard budget, not an introduction to fill. Optional '
+        'context belongs AFTER the incentive changes, or nowhere -- an unsupported context event '
+        'placed first is pruned later and has already pushed the mechanism late.\n'
         + '\n'.join(f'{name}: {ef.WHAT_EACH_FUNCTION_IS[name]}'
                     for name in functions)
-        # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup before
-        # the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR thumbnail left at
-        # 41 s on average. The reference films earn their setup by showing the damage first.
-        + 'COLD OPEN: besides the hook, write cold_open -- one sentence of at most 22 words that '
-        'SHOWS the aftermath of the fix gone wrong as a picture the viewer can see, cited to a '
-        'claim. It is spoken right after the hook, before the first setup event, and the first '
-        'image of the film is that aftermath. It must not restate the hook, name a number the '
-        'claim does not hold, or explain anything; it shows the damage and the setup then earns '
-        'it. Make opening_object the subject as it appears in that aftermath image.\n'
+        # THE HOOK. All three delivered films used one construction -- actor did X to
+        # achieve Y, then the bad thing -- which states the purpose AND the outcome,
+        # closing the question the film exists to answer. Measured 30, 45 and 55 of 100.
+        + (_opening_rules() if ladder else
+           _hook_rules()
+           # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup
+           # before the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR
+           # thumbnail left at 41 s on average. The reference films earn their setup by showing
+           # the damage first. Under the ladder the opening earns it the other way round.
+           + 'COLD OPEN: besides the hook, write cold_open -- one sentence of at most 22 words that '
+           'SHOWS the aftermath of the fix gone wrong as a picture the viewer can see, cited to a '
+           'claim. It is spoken right after the hook, before the first setup event, and the first '
+           'image of the film is that aftermath. It must not restate the hook, name a number the '
+           'claim does not hold, or explain anything; it shows the damage and the setup then earns '
+           'it. Make opening_object the subject as it appears in that aftermath image.\n'
+           # NO PEOPLE UNLESS THE CLAIMS PUT THEM THERE. "a beekeeper backs away", "a beekeeper
+           # backs through the grove" and "people retreat" were written into four cold opens and
+           # refused each time: a person performing an action is an actor, and no cited claim had
+           # one. The aftermath is a STATE of the world, which is what the picture needs anyway.
+           + 'The cold open may NOT contain a person doing anything -- no beekeeper, farmer, worker, '
+           'hunter or crowd, and nobody fleeing, backing away, watching or reacting -- unless a cited '
+           'claim actually places that person there. Describe the state of the world instead: what '
+           'escaped, what died, what is covered, what is empty. A person acting is a claim and it '
+           'will be refused.\n')
+        # ORDERING IS STRUCTURAL. The setup role reads "the target problem BEFORE an
+        # introduction", so the planner wrote "Brazilian honey production was low BEFORE the
+        # African bees arrived" -- and the evidence boundary refused it three sheets running,
+        # because the source states the low production and its cause but never its timing
+        # relative to an arrival (2026-10-05). The sheet's order already carries the sequence;
+        # an event only has to state its own fact.
+        + 'STATE EACH EVENT AS ITS OWN FACT, NOT AS ITS POSITION IN THE STORY. The order of '
+        'the sheet already says what came before what, so never write "before X", "after Y", '
+        '"by then", "already" or "still" into an event unless the source itself states that '
+        'timing. "European honey bees produced little honey in Brazil" is supportable; '
+        '"European honey bees produced little honey BEFORE the African bees arrived" asserts '
+        'a sequence the source does not carry, and it will be refused.\n'
         + '\nThe compiler assigns story roles, derives the mechanism and reversal, and adds '
         'presentation transitions and the closing question. Every event you supply needs a '
         'nonempty factual text and its own supporting claim_refs. State changes must follow '
         'from those same facts; an intended reduction followed by unchanged numbers is failure, '
-        'not an inversion. Supply factual functions from this engine only; do not add editorial role fields.\n'
+        'not an inversion. Do not supply a hinge, mechanism, synthesis, tool, or editorial role field.\n'
         + ('First decide whether this episode REMOVES a species or INTRODUCES one, then follow the '
            'matching definitions above all the way through. An introduced species cannot perform '
            'a setup function in that place before it arrived.\n'
@@ -663,17 +789,6 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
         by_function.setdefault(function, []).append(beat)
         out.append(beat)
 
-    import causal_story as cs
-    for role in sorted({b["role"] for b in out} - set(cs._REPEATABLE) - {"context"}):
-        if role == "intervention" and len(by_function.get(ef.CHANGES_INCENTIVE) or []) > 1:
-            continue  # the more specific MULTIPLE_INCENTIVE_CHANGES diagnostic below
-        occupants = [b["beat_id"] for b in out if b["role"] == role]
-        if len(occupants) > 1:
-            issues.append(sfm._issue("DUPLICATE_STORY_ROLE",
-                f"{role} has multiple factual beats: {', '.join(occupants)}. Give this single "
-                "story turn one beat; classify supporting facts under their actual repeatable "
-                "function or context. Preserve all event text and citations."))
-
     for function in mapping.missing(by_function):
         issues.append(sfm._issue(
             "MISSING_EVENT_FUNCTION",
@@ -715,9 +830,9 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
             "passed": not issues}
 
 
-# The complete set of issue codes compile_roles can emit. These are mechanical: the planner
+# The complete set of issue codes compile_roles can emit. All three are mechanical: the planner
 # omitted an event_function, declared one outside the engine's vocabulary, or declared the
-# single-slot story role on more than one beat. None is an editorial judgement and none
+# single-slot incentive change on more than one beat. None is an editorial judgement and none
 # needs new research -- the model can satisfy all three from the same facts once it is told which
 # beat is wrong.
 #
@@ -726,8 +841,7 @@ def compile_roles(beats: list[dict], engine_id: str, claims: dict | None = None)
 # line-ranged grep missed MISSING_EVENT_FUNCTION, and that test is what caught it -- a code
 # missing from here is not a retry that misbehaves, it is a run that dies with no path forward.
 MECHANICAL_COMPILE_CODES = frozenset({
-    "MISSING_EVENT_FUNCTION", "UNKNOWN_EVENT_FUNCTION", "MULTIPLE_INCENTIVE_CHANGES",
-    "DUPLICATE_STORY_ROLE"})
+    "MISSING_EVENT_FUNCTION", "UNKNOWN_EVENT_FUNCTION", "MULTIPLE_INCENTIVE_CHANGES"})
 
 
 def compile_correction(result: dict) -> str:
@@ -836,8 +950,17 @@ def splice_derived(beats: list[dict], result: dict) -> list[dict]:
     return out
 
 
-def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
-    """Add narration devices after factual acceptance, without relabeling factual nodes."""
+def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
+                       opening_object: str = "", duration_sec: float = 0.0,
+                       callback_kind: str = "object") -> list[dict]:
+    """Add narration devices after factual acceptance, without relabeling factual nodes.
+
+    `hook` (the spoken lead: hook line + cold open) lets the close device be written to the
+    planted-number contract: its instruction names the number as the hook said it, and the beats
+    whose events carry that number join the close's context_refs, so the fidelity ceiling the
+    close is judged against contains the figure it is asked to re-speak. Without a hook the close
+    is built exactly as before.
+    """
     if ef.map_for(engine_id):
         import story_engines
         order = story_engines.expected_order(engine_id)
@@ -855,25 +978,44 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
         # came back CONTRADICTED against the events, which is the boundary's strongest verdict.
         hinge_text = {
             "removed_keystone":
-                "Name the ecological interaction nobody counted, in one short sentence: what the "
-                "removal erased or the introduction created. Do not claim the programme looked "
-                "successful and do not say anyone exploited anything. No new historical detail.",
+                "Name the ecological interaction nobody counted, in one short sentence that "
+                "OPENS AS THE GAP ('Except ...', 'But ...', 'Not quite:') and is never a question: "
+                "what the removal erased or the introduction created. Do not claim the programme "
+                "looked successful and do not say anyone exploited anything. No new historical "
+                "detail.",
             "almost_happened_plan":
-                "Name what stopped the plan, in one short sentence. Do not claim it had already "
-                "succeeded. No new historical detail.",
+                "Name what stopped the plan, in one short sentence that OPENS AS THE GAP "
+                "('Except ...', 'But ...', 'Not quite:') and is never a question. Do not claim it "
+                "had already succeeded. No new historical detail.",
         }.get(engine_id,
-              "Break the apparent success in one short sentence, using only the supported "
-              "mechanism and exploit. No new historical detail.")
+              "Break the apparent success in one short sentence that OPENS AS THE GAP "
+              "('Except ...', 'But ...', 'Not quite:') and is never a question, using only the "
+              "supported mechanism and exploit. No new historical detail.")
         # The close device takes the ENGINE's closing role. Every mapped engine used to get a
         # `tool` close because the two mapped engines both closed on one; the Nature engines
         # close on a verdict, which for strange_behaviour is a restatement the planner is never
         # asked to source (see event_functions.STRANGE_BEHAVIOUR).
         closing = story_engines.closing_role(engine_id)
+        import causal_story as _cs
+        import hook_patterns as _hp
+        planted = _hp.planted_numbers(hook) if hook else set()
+        # The number AS THE HOOK SAID IT, so the writer re-speaks the same token and the
+        # normaliser on both sides agrees ("twenty-six", not "26").
+        spoken = [m.group(0) for m in re.finditer(r"\b(?:\d[\d,]*|[a-z]+(?:-[a-z]+)?)\b", hook, re.I)
+                  if _hp.planted_numbers(m.group(0)) & planted] if planted else []
+        shape = (_cs.close_contract_text(spoken, opening_object)
+                 if hook else "Return to the opening object; no new facts.")
         close_text = {
-            "verdict": ("Close by restating the opening behaviour or claim in one sentence now "
-                        "that the story has shown what it does; return to the opening object; "
-                        "attribute no verdict to anyone; no new facts."),
-        }.get(closing, "Close with one useful question the viewer can reuse; no new facts.")
+            "verdict": ("Close by restating the opening behaviour or claim now that the story has "
+                        "shown what it does; attribute no verdict to anyone. " + shape),
+        }.get(closing, "Close with one useful question the viewer can reuse. " + shape)
+        # Carriers: accepted beats whose event speaks a planted number. They join the close's
+        # context_refs below so the ceiling the close is judged against contains the figure.
+        carriers = [b["beat_id"] for b in out
+                    if planted & _hp.planted_numbers(sfm.event_of(b)["text"])] if planted else []
+        if planted and not carriers:
+            print(f"[compiler] close ceiling: planted={sorted(planted)} but no accepted event "
+                  "carries the number; the hook ceiling (HOOK_EXCEEDS_STORY) owns that failure")
         for role, anchor, text in (
             ("hinge", mechanism, hinge_text),
             (closing, reversal, close_text),
@@ -892,6 +1034,18 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                 (mechanism.get("derivation") or {}).get("witness_ids") or [])
             if role == closing:
                 refs.append(reversal["beat_id"])
+                refs += [c for c in carriers if c not in refs]
+                # A close that returns to the original human NEED (operator brief, 2026-10-07)
+                # re-speaks the setup's fact -- the thin harvest, the low production -- so the
+                # setup joins its ceiling; CLOSING_BEAT_ASSERTS_HISTORY is untouched because the
+                # device still carries no event of its own.
+                if str(callback_kind or "").lower() == "need":
+                    setup = next((b for b in out if b["role"] == "setup"), None)
+                    if setup and setup["beat_id"] not in refs:
+                        refs.append(setup["beat_id"])
+                if carriers:
+                    print(f"[compiler] close ceiling: planted={sorted(planted)} spoken={spoken} "
+                          f"carriers={carriers}")
             device = {"beat_id": f"{anchor['beat_id']}:{role}", "role": role,
                       "causal_role": role, "presentation_device": role, "context_refs": refs,
                       "event": {"text": "", "claim_refs": []}, "beat": text,
@@ -902,10 +1056,37 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                       # refused a story whose spine had passed in full.
                       "caused_by": ((anchor.get("caused_by") or anchor["beat_id"])
                                     if role == "hinge" else anchor["beat_id"]),
-                      "chapter": anchor.get("chapter") or 1, "scope": sfm.scope_of(anchor),
-                      "parallel_case_id": sfm.case_identity(anchor)[1],
+                      "chapter": anchor.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
                       "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
             out.insert(out.index(anchor), device) if role == "hinge" else out.append(device)
+        # THE SYNTHESIS DEVICE: the chain re-walked, between the reversal (or generalization) and
+        # the close. Built like the hinge and the close -- empty event, context_refs -- so the
+        # fidelity cascade judges its narration against the concatenation of every chain event it
+        # points at; a word none of them carry is refused there, and _check_synthesis refuses it
+        # for free before that. Only when the runtime can hold it (causal_story.synthesis_planned).
+        if (_cs.synthesis_planned(story_engines.get(engine_id), duration_sec)
+                and not any(b.get("role") == "synthesis" for b in out)):
+            chain_ids = [mechanism["beat_id"]] + [
+                b["beat_id"] for b in out
+                if b.get("role") == "escalation" and not b.get("continues")] + [reversal["beat_id"]]
+            synthesis = {
+                "beat_id": f"{reversal['beat_id']}:synthesis", "role": "synthesis",
+                "causal_role": "synthesis", "presentation_device": "synthesis",
+                "context_refs": list(dict.fromkeys(chain_ids)),
+                "event": {"text": "", "claim_refs": []},
+                "beat": ("SYNTHESIS: in two to four sentences, at most the assigned narration_words, "
+                         "re-walk EVERY mechanism and escalation beat above IN ORDER, each as its "
+                         "cause and its cost ('the grids came off, so the queens left; they bred, so "
+                         "the hives turned'), using only words those beats already said. No new "
+                         "fact, number, name or place; re-speaking a number an earlier beat said is "
+                         "allowed. It is the one beat that restates, and the only one."),
+                "caused_by": reversal["beat_id"],
+                "chapter": reversal.get("chapter") or 1, "scope": sfm.PRIMARY_STORY,
+                "_story_engine": engine_id, "_story_compiler_version": COMPILER_VERSION}
+            close_index = next((i for i, b in enumerate(out) if b.get("role") == closing), len(out))
+            out.insert(close_index, synthesis)
+            print(f"[compiler] synthesis device added: {duration_sec or 'unknown'}s request vs "
+                  f"{_cs.SYNTHESIS_MIN_RUNTIME_SEC:.0f}s floor, context_refs={len(chain_ids)} beats")
         for i, beat in enumerate(out):
             beat["n"] = i + 1
             beat["chapter"] = min(4, i * 4 // len(out) + 1)
@@ -915,15 +1096,6 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                 if derivation.get("kind") == "behavior_inversion":
                     refs = refs + [mechanism["beat_id"]]
                 beat["context_refs"] = list(dict.fromkeys(r for r in refs if r != beat["beat_id"]))
-            # Later consequences/callbacks can name the original problem and intervention.
-            # Bind only these accepted same-case anchors, never the whole claim ledger.
-            if beat.get("role") not in {"setup", "intervention", "context"}:
-                anchors = [b["beat_id"] for b in out[:i]
-                           if b.get("role") in {"setup", "intervention"}
-                           and sfm.case_identity(b) == sfm.case_identity(beat)
-                           and sfm.event_of(b)["text"]]
-                beat["context_refs"] = list(dict.fromkeys(
-                    (beat.get("context_refs") or []) + anchors))
             refs = sfm.event_of(beat)["claim_refs"]
             if beat.get("context_refs"):
                 refs = sorted(set(refs) | {ref for parent in out
@@ -946,12 +1118,13 @@ def presentation_beats(beats: list[dict], engine_id: str) -> list[dict]:
                         "escalation": ("mechanism", "false_resolution", "intervention"),
                         "reversal": ("escalation", "mechanism", "intervention"),
                         "generalization": ("reversal", "escalation"),
-                        "tool": ("reversal", "escalation", "mechanism"),
+                        "synthesis": ("reversal", "escalation", "mechanism"),
+                        "tool": ("synthesis", "reversal", "escalation", "mechanism"),
                         # A verdict close has the same ancestry as a tool close. It was absent
                         # here because no mapped engine closed on a verdict until the Nature
                         # engines; the first penguin script to reach narration failed
                         # ORPHAN_STEP on a verdict whose cause this table had blanked.
-                        "verdict": ("reversal", "escalation", "mechanism")}
+                        "verdict": ("synthesis", "reversal", "escalation", "mechanism")}
         for beat in out:
             role = beat["causal_role"]
             inherited = previous.get(role) if role in ("escalation", "generalization") else None

@@ -83,8 +83,9 @@ def test_a_trailing_clause_is_clipped_with_its_comma():
         "He holds it, warm, for weeks."
 
 
-def test_a_paraphrased_verdict_does_not_authorize_guessing_which_sentence_to_delete():
-    """An unmatched finding requires a targeted rewrite, not word-overlap deletion."""
+def test_a_paraphrased_verdict_overshoot_drops_the_unbound_sentence():
+    """The judge wrote 'the father was left guarding the egg during her absence'; no sentence
+    contains those words, so the unbound sentence is the one to go."""
     script = {"scenes": [{"beat_id": "event_10:verdict", "narration": (
         "She didn't leave the egg unprotected. She left it with its father — and came back with "
         "dinner."),
@@ -93,15 +94,14 @@ def test_a_paraphrased_verdict_does_not_authorize_guessing_which_sentence_to_del
     dropped = ep._trim_unsupported_sentences(script, _report(
         scene="event_10:verdict",
         details=("the father was left guarding the egg during her absence",)))
-    assert dropped == 0
+    assert dropped == 1
     assert script["scenes"][0]["narration"] == \
-        "She didn't leave the egg unprotected. She left it with its father — and came back with dinner."
+        "She left it with its father — and came back with dinner."
 
 
-def test_the_hook_sentence_is_never_dropped_and_unsafe_spans_are_not_clipped():
+def test_the_hook_sentence_is_never_dropped_and_annotated_spans_are_clipped():
     """Job 218e75c5 (2026-09-25): the judge wrote 'with Dad (that the male takes over the egg)'
-    and the fallback deleted the spoken question. Preserve that question; the unsupported
-    unbound sentence may be dropped whole, but arbitrary inline spans are no longer clipped."""
+    and the fallback deleted the spoken question instead of clipping 'with Dad'."""
     script = {"hook": "Why does this emperor penguin look like the worst mother?",
               "scenes": [{"beat_id": "event_01", "narration": (
                   "Why does this emperor penguin look like the worst mother? She leaves her only "
@@ -113,12 +113,12 @@ def test_the_hook_sentence_is_never_dropped_and_unsafe_spans_are_not_clipped():
         scene="event_01", details=("with Dad (that the male takes over the egg)",)))
     assert dropped == 1
     assert script["scenes"][0]["narration"] == (
-        "Why does this emperor penguin look like the worst mother? "
-        "But if the chick hatches before she returns, how does the father feed it?")
+        "Why does this emperor penguin look like the worst mother? She leaves her only egg and "
+        "heads to sea. But if the chick hatches before she returns, how does the father feed it?")
 
 
-def test_unmatched_finding_keeps_context_even_when_a_claim_is_bound():
-    """Unbound context can carry the next sentence's antecedent."""
+def test_the_unbound_fallback_drops_one_sentence_per_round():
+    """Job 2e2c7498: dropping every unbound sentence at once gutted the early-hatch beat."""
     script = {"scenes": [{"beat_id": "event_08", "narration": (
         "Now suppose the chick hatches before the mother is back. It needs food, not only "
         "warmth. He can feed it before the female returns."),
@@ -126,8 +126,8 @@ def test_unmatched_finding_keeps_context_even_when_a_claim_is_bound():
                         "He can feed it before the female returns."}]}]}
     dropped = ep._trim_unsupported_sentences(script, _report(
         scene="event_08", details=("the female returns from the sea",)))
-    assert dropped == 0
-    assert script["scenes"][0]["narration"].count(".") == 3
+    assert dropped == 1
+    assert script["scenes"][0]["narration"].count(".") == 2
 
 
 def test_opening_questions_are_judged_with_the_hook_not_against_beat_one(monkeypatch):

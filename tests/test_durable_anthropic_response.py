@@ -217,7 +217,7 @@ def test_postgres_reuses_exact_retry_stage_without_reserving_twice():
 
 def test_real_expander_splits_truncated_durable_batch_and_replays_without_spend(tmp_path, monkeypatch):
     import explainer_pipeline as pipeline
-    from test_causal_lane_integration import _route, _assigned_expansion
+    from test_causal_lane_integration import _route
 
     class ExpansionProvider:
         def __init__(self):
@@ -230,15 +230,14 @@ def test_real_expander_splits_truncated_durable_batch_and_replays_without_spend(
             prompt = kwargs["messages"][0]["content"]
             matched = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
             if matched:
-                assigned = _assigned_expansion(prompt)
-                lo, hi = assigned[0]["n"], assigned[-1]["n"]
+                lo, hi = map(int, matched.groups())
                 self.expansions.append((lo, hi))
-                if len(self.expansions) == 1:
+                if (lo, hi) == (1, 10):
                     raw = payload(stop_reason="max_tokens", text='{"scenes": [')
                 else:
                     raw = payload(text=json.dumps({"scenes": [
-                        {"scene_id": b["scene_id"], "narration": f"Unique beat number {b['n']}.", "environment_type": "city"}
-                        for b in assigned]}))
+                        {"narration": f"Unique beat number {i}.", "environment_type": "city"}
+                        for i in range(lo, hi + 1)]}))
             else:
                 raw = payload(text=json.dumps(_route(prompt, 10)))
             return SimpleNamespace(model_dump=lambda: raw)
@@ -253,9 +252,9 @@ def test_real_expander_splits_truncated_durable_batch_and_replays_without_spend(
         "Why?", 200, "s", "", 10, causal_lane=True, pinned_engine="backfiring_solution")
     # Coverage, not a literal range list: a beat may now be carried across several scenes, so the
     # scene count is no longer the beat count and pinning the list would pin the batch count too.
-    # Missing rows retry individually and the durable provider never buys the same call again.
-    assert provider.expansions[0] == (1, 4), provider.expansions
-    assert provider.expansions[1:5] == [(1, 1), (2, 2), (3, 3), (4, 4)]
+    # What this test is about is the truncated batch being halved and replayed without double spend.
+    assert provider.expansions[0] == (1, 10), provider.expansions
+    assert (1, 5) in provider.expansions and (6, 10) in provider.expansions
     first_numbers = [scene["story_beat_n"] for scene in first_script["scenes"]]
     assert first_numbers == list(range(1, len(first_numbers) + 1))
     assert len([s for s in store.stages.values() if s["status"] == "incomplete"]) == 1

@@ -1,0 +1,461 @@
+"""Scene-level story templates the engines own: fixed slots the writer fills, no splitter.
+
+The causal lane planned in BEATS (facts) and a separate pass split each beat into scenes to
+reach visual-state density. That split is where the killer bees film duplicated itself: one beat
+became two scenes and the claim repair rewrote both halves toward the same sentence. A template
+plans directly in SCENES. Every slot is one scene with a fixed role, a word budget and a target
+visual-state count; the writer fills narration and cites claims, and nothing is split afterwards.
+
+The spine is the engine's required roles in order (from event_functions). Escalation is the one
+repeatable role, so it is a flexible BAND of consecutive scenes sized to the runtime; every other
+role gets a share of the scene count by narrative weight. The result for a 300s film is roughly
+the shape the delivered films reached (about 27 scenes), but authored instead of emergent.
+
+  build_slots(engine_id, duration)         -> the ordered scene skeleton
+  fill_prompt(question, duration, engine, dossier)  -> the writer request (one call)
+  score_fill(filled, engine, dossier, duration)     -> deterministic 0-100, no model
+"""
+from __future__ import annotations
+
+import json
+import math
+import re
+from typing import Any
+
+# About this many seconds per scene. The delivered cane toad and killer bees films settled near
+# 10.5 s/scene (27 scenes for ~285 s) with 4-5 visual states each, which the rendered gate passed
+# once the holds were split. The template aims for that shape directly.
+# Scenes must be long enough to HOLD their visual states. A scene carries about 3 states and a
+# state under ~1.5s reads as a flash frame, so a scene needs roughly 6s of narration minimum.
+#
+# At 10.5 this planned 29 scenes for a 300s ask, but the writer delivered 147s of narration, so
+# scenes averaged 5.1s and the shortest hit 4.3s -- the evidence planner refused with "3 states
+# cannot fit 4.30s without sub-minimum cuts" (2026-10-05). The slot COUNT reached the planner
+# while the per-slot WORD budget did not, so 29 slots simply split the normal budget 29 ways.
+#
+# Until the word budget is enforced end to end, size the skeleton for the narration these topics
+# actually yield rather than the nominal target. 15s gives 20 slots at 300s, which holds its
+# states even when the writer lands at half the requested runtime.
+SCENE_SECONDS = 15.0
+MIN_SCENES = 12
+MAX_SCENES = 40
+MIN_ESCALATION_SCENES = 2
+
+# Share of the scene count per role. Escalation dominates because the compounding IS the story;
+# the others are proportioned from the delivered films' beat counts. Normalised over the roles an
+# engine actually has, then escalation absorbs the rounding remainder.
+# STATE THE PRINCIPLE EARLY. These weights set how much of the RUNTIME each role gets, and the
+# three roles before the mechanism held 33% of it -- so a film built exactly to this template put
+# its mechanism a third of the way in, and the storyboard gate failed it for landing past the 20%
+# mark. The template was handing the planner a shape the next gate refuses.
+#
+# causal_story says it plainly: "the planner has to be given a TARGET near where the references
+# actually sit (~18%) instead of a ceiling to drift up against, because a ceiling gets treated as
+# a target." The opening block is now 16.7% of the runtime, so the mechanism arrives before the
+# deadline rather than three seconds after it, and the escalation band keeps what the setup loses.
+ROLE_WEIGHTS = {
+    "setup": 0.08,
+    "intervention": 0.04,
+    "false_resolution": 0.04,
+    "mechanism": 0.14,
+    "escalation": 0.40,
+    "reversal": 0.12,
+    # The chain re-spoken before the close. The value is causal_story's, so the template, the
+    # word budgeter and the validator cannot hold three numbers for one beat; escalation gives
+    # it up, because the recap is paid for out of the demonstrations it recaps.
+    "synthesis": 0.06,
+    "takeaway": 0.04,
+}
+
+# The role order a filled template must follow. Takeaway is the spoken lesson the engines carry as
+# `tool`; it is not a sourced event, so it never cites a claim.
+ENGINE_ROLE_ORDER = {
+    "removed_keystone": ("setup", "intervention", "false_resolution", "mechanism",
+                         "escalation", "reversal", "synthesis", "takeaway"),
+    "backfiring_solution": ("setup", "intervention", "false_resolution", "mechanism",
+                            "escalation", "reversal", "synthesis", "takeaway"),
+}
+_DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal", "synthesis",
+                  "takeaway")
+
+_SYNTHESIS_MEANING = ("the whole chain heard at once: two to four sentences that re-walk EVERY "
+                      "mechanism and escalation scene above, in order, each as its cause and its "
+                      "cost, using only words those scenes already said. It is the one scene "
+                      "allowed to restate, and it adds nothing: no new fact, number, name or "
+                      "place (a check compares every such token against the earlier scenes, and "
+                      "a check counts whether each chain scene is echoed). Compiler-added: give it "
+                      "an EMPTY event and no claim_refs.")
+
+# The close RETURNS TO THE OPENING OBJECT. Both reference films end on the thing they opened on,
+# the storyboard gate fails a close that does not (NO_CALLBACK), and this instruction used to say
+# only what the takeaway may not contain -- so a film built to the template was refused for
+# obeying it.
+def _takeaway_meaning() -> str:
+    import causal_story as _cs
+    return (f"{_cs.CLOSE_MIN_SENTENCES} to {_cs.CLOSE_MAX_SENTENCES} spoken sentences naming the "
+            "pattern the story proves: the FIRST re-speaks the number the hook planted, in the "
+            "hook's own words; the LAST comes back to the OPENING OBJECT named in the story "
+            "contract -- the thing the cold open showed -- so the film closes where it began, "
+            "with its meaning changed. It is RHETORIC, NOT A SOURCED EVENT: give it an EMPTY "
+            "event and no claim_refs, because a closing beat that carries a factual event is "
+            "refused (CLOSING_BEAT_ASSERTS_HISTORY) -- the close is built from what the story "
+            "already proved, never adding to it. So: no new fact, no proper noun the film has "
+            "not already said, and no number EXCEPT the one the hook already said")
+
+
+_TAKEAWAY_MEANING = _takeaway_meaning()
+
+_STOP = {"the", "and", "that", "with", "from", "into", "were", "was", "had", "has", "have",
+         "then", "than", "this", "these", "those", "their", "they", "them", "its", "for", "but",
+         "not", "are", "been", "being", "after", "before", "while", "where", "which", "about",
+         "could", "would", "also", "more", "most", "some", "each", "both", "when", "over"}
+
+
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{3,}", _text(text).lower()) if w not in _STOP}
+
+
+def role_order(engine_id: str) -> tuple[str, ...]:
+    return ENGINE_ROLE_ORDER.get((engine_id or "").strip().lower(), _DEFAULT_ORDER)
+
+
+def _role_label(engine_id: str, role: str) -> str:
+    import event_functions as ef
+    mapping = ef.map_for(engine_id)
+    meanings = dict(getattr(mapping, "role_meanings", {}) or {}) if mapping else {}
+    if role == "takeaway":
+        return _TAKEAWAY_MEANING
+    if role == "synthesis":
+        return _SYNTHESIS_MEANING
+    return meanings.get(role) or {
+        "setup": "the world before the fix",
+        "intervention": "the deliberate fix, introduced",
+        "false_resolution": "the part that appeared to work",
+        "mechanism": "why the fix backfires — the rule the story turns on",
+        "escalation": "the consequence compounding, one further reach each scene",
+        "reversal": "what the system became",
+    }.get(role, role)
+
+
+def target_scene_count(duration_sec: float) -> int:
+    return max(MIN_SCENES, min(MAX_SCENES, round(float(duration_sec or 0) / SCENE_SECONDS)))
+
+
+def role_counts(engine_id: str, duration_sec: float) -> dict[str, int]:
+    """Public: how many SCENES each story role gets at this runtime.
+
+    The planner is asked for exactly this many events per role, so one event becomes one scene
+    and nothing is split afterwards. The escalation band is the flexible one; it is also the
+    band that must carry genuinely distinct facts, which is what the beat sheet is told.
+    """
+    return _role_counts(engine_id, target_scene_count(duration_sec),
+                        synthesis=_synthesis_planned(engine_id, duration_sec))
+
+
+def _synthesis_planned(engine_id: str, duration_sec: float) -> bool:
+    import causal_story as _cs
+    import story_engines as _se
+    return _cs.synthesis_planned(_se.get(engine_id), duration_sec)
+
+
+def _role_counts(engine_id: str, n_total: int, *, synthesis: bool = False) -> dict[str, int]:
+    """Distribute n_total COMPILED scenes across the engine's roles; escalation takes the slack.
+
+    LEGAL FOR THE COMPILER, OR THE PLANNER IS HANDED A SHAPE THE NEXT GATE REFUSES. The weighted
+    version asked, at 300s, for 2 setups, 3 mechanisms and 3 reversals -- and causal_story lets
+    only escalation and generalization repeat (DUPLICATE_ROLE). A planner that obeyed the slot
+    plan wrote two reversals and was replanned at a cost of $1.43; one that disobeyed returned
+    context beats that were pruned. Either way about 13 of 20 beats compiled, each one-event
+    scene inherited ~55 words it could not fill without inventing, and the length top-up was
+    refused on 7-11 scenes of every attempt.
+
+    So every role the compiler treats as a singleton gets exactly ONE event; "takeaway" gets
+    none, because the compiler appends its own tool device and the prompt forbids the planner
+    supplying one; two slots are reserved for that hinge and tool so n_total counts COMPILED
+    scenes, which is what the runtime is sized on; and the remainder is escalation (plus one
+    generalization where the engine has it). At 300s / 20 scenes: five singletons, thirteen
+    escalations, hinge, tool. ROLE_WEIGHTS still describes the intended RUNTIME share of each
+    role; it no longer sets event counts for roles that may only occur once.
+    """
+    import causal_story as _cs
+    import event_functions as _ef
+    order = role_order(engine_id)
+    repeatable = {str(r).casefold() for r in _cs._REPEATABLE}
+    roles = [r for r in order if r not in ("takeaway", "synthesis")]
+    singles = [r for r in roles if r.casefold() not in repeatable]
+    repeats = [r for r in roles if r.casefold() in repeatable]
+    # A ROLE NO FUNCTION CAN PRODUCE IS THE COMPILER'S, NOT THE PLANNER'S. backfiring_solution
+    # DERIVES its mechanism from the changes_incentive beat and splices it in; no event_function
+    # maps to "mechanism" there, and the same prompt says "do not supply a mechanism". Asking for
+    # one event the planner has no label for forced a wrong function or a short count -- the
+    # same two-counts-in-one-prompt disagreement, one engine over. removed_keystone's mechanism
+    # IS planner-written (hidden_link), so it keeps its event.
+    mapping = _ef.map_for(engine_id)
+    producible = set((mapping.to_role or {}).values()) if mapping else set(roles)
+    compiler_owned = [r for r in singles if r not in producible]
+    singles = [r for r in singles if r in producible]
+    counts = {r: 1 for r in singles}
+    # hinge + tool (+ synthesis above SYNTHESIS_MIN_RUNTIME_SEC) (+ any derived role): compiler-added
+    devices = 2 + int(synthesis) + len(compiler_owned)
+    remainder = max(0, n_total - len(singles) - devices)
+    if "generalization" in repeats and remainder > MIN_ESCALATION_SCENES:
+        counts["generalization"] = 1
+        remainder -= 1
+    if "escalation" in repeats:
+        counts["escalation"] = max(MIN_ESCALATION_SCENES, remainder)
+    return {r: counts.get(r, 0) for r in order}
+
+
+def build_slots(engine_id: str, duration_sec: float) -> list[dict]:
+    """The ordered scene skeleton: one dict per scene with role, label, word band, state target."""
+    from runtime_planner import runtime_word_bounds
+    from longform_evidence import MAX_STATES_PER_SCENE, TARGET_VISUAL_STATE_SECONDS
+    n_total = target_scene_count(duration_sec)
+    synthesis = _synthesis_planned(engine_id, duration_sec)
+    counts = _role_counts(engine_id, n_total, synthesis=synthesis)
+    n_total = sum(counts.values()) + 2 + int(synthesis)   # + the compiler's hinge, tool, synthesis
+    total_words, words_lo, words_hi = runtime_word_bounds(duration_sec, n_total)
+    per_scene = total_words / max(1, n_total)
+    # A WIDE band is written to its floor. The first three template fills came back at 526-600
+    # words against a 663-919 allowance and would have run 196-222s for a 300s request, under the
+    # allowed floor (2026-10-04). The band is narrow and centred on the target, and fill_prompt
+    # states the whole-film total as well, because a per-scene range alone does not add up.
+    lo, hi = max(6, int(math.floor(per_scene * 0.9))), int(math.ceil(per_scene * 1.2))
+    scene_seconds = float(duration_sec or 0) / max(1, n_total)
+    states = max(2, min(MAX_STATES_PER_SCENE, round(scene_seconds / TARGET_VISUAL_STATE_SECONDS)))
+    slots: list[dict] = []
+    n = 0
+
+    def _device(scene_n: int, role: str, label: str, lo_w: int, hi_w: int, states_n: int) -> dict:
+        # THE COMPILER'S OWN BEATS, SHOWN WHERE THEY LAND. The planner is never asked for a
+        # hinge or a takeaway (causal_story adds both as presentation devices), so _role_counts
+        # gives them no event slot -- but the skeleton a writer or an eval reads should show the
+        # film that will exist, which has them. No claim: a device carries no sourced event.
+        return {
+            "scene": scene_n, "film_words_min": words_lo, "film_words_max": words_hi,
+            "film_words_target": total_words, "role": role, "label": label,
+            "words_min": lo_w, "words_max": hi_w, "states": states_n, "band": "device",
+            "band_index": 1, "band_count": 1, "is_cold_open": False, "needs_claim": False,
+        }
+
+    for role in role_order(engine_id):
+        if role == "mechanism":
+            n += 1
+            slots.append(_device(n, "hinge", "the one short line where the plan stops working "
+                                            "(ten words or fewer; compiler-added)", 4, 10, 1))
+        if role == "synthesis":
+            if synthesis:
+                import causal_story as _cs
+                n += 1
+                slots.append(_device(n, "synthesis", _role_label(engine_id, "synthesis"),
+                                     _cs.SYNTHESIS_MIN_WORDS,
+                                     min(hi, int(round(total_words * _cs.SYNTHESIS_RUNTIME_SHARE))),
+                                     states))
+            continue
+        if role == "takeaway":
+            n += 1
+            slots.append(_device(n, "takeaway", _role_label(engine_id, "takeaway"), lo, hi, states))
+            continue
+        for k in range(counts.get(role, 0)):
+            n += 1
+            slots.append({
+                "scene": n,
+                "film_words_min": words_lo,
+                "film_words_max": words_hi,
+                "film_words_target": total_words,
+                "role": role,
+                "label": _role_label(engine_id, role),
+                "words_min": lo,
+                "words_max": hi,
+                "states": states,
+                "band": "escalation" if role == "escalation" else "spine",
+                "band_index": k + 1,
+                "band_count": counts.get(role, 0),
+                "is_cold_open": n == 1,
+                "needs_claim": role != "takeaway",
+            })
+    return slots
+
+
+_SYSTEM = ("You are a factual explainer writer filling a fixed scene template. Return ONLY valid "
+           "JSON, no markdown, no code fences.")
+
+
+def fill_prompt(question: str, duration_sec: float, engine_id: str,
+                research_dossier: dict | None, *, operator_direction: str = "") -> str:
+    """The one writer request for a whole film: fill every scene slot, in order."""
+    import causal_story as cs
+    from longform_research import claim_context_for_prompt
+    slots = build_slots(engine_id, duration_sec)
+    n = len(slots)
+    lines = []
+    for s in slots:
+        band = (f" (escalation {s['band_index']} of {s['band_count']}: a FURTHER reach, scale or "
+                "cost than the escalation before it — never the same one again)"
+                if s["band"] == "escalation" else "")
+        cold = (" — this scene opens the film: its narration is the HOOK (one sentence, at most "
+                f"{cs.MAX_HOOK_WORDS} words, the promise) followed by the COLD OPEN (one sentence "
+                "showing the aftermath of the fix gone wrong, a picture the viewer can see), and "
+                "the first visual is that aftermath" if s["is_cold_open"] else "")
+        claim = "" if not s["needs_claim"] else " — cite at least one claim_id"
+        lines.append(f'{s["scene"]}. [{s["role"]}] {s["words_min"]}-{s["words_max"]} words, '
+                     f'about {s["states"]} visual beats: {s["label"]}{band}{cold}{claim}')
+    template = "\n".join(lines)
+    claim_context = claim_context_for_prompt(research_dossier or {})
+    schema = ('{"title": "...", "hook": "one sentence, the promise", '
+              '"cold_open": {"text": "one aftermath sentence", "claim_refs": ["claim_id"]}, '
+              '"opening_object": "the subject as it appears in the cold-open aftermath image", '
+              '"scenes": [{"scene": <int>, "role": "<role>", "narration": "...", '
+              '"visual": "one line, what the viewer sees", '
+              '"claim_refs": [{"claim_id": "id", "narration_phrase": "the exact sentence it supports"}]}]}')
+    total = slots[0]["film_words_target"]
+    w_lo, w_hi = slots[0]["film_words_min"], slots[0]["film_words_max"]
+    out = [
+        f'Write a {int(duration_sec)}-second factual explainer: "{question}".',
+        f'Engine: {engine_id}. Fill EVERY one of the {n} scene slots below, in order, exactly one '
+        'scene object per slot with the same scene number and role.',
+        f'TOTAL LENGTH IS A HARD BUDGET: the finished narration must come to {w_lo}-{w_hi} words '
+        f'across all {n} scenes, about {total} words, because it is read aloud at roughly three '
+        f'words a second to fill {int(duration_sec)} seconds. Write each scene at the TOP of its '
+        'per-scene range, not the bottom. A film that comes in short is rejected and rewritten, '
+        'so spend the words: give each scene its full detail, its picture, its consequence.',
+        '',
+        'HARD RULES, each enforced by a check after you write:',
+        '- Every scene says something the earlier scenes did NOT. Never restate an earlier scene; '
+        'refer back with an article or pronoun ("the queens", "that bend") instead of repeating it. '
+        'THE ONE EXCEPTION is the [synthesis] slot, which MUST restate: it re-walks every mechanism '
+        'and escalation scene in order as cause -> cost, in 2-4 sentences, from their own words only.',
+        '- Every scene after the first OPENS on a joint to the scene before it: the gap it left '
+        '("But ...", "Except ...", "Not quite.", "Even ...", a question the viewer would ask) or '
+        'its consequence ("So ..."). One sentence in three compares, evaluates, or addresses the '
+        'viewer; never more than ten fact sentences in a row. A check measures all three.',
+        '- A scene asserts only what its cited claims support: no number, date, place, named actor, '
+        'motive or quantity absent from the ledger. A scene with no sourced fact is pure connective '
+        'tissue and needs no claim.',
+        '- The cold open shows the damage; it does not restate the hook or explain anything.',
+        '- The takeaway is two to four sentences: the first re-speaks the number the hook planted, '
+        'the last returns to the opening object; it introduces no new fact or proper noun.',
+        '- No meta narration: never say "in this video", "explained like you are five", "as we saw".',
+        '',
+        'SCENE TEMPLATE:',
+        template,
+        '',
+        f'Return ONLY JSON: {schema}',
+    ]
+    if claim_context:
+        out += ['', 'BINDING RESEARCH CLAIM LEDGER (use only these; do not invent a claim or URL):',
+                json.dumps(claim_context, ensure_ascii=False)]
+    if operator_direction:
+        out += ['', 'OPERATOR DIRECTION (subordinate to the rules above):', operator_direction]
+    return "\n".join(out)
+
+
+def _dossier_ids(research_dossier: dict | None) -> set[str]:
+    return {_text(c.get("claim_id")) for c in ((research_dossier or {}).get("claims") or [])
+            if isinstance(c, dict)}
+
+
+def score_fill(filled: dict, engine_id: str, research_dossier: dict | None,
+               duration_sec: float) -> dict:
+    """Deterministic 0-100 for a filled template. Mirrors the pipeline's pre-spend gates."""
+    import causal_story as cs
+    slots = build_slots(engine_id, duration_sec)
+    issues: list[str] = []
+    score = 100.0
+    if not isinstance(filled, dict):
+        return {"score": 0.0, "issues": ["not a JSON object"]}
+    scenes = filled.get("scenes") if isinstance(filled.get("scenes"), list) else []
+
+    # Shape: one scene per slot, roles in the template order.
+    if len(scenes) != len(slots):
+        score -= 20
+        issues.append(f"{len(scenes)} scenes for {len(slots)} slots")
+    got_roles = [_text(s.get("role")).lower() for s in scenes]
+    want_roles = [s["role"] for s in slots]
+    if got_roles[:len(want_roles)] != want_roles[:len(got_roles)]:
+        score -= 20
+        issues.append("roles out of template order")
+
+    # Cold open on scene 1.
+    cold = filled.get("cold_open")
+    cold_text = _text(cold.get("text")) if isinstance(cold, dict) else _text(cold)
+    cold_issues = cs.check_cold_open(cold_text, _text(filled.get("hook")))
+    known = _dossier_ids(research_dossier)
+    cold_refs = [r for r in ((cold.get("claim_refs") or []) if isinstance(cold, dict) else []) if _text(r)]
+    if cold_text and known and not [r for r in cold_refs if r in known]:
+        cold_issues.append({"code": "COLD_OPEN_UNCITED"})
+    if cold_issues:
+        score -= 15
+        issues.extend("cold open: " + _text(i.get("code")) for i in cold_issues)
+
+    # Word budgets.
+    over = []
+    for slot, scene in zip(slots, scenes):
+        n = len(_text(scene.get("narration")).split())
+        if n and not (slot["words_min"] * 0.6 <= n <= slot["words_max"] * 1.4):
+            over.append(f"scene {slot['scene']} {n}w (want {slot['words_min']}-{slot['words_max']})")
+    if over:
+        score -= min(15, 3 * len(over))
+        issues.append("word budget: " + "; ".join(over[:4]))
+
+    # Repeats: reuse the pipeline's own detector.
+    import explainer_pipeline as ep
+    dupes = ep.duplicate_narration([{"narration": _text(s.get("narration")),
+                                     "causal_role": _text(s.get("role")),
+                                     "beat_id": f"s{i}", "continues": ""}
+                                    for i, s in enumerate(scenes)])
+    if dupes:
+        score -= 10 * len(dupes)
+        issues.extend(f"repeat: scene {d['scene']} restates scene {d['duplicate_of']} ({d['overlap']:.0%})"
+                      for d in dupes[:4])
+
+    # Distinct escalation: consecutive escalation scenes must each add words.
+    esc = [(slot["scene"], _words(scene.get("narration")))
+           for slot, scene in zip(slots, scenes) if slot["band"] == "escalation"]
+    thin = 0
+    for a, b in zip(esc, esc[1:]):
+        if a[1] and b[1] and len(a[1] & b[1]) / len(a[1] | b[1]) >= 0.5:
+            thin += 1
+    if thin:
+        score -= 5 * thin
+        issues.append(f"{thin} escalation scene(s) add little over the one before")
+
+    # Claims: factual slots cite a claim in the ledger.
+    if known:
+        uncited = []
+        for slot, scene in zip(slots, scenes):
+            if not slot["needs_claim"]:
+                continue
+            refs = [_text((r or {}).get("claim_id")) for r in (scene.get("claim_refs") or [])
+                    if isinstance(r, dict)]
+            if not [r for r in refs if r in known]:
+                uncited.append(slot["scene"])
+        if uncited:
+            score -= min(15, 2 * len(uncited))
+            issues.append(f"{len(uncited)} factual scene(s) cite no ledger claim: {uncited[:6]}")
+
+    # Meta phrases.
+    meta = [slot["scene"] for slot, scene in zip(slots, scenes)
+            if re.search(r"in this video|explained like|as we saw|let'?s dive", _text(scene.get("narration")), re.I)]
+    if meta:
+        score -= 5 * len(meta)
+        issues.append(f"meta narration in scenes {meta}")
+
+    # Runtime: the whole point of the word budgets. Measured in the same units the pipeline uses.
+    from runtime_planner import estimate_narration_seconds
+    words_total = sum(len(_text(s.get("narration")).split()) for s in scenes)
+    est = estimate_narration_seconds([{"narration": _text(s.get("narration"))} for s in scenes])
+    tol = max(2.5, float(duration_sec) * 0.15)
+    if scenes and not (duration_sec - tol <= est <= duration_sec + tol):
+        short_by = abs(est - duration_sec) / max(1.0, float(duration_sec))
+        score -= min(25, 25 * short_by / 0.25)
+        issues.append(f"runtime: {est:.0f}s for a {int(duration_sec)}s request "
+                      f"(allowed {duration_sec - tol:.0f}-{duration_sec + tol:.0f}s, {words_total} words)")
+    return {"score": round(max(0.0, score), 1), "issues": issues, "scenes": len(scenes),
+            "slots": len(slots), "words": words_total, "estimated_seconds": round(est, 1),
+            "escalation_scenes": sum(1 for s in slots if s["band"] == "escalation"),
+            "repeats": len(dupes)}

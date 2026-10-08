@@ -63,6 +63,13 @@ def _story_contract(script: dict) -> dict:
 
 
 def _opening_scene_count(scenes: list[dict]) -> int:
+    # The opening is the first 30% of runtime by story_pct. A role-based definition (everything
+    # before the first mechanism) was tried and reverted: the storyboard's LATE_MECHANISM mark is
+    # 20% while this window is 30%, so the first mechanism scene is judged as an opening beat --
+    # a real disagreement between two windows -- but the opening flag has consumers (cut ratios,
+    # the continuity-location prompt line, the s001 reference fallback) and tests that expect the
+    # 30% window, and the failure that killed three runs was the state CEILING, fixed in
+    # validate_evidence_plan. Narrowing the window is a separate decision.
     if not scenes:
         return 0
     explicit = []
@@ -82,8 +89,15 @@ def build_continuity_pack(script: dict) -> dict:
     """Create stable IDs for the identities, clothing, first-act location, and callback object."""
     scenes = script.get("scenes") or []
     contract = _story_contract(script)
-    opening_object = _text(contract.get("opening_object"))
-    callback_object = _text(contract.get("final_callback_object"))
+    # SCRUB THE OPENING OBJECT AT THE SOURCE. Its label is appended to the opening state's
+    # required_objects AFTER the per-object scrub has already run, so an unverifiable word in it
+    # reaches the pixel verifier unchallenged. Killer bees (2026-10-05): the cold-open contract
+    # makes opening_object the vivid aftermath subject, the planner wrote "a swarm of Africanized
+    # bees", and the verifier refused every redraw because "Africanized species cannot be verified
+    # from the visible pixels alone" -- a true statement about any drawing of a bee. The callback
+    # label is scrubbed with it so the two still match.
+    opening_object, _opening_gone = scrub_unverifiable(_text(contract.get("opening_object")))
+    callback_object, _callback_gone = scrub_unverifiable(_text(contract.get("final_callback_object")))
     first_anchor = next((_text(scene.get("continuity_anchor")) for scene in scenes
                          if _text(scene.get("continuity_anchor"))), "")
     location_label = _text(contract.get("recurring_location")) or first_anchor
@@ -291,7 +305,14 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     # Scene-level mascot presence is permission, not a command to paste Bolt into every view.
     include_bolt = (bool(scene.get("mascot_present")) and not pure_evidence
                     and bool(beat.get("bolt_visible", purpose == "action")))
-    include_human = bool(scene.get("human_present")) and bool(
+    # human_visible is a request for A PERSON, and only the lane that HAS a recurring host may
+    # read it as a request for him: the image prompt's include_human branch says "Alex performs
+    # the declared action" and attaches his reference sheet. Once the writer is told (as it now
+    # is) that human_visible means "an anonymous, period-correct person belongs in this frame",
+    # leaving this ungated would paste the avatar into every cast-free film that takes the
+    # instruction. In a cast-free story the same flag routes to the anonymous figure below.
+    cast_free = _text(pack.get("cast")) == "none"
+    include_human = (not cast_free) and bool(scene.get("human_present")) and bool(
         beat.get("human_visible", not pure_evidence or purpose in {"measurement", "test"}))
     # Cast-free means no recurring host, not an empty world. Frames where someone DOES something,
     # or where something is done TO someone, need the period-coded people who perform or suffer the
@@ -310,12 +331,27 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
     # pure-evidence purposes are excluded above, so a document or a diagram never grows a bystander.
     anonymous_people_required = bool(
         not pure_evidence
-        and beat.get("anonymous_people_required", purpose in {
-            "action", "consequence", "decision", "intervention", "reaction", "assistance",
-        })
+        and beat.get("anonymous_people_required",
+                     (cast_free and bool(beat.get("human_visible"))) or purpose in {
+                         "action", "consequence", "decision", "intervention", "reaction",
+                         "assistance",
+                     })
         and not include_human
     )
     people_allowed = nature_channel.people_allowed(pack.get("channel"))
+    # THE WRITER'S EXPLICIT FORBID WINS OVER THE PURPOSE DEFAULT. A `consequence` beat whose
+    # forbidden_objects already say "people" -- "Brazil needed a pollinator": flowers, a few bees,
+    # a hive box -- was ALSO given anonymous_people_required by the purpose rule above. The prompt
+    # then demanded "an anonymous, period-correct person must be clearly visible" and forbade
+    # people in the same breath; the model drew the person, the inspector refused it twice, and
+    # a run with a passing ledger, a passing runtime contract and a passing storyboard died at
+    # its first opening asset. One state cannot carry both; the beat's own words decide.
+    _people_words = ("people", "person", "persons", "human", "humans", "figure", "figures",
+                     "crowd", "worker", "workers", "farmer", "farmers", "beekeeper", "beekeepers")
+    if any(any(w in _text(item).casefold().split() for w in _people_words)
+           for item in _list(beat.get("forbidden_objects"))):
+        anonymous_people_required = False
+        include_human = False
     if not people_allowed:
         # Nature: the animal performs the verb. The rule above drew researchers beside the
         # penguins and people assembling the huddle (job 59d6106d).
@@ -381,6 +417,29 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
             pack["human"]["reference_asset_id"], pack["human"]["clothing_id"]])
     if include_bolt:
         references.append(pack["bolt"]["reference_asset_id"])
+    # OBJECT CONTINUITY. A beat that declares object_reference: "opening" is drawn against the
+    # opening object's accepted plate (asset:s001:e01), the way a character is drawn against its
+    # identity reference, and the verifier compares the object to it. The operator's brief
+    # (2026-10-07): one consistent hive, grid and bee design across the excluder sequence; the
+    # Phase 0 clip drew three different hive boxes under one story.
+    # WHICH object is being carried. The reference is a whole accepted FRAME, and the prompt used
+    # to name the opening OBJECT as its subject -- so a beat that attaches the opening plate for
+    # hive continuity was told "the reference shows a row of glass honey jars, draw the same
+    # object", and the jars duly appeared at a 1956 research station in half the plates (killer
+    # bees redesign clip, 2026-10-07), along with the opening figure's straw hat on a different
+    # person's head. A beat may name what it actually needs carried.
+    object_reference_label = _text(beat.get("object_reference_label"))
+    object_reference_asset_id = ""
+    if _text(beat.get("object_reference")).casefold() == "opening":
+        object_reference_asset_id = _text(
+            (pack.get("opening_object") or {}).get("opening_source_asset_id"))
+        if object_reference_asset_id and object_reference_asset_id != asset_id:
+            references.append(object_reference_asset_id)
+    # EXPLANATORY CUTAWAY. A beat that declares explains: true draws the relationship inside one
+    # picture (a cutaway of the story object: workers through the grid, the queen held behind)
+    # instead of the moment seen from outside. Scoped to the one state that asks; the
+    # draw-the-moment rule still governs every other plate.
+    explains = bool(beat.get("explains"))
     return {
         "state_id": f"state:s{scene_index + 1:03d}:e{state_index + 1:02d}",
         "asset_id": asset_id,
@@ -408,6 +467,9 @@ def _state_from_beat(scene: dict, beat: dict, scene_index: int, state_index: int
         # report.
         "bolt_action": _derive_bolt_action(beat, scene, after) if include_bolt else "",
         "reference_ids": references,
+        "object_reference_asset_id": object_reference_asset_id,
+        "object_reference_label": object_reference_label,
+        "explains": explains,
         "human_identity_id": pack["human"]["identity_id"] if include_human else "",
         "clothing_id": pack["human"]["clothing_id"] if include_human else "",
         "location_id": pack["first_act_location"]["location_id"] if opening else "",
@@ -501,9 +563,10 @@ def states_required_for_capacity(capacity: int) -> int:
 
     validate_evidence_plan sees `state_capacity` -- `seconds // MIN_EVIDENCE_STATE_SECONDS` --
     not the narration, so it cannot call states_required_for_words directly. Inverting gives
-    seconds within one 1.5s step, which is precise enough for a CEILING and errs upward, which is
-    the safe direction: a ceiling that is slightly too generous accepts a good plan, one that is
-    slightly too tight rejects a plan the writer was told to produce.
+    seconds within one 1.5s step. NOTE: relative to the writer's ask this errs DOWNWARD, not
+    upward as this docstring once claimed -- the floored seconds lose up to 1.5s, so a 43-49
+    word scene is asked for 7 and capped at 6. The validator now also carries the recorded
+    `states_requested`, which is why the two no longer disagree.
     """
     capacity = max(0, int(capacity or 0))
     if not capacity:
@@ -792,11 +855,27 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
         opening = scene_index < opening_count
         capacity = state_capacity(scene, measured.get(scene_index))
         beats = _visual_beats(scene)
+        # THE ASK IS WHAT THE WRITER WAS TOLD, ON THE WORDS IT COUNTED. Fact-check and repair may
+        # shorten a line by up to a third afterwards; recomputing the ask from the shortened line
+        # put the ceiling below the count the writer obeyed and then recorded a false "asked for"
+        # number in the diagnostic. The writer stamps _words_as_written; the larger count wins.
+        words_now = len(_text(scene.get("narration")).split())
+        requested = states_required_for_words(max(words_now, int(scene.get("_words_as_written") or 0)))
+        # One picture for the hinge, the same number the validator's floor accepts (see there).
+        if _text(scene.get("story_role") or scene.get("causal_role")).casefold() == "hinge":
+            requested = 1
+        fitted = _states_that_fit(beats, scene, measured.get(scene_index),
+                                  reserve=1 if scene_index == reserved_for_callback else 0)
+        if opening:
+            # COMPILE AND VALIDATE AGREE ON ONE NUMBER. state_count_rule tells the writer there is
+            # no upper band; validate_evidence_plan has one for opening beats. Rather than tell the
+            # writer two things, the compiler trims an opening scene to the ceiling the validator
+            # will apply, so that gate can only ever fail on the floor -- and the trimmed count is
+            # still what the runtime holds, because _states_that_fit already fitted it to seconds.
+            fitted = fitted[:max(6, states_required_for_capacity(capacity), requested + 1)]
         states = [
             _state_from_beat(scene, beat, scene_index, state_index, pack, opening=opening)
-            for state_index, beat in enumerate(
-                _states_that_fit(beats, scene, measured.get(scene_index),
-                                 reserve=1 if scene_index == reserved_for_callback else 0))
+            for state_index, beat in enumerate(fitted)
         ]
         repairs.extend(_promote_opening_reframe(states, scene_index, opening, capacity))
         seconds = measured.get(scene_index)
@@ -841,6 +920,8 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
             "evidence_id": _text(scene.get("evidence_id")),
             "opening": opening,
             "state_capacity": capacity,
+            # What the prompt told the writer this scene needs, so the validator can honour it.
+            "states_requested": requested,
             "states": states,
         })
 
@@ -1012,18 +1093,34 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # A one-state opening beat is still a still frame, and for a beat with the runtime to do
         # better that is still an error. This exempts only the beats physics already decided for.
         capacity = int(scene_plan.get("state_capacity") or 0)
-        floor = 2 if capacity >= 2 else 1
+        # THE HINGE IS ONE PICTURE. The story contract caps it at ten words because "a long hinge
+        # is not a hinge", and the writer gives that one abrupt sentence one visual beat -- so the
+        # plan holds one state while a ~4 s hold has capacity 2, and the floor refused it (killer
+        # bees V10 attempt 2, 2026-10-07: 'Opening beat has 1 evidence states; this beat allows 2
+        # to 6', after every opening image had been bought). Same floor the compiler asks for.
+        is_hinge = _text(scene_plan.get("story_role")).casefold() == "hinge"
+        floor = 1 if is_hinge else (2 if capacity >= 2 else 1)
         # The ceiling has to move with the narration, or it contradicts the hold rule. Six was a
         # flat literal: fine for a 40-word opening, which needs 4, and unsatisfiable for a
         # 100-word one, which needs 10 to stay under MAX_VISUAL_STATE_SECONDS. A writer told to
         # produce the hold-derived count and then failed for producing it has been handed two
         # rules that cannot both hold -- the same shape as the 3-4/2-4 band this lane just lost.
         # Six remains the floor of the ceiling, so nothing tightens for a short opening.
-        ceiling = max(6, states_required_for_capacity(capacity))
+        # ...AND IT CANNOT SIT BELOW WHAT THE WRITER WAS TOLD. state_count_rule asks for
+        # ceil(N / 2.588 / 2.75) states and says "There is no upper band"; the capacity-derived
+        # ceiling uses 2.86 w/s with floored seconds. For a 43-49-word scene -- the top of the
+        # template's own per-scene band -- the ask is 7 and this ceiling was 6, and the writer's
+        # measured habit is to return one more than asked. Three attempts died on exactly that:
+        # scene 3 asked 6 gave 7, scene 5 asked 7 gave 8, ceiling 6 both times. The +1 is that
+        # measured over-production; _states_that_fit still trims to capacity, so it can never
+        # exceed physics.
+        requested = int(scene_plan.get("states_requested") or 0)
+        ceiling = max(6, states_required_for_capacity(capacity), requested + 1)
         if opening and not floor <= len(states) <= ceiling:
             errors.append(_issue(
                 "opening_state_count",
-                f"Every opening beat requires {floor} to {ceiling} evidence states."
+                f"Opening beat has {len(states)} evidence states; this beat allows {floor} to "
+                f"{ceiling} (capacity {capacity}, writer asked for {requested})."
                 + ("" if floor == 2 else
                    " This beat is too short to hold two, so one is the whole budget."),
                 scene=scene_index + 1))
@@ -1140,7 +1237,7 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
         # demanding a second asset for a state that does not exist. Where the runtime can hold two
         # states, needing two distinct assets is still a real contract and still reported.
         if (opening and capacity >= 2 and len(accepted_distinct) < 2
-                and not verified_detail):
+                and not verified_detail and not is_hinge):
             errors.append(_issue(
                 "insufficient_distinct_evidence_assets",
                 "Opening beats need two distinct source/state assets unless a detail reframe is verified.",

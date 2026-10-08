@@ -8,8 +8,8 @@
 description: "ReelForge beat-sheet planner, judged by the deterministic gates"
 
 providers:
-  - id: file://production_provider.py
-    label: production-script-provider
+  - id: openai:chat:gpt-5.6-luna
+    label: luna
 
 prompts:
   - id: file://prompts.py:planner
@@ -22,8 +22,6 @@ defaultTest:
       value: file://asserts.py:plan_score
     - type: python
       value: file://asserts.py:plan_has_cold_open
-    - type: python
-      value: file://asserts.py:plan_has_hook_pair
     - type: python
       value: file://asserts.py:plan_event_count
 

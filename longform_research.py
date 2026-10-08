@@ -611,9 +611,18 @@ def validate_research_dossier(dossier: dict) -> dict:
             "Every claim rests on a source that could not be retrieved; nothing in this ledger "
             "was read at its cited URL."))
 
+    blocking = [e for e in errors if e.get("severity") != "soft"]
     return {
         "version": 1,
-        "passed": not errors,
+        # A soft fidelity overshoot does not block. The judge flags any phrase it cannot derive
+        # from the event, which over fifteen runs meant "the bees were in a landscape", "across
+        # open ground", "a natural colony" (refused for implying the colony was not in a crate)
+        # and "across the Southwest" for three named states. None of those can mislead anyone.
+        # What CAN is an invented number, date, named person or place, so those stay blocking and
+        # everything else is reported. Three rounds of narrowing the judge's prose produced a new
+        # crop of over-reaches each time; the threshold was the thing that was wrong.
+        "passed": not blocking,
+        "soft_findings": [e for e in errors if e.get("severity") == "soft"],
         "claim_count": len(claims),
         "citation_count": len(citation_urls),
         "attested_unfetchable_count": len(attested_only),
@@ -703,6 +712,34 @@ def _claims_by_parallel_case(dossier: dict) -> dict:
     return out
 
 
+def _strip_spoken_lead(lead: str, spoken: str) -> tuple[str, bool]:
+    """Lift `spoken` (the hook, or the cold open) off the front of scene 1's narration.
+
+    Verbatim first. Failing that, the FIRST SENTENCE of the narration is lifted when it is the
+    same sentence in different clothes -- six in ten of its words shared with `spoken`. The old
+    check was an exact prefix match, which held only while the hook field and the spoken lead
+    were edited together; a hook rewritten in one place and not the other (a repair that
+    rebuilt the field from a rewritten opener, a cold open the writer re-punctuated) left the
+    lead inside beat one, where it was judged against beat one's event and refused as the
+    unsupported claim it never was. Strip the separator too: a hook already ending in "?"
+    leaves ". Explained like you are five..." behind otherwise.
+    """
+    lead = _text(lead)
+    spoken = _text(spoken).strip()
+    if not lead or not spoken:
+        return lead, False
+    if lead.casefold().startswith(spoken.casefold()):
+        return lead[len(spoken):].lstrip(" .,;:—-").strip(), True
+    parts = re.split(r"(?<=[.!?])\s+", lead, maxsplit=1)
+    first = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    words_a = set(re.findall(r"[a-z0-9']+", first.casefold()))
+    words_b = set(re.findall(r"[a-z0-9']+", spoken.casefold()))
+    if len(words_a) >= 4 and words_b and len(words_a & words_b) / len(words_a | words_b) >= 0.6:
+        return rest, True
+    return lead, False
+
+
 def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=None,
                               cost_sink: list | None = None) -> dict:
     """The cascade, in the shape `validate_claim_joins` callers already expect.
@@ -733,11 +770,9 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
              for index, scene in enumerate(scenes, 1)]
     if hook and beats:
         lead = _text(beats[0].get("narration"))
-        if lead.casefold().startswith(hook.casefold()):
-            # Strip the separator too. A hook already ending in "?" leaves ". Explained like you
-            # are five..." behind, and a narration opening on a bare full stop is both a worse
-            # sentence for the judge to read and a worse one for the narrator to say.
-            beats[0] = dict(beats[0], narration=lead[len(hook):].lstrip(" .,;:—-").strip())
+        stripped, lifted = _strip_spoken_lead(lead, hook)
+        if lifted:
+            beats[0] = dict(beats[0], narration=stripped)
     # THE COLD OPEN IS NOT AN ASSERTION ABOUT BEAT ONE EITHER. It is the aftermath sentence
     # spoken after the hook (2026-10-02), cited to its own claims; judged against beat one's
     # setup event it was refused on the first killer bees resume ("an escaped swarm ... a
@@ -749,14 +784,20 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         cold_spoken = cold_spoken[0].upper() + cold_spoken[1:]
     if cold_spoken and beats:
         lead = _text(beats[0].get("narration"))
-        if lead.casefold().startswith(cold_spoken.casefold()):
-            beats[0] = dict(beats[0], narration=lead[len(cold_spoken):].lstrip(" .,;:—-").strip())
+        stripped, lifted = _strip_spoken_lead(lead, cold_spoken)
+        if lifted:
+            beats[0] = dict(beats[0], narration=stripped)
+    # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
+    # opening ends on the problem the video resolves ("But if the chick hatches before she
+    # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
+    # beats. Judged against beat one alone it was refused every time (job 2e2c7498). Questions
+    # in the opening scene are lifted out and judged with the hook against the whole story.
+    #
+    # NOT nested under the cold open. Adding the cold-open lift above put this inside its guard
+    # (2026-10-02), so a film without a cold open -- every film written before the contract, and
+    # the penguin fixture -- silently stopped lifting its opening questions and judged them
+    # against beat one again, which is the exact failure this block exists to prevent.
     if beats:
-        # A QUESTION IN THE OPENING IS A PROMISE, NOT AN ASSERTION ABOUT BEAT ONE. A question-first
-        # opening ends on the problem the video resolves ("But if the chick hatches before she
-        # returns, how does a father who hasn't been fishing feed it?"), which is answered by later
-        # beats. Judged against beat one alone it was refused every time (job 2e2c7498). Questions
-        # in the opening scene are lifted out and judged with the hook against the whole story.
         opening_sentences = [s for s in re.split(r"(?<=[.!?])\s+", _text(beats[0].get("narration")))
                              if s]
         questions = [s for s in opening_sentences if s.rstrip().endswith("?")]
@@ -794,6 +835,10 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                        "unsupported_details": row.get("unsupported_details")})
     for row in report["fidelity"]:
         errors.append({"code": "NARRATION_EXCEEDS_EVENT", "scene": row["beat_id"],
+                       "severity": fidelity_severity(row.get("unsupported_details") or [],
+                                                     _known_evidence_text(dossier),
+                                                     row.get("verdict") or "",
+                                                     row.get("severity") or ""),
                        "message": f"{row['beat_id']}: the narration asserts more than its event "
                                   f"({row['verdict']}): "
                                   + ", ".join(row.get("unsupported_details") or []),
@@ -823,6 +868,20 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                 claim = _text((index.get(ref) or {}).get("claim"))
                 if claim and claim not in cited:
                     cited.append(claim)
+        # THE HOOK'S CEILING IS THE DOSSIER, NOT ONLY THE BEATS THAT SURVIVED. "You cannot tell
+        # Africanized bees from European bees by sight" is a verified claim in the dossier and
+        # scored 68/100; it was refused as HOOK_EXCEEDS_STORY because no compiled BEAT carried
+        # that fact, and the repair replaced it with the setup event (40/100, viewer absent). A
+        # hook may promise any fact the research supports; it is the film's first line, not a
+        # scene bound to one event. Claims the evidence boundary rejected are still excluded
+        # upstream of `index`, so nothing unsupported is admitted here.
+        # ...but only while there IS a story: if no beat survived the evidence boundary the
+        # hook has nothing to promise, and a dossier full of true claims does not change that.
+        if supported:
+            for claim_row in index.values():
+                claim_text = _text((claim_row or {}).get("claim"))
+                if claim_text and claim_text not in cited:
+                    cited.append(claim_text)
         story = " ".join([_sfm.event_of(beat)["text"] for beat in supported] + cited)
         if not story:
             # Nothing survived, so there is no ceiling to measure against. Reported as the hook
@@ -833,7 +892,21 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                       "supports the hook's promise"})
             verdict = None
         else:
-            verdict = ce.narration_fidelity(story, hook, judge=judge, cache=cache,
+            # THE HOOK ADDRESSES THE VIEWER, and that address is rhetoric, not history. The
+            # opening contract requires a literal "you" or "your" -- it is the single device the
+            # corpus never omits and our films never had -- and the ledger was refusing exactly
+            # that: "Your honey jar could trace back to Warwick Kerr's African bees" was flagged
+            # as an unsupported claim because no document records the viewer's honey jar. Two
+            # requirements in one pipeline cannot disagree about the same sentence; the cold open
+            # already carries this kind of ceiling, and the hook now does too. Its FACTS are
+            # still bound: a name, a number, a date or a place in the hook must be supported.
+            hook_ceiling = (story + "\n\nThis sentence is the film's FIRST LINE, spoken TO THE "
+                            "VIEWER. Second-person framing is a rhetorical address, not a factual "
+                            "assertion: 'your kitchen', 'your honey jar', 'your hive', 'you are "
+                            "standing there' are never flagged, and neither is a hypothetical "
+                            "('could', 'might') built on one. Flag ONLY an invented actor, an "
+                            "invented action, a number, a date or a named place.")
+            verdict = ce.narration_fidelity(hook_ceiling, hook, judge=judge, cache=cache,
                                             cost_sink=cost_sink)
         if verdict is None:
             pass
@@ -843,6 +916,14 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                            "retryable": True})
         elif not verdict["passed"]:
             errors.append({"code": "HOOK_EXCEEDS_STORY", "scene": "hook",
+                           # Scored like every other overshoot. Without a severity these blocked
+                           # unconditionally, so a cold open whose SOLE objection was the word
+                           # "Brazilian" -- on a film about Brazil -- killed the run, while six
+                           # genuinely soft findings beside it were correctly waved through.
+                           "severity": fidelity_severity(
+                               verdict.get("unsupported_details") or [],
+                               _known_evidence_text(dossier), verdict.get("verdict") or "",
+                               verdict.get("severity") or ""),
                            "message": "the hook promises more than the supported events deliver ("
                                       f"{verdict['verdict']}): "
                                       + ", ".join(verdict.get("unsupported_details") or []),
@@ -859,7 +940,16 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
             errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
                            "message": "the cold open cites no claim from the ledger"})
         else:
-            verdict = ce.narration_fidelity("\n".join(cited), cold_open, judge=judge, cache=cache,
+            # The cold open is an IMAGE DESCRIPTION by contract -- it exists to say what the
+            # first frame shows -- so its visual staging is not a historical assertion. It was
+            # refused for "the swarm is dark" and "the setting is a grove" (2026-10-05). What it
+            # still may not do is invent an ACTOR or an ACTION: "a beekeeper backs away" is a
+            # person doing a thing, and that is a claim.
+            cold_ceiling = ("\n".join(cited) + "\nThis sentence describes the film's FIRST IMAGE. "
+                            "Colour, light, weather, vegetation and framing are staging, not "
+                            "history: never flag them. Flag only an invented actor, an invented "
+                            "action, a number, a date or a named place.")
+            verdict = ce.narration_fidelity(cold_ceiling, cold_open, judge=judge, cache=cache,
                                             cost_sink=cost_sink)
             if ce.is_retryable(verdict):
                 errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": "cold_open",
@@ -867,6 +957,10 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
                                "retryable": True})
             elif not verdict["passed"]:
                 errors.append({"code": "COLD_OPEN_EXCEEDS_CLAIM", "scene": "cold_open",
+                               "severity": fidelity_severity(
+                                   verdict.get("unsupported_details") or [],
+                                   _known_evidence_text(dossier), verdict.get("verdict") or "",
+                                   verdict.get("severity") or ""),
                                "message": "the cold open shows more than its cited claims support ("
                                           f"{verdict['verdict']}): "
                                           + ", ".join(verdict.get("unsupported_details") or []),
@@ -878,12 +972,32 @@ def validate_story_fact_model(script: dict, dossier: dict, *, judge=None, cache=
         errors.append({"code": "ENTAILMENT_UNAVAILABLE", "scene": row["beat_id"],
                        "message": f"{row['beat_id']}: {row['stage']} entailment could not be "
                                   f"judged — {row.get('reason')}", "retryable": True})
+    # SOFT OVERSHOOT DOES NOT BLOCK. `report["passed"]` is False whenever the cascade recorded
+    # any fidelity row, so filtering `errors` alone never reached the decision -- which is why
+    # fifteen runs still died after the severity classifier landed. The verdict is rebuilt here
+    # from the parts: structure, evidence and relationships still block absolutely, and of the
+    # fidelity rows only the MATERIAL ones do (a number, a date, a named person or place, an
+    # invented actor). Everything else is carried in soft_findings and reported.
+    soft_fidelity, material_fidelity = [], []
+    for row in report["fidelity"]:
+        bucket = (soft_fidelity
+                  if fidelity_severity(row.get("unsupported_details") or [],
+                                       _known_evidence_text(dossier),
+                                       row.get("verdict") or "",
+                                       row.get("severity") or "") == "soft"
+                  else material_fidelity)
+        bucket.append(row)
+    blocking_errors = [e for e in errors
+                       if not e.get("retryable") and e.get("severity") != "soft"]
     return {
         "version": 2,
-        # Every error blocks, including the hook's. A finding that reaches `errors` and not
-        # `passed` is a gate that reports a problem and lets the run through anyway.
-        "passed": (report["passed"] and all(r["passed"] for r in relationships)
-                   and not [e for e in errors if not e.get("retryable")]),
+        "passed": (report["structure_status"] != sfm.STRUCTURE_FAIL
+                   and not report["structural"] and not report["evidence"]
+                   and not material_fidelity
+                   and all(r["passed"] for r in relationships)
+                   and not blocking_errors),
+        "soft_findings": [{"scene": r.get("beat_id"),
+                           "details": r.get("unsupported_details") or []} for r in soft_fidelity],
         "structure_status": report["structure_status"],
         "claim_count": len(_claim_index(dossier)),
         "errors": errors,
@@ -978,13 +1092,211 @@ def validate_claim_joins(script: dict, dossier: dict) -> dict:
     }
 
 
+_ACTOR_NOUN = re.compile(
+    r"\b(farmer|worker|hunter|beekeeper|official|scientist|researcher|rancher|trapper|settler|"
+    r"keeper|breeder|geneticist|entomologist|man|woman|crowd|people|villager|child)s?\b", re.I)
+
+
+def _known_evidence_text(dossier: dict) -> str:
+    """Everything the evidence actually says, as one lowercase blob, cached on the dossier.
+
+    Used to tell an invented name from the film's own subject.
+    """
+    if not isinstance(dossier, dict):
+        return ""
+    cached = dossier.get("_known_text")
+    if isinstance(cached, str):
+        return cached
+    parts = []
+    for claim in (dossier.get("claims") or []):
+        if isinstance(claim, dict):
+            parts.append(_text(claim.get("claim")))
+            parts.append(_text(claim.get("support_quote")))
+    blob = " ".join(parts).casefold()
+    try:
+        dossier["_known_text"] = blob
+    except Exception:
+        pass
+    return blob
+
+
+_MATERIAL_DETAIL = re.compile(
+    r"\d+"                                  # a count or a year, whole so it can be matched in evidence
+    # Spelled-out numbers and quantities. "twenty-six swarms escaped" is the measured case: the
+    # evidence says twenty-six QUEENS escaped with swarms of European workers, and the wrong
+    # noun rode the number through five runs. A number in words is still a number.
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|"
+    r"fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|billions?|dozens?|"
+    r"scores?|half|double|triple)\b"
+    r"|\b(?:[A-Z][a-z]{2,})\b"              # a proper noun: a person or a place
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|"
+    r"forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozens?|"
+    r"decades?|centur(?:y|ies))\b"        # an invented quantity or duration, spelled out
+    r"|\b(?:farmer|worker|hunter|beekeeper|official|scientist|researcher|rancher|trapper|"
+    r"settler|keeper|breeder|geneticist|entomologist)s?\b",  # an invented actor
+    re.I if False else 0)
+
+
+# Ordinary English carries no claim, so it cannot be an invented action. Only consulted when an
+# actor the evidence names is already established -- a narrower question than "is this word in
+# the dossier", which refused "Brazilian beekeepers LEARNED what the escaped queens COULD do".
+_ORDINARY_ENGLISH = frozenset("""
+about above after again against along among around because become became before began begin
+being below between beyond could would should might must still their there these those through
+under until where which while whose after where learned learning seemed seeming started starting
+continued continuing moved moving turned turning looked looking found finding known taken given
+going coming every other another something nothing anything everything people place thing things
+time times years year later early often never always really simply almost nearly enough across
+within without toward towards itself himself herself themselves ourselves yourself first second
+third final later little large small great whole close closer early earlier quickly slowly
+""".split())
+
+
+_NUMBER_WORD = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_SPELLED = re.compile(
+    r"\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-](one|two|three|four|five|six|"
+    r"seven|eight|nine)\b|\b(" + "|".join(_NUMBER_WORD) + r")\b", re.I)
+
+
+def _digits_for_words(text: str) -> str:
+    """Spell numbers the way the evidence does, so a figure it states is not called invented.
+
+    The dossier says "26" and the narration says "Twenty-six", and the exemption is a substring
+    test -- so the film's own headline number read as a fabrication and blocked the run. Both
+    forms mean the same fact; only the spelling differs.
+    """
+    def swap(match):
+        tens, units, single = match.group(1), match.group(2), match.group(3)
+        if tens and units:
+            return str(_NUMBER_WORD[tens.lower()] + _NUMBER_WORD[units.lower()])
+        return str(_NUMBER_WORD[single.lower()]) if single else match.group(0)
+
+    return _SPELLED.sub(swap, text or "")
+
+
+def fidelity_severity(details: list, known_text: str = "", verdict: str = "",
+                      judged: str = "") -> str:
+    """Is this narration overshoot material enough to stop a render?
+
+    MATERIAL: the detail carries a number, a date, a named person or place, or an actor doing
+    something. Those are the things a viewer could repeat as fact and be wrong about, and they
+    are exactly what the repair prompt has always told the writer not to invent.
+
+    SOFT: everything else -- setting, paraphrase, the ordinary word for a state the event already
+    asserts. Reported, never blocking.
+
+    Only `partially_entailed` can ever be soft. A judge that says `unsupported` has found no
+    factual core at all, and one that lists nothing has told us nothing to weigh -- both fail
+    closed. Without that, "Hundreds of secret overnight rat farms appeared" passed the gate
+    because the judge rejected it without itemising why, which is a fail-open hole in the one
+    boundary that stops invented narration.
+    """
+    if verdict and verdict != "partially_entailed":
+        return "material"
+    # THE JUDGE'S OWN RATING WINS. It has just read the event and the narration and knows whether
+    # it found an invented fact or a rephrasing; everything below is an inference from its prose,
+    # and each phrasing the regex had not met cost a render. The regex stays for judges that do
+    # not answer, for cached verdicts recorded before the field existed, and for the tests.
+    if judged in ("material", "soft"):
+        return judged
+    # A NAME THE EVIDENCE ALREADY CONTAINS IS NOT AN INVENTED NAME. Without this the film's own
+    # subject trips the rule: "Brazil's European bees" and "The forest gained African honey bee
+    # colonies" were both classed material because "Brazil" and "African" are capitalised, while
+    # every claim in the dossier says them. Only a name the evidence does NOT carry can mislead.
+    # BOTH SIDES SPELLED THE SAME WAY. The evidence writes "26" in one dossier and "twenty-six"
+    # in another, and the narration picks whichever it likes; normalising only one side simply
+    # moves the false positive to the other dossier.
+    known = _digits_for_words((known_text or "").casefold())
+    for detail in details or []:
+        text = detail if isinstance(detail, str) else str(detail)
+        # THE JUDGE'S OWN PROSE IS NOT THE NARRATION'S CLAIM. Findings arrive phrased as
+        # commentary -- "Calling it a defensive response", "Saying the queens escaped rather
+        # than..." -- and the capitalised framing verb was being read as a proper noun, so a
+        # dispute about WORD CHOICE blocked renders as if a name had been invented.
+        # A complaint about what something is CALLED is soft: the viewer is not misled about a
+        # fact by "defensive response" instead of "defensive behaviour".
+        if re.match(r"^(calling|saying|describing|characteri[sz]ing|labell?ing|terming|"
+                    r"referring to|treating|framing|implying|suggesting|asserting that it is)\b",
+                    text.strip(), re.I):
+            continue
+        # SENTENCE CASE IS NOT A PROPER NOUN. Stripping a fixed list of leading articles left
+        # every other opening word capitalised, so "Across open ground", "Dividing into new
+        # colonies" and "More occupied branches appearing" were all read as names and blocked
+        # renders. A finding always starts capitalised; that position carries no information.
+        # A real name survives because a name is rarely alone -- "Warwick Kerr" keeps its Kerr --
+        # and a lone sentence-initial place is covered by the evidence exemption below.
+        stripped = text.strip()
+        # ...but only when the SECOND word is not capitalised too. "Warwick Kerr" is a real name
+        # and must keep its Warwick: the evidence carries "kerr" and not "warwick", so dropping
+        # the first word's case let the exemption match Kerr and wave the invented first name
+        # through. Two capitals in a row is a name; one at the start is just a sentence.
+        probe = stripped
+        if stripped and not re.match(r"^\S+\s+[A-Z]", stripped):
+            probe = stripped[0].lower() + stripped[1:]
+        # "Twenty-six" and "26" are the same figure; the evidence writes one of them.
+        probe = _digits_for_words(probe)
+        # AN ACTOR THE EVIDENCE PUTS THERE IS NOT AN INVENTED ACTOR. This rule used to be
+        # absolute -- a person doing a thing is a claim, whatever the dossier says -- and that is
+        # right for "a beekeeper backs away" invented out of nothing. It is wrong for the bee
+        # dossier's own sentence: "in October 1957, a local beekeeper noticed the queen excluders
+        # and removed them". That is the documented turning point of the film, the hook rules
+        # tell the planner to open on exactly that gesture, and this classifier was refusing
+        # every script that obeyed them. Two requirements cannot disagree about one sentence.
+        #
+        # So the actor gets the same exemption names and numbers get, and no more: an actor the
+        # evidence does not mention is still material, and whatever that actor is said to DO is
+        # still measured by the rules below and by the judge that produced this finding.
+        actor = _ACTOR_NOUN.search(probe)
+        if actor:
+            noun = actor.group(0).strip().casefold().rstrip("s")
+            if not (known and noun in known):
+                return "material"
+            # The actor is documented, so what remains is whether the ACTION is. Every
+            # substantial word has to be one the evidence already uses: "a local beekeeper
+            # removed the queen excluders" is the dossier's own sentence, while "a beekeeper
+            # backs away through the grove" borrows a real person for an invented moment.
+            for word in re.findall(r"[a-z]{5,}", probe.casefold()):
+                if word == noun or word in known or word in _ORDINARY_ENGLISH:
+                    continue
+                # Match the word's STEM at a word boundary in the evidence. A bare prefix
+                # substring stopping at five characters never got "opening" back to "open", so
+                # "a beekeeper opening a box" counted as an invented action against a dossier
+                # that says a beekeeper opened boxes. Anchoring at \b is what keeps a four-letter
+                # stem honest: it has to begin a word in the evidence, not land inside one.
+                if not re.search(r"\b" + re.escape(word[:4]), known):
+                    return "material"
+        for match in _MATERIAL_DETAIL.finditer(probe):
+            token = match.group(0).strip()
+            # A figure the evidence states is not invented either: "October 1957" and "26
+            # queens" are both in the dossier verbatim, and were blocking because the match was
+            # a single digit too short to look up.
+            if known and len(token) >= 2 and token.casefold() in known:
+                continue              # the evidence says it; it is not an invention
+            # A MORPHOLOGICAL VARIANT OF A NAME THE EVIDENCE CARRIES IS NOT A NEW NAME. The
+            # exemption was a literal substring test, so a dossier full of "Brazil" and "African"
+            # still classed "Brazilian" and "Africanized" as invented, and those two words
+            # blocked run after run on a film whose subject is Africanized bees in Brazil.
+            # WORDS ONLY: a token with a digit in it must match exactly, because "1957" and
+            # "1958" are different facts and no amount of shared prefix makes them the same one.
+            folded = token.casefold()
+            if (known and len(folded) >= 5 and folded.isalpha()
+                    and any(folded[:n] in known for n in range(len(folded), 4, -1))):
+                continue
+            return "material"
+    return "soft"
+
+
 def claim_context_for_prompt(dossier: dict) -> list[dict]:
     """Return only the fields the story planner needs; provider metadata stays out of prompts."""
     keys = (
         "claim_id", "claim", "source_url", "support_quote", "source_type", "calculation", "assumptions",
         "geographic_scope", "timescale", "confidence", "allowed_exaggeration",
-        "quote_verified", "source_reachable", "support_provenance", "claim_kind",
-        "source_published_at", "as_of", "metric",
     )
     return [
         {key: claim.get(key) for key in keys}

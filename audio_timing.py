@@ -53,6 +53,41 @@ def _split_joined(word: str, start: float, end: float) -> list:
     return [(part, start + i * step, start + (i + 1) * step) for i, part in enumerate(parts)]
 
 
+_TENS = {"20", "30", "40", "50", "60", "70", "80", "90"}
+_UNITS = {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
+
+def _fold_compound_numbers(tokens: list[str]) -> list[str]:
+    """"twenty", "six" -> "26", on both sides of the match.
+
+    _clean maps each number WORD to digits, but a compound like "twenty-six" splits on its dash
+    into two tokens ("20", "6") while whisper writes the spoken figure as one token ("26"), so
+    the two sides could never agree. Measured on killer bees V10 (2026-10-07): the close's
+    anchor "Twenty-six" -- the planted number the contract asks the close to re-speak -- failed
+    'not present in measured speech' and ended a run that had bought its audio.
+    """
+    out: list[str] = []
+    for token in tokens:
+        if out and out[-1] in _TENS and token in _UNITS:
+            out[-1] = str(int(out[-1]) + int(token))
+        else:
+            out.append(token)
+    return out
+
+
+def _fold_timed_words(words: list[tuple[str, float, float]]) -> list[tuple[str, float, float]]:
+    """The haystack side of _fold_compound_numbers: merge the two timed words into one span."""
+    out: list[tuple[str, float, float]] = []
+    for word, start, end in words:
+        token = _clean(word)
+        if out and _clean(out[-1][0]) in _TENS and token in _UNITS:
+            prev_word, prev_start, _prev_end = out[-1]
+            out[-1] = (str(int(_clean(prev_word)) + int(token)), prev_start, end)
+        else:
+            out.append((word, start, end))
+    return out
+
+
 def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[float, float, str, float] | None:
     # Split the needle on the SAME joiners as the haystack. _split_joined breaks a
     # transcriber-fused "two-the" into two tokens; if the phrase is not split identically then a
@@ -61,7 +96,8 @@ def _find_span(words: list[tuple[str, float, float]], phrase: str) -> tuple[floa
     # another -- which is exactly what my first version of this did.
     needle = [_clean(part) for token in str(phrase or "").split()
               for part in _JOINER.split(token)]
-    needle = [token for token in needle if token]
+    needle = _fold_compound_numbers([token for token in needle if token])
+    words = _fold_timed_words(list(words))
     haystack = [_clean(item[0]) for item in words]
     if not needle:
         return None

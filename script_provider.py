@@ -276,17 +276,6 @@ class _OpenAIMessages:
         # same budget, so it is forwarded with headroom rather than as-is; see reasoning_headroom.
         budget = int(max_tokens) + reasoning_headroom()
         kwargs = {"model": target, "messages": payload, "max_completion_tokens": budget}
-        # Narration editors use a forced output-only tool, not server-side research. Preserve
-        # its schema on OpenAI too, including in the durable request identity.
-        requested_tools = _ignored.get("tools") or []
-        choice = _ignored.get("tool_choice") or {}
-        tool_name = requested_tools[0].get("name") if len(requested_tools) == 1 else None
-        narration_schema = (tool_name in {"submit_narration_edits", "submit_expanded_scenes", "submit_seven_section_draft"}
-                            and choice == {"type": "tool", "name": tool_name})
-        if narration_schema:
-            kwargs["response_format"] = {"type": "json_schema", "json_schema": {
-                "name": tool_name, "strict": tool_name == "submit_narration_edits",
-                "schema": requested_tools[0]["input_schema"]}}
         effort = reasoning_effort()
         from durable_execution import current, canonical_hash, BudgetExceeded
         runtime = current()
@@ -304,7 +293,7 @@ class _OpenAIMessages:
             return raw, translate_response(raw, model=target)
 
         if runtime:
-            if requested_tools and not narration_schema:
+            if _ignored.get("tools"):
                 raise ValueError("Server research tools require the native Anthropic client")
             rate_in = float(os.environ.get("OPENAI_SCRIPT_RATE_IN", "5.0")) / 1_000_000
             rate_out = float(os.environ.get("OPENAI_SCRIPT_RATE_OUT", "20.0")) / 1_000_000

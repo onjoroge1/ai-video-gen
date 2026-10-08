@@ -76,7 +76,7 @@ def test_the_causal_prompt_drops_the_rival_mechanism_window(monkeypatch):
                      "28-40% first escalation", "STANDARD EXPLAINER. Deliver the first useful"):
         assert conflict not in causal
     assert "The compiler assigns story roles" in causal
-    assert "do not add editorial role fields" in causal
+    assert "Do not supply a hinge, mechanism, synthesis, tool" in causal
 
 
 def test_the_prompt_states_exactly_one_mechanism_deadline(monkeypatch):
@@ -183,13 +183,6 @@ def _spine(n_beats):
             "parallel_cases": []}
 
 
-def _assigned_expansion(prompt):
-    """Read the actual row IDs requested, including a missing-row-only retry."""
-    if "EXPANSION RESPONSE CONTRACT:" in prompt:
-        return json.loads(prompt.rsplit("identity.\n", 1)[1])["assigned_rows"]
-    return []
-
-
 def _route(prompt, n_beats):
     """Dispatch on what the prompt asks for, so adding a call cannot silently break the mock."""
     if ("Design a SCENE-BY-SCENE BEAT SHEET" in prompt
@@ -204,11 +197,10 @@ def _route(prompt, n_beats):
     # assumption, not the pipeline's.
     asked = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
     count = (int(asked.group(2)) - int(asked.group(1)) + 1) if asked else n_beats
-    assigned = _assigned_expansion(prompt)
-    return {"scenes": [{"scene_id": b.get("scene_id"), "narration": f"Line {b['n']} of the story here.", "image_prompt": "p",
+    return {"scenes": [{"narration": f"Line {i + 1} of the story here.", "image_prompt": "p",
                         "scene_type": "real_world_example", "environment_type": "city",
                         "text_overlay": "X", "text_sub": "", "shot_type": "medium"}
-                       for b in (assigned or [{"n": i + 1} for i in range(count)])]}
+                       for i in range(count)]}
 
 
 def _capture_expansion_prompt(monkeypatch, **kwargs):
@@ -330,7 +322,11 @@ def test_editorial_gates_stay_advisory_while_sourcing_gates_rearm():
     which is the exact failure the recovery profile was written to end.
     """
     source = (Path(ep.__file__)).read_text(encoding="utf-8")
-    assert source.count("not sourcing_advisory") == 9, "sourcing gate count changed"
+    # Ten, deliberately. The tenth is the deterministic claim-ledger trim: it deletes sentences
+    # to satisfy the ledger, so under an advisory ledger (where nothing would block) it is pure
+    # loss -- a waived run was trimmed to 222 words and an 82-second film. A sourcing REPAIR
+    # that runs only when the sourcing gate can refuse is on the right flag.
+    assert source.count("not sourcing_advisory") == 10, "sourcing gate count changed"
 
     # Counting is not enough: a count-only assertion passed while the retention contract's
     # post-TTS twin had been swept onto the sourcing flag, because the total was still right.
@@ -375,6 +371,8 @@ def test_the_hook_word_cap_reaches_the_field_that_defines_the_hook(monkeypatch):
     The cap lived in the story direction while the beat sheet defined the hook as "One-sentence
     YouTube description hook" with no limit, and a live run returned twenty words.
     """
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     prompt = _capture_beat_prompt(monkeypatch, causal_lane=True)
     assert f"at most {cs.MAX_HOOK_WORDS} words" in prompt
     assert f"at most {cs.MAX_HOOK_WORDS} words" not in _capture_beat_prompt(monkeypatch)
@@ -617,10 +615,10 @@ def test_the_script_fingerprint_covers_what_would_make_a_reuse_wrong():
 
     # A different evidence ledger is a different script.
     assert ep._script_fingerprint(**{**base, "research_dossier": {"claims": [{"claim_id": "c99"}]}}) != same
-    # The full ordered dossier is prompt input since PR151; changing it invalidates reuse.
+    # Claim ORDER is not meaningful, so it must not split the cache.
     reordered = {"claims": [{"claim_id": "c02"}, {"claim_id": "c01"}]}
     forward = {"claims": [{"claim_id": "c01"}, {"claim_id": "c02"}]}
-    assert ep._script_fingerprint(**{**base, "research_dossier": reordered}) != \
+    assert ep._script_fingerprint(**{**base, "research_dossier": reordered}) == \
         ep._script_fingerprint(**{**base, "research_dossier": forward})
 
 
@@ -996,29 +994,28 @@ def test_truncated_expansion_splits_batch_without_losing_or_repeating_beats(monk
             matched = re.search(r"NOW WRITE scenes (\d+)-(\d+) ONLY", prompt)
             if not matched:
                 return _reply(_route(prompt, 10))
-            assigned = _assigned_expansion(prompt)
-            lo, hi = assigned[0]["n"], assigned[-1]["n"]
+            lo, hi = map(int, matched.groups())
             expansions.append((lo, hi))
             if len(expansions) == 1:
                 response = _reply({})
                 response.stop_reason = "max_tokens"
                 return response
-            return _reply({"scenes": [{"scene_id": b["scene_id"], "narration": f"Unique beat number {b['n']}.",
-                                       "environment_type": "city"} for b in assigned]})
+            return _reply({"scenes": [{"narration": f"Unique beat number {i}.",
+                                       "environment_type": "city"} for i in range(lo, hi + 1)]})
     monkeypatch.setattr(ep, "_claude", lambda: type("C", (), {"messages": Messages()})())
     monkeypatch.setattr(ep, "_dedupe_narration", lambda scenes, *a: (scenes, 0))
     monkeypatch.setattr(ep, "_msg_cost", lambda usage: .1)
     script = ep._generate_script_chunked("Why?", 200, "s", "", 10, causal_lane=True,
                                          pinned_engine="backfiring_solution")
-    # The first small batch is truncated; only its missing rows retry individually.
+    # The first batch is truncated and retried as two halves; the rest follow in batches of ten.
     # Asserted as coverage rather than as a literal range list, because the number of scenes is no
     # longer the number of beats -- a beat may be carried across several -- so pinning the list
     # pins the batch count as well, which is not what this test is about.
-    assert expansions[0] == (1, 4), expansions
-    assert expansions[1:5] == [(1, 1), (2, 2), (3, 3), (4, 4)]
+    assert expansions[0] == (1, 10), expansions
+    assert (1, 5) in expansions and (6, 10) in expansions, "the truncated batch was halved"
     covered = []
     for lo, hi in expansions:
-        if (lo, hi) == (1, 4):
+        if (lo, hi) == (1, 10):
             continue                      # the truncated attempt produced nothing
         covered.extend(range(lo, hi + 1))
     written = [s["story_beat_n"] for s in script["scenes"]]
@@ -1057,6 +1054,8 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
 
     Same failure the mechanism deadline had, and it cost twelve renders that time.
     """
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
 
     # No instruction may ask for an abstraction in place of the subject.
@@ -1065,8 +1064,7 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
         assert evasive not in causal, f"the prompt still asks the hook to hedge: {evasive!r}"
 
     # And the positive rule is stated once, not accreted into three overlapping paragraphs.
-    assert causal.count("naming the concrete title subject") == 1
-    assert '"hook": "at most 18 words, with a named actor' not in causal
+    assert causal.count("named actor") == 1, "the subject rule is stated more than once"
 
     # A retired instruction must not survive as a quotation. Naming the behaviour you are
     # forbidding still puts that phrasing in the context.
@@ -1075,6 +1073,8 @@ def test_the_prompt_gives_exactly_one_instruction_about_naming_the_subject(monke
 
 def test_the_hook_rule_does_not_quote_a_failed_hook(monkeypatch):
     """Bad examples prime. The corpus exemplars carry the rule; our own failures do not."""
+    # These pin the HOOK contract; the lane now opens on the ladder by default (OPENING_MODE).
+    monkeypatch.setenv("OPENING_MODE", "hook")
     causal = _capture_beat_prompt(monkeypatch, causal_lane=True)
     for failure in ("a menace", "erase a menace", "more of it"):
         assert failure not in causal, f"the prompt quotes a hook it is trying to prevent: {failure!r}"
@@ -1267,19 +1267,14 @@ def test_a_narration_that_overshoots_its_event_is_repaired_not_only_refused(monk
     assert "NARRATION_EXCEEDS_EVENT" in seen["system"] and "Imagery, rhythm and voice are free" in seen["system"]
 
 
-def test_a_beat_id_addressed_failure_resolves_to_its_scene(monkeypatch):
+def test_a_beat_id_addressed_failure_resolves_to_its_scene():
     """The fact model addresses scenes by beat_id; the older codes use a 1-based index."""
     script = {"scenes": [{"beat_id": "event_01", "narration": "One."},
                          {"beat_id": "event_07", "narration": "Two."}]}
     report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_07"}]}
     # An unresolvable id must refuse the repair rather than silently rewriting scene 0.
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    create = Mock(return_value=SimpleNamespace(content=[SimpleNamespace(text='{"scenes":[]}')],
-        usage=SimpleNamespace(input_tokens=1, output_tokens=1)))
-    monkeypatch.setattr(ep, "_claude", lambda: SimpleNamespace(messages=SimpleNamespace(create=create)))
     ep.repair_claim_join_failures(script, {"claims": []}, report)
-    assert report["errors"][0]["scene"] == "event_07"
+    assert report["errors"][0]["scene"] == 2
     ghost = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": "event_99"}]}
     assert ep.repair_claim_join_failures(script, {"claims": []}, ghost) == (script, 0.0)
 
@@ -1489,10 +1484,8 @@ def test_the_claim_repair_runs_again_while_it_is_still_converging():
     block = block[:block.index("claim_validation = _validate_claims(script, research_dossier",
                                block.index("_after_count"))]
     assert "_CLAIM_REPAIR_PASSES" in block, "bounded by a named ceiling, not an open loop"
-    assert "accepted = improves(" in block and "if not accepted:" in block and "break" in block
-    from script_integrity import improves
-    report = {"errors": [{"code": "NARRATION_EXCEEDS_EVENT", "scene": 1}]}
-    assert not improves(report, report), "a no-progress edit must stop the loop"
+    assert "if _after_count >= _before_count:" in block and "break" in block, \
+        "a pass that does not reduce the failures must be the last one"
     assert ep._CLAIM_REPAIR_PASSES >= 2 and ep._CLAIM_REPAIR_PASSES <= 4, \
         "a ceiling, and a small one — each pass is a paid provider call"
 

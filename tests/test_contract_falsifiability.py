@@ -27,8 +27,20 @@ def _base():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))["story"]
 
 
+def _with_synthesis(s, text):
+    """Insert a synthesis step before the close, as the compiler would."""
+    close = s["steps"][-1]
+    s["steps"].insert(len(s["steps"]) - 1, {
+        "step_id": "syn", "role": "synthesis", "situation": text, "chapter": close["chapter"],
+        "caused_by": s["steps"][-2]["step_id"], "start_sec": close["start_sec"] - 1.0})
+    close["caused_by"] = "syn"
+
+
 def _codes(story):
-    return {issue["code"] for issue in cs.validate_causal_story(story, ENGINE)["errors"]}
+    engine = se.get(se.BACKFIRING_SOLUTION, compiled=bool(story.get("compiled")))
+    report = cs.validate_causal_story(story, engine)
+    # Warnings are declared with the same _issue(...) call and must be falsifiable too.
+    return {issue["code"] for issue in report["errors"] + (report.get("warnings") or [])}
 
 
 def _mutate(fn):
@@ -71,11 +83,6 @@ MUTATIONS = {
     "NO_RUNTIME":          lambda s: s.update(runtime_sec=0),
     "UNORDERED_TIMELINE":  lambda s: s["steps"][5].update(start_sec=1.0),
     "LATE_MECHANISM":      lambda s: s["steps"][4].update(start_sec=200.0),
-    "COLD_OPEN_MISSING": lambda s: s["hook"].update(require_cold_open=True, cold_open=""),
-    "COLD_OPEN_META": lambda s: s["hook"].update(require_cold_open=True, cold_open="In this video, the story unfolds."),
-    "COLD_OPEN_RESTATES_HOOK": lambda s: s["hook"].update(require_cold_open=True, cold_open=s["hook"]["line"]),
-    "LONG_COLD_OPEN": lambda s: s["hook"].update(require_cold_open=True, cold_open=" ".join(["word"] * 23)),
-    "MULTI_SENTENCE_COLD_OPEN": lambda s: s["hook"].update(require_cold_open=True, cold_open="The streets are empty. The cages are full."),
     "NO_HOOK":             lambda s: s["hook"].update(line=""),
     "LONG_HOOK":           lambda s: s["hook"].update(line=" ".join(["word"] * 30)),
     "MULTI_SENTENCE_HOOK": lambda s: s["hook"].update(line="One thing. Two things."),
@@ -88,6 +95,42 @@ MUTATIONS = {
     "NULL_REVERSAL":       lambda s: s["steps"][9].update(situation=s["start_state"]),
     "NO_OPENING_OBJECT":   lambda s: s.update(opening_object=""),
     "NO_CALLBACK":         lambda s: s["steps"][-1].update(situation="Nothing relevant at all."),
+    # The sentence-mix bands fire only for scripts stamped with the joint contract; the cobra
+    # reference opens 1 of 11 steps on a joint, so the stamp alone trips JOINT_BAND.
+    # The planted-number close fires only under its contract; the cobra close is one sentence and
+    # re-speaks nothing, so a numbered hook plus the stamp trips both blocking codes.
+    "NO_NUMBER_CALLBACK":  lambda s: (s.update(close_contract="planted_callback_v1"),
+                                      s["hook"].update(line="Twenty-six cobras left your street; "
+                                                            "that is not the strangest part.")),
+    "CLOSE_SENTENCE_COUNT": lambda s: s.update(close_contract="planted_callback_v1"),
+    "NEGATION_LIST_UNRETURNED": lambda s: (s.update(close_contract="planted_callback_v1"),
+                                           s["hook"].update(line="No fans, no ice, no electricity "
+                                                                 "kept anyone cool.")),
+    # The synthesis: demanded only on the compiled lane above its runtime floor (the cobra
+    # reference has none and must keep validating); each shape defect is its own code.
+    "SYNTHESIS_MISSING":   lambda s: s.update(compiled=True, runtime_sec=300.0),
+    "SYNTHESIS_BEFORE_REVERSAL": lambda s: s["steps"][1].update(role="synthesis"),
+    "SYNTHESIS_TOO_THIN":  lambda s: _with_synthesis(s, "Recap."),
+    "SYNTHESIS_TOO_LONG":  lambda s: _with_synthesis(s, "The bounty paid. " * 6),
+    "SYNTHESIS_SKIPS_A_BEAT": lambda s: _with_synthesis(
+        s, "Nothing here touches the chain at all. Nor does this sentence, which only fills space."),
+    "SYNTHESIS_ADDS_HISTORY": lambda s: _with_synthesis(
+        s, "The bounty paid for tails, so farms bred cobras. Then Texas banned the trade in 1911."),
+    # Under the ladder a body beat may not re-tell the opening: the last escalation repeats the setup.
+    "OPENING_RESTATED":    lambda s: (s.update(opening_contract="ladder_v1"),
+                                      next(x for x in reversed(s["steps"]) if x["role"] == "escalation")
+                                      .update(situation=s["steps"][0]["situation"])),
+    "JOINT_BAND":          lambda s: s.update(sentence_mix_contract="joints_v1"),
+    "ADDRESS_BAND":        lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation=re.sub(r"\b[Yy]ou(?:r)?\b", "they", x["situation"]))
+                                       for x in s["steps"]]),
+    "MIX_BAND":            lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation="The bounty paid for every tail handed in.")
+                                       for x in s["steps"]]),
+    "FACT_RUN":            lambda s: (s.update(sentence_mix_contract="joints_v1"),
+                                      [x.update(situation="The bounty paid for every tail handed in. "
+                                                          "The count rose every month.")
+                                       for x in s["steps"]]),
     "THIN_GENERALIZATION": lambda s: s.update(parallel_cases=[]),
     "UNPARALLEL_CASE":     lambda s: s.update(parallel_cases=[{"domain": "d"}, {"domain": "e"}]),
     "ENGINE_MISSING_ROLE": lambda s: s["steps"][1].update(role="escalation"),

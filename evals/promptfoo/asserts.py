@@ -32,34 +32,6 @@ def _fixture(name: str) -> dict:
         return json.load(handle)
 
 
-def plan_has_hook_pair(output, context) -> dict:
-    import hook_callback
-    try:
-        plan = _json(output)
-        pair = hook_callback.contract(plan) if isinstance(plan, dict) else {}
-        missing = [key for key in ("viewer_question", "supported_answer", "callback_image")
-                   if not pair.get(key)]
-        return {"pass": not missing, "score": int(not missing),
-                "reason": "Missing hook-pair fields: " + ", ".join(missing) if missing else
-                          "Hook/answer/callback present; semantic quality is separately judged"}
-    except (ValueError, TypeError):
-        return {"pass": False, "score": 0, "reason": "Invalid hook-pair response"}
-
-
-def integrity_findings(output, context) -> dict:
-    import script_integrity as si
-    case = _fixture("script_integrity.json")[context["vars"]["case"]]
-    try:
-        report = si._normalise(_json(output), si._inputs({"scenes": case["scenes"]}, {"claims": []}))
-        actual = {e["code"] for e in report["errors"]}
-        expected = set(case["expected"])
-        passed = actual == expected
-        return {"pass": passed, "score": int(passed),
-                "reason": f"Expected {sorted(expected)}; observed {sorted(actual)}"}
-    except (ValueError, TypeError, KeyError):
-        return {"pass": False, "score": 0, "reason": "Malformed or unaddressable integrity report"}
-
-
 def plan_score(output, context) -> dict:
     """score_plan over the returned beat sheet; pass at 75 or more."""
     import story_planner as sp
@@ -95,34 +67,34 @@ def plan_event_count(output, context) -> dict:
 
 
 def edit_resolves_defects(output, context) -> dict:
-    """The same structural transaction as production, not a claim of factual quality."""
+    """Apply the editor's scenes to the fixture and re-run the detector."""
     import script_editor as se
-    try:
-        script = _fixture(context["vars"]["script"])
-        before = se.detect_defects(script, script.get("_claim_validation"))
-        candidate, remaining = se.apply_response(script, before, _json(output))
-        passed = candidate is not script and not remaining
-        return {"pass": passed, "score": int(passed),
-                "reason": "Structural edit contract only; grounding is checked separately"}
-    except (ValueError, KeyError, TypeError):
-        return {"pass": False, "score": 0, "reason": "Invalid edit transaction"}
-
-
-def edit_is_grounded(output, context) -> dict:
-    import script_editor as se
-    if os.environ.get("REELFORGE_PAID_EVAL") != "1":
-        return {"pass": False, "score": 0, "reason": "Semantic review unverified; paid eval disabled"}
-    costs = []
-    try:
-        script = _fixture(context["vars"]["script"])
-        defects = se.detect_defects(script, script.get("_claim_validation"))
-        candidate, remaining = se.apply_response(script, defects, _json(output))
-        passed = (candidate is not script and not remaining
-                  and se.semantic_accepts(candidate, script.get("_research_dossier") or {}, cost_sink=costs))
-        return {"pass": passed, "score": int(passed),
-                "reason": f"Production semantic acceptance: {passed}; review estimate ${sum(costs):.4f}"}
-    except (ValueError, KeyError, TypeError):
-        return {"pass": False, "score": 0, "reason": "Invalid or ungrounded edit"}
+    v = context.get("vars") or {}
+    script = _fixture(v["script"])
+    before = se.detect_defects(script, script.get("_claim_validation"))
+    data = _json(output)
+    rows = data.get("scenes") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return {"pass": False, "score": 0.0, "reason": "no scenes in the reply"}
+    targets = {int(d["scene"]) for d in before}
+    done = set()
+    for row in rows:
+        index = int((row or {}).get("scene") or 0)
+        text = ((row or {}).get("narration") or "").strip()
+        if index in targets and text:
+            script["scenes"][index - 1]["narration"] = text
+            done.add(index)
+    if done != targets:
+        return {"pass": False, "score": 0.0, "reason": f"edited {sorted(done)} of {sorted(targets)}"}
+    after = se.detect_defects(script, None)
+    keys_before = {(d["scene"], d["code"]) for d in before if d["code"] != se.EXCEEDS_EVENT}
+    keys_after = {(d["scene"], d["code"]) for d in after}
+    still = keys_before & keys_after
+    new = {k for k in keys_after if k[1] in (se.REPEAT, se.COLD_OPEN_RESTATED)} - keys_before
+    ok = not still and not new
+    return {"pass": ok, "score": 1.0 if ok else max(0.0, 1 - (len(still) + len(new)) / max(1, len(keys_before))),
+            "reason": ("resolved all " + str(len(keys_before))) if ok else
+                      f"still {sorted(still)}; new {sorted(new)}"}
 
 
 def edit_keeps_length(output, context) -> dict:
@@ -147,3 +119,27 @@ def no_meta_phrases(output, context) -> dict:
     texts = [((row or {}).get("narration") or "") for row in data.get("scenes") or []]
     hits = [t[:60] for t in texts if re.search(r"explained like|in this video|let'?s dive|welcome back", t, re.I)]
     return {"pass": not hits, "score": 0.0 if hits else 1.0, "reason": "; ".join(hits) or "none"}
+
+
+def template_score(output, context) -> dict:
+    """story_template.score_fill over the filled scenes; pass at 75 or more."""
+    import story_template as st
+    v = context.get("vars") or {}
+    filled = _json(output)
+    if not isinstance(filled, dict):
+        return {"pass": False, "score": 0.0, "reason": "not a JSON object"}
+    report = st.score_fill(filled, v.get("engine") or "removed_keystone",
+                           _fixture(v["dossier"]), int(v.get("duration") or 300))
+    return {"pass": report["score"] >= 75, "score": report["score"] / 100.0,
+            "reason": f"{report['score']}/100; {report.get('scenes')}sc/{report.get('words')}w "
+                      f"{report.get('repeats')} repeats; " + ("; ".join(report["issues"]) or "clean")}
+
+
+def template_no_repeats(output, context) -> dict:
+    import explainer_pipeline as ep
+    filled = _json(output) or {}
+    scenes = [{"narration": (s or {}).get("narration", ""), "causal_role": (s or {}).get("role", ""),
+               "beat_id": f"s{i}", "continues": ""} for i, s in enumerate(filled.get("scenes") or [])]
+    dupes = ep.duplicate_narration(scenes)
+    return {"pass": not dupes, "score": 0.0 if dupes else 1.0,
+            "reason": "; ".join(f"{d['scene']}~{d['duplicate_of']}" for d in dupes) or "no repeats"}

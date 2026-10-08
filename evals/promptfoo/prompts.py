@@ -29,7 +29,6 @@ def planner(context: dict) -> list[dict]:
     user = sp.planner_prompt(
         v["question"], int(v.get("duration") or 300), v.get("engine") or "removed_keystone",
         dossier, operator_direction=v.get("direction") or "")
-    user += sp.candidate_brief(int(v.get("candidate") or 1))
     return [{"role": "system", "content": sp.planner_system_prompt()},
             {"role": "user", "content": user}]
 
@@ -45,10 +44,13 @@ def editor(context: dict) -> list[dict]:
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
 
-def integrity(context: dict) -> list[dict]:
-    import script_integrity as si
-    import claim_entailment as ce
-    case = _fixture("script_integrity.json")[context["vars"]["case"]]
-    payload = si._inputs({"scenes": case["scenes"]}, {"claims": []})
-    return [{"role": "system", "content": si.SYSTEM + "\n" + ce.MEANING_RULES},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+def template(context: dict) -> list[dict]:
+    """The scene-template fill request for one cached dossier (story_template)."""
+    import story_template as st
+    v = context.get("vars") or {}
+    dossier = _fixture(v["dossier"])
+    user = st.fill_prompt(v["question"], int(v.get("duration") or 300),
+                          v.get("engine") or "removed_keystone", dossier,
+                          operator_direction=v.get("direction") or "")
+    return [{"role": "system", "content": st._SYSTEM},
+            {"role": "user", "content": user}]

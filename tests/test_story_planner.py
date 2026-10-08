@@ -57,3 +57,27 @@ def test_approval_files_round_trip(tmp_path):
     assert sp.approved_plan(str(tmp_path))["title"] == "T"
     text = open(path, encoding="utf-8").read()
     assert "Plan score: 80/100" in text and "1. [prior_food_web] a" in text
+
+
+def test_the_planner_asks_for_one_sheet_by_default():
+    """Selecting among candidates on STRUCTURE while the next gate tests EVIDENCE is an own-goal.
+
+    The three films that shipped were planned with a single sheet. After candidate selection
+    landed, twelve consecutive launches failed and the spine refused a different required role
+    almost every time. The mechanism stays, the default does not.
+    """
+    import story_planner as sp
+    assert sp.PLAN_CANDIDATES_DEFAULT == 1
+
+
+def test_score_plan_still_cannot_see_evidence_support():
+    """Documents WHY the default is one: the scorer rewards ambition and never checks support.
+
+    If this ever starts failing because score_plan gained an evidence term, raising the default
+    again is worth revisiting.
+    """
+    import inspect
+    import story_planner as sp
+    source = inspect.getsource(sp.score_plan)
+    assert "distinct_ratio" in source          # it rewards more distinct facts
+    assert "validate_cascade" not in source    # and never runs the evidence cascade

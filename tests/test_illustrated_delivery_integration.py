@@ -18,6 +18,7 @@ import math
 import mimetypes
 from pathlib import Path
 import struct
+import subprocess
 from types import SimpleNamespace
 import wave
 
@@ -173,7 +174,7 @@ def fixture_story():
         # Unique words prevent an artificial repeated anchor from matching twice.
         if scene['causal_role'] not in {'hinge', 'tool'}:
             count = max(10, len(scene['narration'].split()))
-            scene['narration'] = ' '.join('token' + chr(97 + index) + chr(97 + n // 26) + chr(97 + n % 26) for n in range(count)) + '.'
+            scene['narration'] = ' '.join(f'workshop{index}word{n}' for n in range(count)) + '.'
         text = scene['narration']
         scene['image_prompt'] = 'A red workshop table with a visibly changing counter.'
         scene['mascot_present'] = index == 0
@@ -232,16 +233,32 @@ class FakeMediaSDK:
             audio.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
             audio.writeframes(b''.join(struct.pack('<h', int(1000 * math.sin(
                 2 * math.pi * frequency * i / 8000))) for i in range(int(duration * 8000))))
-        data = stream.getvalue()
+        # A real MP3, as the provider returns. WAV bytes in a .mp3 file passed as long as every
+        # scene file was the same; the structural-pause scenes are re-encoded through LAME, and
+        # the concat demuxer reads a mixed list as the first file's format, dropping the rest.
+        data = subprocess.run(
+            ['ffmpeg', '-hide_banner', '-nostats', '-y', '-f', 'wav', '-i', 'pipe:0',
+             '-c:a', 'libmp3lame', '-q:a', '5', '-f', 'mp3', 'pipe:1'],
+            input=stream.getvalue(), capture_output=True, check=True).stdout
         self.words_by_hash[hashlib.sha256(data).hexdigest()] = text.split()
         return SimpleNamespace(iter_bytes=lambda: iter([data]))
 
     def transcribe(self, **request):
         data = request['file'].read()
-        words = self.words_by_hash[hashlib.sha256(data).hexdigest()]
+        digest = hashlib.sha256(data).hexdigest()
+        offset = 0.0
+        if digest not in self.words_by_hash:
+            # A structural-pause scene is the paid TTS file with silence prepended by FFmpeg
+            # (explainer_pipeline._prepend_silence); the raw file sits beside it. Whisper would
+            # hear the same words later; this fake resolves the padded file to its source.
+            raw = Path(str(getattr(request['file'], 'name', '')) + '.raw.mp3')
+            if raw.exists():
+                digest = hashlib.sha256(raw.read_bytes()).hexdigest()
+                offset = pipeline.STRUCTURAL_PAUSE_SECONDS
+        words = self.words_by_hash[digest]
         return SimpleNamespace(words=[SimpleNamespace(word=word,
-            start=index * self.seconds_per_word,
-            end=(index + 1) * self.seconds_per_word) for index, word in enumerate(words)])
+            start=offset + index * self.seconds_per_word,
+            end=offset + (index + 1) * self.seconds_per_word) for index, word in enumerate(words)])
 
     def image(self, **request):
         key = request['extra_headers']['Idempotency-Key']
@@ -261,19 +278,13 @@ class FakeMediaSDK:
 @pytest.mark.parametrize("restart_boundary", ["image", "render", "compiled", "provider"])
 def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_path, restart_boundary):
     _secure_environment(monkeypatch)
-    original_pipeline = pipeline.run_explainer_pipeline
-    def traced_pipeline(*args, **kwargs):
-        try:
-            return original_pipeline(*args, **kwargs)
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            raise
-    monkeypatch.setattr(pipeline, 'run_explainer_pipeline', traced_pipeline)
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'fake-provider-key')
     monkeypatch.setenv('OPENAI_API_KEY', 'fake-provider-key')
     monkeypatch.setenv('SCRIPT_PROVIDER', 'anthropic')
     monkeypatch.setenv('DURABLE_EXECUTION', '1')
+    # The chamber score is opt-in since the 2026-10-07 flow validation (narration only by
+    # default); this test still exercises the locally composed bed end to end.
+    monkeypatch.setenv('ILLUSTRATED_MUSIC', '1')
     # Explicitly retain the deployed sourcing and illustrated gate defaults.
     for name in ('ILLUSTRATED_STORYBOARD_HARD', 'CLAIM_LEDGER_HARD', 'LONGFORM_RESEARCH_MODE',
                  'DIAGNOSTIC_RENDER', 'RUNTIME_HARD'):
@@ -328,8 +339,6 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
 
     monkeypatch.setattr(pipeline, '_claude', unexpected_provider)
     monkeypatch.setattr(pipeline, '_anthropic_native', unexpected_provider)
-    # The credit probe uses a separate unwrapped client; it is a provider boundary too.
-    monkeypatch.setattr(pipeline, '_preflight_verifier_credit', lambda *a, **k: None)
 
     provider_funded = []
     provider_attempts = []
@@ -358,16 +367,7 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
         lambda question, **kwargs: fixture_provider('research', dossier, {'topic': question}))
     monkeypatch.setattr(pipeline, 'generate_script',
         lambda question, *args, **kwargs: fixture_provider('script', script, {'topic': question}))
-    # Provider boundaries only: this transport fixture is not a creative-quality evaluation.
-    import planning_evidence
-    import script_integrity
-    monkeypatch.setattr(script_integrity, '_judge', lambda *a: {'issues': []})
-    monkeypatch.setattr(planning_evidence, 'prepare', lambda value, **kwargs: value)
-    # Synthetic transport words cannot establish prose quality; that gate is tested separately.
-    monkeypatch.setattr(pipeline, 'validate_longform_story', lambda *a: {
-        'passed': True, 'score': 100, 'errors': [], 'warnings': [], 'checks': {}})
-    monkeypatch.setattr(pipeline, 'grade_script', lambda *_a, **_k: {
-        'overall': 80, 'scores': dict.fromkeys(('hook', 'story', 'ending', 'repetition', 'cadence'), 80)})
+    monkeypatch.setattr(pipeline, 'grade_script', lambda *_a, **_k: None)
     monkeypatch.setattr(pipeline, 'factcheck_script',
                         lambda value, *_a, **_k: (value, [], 0))
     monkeypatch.setattr(pipeline, 'generate_description', lambda *_a, **_k: None)

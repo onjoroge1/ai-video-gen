@@ -355,15 +355,27 @@ def test_production_rechecks_repaired_sheet_before_buying_expansion(monkeypatch)
     def create(**request):
         prompt = request["messages"][0]["content"]
         if "Plan the sourced factual events" in prompt:
-            plan_calls.append(prompt)
+            # A hook re-ask and a cold-open correction reuse the planner prompt with a
+            # correction appended; neither is a plan call. The fixture's hook misses the
+            # opening contract on purpose (no second person) and its sheet has no cold open,
+            # so both corrections fire and are answered, but only the two PLANS are counted:
+            # the original sheet and the spine re-ask that precedes the research repair.
+            if ("MISSES THE CONTRACT" not in prompt
+                    and "returned without a usable cold_open" not in prompt):
+                plan_calls.append(prompt)
             return SimpleNamespace(content=[SimpleNamespace(text=json.dumps({
-                "beats": beats, "hook": "Why did the introduction change the ecosystem?",
-                "cold_open": {"text": "A predator lies beside the poisonous toad it tried to eat.", "claim_refs": ["c3"]}}))],
+                "beats": beats, "hook": "Why did the introduction change the ecosystem?"}))],
                 usage=SimpleNamespace(input_tokens=10, output_tokens=10))
         if "NOW WRITE scenes" in prompt:
             expansions.append(prompt)
             assert "repair_c1" in prompt and INTRO in prompt
             raise StopAtExpansion()
+        if "THE CURRENT HOOK MISSES THE CONTRACT" in prompt:
+            # The hook-only rewrite that follows a planner re-ask the contract still refuses;
+            # not a plan call either, and it buys no expansion.
+            return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(
+                {"hook": "Your garden could meet the introduced species; nobody asked what it would eat."}))],
+                usage=SimpleNamespace(input_tokens=10, output_tokens=10))
         pytest.fail("Unexpected provider request")
     class StopAtExpansion(Exception):
         pass
@@ -374,7 +386,7 @@ def test_production_rechecks_repaired_sheet_before_buying_expansion(monkeypatch)
     with pytest.raises(StopAtExpansion):
         ep._generate_script_chunked("Question", 90, "engaging", "", 7,
             causal_lane=True, pinned_engine="removed_keystone", research_dossier=data)
-    # Three candidates and one re-ask with the spine report quoted back,
+    # Two plan calls: the original sheet and the one re-ask with the spine report quoted back,
     # which precedes the research repair. Expansion is still bought exactly once, after it.
-    assert len(plan_calls) == 4
+    assert len(plan_calls) == 2
     assert len(expansions) == supplement.call_count == 1

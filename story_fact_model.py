@@ -178,6 +178,8 @@ _ROLE_ACCEPTS = {
     # The close is a rhetorical device built from the story, not a new historical assertion.
     "tool": (),
     "verdict": (),
+    # The synthesis re-speaks evidenced beats through context_refs; it cites nothing itself.
+    "synthesis": (),
 }
 
 
@@ -223,6 +225,47 @@ def scope_of(beat: dict) -> str:
     """
     scope = _text((beat or {}).get("scope")).lower()
     return scope if scope in SCOPES else PRIMARY_STORY
+
+
+def scene_ceiling(beat: dict, by_id: dict, claims: dict | None) -> str:
+    """The factual ceiling ONE scene's narration is judged against, built in one place.
+
+    The event, then the events of its context_refs (a presentation device such as the hinge or
+    the close speaks from the beats it points at), then the verified claims the event rests on --
+    plus, for a scene of the human-first opening or its close, the verified claims behind the
+    planner's opening beats (`opening_ceiling.claim_refs`, stamped per row by the pipeline).
+    validate_cascade has always built this string inline; the pre-gate narration edits (the
+    length top-up, the sentence-mix edit) must refuse exactly what the cascade refuses, so they
+    import this instead of judging against the bare event -- which made them stricter than the
+    gate they claimed to mirror (killer bees V7: 8 of 10 expansions held on the bare event).
+    """
+    event = event_of(beat)
+    ceiling = event["text"]
+    cited_ids = list(event["claim_refs"])
+    refs = beat.get("context_refs") or [] if (beat.get("presentation_device")
+                                              or beat.get("context_refs")) else []
+    if refs:
+        ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs
+                                          if ref in by_id])
+    # A scene of the human-first opening (and the close that calls back to it) also rests on the
+    # VERIFIED CLAIMS behind the planner's opening beats -- the writer is told to combine those
+    # beats, and a ceiling of the scene's own event alone refused what it was instructed to say
+    # (killer bees V12, 2026-10-07: "the imported bees were specifically queens", "entered a
+    # research apiary's hive boxes", and the close's "twenty-six", all stated by dossier claims).
+    # Claim ids only: the planner's prose is not checked against its claims and never widens a
+    # ceiling. Stamped per row by explainer_pipeline._attach_opening_ceiling.
+    opening = beat.get("opening_ceiling") if isinstance(beat.get("opening_ceiling"), dict) else {}
+    cited_ids += [_text(r) for r in (opening.get("claim_refs") or [])
+                  if _text(r) and _text(r) not in cited_ids]
+    cited_texts = []
+    for ref in cited_ids:
+        claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
+        if claim_text and claim_text not in cited_texts:
+            cited_texts.append(claim_text)
+    if cited_texts:
+        ceiling = "\n".join([ceiling, "CLAIMS THIS EVENT RESTS ON (also part of the ceiling):"]
+                            + [f"- {text}" for text in cited_texts])
+    return ceiling
 
 
 def event_of(beat: dict) -> dict:
@@ -296,15 +339,6 @@ def indeterminate_kind_bindings(beats: list[dict], claims: dict | None = None,
     return out
 
 
-def case_identity(beat):
-    """Canonical case key: absent/blank IDs denote the same primary story.
-
-    Scope remains part of the key; named comparison cases never collapse into
-    each other or into the primary story.
-    """
-    return scope_of(beat), _text(beat.get("parallel_case_id"))
-
-
 def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
                        claims: dict | None = None, engine_id: str = "") -> list[dict]:
     """The invariants that need no model, run before any judge call is bought.
@@ -320,7 +354,6 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
     """
     issues: list[dict] = []
     ids = [_text(b.get("beat_id")) or f"beat_{i + 1:02d}" for i, b in enumerate(beats or [])]
-    by_id = dict(zip(ids, beats or []))
     for bid in set(ids):
         if ids.count(bid) > 1:
             issues.append(_issue("DUPLICATE_BEAT_ID", f"beat identity {bid} is repeated", beat_id=bid))
@@ -336,14 +369,6 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         scope = scope_of(beat)
         event = event_of(beat)
         narration = _text(beat.get("narration"))
-
-        refs = beat.get("context_refs") or []
-        if (not isinstance(refs, list) or any(not isinstance(ref, str) or ref == beat_id
-                or ref not in by_id or not event_of(by_id[ref])["text"]
-                or case_identity(by_id[ref]) != case_identity(beat)
-                for ref in refs)):
-            issues.append(_issue("INVALID_CONTEXT_REF", "Context must name other factual beats "
-                                 "from the same case", beat_id=beat_id))
 
         # 1. A comparison may only occupy the generalization.
         if scope == PARALLEL_CASE and role and role != COMPARISON_ROLE:
@@ -462,7 +487,7 @@ def validate_structure(beats: list[dict], claims_by_case: dict | None = None,
         #     rhetorical device built from the story, not a new historical assertion — a measured
         #     sample gave its tool beat an event about Goodhart's 1975 law and marked it
         #     primary_story, which is neither this story nor a fact the close needs.
-        if role in ("tool", "verdict") and event["text"]:
+        if role in ("tool", "verdict", "synthesis") and event["text"]:
             issues.append(_issue(
                 "CLOSING_BEAT_ASSERTS_HISTORY",
                 f"beat {beat_id} is a {role} beat carrying a factual event; the close is built "
@@ -572,10 +597,7 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         narration = _text(beat.get("narration"))
         if not narration:
             continue
-        if beat_id in blocked:
-            continue
         event = event_of(beat)
-        ceiling = event["text"]
         if beat.get("presentation_device") or beat.get("context_refs"):
             refs = beat.get("context_refs") or []
             if not refs or not all(outcomes.get(ref, {}).get("passed") for ref in refs):
@@ -585,7 +607,6 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
                 continue
             if event["text"] and not outcomes.get(beat_id, {}).get("passed"):
                 continue
-            ceiling = "\n".join([ceiling] + [event_of(by_id[ref])["text"] for ref in refs])
         elif not outcomes.get(beat_id, {}).get("passed"):
             continue
         # The ceiling is the event AND the verified claims it rests on, the same rule the hook
@@ -594,14 +615,8 @@ def validate_cascade(beats: list[dict], claims: dict | None = None,
         # naming the gland because the summary said "feeds it by regurgitation" (job 2e2c7498,
         # 2026-09-25). Nothing the evidence boundary rejected can raise the ceiling: only beats
         # whose event passed reach this pass, and only their own cited claims are added.
-        cited_texts = []
-        for ref in event["claim_refs"]:
-            claim_text = _text(((claims or {}).get(ref) or {}).get("claim"))
-            if claim_text and claim_text not in cited_texts:
-                cited_texts.append(claim_text)
-        if cited_texts:
-            ceiling = "\n".join([ceiling, "CLAIMS THIS EVENT RESTS ON (also part of the ceiling):"]
-                                + [f"- {text}" for text in cited_texts])
+        # Built by scene_ceiling so the pre-gate edits judge against the same string.
+        ceiling = scene_ceiling(beat, by_id, claims)
         told = ce.narration_fidelity(ceiling, narration, judge=judge, cache=cache,
                                      cost_sink=cost_sink)
         if ce.is_retryable(told):
@@ -657,6 +672,7 @@ CENTRAL_FUNCTIONS = {
     "escalation": "HOW people exploit it, compounding",
     "reversal": "WHAT the system has become — the end state inverted",
     "tool": "hands back a reusable lens",
+    "synthesis": "re-walks the chain as cause -> cost pairs, adding nothing",
     "verdict": "states what the pattern proves",
 }
 # Roles whose duplicates may be collapsed into one beat. Everything else is a distinct causal job,
@@ -1167,9 +1183,6 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
     kept, narrowed, unrepairable = narrow_required_roles(
         kept, {row["beat_id"]: row for row in report["evidence"]}, engine_id,
         judge=judge, cache=cache, cost_sink=cost_sink)
-    report["unavailable"].extend(
-        {**row, "stage": "function", "verdict": row["function_verdict"]}
-        for row in unrepairable if row.get("function_verdict") in ce.RETRYABLE_VERDICTS)
     # No second entailment call: `supported_core` is Boundary A's own finding about these same
     # claims, so re-asking "do they support it" is a question whose answer we already bought. The
     # check worth running is the other contract -- whether the narrowed beat still does its job --
@@ -1220,32 +1233,6 @@ def compile_spine(beats: list[dict], claims: dict | None = None,
         "still_failing": still_failing,
         "cascade": report,
     }
-
-
-def context_events(beat, beats):
-    """Explicit context for writers/editors; evidence acceptance stays in the cascade."""
-    refs = beat.get("context_refs") or []
-    refs = [ref for ref in refs if isinstance(ref, str)] if isinstance(refs, list) else []
-    found = {}
-    for parent in beats:
-        ident = parent.get("beat_id")
-        if (ident in refs and ident not in found and ident != beat.get("beat_id")
-                and case_identity(parent) == case_identity(beat)
-                and event_of(parent)["text"]):
-            found[ident] = {"beat_id": ident, "event": event_of(parent)}
-    return [found[ref] for ref in refs if ref in found]
-
-
-def expansion_input(beat):
-    """Give prose only the accepted event, never unreviewed planner assertions."""
-    row = deepcopy(beat)
-    row["event"] = event_of(beat)
-    row["beat"] = row["event"]["text"]
-    row["claim_refs"] = list(row["event"]["claim_refs"])
-    for key in ("human_intention", "human_belief", "expected_outcome", "actual_outcome",
-                "continuity_anchor", "causal_link", "changes_state"):
-        row.pop(key, None)
-    return row
 
 
 def relationship_fingerprint(beat, beats):
@@ -1322,10 +1309,7 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
             return f"STORY_SPINE_UNSUPPORTED\n\n  ! [SHEET_CARRIES_NO_EVENTS] " \
                    f"{compiled['unrepairable'][0]['message']}"
         return f"{head} (no research to check them against either)"
-    lines = ["SUPPORTED_SPINE_COVERAGE" if compiled.get("passed") else "STORY_SPINE_UNSUPPORTED", ""]
-    for issue in (compiled.get("cascade") or {}).get("unavailable") or []:
-        lines.append(f"  ! [UNSCORED_JUDGE_UNAVAILABLE] {issue.get('beat_id', '')}: "
-                     + str(issue.get("reason") or "evidence judge unavailable"))
+    lines = ["SUPPORTED_SPINE_COVERAGE" if coverage["covered"] else "STORY_SPINE_UNSUPPORTED", ""]
     lines.append("Required causal functions:")
     for role in coverage["required"]:
         mark = "+" if coverage["supported_by_role"].get(role) else "-"

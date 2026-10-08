@@ -110,18 +110,68 @@ MECHANISM = "mechanism"
 ESCALATION = "escalation"
 REVERSAL = "reversal"
 GENERALIZATION = "generalization"
+SYNTHESIS = "synthesis"
 TOOL = "tool"
 VERDICT = "verdict"
 
 STEP_ROLES = (
     SETUP, INTERVENTION, FALSE_RESOLUTION, HINGE, MECHANISM,
-    ESCALATION, REVERSAL, GENERALIZATION, TOOL, VERDICT,
+    ESCALATION, REVERSAL, GENERALIZATION, SYNTHESIS, TOOL, VERDICT,
 )
+# THE SYNTHESIS: the chain re-spoken as cause -> cost pairs just before the close, built only from
+# words the film already said. The 552 s reference spends ~14% of its runtime on two passes of
+# this ("five separate systems working in sequence, each one solving a problem the last one had
+# created"); ours is the chain pass only, and 6% is the largest share one scene can hold at the
+# narration rate (0.06 x 810 words = 49, the illustratable cap). Below SYNTHESIS_MIN_RUNTIME_SEC
+# no slot is reserved and no device is added: a 120 s film has no chain long enough to re-walk.
+SYNTHESIS_RUNTIME_SHARE = 0.06
+SYNTHESIS_MIN_SENTENCES, SYNTHESIS_MAX_SENTENCES = 2, 4
+SYNTHESIS_MIN_WORDS, SYNTHESIS_MAX_WORDS = 20, 70
+SYNTHESIS_MIN_RUNTIME_SEC = 150.0
+
+
+def synthesis_planned(engine: dict | None, duration_sec: float) -> bool:
+    """Does this film carry a synthesis? The engine names it and the runtime can hold it.
+
+    An unknown runtime (0) adds NO device: every existing compiler caller that passes no
+    duration keeps the sheet it had, and the pipeline always passes the requested runtime.
+    """
+    if not engine or SYNTHESIS not in (engine.get("sequence") or ()):
+        return False
+    try:
+        runtime = float(duration_sec or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return runtime >= SYNTHESIS_MIN_RUNTIME_SEC
 # Two ways to land the same beat, both observed. The lens close hands the opening object back as
 # a question the viewer can reuse; the indictment close restates the opening claim now that it
 # has been proved. Requiring the lens close rejected the second reference video outright, which
 # is what a held-out fixture is for.
 CLOSING_ROLES = (TOOL, VERDICT)
+# THE CLOSE CONTRACT. A 552 s reference explainer spends its close re-speaking the number it
+# planted in the opening ("50 degrees" at 9 s and again at 509 s) and ends on the opening image.
+# Scoped by a contract key, exactly like require_cold_open: two reference fixtures carry a hook
+# numeral their close never returns (the penguin short's "two months"; the Romanov "five" is the
+# format tag), and every reference close is one or two sentences -- a band that rejects the
+# corpus it was derived from is measuring the wrong thing. Scripts the chunked writer stamps are
+# held to it; transcripts and older checkpoints are judged as before.
+CLOSE_CONTRACT = "planted_callback_v1"
+# THE HUMAN-FIRST OPENING (operator brief, 2026-10-07). A script stamped `_opening_contract`
+# earned its opening by want -> rationale -> turn rather than by an aftermath sentence inside ten
+# seconds, so the gates fitted to the shorts -- the hook word and sentence caps, the cold open,
+# the 20% mechanism deadline, the object-only callback -- are REPORTED for it, not enforced. The
+# reference explainer lands its mechanism at 23% and never speaks an aftermath first.
+OPENING_CONTRACT = "ladder_v1"
+# How much of an opening beat's content a body beat may share before it is re-telling it. Below
+# duplicate_narration's 0.75 on purpose: a body scene that says the import again in fresh words
+# shares most of its content words with the intervention without being a verbatim repeat.
+OPENING_RESTATEMENT_OVERLAP = 0.6
+OPENING_ROLES = (SETUP, INTERVENTION, FALSE_RESOLUTION)
+LADDER_ADVISORY_CODES = frozenset({
+    "LATE_MECHANISM", "LONG_HOOK", "MULTI_SENTENCE_HOOK", "NO_CALLBACK", "COLD_OPEN_MISSING",
+    "LONG_COLD_OPEN", "MULTI_SENTENCE_COLD_OPEN", "COLD_OPEN_META", "COLD_OPEN_RESTATES_HOOK"})
+CLOSE_MIN_SENTENCES, CLOSE_MAX_SENTENCES = 2, 4
+MIN_NEGATION_LIST = 3
 # Articles carry no callback signal. Matching on the first word of "the extraction system" meant
 # testing whether the close contained the word "the", which every close does.
 _STOPWORDS = {"a", "an", "the", "its", "his", "her", "their", "our", "this", "that"}
@@ -131,7 +181,13 @@ _REPEATABLE = {ESCALATION, GENERALIZATION}
 _CHAPTER_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight")
 # Consume the marker's own punctuation too; leaving the full stop behind meant the "hinge"
 # measured after stripping still began with ". ".
-_MARKER = re.compile(r"^\s*step\s+(?:%s|\d+)\b[.:,;\u2014-]*\s*" % "|".join(_CHAPTER_WORDS), re.I)
+# "(?:\s+continued)?": the writer wrote "Step three continued." on a continuation row (killer bees
+# V8, scene 12) and the marker strip left the film saying "continued." as its first word.
+_MARKER = re.compile(r"^\s*step\s+(?:%s|\d+)\b(?:\s+continued)?[.:,;\u2014-]*\s*"
+                     % "|".join(_CHAPTER_WORDS), re.I)
+# A continuation marker the writer spoke on its own ("continued. At its northern peak..."), as an
+# older checkpoint still carries it.
+_LEAD_ARTIFACT = re.compile(r"^\s*continued\b[.:,;]?\s*", re.I)
 
 
 
@@ -319,6 +375,12 @@ def _check_order(steps: list[dict], issues: list[dict]) -> None:
                 "generalize only after the reversal has landed; otherwise the pattern has not "
                 "been earned yet",
                 step["step_id"]))
+    synthesis = first(SYNTHESIS)
+    if synthesis is not None and reversal is not None and synthesis < reversal:
+        issues.append(_issue(
+            "SYNTHESIS_BEFORE_REVERSAL",
+            "the synthesis re-walks a finished chain; it sits after the reversal and before the close",
+            by_role[SYNTHESIS][0]["step_id"]))
 
 
 def _check_chain(steps: list[dict], issues: list[dict]) -> None:
@@ -647,17 +709,10 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
             continue
         situation = step["situation"].casefold()
         for index, case in enumerate(cases):
-            # Generic geography is shared by primary and comparison stories. In
-            # "Pacific island birds (Guam)", Guam identifies the comparison; island
-            # does not. Retain short distinctive names such as Guam and use full words.
-            generic = {"island", "islands", "bird", "birds", "country", "countries",
-                       "region", "regions", "animal", "animals", "forest", "forests",
-                       "public", "health", "colonial"}
             domain_words = [word for word in re.findall(r"[a-z]+", _text(case.get("domain")).lower())
-                            if len(word) >= 4 and word not in _STOPWORDS
-                            and word not in generic and word not in own_words]
+                            if len(word) > 4 and word not in _STOPWORDS and word not in own_words]
             hit = next((word for word in domain_words
-                        if re.search(rf"\b{re.escape(word)}\b", situation)), "")
+                        if re.search(rf"\b{re.escape(word)}", situation)), "")
             if hit:
                 issues.append(_issue(
                     "PARALLEL_CASE_OUT_OF_PLACE",
@@ -668,9 +723,58 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
                     step["step_id"]))
 
 
+def closing_span(steps: list[dict]) -> list[dict]:
+    """Every step after the last reversal -- generalization, a synthesis, then the tool or verdict.
+
+    Defined once: the planted number may come back anywhere in this span (a synthesis that
+    re-walks the chain will usually carry it), while the sentence band is measured on the closing
+    step alone. With no reversal the span is the closing step by itself.
+    """
+    reversal = next((s["index"] for s in reversed(steps) if s["role"] == REVERSAL), None)
+    if reversal is None:
+        close = next((s for s in reversed(steps) if s["role"] in CLOSING_ROLES), None)
+        return [close] if close else []
+    return [s for s in steps if s["index"] > reversal]
+
+
+def lead_numbers(hook: dict) -> set:
+    """The numbers the spoken lead plants, the format tag held aside.
+
+    Hook line + cold open under the hook contract; under the human-first opening the frame carries
+    no number by design, so the opening's CONSEQUENCE is the lead that plants one (the twenty-six
+    queens). Without it the callback contract was inert on every ladder film (killer bees V11/V12,
+    2026-10-07: planted=[]), and a close that re-spoke the figure anyway had no ceiling for it.
+    """
+    import hook_patterns
+    line = " ".join([_text((hook or {}).get("line")), _text((hook or {}).get("cold_open"))])
+    tag = _text((hook or {}).get("format_tag"))
+    planted = hook_patterns.planted_numbers(line) - hook_patterns.planted_numbers(tag)
+    # The consequence is a dated sentence ("In October 1957, ... 26 queens"); its year is a
+    # setting, not the figure the close returns to.
+    consequence = hook_patterns.planted_numbers(_text((hook or {}).get("consequence")))
+    return planted | {n for n in consequence if not 1500 <= n <= 2100}
+
+
+def close_contract_text(spoken_numbers: list, opening_object: str) -> str:
+    """The one description of the close's shape, read by the planner, the writer and the repair."""
+    number = (f"its FIRST sentence re-speaks the number the opening planted, in the opening's own words "
+              f"({', '.join(repr(n) for n in spoken_numbers)}), and nothing else from the hook; "
+              if spoken_numbers else "")
+    return (f"The close is {CLOSE_MIN_SENTENCES} to {CLOSE_MAX_SENTENCES} sentences: {number}"
+            f"its LAST sentence returns to the exact opening object {opening_object!r} now that the "
+            "story has changed what it means. It is rhetoric built from what the film already said: "
+            "no new fact, no new number, no new name or place.")
+
+
+def _close_sentences(text: str) -> int:
+    return len([part for part in re.split(r"[.!?]+", _MARKER.sub("", _text(text))) if part.strip()])
+
+
 def _check_close(payload: dict, steps: list[dict], issues: list[dict],
-                 short_form: bool = False) -> None:
+                 short_form: bool = False, warnings: list[dict] | None = None) -> None:
     opening_object = _text(payload.get("opening_object"))
+    _check_planted_callback(payload, steps, issues, short_form,
+                            warnings if warnings is not None else [])
     if not opening_object:
         issues.append(_issue("NO_OPENING_OBJECT",
                              "declare opening_object so the close can return to it"))
@@ -717,6 +821,208 @@ def _check_close(payload: dict, steps: list[dict], issues: list[dict],
             close["step_id"]))
 
 
+_SYNTHESIS_NUMBER_WORDS = {
+    "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+    "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand",
+    "million", "billion", "dozen", "half"}
+
+
+def _content_stems(text: str) -> set:
+    """5-letter stems of content words. A prefix, not a suffix trim: the synthesis compresses
+    ("hybridization" -> "hybridized", "swarming" -> "swarm") and a trailing-s rule cannot see it."""
+    return {w[:5] for w in re.findall(r"[a-z]+", _text(text).lower())
+            if len(w) >= 4 and w not in _STOPWORDS and w not in _SIGNPOST_WORDS}
+
+
+def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
+                     runtime_sec: float) -> None:
+    """The synthesis re-walks every chain beat, adds no history, and lands in two to four sentences.
+
+    Demanded only on the compiled lane (engine["compiled_synthesis"], set by story_engines.get
+    with compiled=True) and only when the runtime can hold it: the reference fixtures these
+    engines were read from have no re-walk, and a validator that demanded one would reject the
+    corpus the contract is fitted to.
+    """
+    present = [s for s in steps if s["role"] == SYNTHESIS]
+    demanded = bool((engine or {}).get("compiled_synthesis")) and (
+        float(runtime_sec or 0.0) >= SYNTHESIS_MIN_RUNTIME_SEC)
+    if not present:
+        if demanded:
+            issues.append(_issue(
+                "SYNTHESIS_MISSING",
+                f"{(engine or {}).get('name', 'this engine')} re-walks the chain before the close "
+                f"in films of {SYNTHESIS_MIN_RUNTIME_SEC:.0f}s or more, and no step carries it"))
+        return
+    synthesis = present[0]
+    text = _MARKER.sub("", synthesis["situation"]).strip()
+    sentences = [part for part in re.split(r"[.!?]+", text) if part.strip()]
+    words = len(text.split())
+    if len(sentences) < SYNTHESIS_MIN_SENTENCES or words < SYNTHESIS_MIN_WORDS:
+        issues.append(_issue(
+            "SYNTHESIS_TOO_THIN",
+            f"the synthesis is {len(sentences)} sentence(s) / {words} words against "
+            f"{SYNTHESIS_MIN_SENTENCES}-{SYNTHESIS_MAX_SENTENCES} sentences and at least "
+            f"{SYNTHESIS_MIN_WORDS} words; a one-line recap is a signpost, not the chain heard again",
+            synthesis["step_id"]))
+    if len(sentences) > SYNTHESIS_MAX_SENTENCES or words > SYNTHESIS_MAX_WORDS:
+        issues.append(_issue(
+            "SYNTHESIS_TOO_LONG",
+            f"the synthesis is {len(sentences)} sentences / {words} words against "
+            f"{SYNTHESIS_MAX_SENTENCES} sentences and {SYNTHESIS_MAX_WORDS} words; it re-walks, "
+            "it does not re-tell",
+            synthesis["step_id"]))
+    # Every asserting mechanism/escalation beat before it must be echoed by a DISTINCTIVE stem
+    # (one that at most two chain beats share); "disturbed" in three beats echoes none of them.
+    chain = [s for s in steps if s["role"] in (MECHANISM, ESCALATION) and not s["continues"]
+             and s["index"] < synthesis["index"]]
+    stems_by_beat = {s["step_id"]: _content_stems(s["situation"]) for s in chain}
+    counts: dict = {}
+    for stems in stems_by_beat.values():
+        for stem in stems:
+            counts[stem] = counts.get(stem, 0) + 1
+    spoken = _content_stems(text)
+    missed = []
+    for s in chain:
+        distinctive = {st for st in stems_by_beat[s["step_id"]] if counts.get(st, 0) <= 2} \
+            or stems_by_beat[s["step_id"]]
+        if distinctive and not (distinctive & spoken):
+            missed.append(s["step_id"])
+    if missed:
+        issues.append(_issue(
+            "SYNTHESIS_SKIPS_A_BEAT",
+            f"the synthesis echoes {len(chain) - len(missed)}/{len(chain)} chain beats; it never "
+            f"touches {', '.join(missed)} -- re-walk EVERY mechanism and escalation, in order, "
+            "each as its cause and its cost",
+            synthesis["step_id"]))
+    # No new history: a numeral, number word or capitalised token absent from every earlier
+    # non-generalization step. (Generalization is excluded so a parallel case's domain word in
+    # the synthesis fails here too, agreeing with PARALLEL_CASE_OUT_OF_PLACE.) A numeral an
+    # earlier step already spoke passes: re-speaking "twenty-six" is the point.
+    earlier = " ".join(s["situation"] for s in steps
+                       if s["index"] < synthesis["index"] and s["role"] != GENERALIZATION).lower()
+    earlier_tokens = set(re.findall(r"[a-z0-9][a-z0-9'-]*", earlier))
+    new_tokens = []
+    for sentence in sentences:
+        tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", sentence.strip())
+        for position, token in enumerate(tokens):
+            lower = token.lower()
+            is_number = lower[0].isdigit() or lower in _SYNTHESIS_NUMBER_WORDS
+            is_name = token[0].isupper() and position > 0 and lower not in _STOPWORDS
+            if (is_number or is_name) and lower not in earlier_tokens and token not in new_tokens:
+                new_tokens.append(token)
+    if new_tokens:
+        issues.append(_issue(
+            "SYNTHESIS_ADDS_HISTORY",
+            f"the synthesis speaks {new_tokens} and no earlier step did; it is built only from "
+            "words the film already said",
+            synthesis["step_id"]))
+
+
+# Capitalised words that start sentences and carry no identity; everything else capitalised, and
+# every number, is a MARKER of the fact being told (a year, a count, a name, a place).
+_MARKER_STOP = frozenset({
+    "the", "a", "an", "in", "by", "so", "but", "then", "except", "after", "before", "when", "while",
+    "imagine", "picture", "your", "you", "their", "his", "her", "its", "those", "these", "that",
+    "this", "and", "not", "yet", "even", "now", "once", "still", "only", "instead", "what", "how",
+    "why", "with", "from", "for", "there", "here", "it", "they", "we", "if", "as", "at", "on", "to"})
+
+
+def _markers(text: str) -> set:
+    return {m for m in re.findall(r"\b(?:\d{2,4}|[A-Z][a-z]{2,})\b", _text(text))
+            if m.lower() not in _MARKER_STOP}
+
+
+def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
+    """THE BODY BEGINS AFTER THE CONSEQUENCE (operator brief, 2026-10-07: the most important rule).
+
+    The opening spends the problem, the decision and the escape; a body beat that tells any of
+    them again restarts the film. Measured as content-word overlap between each body step (after
+    the first escalation, excluding the synthesis and the close, which return by contract) and
+    the setup / intervention / false-resolution steps.
+    """
+    first_escalation = next((s["index"] for s in steps if s["role"] == ESCALATION), None)
+    if first_escalation is None:
+        return
+    opening = [s for s in steps if s["role"] in OPENING_ROLES and s["index"] < first_escalation]
+    body = [s for s in steps if s["index"] > first_escalation
+            and s["role"] not in CLOSING_ROLES + (SYNTHESIS, GENERALIZATION)]
+    opening_markers = set().union(*(_markers(s["situation"]) for s in opening)) if opening else set()
+    for step in body:
+        # The second trigger: the body re-speaks the opening's MARKERS -- a year or count AND a
+        # name -- from the opening as a whole. "In 1956 Kerr imported..." told again in fresh
+        # words shares few content stems and every marker (V11, 2026-10-07: the editorial read
+        # saw the re-telling, this check did not). A number is required among them so that the
+        # story's place name recurring in the body does not count as a re-telling.
+        shared_markers = _markers(step["situation"]) & opening_markers
+        marker_hit = len(shared_markers) >= 2 and any(m[0].isdigit() for m in shared_markers)
+        for earlier in opening:
+            a = {w for w in re.findall(r"[a-z]{3,}", step["situation"].lower()) if w not in _STOPWORDS}
+            b = {w for w in re.findall(r"[a-z]{3,}", earlier["situation"].lower()) if w not in _STOPWORDS}
+            if not a or not b:
+                continue
+            overlap = len(a & b) / min(len(a), len(b))
+            if (overlap >= OPENING_RESTATEMENT_OVERLAP and len(a & b) >= 4) or marker_hit:
+                issues.append(_issue(
+                    "OPENING_RESTATED",
+                    f"{step['step_id']} re-tells the {earlier['role']} ({overlap:.0%} of its content "
+                    f"words" + (f"; shares {sorted(shared_markers)}" if shared_markers else "")
+                    + "); the body continues from the consequence -- refer back with an article "
+                    "or a pronoun and move on",
+                    step["step_id"]))
+                break
+
+
+def _check_planted_callback(payload: dict, steps: list[dict], issues: list[dict],
+                            short_form: bool, warnings: list[dict]) -> None:
+    """The close re-speaks the number the lead planted and lands in two to four sentences.
+
+    Held only under CLOSE_CONTRACT (see its comment) and never at short length, where the close
+    may return to the problem instead of the object. The re-spoken numeral is not new history:
+    the hook that planted it was bound to the story's supported events by the ledger's own hook
+    ceiling, so saying it again is 'built from the story' -- CLOSING_BEAT_ASSERTS_HISTORY stays.
+    """
+    if _text(payload.get("close_contract")) != CLOSE_CONTRACT or short_form:
+        return
+    import hook_patterns
+    close = next((s for s in reversed(steps) if s["role"] in CLOSING_ROLES), None)
+    if close is None:
+        return
+    hook = payload.get("hook") if isinstance(payload.get("hook"), dict) else {}
+    planted = lead_numbers(hook)
+    span = closing_span(steps)
+    span_text = " ".join(s["situation"] for s in span)
+    returned = hook_patterns.planted_numbers(span_text)
+    if planted and not (planted & returned):
+        issues.append(_issue(
+            "NO_NUMBER_CALLBACK",
+            f"the hook planted {sorted(planted)} and the closing span "
+            f"({', '.join(s['role'] for s in span)}) re-speaks no number; the reference close "
+            "returns the figure it opened on ('50 degrees'), which is the question answered "
+            "without being told so",
+            close["step_id"]))
+    count = _close_sentences(close["situation"])
+    if not CLOSE_MIN_SENTENCES <= count <= CLOSE_MAX_SENTENCES:
+        issues.append(_issue(
+            "CLOSE_SENTENCE_COUNT",
+            f"the closing step is {count} sentence(s) against a {CLOSE_MIN_SENTENCES}-"
+            f"{CLOSE_MAX_SENTENCES} band: the first returns the planted number, the last the "
+            "opening object; one sentence cannot do both",
+            close["step_id"]))
+    denied = hook_patterns.negation_nouns(
+        " ".join([_text(hook.get("line")), _text(hook.get("cold_open"))]
+                 + [s["situation"] for s in steps if s["role"] == SETUP]))
+    if len(denied) >= MIN_NEGATION_LIST:
+        spoken = set(re.findall(r"[a-z][a-z-]{2,}", span_text.lower()))
+        if not (denied & spoken):
+            warnings.append(_issue(
+                "NEGATION_LIST_UNRETURNED",
+                f"the lead denies {sorted(denied)} and the close returns none of them; the "
+                "reference inverts its opening negation list ('before refrigeration, before "
+                "electricity')",
+                close["step_id"]))
+
+
 def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     """Check a declared causal story. Provider-free, so it costs nothing to fail.
 
@@ -726,11 +1032,12 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     payload = payload if isinstance(payload, dict) else {}
     steps = _normalize_steps(payload.get("steps"))
     issues: list[dict] = []
+    warnings: list[dict] = []
 
     if not steps:
         issues.append(_issue("NO_STEPS", "a causal story requires at least one step"))
         return {"schema_version": SCHEMA_VERSION, "passed": False, "errors": issues,
-                "steps": steps}
+                "warnings": warnings, "steps": steps}
 
     hook = payload.get("hook") if isinstance(payload.get("hook"), dict) else {}
     _check_roles(steps, issues, engine)
@@ -744,12 +1051,27 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     _check_hinge(steps, issues)
     _check_reversal(payload, steps, issues)
     _check_parallel_cases(payload, steps, issues, short_form)
-    _check_close(payload, steps, issues, short_form)
+    _check_close(payload, steps, issues, short_form, warnings)
+    _check_synthesis(steps, issues, engine, float(payload.get("runtime_sec") or 0.0))
+    # The sentence-mix bands, for scripts written under the joint rule (payload carries the
+    # stamp the chunked writer put on the script). Fixtures and older checkpoints carry none and
+    # are judged as before -- the same scoping as require_cold_open.
+    if _text(payload.get("sentence_mix_contract")):
+        issues.extend(sentence_mix_issues(
+            [step["situation"] for step in steps], [step["role"] for step in steps],
+            [step["continues"] for step in steps]))
+
+    if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
+        _check_opening_restated(steps, issues)
+        demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
+        issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
+        warnings.extend(demoted)
 
     return {
         "schema_version": SCHEMA_VERSION,
         "passed": not issues,
         "errors": issues,
+        "warnings": warnings,
         "steps": steps,
         "chain": [
             {"step_id": step["step_id"], "role": step["role"], "caused_by": step["caused_by"],
@@ -782,24 +1104,26 @@ each step a chapter number and do not make the chapters equal in length. Every s
 first must happen BECAUSE of a named earlier step — set caused_by to that step's id. If a step
 would still make sense in a different position, it is a fact, not a step, and does not belong.
 
-Follow the selected engine's required functions. Where supported, the progression is:
-setup (the world and the problem) -> intervention (the fix someone applies) ->
-optional false_resolution (a documented expectation or observed result, distinguished explicitly;
-never turn an intention into success) -> optional hinge (ONE sentence, at most {MAX_HINGE_WORDS}
+Required spine: setup (the world and the problem) -> intervention (the fix someone applies) ->
+false_resolution (state plainly that it worked) -> hinge (ONE sentence, at most {MAX_HINGE_WORDS}
 words, that breaks it) -> mechanism (name the principle, in the first {MECHANISM_DEADLINE_PCT:.0%}
 of runtime) -> at least {MIN_ESCALATIONS} escalation steps, each caused by the previous one ->
 reversal (the end state, explicitly worse than start_state) -> optional generalization ->
-tool (hand the viewer the opening object back as a question they can use).
+synthesis (ONLY in films of {SYNTHESIS_MIN_RUNTIME_SEC:.0f}s or more: {SYNTHESIS_MIN_SENTENCES}-{SYNTHESIS_MAX_SENTENCES}
+sentences re-walking every mechanism and escalation step in order as cause -> cost pairs, using only
+words the story already said, adding no fact) -> tool (hand the viewer the opening object back as a
+question they can use).
 
 State the mechanism ONCE, early, and then earn it. Do not re-explain it at intervals and do not
-pause the story to deliver an answer. The remaining runtime is demonstration.
+pause the story to deliver an answer. The remaining runtime is demonstration. The synthesis step is
+the single exception: it re-speaks the chain, and it is the only place that may.
 
 If you include a generalization step, give at least {MIN_PARALLEL_CASES} parallel cases from
 different domains, each with the same four parts (domain, problem, solution, result) in the same
 order, so the repetition itself carries the argument.
 
-Vary sentence length to follow the thought. Use complete, natural sentences, concrete actions,
-and occasional short landings. Do not force a fragment or a punch line after every longer sentence.
+Vary sentence length deliberately. After a long sentence that builds, land a short one of five
+words or fewer. The short fragments are what a viewer remembers.
 """.strip()
     extra = _text(operator_direction)
     return base if not extra else f"{base}\n\nOPERATOR DIRECTION:\n{extra}"
@@ -829,9 +1153,189 @@ REFERENCE_BANDS = {
     "median_sentence":    (5, 12),
     "short_landing_pct":  (0.15, 0.50),
     "step_markers":       (4, 8),
+    # SENTENCE-MIX BANDS, scene grain, BLOCKING (see BLOCKING_BANDS). Fitted to a different
+    # reference from the six above: a 552 s mud-brick-cooling explainer whose story the operator
+    # wants to learn from. Measured there with the classifiers below, against the delivered killer
+    # bees V8 (2026-10-06), which graded story 41 / ending 29 and reads as "a list of facts":
+    #     scene openings that join to the scene before   0.57   vs   0.07
+    #     fact / interpretive / viewer-address sentences  0.67 / 0.25 / 0.08   vs   0.90 / 0.08 / 0.02
+    #     longest run of fact sentences                   10     vs   21
+    # The bands sit between the two. They are measured ONLY when a caller supplies scenes: a joint
+    # is a property of a scene OPENING, and a transcript has no scenes. The transcript corpus the
+    # six bands above were fitted to is never measured against these.
+    "joint_pct":          (0.45, 1.0),
+    "address_pct":        (0.05, 0.40),
+    "mix_pct":            (0.25, 0.80),
+    "longest_fact_run":   (0, 10),
 }
+# The bands grade() FAILS on. The six prose bands above stay score-only: words_per_minute is
+# already enforced by the runtime fit, and the others were never blocking.
+BLOCKING_BANDS = frozenset({"joint_pct", "address_pct", "mix_pct", "longest_fact_run"})
+# Scripts WRITTEN under the joint rule carry this stamp (explainer_pipeline stamps it beside the
+# cold open); the storyboard mints the four codes only for them. A checkpoint, a fixture or a
+# script written before the rule is judged as before -- the same scoping as require_cold_open.
+SENTENCE_MIX_CONTRACT = "joints_v1"
 _SENTENCE_SPLIT = re.compile(r"(?<=[.?!])\s+")
 _STEP_MARKER = re.compile(r"\bstep (one|two|three|four|five|six|seven|eight|\d+)\b", re.I)
+# ONE second-person regex for the whole pipeline. story_engine (review-only density) and
+# hook_patterns (the hook's boolean) import this object; three copies measuring one text is how
+# two gates come to disagree about which words count.
+SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|you'?re|you'?ve|you'?ll|you'?d)\b", re.I)
+# A JOINT opens a scene on the gap the previous scene left ("But X alone doesn't explain Y",
+# "Not quite.", "Even the thickest wall has a weakness") or on its consequence ("So ..."), or asks
+# the question the viewer would. Tested against the reference's fourteen section openings (eight
+# match) and V8's fifteen (one matches, the closing question).
+_JOINT = re.compile(
+    r"^\s*(?:that|this|those|these|but|yet|except|not quite|so|which is why|"
+    r"here'?s the (?:part|catch|problem|thing)|"
+    r"(?:and )?(?:there was )?one more|even|and yet|that alone|still|until|only|instead|now,|"
+    r"then why|why|how|what|the (?:problem|catch|trouble) (?:is|was))\b", re.I)
+# Sentence kinds. ADDRESS: the viewer is in it (second person or a perceptual imperative).
+# INTERPRETIVE: the sentence compares, evaluates, hedges, or asks -- and carries no year, because
+# "In 1957 it seemed to work" is a dated fact wearing a hedge. Everything else is a FACT sentence.
+_IMPERATIVE = re.compile(r"\b(?:imagine|picture|look|notice|think of|consider)\b", re.I)
+_INTERPRETIVE = re.compile(
+    r"\b(?:like|as if|the same (?:way|principle)|seems?|seemed|should|would|could|almost|not even|"
+    r"strangest|surprising|simple|simply|opposite|think of|means|matters|why|how|rather than|"
+    r"instead of|no (?:more|less|longer))\b|"
+    r"\bnot\b.{0,40}\bthan\b|"
+    r"\bthe (?:real|whole|important|strange) (?:point|part|detail|story|problem)\b", re.I)
+_YEAR = re.compile(r"\b\d{4}\b")
+
+
+def scene_opening(narration: str) -> str:
+    """The first spoken sentence of a scene, chapter marker and lead artefacts held aside."""
+    body = _LEAD_ARTIFACT.sub("", _MARKER.sub("", _text(narration)).strip())
+    parts = [s.strip() for s in _SENTENCE_SPLIT.split(body) if s.strip()]
+    return parts[0] if parts else ""
+
+
+def is_joint(opening: str, role: str = "") -> tuple[bool, str]:
+    """Does this opening sentence join to the scene before it? Returns (verdict, kind).
+
+    The hinge is excluded from the question form on purpose: HINGE_IS_A_QUESTION says a hinge
+    asserts, so for a hinge only the gap and consequence forms count -- "Except the problem is not
+    solved." is both a reference hinge and a joint.
+    """
+    opening = _text(opening)
+    if not opening:
+        return False, ""
+    if opening.endswith("?") and role != HINGE:
+        return True, "question"
+    if _JOINT.search(opening):
+        return True, "connective"
+    return False, ""
+
+
+def classify_sentence(sentence: str, opening: bool = False) -> str:
+    """'address' | 'interpretive' | 'fact' -- the calibration in the REFERENCE_BANDS comment.
+
+    `opening` marks a scene's first sentence: a joint opener ("But the important detail was the
+    speed of that expansion") is interpretive framing by construction, which is why the
+    reference's analysts counted its joints among the interpretive third. Recalibrated on V9
+    (2026-10-06): reference mix 0.40 / longest run 10, V8 0.15 / 12, V9 0.44 / 4. Bare "but",
+    "than", "only" were tried and rejected: on them alone V8 scored 0.35.
+    """
+    sentence = _text(sentence)
+    if SECOND_PERSON.search(sentence) or _IMPERATIVE.search(sentence):
+        return "address"
+    if _YEAR.search(sentence):
+        return "fact"
+    if sentence.endswith("?") or _INTERPRETIVE.search(sentence) or (opening and _JOINT.search(sentence)):
+        return "interpretive"
+    return "fact"
+
+
+def measure_sentence_mix(scenes: list, roles: list | None = None,
+                         continues: list | None = None) -> dict:
+    """Scene-grain prose shape: joints at scene openings, the sentence mix, the longest fact run.
+
+    Scene 1 is exempt from the joint measure (nothing precedes it) and so is a continuation scene
+    (`continues` set): it is the next breath of the row before it, not a new opening.
+    """
+    roles = list(roles or [""] * len(scenes))
+    continues = list(continues or [""] * len(scenes))
+    joints, bare = [], []
+    kinds, by_scene = [], []
+    for index, narration in enumerate(scenes):
+        text = _text(narration)
+        role = _text(roles[index] if index < len(roles) else "").lower()
+        if index > 0 and not _text(continues[index] if index < len(continues) else ""):
+            ok, _kind = is_joint(scene_opening(text), role)
+            joints.append(ok)
+            if not ok:
+                bare.append(index + 1)
+        sentences = [s for s in _SENTENCE_SPLIT.split(_MARKER.sub("", text).strip()) if s.strip()]
+        scene_kinds = [classify_sentence(s, opening=(k == 0 and index > 0))
+                       for k, s in enumerate(sentences)]
+        kinds += scene_kinds
+        by_scene.append(scene_kinds)
+    run = best = 0
+    run_start = run_best = (0, 0)
+    position = 0
+    for scene_index, scene_kinds in enumerate(by_scene, 1):
+        for kind in scene_kinds:
+            position += 1
+            if kind == "fact":
+                if run == 0:
+                    run_start = (scene_index, position)
+                run += 1
+                if run > best:
+                    best, run_best = run, (run_start[0], scene_index)
+            else:
+                run = 0
+    total = max(1, len(kinds))
+    address = kinds.count("address") / total
+    interpretive = kinds.count("interpretive") / total
+    return {
+        "joint_pct": (sum(joints) / len(joints)) if joints else 1.0,
+        "joints": sum(joints), "openings": len(joints), "bare_openings": bare,
+        "address_pct": address, "interpretive_pct": interpretive,
+        "mix_pct": address + interpretive,
+        "fact_pct": kinds.count("fact") / total,
+        "longest_fact_run": best, "fact_run_scenes": list(run_best),
+        "sentences": len(kinds),
+    }
+
+
+def sentence_mix_issues(scenes: list, roles: list | None = None,
+                        continues: list | None = None) -> list[dict]:
+    """The blocking sentence-mix findings for a scripted film, each naming its scenes.
+
+    Nothing is measured on fewer than four scenes: a short-form draft has no middle to open on
+    joints, and these bands were fitted to a long explainer.
+    """
+    if not scenes or len(scenes) < 4:
+        return []
+    mix = measure_sentence_mix(scenes, roles, continues)
+    issues = []
+    lo, _hi = REFERENCE_BANDS["joint_pct"]
+    if mix["openings"] and mix["joint_pct"] < lo:
+        issues.append(_issue(
+            "JOINT_BAND",
+            f"{mix['joints']} of {mix['openings']} scene openings join to the scene before "
+            f"(band >= {lo:.2f}); scenes {', '.join(str(n) for n in mix['bare_openings'])} open on "
+            "a bare fact instead of the gap the previous scene left or its consequence"))
+    lo, _hi = REFERENCE_BANDS["address_pct"]
+    if mix["address_pct"] < lo:
+        issues.append(_issue(
+            "ADDRESS_BAND",
+            f"{mix['address_pct']:.2f} of sentences address the viewer (band >= {lo:.2f}) -- "
+            "'you', 'your', 'imagine', 'picture'"))
+    lo, _hi = REFERENCE_BANDS["mix_pct"]
+    if mix["mix_pct"] < lo:
+        issues.append(_issue(
+            "MIX_BAND",
+            f"{mix['mix_pct']:.2f} of sentences interpret, compare or address the viewer "
+            f"(band >= {lo:.2f}); {mix['fact_pct']:.2f} state facts"))
+    _lo, hi = REFERENCE_BANDS["longest_fact_run"]
+    if mix["longest_fact_run"] > hi:
+        a, b = mix["fact_run_scenes"]
+        issues.append(_issue(
+            "FACT_RUN",
+            f"{mix['longest_fact_run']} fact sentences in a row (band <= {hi}) across scenes "
+            f"{a}-{b}; one sentence in three should compare, evaluate or address the viewer"))
+    return issues
 
 
 def _band(name: str, value: float) -> dict:
@@ -840,42 +1344,62 @@ def _band(name: str, value: float) -> dict:
             "band": [low, high], "in_band": low <= value <= high}
 
 
-def measure_narration(text: str, runtime_sec: float, hook: str = "") -> dict:
+def measure_narration(text: str, runtime_sec: float, hook: str = "",
+                      scenes: list | None = None, roles: list | None = None,
+                      continues: list | None = None) -> dict:
     """Measure the prose properties the references share. Works on a transcript or a script.
 
     `hook` is separate because the two inputs differ in shape. In a transcript the hook IS the
     first sentence, so falling back to it is right. A generated script carries the hook in its own
     field and opens its narration on the first chapter marker, so measuring sentence one scored a
     12-word hook as two words — the sentence it read was "Step one."
+
+    `scenes` is the per-scene narration when the caller has one. The sentence-mix metrics are
+    scene-grain (a joint is a property of a scene OPENING), so without scenes they are not
+    measured at all -- not defaulted, not estimated. A transcript has no scenes.
     """
-    text = _text(text)
+    text = _text(text) or " ".join(_text(s) for s in (scenes or []))
     sentences = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
     if not sentences or runtime_sec <= 0:
         return {"measured": False, "metrics": []}
     lengths = sorted(len(s.split()) for s in sentences)
     short = [s for s in sentences if len(s.split()) <= 5]
-    return {
+    metrics = [
+        _band("words_per_minute", len(text.split()) / runtime_sec * 60),
+        _band("hook_words", len(_text(hook).split()) if _text(hook)
+              else len(sentences[0].split())),
+        _band("median_sentence", lengths[len(lengths) // 2]),
+        _band("short_landing_pct", len(short) / len(sentences)),
+        _band("step_markers", len(_STEP_MARKER.findall(text))),
+    ]
+    out = {
         "measured": True,
         "word_count": len(text.split()),
         "sentence_count": len(sentences),
-        "metrics": [
-            _band("words_per_minute", len(text.split()) / runtime_sec * 60),
-            _band("hook_words", len(_text(hook).split()) if _text(hook)
-                  else len(sentences[0].split())),
-            _band("median_sentence", lengths[len(lengths) // 2]),
-            _band("short_landing_pct", len(short) / len(sentences)),
-            _band("step_markers", len(_STEP_MARKER.findall(text))),
-        ],
+        "metrics": metrics,
+        "sentence_mix_measured": False,
     }
+    if scenes and len(scenes) >= 4:
+        mix = measure_sentence_mix(scenes, roles, continues)
+        metrics += [_band("joint_pct", mix["joint_pct"]), _band("address_pct", mix["address_pct"]),
+                    _band("mix_pct", mix["mix_pct"]),
+                    _band("longest_fact_run", mix["longest_fact_run"])]
+        out["sentence_mix_measured"] = True
+        out["sentence_mix"] = mix
+    return out
 
 
-def grade(payload: dict, narration: str = "") -> dict:
+def grade(payload: dict, narration: str = "", scenes: list | None = None,
+          roles: list | None = None, continues: list | None = None) -> dict:
     """Score a candidate story the way the reference videos score.
 
     Structure and prose are graded separately on purpose. The contract can guarantee the
     structure — that is what `validate_causal_story` checks and what the illustrated lane
     consumes. It cannot guarantee the prose: word rate, sentence rhythm and the short landings
     are a generation target the script model has to hit, and this is the ruler for it.
+
+    With `scenes`, the sentence-mix bands are measured too, and those FAIL: `passed` is False
+    when any BLOCKING_BANDS metric is out of band, and `failed_bands` names them.
     """
     payload = payload if isinstance(payload, dict) else {}
     structure = validate_causal_story(payload)
@@ -897,9 +1421,11 @@ def grade(payload: dict, narration: str = "") -> dict:
 
     prose = measure_narration(narration, runtime,
                               hook=_text((payload.get("hook") or {}).get("line")
-                                         if isinstance(payload.get("hook"), dict) else ""))
+                                         if isinstance(payload.get("hook"), dict) else ""),
+                              scenes=scenes, roles=roles, continues=continues)
     metrics = structural_metrics + (prose.get("metrics") or [])
     passing = [m for m in metrics if m["in_band"]]
+    failed_bands = [m for m in metrics if not m["in_band"] and m["metric"] in BLOCKING_BANDS]
     return {
         "schema_version": SCHEMA_VERSION,
         "structure_passed": structure["passed"],
@@ -908,6 +1434,9 @@ def grade(payload: dict, narration: str = "") -> dict:
         "metrics": metrics,
         "score": round(100.0 * len(passing) / len(metrics), 1) if metrics else 0.0,
         "out_of_band": [m for m in metrics if not m["in_band"]],
+        "sentence_mix_measured": bool(prose.get("sentence_mix_measured")),
+        "failed_bands": failed_bands,
+        "passed": bool(structure["passed"]) and not failed_bands,
     }
 
 
@@ -924,7 +1453,7 @@ def grade(payload: dict, narration: str = "") -> dict:
 # stopped complying, which is the thing worth knowing.
 # ---------------------------------------------------------------------------
 
-_SINGLETON_ROLES = (SETUP, INTERVENTION, FALSE_RESOLUTION, HINGE, MECHANISM, REVERSAL)
+_SINGLETON_ROLES = (SETUP, INTERVENTION, FALSE_RESOLUTION, HINGE, MECHANISM, REVERSAL, SYNTHESIS)
 
 
 def repair_chain(steps: list[dict], engine: dict | None = None) -> tuple[list[dict], list[str]]:
@@ -994,7 +1523,10 @@ def repair_chain(steps: list[dict], engine: dict | None = None) -> tuple[list[di
     # 5. The reversal ends the chain, so it is the beat just before the trailing
     #    generalization/close block — wherever the planner happened to put the label.
     tail = len(steps) - 1
-    while tail > 0 and steps[tail]["role"] in (GENERALIZATION,) + CLOSING_ROLES:
+    # The synthesis is part of the trailing block: without it here a compiler-added synthesis
+    # is relabelled REVERSAL and the real reversal demoted to ESCALATION, which then fails
+    # ESCALATION_AFTER_REVERSAL on a story the compiler had just built correctly.
+    while tail > 0 and steps[tail]["role"] in (GENERALIZATION, SYNTHESIS) + CLOSING_ROLES:
         tail -= 1
     for index, step in enumerate(steps):
         if step["role"] == REVERSAL and index != tail:
@@ -1169,7 +1701,7 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
         # format tag is stored lowercase ("explained like you are five") and would otherwise be
         # read mid-sentence.
         value = _text(value).rstrip(".")
-        return (value[0].upper() + value[1:] + ("" if value[-1] in "?!" else ".")) if value else ""
+        return (value[0].upper() + value[1:] + ".") if value else ""
 
     def _strip_lead(narration: str) -> str:
         """Remove a previously-applied hook, tag and marker so the rebuild is idempotent.
@@ -1189,9 +1721,6 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
         """
         body = narration
         parts = [part for part in (_sentence(hook), _sentence(cold_open), _sentence(format_tag)) if part]
-        # Recognise the old malformed question stop when restoring an existing draft.
-        parts = [legacy for part in parts for legacy in
-                 ([part + ".", part] if part.endswith(("?", "!")) else [part])]
         removing = True
         while removing:
             removing = False

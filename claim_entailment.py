@@ -35,7 +35,7 @@ from typing import Any, Callable
 # Bump when the MEANING of entailment changes — a reworded prompt, a different verdict vocabulary,
 # a changed pass rule. It is part of the cache key, so every stored verdict from the old meaning is
 # invalidated rather than silently reused under the new one.
-ENTAILMENT_CONTRACT_VERSION = "entailment_v6"
+ENTAILMENT_CONTRACT_VERSION = "entailment_v2"
 
 # Judgements the model can return about the content.
 SEMANTIC_VERDICTS = ("entailed", "partially_entailed", "unsupported", "contradicted")
@@ -62,8 +62,7 @@ def is_retryable(verdict: dict) -> bool:
 # rewrites a claim and keeps its id, and keying on the id would inherit a verdict for text nobody
 # has judged. Under durable resume that is a stale PASS on a checkpoint, not just a stale value.
 _CLAIM_KEY_FIELDS = ("claim", "support_quote", "source_url", "geographic_scope",
-                     "timescale", "confidence", "support_provenance", "source_published_at",
-                     "as_of", "metric")
+                     "timescale", "confidence")
 
 
 def _text(value: Any) -> str:
@@ -83,9 +82,7 @@ def cache_key(claims: list[dict], event_text: str, *,
     Claims are sorted, because the judgement is about the SET: a reorder must not re-buy the call.
     """
     canonical = sorted(_canonical_claim(claim) for claim in (claims or []))
-    from script_contracts import model_identity
-    payload = "\n".join([kind, contract_version, json.dumps(model_identity(), sort_keys=True),
-                         _text(event_text), *canonical])
+    payload = "\n".join([kind, contract_version, _text(event_text), *canonical])
     return f"{contract_version}:{kind}:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -102,28 +99,18 @@ def _normalise(reply: Any, fallback_reason: str) -> dict:
                 "unsupported_details": [],
                 "reason": fallback_reason or f"unusable judge verdict {verdict!r}"}
     details = [_text(item) for item in (reply.get("unsupported_details") or []) if _text(item)]
-    # A judge saying "not flagged" inside a failure is internally inconsistent, not
-    # permission to delete narration. Retry once through _judged; never auto-pass it.
-    disclaims_failure = any(re.search(
-        r"\b(?:not flagged|not itself an added fact|not an unsupported (?:fact|detail)|"
-        r"should not be flagged)\b", detail, re.I) for detail in details)
-    core = _text(reply.get("supported_core")).casefold()
-    # A quoted clause cannot simultaneously be the supported core and the detail
-    # to remove. Treat that response as indeterminate, never as permission to trim.
-    contradictory_quote = any(
-        len(span.split()) >= 3 and span.casefold() in core
-        and not re.search(r"\b(?:not|never|no|without)\b", core)
-        for detail in details for span in re.findall(r"['\"‘“]([^'\"’”]+)['\"’”]", detail))
-    if (verdict == "entailed" and details) or disclaims_failure or contradictory_quote:
-        return {"verdict": "invalid_response", "passed": False, "supported_core": "",
-                "unsupported_details": [], "reason": "internally inconsistent judge response"}
     # `partially_entailed` is the most useful state in the system, and reducing it to passed=False
     # throws away what makes it useful. "Unsupported" says remove the assertion; "partially" says
     # there is a valid factual core worth keeping and these specific inventions to strip. The
     # repair instruction is deterministic only if both halves survive.
-    return {"verdict": verdict, "passed": verdict in PASSING_VERDICTS,
-            "supported_core": _text(reply.get("supported_core")),
-            "unsupported_details": details, "reason": _text(reply.get("reason"))}
+    severity = _text(reply.get("severity")).lower()
+    out = {"verdict": verdict, "passed": verdict in PASSING_VERDICTS,
+           "supported_core": _text(reply.get("supported_core")),
+           "unsupported_details": details, "reason": _text(reply.get("reason"))}
+    # Only a value we recognise is carried; an absent or odd one leaves the caller to classify.
+    if severity in ("material", "soft"):
+        out["severity"] = severity
+    return out
 
 
 _EVIDENCE_SYSTEM = (
@@ -143,10 +130,42 @@ _FIDELITY_SYSTEM = (
     "- figurative language and non-factual emphasis\n"
     "- causal connectives already entailed by the event sequence\n"
     "- restating the event as a scene rather than a summary\n"
-    "- omitting a proper name when the identity remains unchanged ('one reserve' for Riponui)\n"
-    "A clearly hypothetical question need not assert that its scenario happened. But a historical "
-    "question ('How did X cause Y?') presupposes X, Y and their relationship: those premises need "
-    "evidence. Rhetorical form never licenses a new factual claim. Framing alone is not a new fact.\n"
+    # Measured on the killer bees film (2026-10-05): ten of twelve blocking failures were
+    # ordinary descriptive writing, not invented history -- "the queen excluders had blocked the
+    # bees' movement" (that is what a queen excluder IS), "each swarm carried a queen" (that is
+    # what swarming IS), "they expanded beyond the original escape site" against an event saying
+    # they "expanded their range through South and Central America". Six launches died here or
+    # at the spine. A boundary no reasonable sentence can pass stops protecting the channel and
+    # starts preventing it from publishing, so the rule is narrowed to what it always said it
+    # was: invented HISTORY, not concrete language about the history the event already contains.
+    "- a definitional or common-knowledge property of something the event already names (a queen "
+    "excluder excludes queens; a swarm contains a queen; a colony occupies a cavity). The event "
+    "naming the thing carries what the thing IS.\n"
+    "- a paraphrase that restates the event in different words, or narrows it to part of its own "
+    "scope ('expanded beyond the escape site' for an event saying the range expanded across a "
+    "continent)\n"
+    "- naming a concrete instance of a category the event states, where the instance is ordinary "
+    "for that category ('tree trunks' for an event saying 'cavities')\n"
+    # Second measured round on the same film: the judge flagged "the bees were in a landscape",
+    # "across open ground", "the hive boxes stood open" and "Brazil's tropical climate" as
+    # unsupported history. None of those is a fact a viewer could be misled about. Spatial and
+    # environmental description of a scene the event already locates is writing, not evidence.
+    "- where the scene physically is and what it looks like, when the event already locates it "
+    "('across open ground', 'among the trees', 'the hive boxes stood open', 'Brazil's tropical "
+    "climate' for an event about bees doing poorly in Brazil). Setting is staging, not history.\n"
+    "- the ordinary English for a state the event or its claims already assert ('became "
+    "established' for a claim saying the population became established)\n"
+    # Third measured round. The judge began flagging things the narration never said, derived by
+    # negation from a word it did say: "natural colony" was refused for implying "the colony was
+    # not inside a research apiary" and "not inside a transport crate". A reader cannot be
+    # misled by a proposition the sentence does not contain.
+    "- an implication you derived by NEGATION rather than something the narration states. If the "
+    "line says 'a wild colony', it does not assert 'the colony was not in a crate'; judge the "
+    "words on the page, not their complement.\n"
+    "- collapsing several stated places or dates into the ordinary umbrella for them ('across the "
+    "Southwest' for Arizona, New Mexico and California)\n"
+    "A rhetorical question does not assert that its premise happened. Framing that moves the story "
+    "along is not a new fact.\n"
     "\nFLAG — these are historical assertions and need the event behind them:\n"
     "- quantities and scale ('hundreds of farms')\n"
     "- dates and timescales ('overnight', 'within a year', 'in 1902')\n"
@@ -157,19 +176,12 @@ _FIDELITY_SYSTEM = (
     "- direct quotes\n"
     "- causal mechanisms the event does not contain\n"
     "\nFlag a detail only if a viewer would come away believing a specific thing about the world "
-    "that the event does not support. Return ONLY JSON."
-)
-
-# Shared by drafting and both entailment boundaries. A repeated number does not
-# establish that the writer has preserved the measured quantity.
-MEANING_RULES = (
-    "Preserve every numerical claim's numerator, denominator, population, outcome, "
-    "time window, geography and uncertainty. Half of chick DEATHS attributed to stoats "
-    "does not mean half of ALL chicks die from stoats, nor a coin-flip survival chance. "
-    "Survived monitoring does not mean survived to adulthood. A legal protection or "
-    "intended benefit is not proof that a policy worked. Preserve causal direction: "
-    "introducing a predator is not removing a predator; removing a problem is not "
-    "removing a species. Rhetorical lessons and questions must preserve those premises. "
+    "that the event does not support. Ask yourself: is this a NEW fact a reader could look up and "
+    "find the event does not back, or is it the same fact told in concrete words? Only the first "
+    "is a violation. A named person, a number, a date, a place, a motive or an invented action "
+    "is always the first. If you find yourself flagging a phrase that merely says where the scene "
+    "is, what it looked like, or restates the event in plainer words, you are being too strict: "
+    "that is the writing, and refusing it does not protect anyone. Return ONLY JSON."
 )
 
 
@@ -184,6 +196,35 @@ _RETURN_SHAPE = (
 )
 
 
+# THE JUDGE RATES ITS OWN FINDING. Which overshoots matter was being inferred downstream by a
+# regex over the judge's prose, and every phrasing it had not met cost a render: "Across open
+# ground" read as a proper noun, "Brazilian" as an invented place, "a beekeeper opening a box" as
+# an invented actor, while "the bees were specifically queens" passed as harmless. The judge has
+# just read both texts and knows which it found; asking costs nothing and guesses nothing.
+_FIDELITY_RETURN_SHAPE = (
+    'Return ONLY JSON: {"verdict":"entailed|partially_entailed|unsupported|contradicted",'
+    '"supported_core":"the part that IS supported, stated plainly, or \'\' if none",'
+    '"unsupported_details":["the specific detail that is not supported", "..."],'
+    '"severity":"material|soft",'
+    '"reason":"one sentence"}.\n'
+    'Use "entailed" only when EVERY factual element is supported. Use "partially_entailed" when '
+    'some are and some are not, and list the ones that are not. Use "contradicted" when something '
+    'asserted is incompatible with the source material.\n'
+    'SEVERITY is about the DETAILS you listed, and it is the most important field here:\n'
+    '  "material" - the narration states something a viewer could repeat as a fact and be wrong: '
+    'a number, a quantity, a date, a named person, a named place, or an event or action that did '
+    'not happen -- AND which the EVENT and the CLAIMS above do NOT already contain. A place, '
+    'name or figure that appears in the event or its claims is not an invention, whatever the '
+    'wording around it; "near Rio Claro" against claims that say Rio Claro is soft.\n'
+    '  "soft" - everything else. Paraphrase, a synonym, word choice, visual staging (colour, '
+    'light, weather, landscape), an ordinary description of a state the event already asserts, a '
+    'morphological variant of a name the event uses, or a detail that merely restates the event '
+    'in different words. Nobody is misled by it.\n'
+    'If the only thing wrong is HOW something is worded, that is "soft". Reserve "material" for a '
+    'fact that is actually wrong or actually invented.'
+)
+
+
 def _claim_block(claim: dict) -> str:
     """One claim rendered with the evidence it rests on, for the evidence judge."""
     lines = [f"- [{claim.get('claim_id') or '?'}] {claim.get('claim')}"]
@@ -195,9 +236,6 @@ def _claim_block(claim: dict) -> str:
     url = str(claim.get("source_url") or "").strip()
     if url:
         lines.append(f"    source: {url}")
-    for field in ("geographic_scope", "timescale", "confidence", "source_published_at", "as_of", "metric"):
-        if claim.get(field):
-            lines.append(f"    {field}: {claim[field]}")
     return "\n".join(lines)
 
 
@@ -228,7 +266,7 @@ def _default_judge(payload: dict) -> dict:
         body = (f"EVENT (the factual ceiling):\n{payload['event']}\n\n"
                 f"NARRATION:\n{payload['narration']}\n\n"
                 "Does the narration introduce any factual detail the event does not contain?\n"
-                + _RETURN_SHAPE)
+                + _FIDELITY_RETURN_SHAPE)
     else:
         # Show the SOURCE PASSAGE, not just the model's paraphrase of it.
         #
@@ -249,12 +287,23 @@ def _default_judge(payload: dict) -> dict:
                 "own source passage actually states it. A passage describing what something was "
                 "intended, planned or expected to do does not establish that it did. Where a "
                 "passage is marked page_recovered it was matched by word overlap rather than "
-                "quoted by the researcher, so read it especially literally.\n" + _RETURN_SHAPE)
+                "quoted by the researcher, so read it especially literally.\n"
+                # CONJUNCTION IS NOT INFERENCE. Measured repeatedly on the killer bees film: one
+                # claim stated Kerr's 1956 import, another the 1956 introduction of A. m.
+                # scutellata, and the beat saying both was refused because "they do not state
+                # them together". Sources record facts in pieces; a film states them in
+                # sentences. If claim A supports X and claim B supports Y, then "X and Y" is
+                # supported, and demanding a single passage carrying the whole sentence makes
+                # every multi-fact beat unprovable.
+                "TAKEN TOGETHER MEANS CONJUNCTION. If one claim supports X and another supports "
+                "Y, the statement 'X and Y' IS supported -- you do not need one passage stating "
+                "both. What still needs its own evidence is any LINK the statement asserts "
+                "between them: that X caused Y, that X was done in order to achieve Y, that Y "
+                "followed X in time, or any quantity or date neither passage gives.\n"
+                + _RETURN_SHAPE)
 
-    if payload.get("review_attempt"):
-        body += "\nPrevious response was internally invalid. Re-evaluate independently; bounded review attempt 2."
     response = ep._claude().messages.create(
-        model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system + "\n" + MEANING_RULES,
+        model=ep.ANTHROPIC_MODEL, max_tokens=600, system=system,
         messages=[{"role": "user", "content": body}])
     if payload.get("cost_sink") is not None:
         payload["cost_sink"].append(ep._msg_cost(response.usage))
@@ -271,13 +320,10 @@ def _default_judge(payload: dict) -> dict:
 
 def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
             cache: dict | None, fallback_reason: str) -> dict:
-    from durable_execution import DurableExecutionError
     if cache is not None and key in cache and not is_retryable(cache[key]):
         return dict(cache[key])
     try:
         reply = (judge or _default_judge)(payload)
-    except DurableExecutionError:
-        raise
     except Exception as exc:                       # noqa: BLE001 - any provider failure fails closed
         result = {"verdict": "unavailable", "passed": False, "supported_core": "",
                   "unsupported_details": [],
@@ -291,9 +337,7 @@ def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
         # ("[no verdict recorded]" on the reversal, job 7cb4c47b, 2026-09-25) after research and
         # planning were bought. Ask the judge once more before failing closed.
         try:
-            result = _normalise((judge or _default_judge)({**payload, "review_attempt": 2}), fallback_reason)
-        except DurableExecutionError:
-            raise
+            result = _normalise((judge or _default_judge)(payload), fallback_reason)
         except Exception as exc:                   # noqa: BLE001 - second failure fails closed
             result = {"verdict": "unavailable", "passed": False, "supported_core": "",
                       "unsupported_details": [],

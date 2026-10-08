@@ -8,7 +8,7 @@ import story_fact_model as facts
 
 
 def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge=None,
-            repair=None, event_repair=None, cost_sink=None, cache=None):
+            repair=None, cost_sink=None, cache=None):
     """Return the actual accepted objects and explicit results, not only kept IDs.
 
     Repair changes citations on the same factual sheet. It cannot generate replacement events,
@@ -18,8 +18,6 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
     evidence_cost = cost_ledger.StageCostSink(cost_sink, cost_ledger.BOUNDARY_A)
     repair_cost = cost_ledger.StageCostSink(cost_sink, cost_ledger.CAUSAL_SPINE)
     key = handoff.identity(beats, engine_id, claims, claims_by_case, question, repair is not None)
-    if event_repair is not None:
-        key["event_citation_repair"] = 1
     saved = handoff.load(key)
     if saved:
         evidence_cost.append(saved["costs"].get("evidence", 0))
@@ -27,9 +25,6 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
         result = deepcopy(saved["prepared"])
         cache.update(result.get("cache") or {})
         result["cache"] = cache
-        if "handoff_identity" not in result:
-            result["handoff_identity"] = key
-            handoff.save(handoff.record(key, beats, claims, result, saved["costs"]))
         return result
     handoff.save(handoff.record(key, beats, claims))
     working = compiler.canonical_beats(beats)
@@ -88,55 +83,8 @@ def prepare(beats, engine_id, claims, claims_by_case=None, *, question="", judge
                         "reason": concerns[0]["why"]})
         if not changed:
             break
-    # Ecological and other non-incentive events need citation repair too. Restore
-    # original text only for failed required events; all edits remain citation-only.
-    cascade = compiled.get("cascade") or {}
-    failed = set(compiled.get("still_failing") or [])
-    failed.update(r.get("beat_id") for r in compiled.get("unrepairable") or [])
-    contradicted = any(r.get("verdict") == "contradicted"
-                       for r in cascade.get("assertion_judgments") or [])
-    originals = {b["beat_id"]: b for b in compiler.canonical_beats(beats)}
-    targets = [b for b in compiled["effective_beats"]
-               if b["beat_id"] in failed and b["beat_id"] in originals and not b.get("derived")]
-    if event_repair and not compiled["passed"] and not cascade.get("unavailable") and not contradicted and 0 < len(targets) <= 4:
-        excluded = {ref for refs in (claims_by_case or {}).values() for ref in refs}
-        eligible = {ref: c for ref, c in claims.items()
-                    if ref not in excluded and c.get("quote_verified") and c.get("source_reachable")}
-        if eligible:
-            working = [deepcopy(originals[b["beat_id"]] if b in targets else b)
-                       for b in compiled["effective_beats"] if not b.get("derived")]
-            concerns = [{"beat_id": b["beat_id"], "why": facts.spine_summary(
-                compiled["effective_beats"], compiled)} for b in targets]
-            proposed, _ = event_repair(deepcopy(working), concerns, eligible, question,
-                                      cost_sink=repair_cost)
-            updates = {b.get("beat_id"): b for b in proposed}
-            changed = False
-            for beat in working:
-                bid = beat["beat_id"]
-                if bid not in {b["beat_id"] for b in targets}:
-                    continue
-                refs = facts.event_of(updates.get(bid) or {})["claim_refs"]
-                valid = bool(refs) and set(refs) <= set(eligible)
-                altered = valid and refs != facts.event_of(beat)["claim_refs"]
-                if altered:
-                    beat["event"]["claim_refs"] = refs
-                    changed = True
-                repairs.append({"beat_id": bid, "attempted": True, "changed": bool(altered),
-                                "kind": "event_citations"})
-            if changed:
-                roles = compiler.compile_roles(working, engine_id, claims)
-                if roles.get("passed"):
-                    candidate = facts.compile_spine(compiler.splice_derived(roles["beats"], roles),
-                        claims, claims_by_case, judge=judge, cache=cache,
-                        cost_sink=evidence_cost, engine_id=engine_id)
-                    # A failed proposal cannot replace the previous evaluated plan.
-                    if candidate["passed"]:
-                        compiled = candidate
-                    else:
-                        repairs.append({"kind": "event_citations", "accepted": False,
-                                        "reason": facts.spine_summary(candidate["effective_beats"], candidate)})
     compiled["citation_repairs"] = repairs
-    result = {"handoff_identity": key, "beats": compiled["effective_beats"], "compiled": compiled,
+    result = {"beats": compiled["effective_beats"], "compiled": compiled,
               "cache": cache, "cost_usd": sum(evidence_cost) + sum(repair_cost)}
     handoff.save(handoff.record(key, beats, claims, result,
                                {"evidence": sum(evidence_cost), "repair": sum(repair_cost)}))

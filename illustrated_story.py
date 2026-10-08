@@ -35,12 +35,25 @@ _LOCATION_BY_ROLE = {
     cs.ESCALATION: "action_location",
     cs.REVERSAL: "consequence_location",
     cs.GENERALIZATION: "consequence_location",
+    cs.SYNTHESIS: "consequence_location",
     cs.TOOL: "opening_location",
     cs.VERDICT: "opening_location",
 }
-# The reference videos both narrate at ~180 words per minute. Scenes carry no timing before TTS,
-# so the mechanism-placement check needs an estimate, and the measured rate is the honest one.
-REFERENCE_WPM = 180.0
+# OUR voice, not the reference channel's. Scenes carry no timing before TTS, so the
+# mechanism-placement check needs an estimate -- and this was 180, measured on the two reference
+# VIDEOS, while the films it is used to predict are narrated by us. Measured on what we actually
+# shipped, decoding each mp4 and counting its spoken words:
+#
+#     killerbees01   601 words / 238.7s = 151 wpm
+#     killerbees02   452 words / 179.1s = 151 wpm
+#     canetoad01     792 words / 281.7s = 169 wpm
+#     wolves01       646 words / 229.8s = 169 wpm
+#
+# The illustrated lane sits at 151 and the older pair at 169; none of them at 180. Overestimating
+# the rate underestimates the runtime, which tightens every deadline expressed as a PERCENTAGE of
+# it -- a 608-word script was called a 122s film and then failed LATE_MECHANISM against a 24s
+# ceiling that should have been 48s. Re-measure this if the voice speed changes.
+REFERENCE_WPM = 151.0
 
 
 def _text(value: Any) -> str:
@@ -337,9 +350,21 @@ def build_storyboard(script: dict, question: str) -> dict:
         "runtime_sec": round(spoken, 1),
         "hook": {"line": _text(script.get("hook")),
                  "cold_open": _text(script.get("_cold_open")),
+                 # the ladder's planting sentence (causal_story.lead_numbers)
+                 "consequence": _text((script.get("_opening") or {}).get("consequence")
+                                      if isinstance(script.get("_opening"), dict) else ""),
                  # Held only on scripts planned under the cold-open contract: a checkpoint or
                  # cached script written before it carries no key and is judged as before.
                  "require_cold_open": "_cold_open" in script},
+        # Same shape, one contract later: the sentence-mix bands (JOINT_BAND, ADDRESS_BAND,
+        # MIX_BAND, FACT_RUN) are asked of scripts the chunked writer stamped, never of a
+        # transcript, a fixture or an older checkpoint.
+        "sentence_mix_contract": _text(script.get("_sentence_mix_contract")),
+        # The planted-number close is asked of scripts the chunked writer stamped, never of a
+        # transcript or an older checkpoint (two reference closes never return their numeral).
+        "close_contract": _text(script.get("_close_contract")),
+        # The human-first opening: the shorts-fitted opening gates become warnings for it.
+        "opening_contract": _text(script.get("_opening_contract")),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made
@@ -395,7 +420,9 @@ def build_storyboard(script: dict, question: str) -> dict:
         "chapter_count": causal["chapter_count"],
         "story_engine": causal.get("engine", ""),
         "estimated_runtime_sec": round(spoken, 1),
-        "validation": {"passed": not validation_errors, "errors": validation_errors},
+        "validation": {"passed": not validation_errors, "errors": validation_errors,
+                       "warnings": [f"{w['code']}: {w['message']}"
+                                    for w in causal.get("warnings") or []]},
     }
     script["_illustrated_story"] = storyboard
     return storyboard
@@ -405,26 +432,120 @@ CREATIVE_PROFILE = "ink_cut_paper_v1"
 CAPTION_STYLE = "illustrated_ink"
 
 
-def visual_style_suffix(framing: str = "") -> str:
-    """Our ink/cut-paper treatment; continuity comes from simple stable character anchors."""
+# ── Paper plates: one stock per story role ──────────────────────────────────────
+#
+# The delivered films measured a CIRCULAR hue spread of 4.6 degrees across three complete
+# videos: every frame sat on the same ivory field at saturation 0.16-0.21, and the first 60
+# seconds of the cane toad film was flatter than its own average, which is where the audience
+# left (41s of 281s). Recolouring the OBJECTS cannot move that, because the paper is the field
+# and the field is most of the frame. So the ink, the hatching, the deckled edge and the mustard
+# story accent stay fixed for the whole series -- that is the identity -- and the STOCK the scene
+# is printed on changes at every story turn.
+#
+# Measured on a six-beat continuity test (2026-10-04): circular hue SD 91.4 degrees over 6 of 12
+# sectors, cut-to-cut mean |dRGB| 47.8 against the delivered films' 16.7-21.3, and all six frames
+# still read as one hand-made series.
+PLATES = {
+    "setup": ("Printed on warm ivory rag stock: pale ivory-cream paper is the FIELD and covers "
+              "most of the frame, with straw and kraft-tan cut-paper shapes and deep umber "
+              "blocks. No blue field, no grey field."),
+    "intervention": ("Printed on agricultural green stock: the paper itself is a flat olive-green "
+                     "covering most of the frame, with ledger-green and dark moss cut-paper "
+                     "shapes and pale lime highlights. No ivory, no cream, nothing warm."),
+    "false_resolution": ("Printed on pale sky-cyan stock: the paper is a clean pale cyan filling "
+                         "the frame, with mineral teal and slate-teal cut-paper shapes and one "
+                         "small warm paper accent. The brightest, cleanest plate in the film -- "
+                         "the part that appeared to work is the prettiest frame. No ivory field, "
+                         "nothing amber."),
+    "hinge": ("Printed on near-black midnight-navy stock: the paper itself is a very dark "
+              "blue-black covering almost the entire frame, with faint steel-blue shapes barely "
+              "lifting out of it. The darkest frame in the film. No ivory, nothing bright, no "
+              "open sky."),
+    "mechanism": ("Printed on blueprint-blue stock: the paper is a mid blueprint blue filling the "
+                  "frame, with deeper indigo and near-black navy cut-paper blocks and chalk-white "
+                  "drawing shapes. No ivory, no cream, nothing warm."),
+    "escalation": ("Printed on magenta-madder stock: the paper is a saturated rose-madder filling "
+                   "the frame, with deep wine and claret cut shapes and dusty rose highlights. "
+                   "No ivory, no blue field, nothing cool."),
+    "reversal": ("Printed on scarlet-oxide stock: the paper is a deep saturated scarlet filling "
+                 "the frame, with blood-oxide and near-black red cut shapes and one "
+                 "scorched-apricot highlight. The most saturated frame in the film. No ivory, "
+                 "nothing pale."),
+    "generalization": ("Printed on rust-orange stock: the paper is a hot rust orange covering the "
+                       "frame, with burnt sienna and dark oxide cut shapes and pale apricot "
+                       "highlights. No ivory, nothing cool."),
+    # The re-walk is printed on the reversal's stock: the end state heard again, not a new turn;
+    # a silent fallback to the ivory setup plate would read as the film restarting.
+    "synthesis": None,   # resolved to PLATES["reversal"] right after this table
+    "tool": ("Printed on bleached stone stock: the paper is a pale colour-drained stone with cool "
+             "grey-green and bone cut shapes. The least saturated plate in the film; the mustard "
+             "story object is the only warm thing left. No strong colour of any kind."),
+    "context": ("Printed on warm ivory rag stock: pale ivory-cream paper is the field, with straw "
+                "and kraft-tan cut-paper shapes. No blue field."),
+}
+PLATES["synthesis"] = PLATES["reversal"]
+_DEFAULT_PLATE = PLATES["setup"]
+
+# The composition rules, lifted from a reference frame that measured far better than ours and
+# then stripped of its medium: a hero subject at dominant scale, a softened foreground, a low
+# raking light that rims every cut edge, and the subject arranged as a directional flow. None of
+# this requires leaving illustration, and all of it is expressible in the prompt.
+_STAGING = (
+    " Cinematic staging: ONE hero subject rendered at dominant scale in the near foreground with "
+    "crisp ink detail; the cut-paper shapes immediately in front of it simplified and softened as "
+    "if thrown out of focus; the background receding through progressively flatter, paler paper "
+    "layers. A low raking light rims every cut-paper edge with a bright warm line and throws long "
+    "shadows toward the viewer. One unmistakable story action and a strong readable silhouette, "
+    "with calm negative space around the hero so the frame reads in half a second.")
+
+
+def plate_for(role: str) -> str:
+    """The paper stock this story role is printed on."""
+    return PLATES.get((role or "").strip().lower(), _DEFAULT_PLATE)
+
+
+def visual_style_suffix(framing: str = "", role: str = "", people: bool = True) -> str:
+    """Our ink/cut-paper treatment on this role's paper stock, staged for depth.
+
+    `role` selects the plate (see PLATES). Omitted, the warm ivory setup stock applies, which is
+    what every frame of the first three films used.
+
+    `people=False` is for a PURE-EVIDENCE state. The prompt's cast line says "No characters. Show
+    only physical evidence" and the verifier rejects any person in the frame -- while this suffix
+    described "simplified human figures with natural skin tones ... expressive hands" on every
+    frame. Two instructions about the same picture; the model drew the figures, the inspector
+    refused them twice, and the run died at its first opening asset after fifteen minutes of
+    planning spend. The figure description is only appended where figures are allowed.
+    """
+    figures = (
+        "Simplified human figures with natural skin tones, varied angular face silhouettes, "
+        "small simple facial features, expressive hands and period-appropriate clothing. "
+        "Identity is carried by clothing colour, silhouette, headwear and props — never by "
+        "facial detail. " if people else
+        "No human figures in this frame: objects, animals, places and documents only. ")
     return (
         " Compose ONE single continuous scene that fills the whole frame: a single moment, seen "
         "once, from one camera. Never a grid, never panels, never a storyboard sheet, never "
         "borders, gutters, insets, numbered boxes or caption strips. "
         " Visual treatment: hand-drawn editorial history illustration with layered cut-paper "
-        "shapes on clean ivory stock. Simplified human figures with natural skin tones, varied "
-        "angular face silhouettes, small simple facial features, expressive hands and "
-        "period-appropriate clothing. Identity is carried by "
-        "clothing colour, silhouette, headwear and props — never by facial detail. Visible ink "
+        "shapes on clean ivory stock. " + figures + "Visible ink "
         "contour lines, restrained crosshatching, flat gouache colour blocks and a little paper "
-        "grain. Palette: deep ink navy, mineral teal, terracotta and ivory, with a small mustard "
-        "accent for the changing story object. Readable silhouettes, layered foreground, middle ground and "
-        "background, one unmistakable story action per frame, and clear negative space in the "
-        "lower third for captions. Reuse the same clothing colours, props and location design "
-        "whenever they recur. Composition must read instantly at phone size."
+        "grain. A single small mustard-yellow paper accent marks the changing story object, on every "
+        "plate. Readable silhouettes, layered foreground, middle ground and "
+        "background, one unmistakable story action per frame. Reuse the same clothing colours, props and location design "
+        "whenever they recur. Composition must read instantly at phone size. "
+        + plate_for(role)
+        + _STAGING
         + framing
         + " No text, letters, numbers, labels, arrows, UI, watermark, or accidental writing; "
         "the renderer adds all typography and diagram overlays."
+        # YEARS ARE THE LEAK. Six frames of the delivered killer bees film carried "1956", "26",
+        # "1994", "1990" and "2005" burned into the picture, because a visual description that
+        # says "by 2005 the range reached Florida" reads to the image model as an instruction to
+        # WRITE the year. The ban has to name the specific thing that keeps appearing.
+        + " In particular NEVER draw a year, a date, a count or any digit anywhere in the frame, "
+        "and never a map legend, chart axis, signpost, banner or plaque carrying one: show the "
+        "moment itself and let the renderer caption it."
     )
 
 
@@ -442,9 +563,166 @@ def negative_prompt() -> str:
         "comic strip, comic panels, multi-panel layout, storyboard sheet, contact sheet, grid of "
         "images, split screen, panel borders, gutters, insets, numbered boxes, caption boxes, "
         "speech bubbles, any lettering or text, titles, headlines, signage text, labels, "
+        "years, dates, digits, numerals, map legends, chart axes, plaques, banners, "
         "photorealism, cinematic photography, 3D render, plastic skin, anime, comic-book "
         "superhero style, detailed rendered faces, excessive detail, distorted hands, extra "
         "limbs, watermarks, modern clothing, inconsistent characters, crowded "
         "focal point, multiple unrelated actions, generic stock illustration, blank white balloon "
         "heads, sepia parchment vignette, purple-on-white caption cards"
     )
+
+
+# ── Shot grammar ───────────────────────────────────────────────────────────────
+#
+# Measured across the three delivered films: close + detail was 4/25, 3/22 and 3/27 scenes,
+# while wide + aerial ran 9/25, 14/22 and 18/27. The films are a sequence of landscapes with
+# almost no face or object at scale, which is the other half of why they read as static. The
+# writer picks shot_type per scene and nothing ever checked the distribution.
+CLOSE_TYPES = ("close", "detail")
+WIDE_TYPES = ("wide", "aerial")
+CLOSE_MIN_RATIO = 0.40
+WIDE_MAX_RATIO = 0.28
+MAX_CONSECUTIVE_WIDES = 1
+MAX_SAME_TYPE_RUN = 2
+
+# Which shot sizes each role should favour, most-preferred first. A diagram beat belongs in the
+# detail register at hand scale, not as a map seen from orbit.
+_ROLE_PREFERENCE = {
+    "setup": ("detail", "close", "medium", "wide"),
+    "intervention": ("medium", "close", "detail"),
+    "false_resolution": ("detail", "wide", "medium"),
+    "hinge": ("detail", "close"),
+    "mechanism": ("close", "detail", "medium"),
+    "escalation": ("close", "detail", "medium", "wide"),
+    "reversal": ("close", "medium", "detail"),
+    "synthesis": ("detail", "close", "medium"),
+    "tool": ("medium", "close"),
+}
+
+
+def shot_grammar_report(scenes: list) -> dict:
+    """How the plan's shot sizes measure against the grammar. Deterministic, no model."""
+    types = [str((s or {}).get("shot_type") or "medium").strip().lower() for s in scenes or []]
+    n = max(1, len(types))
+    close = sum(1 for t in types if t in CLOSE_TYPES)
+    wide = sum(1 for t in types if t in WIDE_TYPES)
+    run_w, worst_w, run_s, worst_s, prev = 0, 0, 0, 0, None
+    for t in types:
+        run_w = run_w + 1 if t in WIDE_TYPES else 0
+        worst_w = max(worst_w, run_w)
+        run_s = run_s + 1 if t == prev else 1
+        worst_s = max(worst_s, run_s)
+        prev = t
+    fails = []
+    if close / n < CLOSE_MIN_RATIO:
+        fails.append(f"close+detail {close}/{len(types)} ({close / n:.0%}) under {CLOSE_MIN_RATIO:.0%}")
+    if wide / n > WIDE_MAX_RATIO:
+        fails.append(f"wide+aerial {wide}/{len(types)} ({wide / n:.0%}) over {WIDE_MAX_RATIO:.0%}")
+    if worst_w > MAX_CONSECUTIVE_WIDES:
+        fails.append(f"{worst_w} consecutive wides (max {MAX_CONSECUTIVE_WIDES})")
+    if worst_s > MAX_SAME_TYPE_RUN:
+        fails.append(f"{worst_s} consecutive scenes share one shot size (max {MAX_SAME_TYPE_RUN})")
+    return {"close": close, "wide": wide, "n": len(types), "close_ratio": round(close / n, 2),
+            "wide_ratio": round(wide / n, 2), "longest_wide_run": worst_w,
+            "longest_same_run": worst_s, "fails": fails, "passed": not fails}
+
+
+def enforce_shot_grammar(scenes: list, log=lambda message: None) -> int:
+    """Rewrite shot_type so the plan meets the grammar. Returns how many scenes changed.
+
+    Deterministic and content-aware only through the role preference: it never reorders scenes
+    or touches narration, it only decides how close the camera sits. Wides are converted first
+    (they are the surplus), choosing each scene's most-preferred close size for its role.
+    """
+    rows = [s for s in (scenes or []) if isinstance(s, dict)]
+    if not rows:
+        return 0
+    changed = 0
+
+    def typ(s):
+        return str(s.get("shot_type") or "medium").strip().lower()
+
+    def role(s):
+        return str(s.get("causal_role") or s.get("story_role") or "").strip().lower()
+
+    def preferred_close(s):
+        for cand in _ROLE_PREFERENCE.get(role(s), ("close", "detail")):
+            if cand in CLOSE_TYPES:
+                return cand
+        return "close"
+
+    n = len(rows)
+    # 1. Raise the close ratio, converting wides before mediums.
+    need = int(CLOSE_MIN_RATIO * n + 0.999) - sum(1 for s in rows if typ(s) in CLOSE_TYPES)
+    if need > 0:
+        order = ([s for s in rows if typ(s) in WIDE_TYPES]
+                 + [s for s in rows if typ(s) == "medium"])
+        for s in order[:need]:
+            s["shot_type"] = preferred_close(s)
+            changed += 1
+    # 2. Break runs of wides and runs of one size.
+    for i in range(1, len(rows)):
+        if typ(rows[i]) in WIDE_TYPES and typ(rows[i - 1]) in WIDE_TYPES:
+            rows[i]["shot_type"] = preferred_close(rows[i])
+            changed += 1
+    for i in range(MAX_SAME_TYPE_RUN, len(rows)):
+        if len({typ(rows[j]) for j in range(i - MAX_SAME_TYPE_RUN, i + 1)}) == 1:
+            current = typ(rows[i])
+            rows[i]["shot_type"] = preferred_close(rows[i]) if current not in CLOSE_TYPES else "medium"
+            changed += 1
+    if changed:
+        report = shot_grammar_report(rows)
+        log(f"Shot grammar: adjusted {changed} scene(s) -> close+detail {report['close_ratio']:.0%}, "
+            f"wide+aerial {report['wide_ratio']:.0%}, longest wide run {report['longest_wide_run']}")
+    return changed
+
+
+_SHOT_FRAMING = {
+    "detail": (" FRAMING: a DETAIL shot. One object, surface or pair of hands fills the frame at "
+               "hand scale. The wider location is barely present."),
+    "close": (" FRAMING: a CLOSE-UP. The single subject fills at least two thirds of the frame; if "
+              "it is an animal or a person, the head and eyes are large and clearly readable. No "
+              "establishing landscape."),
+    "medium": (" FRAMING: a MEDIUM shot. The subject occupies about half the frame with just "
+               "enough surroundings to place it."),
+    "wide": (" FRAMING: a WIDE shot. The landscape is the subject, but keep ONE foreground element "
+             "large and sharp so the eye has somewhere to land."),
+    "aerial": (" FRAMING: a high AERIAL view, with one foreground element large in the near field "
+               "so the frame is not uniformly distant."),
+}
+
+
+# What a scene must SHOW rather than diagram. Measured on the delivered killer bees film: four
+# frames were tinted maps of the Americas with dots on them and several more were flat overhead
+# dioramas, so "cinematic staging" had no subject to stage. A map is a picture of information;
+# this channel draws the moment the information is about.
+NO_DIAGRAM = (
+    " Draw the MOMENT, never a diagram of it: no maps, no territory outlines, no pins, dots or "
+    "arrows on a region, no charts, no timelines, no cutaway schematics and no specimen boards. "
+    "If the beat is about somewhere spreading or arriving, show one concrete thing in one real "
+    "place at eye level -- a swarm over a roadside orchard, a hive on a porch, a stand of trees "
+    "going quiet -- not the geography it happened across.")
+
+
+# The one exception to NO_DIAGRAM, taken by a state that declares `explains`. The reference
+# explainer's strongest frames are relationships inside one picture (heat -> wall -> people; air
+# -> rooms -> exit); ours were scenery with a label on it. A cutaway of the STORY OBJECT itself --
+# never a map, never a chart -- in the same cut-paper stock, with the relationship carried by
+# shapes: what passes, what is held, what changes. Arrows are allowed on THIS plate only (flow
+# validation 2026-10-07, item 2): the reference's mechanism frames carry heat into a wall and air
+# through a room as a few bold arrows, and the ban made ours scenery with a label. Text stays
+# banned; the renderer owns anything written.
+EXPLAIN_CUTAWAY = (
+    " EXPLANATORY CUTAWAY: this one frame explains a relationship, so draw the story object "
+    "itself larger than life and cut open -- a cut-paper cutaway in the same stock, not a map, "
+    "chart or specimen board -- with the relationship visible as SHAPES: what passes through, "
+    "what is held back, what has changed. A few bold cut-paper ARROWS may show direction (what "
+    "enters, what passes, what is held back), the one plate where arrows are allowed. One hero "
+    "object, at most two kinds of element, nothing written on it -- no letters, numbers or "
+    "labels; the composition alone must make the relationship readable in half a second.")
+
+
+def shot_framing(shot_type: str) -> str:
+    """Prompt language for a scene's shot size. Without this the size only changed the Ken Burns
+    move and every image came back a landscape regardless of the plan."""
+    return _SHOT_FRAMING.get((shot_type or "medium").strip().lower(), _SHOT_FRAMING["medium"])

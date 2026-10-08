@@ -1206,9 +1206,6 @@ class ExplainerRequest(BaseModel):
     # Stop after the script passes every pre-spend gate and write it for editorial approval;
     # nothing beyond text is bought. The approved rerun reuses the cached script.
     stop_after_script: bool = False
-    narrative_mode: Literal["scene_first", "seven_section"] = "scene_first"
-    # Server-created immutable seed. Public generation cannot supply it.
-    script_revision: dict | None = None
     # An editor's targeted note: revise the cached script beat by beat instead of writing a
     # fresh draft. Beats may merge or shorten, never drop; the ledger re-judges every sentence.
     revision_note: str = Field(default="", max_length=6000)
@@ -1609,9 +1606,6 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                     visual_style=request.visual_style,
                     topic_channel=request.topic_channel,
                     stop_after_script=request.stop_after_script,
-                    script_revision=request.script_revision,
-                    narrative_mode=request.narrative_mode,
-                    max_cost_usd=(request.script_revision or {}).get("cost_ceiling_usd", ep.MAX_COST_USD),
                     revision_note=request.revision_note,
                     controlled_pilot=request.controlled_pilot,
                     pilot_batch_id=request.pilot_batch_id,
@@ -1860,7 +1854,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
         _checkpoint_generation_manifest(
             output_dir, status=("awaiting_human_review" if awaiting_review else
                                 "awaiting_story_format_acknowledgement" if awaiting_format
-                                else "awaiting_script_approval" if awaiting_script else "failed"), error=str(exc))
+                                else "failed"), error=str(exc))
         state_path = os.path.join(output_dir, "_state.json")
         if os.path.isfile(state_path):
             try:
@@ -1952,8 +1946,7 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
             try:
                 durable_runtime.checkpoint(
                     "awaiting-review" if awaiting_review else
-                    "awaiting-format-acknowledgement" if awaiting_format else
-                    "awaiting-script-approval" if awaiting_script else "failed-attempt")
+                    "awaiting-format-acknowledgement" if awaiting_format else "failed-attempt")
                 row = durable_runtime.store.get_job(job_id) or {}
                 attempts = int(row.get("attempts") or 1)
                 max_attempts = int(row.get("max_attempts") or 1)
@@ -1963,21 +1956,16 @@ async def run_explainer_task(job_id: str, request: ExplainerRequest, output_dir:
                 ))
                 status = ("awaiting_review" if awaiting_review else
                           "format_acknowledgement_required" if awaiting_format else
-                          "awaiting_script_approval" if awaiting_script else
                           ("error" if hard_failure or attempts >= max_attempts else "retry"))
                 durable_runtime.store.set_status(
-                    job_id, status,
-                    error=None if (awaiting_review or awaiting_format or awaiting_script) else str(exc),
+                    job_id, status, error=None if (awaiting_review or awaiting_format) else str(exc),
                     result={"rendered_contract": job.get("rendered_contract") or {},
-                            "title": job.get("title") or request.question,
-                            "hook": (job.get("script") or {}).get("hook", ""),
-                            "scene_count": len((job.get("script") or {}).get("scenes") or [])},
+                            "title": job.get("title") or request.question},
                     worker_id=durable_runtime.worker_id)
                 job["status"] = status
                 durable_runtime.event(
                     "review_required" if awaiting_review else
                     "format_acknowledgement_required" if awaiting_format else
-                    "script_approval_required" if awaiting_script else
                     "retry" if status == "retry" else "error", str(exc))
             except Exception as storage_exc:
                 job["status"] = "storage_error"
@@ -2997,20 +2985,8 @@ def _read_research_handoff(resolve) -> dict:
     import research_handoff
     path = resolve("research-handoff")
     if path:
-        # The most recently evaluated draft may be a rejected replacement. Resolve
-        # the explicit selection from the same restored checkpoint before displaying it.
-        from pathlib import Path
-        pointer = Path(path).parent / "selected_research_attempt.json"
-        if pointer.exists():
-            selected = json.loads(pointer.read_text())
-            attempt_id = selected.get("attempt_id", "")
-            if not re.fullmatch(r"[0-9a-f]{64}", attempt_id):
-                raise ValueError("Invalid selected research attempt")
-            path = Path(path).parent / "research_attempts" / (attempt_id + ".json")
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
-        if pointer.exists() and payload.get("identity") != selected.get("identity"):
-            raise ValueError("Selected research attempt does not match its saved artifact")
     else:
         original = resolve("research")
         if not original:
@@ -4056,13 +4032,8 @@ async def dispatch_agent_action(action_id: str, request: Request):
 
 @app.post("/api/explainer/generate")
 async def explainer_generate(request: ExplainerRequest, background_tasks: BackgroundTasks):
-    if request.script_revision is not None:
-        raise HTTPException(403, "Script revisions must use the saved Studio job workflow")
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
-    if request.narrative_mode == "seven_section" and (request.visual_style != "illustrated_story"
-            or request.video_format != "landscape" or request.story_format != "standard_explainer"):
-        raise HTTPException(400, "Seven-section narration requires Illustrated Story, landscape and Standard structure")
     if request.topic_channel and (request.visual_style != "illustrated_story"
                                   or request.video_format != "landscape"):
         raise HTTPException(status_code=400, detail=(
@@ -4417,137 +4388,6 @@ async def explainer_resume(job_id: str, background_tasks: BackgroundTasks):
     return {"job_id": job_id, "resuming": True}
 
 
-@app.get("/studio/jobs/{job_id}")
-async def studio_job_page(job_id: str):
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
-        raise HTTPException(400, "Invalid job ID")
-    return FileResponse(STATIC_DIR / "studio-job.html", headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/studio/jobs/{job_id}")
-async def studio_job_snapshot(job_id: str, after: int = 0):
-    import studio_jobs
-    if not _durable_execution_required():
-        raise HTTPException(409, "Durable execution is not enabled")
-    try:
-        store, _ = _durable_components()
-        row = await asyncio.to_thread(store.get_job, job_id)
-        if not row:
-            raise HTTPException(404, "Job not found")
-        events = await asyncio.to_thread(store.events, job_id, max(0, after), 500)
-        return JSONResponse(studio_jobs.snapshot(row, events), headers={"Cache-Control": "no-store"})
-    except durable_execution.StorageUnavailable as exc:
-        raise HTTPException(503, "Job status temporarily unavailable") from exc
-
-
-@app.get("/api/studio/jobs/{job_id}/artifacts")
-async def studio_job_artifacts(job_id: str):
-    import studio_jobs
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
-        raise HTTPException(400, "Invalid job ID")
-    if not _durable_execution_required():
-        raise HTTPException(409, "Durable execution is not enabled")
-    try:
-        store, blob = _durable_components()
-        result = await asyncio.to_thread(studio_jobs.artifacts, job_id, store, blob)
-        return JSONResponse(result, headers={"Cache-Control": "no-store"})
-    except durable_execution.StorageUnavailable as exc:
-        raise HTTPException(503, "Saved artifacts temporarily unavailable") from exc
-
-
-class StudioProviderResumeRequest(BaseModel):
-    checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-
-
-class StudioScriptRevisionRequest(BaseModel):
-    mode: Literal["evaluate", "render", "redraft"]
-    checkpoint_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-    content_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-    cost_ceiling_usd: float = Field(gt=0, le=10, allow_inf_nan=False)
-
-
-@app.post("/api/studio/jobs/{job_id}/script-revisions")
-async def studio_script_revision(job_id: str, request: StudioScriptRevisionRequest,
-                                 background_tasks: BackgroundTasks):
-    """One explicit spending boundary, bound to saved words and a separate child job."""
-    if not _durable_execution_required():
-        raise HTTPException(409, "Durable execution is not enabled")
-    import script_revisions
-    import studio_jobs
-    store, blob = _durable_components()
-    row = await asyncio.to_thread(store.get_job, job_id)
-    if not row:
-        raise HTTPException(404, "Job not found")
-    configured_cap = float(os.environ.get(
-        "DURABLE_JOB_MAX_COST_USD", os.environ.get("MAX_VIDEO_COST_USD", "10.00")))
-    if request.cost_ceiling_usd > configured_cap:
-        raise HTTPException(400, "Requested cap exceeds the deployment limit")
-    try:
-        if not script_revisions.eligible(row):
-            raise ValueError("This job must use its original approval or recovery workflow")
-        saved = await asyncio.to_thread(studio_jobs.artifacts, job_id, store, blob)
-        child_id, recipe = script_revisions.prepare(row, saved, **request.model_dump())
-        child = ExplainerRequest.model_validate(recipe)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    result = await _enqueue_explainer_request(child, background_tasks,
-        job_id=child_id, max_cost_usd=request.cost_ceiling_usd)
-    result["parent_job_id"] = job_id
-    result["studio_url"] = f"/studio/jobs/{child_id}"
-    return result
-
-
-@app.post("/api/studio/jobs/{job_id}/resume-provider")
-async def studio_resume_provider(job_id: str, request: StudioProviderResumeRequest):
-    """Explicit account recovery; preserve this Studio job's recipe and spending cap."""
-    if not _durable_execution_required():
-        raise HTTPException(409, "Durable execution is not enabled")
-    try:
-        store, _ = _durable_components()
-        row = await asyncio.to_thread(store.get_job, job_id)
-        if not row:
-            raise HTTPException(404, "Job not found")
-        if row.get("kind") != "explainer" or (row.get("request") or {}).get("controlled_pilot"):
-            raise HTTPException(409, "This job must use its original approval workflow")
-        if (row.get("checkpoint") or {}).get("sha256") != request.checkpoint_sha256:
-            raise HTTPException(409, "Saved checkpoint changed; refresh this job before resuming")
-        # The existing locked transaction checks the rejection, one known provider
-        # stage, outstanding reservation and original cap. It is concurrency-safe.
-        await asyncio.to_thread(store.resume_provider_block, job_id,
-                                expected_checkpoint_sha256=request.checkpoint_sha256)
-        return {"job_id": job_id, "resuming": True,
-                "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
-    except durable_execution.StorageUnavailable as exc:
-        raise HTTPException(503, "Provider recovery storage temporarily unavailable") from exc
-    except durable_execution.DurableExecutionError as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-
-@app.post("/api/studio/jobs/{job_id}/resume-planning-review")
-async def studio_resume_planning_review(job_id: str, request: StudioProviderResumeRequest):
-    import planning_review_recovery as recovery
-    if not _durable_execution_required():
-        raise HTTPException(409, "Durable execution is not enabled")
-    try:
-        store, blob = _durable_components()
-        row = await asyncio.to_thread(store.get_job, job_id)
-        if not row:
-            raise HTTPException(404, "Job not found")
-        if (row.get("checkpoint") or {}).get("sha256") != request.checkpoint_sha256:
-            raise HTTPException(409, "Saved checkpoint changed; refresh this job")
-        if not recovery.eligible(row):
-            raise HTTPException(409, "No eligible saved planning review")
-        evidence = await asyncio.to_thread(recovery.inspect_checkpoint, row, store, blob)
-        await asyncio.to_thread(store.resume_planning_review, job_id,
-                               expected_checkpoint_sha256=request.checkpoint_sha256, evidence=evidence)
-        return {"job_id": job_id, "resuming": True,
-                "dispatch_url": f"/api/explainer/dispatch/{job_id}"}
-    except durable_execution.StorageUnavailable as exc:
-        raise HTTPException(503, "Review recovery storage temporarily unavailable") from exc
-    except (durable_execution.DurableExecutionError, ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(409, "Saved planning review could not be safely resumed") from exc
-
-
 @app.get("/api/explainer/status/{job_id}")
 async def explainer_status_stream(job_id: str, request: Request, after: int = 0):
     durable = _durable_execution_required()
@@ -4584,7 +4424,6 @@ async def explainer_status_stream(job_id: str, request: Request, after: int = 0)
                     if row["status"] in (
                             "done", "degraded", "error", "awaiting_review", "human_rejected",
                             "format_acknowledgement_required", "format_rejected",
-                            "awaiting_script_approval",
                             "storage_error", "pilot_awaiting_editorial", "pilot_passed",
                             "pilot_failed"):
                         break
@@ -4604,7 +4443,6 @@ async def explainer_status_stream(job_id: str, request: Request, after: int = 0)
             if job["status"] in (
                     "done", "error", "degraded", "awaiting_review",
                     "format_acknowledgement_required", "format_rejected",
-                    "awaiting_script_approval",
                     "pilot_awaiting_editorial", "pilot_passed", "pilot_failed"):
                 break
             # Heartbeat every ~3s of quiet so the browser detects a dead connection

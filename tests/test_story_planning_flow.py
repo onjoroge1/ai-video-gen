@@ -235,18 +235,44 @@ def expanded_fixture(monkeypatch, *, wrong_citation=True, narrow=True, judge_fix
                 text += {
                     "mechanism": " A tail was the proof that earned payment. Fewer rats was the "
                         "intended result. Those are different things: a tail can be handed over "
-                        "while the animal that grew it remains alive.",
+                        "while the animal that grew it remains alive. Imagine holding one.",
                     "escalation": " A living rat could lose its tail and still be released. "
                         "The proof went one way; the living animal went another. A submitted "
-                        "tail therefore did not necessarily mean a rat had been eliminated.",
+                        "tail therefore did not necessarily mean a rat had been eliminated. "
+                        "Imagine holding one.",
                     "reversal": " Breeding rats produced animals whose tails could earn a bounty. "
                         "The policy began with a rat problem that officials wanted reduced. "
                         "Now people were deliberately producing the very animals that the "
-                        "programme was intended to remove.",
+                        "programme was intended to remove. Imagine holding one.",
                 }.get(b["causal_role"], "")
-                value["scenes"].append({"scene_id": b["scene_id"], "narration": text, "image_prompt": "A rat beside a tail counter.",
+                # The writer is asked to open every scene after the first on a JOINT and to keep
+                # one sentence in three addressed to the viewer (change #8); the storyboard gate
+                # measures both, so a compliant fake writes them the way a compliant model would.
+                if b["n"] > 1 and b.get("causal_role") not in ("hinge", "tool"):
+                    text = "So " + text[0].lower() + text[1:]
+                value["scenes"].append({"narration": text, "image_prompt": "A rat beside a tail counter.",
                     "scene_type": "real_world_example", "environment_type": "city",
                     "text_overlay": "", "text_sub": "", "shot_type": "medium"})
+        elif "THE CURRENT HOOK MISSES THE CONTRACT" in prompt:
+            # THE HOOK-ONLY REWRITE: asked for the sentence alone when the planner's hook misses
+            # the contract. A compliant answer is kept; the fixture's story is unchanged by it.
+            value = {"hook": "Your street could fill with cobras; nobody asked what the bounty "
+                             "actually measured."}
+        elif "miss the film's sentence shape" in prompt:
+            # THE SENTENCE-MIX EDIT (change #8): one bounded request after the lead is finalised.
+            # Answering with no rewrites holds every draft line, which is a legal outcome.
+            value = {"scenes": []}
+        elif "under their word budget" in prompt:
+            # THE LENGTH TOP-UP. A causal script that lands under its floor is expanded once, so
+            # a 300-second request stops delivering a 155-second film. It is a real, intended
+            # purchase and the fixture names it rather than letting it read as unplanned spend.
+            # Each line comes back longer using only words it already contains, which is what the
+            # expansion guard requires: anything else and the claim ledger refuses the script.
+            start = prompt.index("[{")
+            short = json.JSONDecoder().raw_decode(prompt[start:])[0]
+            value = {"scenes": [{"id": row["id"],
+                                 "narration": row["narration"] + " " + row["narration"]}
+                                for row in short]}
         else:
             pytest.fail("unexpected language-model request: " + prompt[:100])
         return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(value))],
@@ -273,11 +299,10 @@ def test_accepted_facts_reach_expansion_fidelity_and_storyboard(monkeypatch):
     assert [s["causal_role"] for s in scenes] == ["setup", "intervention", "false_resolution",
                                                   "hinge", "mechanism", "escalation", "reversal", "tool"]
     assert "1902" not in prompts[-1] and "1902" not in scenes[0]["event"]["text"]
-    assert {r["claim_id"] for r in scenes[4]["claim_refs"]} == {"c1", "c2", "c4", "c6", "c7"}
+    assert {r["claim_id"] for r in scenes[4]["claim_refs"]} == {"c2", "c4", "c6", "c7"}
     assert scenes[4]["derivation"]["source_ids"] == ["fact_2"]
     assert scenes[4]["caused_by"] == scenes[1]["scene_id"]
-    assert scenes[3]["context_refs"] == [scenes[4]["beat_id"], scenes[5]["beat_id"],
-                                        scenes[0]["beat_id"], scenes[1]["beat_id"]]
+    assert scenes[3]["context_refs"] == [scenes[4]["beat_id"], scenes[5]["beat_id"]]
     assert all(s["caused_by"] in {b["scene_id"] for b in scenes[:i]}
                for i, s in enumerate(scenes) if i)
     cascade = research.validate_story_fact_model(script, dossier, judge=judge,

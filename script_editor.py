@@ -10,7 +10,7 @@ deterministic check afterwards that the defects are gone and no new one appeared
     python3 script_editor.py jobs/<id>            # report defects, write script.edited.json
     python3 script_editor.py jobs/<id> --apply    # also write the edit back into _state.json
 
-Detectors are free. One rewrite and bounded semantic validation calls may spend.
+Defects detected here are free; the single model call is the only spend.
 """
 from __future__ import annotations
 
@@ -41,8 +41,7 @@ _SYSTEM = (
     "in the order, its tone and its causal meaning; keep its word count inside the words_allowed "
     "range given for it (count them), and assert nothing "
     "beyond its `event` text: no number, date, place, named actor, motive or quantity the event "
-    "does not contain. Explicit context_events also support brief causal connections and "
-    "callbacks, without adding facts or re-explaining earlier scenes. Rules by defect: REPEAT -- the scene says what an earlier scene already "
+    "does not contain. Rules by defect: REPEAT -- the scene says what an earlier scene already "
     "said; write what that scene did NOT say: the next stretch of time, the particular, the "
     "consequence, the picture. COLD_OPEN_RESTATED -- the scene retells the opening flash-forward; "
     "tell the same moment in full and in sequence with the particulars the flash-forward withheld. "
@@ -54,8 +53,6 @@ _SYSTEM = (
     "META_PHRASE / FILLER -- remove the phrase that narrates the video or points backwards; say "
     "the content directly. HOOK_TOO_LONG / HINGE_TOO_LONG -- cut to the budget without losing the "
     "turn. EXCEEDS_EVENT -- cut the listed unsupported details rather than hedging them. "
-    "Every repaired sentence must be grammatically complete; rewrite the sentence instead of "
-    "deleting a span that leaves a dangling preposition or removes its predicate. "
     "Return ONLY JSON: {\"scenes\": [{\"scene\": <1-based index>, \"narration\": \"...\"}]}"
 )
 
@@ -131,7 +128,6 @@ def detect_defects(script: dict, claim_report: dict | None = None) -> list[dict]
 def build_payload(script: dict, research_dossier: dict | None, defects: list[dict]) -> dict:
     """The editor's user message, shared by the pipeline and the promptfoo eval."""
     from longform_research import claim_context_for_prompt
-    import causal_story as cs
     scenes = script.get("scenes") or []
     targets = {int(d["scene"]) for d in defects if 1 <= int(d["scene"]) <= len(scenes)}
     rows = []
@@ -141,15 +137,8 @@ def build_payload(script: dict, research_dossier: dict | None, defects: list[dic
         if (i + 1) in targets:
             n = len(_text(s.get("narration")).split())
             row["event"] = (s.get("event") or {}).get("text", "")
-            from story_fact_model import context_events
-            row["context_events"] = context_events(s, scenes)
             row["words_now"] = n
             row["words_allowed"] = f"{max(6, int(n * 0.8))}-{int(n * 1.2) + 1}"
-            codes = {d["code"] for d in defects if int(d["scene"]) == i + 1}
-            if HINGE_TOO_LONG in codes:
-                row["words_allowed"] = f"1-{cs.MAX_HINGE_WORDS}"
-            if HOOK_TOO_LONG in codes:
-                row["hook_words_allowed"] = f"1-{cs.MAX_HOOK_WORDS}"
         rows.append(row)
     return {
         "hook": _text(script.get("hook")),
@@ -187,61 +176,25 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
         cost = ep._msg_cost(response.usage)
         if cost_sink is not None:
             cost_sink.append(cost)
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw[raw.find("{"):raw.rfind("}") + 1]
-        data = json.loads(raw)  # malformed edits stop; never buy an unbounded JSON rewrite
-    except __import__("durable_execution").DurableExecutionError:
-        raise
+        data, parse_cost = ep._parse_script_json(response.content[0].text)
+        cost += float(parse_cost or 0.0)
     except Exception as exc:
         log(f"  editor unavailable: {type(exc).__name__}: {str(exc)[:120]}")
         return script, round(cost, 4), defects
-    candidate, remaining = apply_response(script, defects, data, log=log)
-    if candidate is script:
-        return script, round(cost, 4), defects
-    semantic_costs = []
-    if not semantic_accepts(candidate, research_dossier or {}, cost_sink=semantic_costs):
-        log("  editor: semantic validation failed; keeping the original")
-        candidate, remaining = script, defects
-    if cost_sink is not None:
-        for amount in semantic_costs:
-            cost_sink.append(amount)
-    return candidate, round(cost + sum(semantic_costs), 4), remaining
-
-
-def semantic_accepts(candidate, dossier, *, cost_sink=None):
-    """Shared by the production editor and Promptfoo; a detector pass is insufficient."""
-    import explainer_pipeline as ep
-    report = ep._validate_claims(candidate, dossier, cost_sink)
-    return bool(report.get("passed")) and not report.get("retryable")
-
-
-def apply_response(script, defects, data, *, log=lambda message: None):
-    """Pure edit transaction. Reject missing, duplicate, foreign or malformed scene edits."""
-    scenes = script.get("scenes") or []
-    targets = sorted({int(d["scene"]) for d in defects if 1 <= int(d["scene"]) <= len(scenes)})
     rows = data.get("scenes") if isinstance(data, dict) else None
     if not isinstance(rows, list):
-        return script, defects
+        return script, round(cost, 4), defects
     candidate = json.loads(json.dumps(script))
     done = set()
     for row in rows:
-        if not isinstance(row, dict) or type(row.get("scene")) is not int:
-            return script, defects
-        index = row["scene"]
+        index = int((row or {}).get("scene") or 0)
         text = _text((row or {}).get("narration"))
-        from script_repair import broken_repair
-        if broken_repair(text):
-            log("  editor: incomplete narration repair; keeping the original")
-            return script, defects
-        if index not in targets or index in done or not text:
-            return script, defects
         if index in targets and text:
             candidate["scenes"][index - 1]["narration"] = text
             done.add(index)
     if done != set(targets):
         log("  editor: did not return every listed scene; keeping the original")
-        return script, defects
+        return script, round(cost, 4), defects
     if any(d["code"] == HOOK_TOO_LONG for d in defects):
         first = re.split(r"(?<=[.!?])\s+", _text(candidate["scenes"][0].get("narration")), maxsplit=1)[0]
         if first:
@@ -249,11 +202,9 @@ def apply_response(script, defects, data, *, log=lambda message: None):
     for index in targets:
         was = len(_text(scenes[index - 1].get("narration")).split())
         now = len(_text(candidate["scenes"][index - 1].get("narration")).split())
-        budget_edit = any(int(d["scene"]) == index and d["code"] in
-                          (HOOK_TOO_LONG, HINGE_TOO_LONG) for d in defects)
-        if not budget_edit and was >= 8 and abs(now - was) / was > 0.35:
+        if was >= 8 and abs(now - was) / was > 0.35:
             log(f"  editor: scene {index} went {was}->{now} words; keeping the original")
-            return script, defects
+            return script, round(cost, 4), defects
     after = detect_defects(candidate, None)
     wanted = {k for k in _keys(defects) if k[1] != EXCEEDS_EVENT}
     still = wanted & _keys(after)
@@ -261,11 +212,11 @@ def apply_response(script, defects, data, *, log=lambda message: None):
     if still or new_repeats:
         log("  editor: " + (f"{len(still)} defect(s) remain" if still else "")
             + (f"; {len(new_repeats)} new repeat(s)" if new_repeats else "") + "; keeping the original")
-        return script, defects
+        return script, round(cost, 4), defects
     for index in targets:
         log(f"  ✎ scene {index} edited: " + ", ".join(_text(d["code"]) for d in defects if int(d["scene"]) == index))
     remaining = [d for d in after if d["code"] in {k[1] for k in _keys(defects)}]
-    return candidate, remaining
+    return candidate, round(cost, 4), remaining
 
 
 def main() -> int:

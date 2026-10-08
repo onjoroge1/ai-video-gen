@@ -17,6 +17,7 @@ headlines: the source gates checked the narration, not the packaging.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import os
@@ -230,23 +231,58 @@ def fallback_pair(question: str) -> dict:
             "consequence_subject": "the aftermath", "consequence_scene": f"the aftermath of {question}"}
 
 
-def image_prompt(pair: dict) -> str:
-    """The model draws two scenes and nothing else; overlays are composited afterwards."""
+def image_prompt(pair: dict, illustrated: bool = False) -> str:
+    """The model draws two scenes and nothing else; overlays are composited afterwards.
+
+    `illustrated` makes the thumbnail match the film. The delivered killer bees thumbnail was a
+    photoreal bee macro in front of a hand-drawn cut-paper film: side by side they read as two
+    different products, and a viewer who clicks the photo arrives at an illustration.
+    """
+    medium = (
+        "A hand-drawn editorial illustration in layered torn cut-paper with visible deckled "
+        "edges, ink contour lines, flat gouache colour and paper grain -- unmistakably a hand-made "
+        "collage drawing and never a photograph or a 3D render -- used as a YouTube thumbnail "
+        "background split into two panels by a straight "
+        if illustrated else
+        "A photoreal, cinematic YouTube thumbnail background split into two panels by a straight ")
+    # The tail asked for a "documentary photography look" and "no cartoon or vector styling" in
+    # BOTH media, so the illustrated prompt opened with "never a photograph" and closed by asking
+    # for one. The model split the difference: delivered illustrated thumbnails came back as a
+    # photo-textured drawing with neither medium's contrast, and the grader called them muddy.
+    # The photoreal tail is unchanged byte for byte; only the illustrated branch swaps its look.
+    look = (
+        "Flat gouache colour, high contrast, strong figure/ground separation, bold readable "
+        "cut-paper shapes, designed to read instantly on a small mobile screen. "
+        if illustrated else
+        "Documentary photography look, high contrast, saturated but realistic color, strong "
+        "subject-to-background separation, designed to read instantly on a small mobile screen. ")
+    no_vector = "" if illustrated else " No cartoon or vector styling."
     return (
-        "A photoreal, cinematic YouTube thumbnail background split into two panels by a straight "
+        medium +
         "diagonal line running from top-center to bottom-center-left, slightly tilted. "
-        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} Fill the left panel with "
-        f"a large, sharp, centered close-up of {pair['crossed_out_subject']} facing the camera, "
-        "correct anatomy, natural lighting, shallow depth of field, real habitat blurred behind. "
-        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} Show "
-        f"{pair['consequence_subject']} as a crowded, dramatic wide scene with many individuals, "
-        "high detail, dramatic but natural light. "
+        # BOTH panels need a dominant foreground subject. A delivered thumbnail (2026-10-05) put
+        # a distant hillside in the right panel: at feed size it read as green texture with a
+        # yellow arrow pointing at nothing, and the left panel was a mat of small insects with no
+        # single thing to look at. A thumbnail is looked at for under a second at about 350px.
+        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} ONE single "
+        f"{pair['crossed_out_subject']} fills at least 70% of the left panel, shot as a tight "
+        "macro portrait facing the camera with its eyes sharp and catchlit, every texture "
+        "resolved, the habitat thrown far out of focus behind it. One subject, not a group. "
+        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} Put "
+        f"{pair['consequence_subject']} LARGE IN THE NEAR FOREGROUND, sharp and unmistakable and "
+        "filling the lower half of the panel, with the rest of the scene massing away behind it "
+        "to show scale. Never a distant vista: if the consequence is a crowd or a swarm, the "
+        "nearest individuals must be close enough to read clearly. "
         "Keep the TOP 22% of the RIGHT panel simple and uncluttered (sky, dark ground or blurred "
         "background) so a headline can be placed there. "
-        "Documentary photography look, high contrast, saturated but realistic color, designed to "
-        "read on a small mobile screen. Absolutely NO text, letters, numbers, logos, arrows, "
-        "circles, symbols, borders or watermarks. No gore, blood, corpses, injuries or people's "
-        "faces. No cartoon or vector styling."
+        + look +
+        "Absolutely NO text, letters, numbers, logos, arrows, borders or watermarks. "
+        # The renderer composites the prohibition ring. The model drawing its own produced a
+        # thumbnail with TWO crossed-out symbols stacked on the same subject (2026-10-05).
+        "CRITICALLY: do NOT draw any prohibition sign, red circle, ring, cross, X, slash or "
+        "crossed-out marking anywhere in the image. The subject is shown plain and unmarked; the "
+        "red circle is added afterwards by the renderer and a second one ruins the thumbnail. "
+        "No gore, blood, corpses, injuries or people's faces." + no_vector
     )
 
 
@@ -292,8 +328,14 @@ def geometry(tw: int, th: int) -> dict:
 
 
 def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
-            headline: tuple[str, str] = HEADLINE) -> str:
-    """Fit the two-scene background and draw divider, prohibition ring, arrow and headline."""
+            headline: tuple[str, str] = HEADLINE, ring_overlay: bool = True) -> str:
+    """Fit the two-scene background and draw divider, prohibition ring, arrow and headline.
+
+    `ring_overlay=False` leaves the ring out, for a background that already contains one. The
+    delivered killer bees thumbnail carried TWO crossed-out circles: the prompt tells the model
+    not to draw one and it drew one anyway, and the renderer then added its own on top. An
+    instruction the model can ignore is not a guarantee, so the count is now enforced here.
+    """
     geo = geometry(tw, th)
     base = ImageOps.fit(Image.open(bg_path).convert("RGB"), (tw, th)).convert("RGBA")
 
@@ -313,8 +355,9 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
         d.ellipse(box, outline=c, width=width)
         d.line(slash, fill=c, width=width)
 
-    _glow(base, lambda d, c: ring(d, c, w + 14), RED, 14, 170)
-    ring(ImageDraw.Draw(base), (*RED, 255), w)
+    if ring_overlay:
+        _glow(base, lambda d, c: ring(d, c, w + 14), RED, 14, 170)
+        ring(ImageDraw.Draw(base), (*RED, 255), w)
 
     # Curved yellow arrow from under the ring into the consequence panel, black outlined.
     p0, p1, p2 = geo["arrow"]
@@ -374,9 +417,102 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
+_RING_QUESTION = (
+    "Look at this artwork. Does it ALREADY CONTAIN a drawn prohibition symbol -- a red or black "
+    "circle, ring, oval outline, crossed-out sign, diagonal slash, X or no-entry symbol -- drawn "
+    "as part of the picture? A round object that is simply part of the scene (the sun, a plate, a "
+    "wheel, a honeycomb cell) is NOT a prohibition symbol. "
+    'Return ONLY JSON: {"ring": true|false}.'
+)
+
+
+def detect_drawn_ring(image_path: str, cost_sink: list | None = None,
+                      log=lambda message: None) -> bool:
+    """Did the model draw a prohibition symbol the renderer is about to duplicate?
+
+    Best-effort: on any failure this returns False and the renderer behaves as it always has,
+    because a missing vision call must not cost a finished film its packaging. It SAYS so,
+    though -- an earlier version swallowed a missing ANTHROPIC_API_KEY and reported "no ring",
+    which is the same silent-fallback shape that let two circles reach YouTube in the first place.
+    """
+    import base64
+
+    import explainer_pipeline as ep
+    try:
+        with open(image_path, "rb") as handle:
+            b64 = base64.b64encode(handle.read()).decode()
+        rsp = ep._claude().messages.create(
+            model=ep.ANTHROPIC_MODEL, max_tokens=100,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                             "data": b64}},
+                {"type": "text", "text": _RING_QUESTION}]}])
+        if cost_sink is not None:
+            cost_sink.append(ep._msg_cost(rsp.usage))
+        out, _ = ep._parse_script_json(rsp.content[0].text)
+        return bool(isinstance(out, dict) and out.get("ring"))
+    except Exception as exc:               # noqa: BLE001 - never block packaging on this
+        log(f"ring check unavailable ({type(exc).__name__}); assuming the artwork has none")
+        return False
+
+
+# The grader shipped with the science channel's checklist (explainer_pipeline._THUMB_GRADE_SYSTEM).
+# Its item 7 demands a "clean flat / bold-graphic / vector style -- NOT photo-cluttered", which a
+# photoreal split frame fails by construction, and items 2, 3 and 6 ask whether the picture shows
+# a consequence the title's CAUSE makes you need explained -- a question written for "what if"
+# titles. A backfire title STATES the consequence ("...That Starved a Nation"), so those items
+# grade the formula, not the picture. Every delivered backfire thumbnail scored "weak (4/8)"
+# against it (2026-10-05) and only the count was kept, so a muddy render and an unpassable
+# checklist were indistinguishable. This list judges what the split-frame grammar is trying to
+# do. Same JSON shape as the science checklist (items: 8 booleans, fails: int, redesign_note), so
+# explainer_pipeline's readers of rep["fails"] / rep["weak"] / rep["qa"] need no change.
+BACKFIRE_THUMB_GRADE_SYSTEM = (
+    "You are a ruthless YouTube thumbnail critic for a documentary channel about interventions "
+    "that backfired, judging for MOBILE click-through. Every thumbnail uses one grammar: a split "
+    "frame. LEFT, the living thing the intervention attacked or introduced, under a red "
+    "prohibition ring. RIGHT, the literal consequence. A yellow arrow runs from the ring into the "
+    "consequence and a two-word headline sits on top. A title is given alongside. Grade each item "
+    "strictly true/false:\n"
+    "1. one_second: understandable in ONE second at tiny (~160px) mobile size?\n"
+    "2. crossed_subject_identifiable: does the ringed LEFT subject read as a specific living "
+    "species (an animal or plant you could name) -- not a tool, object, texture or crowd?\n"
+    "3. consequence_foreground: does the RIGHT panel have ONE near-foreground subject, large and "
+    "sharp, rather than a distant vista, landscape or texture?\n"
+    "4. one_subject_per_panel: does each panel hold one dominant subject (passes the squint test) "
+    "-- not a mat of small things or several competing elements?\n"
+    "5. headline_legible: is the headline exactly two words and readable at mobile size?\n"
+    "6. single_ring: is there exactly ONE prohibition ring in the frame -- no second drawn circle, "
+    "slash or crossed-out sign anywhere?\n"
+    "7. medium_matches: is the artwork in the EXPECTED MEDIUM stated after this list -- photoreal "
+    "if the film is photoreal, cut-paper/illustrated if the film is illustrated -- and clean "
+    "throughout, with strong figure/ground separation, NOT a muddy mix of photo and drawing or "
+    "AI-generic noise?\n"
+    "8. consequence_not_title_echo: does the RIGHT panel show a consequence the title does not "
+    "already state in words (thumbnail != a picture of the title)?\n"
+    "Return ONLY JSON: {\"items\":{\"one_second\":bool,...all 8...},\"fails\":int (count of false),"
+    "\"redesign_note\":\"one sentence -- the single biggest fix\"}."
+)
+
+
+def thumb_grade_system(illustrated: bool) -> str:
+    """The checklist plus the one fact the grader cannot see in the pixels: the FILM's medium.
+
+    Item 7 asks whether the thumbnail matches the film, and the grader is shown the thumbnail and
+    the title only. The killer bees thumbnail was a clean photoreal bee in front of a cut-paper
+    film -- a thumbnail that would pass any "is this clean" test and still sent the viewer to a
+    different product -- so the expected medium travels with the checklist.
+    """
+    medium = ("a hand-drawn cut-paper illustration; item 7 is false if the artwork is a "
+              "photograph or a 3D render"
+              if illustrated else
+              "photoreal; item 7 is false if the artwork is drawn, painted or cartoon")
+    return BACKFIRE_THUMB_GRADE_SYSTEM + f"\nEXPECTED MEDIUM: the film this thumbnail fronts is {medium}."
+
+
 def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                        cost_sink: list | None = None, report: dict | None = None,
-                       log=lambda message: None, pairs: list[dict] | None = None) -> str:
+                       log=lambda message: None, pairs: list[dict] | None = None,
+                       illustrated: bool = False) -> str:
     """Render one composed thumbnail per candidate pair, keep the fewest-fails by the vision grader.
 
     `pairs` overrides the model's strategy: an operator naming the crossed-out subject and the
@@ -385,6 +521,20 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
     import explainer_pipeline as ep
 
     rep = report if isinstance(report, dict) else {}
+    # The grader only takes a checklist once explainer_pipeline.grade_thumbnail has a `system`
+    # keyword (being added in the same change set, in a file this module must not edit). Until
+    # the name is in its signature the science checklist is what runs, and the report says which,
+    # because a 4/8 against the wrong checklist and a 4/8 against the right one are different
+    # facts. A `**kwargs` catch-all does not count: forwarding "system" into a grader that does
+    # not understand it is worse than grading with the old list.
+    grade_kwargs: dict = {}
+    checklist = "science_v1"
+    try:
+        if "system" in inspect.signature(ep.grade_thumbnail).parameters:
+            grade_kwargs["system"] = thumb_grade_system(illustrated)
+            checklist = "backfire_v1"
+    except (TypeError, ValueError):    # no introspectable signature: call it as today
+        pass
     pairs = list(pairs or []) or strategy(title, question, transcript, cost_sink=cost_sink) \
         or [fallback_pair(question)]
     limit = max(1, min(2, int(os.environ.get("THUMB_VARIANTS", "2") or 2)))
@@ -395,10 +545,10 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
         bg = os.path.join(out_dir, f"_thumb_backfire_bg_{index}.jpg")
         vpath = os.path.join(out_dir, f"_thumb_backfire_{index}.jpg")
         try:
-            ep.generate_image(image_prompt(pair), bg, cost_sink=cost_sink, size="1536x1024")
+            ep.generate_image(image_prompt(pair, illustrated), bg, cost_sink=cost_sink, size="1536x1024")
         except ep.ContentBlocked:
             try:
-                ep.generate_image(image_prompt(pair) + " SAFE REDRAW: calm, symbolic, non-graphic.",
+                ep.generate_image(image_prompt(pair, illustrated) + " SAFE REDRAW: calm, symbolic, non-graphic.",
                                   bg, cost_sink=cost_sink, size="1536x1024")
             except Exception:
                 ep.make_fallback_frame(bg, "", w=1280, h=720)
@@ -406,9 +556,31 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
         except Exception:
             ep.make_fallback_frame(bg, "", w=1280, h=720)
             fell = True
-        compose(bg, vpath)
-        grade = ep.grade_thumbnail(vpath, title, cost_sink=cost_sink)
-        rendered.append({"pair": pair, "path": vpath, "fails": (grade or {}).get("fails")})
+        # Exactly one crossed-out circle reaches the viewer. One redraw, then the overlay yields.
+        keep_ring = True
+        if detect_drawn_ring(bg, cost_sink, log):
+            log("thumbnail artwork drew its own prohibition ring; redrawing once")
+            try:
+                ep.generate_image(
+                    image_prompt(pair, illustrated)
+                    + " REDRAW: the previous attempt drew a crossed-out circle. Draw the two "
+                      "scenes ONLY. No ring, no circle outline, no slash, no X, no prohibition "
+                      "sign anywhere in the frame.",
+                    bg, cost_sink=cost_sink, size="1536x1024")
+            except Exception:              # noqa: BLE001 - keep the first attempt
+                pass
+            if detect_drawn_ring(bg, cost_sink, log):
+                log("artwork still carries a ring; leaving the overlay ring off this candidate")
+                keep_ring = False
+        compose(bg, vpath, ring_overlay=keep_ring)
+        grade = ep.grade_thumbnail(vpath, title, cost_sink=cost_sink, **grade_kwargs)
+        # Only the count used to survive this line. Every shipped backfire thumbnail logged
+        # "weak (4/8)" with no record of WHICH four items failed or what the grader would change,
+        # so the operator could not tell a bad render from an unpassable checklist. Keep the
+        # whole verdict: it is the only evidence the next redesign has.
+        rendered.append({"pair": pair, "path": vpath, "fails": (grade or {}).get("fails"),
+                         "items": (grade or {}).get("items"),
+                         "redesign_note": (grade or {}).get("redesign_note")})
         if best_grade is None or (grade or {}).get("fails", 99) < best_grade.get("fails", 99):
             best_path, best_grade = vpath, grade or {"fails": 99}
         try:
@@ -424,16 +596,25 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
             pass
     rep.update({
         "version": VERSION, "headline": " ".join(HEADLINE), "grammar": "fatal_error_split",
-        "pairs": [{**item["pair"], "fails": item["fails"]} for item in rendered],
+        "pairs": [{**item["pair"], "fails": item["fails"], "items": item["items"],
+                   "redesign_note": item["redesign_note"]} for item in rendered],
         "chosen": next((i for i, item in enumerate(rendered) if item["path"] == best_path), None),
         "qa": "skipped" if not best_grade or best_grade.get("fails") == 99 else "ok",
         "fails": None if not best_grade or best_grade.get("fails") == 99 else best_grade.get("fails"),
         "weak": bool(best_grade and best_grade.get("fails", 0) not in (None, 99)
                      and best_grade.get("fails", 0) >= 3),
-        "fallback": fell, "variants": len(rendered),
+        "fallback": fell, "variants": len(rendered), "checklist_version": checklist,
     })
+    # write_report had no caller outside scripts/repackage_backfire.py, so a pipeline run left no
+    # packaging.json: the per-item verdicts above lived only in the in-memory report and the log
+    # line below. Best-effort, like everything else here -- an unwritable job dir must not cost
+    # a finished film its thumbnail.
+    try:
+        write_report(out_dir, rep)
+    except OSError as exc:
+        log(f"packaging.json not written ({type(exc).__name__})")
     log(f"Backfire thumbnail: {len(rendered)} variant(s), chosen {rep['chosen']}, "
-        f"fails {rep['fails']}")
+        f"fails {rep['fails']}, checklist {checklist}")
     return out
 
 

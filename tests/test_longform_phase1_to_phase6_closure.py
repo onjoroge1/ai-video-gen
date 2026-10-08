@@ -117,8 +117,18 @@ def test_pr6_manifest_records_exact_request_model_ids_and_stability(monkeypatch)
         video_format="landscape", motion_mode="stills",
         threshold_profile=dict(PROVISIONAL_THRESHOLD_PROFILE))
     models = {(item["provider"], item["purpose"]): item for item in manifest["models"]}
-    assert models[("anthropic", "research_script_factcheck_and_visual_judges")]["model_id"] \
-        == pipeline.ANTHROPIC_MODEL
+    # Two entries, because two clients: the research dossier is fetched through the native
+    # Anthropic client, while the script, fact-check, claim repair and every judge go through
+    # _claude(), which is the OpenAI client under SCRIPT_PROVIDER=openai. One entry crediting
+    # Anthropic for all of it recorded false provenance for a run whose sixteen logged script
+    # calls all ran on gpt-5.6-luna.
+    import script_provider
+    assert models[("anthropic", "research_dossier")]["model_id"] == pipeline.ANTHROPIC_MODEL
+    active = script_provider.active_provider()
+    scripting = models[(active, "script_factcheck_repair_and_judges")]
+    assert scripting["model_id"] == (script_provider.openai_script_model()
+                                     if active == script_provider.OPENAI
+                                     else pipeline.ANTHROPIC_MODEL)
     assert models[("openai", "evidence_and_scene_images")]["model_id"] \
         == pipeline.IMAGE_MODEL
     assert models[("openai", "narration")]["model_id"] == pipeline.TTS_MODEL
@@ -127,8 +137,8 @@ def test_pr6_manifest_records_exact_request_model_ids_and_stability(monkeypatch)
     # No entry may claim a pinned snapshot: current-generation Anthropic and OpenAI IDs are
     # undated request identifiers, and a provenance record that overstates one is worse than
     # no record at all.
-    assert models[("anthropic", "research_script_factcheck_and_visual_judges")][
-        "identifier_stability"] == "request_identifier"
+    assert models[("anthropic", "research_dossier")]["identifier_stability"] == "request_identifier"
+    assert scripting["identifier_stability"] == "request_identifier"
     assert not any(item["identifier_stability"] == "pinned_snapshot"
                    for item in manifest["models"])
     assert models[("fal", "image_to_video")]["model_id"] == pipeline._FAL_MODEL
