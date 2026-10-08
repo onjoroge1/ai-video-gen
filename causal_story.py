@@ -130,9 +130,11 @@ SYNTHESIS_MIN_WORDS, SYNTHESIS_MAX_WORDS = 20, 70
 SYNTHESIS_MIN_RUNTIME_SEC = 150.0
 # The cap grows with the chain it re-walks. 70 words / 4 sentences was fitted to a five-mechanism
 # reference whose own recap runs about 85 words in six sentences; V14 (2026-10-08) had eight
-# chain beats, and a rewrite that echoed all eight at 74 words / 5 sentences was refused. Ten
-# words a beat, and a sentence for every two beats, with the fixed caps as the floor.
-SYNTHESIS_WORDS_PER_CHAIN_BEAT = 10
+# chain beats, and a rewrite that echoed all eight at 74 words / 5 sentences was refused. The
+# reference's recap measures 15 words a mechanism ("Thick walls stopped the heat, but trapped
+# the air inside..." -- about 75 words for five); thirteen a beat stays under it, and a
+# sentence for every two beats, with the fixed caps as the floor.
+SYNTHESIS_WORDS_PER_CHAIN_BEAT = 13
 
 
 def synthesis_caps(chain_count: int) -> tuple[int, int]:

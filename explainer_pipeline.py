@@ -2384,6 +2384,52 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
     return script, cost
 
 
+def _rejudge_length_rejected_candidate(saved, path, question, dossier, cost_sink, log, *,
+                                       lane, repair):
+    """Re-run storyboard and source validation on a saved candidate that was refused for
+    SYNTHESIS_TOO_LONG alone, under the caps that apply now. Returns (script, board) when it
+    is accepted, else None. No provider call beyond the source validation the first attempt
+    would have run; the record is marked so it happens once."""
+    import copy
+    from durable_execution import current
+    if not isinstance(saved, dict) or saved.get("status") != "rejected" \
+            or saved.get("rejection_code") != "STORYBOARD_VALIDATION" or saved.get("rejudged"):
+        return None
+    errors = (saved.get("candidate_validation") or {}).get("errors") or []
+    if not errors or {e.split(":", 1)[0] for e in errors} != {"SYNTHESIS_TOO_LONG"}:
+        return None
+    candidate = copy.deepcopy(saved.get("candidate_script"))
+    if not isinstance(candidate, dict):
+        return None
+    saved["rejudged"] = True
+    board = lane.build_storyboard(copy.deepcopy(candidate), question)
+    if not board["validation"]["passed"]:
+        saved["rejudged_validation"] = board["validation"]
+        path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+        log("Story repair: the saved rewrite still fails under the current cap: "
+            + "; ".join(board["validation"].get("errors") or [])[:200])
+        return None
+    rederive_narration_bindings(candidate, log, dossier)
+    claims = _validate_claims(candidate, dossier, cost_sink)
+    if not claims.get("passed"):
+        saved.update(rejudged_validation=board["validation"], rejudged_claims=claims)
+        path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+        log("Story repair: the saved rewrite passed the storyboard under the current cap but "
+            "not source validation")
+        return None
+    candidate["_claim_validation"] = claims
+    candidate[saved.get("version") or repair.VERSION] = {"input_sha256": saved.get("input_sha256")}
+    saved.update(status="accepted", script=candidate, board=board, claim_validation=claims,
+                 rejudged_under="synthesis_caps")
+    path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+    runtime = current()
+    if runtime is not None:
+        runtime.checkpoint("illustrated-storyboard-repair-accepted")
+    log("Story repair: PASS — the saved rewrite is accepted under the chain-scaled recap cap "
+        "(no new provider call)")
+    return candidate, board
+
+
 def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_sink, log):
     """One targeted edit of the finished words, with unchanged structural and source gates.
 
@@ -2414,6 +2460,13 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             "illustrated_storyboard_opening_budget_recovery_v2") or {}
         failure_path = Path(output_dir) / repair.FAILURE_FILE
         failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
+        # A candidate refused for length alone is judged again under the current cap before
+        # anything is bought: the cap scales with the chain (causal_story.synthesis_caps), and
+        # V14's first rewrite (98 words, every beat echoed) is inside it. Once, marked.
+        rejudged = _rejudge_length_rejected_candidate(
+            saved, path, question, dossier, cost_sink, log, lane=lane, repair=repair)
+        if rejudged is not None:
+            return rejudged
         length_path = Path(output_dir) / repair.LENGTH_FILENAME
         length_saved = json.loads(length_path.read_text()) if length_path.exists() else None
         current_length_edit = repair.synthesis_length_plan(saved)
