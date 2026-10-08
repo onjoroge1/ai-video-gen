@@ -62,6 +62,40 @@ def digest(value):
                                     separators=(",", ":")).encode()).hexdigest()
 
 
+def extract_json_object(text):
+    """The repair's JSON object from a provider response, or None.
+
+    V13 (2026-10-08): the model answered with a paragraph of reasoning and then the object, and
+    a strict json.loads rejected a response that held a usable edit, spending the job's one
+    attempt. This reads the whole text first, then the first balanced object that carries
+    "scenes", scanning from each '{'. Deterministic; no provider call.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        value = json.loads(text)
+        return value if isinstance(value, dict) else None
+    except ValueError:
+        pass
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            value, _ = decoder.raw_decode(text, match.start())
+        except ValueError:
+            continue
+        if isinstance(value, dict) and "scenes" in value:
+            return value
+    return None
+
+
+def parse_response_text(text):
+    """extract_json_object, raising json.JSONDecodeError (the JSON_PARSE rejection) on nothing."""
+    value = extract_json_object(text)
+    if value is None:
+        raise json.JSONDecodeError("No JSON object with scenes in the repair response", text or "", 0)
+    return value
+
+
 def story_identity(script):
     return digest({"hook": script.get("hook"), "engine": script.get("_story_engine"),
                    "contract": script.get("_story_contract"),

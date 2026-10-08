@@ -2401,6 +2401,10 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
     if repair.has_media(output_dir):
         return script, board  # Narration edits cannot invalidate already-purchased media.
     saved = json.loads(path.read_text()) if path.exists() else None
+    # A response the strict parser refused but the lenient one can read is replayed through
+    # apply/validation without a second purchase: the same immutable response, read properly.
+    # Once, marked on the record; a replay that is then rejected on its merits stays rejected.
+    replay_text = ""
     if saved and saved.get("status") == "rejected":
         runtime = current()
         job = runtime.store.get_job(runtime.job_id) if runtime is not None else {}
@@ -2408,7 +2412,10 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             "illustrated_storyboard_opening_budget_recovery_v2") or {}
         failure_path = Path(output_dir) / repair.FAILURE_FILE
         failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
-        if (saved.get("reason") == repair.BUDGET_REJECTION_REASON
+        if (saved.get("rejection_code") == "JSON_PARSE" and not saved.get("replayed")
+                and repair.extract_json_object(saved.get("provider_response_text")) is not None):
+            replay_text = saved["provider_response_text"]
+        elif (saved.get("reason") == repair.BUDGET_REJECTION_REASON
                 and armed.get("prior_repair_sha256") == repair.digest(saved)
                 and armed.get("failure_sha256") == repair.digest(failure)):
             script = saved["input_script"]
@@ -2429,7 +2436,7 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         # The immutable input owns this one attempt even if a surrounding finalizer ran again.
         if saved["status"] == "accepted":
             return saved["script"], saved["board"]
-        if saved["status"] == "rejected":
+        if saved["status"] == "rejected" and not replay_text:
             return script, board
         script = saved["input_script"]
         dossier = script.get("_research_dossier") or dossier
@@ -2462,15 +2469,21 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         log("Story repair: enforcing exact opening scene budgets")
     else:
         log("Story repair: tightening the opening and restoring the spoken callback")
-    response = _claude().messages.create(
-        model=ANTHROPIC_MODEL, max_tokens=4000,
-        system="You edit sourced narration without changing its facts. Return only JSON.",
-        messages=[{"role": "user", "content": repair.prompt(script, edit)}])
-    cost_sink.append(_msg_cost(response.usage))
+    if replay_text:
+        log("Story repair: replaying the saved response through the lenient parser (no provider call)")
+        response_text = replay_text
+        record["replayed"] = True
+    else:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=4000,
+            system="You edit sourced narration without changing its facts. Return only JSON.",
+            messages=[{"role": "user", "content": repair.prompt(script, edit)}])
+        cost_sink.append(_msg_cost(response.usage))
+        response_text = response.content[0].text
     # No paid JSON-repair recursion. Invalid or still-failing edits retain the original failure.
-    record["provider_response_text"] = response.content[0].text
+    record["provider_response_text"] = response_text
     try:
-        candidate = repair.apply_response(script, edit, json.loads(response.content[0].text))
+        candidate = repair.apply_response(script, edit, repair.parse_response_text(response_text))
     except (ValueError, TypeError, KeyError) as exc:
         record.update(status="rejected", reason=str(exc),
                       rejection_code="JSON_PARSE" if isinstance(exc, json.JSONDecodeError) else "EDIT_CONSTRAINT")
@@ -6447,6 +6460,64 @@ def unsupported_actors(event_text: str, narration: str) -> list[str]:
                 and not any(word in seen for seen in found)):
             found.append(word)
     return found
+
+
+def _repair_until_ledger_passes(script: dict, claim_validation: dict, research_dossier: dict,
+                                aux_costs: list, operator_direction: str = "",
+                                log=lambda message: None) -> tuple[dict, dict]:
+    """The script-stage ledger's recovery, for its runtime-fit twin: bounded repair passes
+    while the failing count goes down, then the deterministic trims. Returns (script, validation);
+    the repair returns a new script object, so the caller must take it from here.
+
+    V13 resume (2026-10-08): the trim alone could not help, because the unsupported clause was
+    the scene's last sentence, which the trimmer never deletes. The repair rewrites that scene
+    to its supported core, as it does at the script stage.
+    """
+    for repair_pass in range(_CLAIM_REPAIR_PASSES):
+        if claim_validation.get("passed"):
+            break
+        before = len(claim_validation.get("errors") or [])
+        repaired, repair_cost = repair_claim_join_failures(
+            script, research_dossier, claim_validation, operator_direction=operator_direction)
+        if not repair_cost:
+            break
+        script = repaired
+        script.pop("_repair_held", None)
+        script["_script_cost_usd"] = round(
+            float(script.get("_script_cost_usd") or 0.0) + repair_cost, 4)
+        rederive_narration_bindings(script, log, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
+        script["_claim_validation"] = claim_validation
+        after = len(claim_validation.get("errors") or [])
+        log(f"Claim ledger repair (runtime fit) {repair_pass + 1}/{_CLAIM_REPAIR_PASSES}: "
+            + ("PASS" if claim_validation.get("passed") else f"{before} -> {after} failing"))
+        if after >= before:
+            break
+    if not claim_validation.get("passed"):
+        claim_validation = _trim_until_ledger_passes(
+            script, claim_validation, research_dossier, aux_costs, log)
+    return script, claim_validation
+
+
+def _trim_until_ledger_passes(script: dict, claim_validation: dict, research_dossier: dict,
+                              aux_costs: list, log=lambda message: None, rounds: int = 3) -> dict:
+    """Up to `rounds` deterministic trims of unsupported sentences, each followed by a re-bind
+    and a re-judge. Returns the last claim validation; the script is edited in place. A trim can
+    only turn a failure into a judged pass, never assert one (see _trim_unsupported_sentences)."""
+    for trim_round in range(rounds):
+        trimmed = _trim_unsupported_sentences(script, claim_validation, log)
+        if not trimmed:
+            break
+        rederive_narration_bindings(script, log, research_dossier)
+        claim_validation = _validate_claims(script, research_dossier, aux_costs)
+        script["_claim_validation"] = claim_validation
+        log(f"Claim ledger trim {trim_round + 1}: dropped {trimmed} unsupported "
+            "sentence(s)/clause(s) -> "
+            + ("PASS" if claim_validation.get("passed")
+               else f"{len(claim_validation.get('errors') or [])} failing"))
+        if claim_validation.get("passed"):
+            break
+    return claim_validation
 
 
 def _trim_unsupported_sentences(script: dict, report: dict, log=lambda message: None) -> int:
@@ -13149,6 +13220,15 @@ def run_explainer_pipeline(
         rederive_narration_bindings(script, log, research_dossier)
         claim_validation = _validate_claims(script, research_dossier, aux_costs)
         script["_claim_validation"] = claim_validation
+        if not claim_validation.get("passed") and _claim_ledger_hard() and not sourcing_advisory:
+            # The same last resort the script-stage ledger has, which this twin lacked: on the
+            # V13 resume (2026-10-08) the restored script re-judged one sentence as unsupported
+            # ("...stood among the honey giants", no claim behind it) and this check refused the
+            # run with no trim, after the stage above had already proven the trim path exists.
+            script, claim_validation = _repair_until_ledger_passes(
+                script, claim_validation, research_dossier, aux_costs,
+                operator_direction=operator_direction, log=log)
+            scenes = script.get("scenes", [])
         if not claim_validation.get("passed") and not _claim_ledger_hard():
             for item in claim_validation.get("errors", [])[:6]:
                 log(f"  ✗ [UNSOURCED, CLAIM_LEDGER_HARD=0] {item['message']}")

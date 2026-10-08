@@ -62,7 +62,7 @@ def _story_contract(script: dict) -> dict:
     return script.get("_story_contract") if isinstance(script.get("_story_contract"), dict) else {}
 
 
-def _opening_scene_count(scenes: list[dict]) -> int:
+def _opening_scene_count(scenes: list[dict], ladder: bool = False) -> int:
     # The opening is the first 30% of runtime by story_pct. A role-based definition (everything
     # before the first mechanism) was tried and reverted: the storyboard's LATE_MECHANISM mark is
     # 20% while this window is 30%, so the first mechanism scene is judged as an opening beat --
@@ -70,6 +70,13 @@ def _opening_scene_count(scenes: list[dict]) -> int:
     # the continuity-location prompt line, the s001 reference fallback) and tests that expect the
     # 30% window, and the failure that killed three runs was the state CEILING, fixed in
     # validate_evidence_plan. Narrowing the window is a separate decision.
+    #
+    # Under the ladder it IS decided: the opening ends at the consequence, and the story leaves
+    # the first-act location there. V13 (2026-10-08): the 30% window pinned ten scenes to "the
+    # research apiary", the mechanism and early escalations were set in the forest the queens
+    # escaped into, and the verifier refused every forest master as "not the research apiary
+    # from reference" (6.1 lost after two redraws, 8.1 on the same path). The ladder's window
+    # ends before the first mechanism scene; the 30% window still caps it.
     if not scenes:
         return 0
     explicit = []
@@ -80,9 +87,15 @@ def _opening_scene_count(scenes: list[dict]) -> int:
             continue
         if percent <= 30:
             explicit.append(index)
-    if explicit:
-        return max(explicit) + 1
-    return max(1, min(len(scenes), round(len(scenes) * 0.30)))
+    count = max(explicit) + 1 if explicit else max(1, min(len(scenes), round(len(scenes) * 0.30)))
+    if ladder:
+        first_mechanism = next(
+            (index for index, scene in enumerate(scenes)
+             if _text(scene.get("causal_role") or scene.get("story_role")).casefold() == "mechanism"),
+            None)
+        if first_mechanism:
+            count = min(count, first_mechanism)
+    return count
 
 
 def build_continuity_pack(script: dict) -> dict:
@@ -152,7 +165,8 @@ def build_continuity_pack(script: dict) -> dict:
             "scene_index": callback_scene,
             "reuse_source_asset_id": opening_asset_id,
         },
-        "opening_scene_count": _opening_scene_count(scenes),
+        "opening_scene_count": _opening_scene_count(
+            scenes, ladder=_text(script.get("_opening_contract")) == "ladder_v1"),
     }
 
 
@@ -1025,16 +1039,22 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
                     })
             before = _text(state.get("state_before"))
             after = _text(state.get("state_after"))
-            if after and before.casefold() == after.casefold():
+            # An EMPTY before is the same defect as an unchanged one and takes the same repair:
+            # the state before this shot is the shot before it. V13 (2026-10-08) died at the
+            # evidence plan on one master state whose writer left state_before blank, after the
+            # script, ledger and storyboard were all paid for. Recorded, never silent.
+            if after and (not before or before.casefold() == after.casefold()):
                 if previous_after and previous_after.casefold() != after.casefold():
                     state["state_before"] = previous_after
                 else:
                     state["state_before"] = f"not yet shown: {after}"
                 repairs.append({
-                    "code": "unchanged_evidence_state_repaired",
+                    "code": ("missing_evidence_state_before_repaired" if not before
+                             else "unchanged_evidence_state_repaired"),
                     "state_id": _text(state.get("state_id")),
-                    "message": f"before equalled after ({after!r}); before is now the "
-                               f"previous shot ({state['state_before']!r})",
+                    "message": (f"before was empty" if not before
+                                else f"before equalled after ({after!r})")
+                               + f"; before is now the previous shot ({state['state_before']!r})",
                 })
             if after:
                 previous_after = after
