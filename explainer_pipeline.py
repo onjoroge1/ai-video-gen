@@ -8040,6 +8040,28 @@ def _cached_prefix_content(prefix: str, rest: str) -> str:
     return prefix + _usage_ledger.CACHE_SPLIT + rest
 
 
+def _checker_thinking_options(model: str) -> dict:
+    """The checker is a yes-or-no inspection; thinking spends output tokens without changing it.
+    Opus 4.8 does not think unless asked. Haiku 5.5 thinks by default and accepts `disabled` at
+    its default effort. Sonnet 5.5 rejects `disabled` and turns thinking off with
+    `between_tools`. Other models are left at their defaults."""
+    name = str(model or "")
+    if name.startswith("claude-haiku-5"):
+        return {"thinking": {"type": "disabled"}}
+    if name == "claude-sonnet-5-5":
+        return {"thinking": {"type": "between_tools"}}
+    return {}
+
+
+def _first_text(response) -> str:
+    """The first text block of a reply. A model that thinks returns its thinking block first, and
+    reading content[0].text then fails on a block that has no text."""
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", "text") == "text" and hasattr(block, "text"):
+            return block.text
+    return ""
+
+
 def _verdict_cache_path(image_path: str) -> str:
     return image_path + ".verdict.json"
 
@@ -8148,10 +8170,11 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         response = _claude().messages.create(
             model=EVIDENCE_VERIFY_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
             messages=[{"role": "user", "content": content}],
+            **_checker_thinking_options(EVIDENCE_VERIFY_MODEL),
         )
         if cost_sink is not None:
             cost_sink.append(_usage_ledger.anthropic_cost(EVIDENCE_VERIFY_MODEL, response.usage))
-        result, repair_cost = _parse_script_json(response.content[0].text)
+        result, repair_cost = _parse_script_json(_first_text(response))
         if cost_sink is not None and repair_cost:
             cost_sink.append(repair_cost)
         if not isinstance(result, dict):

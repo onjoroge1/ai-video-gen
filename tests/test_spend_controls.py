@@ -139,3 +139,12 @@ def test_a_refused_image_is_kept_with_its_verdict(tmp_path):
     assert (tmp_path / "scene_05_e02.jpg.rejected-1.jpg").exists()
     kept = json.loads((tmp_path / "scene_05_e02.jpg.rejected-1.json").read_text())
     assert kept["reasons"] == ["no swarm"]
+
+
+def test_the_checker_turns_thinking_off_per_model_and_reads_the_text_block():
+    assert ep._checker_thinking_options("claude-haiku-5-5") == {"thinking": {"type": "disabled"}}
+    assert ep._checker_thinking_options("claude-sonnet-5-5") == {"thinking": {"type": "between_tools"}}
+    assert ep._checker_thinking_options("claude-opus-4-8") == {}
+    reply = type("R", (), {"content": [type("B", (), {"type": "thinking", "thinking": ""})(),
+                                        type("B", (), {"type": "text", "text": "{}"})()]})()
+    assert ep._first_text(reply) == "{}"
