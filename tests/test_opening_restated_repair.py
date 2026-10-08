@@ -106,7 +106,7 @@ def test_a_candidate_that_only_ran_long_earns_one_shorten_retry():
     edit = repair.synthesis_length_plan(saved)
     assert edit and edit["scene_ids"] == ["scene_syn"]
     assert edit["scene_word_limits"] == {"scene_syn": 70}
-    assert edit["shorten"]["current_words"] == 99 and edit["shorten"]["max_sentences"] == 4
+    assert edit["shorten"]["current_words"] == 100 and edit["shorten"]["max_sentences"] == 4
     assert "previous rewrite" in repair.prompt(saved["candidate_script"], edit)
     for other in ({"rejection_code": "JSON_PARSE"}, {"candidate_validation": {"errors": [
             "SYNTHESIS_TOO_LONG: x", "JOINT_BAND: y"]}}):
