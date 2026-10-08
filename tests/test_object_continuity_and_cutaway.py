@@ -62,3 +62,18 @@ def test_the_object_reference_reaches_the_generator_and_the_prompt(tmp_path):
     prompt = ep._evidence_state_prompt({}, state, pack, "")
     assert "OBJECT CONTINUITY" in prompt and "a white hive box with a metal grid" in prompt
     assert "OBJECT CONTINUITY" not in ep._evidence_state_prompt({}, dict(state, object_reference_asset_id=""), pack, "")
+
+
+def test_an_empty_state_before_is_repaired_from_the_previous_shot():
+    """V13 (2026-10-08): one master state with a blank state_before failed the evidence plan
+    after the script, ledger and storyboard were paid for. Same repair as before == after."""
+    script = _script()
+    beat = script["scenes"][1]["visual_beats"][1]
+    beat["state_before"] = ""
+    plan = le.compile_evidence_plan(script)
+    state = plan["scenes"][1]["states"][1]
+    assert state["state_before"], "the previous shot stands in for the missing before"
+    assert state["state_before"].casefold() != state["state_after"].casefold()
+    codes = {r["code"] for r in plan["repairs"]}
+    assert "missing_evidence_state_before_repaired" in codes
+    assert plan["validation"]["passed"]

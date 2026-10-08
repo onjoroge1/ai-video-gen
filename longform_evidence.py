@@ -1025,16 +1025,22 @@ def compile_evidence_plan(script: dict, scene_seconds: dict | None = None) -> di
                     })
             before = _text(state.get("state_before"))
             after = _text(state.get("state_after"))
-            if after and before.casefold() == after.casefold():
+            # An EMPTY before is the same defect as an unchanged one and takes the same repair:
+            # the state before this shot is the shot before it. V13 (2026-10-08) died at the
+            # evidence plan on one master state whose writer left state_before blank, after the
+            # script, ledger and storyboard were all paid for. Recorded, never silent.
+            if after and (not before or before.casefold() == after.casefold()):
                 if previous_after and previous_after.casefold() != after.casefold():
                     state["state_before"] = previous_after
                 else:
                     state["state_before"] = f"not yet shown: {after}"
                 repairs.append({
-                    "code": "unchanged_evidence_state_repaired",
+                    "code": ("missing_evidence_state_before_repaired" if not before
+                             else "unchanged_evidence_state_repaired"),
                     "state_id": _text(state.get("state_id")),
-                    "message": f"before equalled after ({after!r}); before is now the "
-                               f"previous shot ({state['state_before']!r})",
+                    "message": (f"before was empty" if not before
+                                else f"before equalled after ({after!r})")
+                               + f"; before is now the previous shot ({state['state_before']!r})",
                 })
             if after:
                 previous_after = after
