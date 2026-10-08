@@ -230,9 +230,16 @@ def test_the_spoken_chapter_rule_reaches_the_call_that_writes_narration(monkeypa
     placed only on the beat sheet never reaches the call that writes the words, so every chapter
     opened on prose and the transcript rubric measured 0 step markers against a band of 4-8.
     """
+    # The rule reaches the writer only when the finalizer speaks markers; with them off (the
+    # default) the writer is told the opposite, because V14 (2026-10-08) narrated "Chapter one."
+    monkeypatch.setenv("SPOKEN_CHAPTER_MARKERS", "1")
     expansion = _capture_expansion_prompt(monkeypatch, causal_lane=True)
     assert "OPEN EACH NEW CHAPTER OUT LOUD" in expansion
     assert '"Step one."' in expansion
+    monkeypatch.setenv("SPOKEN_CHAPTER_MARKERS", "0")
+    expansion = _capture_expansion_prompt(monkeypatch, causal_lane=True)
+    assert "OPEN EACH NEW CHAPTER OUT LOUD" not in expansion
+    assert "NEVER announce chapters or steps" in expansion
 
 
 def test_the_cinematic_expansion_prompt_gains_nothing(monkeypatch):

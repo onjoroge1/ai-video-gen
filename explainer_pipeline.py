@@ -5330,12 +5330,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 'question. Do not explain it, do not add a second sentence, do not soften it. It '
                 'is the turn of the whole video and it works by being abrupt.\n')
                if causal_lane else '')
+            # Only when the finalizer speaks them. With SPOKEN_CHAPTER_MARKERS off (the default)
+            # this paragraph told the writer to open chapters aloud while nothing downstream
+            # expected it, and V14 (2026-10-08) narrated "Chapter one." in its mechanism scene.
             + (('OPEN EACH NEW CHAPTER OUT LOUD: when an assigned beat starts a chapter number '
                 'that the beat before it did not have, its narration MUST begin with that chapter '
                 'spoken as words — "Step one.", "Step two.", and so on — as its own short sentence '
                 'before anything else. This is the retention device the format is built on; the '
                 'chapter number existing in the plan is not the same as the narrator saying it.\n')
-               if causal_lane else '')
+               if causal_lane and _cs_close.speaks_chapter_markers() else
+               ('NEVER announce chapters or steps in the narration ("Chapter one", "Step two", '
+                '"Part three"): the chapter number is planning data, not spoken words.\n'
+                if causal_lane else ''))
             + blueprint_block
             + _operator_block(operator_direction)
             # The expansion writes the sentences; a correction about sentences has to reach it too.

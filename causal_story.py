@@ -199,6 +199,26 @@ _CHAPTER_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight"
 # V8, scene 12) and the marker strip left the film saying "continued." as its first word.
 _MARKER = re.compile(r"^\s*step\s+(?:%s|\d+)\b(?:\s+continued)?[.:,;\u2014-]*\s*"
                      % "|".join(_CHAPTER_WORDS), re.I)
+# A signpost the writer spoke although markers are off: "Chapter one." opened V14's mechanism
+# scene (2026-10-08). Stripped by strip_leaked_signposts when speaks_chapter_markers() is false.
+_LEAKED_SIGNPOST = re.compile(
+    r"^\s*(?:chapter|part|step|stage)\s+(?:%s|\d+)\b[.:,;\u2014-]*\s*" % "|".join(_CHAPTER_WORDS),
+    re.I)
+
+
+def strip_leaked_signposts(scenes: list) -> list:
+    """Remove a leading spoken chapter signpost from each scene when markers are off. Returns the
+    scene ids changed. Deterministic; the writer is also told not to, and this is the net."""
+    if speaks_chapter_markers():
+        return []
+    changed = []
+    for scene in scenes or []:
+        narration = _text(scene.get("narration"))
+        stripped = _LEAKED_SIGNPOST.sub("", narration, count=1)
+        if stripped != narration and stripped.strip():
+            scene["narration"] = stripped.strip()
+            changed.append(_text(scene.get("scene_id")))
+    return changed
 # A continuation marker the writer spoke on its own ("continued. At its northern peak..."), as an
 # older checkpoint still carries it.
 _LEAD_ARTIFACT = re.compile(r"^\s*continued\b[.:,;]?\s*", re.I)
@@ -236,6 +256,9 @@ def _normalize_steps(raw: Any) -> list[dict]:
             # time instead of story moves.
             "continues": _text(item.get("continues")),
             "chapter": int(item.get("chapter") or 0),
+            # The claims this step binds, for the opening-consequence check: the planner's
+            # consequence beat has claims, and V14 (2026-10-08) spoke none of them anywhere.
+            "claim_ids": [_text(c) for c in (item.get("claim_ids") or []) if _text(c)],
             "narration_anchor": " ".join(_text(item.get("situation")).split()[:12]),
         })
     return steps
@@ -869,9 +892,26 @@ def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
                 f"in films of {SYNTHESIS_MIN_RUNTIME_SEC:.0f}s or more, and no step carries it"))
         return
     synthesis = present[0]
-    text = _MARKER.sub("", synthesis["situation"]).strip()
+    # The recap is judged across every scene it spans. A long synthesis beat is split into
+    # parts by the storyboard, and V14 (2026-10-08) rewrote the first part into the whole
+    # re-walk while the second part kept re-walking six beats of its own: the film heard its
+    # recap twice. The parts are one text here, and two parts that re-walk the same beats are
+    # a finding of their own.
+    parts = [_MARKER.sub("", s["situation"]).strip() for s in present]
+    text = " ".join(part for part in parts if part)
     sentences = [part for part in re.split(r"[.!?]+", text) if part.strip()]
     words = len(text.split())
+    if len(parts) > 1:
+        first_stems = _content_stems(parts[0])
+        for later_id, later in zip((s["step_id"] for s in present[1:]), parts[1:]):
+            later_stems = _content_stems(later)
+            if first_stems and later_stems and \
+                    len(first_stems & later_stems) / min(len(first_stems), len(later_stems)) >= 0.5:
+                issues.append(_issue(
+                    "SYNTHESIS_REPEATED",
+                    f"{later_id} re-walks the same beats as the synthesis before it; the recap "
+                    "is heard once, split across its parts, never told twice",
+                    later_id))
     if len(sentences) < SYNTHESIS_MIN_SENTENCES or words < SYNTHESIS_MIN_WORDS:
         issues.append(_issue(
             "SYNTHESIS_TOO_THIN",
@@ -946,6 +986,34 @@ _MARKER_STOP = frozenset({
 def _markers(text: str) -> set:
     return {m for m in re.findall(r"\b(?:\d{2,4}|[A-Z][a-z]{2,})\b", _text(text))
             if m.lower() not in _MARKER_STOP}
+
+
+def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
+                                      consequence_claims: list) -> None:
+    """The opening's consequence is spoken before the mechanism.
+
+    V14 (2026-10-08): the planner's consequence beat cited the excluders coming off and the
+    twenty-six queens leaving; the hinge was "But the forest doesn't read the plan." and the
+    mechanism opened on "those escaped African queens" as if the viewer had heard it. The
+    body rule says never re-tell the escape; nothing said it must be told once. Measured as
+    claim binding: at least one of the consequence's claims is bound by a step before the
+    first mechanism.
+    """
+    wanted = {_text(c) for c in consequence_claims or [] if _text(c)}
+    if not wanted or not steps:
+        return
+    first_mechanism = next((s["index"] for s in steps if s["role"] == MECHANISM), len(steps))
+    spoken = set()
+    for step in steps:
+        if step["index"] < first_mechanism:
+            spoken.update(step.get("claim_ids") or [])
+    if not (wanted & spoken):
+        issues.append(_issue(
+            "OPENING_CONSEQUENCE_UNSPOKEN",
+            f"no scene before the mechanism binds the opening's consequence claims "
+            f"{sorted(wanted)}; the ordinary act and what it released must be spoken once, in "
+            "the row before the hinge, before the body explains what the released thing did",
+            steps[min(first_mechanism, len(steps)) - 1]["step_id"]))
 
 
 def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
@@ -1078,6 +1146,7 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
 
     if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
         _check_opening_restated(steps, issues)
+        _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [])
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
         issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
         warnings.extend(demoted)
@@ -1710,6 +1779,8 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
     changes: list[str] = []
     if not scenes:
         return changes
+    for scene_id in strip_leaked_signposts(scenes):
+        changes.append(f"{scene_id}: stripped a spoken chapter signpost (markers are off)")
 
     def _sentence(value: str) -> str:
         # Each lead element becomes its own spoken sentence, so it is capitalised and stopped. The

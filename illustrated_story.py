@@ -279,6 +279,8 @@ def build_storyboard(script: dict, question: str) -> dict:
         steps.append({
             "step_id": _text(scene.get("scene_id")) or f"scene_{index + 1:03d}",
             "role": role,
+            "claim_ids": [_text(c.get("claim_id")) for c in (scene.get("claim_refs") or [])
+                          if isinstance(c, dict) and _text(c.get("claim_id"))],
             "event_function": scene.get("event_function") or "",
             "chapter": scene.get("chapter") or 0,
             "start_sec": round(spoken, 1),
@@ -365,6 +367,10 @@ def build_storyboard(script: dict, question: str) -> dict:
         "close_contract": _text(script.get("_close_contract")),
         # The human-first opening: the shorts-fitted opening gates become warnings for it.
         "opening_contract": _text(script.get("_opening_contract")),
+        # The planner's consequence claims, so the storyboard can ask that one of them is spoken
+        # before the mechanism (causal_story._check_opening_consequence_spoken).
+        "opening_consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
+                                       .get("consequence") or []),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made

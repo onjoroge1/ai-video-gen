@@ -120,6 +120,19 @@ MUTATIONS = {
     "OPENING_RESTATED":    lambda s: (s.update(opening_contract="ladder_v1"),
                                       next(x for x in reversed(s["steps"]) if x["role"] == "escalation")
                                       .update(situation=s["steps"][0]["situation"])),
+    # Under the ladder the opening's consequence must be spoken before the mechanism: the
+    # planner cites a claim no step binds (V14, 2026-10-08).
+    "OPENING_CONSEQUENCE_UNSPOKEN": lambda s: s.update(opening_contract="ladder_v1",
+                                                       opening_consequence_claims=["c_never"]),
+    # A second synthesis part re-walking the same beats as the first (V14, 2026-10-08).
+    "SYNTHESIS_REPEATED":  lambda s: (_with_synthesis(s, "The bounty paid for tails, so farms bred "
+                                                         "cobras and the trade ended."),
+                                      s["steps"].insert(len(s["steps"]) - 1, {
+                                          "step_id": "syn2", "role": "synthesis", "continues": "syn",
+                                          "situation": "The bounty paid for tails, so farms bred cobras.",
+                                          "chapter": s["steps"][-1]["chapter"], "caused_by": "syn",
+                                          "start_sec": s["steps"][-1]["start_sec"] - 0.5}),
+                                      s["steps"][-1].update(caused_by="syn2")),
     "JOINT_BAND":          lambda s: s.update(sentence_mix_contract="joints_v1"),
     "ADDRESS_BAND":        lambda s: (s.update(sentence_mix_contract="joints_v1"),
                                       [x.update(situation=re.sub(r"\b[Yy]ou(?:r)?\b", "they", x["situation"]))
