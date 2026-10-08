@@ -295,6 +295,47 @@ def prompt(script, edit):
         + json.dumps({"edit": edit, "hook": script.get("hook"), "scenes": rows}, ensure_ascii=False))
 
 
+def _fit_synthesis_parts(scenes, part_ids, max_words):
+    """Over the cap by at most a tenth, trailing sentences of the recap's last part are dropped
+    until it fits, never below four fifths of the cap. Delete, never rewrite (V15, 2026-10-08:
+    106 words against 104 on the retry that had been told the cap; the model does not count).
+    The storyboard still judges what remains on its merits. Returns the words dropped."""
+    part_scenes = [s for s in scenes if s["scene_id"] in part_ids]
+    if not part_scenes:
+        return 0
+    total = sum(len(s["narration"].split()) for s in part_scenes)
+    if not max_words < total <= max_words * 1.1:
+        return 0
+    floor = max_words * 0.8
+    last = part_scenes[-1]
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+", last["narration"].strip()) if x.strip()]
+    dropped_words = 0
+    while total > max_words and len(sentences) > 1:
+        candidate_drop = len(sentences[-1].split())
+        if total - candidate_drop < floor:
+            break
+        sentences.pop()
+        total -= candidate_drop
+        dropped_words += candidate_drop
+    if total > max_words and sentences:
+        # The last sentence is the overage and more (V15: one 42-word sentence, 2 words over):
+        # drop its trailing comma clauses instead, keeping the sentence's stop.
+        tail = sentences[-1].rstrip(".!?")
+        stop = sentences[-1][len(tail):] or "."
+        clauses = [c for c in re.split(r",\s+", tail) if c.strip()]
+        while total > max_words and len(clauses) > 1:
+            candidate_drop = len(clauses[-1].split())
+            if total - candidate_drop < floor:
+                break
+            clauses.pop()
+            total -= candidate_drop
+            dropped_words += candidate_drop
+        sentences[-1] = ", ".join(clauses).rstrip(",") + stop
+    if dropped_words:
+        last["narration"] = " ".join(sentences).strip()
+    return dropped_words
+
+
 def apply_response(script, edit, response):
     rows = response.get("scenes") if isinstance(response, dict) else None
     if not isinstance(rows, list) or any(not isinstance(r, dict) or not {"scene_id", "narration"} <= set(r)
@@ -341,8 +382,10 @@ def apply_response(script, edit, response):
                 raise ValueError("Repair exceeds a scene opening word limit")
     synthesis_ids = edit.get("synthesis_scene_ids") or []
     if len(synthesis_ids) > 1 and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]):
-        parts = [s["narration"] for s in scenes if s["scene_id"] in synthesis_ids]
         max_words, max_sentences = cs.synthesis_caps(_chain_count(candidate))
+        _fit_synthesis_parts(scenes, synthesis_ids, max_words)
+        counts = [len(s["narration"].split()) for s in scenes]
+        parts = [s["narration"] for s in scenes if s["scene_id"] in synthesis_ids]
         if sum(len(p.split()) for p in parts) > max_words:
             raise ValueError("Repair still exceeds the synthesis word cap across its parts")
         first = cs._content_stems(parts[0])
@@ -364,8 +407,11 @@ def apply_response(script, edit, response):
     shorten = edit.get("shorten") or {}
     if shorten:
         part_ids = edit.get("synthesis_scene_ids") or [shorten["scene_id"]]
+        max_words = int(shorten["max_words"])
+        _fit_synthesis_parts(scenes, part_ids, max_words)
+        counts = [len(s["narration"].split()) for s in scenes]
         parts = [s["narration"] for s in scenes if s["scene_id"] in part_ids]
-        if sum(len(p.split()) for p in parts) > int(shorten["max_words"]):
+        if sum(len(p.split()) for p in parts) > max_words:
             raise ValueError("Repair still exceeds the synthesis word cap")
         if sum(cs._close_sentences(p) for p in parts) > int(shorten["max_sentences"]):
             raise ValueError("Repair still exceeds the synthesis sentence cap")

@@ -140,8 +140,10 @@ SYNTHESIS_WORDS_PER_CHAIN_BEAT = 13
 def synthesis_caps(chain_count: int) -> tuple[int, int]:
     """(max words, max sentences) for a synthesis re-walking `chain_count` beats."""
     count = max(0, int(chain_count or 0))
-    return (max(SYNTHESIS_MAX_WORDS, SYNTHESIS_WORDS_PER_CHAIN_BEAT * count),
-            max(SYNTHESIS_MAX_SENTENCES, -(-count * 3 // 5)))
+    words = max(SYNTHESIS_MAX_WORDS, SYNTHESIS_WORDS_PER_CHAIN_BEAT * count)
+    # The reference's recap averages fifteen words a sentence; a cap of five sentences on 104
+    # words asked for twenty-word sentences and refused a reply at six (V15, 2026-10-08).
+    return words, max(SYNTHESIS_MAX_SENTENCES, -(-words // 15))
 
 
 def synthesis_planned(engine: dict | None, duration_sec: float) -> bool:
