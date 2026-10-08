@@ -38,8 +38,13 @@ CONSEQUENCE_GROWTH_WORDS = 45
 # planning and script spend ended the run (flow validation 2026-10-07, item 8). Its repair is a
 # trim: the named scene keeps only what its own event adds, at or under its original length.
 RESTATED_CODE = "OPENING_RESTATED"
+# A hinge that carries the consequence's facts cannot be cut to ten words without losing them
+# (V15, 2026-10-08: "But one October day in 1957 the grids came off, and twenty-six queens left
+# for the forest", 17 words; the hinge fitter kept the original and no repair owned the code).
+# The repair moves the facts to the end of the row before the hinge and leaves the turn.
+HINGE_CODE = "SOFT_HINGE"
 REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
-               RESTATED_CODE, CONSEQUENCE_CODE} | SYNTHESIS_CODES)
+               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE} | SYNTHESIS_CODES)
 _RESTATED = re.compile(r"^OPENING_RESTATED:\s*(\S+)\s+re-tells the (\w+)")
 CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
 # Two to four sentences on an 18-word close needs more than the old +20.
@@ -164,15 +169,23 @@ def plan(script, board):
         # re-walking the same beats (V14, 2026-10-08).
         selected.update(synthesis_parts)
     consequence_scene = None
+    hinge = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.HINGE), None)
+    before = [i for i, s in enumerate(scenes[:hinge if hinge is not None else mechanism])
+              if s.get("causal_role") in (cs.FALSE_RESOLUTION, cs.INTERVENTION)]
     if CONSEQUENCE_CODE in codes:
-        hinge = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.HINGE), None)
-        before = [i for i, s in enumerate(scenes[:hinge if hinge is not None else mechanism])
-                  if s.get("causal_role") in (cs.FALSE_RESOLUTION, cs.INTERVENTION)]
         if before:
             consequence_scene = before[-1]
             selected.add(consequence_scene)
         else:
             return None
+    hinge_scene = None
+    if HINGE_CODE in codes:
+        if hinge is None or not before:
+            return None
+        hinge_scene = hinge
+        selected.add(hinge)
+        consequence_scene = consequence_scene if consequence_scene is not None else before[-1]
+        selected.add(consequence_scene)
     # The restated scenes, named by the check's own message ("<scene_id> re-tells the <role>").
     restated = []
     for error in errors:
@@ -196,6 +209,8 @@ def plan(script, board):
             "restated": restated,
             "synthesis_scene_ids": [ids[i] for i in synthesis_parts],
             "consequence_scene_id": ids[consequence_scene] if consequence_scene is not None else "",
+            "hinge_scene_id": ids[hinge_scene] if hinge_scene is not None else "",
+            "hinge_max_words": cs.MAX_HINGE_WORDS,
             "consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
                                    .get("consequence") or []),
             "consequence_text": str((script.get("_opening") or {}).get("consequence") or ""),
@@ -229,8 +244,18 @@ def prompt(script, edit):
             "names, its opening joint and its sentence addressing the viewer; cut adjectives and "
             "repeated clauses, not beats. ")
            if edit.get("shorten") else "")
+        + ((f"The hinge scene {edit['hinge_scene_id']} is requested because it runs long: return "
+            f"it at most {edit['hinge_max_words']} words, the flat turn that breaks the apparent "
+            "success (\"Except the grids came off.\", \"Twenty-six queens were gone.\"), never a "
+            "question. Every sourced fact it carried beyond the turn -- the date, the count, what "
+            f"left and where -- MOVES to the END of scene {edit['consequence_scene_id']}, which "
+            f"may grow by up to {CONSEQUENCE_GROWTH_WORDS} words to hold it in the words of its "
+            "claims. Nothing is lost, nothing is said twice. ")
+           if edit.get("hinge_scene_id") else "")
         + ((f"The scene {edit['consequence_scene_id']} is requested because the opening's "
             "CONSEQUENCE was never spoken. Add to the END of that scene, in one to three "
+           if not edit.get("hinge_scene_id") else
+           f"The scene {edit['consequence_scene_id']} also carries the opening's CONSEQUENCE, in one to three "
             "sentences, the ordinary act and what it released, as the plan states it: "
             f"\"{edit['consequence_text']}\" -- in the words of its claims {edit['consequence_claims']}, "
             "so the sentences bind to them. Keep everything the scene already says; grow it by at most "
@@ -325,6 +350,10 @@ def apply_response(script, edit, response):
                 raise ValueError("Repair grew the consequence scene past its allowance")
             if counts[index] < edit["original_counts"][index]:
                 raise ValueError("Repair shortened the consequence scene instead of adding the consequence")
+    if edit.get("hinge_scene_id"):
+        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == edit["hinge_scene_id"]), None)
+        if index is not None and counts[index] > int(edit.get("hinge_max_words") or cs.MAX_HINGE_WORDS):
+            raise ValueError("Repair left the hinge over its word cap")
     shorten = edit.get("shorten") or {}
     if shorten:
         index = next((i for i, s in enumerate(scenes) if s["scene_id"] == shorten["scene_id"]), None)

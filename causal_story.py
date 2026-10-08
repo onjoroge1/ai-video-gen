@@ -988,8 +988,25 @@ def _markers(text: str) -> set:
             if m.lower() not in _MARKER_STOP}
 
 
+def _consequence_is_spoken(text: str, consequence_text: str) -> bool:
+    """Does `text` say the consequence? Distinctive stems of the planned consequence, with its
+    numbers folded (26 / twenty-six), at least three of them or 40% of them, whichever is less.
+    V15 (2026-10-08): the hinge said "the grids came off, and twenty-six queens left for the
+    forest" bound to the hinge's own claims, and a claim-id check called it unspoken."""
+    wanted = _content_stems(consequence_text)
+    if not wanted:
+        return False
+    spoken = _content_stems(text)
+    import hook_patterns as _hp
+    numbers_wanted = _hp.planted_numbers(consequence_text)
+    numbers_spoken = _hp.planted_numbers(text)
+    hits = len(wanted & spoken) + (1 if numbers_wanted & numbers_spoken else 0)
+    need = min(3, max(2, -(-len(wanted) * 2 // 5)))
+    return hits >= need
+
+
 def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
-                                      consequence_claims: list) -> None:
+                                      consequence_claims: list, consequence_text: str = "") -> None:
     """The opening's consequence is spoken before the mechanism.
 
     V14 (2026-10-08): the planner's consequence beat cited the excluders coming off and the
@@ -1000,14 +1017,17 @@ def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
     first mechanism.
     """
     wanted = {_text(c) for c in consequence_claims or [] if _text(c)}
-    if not wanted or not steps:
+    if (not wanted and not _text(consequence_text)) or not steps:
         return
     first_mechanism = next((s["index"] for s in steps if s["role"] == MECHANISM), len(steps))
     spoken = set()
+    said = False
     for step in steps:
         if step["index"] < first_mechanism:
             spoken.update(step.get("claim_ids") or [])
-    if not (wanted & spoken):
+            if consequence_text and _consequence_is_spoken(step["situation"], consequence_text):
+                said = True
+    if not (wanted & spoken) and not said:
         issues.append(_issue(
             "OPENING_CONSEQUENCE_UNSPOKEN",
             f"no scene before the mechanism binds the opening's consequence claims "
@@ -1146,7 +1166,8 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
 
     if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
         _check_opening_restated(steps, issues)
-        _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [])
+        _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [],
+                                          _text(payload.get("opening_consequence_text")))
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
         issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
         warnings.extend(demoted)

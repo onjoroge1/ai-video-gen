@@ -94,3 +94,46 @@ def test_a_recap_split_across_two_scenes_is_judged_as_one_and_may_not_repeat():
     issues = []
     cs._check_synthesis(steps, issues, {"compiled_synthesis": True, "name": "e"}, 300)
     assert "SYNTHESIS_REPEATED" not in {i["code"] for i in issues}
+
+
+def test_a_consequence_spoken_in_the_hinge_counts_even_when_bound_to_other_claims():
+    script = _ladder()
+    script["_opening"]["consequence"] = ("In October 1957 a passing beekeeper removes the queen "
+                                         "excluders and 26 queens leave with small swarms into the forest.")
+    script["scenes"][3]["narration"] = ("But one October day in 1957 the grids came off, and "
+                                        "twenty-six queens left for the forest.")
+    errors = lane.build_storyboard(copy.deepcopy(script), "q")["validation"]["errors"]
+    assert not any(e.startswith("OPENING_CONSEQUENCE_UNSPOKEN") for e in errors)
+    assert cs._consequence_is_spoken("the grids came off and twenty-six queens left for the forest",
+                                     script["_opening"]["consequence"])
+    assert not cs._consequence_is_spoken("the forest doesn't read the plan", script["_opening"]["consequence"])
+
+
+def test_a_long_hinge_is_repaired_by_moving_its_facts_into_the_row_before():
+    script = _ladder()
+    script["scenes"][2]["claim_refs"] = [{"claim_id": "c07", "narration_phrase": "x"}]  # consequence bound
+    script["scenes"][3]["narration"] = ("But one October day in 1957 the grids came off, and "
+                                        "twenty-six queens left for the forest.")
+    board = lane.build_storyboard(copy.deepcopy(script), "q")
+    codes = {e.split(":", 1)[0] for e in board["validation"]["errors"]}
+    assert "SOFT_HINGE" in codes and repair.repairable_errors(board["validation"]["errors"])
+    edit = repair.plan(script, board)
+    assert edit["hinge_scene_id"] == "scene_004" and edit["consequence_scene_id"] == "scene_003"
+    assert {"scene_003", "scene_004"} <= set(edit["scene_ids"])
+    assert "MOVES to the END" in repair.prompt(script, edit)
+    prev = script["scenes"][2]["narration"]
+    good = {"scenes": [
+        {"scene_id": "scene_004", "narration": "Except the grids came off."},
+        {"scene_id": "scene_003", "narration": prev + " One October day in 1957 a visitor lifts the "
+                                               "excluders and twenty-six queens leave for the forest."}]}
+    candidate = repair.apply_response(script, edit, good)
+    assert candidate["scenes"][3]["narration"] == "Except the grids came off."
+    bad = {"scenes": [{"scene_id": "scene_004", "narration": "Except one October day in 1957 the grids "
+                                                               "came off and twenty-six queens left for the forest."},
+                      {"scene_id": "scene_003", "narration": prev}]}
+    try:
+        repair.apply_response(script, edit, bad)
+    except ValueError as exc:
+        assert "hinge over its word cap" in str(exc)
+    else:
+        raise AssertionError("a long hinge was accepted")

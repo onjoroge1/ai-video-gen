@@ -371,6 +371,7 @@ def build_storyboard(script: dict, question: str) -> dict:
         # before the mechanism (causal_story._check_opening_consequence_spoken).
         "opening_consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
                                        .get("consequence") or []),
+        "opening_consequence_text": _text((script.get("_opening") or {}).get("consequence")),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made
