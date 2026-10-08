@@ -237,12 +237,16 @@ def prompt(script, edit):
         f"original word count, and no more than {CLOSE_GROWTH_WORDS} words longer. "
         + (cs.close_contract_text(edit.get("planted_numbers") or [], edit.get("opening_object", ""))
            + " " if edit.get("close_contract") else "")
-        + ((f"The requested synthesis scene is your previous rewrite, which ran to "
-            f"{edit['shorten']['current_words']} words; it already echoes every chain beat. Return "
-            f"it at or below {edit['shorten']['max_words']} words and "
-            f"{edit['shorten']['max_sentences']} sentences, keeping one echo of every beat it "
-            "names, its opening joint and its sentence addressing the viewer; cut adjectives and "
-            "repeated clauses, not beats. ")
+        + ((f"The requested synthesis scene(s) are your previous rewrite, which ran to "
+            f"{edit['shorten']['current_words']} words across them. Return the recap at or below "
+            f"{edit['shorten']['max_words']} words and {edit['shorten']['max_sentences']} sentences "
+            "COMBINED, keeping one echo of every chain beat, its opening joint and its sentence "
+            "addressing the viewer; cut adjectives and repeated clauses, not beats. "
+            + (f"These words are FORBIDDEN because no earlier scene says them: "
+               f"{edit['shorten']['forbidden_tokens']}; name the place or count only as an earlier "
+               "scene named it. " if edit['shorten'].get('forbidden_tokens') else "")
+            + (f"The beats you never touched, which must each be echoed by one of their own words: "
+               f"{edit['shorten']['must_touch']}. " if edit['shorten'].get('must_touch') else ""))
            if edit.get("shorten") else "")
         + ((f"The hinge scene {edit['hinge_scene_id']} is requested because it runs long: return "
             f"it at most {edit['hinge_max_words']} words, the flat turn that breaks the apparent "
@@ -359,12 +363,17 @@ def apply_response(script, edit, response):
             raise ValueError("Repair left the hinge over its word cap")
     shorten = edit.get("shorten") or {}
     if shorten:
-        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == shorten["scene_id"]), None)
-        if index is not None:
-            if counts[index] > int(shorten["max_words"]):
-                raise ValueError("Repair still exceeds the synthesis word cap")
-            if cs._close_sentences(scenes[index]["narration"]) > int(shorten["max_sentences"]):
-                raise ValueError("Repair still exceeds the synthesis sentence cap")
+        part_ids = edit.get("synthesis_scene_ids") or [shorten["scene_id"]]
+        parts = [s["narration"] for s in scenes if s["scene_id"] in part_ids]
+        if sum(len(p.split()) for p in parts) > int(shorten["max_words"]):
+            raise ValueError("Repair still exceeds the synthesis word cap")
+        if sum(cs._close_sentences(p) for p in parts) > int(shorten["max_sentences"]):
+            raise ValueError("Repair still exceeds the synthesis sentence cap")
+        joined = " ".join(parts).lower()
+        said = [t for t in (shorten.get("forbidden_tokens") or [])
+                if re.search(r"\b" + re.escape(str(t).lower()) + r"\b", joined)]
+        if said:
+            raise ValueError(f"Repair still speaks {said}, which no earlier scene says")
     close = edit["close_index"]
     if scenes[close]["scene_id"] in updates:
         if (edit["opening_object"].casefold() not in scenes[close]["narration"].casefold()
@@ -402,7 +411,11 @@ def synthesis_length_plan(saved):
             or saved.get("rejection_code") != "STORYBOARD_VALIDATION":
         return None
     errors = (saved.get("candidate_validation") or {}).get("errors") or []
-    if not errors or {e.split(":", 1)[0] for e in errors} != {"SYNTHESIS_TOO_LONG"}:
+    codes = {e.split(":", 1)[0] for e in errors}
+    # Any synthesis-only failure of the candidate, not only length (V15, 2026-10-08: the first
+    # rewrite came back at 103 words / 6 sentences and still said "Hidalgo", which no earlier
+    # scene says). The retry is told every constraint it missed, exactly.
+    if not errors or not codes or not codes <= (SYNTHESIS_CODES - {"SYNTHESIS_TOO_THIN"}):
         return None
     candidate = saved.get("candidate_script")
     if not isinstance(candidate, dict):
@@ -414,15 +427,29 @@ def synthesis_length_plan(saved):
     edit = plan(candidate, {"validation": {"errors": errors}})
     if not edit:
         return None
-    scene_id = scenes[synthesis]["scene_id"]
+    parts = [i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS]
+    scene_ids = [scenes[i]["scene_id"] for i in parts]
     chain = sum(1 for s in scenes[:synthesis]
                 if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues"))
     max_words, max_sentences = cs.synthesis_caps(chain)
-    edit["scene_ids"] = [scene_id]
-    edit["scene_word_limits"] = {scene_id: max_words}
-    edit["shorten"] = {"scene_id": scene_id, "max_words": max_words,
+    forbidden = []
+    for error in errors:
+        match = re.search(r"SYNTHESIS_ADDS_HISTORY:.*?speaks \[([^\]]*)\]", error)
+        if match:
+            forbidden += [t.strip().strip("'\"") for t in match.group(1).split(",") if t.strip()]
+    missed = []
+    for error in errors:
+        match = re.search(r"SYNTHESIS_SKIPS_A_BEAT:.*?never touches ([^-]+?) --", error)
+        if match:
+            missed += [t.strip() for t in match.group(1).split(",") if t.strip()]
+    edit["scene_ids"] = scene_ids
+    edit["synthesis_scene_ids"] = scene_ids
+    edit["scene_word_limits"] = {scene_ids[0]: max_words}
+    edit["shorten"] = {"scene_id": scene_ids[0], "max_words": max_words,
                        "max_sentences": max_sentences, "chain_beats": chain,
-                       "current_words": len(str(scenes[synthesis].get("narration") or "").split())}
+                       "forbidden_tokens": forbidden, "must_touch": missed,
+                       "current_words": sum(len(str(scenes[i].get("narration") or "").split())
+                                            for i in parts)}
     return edit
 
 
