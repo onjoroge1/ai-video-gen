@@ -19,6 +19,11 @@ FILENAME = VERSION + ".json"
 BUDGET_VERSION = "illustrated_storyboard_opening_budget_repair_v2"
 BUDGET_FILENAME = BUDGET_VERSION + ".json"
 BUDGET_REJECTION_REASON = "Repair still exceeds the opening word budget"
+# A second, bounded attempt for a candidate that failed ONLY because the synthesis ran long:
+# shorten that same candidate to the contract's cap. V14 (2026-10-08): the first repair echoed
+# every chain beat and came back at 98 words against 70, and the prompt had never said 70.
+LENGTH_VERSION = "illustrated_storyboard_synthesis_length_repair_v1"
+LENGTH_FILENAME = LENGTH_VERSION + ".json"
 FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
 SYNTHESIS_CODES = {"SYNTHESIS_TOO_THIN", "SYNTHESIS_TOO_LONG", "SYNTHESIS_SKIPS_A_BEAT",
@@ -194,7 +199,15 @@ def prompt(script, edit):
         f"original word count, and no more than {CLOSE_GROWTH_WORDS} words longer. "
         + (cs.close_contract_text(edit.get("planted_numbers") or [], edit.get("opening_object", ""))
            + " " if edit.get("close_contract") else "")
-        + ("When the synthesis scene is requested, rewrite it as 2-4 sentences that re-walk EVERY "
+        + ((f"The requested synthesis scene is your previous rewrite, which ran to "
+            f"{edit['shorten']['current_words']} words; it already echoes every chain beat. Return "
+            f"it at or below {edit['shorten']['max_words']} words and "
+            f"{edit['shorten']['max_sentences']} sentences, keeping one echo of every beat it "
+            "names, its opening joint and its sentence addressing the viewer; cut adjectives and "
+            "repeated clauses, not beats. ")
+           if edit.get("shorten") else "")
+        + ("When the synthesis scene is requested, rewrite it as 2-4 sentences and AT MOST "
+           f"{cs.SYNTHESIS_MAX_WORDS} words in that one scene, re-walking EVERY "
            "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
            "already said; add no number, name, date or place they did not. The error names the "
            "scenes it never touched; each of those must be echoed by one of its own content "
@@ -256,6 +269,14 @@ def apply_response(script, edit, response):
             limit = limits.get(scene["scene_id"])
             if limit is not None and counts[index] > limit:
                 raise ValueError("Repair exceeds a scene opening word limit")
+    shorten = edit.get("shorten") or {}
+    if shorten:
+        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == shorten["scene_id"]), None)
+        if index is not None:
+            if counts[index] > int(shorten["max_words"]):
+                raise ValueError("Repair still exceeds the synthesis word cap")
+            if cs._close_sentences(scenes[index]["narration"]) > int(shorten["max_sentences"]):
+                raise ValueError("Repair still exceeds the synthesis sentence cap")
     close = edit["close_index"]
     if scenes[close]["scene_id"] in updates:
         if (edit["opening_object"].casefold() not in scenes[close]["narration"].casefold()
@@ -274,6 +295,35 @@ def apply_response(script, edit, response):
     if hook and hook in script["scenes"][0]["narration"] and hook not in scenes[0]["narration"]:
         raise ValueError("Repair changed the spoken hook")
     return candidate
+
+
+def synthesis_length_plan(saved):
+    """The shorten-only retry's edit, from a saved rejection whose candidate failed on nothing but
+    SYNTHESIS_TOO_LONG. The candidate becomes the input; the synthesis scene gets an exact cap.
+    None for any other rejection."""
+    if not isinstance(saved, dict) or saved.get("status") != "rejected" \
+            or saved.get("rejection_code") != "STORYBOARD_VALIDATION":
+        return None
+    errors = (saved.get("candidate_validation") or {}).get("errors") or []
+    if not errors or {e.split(":", 1)[0] for e in errors} != {"SYNTHESIS_TOO_LONG"}:
+        return None
+    candidate = saved.get("candidate_script")
+    if not isinstance(candidate, dict):
+        return None
+    scenes = candidate.get("scenes") or []
+    synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
+    if synthesis is None:
+        return None
+    edit = plan(candidate, {"validation": {"errors": errors}})
+    if not edit:
+        return None
+    scene_id = scenes[synthesis]["scene_id"]
+    edit["scene_ids"] = [scene_id]
+    edit["scene_word_limits"] = {scene_id: cs.SYNTHESIS_MAX_WORDS}
+    edit["shorten"] = {"scene_id": scene_id, "max_words": cs.SYNTHESIS_MAX_WORDS,
+                       "max_sentences": cs.SYNTHESIS_MAX_SENTENCES,
+                       "current_words": len(str(scenes[synthesis].get("narration") or "").split())}
+    return edit
 
 
 def budget_plan(script, board):

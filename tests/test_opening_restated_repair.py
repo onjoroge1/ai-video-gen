@@ -83,3 +83,47 @@ def test_a_message_the_planner_cannot_place_is_not_a_bounded_edit():
     board = _board(script)
     board["validation"]["errors"] = ["OPENING_RESTATED: scene_999 re-tells the setup (80%)"]
     assert repair.plan(script, board) is None
+
+
+def _rejected_long_synthesis():
+    """A first repair whose candidate re-walked every beat and ran to 98 words."""
+    script = _ladder_script()
+    script["scenes"][7]["narration"] = "those pumps " + _words("after", 40)   # no restatement
+    candidate = copy.deepcopy(script)
+    syn = {"scene_id": "scene_syn", "causal_role": "synthesis", "chapter": 4,
+           "caused_by": "scene_009", "narration": "So trace it back. " + _words("recap", 96) + ".",
+           "visual_beats": [{"state_after": "recap"}]}
+    candidate["scenes"].insert(9, syn)
+    script["scenes"].insert(9, dict(syn, narration="So trace it back. " + _words("short", 20) + "."))
+    return {"status": "rejected", "rejection_code": "STORYBOARD_VALIDATION",
+            "input_script": script, "candidate_script": candidate,
+            "candidate_validation": {"errors": [
+                "SYNTHESIS_TOO_LONG: the synthesis is 5 sentences / 98 words against 4 sentences and 70 words"]}}
+
+
+def test_a_candidate_that_only_ran_long_earns_one_shorten_retry():
+    saved = _rejected_long_synthesis()
+    edit = repair.synthesis_length_plan(saved)
+    assert edit and edit["scene_ids"] == ["scene_syn"]
+    assert edit["scene_word_limits"] == {"scene_syn": 70}
+    assert edit["shorten"]["current_words"] == 99 and edit["shorten"]["max_sentences"] == 4
+    assert "previous rewrite" in repair.prompt(saved["candidate_script"], edit)
+    for other in ({"rejection_code": "JSON_PARSE"}, {"candidate_validation": {"errors": [
+            "SYNTHESIS_TOO_LONG: x", "JOINT_BAND: y"]}}):
+        assert repair.synthesis_length_plan({**saved, **other}) is None
+
+
+def test_the_shorten_retry_refuses_a_result_over_the_cap():
+    saved = _rejected_long_synthesis()
+    edit = repair.synthesis_length_plan(saved)
+    candidate = saved["candidate_script"]
+    long = {"scenes": [{"scene_id": "scene_syn", "narration": "So. " + _words("x", 75) + "."}]}
+    try:
+        repair.apply_response(candidate, edit, long)
+    except ValueError as exc:
+        assert "synthesis word cap" in str(exc)
+    else:
+        raise AssertionError("a 76-word synthesis was accepted")
+    short = {"scenes": [{"scene_id": "scene_syn", "narration": "So trace it back. " + _words("y", 50) + "."}]}
+    result = repair.apply_response(candidate, edit, short)
+    assert result["scenes"][9]["narration"].startswith("So trace it back.")

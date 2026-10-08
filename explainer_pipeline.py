@@ -2414,9 +2414,21 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             "illustrated_storyboard_opening_budget_recovery_v2") or {}
         failure_path = Path(output_dir) / repair.FAILURE_FILE
         failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
+        length_path = Path(output_dir) / repair.LENGTH_FILENAME
+        length_edit = repair.synthesis_length_plan(saved) if not length_path.exists() else None
         if (saved.get("rejection_code") == "JSON_PARSE" and not saved.get("replayed")
                 and repair.extract_json_object(saved.get("provider_response_text")) is not None):
             replay_text = saved["provider_response_text"]
+        elif length_edit:
+            # The shorten-only retry: the rejected candidate is the input, the synthesis scene
+            # gets an exact cap, one attempt, its own record. See repair.synthesis_length_plan.
+            script = saved["candidate_script"]
+            dossier = script.get("_research_dossier") or dossier
+            board = lane.build_storyboard(copy.deepcopy(script), question)
+            path = length_path
+            attempt_version = repair.LENGTH_VERSION
+            plan_builder = lambda _script, _board, _edit=length_edit: _edit  # noqa: E731
+            saved = None
         elif (saved.get("reason") == repair.BUDGET_REJECTION_REASON
                 and armed.get("prior_repair_sha256") == repair.digest(saved)
                 and armed.get("failure_sha256") == repair.digest(failure)):
@@ -2467,7 +2479,9 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             temporary_state.write_text(json.dumps(state, ensure_ascii=False))
             temporary_state.replace(state_path)
         persist()  # mandatory before another paid call
-    if attempt_version == repair.BUDGET_VERSION:
+    if attempt_version == repair.LENGTH_VERSION:
+        log("Story repair: shortening the synthesis rewrite to the contract's cap")
+    elif attempt_version == repair.BUDGET_VERSION:
         log("Story repair: enforcing exact opening scene budgets")
     else:
         log("Story repair: tightening the opening and restoring the spoken callback")
