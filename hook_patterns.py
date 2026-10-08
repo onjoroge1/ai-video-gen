@@ -170,6 +170,13 @@ _NOT_A_GIVEN_NAME = frozenset({
     "african", "africanized", "european", "brazilian", "american", "central", "northern",
     "southern", "eastern", "western", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december", "dr", "mr", "mrs", "ms",
+    # Sentence openers. "Where European bees..." read as a person named Where European and
+    # stopped V14 at the opening identity check (2026-10-08), after the script was paid for.
+    "where", "why", "how", "what", "who", "which", "there", "here", "this", "that", "these",
+    "those", "then", "so", "now", "imagine", "picture", "suppose", "except", "until", "while",
+    "if", "as", "every", "each", "some", "your", "you", "it", "its", "they", "their", "we",
+    "our", "one", "two", "no", "not", "nothing", "nobody", "once", "since", "because", "with",
+    "without", "from", "into", "over", "under", "across", "through", "only", "even", "still",
 })
 
 

@@ -1903,8 +1903,10 @@ def _opening_identity_findings(script: dict, dossier: dict | None) -> list[dict]
         for match in _hp._PERSONAL_NAME.findall(text):
             if _hp._PLACE.search(match):
                 continue
-            first = match.split()[0].lower()
-            if first in _hp._NOT_A_GIVEN_NAME:
+            first, second = (token.lower() for token in match.split()[:2])
+            # Neither half may be a word that is capitalised for a reason other than being a
+            # name: a sentence opener, a nationality, a month. "Where European" is not a person.
+            if first in _hp._NOT_A_GIVEN_NAME or second in _hp._NOT_A_GIVEN_NAME:
                 continue
             if match.casefold() not in claims:
                 findings.append({"code": "OPENING_UNKNOWN_NAME", "severity": "material",

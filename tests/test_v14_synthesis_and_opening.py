@@ -55,3 +55,17 @@ def test_the_second_state_of_an_opening_scene_buys_its_own_picture():
     promoted = [r for r in plan["repairs"] if r["code"] == "opening_reframe_promoted"]
     assert promoted and "second state" in promoted[0]["message"]
     assert plan["validation"]["passed"]
+
+
+def test_a_sentence_opener_before_a_nationality_is_not_a_person():
+    """V14 (2026-10-08): "Where European bees..." stopped the run as an unsourced person."""
+    dossier = {"claims": [{"claim": "Warwick Kerr imported African queens to Rio Claro in 1956."}]}
+    script = {"scenes": [
+        {"causal_role": "setup", "narration": "Where European bees struggle, your jars stay light."},
+        {"causal_role": "intervention", "narration": "So Warwick Kerr brings African queens."},
+        {"causal_role": "hinge", "narration": "Except the screens come off."},
+        {"causal_role": "escalation", "narration": "By spring Maria Silva counts the losses."},
+    ]}
+    findings = ep._opening_identity_findings(script, dossier)
+    assert [f["scene"] for f in findings] == [4], "only the invented person is flagged"
+    assert "Maria Silva" in findings[0]["message"]
