@@ -206,8 +206,9 @@ def prompt(script, edit):
             "names, its opening joint and its sentence addressing the viewer; cut adjectives and "
             "repeated clauses, not beats. ")
            if edit.get("shorten") else "")
-        + ("When the synthesis scene is requested, rewrite it as 2-4 sentences and AT MOST "
-           f"{cs.SYNTHESIS_MAX_WORDS} words in that one scene, re-walking EVERY "
+        + ("When the synthesis scene is requested, rewrite it in at most "
+           f"{cs.synthesis_caps(_chain_count(script))[1]} sentences and AT MOST "
+           f"{cs.synthesis_caps(_chain_count(script))[0]} words in that one scene, re-walking EVERY "
            "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
            "already said; add no number, name, date or place they did not. The error names the "
            "scenes it never touched; each of those must be echoed by one of its own content "
@@ -297,6 +298,15 @@ def apply_response(script, edit, response):
     return candidate
 
 
+def _chain_count(script):
+    """Mechanism and escalation scenes before the first synthesis, continuations excluded."""
+    scenes = script.get("scenes") or []
+    synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS),
+                     len(scenes))
+    return sum(1 for s in scenes[:synthesis]
+               if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues"))
+
+
 def synthesis_length_plan(saved):
     """The shorten-only retry's edit, from a saved rejection whose candidate failed on nothing but
     SYNTHESIS_TOO_LONG. The candidate becomes the input; the synthesis scene gets an exact cap.
@@ -318,10 +328,13 @@ def synthesis_length_plan(saved):
     if not edit:
         return None
     scene_id = scenes[synthesis]["scene_id"]
+    chain = sum(1 for s in scenes[:synthesis]
+                if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues"))
+    max_words, max_sentences = cs.synthesis_caps(chain)
     edit["scene_ids"] = [scene_id]
-    edit["scene_word_limits"] = {scene_id: cs.SYNTHESIS_MAX_WORDS}
-    edit["shorten"] = {"scene_id": scene_id, "max_words": cs.SYNTHESIS_MAX_WORDS,
-                       "max_sentences": cs.SYNTHESIS_MAX_SENTENCES,
+    edit["scene_word_limits"] = {scene_id: max_words}
+    edit["shorten"] = {"scene_id": scene_id, "max_words": max_words,
+                       "max_sentences": max_sentences, "chain_beats": chain,
                        "current_words": len(str(scenes[synthesis].get("narration") or "").split())}
     return edit
 

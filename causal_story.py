@@ -128,6 +128,18 @@ SYNTHESIS_RUNTIME_SHARE = 0.06
 SYNTHESIS_MIN_SENTENCES, SYNTHESIS_MAX_SENTENCES = 2, 4
 SYNTHESIS_MIN_WORDS, SYNTHESIS_MAX_WORDS = 20, 70
 SYNTHESIS_MIN_RUNTIME_SEC = 150.0
+# The cap grows with the chain it re-walks. 70 words / 4 sentences was fitted to a five-mechanism
+# reference whose own recap runs about 85 words in six sentences; V14 (2026-10-08) had eight
+# chain beats, and a rewrite that echoed all eight at 74 words / 5 sentences was refused. Ten
+# words a beat, and a sentence for every two beats, with the fixed caps as the floor.
+SYNTHESIS_WORDS_PER_CHAIN_BEAT = 10
+
+
+def synthesis_caps(chain_count: int) -> tuple[int, int]:
+    """(max words, max sentences) for a synthesis re-walking `chain_count` beats."""
+    count = max(0, int(chain_count or 0))
+    return (max(SYNTHESIS_MAX_WORDS, SYNTHESIS_WORDS_PER_CHAIN_BEAT * count),
+            max(SYNTHESIS_MAX_SENTENCES, -(-count * 3 // 5)))
 
 
 def synthesis_planned(engine: dict | None, duration_sec: float) -> bool:
@@ -865,17 +877,18 @@ def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
             f"{SYNTHESIS_MIN_SENTENCES}-{SYNTHESIS_MAX_SENTENCES} sentences and at least "
             f"{SYNTHESIS_MIN_WORDS} words; a one-line recap is a signpost, not the chain heard again",
             synthesis["step_id"]))
-    if len(sentences) > SYNTHESIS_MAX_SENTENCES or words > SYNTHESIS_MAX_WORDS:
-        issues.append(_issue(
-            "SYNTHESIS_TOO_LONG",
-            f"the synthesis is {len(sentences)} sentences / {words} words against "
-            f"{SYNTHESIS_MAX_SENTENCES} sentences and {SYNTHESIS_MAX_WORDS} words; it re-walks, "
-            "it does not re-tell",
-            synthesis["step_id"]))
     # Every asserting mechanism/escalation beat before it must be echoed by a DISTINCTIVE stem
     # (one that at most two chain beats share); "disturbed" in three beats echoes none of them.
     chain = [s for s in steps if s["role"] in (MECHANISM, ESCALATION) and not s["continues"]
              and s["index"] < synthesis["index"]]
+    max_words, max_sentences = synthesis_caps(len(chain))
+    if len(sentences) > max_sentences or words > max_words:
+        issues.append(_issue(
+            "SYNTHESIS_TOO_LONG",
+            f"the synthesis is {len(sentences)} sentences / {words} words against "
+            f"{max_sentences} sentences and {max_words} words for {len(chain)} chain beats; "
+            "it re-walks, it does not re-tell",
+            synthesis["step_id"]))
     stems_by_beat = {s["step_id"]: _content_stems(s["situation"]) for s in chain}
     counts: dict = {}
     for stems in stems_by_beat.values():

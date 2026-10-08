@@ -2415,10 +2415,40 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         failure_path = Path(output_dir) / repair.FAILURE_FILE
         failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
         length_path = Path(output_dir) / repair.LENGTH_FILENAME
-        length_edit = repair.synthesis_length_plan(saved) if not length_path.exists() else None
+        length_saved = json.loads(length_path.read_text()) if length_path.exists() else None
+        current_length_edit = repair.synthesis_length_plan(saved)
+        if (length_saved and length_saved.get("status") == "rejected" and current_length_edit
+                and (length_saved.get("edit") or {}).get("shorten", {}).get("max_words")
+                != current_length_edit["shorten"]["max_words"]):
+            # A shorten retry asked against a cap that no longer exists is not this job's
+            # attempt under the cap that does. V14 (2026-10-08): asked for 70 words, answered
+            # 74 for eight chain beats, refused; the cap is now 80. Kept aside, not deleted.
+            superseded = length_path.with_name(
+                length_path.stem + f".superseded-{int(time.time())}.json")
+            length_path.replace(superseded)
+            log("Story repair: the earlier shorten retry was asked against a superseded cap; "
+                "kept as " + superseded.name)
+            length_saved = None
+        length_edit = current_length_edit if length_saved is None else None
         if (saved.get("rejection_code") == "JSON_PARSE" and not saved.get("replayed")
                 and repair.extract_json_object(saved.get("provider_response_text")) is not None):
             replay_text = saved["provider_response_text"]
+        elif (length_saved and length_saved.get("status") == "rejected"
+              and length_saved.get("rejection_code") == "EDIT_CONSTRAINT"
+              and not length_saved.get("replayed")
+              and repair.extract_json_object(length_saved.get("provider_response_text")) is not None
+              and repair.synthesis_length_plan(saved)):
+            # The shorten retry's response, judged again under the current caps without a
+            # second purchase: V14's came back at 74 words / 5 sentences for eight chain beats,
+            # refused under 70 / 4, and is within the chain-scaled cap. Once, marked.
+            script = length_saved["input_script"]
+            dossier = script.get("_research_dossier") or dossier
+            board = lane.build_storyboard(copy.deepcopy(script), question)
+            path = length_path
+            attempt_version = repair.LENGTH_VERSION
+            plan_builder = lambda _s, _b, _e=repair.synthesis_length_plan(saved): _e  # noqa: E731
+            replay_text = length_saved["provider_response_text"]
+            saved = length_saved
         elif length_edit:
             # The shorten-only retry: the rejected candidate is the input, the synthesis scene
             # gets an exact cap, one attempt, its own record. See repair.synthesis_length_plan.
@@ -2460,7 +2490,7 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         return script, board
     record = saved or {"version": attempt_version, "status": "started",
                        "input_sha256": repair.digest(script), "input_script": script,
-                       "original_validation": board["validation"]}
+                       "original_validation": board["validation"], "edit": edit}
 
     def persist():
         temporary = path.with_suffix(".tmp")
@@ -3650,7 +3680,7 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     chain_beats = sum(1 for b in beats
                       if b.get("causal_role") in (cs.MECHANISM, cs.ESCALATION)
                       and int(b.get("beat_part") or 1) <= 1)
-    synthesis_words = min(cs.SYNTHESIS_MAX_WORDS,
+    synthesis_words = min(cs.synthesis_caps(chain_beats)[0],
                           max(int(total_words * cs.SYNTHESIS_RUNTIME_SHARE),
                               _SYNTHESIS_WORDS_PER_BEAT * chain_beats))
     for group, words in groups:
@@ -3739,7 +3769,7 @@ def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
     # it are not a recap.
     caps = {
         beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling) if beat.get("causal_role") == cs.HINGE
-                    else max(ceiling, min(cs.SYNTHESIS_MAX_WORDS, budgets[beat["n"]]))
+                    else max(ceiling, min(cs.synthesis_caps(len(beats))[0], budgets[beat["n"]]))
                     if beat.get("causal_role") == cs.SYNTHESIS else ceiling)
         for beat in beats if beat.get("n") in budgets
     }
