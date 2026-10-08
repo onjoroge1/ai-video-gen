@@ -1,0 +1,173 @@
+{
+ "cadence": "every other day, 06:00 local",
+ "monthly_spend_cap_usd": 250,
+ "per_run_cost_cap_usd": 18,
+ "items": [
+  {
+   "date": "2026-10-09",
+   "slug": "dingo-fence",
+   "question": "Australia Built a 5,600 km Fence to Keep Dingoes Out and the Kangaroos Took Over",
+   "score": 67,
+   "market": {
+    "median_views": 3731.0,
+    "median_views_per_day": 29.9,
+    "rivals_100k_2y": 1
+   },
+   "status": "queued",
+   "job": "jobs/dingo-fence",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-11",
+   "slug": "asian-carp",
+   "question": "America Imported Asian Carp to Clean Its Ponds and Now They Rule the Mississippi",
+   "score": 64,
+   "market": {
+    "median_views": 3331.0,
+    "median_views_per_day": 27.1,
+    "rivals_100k_2y": 3
+   },
+   "status": "queued",
+   "job": "jobs/asian-carp",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-13",
+   "slug": "macquarie-cats",
+   "question": "Removing the Cats of Macquarie Island Let the Rabbits Destroy It",
+   "score": 64,
+   "market": {
+    "median_views": 96,
+    "median_views_per_day": 4.2,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/macquarie-cats",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-15",
+   "slug": "nz-stoats",
+   "question": "New Zealand Brought Stoats to Kill Rabbits and They Hunted the Native Birds",
+   "score": 61,
+   "market": {
+    "median_views": 851.5,
+    "median_views_per_day": 7.3,
+    "rivals_100k_2y": 1
+   },
+   "status": "queued",
+   "job": "jobs/nz-stoats",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-17",
+   "slug": "thylacine-bounty",
+   "question": "Tasmania Paid a Bounty on the Tasmanian Tiger and Killed the Last of Its Kind",
+   "score": 64,
+   "market": {
+    "median_views": 2846.5,
+    "median_views_per_day": 16.4,
+    "rivals_100k_2y": 2
+   },
+   "status": "queued",
+   "job": "jobs/thylacine-bounty",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-19",
+   "slug": "emu-war",
+   "question": "Australia Sent Machine Guns Against the Emus in 1932 and the Emus Won",
+   "score": 59,
+   "market": {
+    "median_views": 123,
+    "median_views_per_day": 0.6,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/emu-war",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-21",
+   "slug": "nile-perch",
+   "question": "Nile Perch Were Put Into Lake Victoria for Food and Hundreds of Fish Species Vanished",
+   "score": 54,
+   "market": {
+    "median_views": 669.0,
+    "median_views_per_day": 3.7,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/nile-perch",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-23",
+   "slug": "australia-rabbits",
+   "question": "Thomas Austin Released 24 Rabbits in Australia and a Continent Spent a Century Fighting Them",
+   "score": 57,
+   "market": {
+    "median_views": 238.0,
+    "median_views_per_day": 2.1,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/australia-rabbits",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-25",
+   "slug": "nz-possums",
+   "question": "New Zealand Imported Possums for Fur and Now Fights 30 Million of Them",
+   "score": 55,
+   "market": {
+    "median_views": 2133,
+    "median_views_per_day": 2.2,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/nz-possums",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-27",
+   "slug": "australia-camels",
+   "question": "Australia Imported Camels to Cross the Desert and Now Shoots Them From Helicopters",
+   "score": 55,
+   "market": {
+    "median_views": 4245,
+    "median_views_per_day": 2.9,
+    "rivals_100k_2y": 0
+   },
+   "status": "queued",
+   "job": "jobs/australia-camels",
+   "notes": ""
+  }
+ ],
+ "held": [
+  {
+   "slug": "hanoi-rat-hunt",
+   "reason": "low search demand; strong channel fit, revisit as a short"
+  },
+  {
+   "slug": "delhi-cobra-bounty",
+   "reason": "the Delhi episode is poorly documented; fact confidence 4/10"
+  },
+  {
+   "slug": "operation-cat-drop",
+   "reason": "details disputed across sources; fact confidence 5/10"
+  },
+  {
+   "slug": "central-park-starlings",
+   "reason": "low demand"
+  },
+  {
+   "slug": "hawaii-mongoose",
+   "reason": "low demand"
+  },
+  {
+   "slug": "mosquitofish",
+   "reason": "low demand"
+  }
+ ]
+}
