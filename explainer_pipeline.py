@@ -7996,11 +7996,17 @@ _EVIDENCE_VERIFY_SYSTEM = (
     "scorched against a fresh surface)."
 )
 
-# The image checker's model. Defaults to the script model; EVIDENCE_VERIFY_MODEL picks another
-# (2026-10-08: the checker was the largest single line of Claude spend, about 390 Opus vision
-# calls a day). Changing it changes every verdict's cache key, so nothing judged by one model is
-# reused as the other's verdict.
-EVIDENCE_VERIFY_MODEL = os.environ.get("EVIDENCE_VERIFY_MODEL", "") or ANTHROPIC_MODEL
+# The image checker's model; EVIDENCE_VERIFY_MODEL overrides it. Changing it changes every
+# verdict's cache key, so nothing judged by one model is reused as another's verdict.
+#
+# MEASURED 2026-10-08 (scripts/compare_verifier_models.py on V13-V15, 768 px images): on 120
+# images Opus had accepted at full size, and 40 images judged against another scene's state --
+#   Opus 4.8    wrongly refused 1/120, refused 31/40 mismatches, $0.018 a check
+#   Sonnet 5.5  wrongly refused 7/120, refused 38/40 mismatches, $0.0055 a check
+#   Haiku 5.5   wrongly refused 16/120, refused 36/40 mismatches, $0.0003 a check
+# Sonnet is stricter than Opus on mismatches and its extra refusals cost a few redraws a film.
+# Haiku's 13% wrong refusals spend its saving on redraws and dropped frames.
+EVIDENCE_VERIFY_MODEL = os.environ.get("EVIDENCE_VERIFY_MODEL", "") or "claude-sonnet-5-5"
 # Long edge, in pixels, of every image sent to the checker. 1536x1024 is about 2,000 input
 # tokens an image; 768 is about a quarter of that and still shows which objects are present.
 VERIFY_IMAGE_MAX_EDGE = int(os.environ.get("VERIFY_IMAGE_MAX_EDGE", "768") or 0)

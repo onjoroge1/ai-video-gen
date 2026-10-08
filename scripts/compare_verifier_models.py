@@ -58,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args(argv)
 
+    # The pipeline client reads ANTHROPIC_API_KEY from the environment; the local runner loads
+    # .env for it, and this script has to do the same (a first run returned 480 "unavailable").
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
     import explainer_pipeline as ep
     import usage_ledger
 
