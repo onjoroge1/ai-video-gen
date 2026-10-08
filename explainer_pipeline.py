@@ -2483,8 +2483,13 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
                 "kept as " + superseded.name)
             length_saved = None
         length_edit = current_length_edit if length_saved is None else None
-        if (saved.get("rejection_code") == "JSON_PARSE" and not saved.get("replayed")
+        if ((saved.get("rejection_code") == "JSON_PARSE"
+             or (saved.get("rejection_code") == "EDIT_CONSTRAINT"
+                 and str(saved.get("reason") or "").startswith("Repair must contain")))
+                and not saved.get("replayed")
                 and repair.extract_json_object(saved.get("provider_response_text")) is not None):
+            # Refused by the reader, not on the merits: parse strictness (prose around the JSON,
+            # an extra key per row). The same response is read again, once, without a purchase.
             replay_text = saved["provider_response_text"]
         elif (length_saved and length_saved.get("status") == "rejected"
               and length_saved.get("rejection_code") == "EDIT_CONSTRAINT"

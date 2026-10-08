@@ -293,9 +293,12 @@ def prompt(script, edit):
 
 def apply_response(script, edit, response):
     rows = response.get("scenes") if isinstance(response, dict) else None
-    if not isinstance(rows, list) or any(not isinstance(r, dict) or set(r) != {"scene_id", "narration"}
+    if not isinstance(rows, list) or any(not isinstance(r, dict) or not {"scene_id", "narration"} <= set(r)
                                          for r in rows):
-        raise ValueError("Repair must contain only scene IDs and narration")
+        raise ValueError("Repair must contain scene IDs and narration")
+    # Only the two fields are read. V15 (2026-10-08): the model echoed each row's causal_role
+    # beside its narration and the whole edit was refused for the extra key.
+    rows = [{"scene_id": r["scene_id"], "narration": r["narration"]} for r in rows]
     ids = [r["scene_id"] for r in rows]
     if len(ids) != len(set(ids)):
         raise ValueError("Repair changed the permitted scene set")
