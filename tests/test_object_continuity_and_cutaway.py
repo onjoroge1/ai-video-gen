@@ -77,3 +77,25 @@ def test_an_empty_state_before_is_repaired_from_the_previous_shot():
     codes = {r["code"] for r in plan["repairs"]}
     assert "missing_evidence_state_before_repaired" in codes
     assert plan["validation"]["passed"]
+
+
+def test_the_ladder_opening_ends_before_the_mechanism_scene():
+    """V13 (2026-10-08): the 30% window pinned ten scenes to the first-act location while the
+    mechanism was set in the forest; every forest master was refused as the wrong location."""
+    roles = ["setup", "setup", "intervention", "intervention", "hinge", "mechanism", "mechanism",
+             "escalation", "escalation", "escalation", "escalation", "reversal", "synthesis", "tool"]
+    scenes = [{"causal_role": role} for role in roles]
+    assert le._opening_scene_count(scenes) == 4, "the 30% window, unchanged for other lanes"
+    assert le._opening_scene_count(scenes, ladder=True) == 4
+    long = [{"causal_role": "setup"} for _ in range(6)] + scenes[2:]
+    assert le._opening_scene_count(long) == 5
+    assert le._opening_scene_count(long, ladder=True) == 5, "the 30% window still caps the ladder"
+    late = scenes[:5] + [{"causal_role": "escalation"}] * 20
+    assert le._opening_scene_count(late) == 8
+    assert le._opening_scene_count(late + [{"causal_role": "mechanism"}], ladder=True) == 8
+    pinned = [{"causal_role": r} for r in ["setup"] * 2 + ["intervention"] * 2 + ["hinge"]
+              + ["mechanism"] * 2 + ["escalation"] * 21]
+    assert le._opening_scene_count(pinned) == 8, "V13's shape: 28 scenes, 30% is eight"
+    assert le._opening_scene_count(pinned, ladder=True) == 5, "ends before the mechanism"
+    script = {"_opening_contract": "ladder_v1", "_story_contract": {}, "scenes": pinned}
+    assert le.build_continuity_pack(script)["opening_scene_count"] == 5
