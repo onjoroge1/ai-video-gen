@@ -94,6 +94,16 @@ def main() -> int:
         "actual_cost", "degraded_reasons", "thumbnail_path", "transcript_path", "srt_path",
         "description_path", "technical_status", "automated_grade_status", "rendered_contract_path",
         "storyboard_path", "generation_manifest_path")}
+    # Spend across EVERY launch of this job, from the per-call ledger. actual_cost above counts
+    # only this launch's sinks, which on V13 (eight launches) understated the job's real spend.
+    try:
+        import usage_ledger
+        spend = usage_ledger.summarize(str(out / usage_ledger.LEDGER_FILENAME))
+        summary["ledger_total_usd"] = spend["total_usd"]
+        summary["ledger_by_provider"] = spend["by_provider"]
+        summary["ledger_by_kind"] = spend["by_kind"]
+    except Exception:  # noqa: BLE001 - accounting never fails the run record
+        pass
     (out / "run_result.json").write_text(json.dumps(summary, indent=2, default=str))
     log(f"DONE in {time.time() - started:.0f}s: {json.dumps(summary, default=str)[:600]}")
     return 0

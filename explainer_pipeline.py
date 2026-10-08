@@ -34,6 +34,7 @@ from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_durat
     probe_dimensions as _probe_dimensions, probe_media as _probe_media
 import anthropic
 import script_provider
+import usage_ledger as _usage_ledger
 from openai import OpenAI
 
 from longform_retention import (
@@ -224,10 +225,11 @@ def _anthropic_native():
         runtime = None
     # A durable worker owns retries and must checkpoint before its invocation expires. SDK
     # retries can multiply a single 180s/240s request beyond that worker's complete lifetime.
-    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
+    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(),
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
         max_retries=0 if runtime else int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
-    return runtime.wrap_anthropic(client) if runtime else client
+    # Every message is recorded with its model, caller and tokens (usage_ledger.py).
+    return _usage_ledger.meter(runtime.wrap_anthropic(client) if runtime else client)
 
 def _openai():
     # 90s per-call timeout so a hung connection fails fast (default is 600s, which
@@ -5272,13 +5274,19 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + " Spend the closing beat's full narration_words on it. "
             "Do not invent another false resolution or escalation after the reversal."
             if causal_lane and is_last else "")
-        ch_prompt = (
+        # THE PREFIX EVERY BATCH SHARES: title, cast, throughline and the full beat sheet. It is
+        # sent as its own cached block, so the second and third batches read it at a tenth of the
+        # input price; the text the model reads is unchanged (same words, same order).
+        ch_prefix = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
             + (cast_rules if causal_lane and _illustrated_is_cast_free() else
                f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
                f'{MASCOT_NAME} — {MASCOT_DESC}.')
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
+        )
+        ch_prompt = (
+            ch_prefix
             + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned row below into exactly ONE scene, '
             'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
             'belongs to another row -- the one exception is a row whose causal_role is "synthesis", '
@@ -5372,7 +5380,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + count_note
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
-                                      messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
+                                      messages=[{"role": "user", "content": _cached_prefix_content(
+                                          ch_prefix, ch_prompt[len(ch_prefix):] + _DESIGN_SYSTEM_TEXT)}])
         cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
         if getattr(c, "stop_reason", "") == "max_tokens":
             # Retry a smaller, differently keyed request. Completed prefixes are retained and
@@ -7685,10 +7694,15 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
         _normalize_generated_image(output_path)
         if cost_sink is not None:
             cost_sink.append(actual)
+        _usage_ledger.record("openai", "image", actual, model=IMAGE_MODEL,
+                             caller=_usage_ledger.caller_name(2))
     else:
         resp = _retry(_call, tries=6, label="image generation")
+        _image_actual = _image_cost_from_usage(resp)
         if cost_sink is not None:
-            cost_sink.append(_image_cost_from_usage(resp))
+            cost_sink.append(_image_actual)
+        _usage_ledger.record("openai", "image", _image_actual, model=IMAGE_MODEL,
+                             caller=_usage_ledger.caller_name(2))
         _write_image_result(resp.data[0], output_path)
         _normalize_generated_image(output_path)
     return output_path
@@ -7973,8 +7987,73 @@ _EVIDENCE_VERIFY_SYSTEM = (
     "requested state/evidence is actually readable, not merely because the image differs. "
     "A QUANTITY, YEAR OR COUNT spoken in the narration is NOT a visual requirement: never fail "
     "visible_information, and never list a reason, because a stated number cannot be counted "
-    "in the picture. Judge the subject, the action and the state, not the arithmetic."
+    "in the picture. Judge the subject, the action and the state, not the arithmetic. "
+    "COLOUR IS STYLE, NOT EVIDENCE: a colour or tint named in a requirement or reference ('a "
+    "warm-coral jar', 'a green cage', 'coral bees') describes the illustration's palette. Judge "
+    "whether the object is there, what it is, and what state it is in; never mark a requirement "
+    "or a continuity field false, and never list a reason, because a colour, tint or paper stock "
+    "differs. The one exception is a colour that IS the state (ripe against unripe fruit, a "
+    "scorched against a fresh surface)."
 )
+
+# The image checker's model. Defaults to the script model; EVIDENCE_VERIFY_MODEL picks another
+# (2026-10-08: the checker was the largest single line of Claude spend, about 390 Opus vision
+# calls a day). Changing it changes every verdict's cache key, so nothing judged by one model is
+# reused as the other's verdict.
+EVIDENCE_VERIFY_MODEL = os.environ.get("EVIDENCE_VERIFY_MODEL", "") or ANTHROPIC_MODEL
+# Long edge, in pixels, of every image sent to the checker. 1536x1024 is about 2,000 input
+# tokens an image; 768 is about a quarter of that and still shows which objects are present.
+VERIFY_IMAGE_MAX_EDGE = int(os.environ.get("VERIFY_IMAGE_MAX_EDGE", "768") or 0)
+# Bump when the verifier's contract changes in a way the prompt text does not capture.
+VERIFY_CACHE_VERSION = "verdict-cache-v1"
+
+
+def _verify_image_payload(path: str) -> tuple[bytes, str]:
+    """The bytes the checker sees: downscaled to VERIFY_IMAGE_MAX_EDGE and re-encoded as JPEG.
+    Falls back to the original file, with its sniffed media type, if PIL cannot open it."""
+    with open(path, "rb") as handle:
+        payload = handle.read()
+    if VERIFY_IMAGE_MAX_EDGE > 0:
+        try:
+            from io import BytesIO
+            from PIL import Image as _PILImage
+            with _PILImage.open(BytesIO(payload)) as image:
+                image = image.convert("RGB")
+                if max(image.size) > VERIFY_IMAGE_MAX_EDGE:
+                    image.thumbnail((VERIFY_IMAGE_MAX_EDGE, VERIFY_IMAGE_MAX_EDGE))
+                buffer = BytesIO()
+                image.save(buffer, format="JPEG", quality=85)
+                return buffer.getvalue(), "image/jpeg"
+        except Exception:          # noqa: BLE001 - an unreadable image is sent as it is
+            pass
+    media_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+    return payload, media_type
+
+
+def _cached_prefix_content(prefix: str, rest: str) -> str:
+    """The user message with an invisible marker where the shared prefix ends. The real Anthropic
+    client (usage_ledger.MeteredMessages) splits there into [cached prefix block, rest block], so
+    repeated calls read the prefix from the prompt cache; every other client, including the
+    OpenAI path and test fakes, sees one string. The model reads the same words either way."""
+    if script_provider.active_provider() == script_provider.OPENAI or not prefix:
+        return prefix + rest
+    return prefix + _usage_ledger.CACHE_SPLIT + rest
+
+
+def _verdict_cache_path(image_path: str) -> str:
+    return image_path + ".verdict.json"
+
+
+def _keep_rejected_image(image_path: str, verification: dict | None, attempt: int) -> None:
+    """Copy a refused image and its verdict to <image>.rejected-<n>.jpg / .json. Never raises."""
+    try:
+        import shutil
+        base = f"{image_path}.rejected-{attempt}"
+        shutil.copyfile(image_path, base + ".jpg")
+        with open(base + ".json", "w", encoding="utf-8") as handle:
+            json.dump(verification or {}, handle, ensure_ascii=False, default=str)
+    except Exception:          # noqa: BLE001 - diagnostics never break the render
+        pass
 
 
 def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
@@ -7994,15 +8073,16 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
     non-photoreal lane.
     """
     try:
+        key_parts: list[bytes] = []
+
         def image_block(path: str) -> dict:
-            with open(path, "rb") as handle:
-                payload = handle.read()
-                encoded = base64.b64encode(payload).decode()
-            # Image APIs may return PNG bytes into a .jpg path. Detect the encoded bytes instead
-            # of trusting the extension; Anthropic rejects mismatched media types.
-            media_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+            # Downscaled for the checker (VERIFY_IMAGE_MAX_EDGE). Image APIs may return PNG bytes
+            # into a .jpg path; _verify_image_payload sniffs instead of trusting the extension.
+            payload, media_type = _verify_image_payload(path)
+            key_parts.append(hashlib.sha256(payload).digest())
             return {"type": "image", "source": {
-                "type": "base64", "media_type": media_type, "data": encoded}}
+                "type": "base64", "media_type": media_type,
+                "data": base64.b64encode(payload).decode()}}
         expected = {
             "required_objects": state.get("required_objects") or [],
             "forbidden_objects": state.get("forbidden_objects") or [],
@@ -8046,12 +8126,31 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                     {"type": "text", "text": f"CONTINUITY REFERENCE {index + 1} BELOW:"},
                     image_block(reference),
                 ])
+        # A VERDICT IS A FUNCTION OF WHAT WAS SHOWN AND ASKED. The same bytes, the same
+        # references, the same question to the same model get the saved answer: a resume used to
+        # re-buy every accepted image's verdict (about 80 calls on 2026-10-08), and verifier noise
+        # then refused images it had accepted an hour earlier.
+        key_hash = hashlib.sha256()
+        for part in (VERIFY_CACHE_VERSION, EVIDENCE_VERIFY_MODEL, str(VERIFY_IMAGE_MAX_EDGE),
+                     _EVIDENCE_VERIFY_SYSTEM, instruction + json.dumps(expected, ensure_ascii=False)):
+            key_hash.update(part.encode("utf-8"))
+        for part in key_parts:
+            key_hash.update(part)
+        verdict_key = key_hash.hexdigest()
+        cache_path = _verdict_cache_path(image_path)
+        try:
+            with open(cache_path, encoding="utf-8") as handle:
+                cached = json.load(handle)
+            if cached.get("key") == verdict_key and isinstance(cached.get("result"), dict):
+                return {**cached["result"], "verdict_cached": True}
+        except (OSError, ValueError):
+            pass
         response = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
+            model=EVIDENCE_VERIFY_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
             messages=[{"role": "user", "content": content}],
         )
         if cost_sink is not None:
-            cost_sink.append(_msg_cost(response.usage))
+            cost_sink.append(_usage_ledger.anthropic_cost(EVIDENCE_VERIFY_MODEL, response.usage))
         result, repair_cost = _parse_script_json(response.content[0].text)
         if cost_sink is not None and repair_cost:
             cost_sink.append(repair_cost)
@@ -8089,7 +8188,17 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         reasons = [_s(item) for item in result.get("reasons") or [] if _s(item)]
         if not passed and not reasons:
             reasons = ["pixel verification did not satisfy every object-state and continuity check"]
-        return {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
+        verdict = {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
+        try:
+            # Saved beside the image it judges, keyed by everything the judgment saw. A redraw
+            # writes new bytes, so its key differs and it is judged afresh.
+            with open(cache_path, "w", encoding="utf-8") as handle:
+                json.dump({"key": verdict_key, "model": EVIDENCE_VERIFY_MODEL,
+                           "image_max_edge": VERIFY_IMAGE_MAX_EDGE, "result": verdict},
+                          handle, ensure_ascii=False)
+        except OSError:
+            pass
+        return verdict
     except Exception as exc:
         # NO JUDGE IS NOT THE SAME ANSWER AS "NO".
         #
@@ -8172,6 +8281,8 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
         with open(output_path, "wb") as f:
             for chunk in resp.iter_bytes():
                 f.write(chunk)
+        _usage_ledger.record("openai", "tts", len(text) * _RATE_TTS_CHAR, model=TTS_MODEL,
+                             caller="generate_tts", extra={"characters": len(text)})
         return output_path
 
     try:
@@ -12759,6 +12870,9 @@ def run_explainer_pipeline(
         if progress_cb:
             progress_cb(msg)
 
+    # Every provider call of this launch is appended to <job>/usage_ledger.jsonl (usage_ledger.py).
+    _usage_ledger.set_job_dir(output_dir)
+
     # The channel restricts which narrative engines the selector may offer (topic_fit.CHANNEL_ENGINES).
     # Carried as a context variable rather than threaded through three signatures: the selector sits
     # under generate_graded_script -> _generate_script_chunked, and every caller of those would
@@ -14164,6 +14278,10 @@ def run_explainer_pipeline(
                             break
                         log(f"  ↻ redrawing evidence {i+1}.{state_index+1} "
                             f"({_redraw + 1}/{_EVIDENCE_REDRAWS}) — {reasons[:120]}")
+                        # Keep the refused image and its verdict beside the state. Without them
+                        # there is no set of real rejections to measure a cheaper checker
+                        # against (2026-10-08: every rejected image had been overwritten).
+                        _keep_rejected_image(state_path, verification, _redraw + 1)
                         generate_image(
                             prompt + " THE PREVIOUS ATTEMPT WAS REJECTED BY A VISUAL INSPECTOR FOR "
                             f"THESE REASONS: {reasons}. Fix exactly those faults. Every other "
