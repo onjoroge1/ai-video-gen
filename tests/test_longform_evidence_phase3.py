@@ -399,11 +399,21 @@ def test_pixel_verifier_detects_png_bytes_even_when_path_ends_in_jpg(monkeypatch
                                    usage=SimpleNamespace(input_tokens=1, output_tokens=1))
 
     monkeypatch.setattr(pipeline, "_claude", lambda: SimpleNamespace(messages=Messages()))
-    report = pipeline.verify_evidence_asset(
-        str(image), state, compile_evidence_plan(_script())["continuity_pack"])
-    image_blocks = [item for item in seen["content"] if item.get("type") == "image"]
-    assert report["passed"] is True
-    assert image_blocks[0]["source"]["media_type"] == "image/png"
+    # The declared media type must match the bytes actually sent. The checker now re-encodes
+    # every image as a downscaled JPEG (2026-10-08), which settles the mismatch by construction;
+    # with resizing off it sends the original bytes and must still sniff them as PNG.
+    import base64
+    for max_edge, expected in ((768, "image/jpeg"), (0, "image/png")):
+        monkeypatch.setattr(pipeline, "VERIFY_IMAGE_MAX_EDGE", max_edge)
+        for cached in tmp_path.glob("*.verdict.json"):
+            cached.unlink()
+        report = pipeline.verify_evidence_asset(
+            str(image), state, compile_evidence_plan(_script())["continuity_pack"])
+        image_blocks = [item for item in seen["content"] if item.get("type") == "image"]
+        assert report["passed"] is True
+        source = image_blocks[0]["source"]
+        assert source["media_type"] == expected
+        assert base64.b64decode(source["data"]).startswith(b"\x89PNG") == (expected == "image/png")
 
 
 def test_phase_three_reports_are_exposed_in_ui_and_api():
