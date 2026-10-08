@@ -23,7 +23,8 @@ def main(argv: list[str]) -> int:
     job = argv[0]
     path = os.path.join(job, usage_ledger.LEDGER_FILENAME)
     if not os.path.exists(path):
-        print(f"no usage ledger at {path} (jobs before 2026-10-08 did not record per-call spend)")
+        print(f"no usage ledger at {path}: every launch of this job ran before per-call recording was "
+              "added (commit 5cde2fc). The next launch or resume starts the ledger.")
         return 1
     s = usage_ledger.summarize(path)
     if "--json" in argv:
