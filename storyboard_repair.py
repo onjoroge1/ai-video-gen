@@ -23,8 +23,14 @@ FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
 SYNTHESIS_CODES = {"SYNTHESIS_TOO_THIN", "SYNTHESIS_TOO_LONG", "SYNTHESIS_SKIPS_A_BEAT",
                    "SYNTHESIS_ADDS_HISTORY"}
-REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
-              | SYNTHESIS_CODES)
+# OPENING_RESTATED (a body scene re-telling the opening's problem, decision or escape) was a
+# blocking storyboard code with no repair path, so one overlapping sentence after research,
+# planning and script spend ended the run (flow validation 2026-10-07, item 8). Its repair is a
+# trim: the named scene keeps only what its own event adds, at or under its original length.
+RESTATED_CODE = "OPENING_RESTATED"
+REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
+               RESTATED_CODE} | SYNTHESIS_CODES)
+_RESTATED = re.compile(r"^OPENING_RESTATED:\s*(\S+)\s+re-tells the (\w+)")
 CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
 # Two to four sentences on an 18-word close needs more than the old +20.
 CLOSE_GROWTH_WORDS = 40
@@ -110,6 +116,16 @@ def plan(script, board):
     synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
     if codes & SYNTHESIS_CODES and synthesis is not None:
         selected.add(synthesis)
+    # The restated scenes, named by the check's own message ("<scene_id> re-tells the <role>").
+    restated = []
+    for error in errors:
+        match = _RESTATED.match(error)
+        if match and match.group(1) in ids:
+            index = ids.index(match.group(1))
+            selected.add(index)
+            restated.append({"scene_id": match.group(1), "re_tells": match.group(2)})
+    if RESTATED_CODE in codes and not restated:
+        return None    # a message this planner cannot place is not a bounded edit
     opening_plan = script.get("_opening") if isinstance(script.get("_opening"), dict) else {}
     planted = sorted(cs.lead_numbers({"line": script.get("hook"),
                                       "cold_open": script.get("_cold_open"),
@@ -120,6 +136,7 @@ def plan(script, board):
             "planted_numbers": planted if script.get("_close_contract") else [],
             "synthesis_index": synthesis,
             "close_contract": str(script.get("_close_contract") or ""),
+            "restated": restated,
             "deadline_fraction": pct, "original_counts": counts}
 
 
@@ -148,6 +165,13 @@ def prompt(script, edit):
            "already said; add no number, name, date or place they did not. "
            if edit.get("synthesis_index") is not None and edit["scene_ids"]
            and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]) else "")
+        + ("When a scene is listed in `restated`, it re-tells the opening beat named there (the "
+           "problem, the decision or the escape), and the body must continue from the consequence "
+           "instead: remove every clause that tells that beat again, keep only what this scene's "
+           "own event adds, refer back with an article or a pronoun (\"those queens\", \"the "
+           "screens\"), repeat no year, count or name the opening already spoke, and return the "
+           "scene at or below its original word count -- this is a trim, not a rewrite. "
+           if edit.get("restated") else "")
         + "Keep a hinge at most 10 words. "
         "Use the immutable events and claim references to preserve what each scene asserts.\n"
         + json.dumps({"edit": edit, "hook": script.get("hook"), "scenes": rows}, ensure_ascii=False))
@@ -182,6 +206,10 @@ def apply_response(script, edit, response):
             s["narration"] = text.strip()
     scenes = candidate["scenes"]
     counts = [len(s["narration"].split()) for s in scenes]
+    for item in edit.get("restated") or []:
+        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == item["scene_id"]), None)
+        if index is not None and counts[index] > edit["original_counts"][index]:
+            raise ValueError("Repair grew a restated scene instead of trimming it")
     if any(e.startswith("LATE_MECHANISM:") for e in edit["errors"]):
         if sum(counts[:edit["mechanism_index"]]) > edit["opening_word_limit"]:
             raise ValueError("Repair still exceeds the opening word budget")
