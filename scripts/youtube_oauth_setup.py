@@ -67,15 +67,15 @@ def main() -> int:
         }},
         scopes=SCOPES,
     )
-    # access_type=offline + prompt=consent is what makes Google return a refresh token.
-    # select_account forces the account AND brand-channel chooser every time: with consent
-    # alone Google reuses whichever channel was picked last, and three runs in a row on
-    # 2026-10-08 came back bound to the base account's channel with no chooser shown.
+    # access_type=offline + prompt=consent is what makes Google return a refresh token, and it
+    # is the prompt under which Google shows "Choose your account or a brand account" (worked
+    # 2026-10-01). Do NOT add select_account: on 2026-10-08 it showed only the Google-account
+    # chooser and every run bound to the base account's channel.
     # --no-browser: print the URL only. When the flow is driven from another browser window,
     # the auto-opened tab is a second copy of the same consent; whichever finishes first wins
     # the one-time code and the other lands on an error page. Measured 2026-10-01: the brand
     # channel was picked in one window while the auto-opened one completed as the base account.
-    creds = flow.run_local_server(port=0, access_type="offline", prompt="select_account consent",
+    creds = flow.run_local_server(port=0, access_type="offline", prompt="consent",
                                   open_browser="--no-browser" not in sys.argv)
     if not creds.refresh_token:
         print("Google returned no refresh token. Revoke the app at "
