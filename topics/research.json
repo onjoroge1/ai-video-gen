@@ -1249,6 +1249,1176 @@
      "channel": "Nat Geo Animals"
     }
    ]
+  },
+  {
+   "slug": "cfc-ozone",
+   "search": "cfc ozone hole history",
+   "market": {
+    "n": 22,
+    "median_views": 24861.0,
+    "top_views": 10158401,
+    "n_100k": 9,
+    "recent_median_vpd": 28.125,
+    "n_recent": 9,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Why you don\u2019t hear about the ozone layer anymore",
+     "views": 10158401,
+     "days": 1780,
+     "vpd": 5706.966853932584,
+     "subs": 12700000,
+     "channel": "Vox"
+    },
+    {
+     "title": "What happened to the Ozone Hole? | Dhruv Rathee",
+     "views": 9434261,
+     "days": 1166,
+     "vpd": 8091.132933104631,
+     "subs": 33000000,
+     "channel": "Dhruv Rathee"
+    },
+    {
+     "title": "What Is The Ozone Layer? | Ozone Layer Depletion | Dr Binocs Show |Kids Learning Video|Peekaboo Kidz",
+     "views": 4260907,
+     "days": 2478,
+     "vpd": 1719.4943502824858,
+     "subs": 7850000,
+     "channel": "Peekaboo Kidz"
+    }
+   ]
+  },
+  {
+   "slug": "radium-girls",
+   "search": "radium girls",
+   "market": {
+    "n": 24,
+    "median_views": 216632.0,
+    "top_views": 12367718,
+    "n_100k": 16,
+    "recent_median_vpd": 216.96772724315178,
+    "n_recent": 10,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "The True Story of the Radium Girls",
+     "views": 12367718,
+     "days": 528,
+     "vpd": 23423.708333333332,
+     "subs": 2610000,
+     "channel": "Dr Ben Miles"
+    },
+    {
+     "title": "Radium Girls Trailer #1 (2020) | Movieclips Indie",
+     "views": 3661570,
+     "days": 2409,
+     "vpd": 1519.9543378995434,
+     "subs": 2420000,
+     "channel": "Rotten Tomatoes Indie"
+    },
+    {
+     "title": "These Women Were Poisoned by their Job for Years: The Radium Girls",
+     "views": 1929433,
+     "days": 1736,
+     "vpd": 1111.424539170507,
+     "subs": 8000000,
+     "channel": "Bailey Sarian"
+    }
+   ]
+  },
+  {
+   "slug": "livestock-antibiotics",
+   "search": "antibiotics in livestock superbugs",
+   "market": {
+    "n": 24,
+    "median_views": 2915.0,
+    "top_views": 4318500,
+    "n_100k": 4,
+    "recent_median_vpd": 0.2498031496062992,
+    "n_recent": 2,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "What causes antibiotic resistance? - Kevin Wu",
+     "views": 4318500,
+     "days": 4446,
+     "vpd": 971.3225371120108,
+     "subs": 22900000,
+     "channel": "TED-Ed"
+    },
+    {
+     "title": "Antibiotic Resistance and the Rise of Superbugs",
+     "views": 709880,
+     "days": 4195,
+     "vpd": 169.22050059594756,
+     "subs": 5880000,
+     "channel": "Be Smart"
+    },
+    {
+     "title": "Superbugs That Resist Antibiotics Can Evolve in 11 Days | I Contain Multitudes",
+     "views": 213778,
+     "days": 3266,
+     "vpd": 65.45560318432334,
+     "subs": 11800,
+     "channel": "I Contain Multitudes"
+    }
+   ]
+  },
+  {
+   "slug": "bayer-heroin",
+   "search": "bayer heroin cough medicine history",
+   "market": {
+    "n": 10,
+    "median_views": 74.5,
+    "top_views": 438206,
+    "n_100k": 2,
+    "recent_median_vpd": 0.4909090909090909,
+    "n_recent": 9,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Complete History of Heroin: 1898 Bayer Cough Medicine to Street Epidemic",
+     "views": 438206,
+     "days": 250,
+     "vpd": 1752.824,
+     "subs": 27400,
+     "channel": "Sedated History"
+    },
+    {
+     "title": "Heroin Was Created by the Makers of Aspirin",
+     "views": 124996,
+     "days": 3103,
+     "vpd": 40.28230744440864,
+     "subs": 3250000,
+     "channel": "Today I Found Out"
+    },
+    {
+     "title": "When Bayer Sold Heroin as Cough Medicine (and Called It Safe)",
+     "views": 419,
+     "days": 87,
+     "vpd": 4.816091954022989,
+     "subs": 47,
+     "channel": "The Cure Was Worse"
+    }
+   ]
+  },
+  {
+   "slug": "plastic-bags",
+   "search": "plastic bag invented to save the planet",
+   "market": {
+    "n": 4,
+    "median_views": 134401.0,
+    "top_views": 288021,
+    "n_100k": 2,
+    "recent_median_vpd": 0,
+    "n_recent": 0,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Here's how plastic bags impact the environment",
+     "views": 288021,
+     "days": 2988,
+     "vpd": 96.39257028112449,
+     "subs": 554000,
+     "channel": "Our Changing Climate"
+    },
+    {
+     "title": "How plastic bags were supposed to help the planet - BBC News",
+     "views": 268394,
+     "days": 2546,
+     "vpd": 105.41791044776119,
+     "subs": 20100000,
+     "channel": "BBC News"
+    },
+    {
+     "title": "Earth Force Movie (SCMS) [Plastic Bag Polution]",
+     "views": 408,
+     "days": 6431,
+     "vpd": 0.0634426994246618,
+     "subs": 18,
+     "channel": "jjcombop33"
+    }
+   ]
+  },
+  {
+   "slug": "kudzu-planting",
+   "search": "kudzu soil conservation service",
+   "market": {
+    "n": 14,
+    "median_views": 302.0,
+    "top_views": 9142,
+    "n_100k": 0,
+    "recent_median_vpd": 3.9607843137254903,
+    "n_recent": 13,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The US Spent $500 Million Fighting Kudzu \u2014 Three Surprising Species Did It for Free",
+     "views": 9142,
+     "days": 7,
+     "vpd": 1306.0,
+     "subs": 92500,
+     "channel": "Ambrose Wild"
+    },
+    {
+     "title": "America Spent $500 Million Fighting Kudzu \u2014 Three Species Did It for Free",
+     "views": 2827,
+     "days": 111,
+     "vpd": 25.46846846846847,
+     "subs": 260,
+     "channel": "Wild Effect"
+    },
+    {
+     "title": "Kudzu Vine Full Documentary",
+     "views": 501,
+     "days": 1717,
+     "vpd": 0.29178800232964475,
+     "subs": 1220,
+     "channel": "Guidedoc"
+    }
+   ]
+  },
+  {
+   "slug": "fordlandia",
+   "search": "fordlandia",
+   "market": {
+    "n": 9,
+    "median_views": 28462,
+    "top_views": 405449,
+    "n_100k": 4,
+    "recent_median_vpd": 21.65,
+    "n_recent": 5,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Fordlandia: A Disturbing History",
+     "views": 405449,
+     "days": 1021,
+     "vpd": 397.10969637610185,
+     "subs": 447000,
+     "channel": "Places"
+    },
+    {
+     "title": "Ford's $200 Million Nightmare (Fordlandia)",
+     "views": 148940,
+     "days": 157,
+     "vpd": 948.6624203821656,
+     "subs": 9350000,
+     "channel": "Donut"
+    },
+    {
+     "title": "Fordlandia: Henry Ford's Biggest Failure",
+     "views": 125547,
+     "days": 1817,
+     "vpd": 69.09576224545955,
+     "subs": 966000,
+     "channel": "Regular Car Reviews"
+    }
+   ]
+  },
+  {
+   "slug": "window-tax",
+   "search": "window tax bricked up windows",
+   "market": {
+    "n": 3,
+    "median_views": 1725,
+    "top_views": 2251,
+    "n_100k": 0,
+    "recent_median_vpd": 14.712418300653594,
+    "n_recent": 3,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "WINDOW TAX LIE OF THE 18TH CENTURY. Why Were Millions of Windows Really Bricked Up Across Europe?",
+     "views": 2251,
+     "days": 153,
+     "vpd": 14.712418300653594,
+     "subs": 25000,
+     "channel": "Old World Secrets"
+    },
+    {
+     "title": "The truth behind Britain's bricked-up windows \ud83c\udf7a #history  #facts  #didyouknow",
+     "views": 1725,
+     "days": 9,
+     "vpd": 191.66666666666666,
+     "subs": 323,
+     "channel": "The Grumpy Old Git"
+    },
+    {
+     "title": "People Literally BRICKED UP Their Windows to Avoid Taxes \ud83d\ude33",
+     "views": 1093,
+     "days": 96,
+     "vpd": 11.385416666666666,
+     "subs": 164,
+     "channel": "Blind Spot Stories"
+    }
+   ]
+  },
+  {
+   "slug": "hoy-no-circula",
+   "search": "hoy no circula mexico city",
+   "market": {
+    "n": 6,
+    "median_views": 38836.5,
+    "top_views": 436618,
+    "n_100k": 2,
+    "recent_median_vpd": 45.72222222222222,
+    "n_recent": 3,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Arranca Hoy No Circula para todos los veh\u00edculos | CDMX",
+     "views": 436618,
+     "days": 3839,
+     "vpd": 113.732221932795,
+     "subs": 5010000,
+     "channel": "Azteca Noticias"
+    },
+    {
+     "title": "Se activa Contingencia Ambiental en la CDMX y el Valle de M\u00e9xico; se implementa Doble Hoy No Circula",
+     "views": 111484,
+     "days": 235,
+     "vpd": 474.4,
+     "subs": 518000,
+     "channel": "El Economista"
+    },
+    {
+     "title": "Hoy no circula foraneo",
+     "views": 51187,
+     "days": 4473,
+     "vpd": 11.443550190029063,
+     "subs": 131000,
+     "channel": "Meganoticias Mx"
+    }
+   ]
+  },
+  {
+   "slug": "streisand-effect",
+   "search": "streisand effect",
+   "market": {
+    "n": 14,
+    "median_views": 22041.0,
+    "top_views": 835953,
+    "n_100k": 6,
+    "recent_median_vpd": 3.228154339449992,
+    "n_recent": 4,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "DAGames - GARTEN OF BANBAN SONG (THE STREISAND EFFECT)",
+     "views": 835953,
+     "days": 1301,
+     "vpd": 642.5465026902383,
+     "subs": 2390000,
+     "channel": "DAGames"
+    },
+    {
+     "title": "Great Moments in Unintended Consequences: Streisand Effect, Sesame Labeling, Golden Goals (Vol. 10)",
+     "views": 715963,
+     "days": 1365,
+     "vpd": 524.5150183150183,
+     "subs": 1420000,
+     "channel": "ReasonTV"
+    },
+    {
+     "title": "The Streisand Effect Explained",
+     "views": 502411,
+     "days": 3496,
+     "vpd": 143.71024027459956,
+     "subs": 315000,
+     "channel": "Georg Rockall-Schmidt"
+    }
+   ]
+  },
+  {
+   "slug": "goodharts-law",
+   "search": "goodhart's law",
+   "market": {
+    "n": 14,
+    "median_views": 1459.0,
+    "top_views": 44501,
+    "n_100k": 0,
+    "recent_median_vpd": 1.3867394380432585,
+    "n_recent": 8,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Goodhart's Law",
+     "views": 44501,
+     "days": 3462,
+     "vpd": 12.854130560369729,
+     "subs": 8140,
+     "channel": "Data Skeptic"
+    },
+    {
+     "title": "Goodhart's Law: How to Destroy Productivity - Five Minute Friday",
+     "views": 11727,
+     "days": 1120,
+     "vpd": 10.470535714285715,
+     "subs": 627,
+     "channel": "Five Minute Friday"
+    },
+    {
+     "title": "Goodhart\u2019s Law Explained",
+     "views": 11627,
+     "days": 2284,
+     "vpd": 5.090630472854641,
+     "subs": 38200,
+     "channel": "Explified Labs"
+    }
+   ]
+  },
+  {
+   "slug": "peltzman-effect",
+   "search": "peltzman effect seatbelts",
+   "market": {
+    "n": 9,
+    "median_views": 91,
+    "top_views": 10416,
+    "n_100k": 0,
+    "recent_median_vpd": 0.12931034482758622,
+    "n_recent": 5,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Sam Peltzman on the Peltzman Effect",
+     "views": 10416,
+     "days": 6027,
+     "vpd": 1.7282229965156795,
+     "subs": 79300,
+     "channel": "The Heartland Institute"
+    },
+    {
+     "title": "Quickie: The Peltzman Effect",
+     "views": 943,
+     "days": 1773,
+     "vpd": 0.5318668922729837,
+     "subs": 21300,
+     "channel": "Shane Killian"
+    },
+    {
+     "title": "Peltzman effect - Risk Compensation",
+     "views": 851,
+     "days": 2322,
+     "vpd": 0.3664944013781223,
+     "subs": 130,
+     "channel": "Tushaar Malani"
+    }
+   ]
+  },
+  {
+   "slug": "gin-craze",
+   "search": "london gin craze gin act",
+   "market": {
+    "n": 22,
+    "median_views": 3353.5,
+    "top_views": 995205,
+    "n_100k": 5,
+    "recent_median_vpd": 7.265422077922079,
+    "n_recent": 16,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Bridgerton: What Life Was Really Like In The Gin-Crazed Georgian Era | History Of Britain",
+     "views": 995205,
+     "days": 2089,
+     "vpd": 476.40258496888464,
+     "subs": 3690000,
+     "channel": "Absolute History"
+    },
+    {
+     "title": "The London Gin Craze and Beyond",
+     "views": 839136,
+     "days": 2082,
+     "vpd": 403.04322766570607,
+     "subs": 4490000,
+     "channel": "Tasting History with Max Miller"
+    },
+    {
+     "title": "The Horrific Truth Behind the Georgian Gin and Opium Craze",
+     "views": 540833,
+     "days": 210,
+     "vpd": 2575.3952380952383,
+     "subs": 2010000,
+     "channel": "History Hit"
+    }
+   ]
+  },
+  {
+   "slug": "daycare-late-fee",
+   "search": "daycare late fee experiment",
+   "market": {
+    "n": 9,
+    "median_views": 4122,
+    "top_views": 1732574,
+    "n_100k": 2,
+    "recent_median_vpd": 222.63460279353995,
+    "n_recent": 6,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Mom Left Kids at Daycare for Six Months? | Part 1",
+     "views": 1732574,
+     "days": 732,
+     "vpd": 2366.9043715846997,
+     "subs": 1280000,
+     "channel": "Judge Judy"
+    },
+    {
+     "title": "I stopped paying daycare for a child the test says is not mine",
+     "views": 156647,
+     "days": 47,
+     "vpd": 3332.9148936170213,
+     "subs": 56200,
+     "channel": "Nuke Readit"
+    },
+    {
+     "title": "California daycare remains open after children test positive for drugs, investigation finds",
+     "views": 46088,
+     "days": 116,
+     "vpd": 397.3103448275862,
+     "subs": 1160000,
+     "channel": "CBS LA"
+    }
+   ]
+  },
+  {
+   "slug": "smoot-hawley",
+   "search": "smoot hawley tariff",
+   "market": {
+    "n": 15,
+    "median_views": 511,
+    "top_views": 110477,
+    "n_100k": 1,
+    "recent_median_vpd": 1.1400052534804308,
+    "n_recent": 12,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Trade Wars: A Look at the Smoot-Hawley Tariff",
+     "views": 110477,
+     "days": 2670,
+     "vpd": 41.377153558052434,
+     "subs": 37900,
+     "channel": "CFR Education"
+    },
+    {
+     "title": "The Hawley-Smoot Tariff in Under 5 Minutes - Hasty History",
+     "views": 72941,
+     "days": 4187,
+     "vpd": 17.420826367327443,
+     "subs": 2160,
+     "channel": "Hasty History"
+    },
+    {
+     "title": "The Legacy of the Smoot-Hawley Tariff Act",
+     "views": 59787,
+     "days": 5592,
+     "vpd": 10.691523605150214,
+     "subs": 108000,
+     "channel": "The Cato Institute"
+    }
+   ]
+  },
+  {
+   "slug": "pruitt-igoe",
+   "search": "pruitt igoe",
+   "market": {
+    "n": 17,
+    "median_views": 21716,
+    "top_views": 429600,
+    "n_100k": 5,
+    "recent_median_vpd": 11.924242424242424,
+    "n_recent": 8,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "The WORST Housing Disaster in US History: Pruitt-Igoe",
+     "views": 429600,
+     "days": 738,
+     "vpd": 582.1138211382114,
+     "subs": 356000,
+     "channel": "This House"
+    },
+    {
+     "title": "Why Pruitt-Igoe Became the Worst Public Housing Project: Exploring the No-Go Zone",
+     "views": 389228,
+     "days": 736,
+     "vpd": 528.8423913043479,
+     "subs": 892000,
+     "channel": "IT'S HISTORY"
+    },
+    {
+     "title": "PRUITT-IGOE: Dream to Nightmare",
+     "views": 125197,
+     "days": 4533,
+     "vpd": 27.619016104125304,
+     "subs": 1800,
+     "channel": "RenewingAmericanCity"
+    }
+   ]
+  },
+  {
+   "slug": "great-leap-furnaces",
+   "search": "great leap forward backyard furnaces",
+   "market": {
+    "n": 17,
+    "median_views": 251,
+    "top_views": 22746951,
+    "n_100k": 2,
+    "recent_median_vpd": 0.2911546877630029,
+    "n_recent": 8,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Great Leap Forward - Sarah Paine",
+     "views": 22746951,
+     "days": 607,
+     "vpd": 37474.38385502471,
+     "subs": 1440000,
+     "channel": "Dwarkesh Patel"
+    },
+    {
+     "title": "KineticHistory: The Great Leap Forward",
+     "views": 236562,
+     "days": 3570,
+     "vpd": 66.26386554621848,
+     "subs": 4850,
+     "channel": "Kinetic History"
+    },
+    {
+     "title": "Mao's China -  Backyard Furnaces -  Great Leap Forwards",
+     "views": 10067,
+     "days": 2900,
+     "vpd": 3.4713793103448274,
+     "subs": 18000,
+     "channel": "International School History"
+    }
+   ]
+  },
+  {
+   "slug": "sugar-tax-alcohol-poison",
+   "search": "government poisoned alcohol prohibition",
+   "market": {
+    "n": 9,
+    "median_views": 12947,
+    "top_views": 1449734,
+    "n_100k": 3,
+    "recent_median_vpd": 0.10482180293501048,
+    "n_recent": 5,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Government Poisoning Alcohol?!: Prohibition",
+     "views": 1449734,
+     "days": 1659,
+     "vpd": 873.8601567209162,
+     "subs": 8000000,
+     "channel": "Bailey Sarian"
+    },
+    {
+     "title": "That Time the U.S Government Poisoned Alcohol on Purpose",
+     "views": 268157,
+     "days": 699,
+     "vpd": 383.6294706723891,
+     "subs": 1290000,
+     "channel": "Into the Shadows"
+    },
+    {
+     "title": "That Time the US Government Poisoned Alcohol",
+     "views": 174872,
+     "days": 2891,
+     "vpd": 60.488412314078175,
+     "subs": 8420000,
+     "channel": "SciShow"
+    }
+   ]
+  },
+  {
+   "slug": "dutch-tulip-bounty",
+   "search": "british rat bounty india plague",
+   "market": {
+    "n": 3,
+    "median_views": 16,
+    "top_views": 548,
+    "n_100k": 0,
+    "recent_median_vpd": 1.3904761904761904,
+    "n_recent": 2,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Rat Incident 1902, The Nationalist Movement in Indo-China Ch 2 Class 10th History \u0907\u0902\u0921\u094b\u091a\u0940\u0928 \u0930\u093e\u0937\u094d\u091f\u094d\u0930\u0935\u093e\u0926",
+     "views": 548,
+     "days": 2802,
+     "vpd": 0.19557458957887222,
+     "subs": 1050,
+     "channel": "Be On Study"
+    },
+    {
+     "title": "The Cobra Effect Is a Myth. The Real Story Is the Hanoi Rat Massacre.",
+     "views": 16,
+     "days": 42,
+     "vpd": 0.38095238095238093,
+     "subs": 23,
+     "channel": "Goosefuks"
+    },
+    {
+     "title": "Vibe Knowledge | The Hanoi Rat Bounty: How Paying for Rat Tails Bred More Rats (Goodhart's Law)",
+     "views": 12,
+     "days": 5,
+     "vpd": 2.4,
+     "subs": 5090,
+     "channel": "\u8983\u79c9\u4e30"
+    }
+   ]
+  },
+  {
+   "slug": "chernobyl-safety-test",
+   "search": "chernobyl safety test what went wrong",
+   "market": {
+    "n": 19,
+    "median_views": 1790490,
+    "top_views": 18587492,
+    "n_100k": 15,
+    "recent_median_vpd": 1385.1483457844183,
+    "n_recent": 9,
+    "small_breakouts": 6
+   },
+   "top_competitors": [
+    {
+     "title": "Chernobyl Nuclear Disaster |\u00a0Why it happened? |\u00a0Dhruv Rathee",
+     "views": 18587492,
+     "days": 1534,
+     "vpd": 12117.009126466754,
+     "subs": 33000000,
+     "channel": "Dhruv Rathee"
+    },
+    {
+     "title": "The Chernobyl Disaster: How It Happened",
+     "views": 6760596,
+     "days": 3819,
+     "vpd": 1770.2529457973292,
+     "subs": 877000,
+     "channel": "Radio Free Europe/Radio Liberty"
+    },
+    {
+     "title": "Chernobyl Nuclear Explosion Disaster Explained (Hour by Hour)",
+     "views": 6169258,
+     "days": 1530,
+     "vpd": 4032.19477124183,
+     "subs": 15500000,
+     "channel": "The Infographics Show"
+    }
+   ]
+  },
+  {
+   "slug": "titanic-lifeboats",
+   "search": "titanic lifeboat rules",
+   "market": {
+    "n": 12,
+    "median_views": 54872.0,
+    "top_views": 1967148,
+    "n_100k": 4,
+    "recent_median_vpd": 5.79524886877828,
+    "n_recent": 6,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Why the Titanic didn't have enough lifeboats",
+     "views": 1967148,
+     "days": 1341,
+     "vpd": 1466.9261744966443,
+     "subs": 12700000,
+     "channel": "Vox"
+    },
+    {
+     "title": "What Happened to TITANIC'S Lifeboats?? [WHERE ARE THEY]",
+     "views": 330099,
+     "days": 1947,
+     "vpd": 169.54237288135593,
+     "subs": 123000,
+     "channel": "Raf Avila"
+    },
+    {
+     "title": "The Worst Lifeboat from Titanic!!!",
+     "views": 180954,
+     "days": 1432,
+     "vpd": 126.3645251396648,
+     "subs": 188000,
+     "channel": "Historic Travels"
+    }
+   ]
+  },
+  {
+   "slug": "emissions-dieselgate",
+   "search": "diesel push europe backfired",
+   "market": {
+    "n": 9,
+    "median_views": 36919,
+    "top_views": 1135133,
+    "n_100k": 2,
+    "recent_median_vpd": 751.4793364377183,
+    "n_recent": 8,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Diesel Story - How the EU Pretended to Fight Climate Change While Poisoning its Citizens",
+     "views": 1135133,
+     "days": 859,
+     "vpd": 1321.4586728754366,
+     "subs": 1560000,
+     "channel": "driving 4 answers"
+    },
+    {
+     "title": "It's OVER: Trump's Diesel Blackmail BACKFIRES as Europe Just Picked Canada Over America!",
+     "views": 416239,
+     "days": 6,
+     "vpd": 69373.16666666667,
+     "subs": 156000,
+     "channel": "The Planet D"
+    },
+    {
+     "title": "A Diesel Export Ban Would Backfire",
+     "views": 82921,
+     "days": 15,
+     "vpd": 5528.066666666667,
+     "subs": 97400,
+     "channel": "Economics Help"
+    }
+   ]
+  },
+  {
+   "slug": "leaded-gasoline",
+   "search": "man who accidentally killed the most people in history leaded gas",
+   "market": {
+    "n": 15,
+    "median_views": 510,
+    "top_views": 43396204,
+    "n_100k": 5,
+    "recent_median_vpd": 0.7403450202953115,
+    "n_recent": 10,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Man Who Accidentally Killed The Most People In History",
+     "views": 43396204,
+     "days": 1631,
+     "vpd": 26607.114653586756,
+     "subs": 21300000,
+     "channel": "Veritasium"
+    },
+    {
+     "title": "Who Killed The Most People In History? | MoistCr1TikaL Reacts",
+     "views": 685738,
+     "days": 1618,
+     "vpd": 423.8182941903585,
+     "subs": 116000,
+     "channel": "Moist Moments \ud83d\udca7"
+    },
+    {
+     "title": "xQc Reacts to 'The Man Who Accidentally Killed The Most People In History'",
+     "views": 489223,
+     "days": 1626,
+     "vpd": 300.87515375153754,
+     "subs": 2510000,
+     "channel": "xQc"
+    }
+   ]
+  },
+  {
+   "slug": "induced-demand",
+   "search": "why adding more lanes makes traffic worse",
+   "market": {
+    "n": 13,
+    "median_views": 328,
+    "top_views": 44576503,
+    "n_100k": 4,
+    "recent_median_vpd": 1.4363636363636363,
+    "n_recent": 9,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Traffic Has a Perfect Solution. Humans Are the Problem.",
+     "views": 44576503,
+     "days": 3691,
+     "vpd": 12077.080195069087,
+     "subs": 7040000,
+     "channel": "CGP Grey"
+    },
+    {
+     "title": "How highways make traffic worse",
+     "views": 2252715,
+     "days": 2065,
+     "vpd": 1090.903147699758,
+     "subs": 12700000,
+     "channel": "Vox"
+    },
+    {
+     "title": "More Lanes are (Still) a Bad Thing (Induced Demand)",
+     "views": 2024711,
+     "days": 978,
+     "vpd": 2070.256646216769,
+     "subs": 1470000,
+     "channel": "Not Just Bikes"
+    }
+   ]
+  },
+  {
+   "slug": "prohibition",
+   "search": "how prohibition created the mafia",
+   "market": {
+    "n": 16,
+    "median_views": 526.0,
+    "top_views": 58177724,
+    "n_100k": 4,
+    "recent_median_vpd": 1.5827814569536425,
+    "n_recent": 13,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Prohibition - OverSimplified",
+     "views": 58177724,
+     "days": 2123,
+     "vpd": 27403.544041450776,
+     "subs": 9660000,
+     "channel": "OverSimplified"
+    },
+    {
+     "title": "How Prohibition Created the Mafia | History",
+     "views": 504853,
+     "days": 2787,
+     "vpd": 181.14567635450305,
+     "subs": 15500000,
+     "channel": "HISTORY"
+    },
+    {
+     "title": "How the Mafia Took Over New York (S1, E1) | American Godfathers: The Five Families | Full Episode",
+     "views": 437391,
+     "days": 39,
+     "vpd": 11215.153846153846,
+     "subs": 1140000,
+     "channel": "Biography"
+    }
+   ]
+  },
+  {
+   "slug": "asbestos",
+   "search": "asbestos the miracle mineral that killed",
+   "market": {
+    "n": 16,
+    "median_views": 309.5,
+    "top_views": 11201015,
+    "n_100k": 2,
+    "recent_median_vpd": 1.9153846153846155,
+    "n_recent": 12,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "What does asbestos do to a person?",
+     "views": 11201015,
+     "days": 233,
+     "vpd": 48073.025751072964,
+     "subs": 21300000,
+     "channel": "Veritasium"
+    },
+    {
+     "title": "The \"Wonderful\" Uses of Asbestos - Amazing Inventions | British Path\u00e9",
+     "views": 387006,
+     "days": 4061,
+     "vpd": 95.29820241319872,
+     "subs": 3650000,
+     "channel": "British Path\u00e9"
+    },
+    {
+     "title": "The Asbestos Tragedy and Dr. Selikoff, from 1989 Video Those Who Know Don\u2019t Tell",
+     "views": 1386,
+     "days": 2087,
+     "vpd": 0.6641111643507427,
+     "subs": 11600,
+     "channel": "markdcatlin"
+    }
+   ]
+  },
+  {
+   "slug": "ddt",
+   "search": "ddt the chemical that won a nobel prize",
+   "market": {
+    "n": 11,
+    "median_views": 76,
+    "top_views": 8048,
+    "n_100k": 0,
+    "recent_median_vpd": 0.3181818181818182,
+    "n_recent": 7,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Miraculous Poison - the History of DDT, an excerpt",
+     "views": 8048,
+     "days": 4770,
+     "vpd": 1.6872117400419286,
+     "subs": 4580,
+     "channel": "Jakob Gottschau"
+    },
+    {
+     "title": "DDT: The Poison That Changed the World",
+     "views": 5908,
+     "days": 606,
+     "vpd": 9.749174917491748,
+     "subs": 90,
+     "channel": "Atomic Insights"
+    },
+    {
+     "title": "DDT: Secret Life of a Pesticide",
+     "views": 549,
+     "days": 3081,
+     "vpd": 0.17818889970788704,
+     "subs": 8560,
+     "channel": "Skeptoid Media"
+    }
+   ]
+  },
+  {
+   "slug": "lobotomy",
+   "search": "the doctor who won a nobel prize for lobotomy",
+   "market": {
+    "n": 6,
+    "median_views": 12.0,
+    "top_views": 1070,
+    "n_100k": 0,
+    "recent_median_vpd": 0.315218972792085,
+    "n_recent": 6,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Lobotomy and Walter Freeman: The Cure That Won a Nobel Prize",
+     "views": 1070,
+     "days": 91,
+     "vpd": 11.758241758241759,
+     "subs": 47,
+     "channel": "The Cure Was Worse"
+    },
+    {
+     "title": "The Lobotomy: The Surgery That Won A Nobel Prize",
+     "views": 35,
+     "days": 237,
+     "vpd": 0.14767932489451477,
+     "subs": 110,
+     "channel": "After the Silence"
+    },
+    {
+     "title": "Lobotomy: The Ice Pick, the Nobel Prize, and the Doctor Who Wouldn't Stop",
+     "views": 14,
+     "days": 29,
+     "vpd": 0.4827586206896552,
+     "subs": 161,
+     "channel": "STRANGE MIND"
+    }
+   ]
+  },
+  {
+   "slug": "poisoned-alcohol",
+   "search": "us government poisoned alcohol during prohibition",
+   "market": {
+    "n": 6,
+    "median_views": 24857.0,
+    "top_views": 268157,
+    "n_100k": 2,
+    "recent_median_vpd": 0.05806451612903226,
+    "n_recent": 3,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "That Time the U.S Government Poisoned Alcohol on Purpose",
+     "views": 268157,
+     "days": 699,
+     "vpd": 383.6294706723891,
+     "subs": 1290000,
+     "channel": "Into the Shadows"
+    },
+    {
+     "title": "That Time the US Government Poisoned Alcohol",
+     "views": 174872,
+     "days": 2891,
+     "vpd": 60.488412314078175,
+     "subs": 8420000,
+     "channel": "SciShow"
+    },
+    {
+     "title": "Yes, The U.S. Gov't Poisoned Alcohol in the 1920s",
+     "views": 36767,
+     "days": 2866,
+     "vpd": 12.828681088625261,
+     "subs": 4300000,
+     "channel": "Smithsonian Channel"
+    }
+   ]
+  },
+  {
+   "slug": "radium-tonic",
+   "search": "radium water radithor eben byers",
+   "market": {
+    "n": 13,
+    "median_views": 573,
+    "top_views": 2731307,
+    "n_100k": 3,
+    "recent_median_vpd": 7.24,
+    "n_recent": 13,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Radium Worked Until His Jaw Fell Off",
+     "views": 2731307,
+     "days": 672,
+     "vpd": 4064.4449404761904,
+     "subs": 2830000,
+     "channel": "Kyle Hill"
+    },
+    {
+     "title": "The SHOCKING Story of Eben Byers #shorts",
+     "views": 500475,
+     "days": 670,
+     "vpd": 746.9776119402985,
+     "subs": 1630,
+     "channel": "The Dark Closet"
+    },
+    {
+     "title": "The Man Who Drank RADIUM - Eben Byers",
+     "views": 101181,
+     "days": 747,
+     "vpd": 135.44979919678715,
+     "subs": 404000,
+     "channel": "The Brilliant"
+    }
+   ]
   }
  ]
 }
