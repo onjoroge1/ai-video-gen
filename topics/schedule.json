@@ -16,10 +16,27 @@
    },
    "status": "queued",
    "job": "jobs/asian-carp",
-   "notes": ""
+   "notes": "",
+   "lane": "step1-nature"
   },
   {
    "date": "2026-10-13",
+   "slug": "radium-girls",
+   "question": "Radium Was Sold as a Health Miracle and the Women Who Painted Glowing Watch Dials Paid for It",
+   "lane": "step2-invention",
+   "market": {
+    "median_views": 216632.0,
+    "top_views": 12367718,
+    "n_100k": 16,
+    "recent_median_vpd": 216.96772724315178,
+    "small_breakouts": 2
+   },
+   "status": "queued",
+   "job": "jobs/radium-girls",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-15",
    "slug": "escobar-hippos",
    "question": "Pablo Escobar Brought Four Hippos to His Ranch and Now Colombia Cannot Stop Them",
    "market": {
@@ -31,10 +48,27 @@
    },
    "status": "queued",
    "job": "jobs/escobar-hippos",
+   "notes": "",
+   "lane": "step1-nature"
+  },
+  {
+   "date": "2026-10-17",
+   "slug": "hoy-no-circula",
+   "question": "Mexico City Banned Each Car One Day a Week to Clean Its Air and People Bought More Cars",
+   "lane": "step3-rule",
+   "market": {
+    "median_views": 38836.5,
+    "top_views": 436618,
+    "n_100k": 2,
+    "recent_median_vpd": 45.72222222222222,
+    "small_breakouts": 0
+   },
+   "status": "queued",
+   "job": "jobs/hoy-no-circula",
    "notes": ""
   },
   {
-   "date": "2026-10-15",
+   "date": "2026-10-19",
    "slug": "burmese-pythons",
    "question": "Pet Pythons Got Loose in the Everglades and Florida's Mammals Started Disappearing",
    "market": {
@@ -46,10 +80,27 @@
    },
    "status": "queued",
    "job": "jobs/burmese-pythons",
+   "notes": "",
+   "lane": "step1-nature"
+  },
+  {
+   "date": "2026-10-21",
+   "slug": "leaded-gasoline",
+   "question": "An Engineer Cured Engine Knock With Lead in Gasoline and Put Lead Into the Air for Decades",
+   "lane": "step2-invention",
+   "market": {
+    "median_views": 510,
+    "top_views": 43396204,
+    "n_100k": 5,
+    "recent_median_vpd": 0.7403450202953115,
+    "small_breakouts": 1
+   },
+   "status": "queued",
+   "job": "jobs/leaded-gasoline",
    "notes": ""
   },
   {
-   "date": "2026-10-17",
+   "date": "2026-10-23",
    "slug": "dust-bowl",
    "question": "America Plowed Up the Great Plains for Wheat and the Soil Blew Away",
    "market": {
@@ -61,10 +112,27 @@
    },
    "status": "queued",
    "job": "jobs/dust-bowl",
-   "notes": ""
+   "notes": "",
+   "lane": "step1-nature"
   },
   {
-   "date": "2026-10-19",
+   "date": "2026-10-25",
+   "slug": "hanoi-rat-tails",
+   "question": "Colonial Hanoi Paid for Rat Tails and People Started Farming Rats: The Real Cobra Effect",
+   "lane": "step3-rule",
+   "market": {
+    "median_views": 27838,
+    "top_views": 2191668,
+    "n_100k": 7,
+    "recent_median_vpd": 568.1224489795918,
+    "small_breakouts": 2
+   },
+   "status": "queued",
+   "job": "jobs/hanoi-rat-tails",
+   "notes": "The Delhi cobra bounty is poorly documented; the Hanoi rat hunt (1902) is the documented case. The direction must keep the cobra story as legend and tell Hanoi as the record."
+  },
+  {
+   "date": "2026-10-27",
    "slug": "feral-hogs",
    "question": "Hunters Released Wild Boar in America for Sport and Now Feral Hogs Are Everywhere",
    "market": {
@@ -76,6 +144,23 @@
    },
    "status": "queued",
    "job": "jobs/feral-hogs",
+   "notes": "",
+   "lane": "step1-nature"
+  },
+  {
+   "date": "2026-10-29",
+   "slug": "fordlandia",
+   "question": "Henry Ford Built an American Town in the Amazon to Grow Rubber and the Jungle Won",
+   "lane": "step3-rule",
+   "market": {
+    "median_views": 28462,
+    "top_views": 405449,
+    "n_100k": 4,
+    "recent_median_vpd": 21.65,
+    "small_breakouts": 1
+   },
+   "status": "queued",
+   "job": "jobs/fordlandia",
    "notes": ""
   },
   {
@@ -125,21 +210,6 @@
   },
   {
    "date": null,
-   "slug": "cobra-effect",
-   "question": "Colonial Delhi Paid a Bounty for Dead Cobras and People Started Breeding Them",
-   "market": {
-    "median_views": 27838,
-    "top_views": 2191668,
-    "n_100k": 7,
-    "recent_median_vpd": 568.1224489795918,
-    "small_breakouts": 2
-   },
-   "status": "reserve",
-   "job": "jobs/cobra-effect",
-   "notes": "next in line; give it a date to queue it"
-  },
-  {
-   "date": null,
    "slug": "snakeheads",
    "question": "Snakehead Fish Sold as Live Food Escaped Into American Waters",
    "market": {
@@ -151,6 +221,118 @@
    },
    "status": "reserve",
    "job": "jobs/snakeheads",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "chernobyl-safety-test",
+   "question": "A Safety Test at Chernobyl Was Meant to Prove the Reactor Safe and Destroyed It",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 1790490,
+    "top_views": 18587492,
+    "n_100k": 15,
+    "recent_median_vpd": 1385.1483457844183,
+    "small_breakouts": 6
+   },
+   "status": "reserve",
+   "job": "jobs/chernobyl-safety-test",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "streisand-effect",
+   "question": "Barbra Streisand Sued to Hide a Photo of Her House and Millions Saw It",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 22041.0,
+    "top_views": 835953,
+    "n_100k": 6,
+    "recent_median_vpd": 3.228154339449992,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/streisand-effect",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "cfc-ozone",
+   "question": "Refrigerators Got a Safe New Gas and It Tore a Hole in the Ozone Layer",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 24861.0,
+    "top_views": 10158401,
+    "n_100k": 9,
+    "recent_median_vpd": 28.125,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/cfc-ozone",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "diesel-push",
+   "question": "Europe Pushed Drivers Into Diesel Cars to Cut Carbon and Its Cities Choked",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 36919,
+    "top_views": 1135133,
+    "n_100k": 2,
+    "recent_median_vpd": 751.4793364377183,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/diesel-push",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "poisoned-alcohol",
+   "question": "The US Government Poisoned Industrial Alcohol During Prohibition and Drinkers Died",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 24857.0,
+    "top_views": 268157,
+    "n_100k": 2,
+    "recent_median_vpd": 0.05806451612903226,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/poisoned-alcohol",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "induced-demand",
+   "question": "Houston Widened the Katy Freeway to 26 Lanes and the Commute Got Longer",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 328,
+    "top_views": 44576503,
+    "n_100k": 4,
+    "recent_median_vpd": 1.4363636363636363,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/induced-demand",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "pruitt-igoe",
+   "question": "St. Louis Built Pruitt-Igoe as the Future of Housing and Blew It Up Twenty Years Later",
+   "lane": "step2/3",
+   "market": {
+    "median_views": 21716,
+    "top_views": 429600,
+    "n_100k": 5,
+    "recent_median_vpd": 11.924242424242424,
+    "small_breakouts": 2
+   },
+   "status": "reserve",
+   "job": "jobs/pruitt-igoe",
    "notes": "next in line; give it a date to queue it"
   },
   {
@@ -278,5 +460,5 @@
    "reason": "low demand"
   }
  ],
- "selection": "2026-10-09: scripts/topic_market.py (short search, title keyword relevance, long-form only, small-channel breakouts = >=50k views and >=3x the channel's subscribers). Our long films get ~97% of views from subscriber feeds, so picks favour topics that travel on browse/suggested."
+ "selection": "2026-10-09: scripts/topic_market.py (short search, title keyword relevance, long-form only, small-channel breakouts = >=50k views and >=3x the channel's subscribers). Our long films get ~97% of views from subscriber feeds, so picks favour topics that travel on browse/suggested. 2026-10-09 (later): mixed in inventions (step 2) and rules (step 3), alternating with nature films. Those markets are winner-take-all (one 40M+ video, thin median); picks favour a healthy median or a clear documented story."
 }

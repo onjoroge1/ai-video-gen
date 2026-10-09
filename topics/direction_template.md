@@ -16,7 +16,8 @@ source. Lessons from the bee films (2026-10-07/08):
 
 ## Template
 
-<Channel line>: Bolt Explains the World: one sourced animal-intervention backfire, ~5-minute landscape
+<Channel line>: Bolt Explains the World: one sourced intervention backfire (an animal moved, an invention
+adopted, or a rule enforced that did the opposite of its purpose), ~5-minute landscape
 illustrated documentary.
 
 OPENING: <who the viewer is, what they need, what stands in the way, in plain words>. Give the decision
