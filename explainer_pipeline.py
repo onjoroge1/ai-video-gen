@@ -34,6 +34,7 @@ from media_binaries import ffmpeg as _ffmpeg_bin, probe_duration as _probe_durat
     probe_dimensions as _probe_dimensions, probe_media as _probe_media
 import anthropic
 import script_provider
+import usage_ledger as _usage_ledger
 from openai import OpenAI
 
 from longform_retention import (
@@ -224,10 +225,11 @@ def _anthropic_native():
         runtime = None
     # A durable worker owns retries and must checkpoint before its invocation expires. SDK
     # retries can multiply a single 180s/240s request beyond that worker's complete lifetime.
-    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(), 
+    client = anthropic.Anthropic(default_headers=_anthropic_default_headers(),
         api_key=os.environ["ANTHROPIC_API_KEY"], timeout=180.0,
         max_retries=0 if runtime else int(os.environ.get("CLAUDE_MAX_RETRIES", "6")))
-    return runtime.wrap_anthropic(client) if runtime else client
+    # Every message is recorded with its model, caller and tokens (usage_ledger.py).
+    return _usage_ledger.meter(runtime.wrap_anthropic(client) if runtime else client)
 
 def _openai():
     # 90s per-call timeout so a hung connection fails fast (default is 600s, which
@@ -1903,8 +1905,10 @@ def _opening_identity_findings(script: dict, dossier: dict | None) -> list[dict]
         for match in _hp._PERSONAL_NAME.findall(text):
             if _hp._PLACE.search(match):
                 continue
-            first = match.split()[0].lower()
-            if first in _hp._NOT_A_GIVEN_NAME:
+            first, second = (token.lower() for token in match.split()[:2])
+            # Neither half may be a word that is capitalised for a reason other than being a
+            # name: a sentence opener, a nationality, a month. "Where European" is not a person.
+            if first in _hp._NOT_A_GIVEN_NAME or second in _hp._NOT_A_GIVEN_NAME:
                 continue
             if match.casefold() not in claims:
                 findings.append({"code": "OPENING_UNKNOWN_NAME", "severity": "material",
@@ -2382,6 +2386,52 @@ def revise_cached_script(script: dict, note: str, question: str, cost_sink=None,
     return script, cost
 
 
+def _rejudge_length_rejected_candidate(saved, path, question, dossier, cost_sink, log, *,
+                                       lane, repair):
+    """Re-run storyboard and source validation on a saved candidate that was refused for
+    SYNTHESIS_TOO_LONG alone, under the caps that apply now. Returns (script, board) when it
+    is accepted, else None. No provider call beyond the source validation the first attempt
+    would have run; the record is marked so it happens once."""
+    import copy
+    from durable_execution import current
+    if not isinstance(saved, dict) or saved.get("status") != "rejected" \
+            or saved.get("rejection_code") != "STORYBOARD_VALIDATION" or saved.get("rejudged"):
+        return None
+    errors = (saved.get("candidate_validation") or {}).get("errors") or []
+    if not errors or {e.split(":", 1)[0] for e in errors} != {"SYNTHESIS_TOO_LONG"}:
+        return None
+    candidate = copy.deepcopy(saved.get("candidate_script"))
+    if not isinstance(candidate, dict):
+        return None
+    saved["rejudged"] = True
+    board = lane.build_storyboard(copy.deepcopy(candidate), question)
+    if not board["validation"]["passed"]:
+        saved["rejudged_validation"] = board["validation"]
+        path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+        log("Story repair: the saved rewrite still fails under the current cap: "
+            + "; ".join(board["validation"].get("errors") or [])[:200])
+        return None
+    rederive_narration_bindings(candidate, log, dossier)
+    claims = _validate_claims(candidate, dossier, cost_sink)
+    if not claims.get("passed"):
+        saved.update(rejudged_validation=board["validation"], rejudged_claims=claims)
+        path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+        log("Story repair: the saved rewrite passed the storyboard under the current cap but "
+            "not source validation")
+        return None
+    candidate["_claim_validation"] = claims
+    candidate[saved.get("version") or repair.VERSION] = {"input_sha256": saved.get("input_sha256")}
+    saved.update(status="accepted", script=candidate, board=board, claim_validation=claims,
+                 rejudged_under="synthesis_caps")
+    path.write_text(json.dumps(saved, ensure_ascii=False, indent=2))
+    runtime = current()
+    if runtime is not None:
+        runtime.checkpoint("illustrated-storyboard-repair-accepted")
+    log("Story repair: PASS — the saved rewrite is accepted under the chain-scaled recap cap "
+        "(no new provider call)")
+    return candidate, board
+
+
 def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_sink, log):
     """One targeted edit of the finished words, with unchanged structural and source gates.
 
@@ -2412,9 +2462,63 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             "illustrated_storyboard_opening_budget_recovery_v2") or {}
         failure_path = Path(output_dir) / repair.FAILURE_FILE
         failure = json.loads(failure_path.read_text()) if failure_path.exists() else {}
-        if (saved.get("rejection_code") == "JSON_PARSE" and not saved.get("replayed")
+        # A candidate refused for length alone is judged again under the current cap before
+        # anything is bought: the cap scales with the chain (causal_story.synthesis_caps), and
+        # V14's first rewrite (98 words, every beat echoed) is inside it. Once, marked.
+        rejudged = _rejudge_length_rejected_candidate(
+            saved, path, question, dossier, cost_sink, log, lane=lane, repair=repair)
+        if rejudged is not None:
+            return rejudged
+        length_path = Path(output_dir) / repair.LENGTH_FILENAME
+        length_saved = json.loads(length_path.read_text()) if length_path.exists() else None
+        current_length_edit = repair.synthesis_length_plan(saved)
+        if (length_saved and length_saved.get("status") == "rejected" and current_length_edit
+                and (length_saved.get("edit") or {}).get("shorten", {}).get("max_words")
+                != current_length_edit["shorten"]["max_words"]):
+            # A shorten retry asked against a cap that no longer exists is not this job's
+            # attempt under the cap that does. V14 (2026-10-08): asked for 70 words, answered
+            # 74 for eight chain beats, refused; the cap is now 80. Kept aside, not deleted.
+            superseded = length_path.with_name(
+                length_path.stem + f".superseded-{int(time.time())}.json")
+            length_path.replace(superseded)
+            log("Story repair: the earlier shorten retry was asked against a superseded cap; "
+                "kept as " + superseded.name)
+            length_saved = None
+        length_edit = current_length_edit if length_saved is None else None
+        if ((saved.get("rejection_code") == "JSON_PARSE"
+             or (saved.get("rejection_code") == "EDIT_CONSTRAINT"
+                 and str(saved.get("reason") or "").startswith("Repair must contain")))
+                and not saved.get("replayed")
                 and repair.extract_json_object(saved.get("provider_response_text")) is not None):
+            # Refused by the reader, not on the merits: parse strictness (prose around the JSON,
+            # an extra key per row). The same response is read again, once, without a purchase.
             replay_text = saved["provider_response_text"]
+        elif (length_saved and length_saved.get("status") == "rejected"
+              and length_saved.get("rejection_code") == "EDIT_CONSTRAINT"
+              and not length_saved.get("replayed")
+              and repair.extract_json_object(length_saved.get("provider_response_text")) is not None
+              and repair.synthesis_length_plan(saved)):
+            # The shorten retry's response, judged again under the current caps without a
+            # second purchase: V14's came back at 74 words / 5 sentences for eight chain beats,
+            # refused under 70 / 4, and is within the chain-scaled cap. Once, marked.
+            script = length_saved["input_script"]
+            dossier = script.get("_research_dossier") or dossier
+            board = lane.build_storyboard(copy.deepcopy(script), question)
+            path = length_path
+            attempt_version = repair.LENGTH_VERSION
+            plan_builder = lambda _s, _b, _e=repair.synthesis_length_plan(saved): _e  # noqa: E731
+            replay_text = length_saved["provider_response_text"]
+            saved = length_saved
+        elif length_edit:
+            # The shorten-only retry: the rejected candidate is the input, the synthesis scene
+            # gets an exact cap, one attempt, its own record. See repair.synthesis_length_plan.
+            script = saved["candidate_script"]
+            dossier = script.get("_research_dossier") or dossier
+            board = lane.build_storyboard(copy.deepcopy(script), question)
+            path = length_path
+            attempt_version = repair.LENGTH_VERSION
+            plan_builder = lambda _script, _board, _edit=length_edit: _edit  # noqa: E731
+            saved = None
         elif (saved.get("reason") == repair.BUDGET_REJECTION_REASON
                 and armed.get("prior_repair_sha256") == repair.digest(saved)
                 and armed.get("failure_sha256") == repair.digest(failure)):
@@ -2446,7 +2550,7 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
         return script, board
     record = saved or {"version": attempt_version, "status": "started",
                        "input_sha256": repair.digest(script), "input_script": script,
-                       "original_validation": board["validation"]}
+                       "original_validation": board["validation"], "edit": edit}
 
     def persist():
         temporary = path.with_suffix(".tmp")
@@ -2465,7 +2569,9 @@ def _repair_illustrated_storyboard(script, question, dossier, output_dir, cost_s
             temporary_state.write_text(json.dumps(state, ensure_ascii=False))
             temporary_state.replace(state_path)
         persist()  # mandatory before another paid call
-    if attempt_version == repair.BUDGET_VERSION:
+    if attempt_version == repair.LENGTH_VERSION:
+        log("Story repair: shortening the synthesis rewrite to the contract's cap")
+    elif attempt_version == repair.BUDGET_VERSION:
         log("Story repair: enforcing exact opening scene budgets")
     else:
         log("Story repair: tightening the opening and restoring the spoken callback")
@@ -3576,6 +3682,38 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
     return scenes, cost, bool(kept)
 
 
+_SYNTHESIS_WORDS_PER_BEAT = int(os.environ.get("SYNTHESIS_WORDS_PER_BEAT", "7"))
+
+
+def _synthesis_must_echo(beats: list, beat: dict) -> list[dict]:
+    """For a synthesis row, the chain beats it must re-walk, each with the distinctive stems the
+    storyboard will look for (causal_story._check_synthesis). The writer was told "re-walk EVERY
+    mechanism and escalation" and on V13 touched six of nine; naming the beats and their words
+    turns the rule into a checklist. Empty for any other row."""
+    import causal_story as cs
+    if _s(beat.get("causal_role")) != cs.SYNTHESIS:
+        return []
+    chain = [b for b in beats
+             if b.get("causal_role") in (cs.MECHANISM, cs.ESCALATION)
+             and int(b.get("beat_part") or 1) <= 1
+             and (b.get("n") or 0) < (beat.get("n") or 0)]
+    stems_by_beat = {}
+    for b in chain:
+        text = _s((b.get("event") or {}).get("text")) or _s(b.get("beat"))
+        stems_by_beat[id(b)] = cs._content_stems(text)
+    counts: dict = {}
+    for stems in stems_by_beat.values():
+        for stem in stems:
+            counts[stem] = counts.get(stem, 0) + 1
+    out = []
+    for b in chain:
+        stems = stems_by_beat[id(b)]
+        distinctive = sorted(st for st in stems if counts.get(st, 0) <= 2) or sorted(stems)
+        out.append({"beat_id": b.get("beat_id") or b.get("n"), "role": _s(b.get("causal_role")),
+                    "echo_one_of": distinctive[:8]})
+    return out
+
+
 def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
@@ -3594,7 +3732,17 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
     from longform_research import illustratable_beat_words as _cap_words
-    synthesis_words = min(_cap_words(), int(total_words * cs.SYNTHESIS_RUNTIME_SHARE))
+    # THE RECAP IS PAID PER BEAT IT RE-WALKS. The 6% share gave V13's synthesis 49 words for nine
+    # chain beats -- five words a beat -- and it echoed six of them; its one paid repair echoed
+    # all nine and tipped the sentence-mix bands instead. The reference spends about ten words a
+    # mechanism. Floor of seven words per chain beat, ceiling the contract's own maximum; the
+    # storyboard splits a synthesis longer than one illustratable scene across two, as it did.
+    chain_beats = sum(1 for b in beats
+                      if b.get("causal_role") in (cs.MECHANISM, cs.ESCALATION)
+                      and int(b.get("beat_part") or 1) <= 1)
+    synthesis_words = min(cs.synthesis_caps(chain_beats)[0],
+                          max(int(total_words * cs.SYNTHESIS_RUNTIME_SHARE),
+                              _SYNTHESIS_WORDS_PER_BEAT * chain_beats))
     for group, words in groups:
         pending = list(group)
         # A hinge is deliberately shorter; redistribute its unused words within this window.
@@ -3674,11 +3822,19 @@ def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
     import causal_story as cs
     from longform_research import illustratable_beat_words
     ceiling = illustratable_beat_words()
+    # The synthesis keeps its own ceiling, the contract's maximum, not the one-scene cap: its
+    # budget is paid per chain beat (see _causal_word_budgets) and the storyboard splits a long
+    # recap across two scenes. It is also kept out of the overflow spread below, like the hinge:
+    # a recap grown past SYNTHESIS_MAX_WORDS fails SYNTHESIS_TOO_LONG, and words laundered into
+    # it are not a recap.
     caps = {
-        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling)
-                    if beat.get("causal_role") == cs.HINGE else ceiling)
+        beat["n"]: (min(cs.MAX_HINGE_WORDS, ceiling) if beat.get("causal_role") == cs.HINGE
+                    else max(ceiling, min(cs.synthesis_caps(len(beats))[0], budgets[beat["n"]]))
+                    if beat.get("causal_role") == cs.SYNTHESIS else ceiling)
         for beat in beats if beat.get("n") in budgets
     }
+    synthesis_numbers = {beat["n"] for beat in beats
+                         if beat.get("causal_role") == cs.SYNTHESIS and beat.get("n") in budgets}
     surplus = 0
     for number, cap in caps.items():
         if budgets[number] > cap:
@@ -3708,7 +3864,10 @@ def _cap_beat_budgets(budgets: dict, beats: list) -> dict:
         # "a long hinge is not a hinge" -- and overflow must not launder words into it. Caught by
         # test_the_hinge_keeps_its_own_shorter_ceiling after an earlier version grew a 10-word
         # hinge to 123.
-        order = sorted(number for number, cap in caps.items() if cap >= ceiling) or sorted(caps)
+        order = (sorted(number for number, cap in caps.items()
+                        if cap >= ceiling and number not in synthesis_numbers)
+                 or sorted(number for number in caps if number not in synthesis_numbers)
+                 or sorted(caps))
         for index in range(surplus):
             budgets[order[index % len(order)]] += 1
     return budgets
@@ -5001,6 +5160,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 "context_refs": beat.get("context_refs") or [],
                 "presentation_device": beat.get("presentation_device") or "",
                 "scope": _s(beat.get("scope")) or "primary_story"} if causal_lane else {}),
+            # The synthesis row's checklist: every chain beat it must re-walk, with the words
+            # the storyboard will look for. See _synthesis_must_echo.
+            **({"must_echo": _synthesis_must_echo(beats, beat)}
+               if causal_lane and _synthesis_must_echo(beats, beat) else {}),
         }
 
     sheet = "\n".join(json.dumps(_expansion_beat(b), ensure_ascii=False) for b in beats)
@@ -5111,18 +5274,28 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + " Spend the closing beat's full narration_words on it. "
             "Do not invent another false resolution or escalation after the reversal."
             if causal_lane and is_last else "")
-        ch_prompt = (
+        # THE PREFIX EVERY BATCH SHARES: title, cast, throughline and the full beat sheet. It is
+        # sent as its own cached block, so the second and third batches read it at a tenth of the
+        # input price; the text the model reads is unchanged (same words, same order).
+        ch_prefix = (
             f'Video: "{_s(plan.get("title")) or question}" (style_mode: {style_mode}). '
             + (cast_rules if causal_lane and _illustrated_is_cast_free() else
                f'Human lead: {HUMAN_NAME} — {HUMAN_DESC}. Supporting co-investigator: '
                f'{MASCOT_NAME} — {MASCOT_DESC}.')
             + (f'\nCENTRAL THROUGHLINE (every scene serves it): "{throughline}".' if throughline else "")
             + sheet_block
+        )
+        ch_prompt = (
+            ch_prefix
             + f'\nNOW WRITE scenes {lo}-{hi} ONLY. Expand EACH assigned row below into exactly ONE scene, '
             'in order, dramatizing JUST that row (one idea per scene; never restate a concept that '
             'belongs to another row -- the one exception is a row whose causal_role is "synthesis", '
             'which MUST re-walk the mechanism and escalation rows in 2-4 sentences from their own '
-            'words, adding no fact; STATE-ONCE below does not bind that one row). '
+            'words, adding no fact; STATE-ONCE below does not bind that one row. Its must_echo list '
+            'names every beat it must touch, in order, with words a check will look for: use at '
+            'least one echo_one_of word for EACH listed beat, as cause -> cost ("Thick walls stopped '
+            'the heat, but trapped the air"), open the row on a joint, and let one of its sentences '
+            'address the viewer so the row stays in the sentence-mix bands). '
             # A row carrying continues_previous is the NEXT BREATH of the row before it, not a new
             # idea and not a recap. Said plainly because the STATE-ONCE rule immediately below
             # forbids back-references, and without this a continuation reads as an instruction to
@@ -5170,12 +5343,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                 'question. Do not explain it, do not add a second sentence, do not soften it. It '
                 'is the turn of the whole video and it works by being abrupt.\n')
                if causal_lane else '')
+            # Only when the finalizer speaks them. With SPOKEN_CHAPTER_MARKERS off (the default)
+            # this paragraph told the writer to open chapters aloud while nothing downstream
+            # expected it, and V14 (2026-10-08) narrated "Chapter one." in its mechanism scene.
             + (('OPEN EACH NEW CHAPTER OUT LOUD: when an assigned beat starts a chapter number '
                 'that the beat before it did not have, its narration MUST begin with that chapter '
                 'spoken as words — "Step one.", "Step two.", and so on — as its own short sentence '
                 'before anything else. This is the retention device the format is built on; the '
                 'chapter number existing in the plan is not the same as the narrator saying it.\n')
-               if causal_lane else '')
+               if causal_lane and _cs_close.speaks_chapter_markers() else
+               ('NEVER announce chapters or steps in the narration ("Chapter one", "Step two", '
+                '"Part three"): the chapter number is planning data, not spoken words.\n'
+                if causal_lane else ''))
             + blueprint_block
             + _operator_block(operator_direction)
             # The expansion writes the sentences; a correction about sentences has to reach it too.
@@ -5201,7 +5380,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + count_note
         )
         c = _claude().messages.create(model=ANTHROPIC_MODEL, max_tokens=20000, system=_SCRIPT_SYSTEM,
-                                      messages=[{"role": "user", "content": ch_prompt + _DESIGN_SYSTEM_TEXT}])
+                                      messages=[{"role": "user", "content": _cached_prefix_content(
+                                          ch_prefix, ch_prompt[len(ch_prefix):] + _DESIGN_SYSTEM_TEXT)}])
         cost += _charge(cost_sink, _ledger.EXPANSION, _msg_cost(c.usage), f"beats {lo}-{hi}")
         if getattr(c, "stop_reason", "") == "max_tokens":
             # Retry a smaller, differently keyed request. Completed prefixes are retained and
@@ -7514,10 +7694,15 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
         _normalize_generated_image(output_path)
         if cost_sink is not None:
             cost_sink.append(actual)
+        _usage_ledger.record("openai", "image", actual, model=IMAGE_MODEL,
+                             caller=_usage_ledger.caller_name(2))
     else:
         resp = _retry(_call, tries=6, label="image generation")
+        _image_actual = _image_cost_from_usage(resp)
         if cost_sink is not None:
-            cost_sink.append(_image_cost_from_usage(resp))
+            cost_sink.append(_image_actual)
+        _usage_ledger.record("openai", "image", _image_actual, model=IMAGE_MODEL,
+                             caller=_usage_ledger.caller_name(2))
         _write_image_result(resp.data[0], output_path)
         _normalize_generated_image(output_path)
     return output_path
@@ -7802,8 +7987,101 @@ _EVIDENCE_VERIFY_SYSTEM = (
     "requested state/evidence is actually readable, not merely because the image differs. "
     "A QUANTITY, YEAR OR COUNT spoken in the narration is NOT a visual requirement: never fail "
     "visible_information, and never list a reason, because a stated number cannot be counted "
-    "in the picture. Judge the subject, the action and the state, not the arithmetic."
+    "in the picture. Judge the subject, the action and the state, not the arithmetic. "
+    "COLOUR IS STYLE, NOT EVIDENCE: a colour or tint named in a requirement or reference ('a "
+    "warm-coral jar', 'a green cage', 'coral bees') describes the illustration's palette. Judge "
+    "whether the object is there, what it is, and what state it is in; never mark a requirement "
+    "or a continuity field false, and never list a reason, because a colour, tint or paper stock "
+    "differs. The one exception is a colour that IS the state (ripe against unripe fruit, a "
+    "scorched against a fresh surface)."
 )
+
+# The image checker's model; EVIDENCE_VERIFY_MODEL overrides it. Changing it changes every
+# verdict's cache key, so nothing judged by one model is reused as another's verdict.
+#
+# MEASURED 2026-10-08 (scripts/compare_verifier_models.py on V13-V15, 768 px images): on 120
+# images Opus had accepted at full size, and 40 images judged against another scene's state --
+#   Opus 4.8    wrongly refused 1/120, refused 31/40 mismatches, $0.018 a check
+#   Sonnet 5.5  wrongly refused 7/120, refused 38/40 mismatches, $0.0055 a check
+#   Haiku 5.5   wrongly refused 16/120, refused 36/40 mismatches, $0.0003 a check
+# Sonnet is stricter than Opus on mismatches and its extra refusals cost a few redraws a film.
+# Haiku's 13% wrong refusals spend its saving on redraws and dropped frames.
+EVIDENCE_VERIFY_MODEL = os.environ.get("EVIDENCE_VERIFY_MODEL", "") or "claude-sonnet-5-5"
+# Long edge, in pixels, of every image sent to the checker. 1536x1024 is about 2,000 input
+# tokens an image; 768 is about a quarter of that and still shows which objects are present.
+VERIFY_IMAGE_MAX_EDGE = int(os.environ.get("VERIFY_IMAGE_MAX_EDGE", "768") or 0)
+# Bump when the verifier's contract changes in a way the prompt text does not capture.
+VERIFY_CACHE_VERSION = "verdict-cache-v1"
+
+
+def _verify_image_payload(path: str) -> tuple[bytes, str]:
+    """The bytes the checker sees: downscaled to VERIFY_IMAGE_MAX_EDGE and re-encoded as JPEG.
+    Falls back to the original file, with its sniffed media type, if PIL cannot open it."""
+    with open(path, "rb") as handle:
+        payload = handle.read()
+    if VERIFY_IMAGE_MAX_EDGE > 0:
+        try:
+            from io import BytesIO
+            from PIL import Image as _PILImage
+            with _PILImage.open(BytesIO(payload)) as image:
+                image = image.convert("RGB")
+                if max(image.size) > VERIFY_IMAGE_MAX_EDGE:
+                    image.thumbnail((VERIFY_IMAGE_MAX_EDGE, VERIFY_IMAGE_MAX_EDGE))
+                buffer = BytesIO()
+                image.save(buffer, format="JPEG", quality=85)
+                return buffer.getvalue(), "image/jpeg"
+        except Exception:          # noqa: BLE001 - an unreadable image is sent as it is
+            pass
+    media_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+    return payload, media_type
+
+
+def _cached_prefix_content(prefix: str, rest: str) -> str:
+    """The user message with an invisible marker where the shared prefix ends. The real Anthropic
+    client (usage_ledger.MeteredMessages) splits there into [cached prefix block, rest block], so
+    repeated calls read the prefix from the prompt cache; every other client, including the
+    OpenAI path and test fakes, sees one string. The model reads the same words either way."""
+    if script_provider.active_provider() == script_provider.OPENAI or not prefix:
+        return prefix + rest
+    return prefix + _usage_ledger.CACHE_SPLIT + rest
+
+
+def _checker_thinking_options(model: str) -> dict:
+    """The checker is a yes-or-no inspection; thinking spends output tokens without changing it.
+    Opus 4.8 does not think unless asked. Haiku 5.5 thinks by default and accepts `disabled` at
+    its default effort. Sonnet 5.5 rejects `disabled` and turns thinking off with
+    `between_tools`. Other models are left at their defaults."""
+    name = str(model or "")
+    if name.startswith("claude-haiku-5"):
+        return {"thinking": {"type": "disabled"}}
+    if name == "claude-sonnet-5-5":
+        return {"thinking": {"type": "between_tools"}}
+    return {}
+
+
+def _first_text(response) -> str:
+    """The first text block of a reply. A model that thinks returns its thinking block first, and
+    reading content[0].text then fails on a block that has no text."""
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", "text") == "text" and hasattr(block, "text"):
+            return block.text
+    return ""
+
+
+def _verdict_cache_path(image_path: str) -> str:
+    return image_path + ".verdict.json"
+
+
+def _keep_rejected_image(image_path: str, verification: dict | None, attempt: int) -> None:
+    """Copy a refused image and its verdict to <image>.rejected-<n>.jpg / .json. Never raises."""
+    try:
+        import shutil
+        base = f"{image_path}.rejected-{attempt}"
+        shutil.copyfile(image_path, base + ".jpg")
+        with open(base + ".json", "w", encoding="utf-8") as handle:
+            json.dump(verification or {}, handle, ensure_ascii=False, default=str)
+    except Exception:          # noqa: BLE001 - diagnostics never break the render
+        pass
 
 
 def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
@@ -7823,15 +8101,16 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
     non-photoreal lane.
     """
     try:
+        key_parts: list[bytes] = []
+
         def image_block(path: str) -> dict:
-            with open(path, "rb") as handle:
-                payload = handle.read()
-                encoded = base64.b64encode(payload).decode()
-            # Image APIs may return PNG bytes into a .jpg path. Detect the encoded bytes instead
-            # of trusting the extension; Anthropic rejects mismatched media types.
-            media_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+            # Downscaled for the checker (VERIFY_IMAGE_MAX_EDGE). Image APIs may return PNG bytes
+            # into a .jpg path; _verify_image_payload sniffs instead of trusting the extension.
+            payload, media_type = _verify_image_payload(path)
+            key_parts.append(hashlib.sha256(payload).digest())
             return {"type": "image", "source": {
-                "type": "base64", "media_type": media_type, "data": encoded}}
+                "type": "base64", "media_type": media_type,
+                "data": base64.b64encode(payload).decode()}}
         expected = {
             "required_objects": state.get("required_objects") or [],
             "forbidden_objects": state.get("forbidden_objects") or [],
@@ -7875,13 +8154,33 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
                     {"type": "text", "text": f"CONTINUITY REFERENCE {index + 1} BELOW:"},
                     image_block(reference),
                 ])
+        # A VERDICT IS A FUNCTION OF WHAT WAS SHOWN AND ASKED. The same bytes, the same
+        # references, the same question to the same model get the saved answer: a resume used to
+        # re-buy every accepted image's verdict (about 80 calls on 2026-10-08), and verifier noise
+        # then refused images it had accepted an hour earlier.
+        key_hash = hashlib.sha256()
+        for part in (VERIFY_CACHE_VERSION, EVIDENCE_VERIFY_MODEL, str(VERIFY_IMAGE_MAX_EDGE),
+                     _EVIDENCE_VERIFY_SYSTEM, instruction + json.dumps(expected, ensure_ascii=False)):
+            key_hash.update(part.encode("utf-8"))
+        for part in key_parts:
+            key_hash.update(part)
+        verdict_key = key_hash.hexdigest()
+        cache_path = _verdict_cache_path(image_path)
+        try:
+            with open(cache_path, encoding="utf-8") as handle:
+                cached = json.load(handle)
+            if cached.get("key") == verdict_key and isinstance(cached.get("result"), dict):
+                return {**cached["result"], "verdict_cached": True}
+        except (OSError, ValueError):
+            pass
         response = _claude().messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
+            model=EVIDENCE_VERIFY_MODEL, max_tokens=900, system=_EVIDENCE_VERIFY_SYSTEM,
             messages=[{"role": "user", "content": content}],
+            **_checker_thinking_options(EVIDENCE_VERIFY_MODEL),
         )
         if cost_sink is not None:
-            cost_sink.append(_msg_cost(response.usage))
-        result, repair_cost = _parse_script_json(response.content[0].text)
+            cost_sink.append(_usage_ledger.anthropic_cost(EVIDENCE_VERIFY_MODEL, response.usage))
+        result, repair_cost = _parse_script_json(_first_text(response))
         if cost_sink is not None and repair_cost:
             cost_sink.append(repair_cost)
         if not isinstance(result, dict):
@@ -7918,7 +8217,17 @@ def verify_evidence_asset(image_path: str, state: dict, continuity_pack: dict,
         reasons = [_s(item) for item in result.get("reasons") or [] if _s(item)]
         if not passed and not reasons:
             reasons = ["pixel verification did not satisfy every object-state and continuity check"]
-        return {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
+        verdict = {**result, "passed": passed, "visible_information": visible, "reasons": reasons}
+        try:
+            # Saved beside the image it judges, keyed by everything the judgment saw. A redraw
+            # writes new bytes, so its key differs and it is judged afresh.
+            with open(cache_path, "w", encoding="utf-8") as handle:
+                json.dump({"key": verdict_key, "model": EVIDENCE_VERIFY_MODEL,
+                           "image_max_edge": VERIFY_IMAGE_MAX_EDGE, "result": verdict},
+                          handle, ensure_ascii=False)
+        except OSError:
+            pass
+        return verdict
     except Exception as exc:
         # NO JUDGE IS NOT THE SAME ANSWER AS "NO".
         #
@@ -8001,6 +8310,8 @@ def generate_tts(text: str, output_path: str, voice: str = "echo") -> str:
         with open(output_path, "wb") as f:
             for chunk in resp.iter_bytes():
                 f.write(chunk)
+        _usage_ledger.record("openai", "tts", len(text) * _RATE_TTS_CHAR, model=TTS_MODEL,
+                             caller="generate_tts", extra={"characters": len(text)})
         return output_path
 
     try:
@@ -12588,6 +12899,9 @@ def run_explainer_pipeline(
         if progress_cb:
             progress_cb(msg)
 
+    # Every provider call of this launch is appended to <job>/usage_ledger.jsonl (usage_ledger.py).
+    _usage_ledger.set_job_dir(output_dir)
+
     # The channel restricts which narrative engines the selector may offer (topic_fit.CHANNEL_ENGINES).
     # Carried as a context variable rather than threaded through three signatures: the selector sits
     # under generate_graded_script -> _generate_script_chunked, and every caller of those would
@@ -13993,6 +14307,10 @@ def run_explainer_pipeline(
                             break
                         log(f"  ↻ redrawing evidence {i+1}.{state_index+1} "
                             f"({_redraw + 1}/{_EVIDENCE_REDRAWS}) — {reasons[:120]}")
+                        # Keep the refused image and its verdict beside the state. Without them
+                        # there is no set of real rejections to measure a cheaper checker
+                        # against (2026-10-08: every rejected image had been overwritten).
+                        _keep_rejected_image(state_path, verification, _redraw + 1)
                         generate_image(
                             prompt + " THE PREVIOUS ATTEMPT WAS REJECTED BY A VISUAL INSPECTOR FOR "
                             f"THESE REASONS: {reasons}. Fix exactly those faults. Every other "

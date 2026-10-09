@@ -19,19 +19,41 @@ FILENAME = VERSION + ".json"
 BUDGET_VERSION = "illustrated_storyboard_opening_budget_repair_v2"
 BUDGET_FILENAME = BUDGET_VERSION + ".json"
 BUDGET_REJECTION_REASON = "Repair still exceeds the opening word budget"
+# A second, bounded attempt for a candidate that failed ONLY because the synthesis ran long:
+# shorten that same candidate to the contract's cap. V14 (2026-10-08): the first repair echoed
+# every chain beat and came back at 98 words against 70, and the prompt had never said 70.
+LENGTH_VERSION = "illustrated_storyboard_synthesis_length_repair_v1"
+LENGTH_FILENAME = LENGTH_VERSION + ".json"
 FAILURE_FILE = "semantic_failure_illustrated-storyboard.json"
 PREFIX = "Illustrated storyboard failed: "
 SYNTHESIS_CODES = {"SYNTHESIS_TOO_THIN", "SYNTHESIS_TOO_LONG", "SYNTHESIS_SKIPS_A_BEAT",
-                   "SYNTHESIS_ADDS_HISTORY"}
+                   "SYNTHESIS_ADDS_HISTORY", "SYNTHESIS_REPEATED"}
+# The opening's consequence was never spoken (V14, 2026-10-08: the escape of the twenty-six
+# queens was planned, cited, and absent from every scene). Repaired by rewriting the row before
+# the hinge to speak it, citing its claims; the hinge and the body are untouched.
+CONSEQUENCE_CODE = "OPENING_CONSEQUENCE_UNSPOKEN"
+CONSEQUENCE_GROWTH_WORDS = 45
 # OPENING_RESTATED (a body scene re-telling the opening's problem, decision or escape) was a
 # blocking storyboard code with no repair path, so one overlapping sentence after research,
 # planning and script spend ended the run (flow validation 2026-10-07, item 8). Its repair is a
 # trim: the named scene keeps only what its own event adds, at or under its original length.
 RESTATED_CODE = "OPENING_RESTATED"
+# A hinge that carries the consequence's facts cannot be cut to ten words without losing them
+# (V15, 2026-10-08: "But one October day in 1957 the grids came off, and twenty-six queens left
+# for the forest", 17 words; the hinge fitter kept the original and no repair owned the code).
+# The repair moves the facts to the end of the row before the hinge and leaves the turn.
+HINGE_CODE = "SOFT_HINGE"
+# Read-through defects from V15 (2026-10-08), each owned by one named scene: a continuation that
+# re-tells its parent, a scene opening on "That <noun>" nothing named, and a close that assumes an
+# outcome the reversal never told.
+SCENE_EDIT_CODES = {"CONTINUATION_REPEATS", "DANGLING_REFERENCE"}
+PRESUPPOSE_CODE = "CLOSE_PRESUPPOSES_OUTCOME"
 REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
-               RESTATED_CODE} | SYNTHESIS_CODES)
+               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE, PRESUPPOSE_CODE, "CLOSE_REPEATS"}
+              | SYNTHESIS_CODES | SCENE_EDIT_CODES)
 _RESTATED = re.compile(r"^OPENING_RESTATED:\s*(\S+)\s+re-tells the (\w+)")
-CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
+CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT", "CLOSE_PRESUPPOSES_OUTCOME",
+               "CLOSE_REPEATS"}
 # Two to four sentences on an 18-word close needs more than the old +20.
 CLOSE_GROWTH_WORDS = 40
 
@@ -148,8 +170,39 @@ def plan(script, board):
     if codes & CLOSE_CODES:
         selected.add(close)
     synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
+    synthesis_parts = [i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS]
     if codes & SYNTHESIS_CODES and synthesis is not None:
-        selected.add(synthesis)
+        # Every part of the recap, so a rewrite of the first part cannot leave a second part
+        # re-walking the same beats (V14, 2026-10-08).
+        selected.update(synthesis_parts)
+    consequence_scene = None
+    hinge = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.HINGE), None)
+    before = [i for i, s in enumerate(scenes[:hinge if hinge is not None else mechanism])
+              if s.get("causal_role") in (cs.FALSE_RESOLUTION, cs.INTERVENTION)]
+    if CONSEQUENCE_CODE in codes:
+        if before:
+            consequence_scene = before[-1]
+            selected.add(consequence_scene)
+        else:
+            return None
+    hinge_scene = None
+    if HINGE_CODE in codes:
+        if hinge is None or not before:
+            return None
+        hinge_scene = hinge
+        selected.add(hinge)
+        consequence_scene = consequence_scene if consequence_scene is not None else before[-1]
+        selected.add(consequence_scene)
+    scene_edits = []
+    for error in errors:
+        code, _, rest = error.partition(":")
+        if code in SCENE_EDIT_CODES:
+            named = rest.strip().split(" ", 1)[0]
+            if named in ids:
+                selected.add(ids.index(named))
+                scene_edits.append({"scene_id": named, "code": code, "finding": rest.strip()[:240]})
+            else:
+                return None
     # The restated scenes, named by the check's own message ("<scene_id> re-tells the <role>").
     restated = []
     for error in errors:
@@ -171,6 +224,14 @@ def plan(script, board):
             "synthesis_index": synthesis,
             "close_contract": str(script.get("_close_contract") or ""),
             "restated": restated,
+            "scene_edits": scene_edits,
+            "synthesis_scene_ids": [ids[i] for i in synthesis_parts],
+            "consequence_scene_id": ids[consequence_scene] if consequence_scene is not None else "",
+            "hinge_scene_id": ids[hinge_scene] if hinge_scene is not None else "",
+            "hinge_max_words": cs.MAX_HINGE_WORDS,
+            "consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
+                                   .get("consequence") or []),
+            "consequence_text": str((script.get("_opening") or {}).get("consequence") or ""),
             "deadline_fraction": pct, "original_counts": counts}
 
 
@@ -194,9 +255,67 @@ def prompt(script, edit):
         f"original word count, and no more than {CLOSE_GROWTH_WORDS} words longer. "
         + (cs.close_contract_text(edit.get("planted_numbers") or [], edit.get("opening_object", ""))
            + " " if edit.get("close_contract") else "")
-        + ("When the synthesis scene is requested, rewrite it as 2-4 sentences that re-walk EVERY "
+        + ((f"The requested synthesis scene(s) are your previous rewrite, which ran to "
+            f"{edit['shorten']['current_words']} words across them. Return the recap at or below "
+            f"{edit['shorten']['max_words']} words and {edit['shorten']['max_sentences']} sentences "
+            "COMBINED, keeping one echo of every chain beat, its opening joint and its sentence "
+            "addressing the viewer; cut adjectives and repeated clauses, not beats. "
+            + (f"These words are FORBIDDEN because no earlier scene says them: "
+               f"{edit['shorten']['forbidden_tokens']}; name the place or count only as an earlier "
+               "scene named it. " if edit['shorten'].get('forbidden_tokens') else "")
+            + (f"The beats you never touched, which must each be echoed by one of their own words: "
+               f"{edit['shorten']['must_touch']}. " if edit['shorten'].get('must_touch') else ""))
+           if edit.get("shorten") else "")
+        + ("".join(
+            (f"Scene {item['scene_id']} RE-TELLS the scene before it ({item['finding']}). Keep only "
+             "what it adds -- the next fact, consequence or detail -- and cut every clause that says "
+             "the same event again; it may get shorter. "
+             if item["code"] == "CONTINUATION_REPEATS" else
+             f"Scene {item['scene_id']} opens by pointing at something nothing named "
+             f"({item['finding']}). Rewrite only its first sentence so it refers back to what the "
+             "scene before actually said, and so it does not contradict it. ")
+            for item in edit.get("scene_edits") or []))
+        + ("The close is requested because it SAYS ITS POINT TWICE (two sentences carrying the "
+           "same idea). Keep the stronger one, cut the other, and let the last sentence return to "
+           "the opening object without restating the moral. "
+           if any(e.startswith("CLOSE_REPEATS") for e in edit["errors"]) else "")
+        + ("The close is requested because it ASSUMES AN OUTCOME the reversal never told (for "
+           "example that the plan worked or the need was met). Remove that assumption -- also from "
+           "any question or 'if' -- and end on what the film established. "
+           if any(e.startswith("CLOSE_PRESUPPOSES_OUTCOME") for e in edit["errors"]) else "")
+        + ((f"The hinge scene {edit['hinge_scene_id']} is requested because it runs long: return "
+            f"it at most {edit['hinge_max_words']} words, the flat turn that breaks the apparent "
+            "success (\"Except the grids came off.\", \"Twenty-six queens were gone.\"), never a "
+            "question. Every sourced fact it carried beyond the turn -- the date, the count, what "
+            f"left and where -- MOVES to the END of scene {edit['consequence_scene_id']}, which "
+            f"may grow by up to {CONSEQUENCE_GROWTH_WORDS} words to hold it in the words of its "
+            "claims. Nothing is lost, nothing is said twice. ")
+           if edit.get("hinge_scene_id") else "")
+        + ((f"The scene {edit['consequence_scene_id']} is requested because the opening's "
+            "CONSEQUENCE was never spoken. Add to the END of that scene, in one to three "
+           if not edit.get("hinge_scene_id") else
+           f"The scene {edit['consequence_scene_id']} also carries the opening's CONSEQUENCE, in one to three "
+            "sentences, the ordinary act and what it released, as the plan states it: "
+            f"\"{edit['consequence_text']}\" -- in the words of its claims {edit['consequence_claims']}, "
+            "so the sentences bind to them. Keep everything the scene already says; grow it by at most "
+            f"{CONSEQUENCE_GROWTH_WORDS} words. Do not touch the hinge; the body never tells "
+            "this again. ")
+           if edit.get("consequence_scene_id") else "")
+        + ((f"The recap spans the scenes {edit['synthesis_scene_ids']}: return ALL of them, with "
+            "the re-walk split across them in order and no beat told twice; a part that has "
+            "nothing left to re-walk carries one joint sentence into the close. The caps below "
+            "apply to the parts COMBINED. ")
+           if len(edit.get("synthesis_scene_ids") or []) > 1
+           and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]) else "")
+        + ("When the synthesis scene is requested, rewrite it in at most "
+           f"{cs.synthesis_caps(_chain_count(script))[1]} sentences and AT MOST "
+           f"{cs.synthesis_caps(_chain_count(script))[0]} words in that one scene, re-walking EVERY "
            "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
-           "already said; add no number, name, date or place they did not. "
+           "already said; add no number, name, date or place they did not. The error names the "
+           "scenes it never touched; each of those must be echoed by one of its own content "
+           "words. Open the scene on a joint to the scene before it (\"So\", \"Put together\", "
+           "\"One choice, the whole length of it\") and let one sentence address the viewer, so "
+           "the rewritten scene stays inside the sentence-mix bands that are checked with it. "
            if edit.get("synthesis_index") is not None and edit["scene_ids"]
            and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]) else "")
         + ("When a scene is listed in `restated`, it re-tells the opening beat named there (the "
@@ -211,11 +330,55 @@ def prompt(script, edit):
         + json.dumps({"edit": edit, "hook": script.get("hook"), "scenes": rows}, ensure_ascii=False))
 
 
+def _fit_synthesis_parts(scenes, part_ids, max_words):
+    """Over the cap by at most a tenth, trailing sentences of the recap's last part are dropped
+    until it fits, never below four fifths of the cap. Delete, never rewrite (V15, 2026-10-08:
+    106 words against 104 on the retry that had been told the cap; the model does not count).
+    The storyboard still judges what remains on its merits. Returns the words dropped."""
+    part_scenes = [s for s in scenes if s["scene_id"] in part_ids]
+    if not part_scenes:
+        return 0
+    total = sum(len(s["narration"].split()) for s in part_scenes)
+    if not max_words < total <= max_words * 1.1:
+        return 0
+    floor = max_words * 0.8
+    last = part_scenes[-1]
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+", last["narration"].strip()) if x.strip()]
+    dropped_words = 0
+    while total > max_words and len(sentences) > 1:
+        candidate_drop = len(sentences[-1].split())
+        if total - candidate_drop < floor:
+            break
+        sentences.pop()
+        total -= candidate_drop
+        dropped_words += candidate_drop
+    if total > max_words and sentences:
+        # The last sentence is the overage and more (V15: one 42-word sentence, 2 words over):
+        # drop its trailing comma clauses instead, keeping the sentence's stop.
+        tail = sentences[-1].rstrip(".!?")
+        stop = sentences[-1][len(tail):] or "."
+        clauses = [c for c in re.split(r",\s+", tail) if c.strip()]
+        while total > max_words and len(clauses) > 1:
+            candidate_drop = len(clauses[-1].split())
+            if total - candidate_drop < floor:
+                break
+            clauses.pop()
+            total -= candidate_drop
+            dropped_words += candidate_drop
+        sentences[-1] = ", ".join(clauses).rstrip(",") + stop
+    if dropped_words:
+        last["narration"] = " ".join(sentences).strip()
+    return dropped_words
+
+
 def apply_response(script, edit, response):
     rows = response.get("scenes") if isinstance(response, dict) else None
-    if not isinstance(rows, list) or any(not isinstance(r, dict) or set(r) != {"scene_id", "narration"}
+    if not isinstance(rows, list) or any(not isinstance(r, dict) or not {"scene_id", "narration"} <= set(r)
                                          for r in rows):
-        raise ValueError("Repair must contain only scene IDs and narration")
+        raise ValueError("Repair must contain scene IDs and narration")
+    # Only the two fields are read. V15 (2026-10-08): the model echoed each row's causal_role
+    # beside its narration and the whole edit was refused for the extra key.
+    rows = [{"scene_id": r["scene_id"], "narration": r["narration"]} for r in rows]
     ids = [r["scene_id"] for r in rows]
     if len(ids) != len(set(ids)):
         raise ValueError("Repair changed the permitted scene set")
@@ -252,6 +415,46 @@ def apply_response(script, edit, response):
             limit = limits.get(scene["scene_id"])
             if limit is not None and counts[index] > limit:
                 raise ValueError("Repair exceeds a scene opening word limit")
+    synthesis_ids = edit.get("synthesis_scene_ids") or []
+    if len(synthesis_ids) > 1 and any(e.split(":", 1)[0] in SYNTHESIS_CODES for e in edit["errors"]):
+        max_words, max_sentences = cs.synthesis_caps(_chain_count(candidate))
+        _fit_synthesis_parts(scenes, synthesis_ids, max_words)
+        counts = [len(s["narration"].split()) for s in scenes]
+        parts = [s["narration"] for s in scenes if s["scene_id"] in synthesis_ids]
+        if sum(len(p.split()) for p in parts) > max_words:
+            raise ValueError("Repair still exceeds the synthesis word cap across its parts")
+        first = cs._content_stems(parts[0])
+        for later in parts[1:]:
+            stems = cs._content_stems(later)
+            if first and stems and len(first & stems) / min(len(first), len(stems)) >= 0.5:
+                raise ValueError("Repair left a synthesis part re-walking the same beats as the first")
+    if edit.get("consequence_scene_id"):
+        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == edit["consequence_scene_id"]), None)
+        if index is not None:
+            if counts[index] > edit["original_counts"][index] + CONSEQUENCE_GROWTH_WORDS:
+                raise ValueError("Repair grew the consequence scene past its allowance")
+            if counts[index] < edit["original_counts"][index]:
+                raise ValueError("Repair shortened the consequence scene instead of adding the consequence")
+    if edit.get("hinge_scene_id"):
+        index = next((i for i, s in enumerate(scenes) if s["scene_id"] == edit["hinge_scene_id"]), None)
+        if index is not None and counts[index] > int(edit.get("hinge_max_words") or cs.MAX_HINGE_WORDS):
+            raise ValueError("Repair left the hinge over its word cap")
+    shorten = edit.get("shorten") or {}
+    if shorten:
+        part_ids = edit.get("synthesis_scene_ids") or [shorten["scene_id"]]
+        max_words = int(shorten["max_words"])
+        _fit_synthesis_parts(scenes, part_ids, max_words)
+        counts = [len(s["narration"].split()) for s in scenes]
+        parts = [s["narration"] for s in scenes if s["scene_id"] in part_ids]
+        if sum(len(p.split()) for p in parts) > max_words:
+            raise ValueError("Repair still exceeds the synthesis word cap")
+        if sum(cs._close_sentences(p) for p in parts) > int(shorten["max_sentences"]):
+            raise ValueError("Repair still exceeds the synthesis sentence cap")
+        joined = " ".join(parts).lower()
+        said = [t for t in (shorten.get("forbidden_tokens") or [])
+                if re.search(r"\b" + re.escape(str(t).lower()) + r"\b", joined)]
+        if said:
+            raise ValueError(f"Repair still speaks {said}, which no earlier scene says")
     close = edit["close_index"]
     if scenes[close]["scene_id"] in updates:
         if (edit["opening_object"].casefold() not in scenes[close]["narration"].casefold()
@@ -270,6 +473,65 @@ def apply_response(script, edit, response):
     if hook and hook in script["scenes"][0]["narration"] and hook not in scenes[0]["narration"]:
         raise ValueError("Repair changed the spoken hook")
     return candidate
+
+
+def _chain_count(script):
+    """Mechanism and escalation scenes before the first synthesis, continuations excluded."""
+    scenes = script.get("scenes") or []
+    synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS),
+                     len(scenes))
+    return sum(1 for s in scenes[:synthesis]
+               if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues"))
+
+
+def synthesis_length_plan(saved):
+    """The shorten-only retry's edit, from a saved rejection whose candidate failed on nothing but
+    SYNTHESIS_TOO_LONG. The candidate becomes the input; the synthesis scene gets an exact cap.
+    None for any other rejection."""
+    if not isinstance(saved, dict) or saved.get("status") != "rejected" \
+            or saved.get("rejection_code") != "STORYBOARD_VALIDATION":
+        return None
+    errors = (saved.get("candidate_validation") or {}).get("errors") or []
+    codes = {e.split(":", 1)[0] for e in errors}
+    # Any synthesis-only failure of the candidate, not only length (V15, 2026-10-08: the first
+    # rewrite came back at 103 words / 6 sentences and still said "Hidalgo", which no earlier
+    # scene says). The retry is told every constraint it missed, exactly.
+    if not errors or not codes or not codes <= (SYNTHESIS_CODES - {"SYNTHESIS_TOO_THIN"}):
+        return None
+    candidate = saved.get("candidate_script")
+    if not isinstance(candidate, dict):
+        return None
+    scenes = candidate.get("scenes") or []
+    synthesis = next((i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS), None)
+    if synthesis is None:
+        return None
+    edit = plan(candidate, {"validation": {"errors": errors}})
+    if not edit:
+        return None
+    parts = [i for i, s in enumerate(scenes) if s.get("causal_role") == cs.SYNTHESIS]
+    scene_ids = [scenes[i]["scene_id"] for i in parts]
+    chain = sum(1 for s in scenes[:synthesis]
+                if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues"))
+    max_words, max_sentences = cs.synthesis_caps(chain)
+    forbidden = []
+    for error in errors:
+        match = re.search(r"SYNTHESIS_ADDS_HISTORY:.*?speaks \[([^\]]*)\]", error)
+        if match:
+            forbidden += [t.strip().strip("'\"") for t in match.group(1).split(",") if t.strip()]
+    missed = []
+    for error in errors:
+        match = re.search(r"SYNTHESIS_SKIPS_A_BEAT:.*?never touches ([^-]+?) --", error)
+        if match:
+            missed += [t.strip() for t in match.group(1).split(",") if t.strip()]
+    edit["scene_ids"] = scene_ids
+    edit["synthesis_scene_ids"] = scene_ids
+    edit["scene_word_limits"] = {scene_ids[0]: max_words}
+    edit["shorten"] = {"scene_id": scene_ids[0], "max_words": max_words,
+                       "max_sentences": max_sentences, "chain_beats": chain,
+                       "forbidden_tokens": forbidden, "must_touch": missed,
+                       "current_words": sum(len(str(scenes[i].get("narration") or "").split())
+                                            for i in parts)}
+    return edit
 
 
 def budget_plan(script, board):

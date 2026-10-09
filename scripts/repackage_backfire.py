@@ -49,9 +49,9 @@ def main() -> int:
                         help="package even when the script's engine is outside the backfire set")
     parser.add_argument("--question", default="")
     parser.add_argument("--crossed-out", default="",
-                        help="the living thing to cross out on the left, e.g. 'a grey wolf in snow'")
+                        help="the mistake in action on the left, e.g. 'a gloved hand lifting a hive screen as bees climb out'")
     parser.add_argument("--consequence", default="",
-                        help="the crowded consequence scene on the right, e.g. 'elk herd on a bare riverbank'")
+                        help="the threat closing in on the right, e.g. 'a dark swarm over a farm field'")
     args = parser.parse_args()
     run_dir = Path(args.run_dir).resolve()
     script = _load_script(run_dir)
@@ -73,9 +73,9 @@ def main() -> int:
     pairs = None
     if args.crossed_out and args.consequence:
         pairs = [{"crossed_out_subject": args.crossed_out,
-                  "crossed_out_scene": f"a large sharp close-up of {args.crossed_out}, facing the camera",
+                  "crossed_out_scene": f"close on the moment of the mistake: {args.crossed_out}",
                   "consequence_subject": args.consequence,
-                  "consequence_scene": f"a wide dramatic view of {args.consequence}"}]
+                  "consequence_scene": f"a frightened person in the foreground as {args.consequence} closes in"}]
     thumb = bp.generate_thumbnail(settled, question, transcript, str(run_dir), cost_sink=costs,
                                   report=report, log=log, pairs=pairs)
     payload = {"version": bp.VERSION, "script_title": script.get("title", ""), "title": settled,

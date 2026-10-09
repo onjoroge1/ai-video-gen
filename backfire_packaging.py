@@ -3,9 +3,10 @@
 Reference set (operator, 2026-09-28): three published thumbnails share a grammar and their titles
 share a formula.
 
-  Thumbnail: a photoreal split frame. LEFT, the thing the intervention attacked or introduced, under
-  a red prohibition ring with a diagonal slash. RIGHT, the literal thing that multiplied or died as a
-  result. A yellow curved arrow points from the ring into the consequence. A fixed two-word headline
+  Thumbnail: a split frame. LEFT, the mistake in action (v2, 2026-10-09: the species being
+  released, introduced or removed, e.g. a gloved hand lifting a hive screen as bees climb out)
+  inside a plain red ring. RIGHT, one frightened invented person with the consequence closing in.
+  A yellow curved arrow points from the ring into the consequence. A fixed two-word headline
   "FATAL ERROR" (yellow FATAL, white ERROR, heavy black stroke) sits on top.
   Title: "The <quantified object> Mistake That <consequence>" -- e.g. "The 2-Billion Bird Mistake
   That Starved a Nation", "The Rat Bounty Mistake That Created Millions More".
@@ -39,7 +40,7 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 TITLE_MAX_CHARS = 70
 TITLE_ATTEMPTS = 2
-VERSION = "backfire_packaging_v1"
+VERSION = "backfire_packaging_v2"
 
 _HEADLINE_FONTS = (
     "/System/Library/Fonts/Supplemental/Impact.ttf",
@@ -177,24 +178,31 @@ def propose_title(title: str, question: str, transcript: str, cost_sink: list | 
 
 # ── Thumbnail strategy and scene prompt ───────────────────────────────────────
 
+# v2 (operator, 2026-10-09). The v1 left panel crossed out one animal, and on the killer bees
+# film YouTube's own review read a ringed bee as a pest-control story: the ring said "kill this",
+# not "this was the mistake". The right panel was a carpet of animals with no reaction in it, so
+# the consequence had size but no fear. The operator's mockup fixed both: the ring circles the ACT
+# (a gloved hand lifting the hive screen as the bees climb out) and the right panel is one
+# frightened person with the swarm closing in.
 _STRATEGY_SYSTEM = (
     "You are the thumbnail art director for a documentary channel about interventions that "
-    "backfired. Each thumbnail is a photoreal split frame. LEFT: the single thing the people in the "
-    "story attacked, paid for, or introduced as their fix, shown close and identifiable; it will be "
-    "covered by a red prohibition ring. RIGHT: the literal consequence, the thing that multiplied, "
-    "spread or was harmed, shown as a crowded, dramatic scene. Both scenes must show real species "
-    "with correct anatomy and the story's real setting; no gore, blood, corpses, monsters, people's "
-    "faces, text, logos, maps, or symbols. The crossed-out subject is ALWAYS a living thing: the "
-    "animal or plant that was introduced, removed, or targeted. Never a tool, weapon, trap, "
-    "vehicle, document, coin, building or person: a crossed-out rifle reads as a story about "
-    "guns, and a crossed-out wolf reads as a story about killing wolves. Propose TWO different "
-    "pairs so the better one can be chosen: pair A crosses out the species the intervention was "
-    "aimed at or removed, pair B crosses out the species introduced as the fix (for a removal "
-    "story, both pairs cross out the removed animal in different settings). Return ONLY JSON: "
-    "{\"pairs\": [{\"crossed_out_subject\": \"3-6 words\", "
-    "\"crossed_out_scene\": \"one sentence, close-up, what fills the left panel\", "
-    "\"consequence_subject\": \"3-6 words\", \"consequence_scene\": \"one sentence, wide, what "
-    "fills the right panel\"}, {...}]}"
+    "backfired. Each thumbnail is a split frame. LEFT: the MISTAKE IN ACTION -- the moment "
+    "people released, introduced or removed the thing, with that living thing visibly escaping, "
+    "arriving or vanishing (e.g. a gloved hand lifting a hive screen as bees climb out; a crate "
+    "tipped into a pond as fish pour out). Hands and tools may appear, faces may not; the named "
+    "species must be clearly visible in the act. A plain red ring will circle this act. RIGHT: "
+    "the FEAR -- ONE ordinary person, invented and anonymous, close in the foreground, reacting "
+    "in shock (wide eyes, open mouth, a raised hand) as the consequence (the animals that "
+    "multiplied or spread, or the damage they did) closes in on them from behind. Never a real, "
+    "named or famous person, never anyone the story names. Real species with correct anatomy, "
+    "the story's real setting, no gore, blood, corpses, injuries, text, logos, maps or symbols. "
+    "Propose TWO different pairs so the better one can be chosen: the same mistake on the left, "
+    "and two different threats on the right (e.g. a swarm in a field vs. animals at a farmhouse "
+    "door). Return ONLY JSON: "
+    "{\"pairs\": [{\"crossed_out_subject\": \"3-6 words, the species in the act\", "
+    "\"crossed_out_scene\": \"one sentence, close, the act that fills the left panel\", "
+    "\"consequence_subject\": \"3-6 words, the threat\", \"consequence_scene\": \"one sentence: "
+    "the frightened person in the foreground and the threat closing in\"}, {...}]}"
 )
 
 
@@ -264,15 +272,17 @@ def image_prompt(pair: dict, illustrated: bool = False) -> str:
         # a distant hillside in the right panel: at feed size it read as green texture with a
         # yellow arrow pointing at nothing, and the left panel was a mat of small insects with no
         # single thing to look at. A thumbnail is looked at for under a second at about 350px.
-        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} ONE single "
-        f"{pair['crossed_out_subject']} fills at least 70% of the left panel, shot as a tight "
-        "macro portrait facing the camera with its eyes sharp and catchlit, every texture "
-        "resolved, the habitat thrown far out of focus behind it. One subject, not a group. "
-        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} Put "
-        f"{pair['consequence_subject']} LARGE IN THE NEAR FOREGROUND, sharp and unmistakable and "
-        "filling the lower half of the panel, with the rest of the scene massing away behind it "
-        "to show scale. Never a distant vista: if the consequence is a crowd or a swarm, the "
-        "nearest individuals must be close enough to read clearly. "
+        f"LEFT PANEL (about 45% of the width): {pair['crossed_out_scene']} The "
+        f"{pair['crossed_out_subject']} and the act are close, sharp and centred in the lower "
+        "two-thirds of the panel, so a circle around the middle of the panel frames the whole "
+        "act; the background falls away out of focus. No faces in the left panel. "
+        f"RIGHT PANEL (about 55% of the width): {pair['consequence_scene']} ONE frightened "
+        "ordinary person, invented and anonymous, head and shoulders, LARGE in the near "
+        "foreground of the right half of the panel, face turned three-quarters to the camera, "
+        "shock readable at thumbnail size: wide eyes, open mouth, a hand raised. "
+        f"{pair['consequence_subject']} surges toward them from the left and behind, dark against "
+        "a bright sky or ground so the threat reads as one shape. Keep small foreground details "
+        "sparse so the face stays the clearest thing in the panel. "
         "Keep the TOP 22% of the RIGHT panel simple and uncluttered (sky, dark ground or blurred "
         "background) so a headline can be placed there. "
         + look +
@@ -282,7 +292,8 @@ def image_prompt(pair: dict, illustrated: bool = False) -> str:
         "CRITICALLY: do NOT draw any prohibition sign, red circle, ring, cross, X, slash or "
         "crossed-out marking anywhere in the image. The subject is shown plain and unmarked; the "
         "red circle is added afterwards by the renderer and a second one ruins the thumbnail. "
-        "No gore, blood, corpses, injuries or people's faces." + no_vector
+        "No gore, blood, corpses or injuries. The person is never a real, named or famous "
+        "individual." + no_vector
     )
 
 
@@ -328,7 +339,8 @@ def geometry(tw: int, th: int) -> dict:
 
 
 def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
-            headline: tuple[str, str] = HEADLINE, ring_overlay: bool = True) -> str:
+            headline: tuple[str, str] = HEADLINE, ring_overlay: bool = True,
+            slash: bool = False) -> str:
     """Fit the two-scene background and draw divider, prohibition ring, arrow and headline.
 
     `ring_overlay=False` leaves the ring out, for a background that already contains one. The
@@ -344,16 +356,19 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
     _glow(base, lambda d, c: d.line([(x0, y0), (x1, y1)], fill=c, width=14), BLACK, 6, 150)
     ImageDraw.Draw(base).line([(x0, y0), (x1, y1)], fill=(*WHITE, 235), width=5)
 
-    # Prohibition ring with a diagonal slash, glowing red, drawn over the left subject.
+    # Red ring, glowing, drawn over the left panel's act.
     cx, cy = geo["ring_center"]
     r, w = geo["ring_radius"], geo["ring_width"]
     box = [cx - r, cy - r, cx + r, cy + r]
     off = r / math.sqrt(2)
-    slash = [(cx - off, cy - off), (cx + off, cy + off)]
+    diagonal = [(cx - off, cy - off), (cx + off, cy + off)]
 
+    # v2 draws the ring without its slash: it circles the act that caused the story ("here is
+    # the mistake"); a slash over a released animal read as "exterminate this" (2026-10-09).
     def ring(d, c, width):
         d.ellipse(box, outline=c, width=width)
-        d.line(slash, fill=c, width=width)
+        if slash:
+            d.line(diagonal, fill=c, width=width)
 
     if ring_overlay:
         _glow(base, lambda d, c: ring(d, c, w + 14), RED, 14, 170)
@@ -469,19 +484,21 @@ def detect_drawn_ring(image_path: str, cost_sink: list | None = None,
 BACKFIRE_THUMB_GRADE_SYSTEM = (
     "You are a ruthless YouTube thumbnail critic for a documentary channel about interventions "
     "that backfired, judging for MOBILE click-through. Every thumbnail uses one grammar: a split "
-    "frame. LEFT, the living thing the intervention attacked or introduced, under a red "
-    "prohibition ring. RIGHT, the literal consequence. A yellow arrow runs from the ring into the "
+    "frame. LEFT, the mistake in action (the species being released, introduced or removed) "
+    "inside a red ring. RIGHT, one frightened person with the consequence closing in. A yellow arrow runs from the ring into the "
     "consequence and a two-word headline sits on top. A title is given alongside. Grade each item "
     "strictly true/false:\n"
     "1. one_second: understandable in ONE second at tiny (~160px) mobile size?\n"
-    "2. crossed_subject_identifiable: does the ringed LEFT subject read as a specific living "
-    "species (an animal or plant you could name) -- not a tool, object, texture or crowd?\n"
-    "3. consequence_foreground: does the RIGHT panel have ONE near-foreground subject, large and "
-    "sharp, rather than a distant vista, landscape or texture?\n"
-    "4. one_subject_per_panel: does each panel hold one dominant subject (passes the squint test) "
-    "-- not a mat of small things or several competing elements?\n"
+    "2. mistake_identifiable: does the ringed LEFT read as an ACT -- a named species being "
+    "released, escaping, introduced or removed -- not a lone animal portrait (which reads as "
+    "pest control) and not just a tool or texture?\n"
+    "3. fear_foreground: does the RIGHT panel have ONE frightened person, large in the near "
+    "foreground, whose fear reads at mobile size, with the threat visibly closing in?\n"
+    "4. one_subject_per_panel: does each panel hold one dominant focal point (the act; the face) "
+    "that passes the squint test, with the swarm or crowd reading as one background shape rather "
+    "than many competing foreground things?\n"
     "5. headline_legible: is the headline exactly two words and readable at mobile size?\n"
-    "6. single_ring: is there exactly ONE prohibition ring in the frame -- no second drawn circle, "
+    "6. single_ring: is there exactly ONE red ring in the frame -- no second drawn circle, "
     "slash or crossed-out sign anywhere?\n"
     "7. medium_matches: is the artwork in the EXPECTED MEDIUM stated after this list -- photoreal "
     "if the film is photoreal, cut-paper/illustrated if the film is illustrated -- and clean "
@@ -532,7 +549,7 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
     try:
         if "system" in inspect.signature(ep.grade_thumbnail).parameters:
             grade_kwargs["system"] = thumb_grade_system(illustrated)
-            checklist = "backfire_v1"
+            checklist = "backfire_v2"
     except (TypeError, ValueError):    # no introspectable signature: call it as today
         pass
     pairs = list(pairs or []) or strategy(title, question, transcript, cost_sink=cost_sink) \

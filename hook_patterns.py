@@ -170,6 +170,13 @@ _NOT_A_GIVEN_NAME = frozenset({
     "african", "africanized", "european", "brazilian", "american", "central", "northern",
     "southern", "eastern", "western", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december", "dr", "mr", "mrs", "ms",
+    # Sentence openers. "Where European bees..." read as a person named Where European and
+    # stopped V14 at the opening identity check (2026-10-08), after the script was paid for.
+    "where", "why", "how", "what", "who", "which", "there", "here", "this", "that", "these",
+    "those", "then", "so", "now", "imagine", "picture", "suppose", "except", "until", "while",
+    "if", "as", "every", "each", "some", "your", "you", "it", "its", "they", "their", "we",
+    "our", "one", "two", "no", "not", "nothing", "nobody", "once", "since", "because", "with",
+    "without", "from", "into", "over", "under", "across", "through", "only", "even", "still",
 })
 
 
@@ -363,9 +370,12 @@ OPENING_WRITER_RULES = (
     "Do not repeat a clause across beats, and do not announce what is coming. Visuals for the "
     "opening show the viewer's vantage from inside it -- hands, tools, the thing they need -- not "
     "the place from outside; required objects are things a paper cut-out can be. The problem lives "
-    "in the setup row; the solution and the transition in the intervention row (and the "
-    "false_resolution row where there is one); the consequence in the first escalation or hinge "
-    "row that follows.")
+    "in the setup row; the solution and the transition in the intervention row; the CONSEQUENCE -- "
+    "the ordinary act and what it released, with its claims -- is SPOKEN in the closing sentences "
+    "of the false_resolution row (the intervention row when there is none), BEFORE the hinge. The "
+    "hinge is the turn in ten words; the mechanism then explains what the released thing did. A "
+    "check refuses an opening whose consequence is never spoken, and another refuses a body that "
+    "tells it again.")
 
 OPENING_BODY_RULE = (
     "THE BODY PICKS UP WHERE THE OPENING STOPPED: after the consequence. Nothing in these rows "

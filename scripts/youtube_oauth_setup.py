@@ -67,7 +67,10 @@ def main() -> int:
         }},
         scopes=SCOPES,
     )
-    # access_type=offline + prompt=consent is what makes Google return a refresh token.
+    # access_type=offline + prompt=consent is what makes Google return a refresh token, and it
+    # is the prompt under which Google shows "Choose your account or a brand account" (worked
+    # 2026-10-01). Do NOT add select_account: on 2026-10-08 it showed only the Google-account
+    # chooser and every run bound to the base account's channel.
     # --no-browser: print the URL only. When the flow is driven from another browser window,
     # the auto-opened tab is a second copy of the same consent; whichever finishes first wins
     # the one-time code and the other lands on an error page. Measured 2026-10-01: the brand
@@ -88,11 +91,15 @@ def main() -> int:
     print("\nChannel:", channel["snippet"]["title"],
           "| subscribers:", channel["statistics"].get("subscriberCount"),
           "| videos:", channel["statistics"].get("videoCount"))
-    print("\nAdd these four lines to .env (keep them out of git):\n")
-    print(f"YOUTUBE_OAUTH_CLIENT_ID={client_id}")
-    print(f"YOUTUBE_OAUTH_CLIENT_SECRET={client_secret}")
-    print(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
-    print(f"YOUTUBE_CHANNEL_ID={channel['id']}")
+    print("Channel id:", channel["id"])
+    # The secret and the refresh token are printed only when they are NOT being written to .env:
+    # on screen they end up in terminal scrollback, screenshots and session transcripts.
+    if "--write" not in sys.argv:
+        print("\nAdd these four lines to .env (keep them out of git):\n")
+        print(f"YOUTUBE_OAUTH_CLIENT_ID={client_id}")
+        print(f"YOUTUBE_OAUTH_CLIENT_SECRET={client_secret}")
+        print(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
+        print(f"YOUTUBE_CHANNEL_ID={channel['id']}")
     if "--write" in sys.argv:
         env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
         try:

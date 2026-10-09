@@ -230,9 +230,16 @@ def test_the_spoken_chapter_rule_reaches_the_call_that_writes_narration(monkeypa
     placed only on the beat sheet never reaches the call that writes the words, so every chapter
     opened on prose and the transcript rubric measured 0 step markers against a band of 4-8.
     """
+    # The rule reaches the writer only when the finalizer speaks markers; with them off (the
+    # default) the writer is told the opposite, because V14 (2026-10-08) narrated "Chapter one."
+    monkeypatch.setenv("SPOKEN_CHAPTER_MARKERS", "1")
     expansion = _capture_expansion_prompt(monkeypatch, causal_lane=True)
     assert "OPEN EACH NEW CHAPTER OUT LOUD" in expansion
     assert '"Step one."' in expansion
+    monkeypatch.setenv("SPOKEN_CHAPTER_MARKERS", "0")
+    expansion = _capture_expansion_prompt(monkeypatch, causal_lane=True)
+    assert "OPEN EACH NEW CHAPTER OUT LOUD" not in expansion
+    assert "NEVER announce chapters or steps" in expansion
 
 
 def test_the_cinematic_expansion_prompt_gains_nothing(monkeypatch):
@@ -322,11 +329,13 @@ def test_editorial_gates_stay_advisory_while_sourcing_gates_rearm():
     which is the exact failure the recovery profile was written to end.
     """
     source = (Path(ep.__file__)).read_text(encoding="utf-8")
-    # Ten, deliberately. The tenth is the deterministic claim-ledger trim: it deletes sentences
+    # Eleven, deliberately. The tenth is the deterministic claim-ledger trim: it deletes sentences
     # to satisfy the ledger, so under an advisory ledger (where nothing would block) it is pure
     # loss -- a waived run was trimmed to 222 words and an 82-second film. A sourcing REPAIR
-    # that runs only when the sourcing gate can refuse is on the right flag.
-    assert source.count("not sourcing_advisory") == 10, "sourcing gate count changed"
+    # that runs only when the sourcing gate can refuse is on the right flag. The eleventh is the
+    # same repair-then-trim at the runtime-fit ledger's re-check (V13, 2026-10-08), on the same
+    # flag for the same reason.
+    assert source.count("not sourcing_advisory") == 11, "sourcing gate count changed"
 
     # Counting is not enough: a count-only assertion passed while the retention contract's
     # post-TTS twin had been swept onto the sourcing flag, because the total was still right.

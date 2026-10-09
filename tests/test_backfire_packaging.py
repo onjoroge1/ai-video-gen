@@ -140,7 +140,7 @@ def _fake_image(prompt, output_path, *args, **kwargs):
 
 
 def _verdict(fails, note):
-    keys = ("one_second", "crossed_subject_identifiable", "consequence_foreground",
+    keys = ("one_second", "mistake_identifiable", "fear_foreground",
             "one_subject_per_panel", "headline_legible", "single_ring", "medium_matches",
             "consequence_not_title_echo")
     return {"items": {k: i >= fails for i, k in enumerate(keys)}, "fails": fails,
@@ -210,11 +210,11 @@ def test_backfire_checklist_reaches_a_grader_that_accepts_one(monkeypatch, tmp_p
     assert systems == [bp.thumb_grade_system(True)]
     assert systems[0].startswith(bp.BACKFIRE_THUMB_GRADE_SYSTEM)
     assert "cut-paper illustration" in systems[0] and "photoreal" in bp.thumb_grade_system(False)
-    assert report["checklist_version"] == "backfire_v1"
+    assert report["checklist_version"] == "backfire_v2"
     assert report["fails"] == 2 and report["pairs"][0]["redesign_note"] == "ring clips the subject"
     # Same return contract as explainer_pipeline._THUMB_GRADE_SYSTEM: 8 named booleans, a count,
     # one note -- so rep["fails"] / rep["weak"] / rep["qa"] mean the same thing under both lists.
-    for item in ("one_second", "crossed_subject_identifiable", "consequence_foreground",
+    for item in ("one_second", "mistake_identifiable", "fear_foreground",
                  "one_subject_per_panel", "headline_legible", "single_ring", "medium_matches",
                  "consequence_not_title_echo"):
         assert item in bp.BACKFIRE_THUMB_GRADE_SYSTEM
@@ -223,3 +223,30 @@ def test_backfire_checklist_reaches_a_grader_that_accepts_one(monkeypatch, tmp_p
     assert numbered == [str(i) for i in range(1, 9)], numbered
     for word in ('"items"', '"fails"', '"redesign_note"'):
         assert word in bp.BACKFIRE_THUMB_GRADE_SYSTEM and word in ep._THUMB_GRADE_SYSTEM
+
+
+def test_v2_left_is_the_act_and_right_is_one_frightened_invented_person():
+    """YouTube's review of the bee film read a ringed lone bee as pest control (2026-10-09).
+
+    The ring circles the act of the mistake and has no slash; the right panel carries the fear.
+    """
+    pair = {"crossed_out_subject": "bees escaping a hive",
+            "crossed_out_scene": "A gloved hand lifts a hive screen as bees climb out.",
+            "consequence_subject": "a dark swarm",
+            "consequence_scene": "A farmer recoils as a swarm closes in."}
+    for prompt in (bp.image_prompt(pair), bp.image_prompt(pair, illustrated=True)):
+        assert "ONE frightened" in prompt and "No faces in the left panel" in prompt
+        assert "never a real, named or famous" in prompt
+        assert "people's faces" not in prompt
+    assert "MISTAKE IN ACTION" in bp._STRATEGY_SYSTEM and "FEAR" in bp._STRATEGY_SYSTEM
+    assert "pest control" in bp.BACKFIRE_THUMB_GRADE_SYSTEM
+
+
+def test_v2_ring_has_no_slash_unless_asked(tmp_path):
+    bg = tmp_path / "bg.jpg"
+    Image.new("RGB", (1536, 1024), (30, 60, 30)).save(bg)
+    plain = Image.open(bp.compose(str(bg), str(tmp_path / "plain.jpg"))).convert("RGB")
+    slashed = Image.open(bp.compose(str(bg), str(tmp_path / "slash.jpg"), slash=True)).convert("RGB")
+    cx, cy = bp.geometry(1280, 720)["ring_center"]
+    assert plain.getpixel((cx, cy))[0] < 100, "the ring's centre should be untouched background"
+    assert slashed.getpixel((cx, cy))[0] > 180, "slash=True should still draw the diagonal"

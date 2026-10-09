@@ -1,0 +1,282 @@
+{
+ "cadence": "every other day, 06:00 local",
+ "monthly_spend_cap_usd": 250,
+ "per_run_cost_cap_usd": 18,
+ "items": [
+  {
+   "date": "2026-10-11",
+   "slug": "asian-carp",
+   "question": "America Imported Asian Carp to Clean Its Fish Ponds and Now They Rule the Mississippi",
+   "market": {
+    "median_views": 32225.0,
+    "top_views": 5738317,
+    "n_100k": 7,
+    "recent_median_vpd": 61.8042273042273,
+    "small_breakouts": 7
+   },
+   "status": "queued",
+   "job": "jobs/asian-carp",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-13",
+   "slug": "escobar-hippos",
+   "question": "Pablo Escobar Brought Four Hippos to His Ranch and Now Colombia Cannot Stop Them",
+   "market": {
+    "median_views": 55317,
+    "top_views": 7025155,
+    "n_100k": 8,
+    "recent_median_vpd": 247.97191011235955,
+    "small_breakouts": 0
+   },
+   "status": "queued",
+   "job": "jobs/escobar-hippos",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-15",
+   "slug": "burmese-pythons",
+   "question": "Pet Pythons Got Loose in the Everglades and Florida's Mammals Started Disappearing",
+   "market": {
+    "median_views": 660434,
+    "top_views": 4036457,
+    "n_100k": 15,
+    "recent_median_vpd": 691.2666666666667,
+    "small_breakouts": 3
+   },
+   "status": "queued",
+   "job": "jobs/burmese-pythons",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-17",
+   "slug": "dust-bowl",
+   "question": "America Plowed Up the Great Plains for Wheat and the Soil Blew Away",
+   "market": {
+    "median_views": 93202,
+    "top_views": 1584361,
+    "n_100k": 8,
+    "recent_median_vpd": 109.86806638374033,
+    "small_breakouts": 6
+   },
+   "status": "queued",
+   "job": "jobs/dust-bowl",
+   "notes": ""
+  },
+  {
+   "date": "2026-10-19",
+   "slug": "feral-hogs",
+   "question": "Hunters Released Wild Boar in America for Sport and Now Feral Hogs Are Everywhere",
+   "market": {
+    "median_views": 143161.5,
+    "top_views": 3627638,
+    "n_100k": 10,
+    "recent_median_vpd": 227.76487431084274,
+    "small_breakouts": 6
+   },
+   "status": "queued",
+   "job": "jobs/feral-hogs",
+   "notes": ""
+  },
+  {
+   "date": null,
+   "slug": "aral-sea",
+   "question": "The Soviet Union Diverted Two Rivers to Grow Cotton and Drained the Aral Sea",
+   "market": {
+    "median_views": 73638,
+    "top_views": 1450790,
+    "n_100k": 5,
+    "recent_median_vpd": 295.4764285714286,
+    "small_breakouts": 1
+   },
+   "status": "reserve",
+   "job": "jobs/aral-sea",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "emu-war",
+   "question": "Australia Sent Machine Guns Against the Emus in 1932 and the Emus Won",
+   "market": {
+    "median_views": 314441.0,
+    "top_views": 28651484,
+    "n_100k": 15,
+    "recent_median_vpd": 62.72509960159363,
+    "small_breakouts": 2
+   },
+   "status": "reserve",
+   "job": "jobs/emu-war",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "thylacine-bounty",
+   "question": "Tasmania Paid a Bounty on the Tasmanian Tiger and Killed the Last of Its Kind",
+   "market": {
+    "median_views": 83689,
+    "top_views": 3807594,
+    "n_100k": 7,
+    "recent_median_vpd": 642.844846277487,
+    "small_breakouts": 0
+   },
+   "status": "reserve",
+   "job": "jobs/thylacine-bounty",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "cobra-effect",
+   "question": "Colonial Delhi Paid a Bounty for Dead Cobras and People Started Breeding Them",
+   "market": {
+    "median_views": 27838,
+    "top_views": 2191668,
+    "n_100k": 7,
+    "recent_median_vpd": 568.1224489795918,
+    "small_breakouts": 2
+   },
+   "status": "reserve",
+   "job": "jobs/cobra-effect",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "snakeheads",
+   "question": "Snakehead Fish Sold as Live Food Escaped Into American Waters",
+   "market": {
+    "median_views": 169092,
+    "top_views": 1482728,
+    "n_100k": 9,
+    "recent_median_vpd": 286.5966101694915,
+    "small_breakouts": 1
+   },
+   "status": "reserve",
+   "job": "jobs/snakeheads",
+   "notes": "next in line; give it a date to queue it"
+  },
+  {
+   "date": null,
+   "slug": "dingo-fence",
+   "question": "Australia Built a 5,600 km Fence to Keep Dingoes Out and the Kangaroos Took Over",
+   "score": 67,
+   "market": {
+    "median_views": 3731.0,
+    "median_views_per_day": 29.9,
+    "rivals_100k_2y": 1
+   },
+   "status": "parked",
+   "job": "jobs/dingo-fence",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "macquarie-cats",
+   "question": "Removing the Cats of Macquarie Island Let the Rabbits Destroy It",
+   "score": 64,
+   "market": {
+    "median_views": 96,
+    "median_views_per_day": 4.2,
+    "rivals_100k_2y": 0
+   },
+   "status": "parked",
+   "job": "jobs/macquarie-cats",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "nz-stoats",
+   "question": "New Zealand Brought Stoats to Kill Rabbits and They Hunted the Native Birds",
+   "score": 61,
+   "market": {
+    "median_views": 851.5,
+    "median_views_per_day": 7.3,
+    "rivals_100k_2y": 1
+   },
+   "status": "parked",
+   "job": "jobs/nz-stoats",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "nile-perch",
+   "question": "Nile Perch Were Put Into Lake Victoria for Food and Hundreds of Fish Species Vanished",
+   "score": 54,
+   "market": {
+    "median_views": 669.0,
+    "median_views_per_day": 3.7,
+    "rivals_100k_2y": 0
+   },
+   "status": "parked",
+   "job": "jobs/nile-perch",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "australia-rabbits",
+   "question": "Thomas Austin Released 24 Rabbits in Australia and a Continent Spent a Century Fighting Them",
+   "score": 57,
+   "market": {
+    "median_views": 238.0,
+    "median_views_per_day": 2.1,
+    "rivals_100k_2y": 0
+   },
+   "status": "parked",
+   "job": "jobs/australia-rabbits",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "nz-possums",
+   "question": "New Zealand Imported Possums for Fur and Now Fights 30 Million of Them",
+   "score": 55,
+   "market": {
+    "median_views": 2133,
+    "median_views_per_day": 2.2,
+    "rivals_100k_2y": 0
+   },
+   "status": "parked",
+   "job": "jobs/nz-possums",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  },
+  {
+   "date": null,
+   "slug": "australia-camels",
+   "question": "Australia Imported Camels to Cross the Desert and Now Shoots Them From Helicopters",
+   "score": 55,
+   "market": {
+    "median_views": 4245,
+    "median_views_per_day": 2.9,
+    "rivals_100k_2y": 0
+   },
+   "status": "parked",
+   "job": "jobs/australia-camels",
+   "notes": "parked 2026-10-09: too little YouTube demand (topic_market.py)"
+  }
+ ],
+ "held": [
+  {
+   "slug": "hanoi-rat-hunt",
+   "reason": "low search demand; strong channel fit, revisit as a short"
+  },
+  {
+   "slug": "delhi-cobra-bounty",
+   "reason": "the Delhi episode is poorly documented; fact confidence 4/10"
+  },
+  {
+   "slug": "operation-cat-drop",
+   "reason": "details disputed across sources; fact confidence 5/10"
+  },
+  {
+   "slug": "central-park-starlings",
+   "reason": "low demand"
+  },
+  {
+   "slug": "hawaii-mongoose",
+   "reason": "low demand"
+  },
+  {
+   "slug": "mosquitofish",
+   "reason": "low demand"
+  }
+ ],
+ "selection": "2026-10-09: scripts/topic_market.py (short search, title keyword relevance, long-form only, small-channel breakouts = >=50k views and >=3x the channel's subscribers). Our long films get ~97% of views from subscriber feeds, so picks favour topics that travel on browse/suggested."
+}

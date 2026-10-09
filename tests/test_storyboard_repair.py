@@ -144,13 +144,23 @@ def test_live_error_is_reproduced_and_deadline_accounts_for_compression():
     assert OPENING in out['scenes'][-1]['narration']
 
 
-@pytest.mark.parametrize('change', ['unknown_scene', 'duplicate', 'extra_field', 'blank', 'still_late', 'no_callback', 'pad_close'])
+def test_an_echoed_extra_field_is_ignored_not_refused():
+    """V15 (2026-10-08): the model echoed each row's causal_role and the edit was refused for it.
+    Only scene_id and narration are read; an extra key changes nothing and costs nothing."""
+    script = failed_script()
+    response = response_for(script)
+    response['scenes'][0]['causal_role'] = 'mechanism'
+    accepted = repair.apply_response(script, repair.plan(script, board(script)), response)
+    assert accepted['scenes'][0]['causal_role'] == script['scenes'][0]['causal_role']
+
+
+@pytest.mark.parametrize('change', ['unknown_scene', 'duplicate', 'missing_field', 'blank', 'still_late', 'no_callback', 'pad_close'])
 def test_bad_edits_are_rejected(change):
     script = failed_script()
     response = response_for(script)
     if change == 'unknown_scene': response['scenes'][0]['scene_id'] = 'nope'
     if change == 'duplicate': response['scenes'].append(response['scenes'][0])
-    if change == 'extra_field': response['scenes'][0]['causal_role'] = 'mechanism'
+    if change == 'missing_field': del response['scenes'][0]['narration']
     if change == 'blank': response['scenes'][0]['narration'] = ''
     if change == 'still_late': response['scenes'][0]['narration'] += ' extra' * 20
     if change == 'no_callback': response['scenes'][-1]['narration'] = words('A generic lesson.', 40)
