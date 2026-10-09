@@ -625,6 +625,37 @@ def _check_parallel_cases(payload: dict, steps: list[dict], issues: list[dict],
                     step["step_id"]))
 
 
+def callback_words(opening_object: str) -> list[str]:
+    """The content words of the opening object -- what a close has to name to return to it."""
+    return [word for word in re.findall(r"[a-z]+", _text(opening_object).lower())
+            if word not in _STOPWORDS]
+
+
+def _names_any(words: list[str], haystack: str) -> bool:
+    """Does the text name any of these words, allowing an English plural to differ?
+
+    "cobras" in the setup against "cobra farms" in the close is the same subject, and an exact
+    word-boundary match called it a missing callback. Trimming a trailing s off both sides is
+    the whole of the morphology this needs -- these are nouns from one sentence of narration,
+    not a stemming problem.
+    """
+    for word in words:
+        stem = word[:-1] if len(word) > 4 and word.endswith("s") else word
+        if re.search(rf"\b{re.escape(stem)}", haystack):
+            return True
+    return False
+
+
+def close_returns_to_object(opening_object: str, closing_narration: str) -> bool:
+    """The exact test _check_close applies to a long-form close, as one public predicate.
+
+    Exposed so the pipeline can repair a close BEFORE the storyboard gate measures it, with the
+    same rule the gate uses rather than a restatement that could drift from it.
+    """
+    words = callback_words(opening_object)
+    return not words or _names_any(words, _text(closing_narration).lower())
+
+
 def _check_close(payload: dict, steps: list[dict], issues: list[dict],
                  short_form: bool = False) -> None:
     opening_object = _text(payload.get("opening_object"))
@@ -637,23 +668,11 @@ def _check_close(payload: dict, steps: list[dict], issues: list[dict],
         return
     # Any content word is enough of a callback; requiring the exact phrase would fail a close
     # that says "the cobra farms" against an opening object of "cobra farms everywhere".
-    content = [word for word in re.findall(r"[a-z]+", opening_object.lower())
-               if word not in _STOPWORDS]
+    content = callback_words(opening_object)
     haystack = close["situation"].lower()
 
     def _mentions(words: list[str]) -> bool:
-        """Does the close name any of these, allowing an English plural to differ?
-
-        "cobras" in the setup against "cobra farms" in the close is the same subject, and an exact
-        word-boundary match called it a missing callback. Trimming a trailing s off both sides is
-        the whole of the morphology this needs -- these are nouns from one sentence of narration,
-        not a stemming problem.
-        """
-        for word in words:
-            stem = word[:-1] if len(word) > 4 and word.endswith("s") else word
-            if re.search(rf"\b{re.escape(stem)}", haystack):
-                return True
-        return False
+        return _names_any(words, haystack)
     # At short length the close may return to the PROBLEM instead of the opening object. The
     # reference short ends "Ask: where are the cobra farms?" -- it never hands the coin back, and it
     # is the stronger close for it, because a minute has no room to re-establish an object before

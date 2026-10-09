@@ -783,19 +783,39 @@ def prune_unsupported_optional(beats: list[dict], failed_ids: set,
     import event_functions as ef
     mapping = ef.map_for(engine_id) if engine_id else None
     required = required_spine_roles(engine_id)
+    # A REPEATABLE required role is carried by whichever of its beats the evidence supports. The
+    # role is required; no particular repeat of it is. Measured 2026-09-22 on a 300s Four Pests
+    # run: eight escalation beats, six supported, two citing an econometric claim the classifier
+    # labelled `mechanism` -- CLAIM_KIND_MISMATCH on both, twice across a replan -- and the run
+    # died with every required function marked supported. "A required role is never pruned"
+    # was written for the singleton case (an unsupported reversal IS an untellable story); read
+    # literally for escalation it turned two expendable repeats into a stop. A failing repeat is
+    # pruned only while another beat of the same role still stands, so a role whose every
+    # holder fails is reported as missing exactly as before.
+    def _holder(beat):
+        return _text((beat or {}).get("role") or (beat or {}).get("causal_role")).lower()
+    standing_repeats = {}
+    for index, beat in enumerate(beats or []):
+        bid = _text((beat or {}).get("beat_id")) or f"beat_{index + 1:02d}"
+        role = _holder(beat)
+        if role in COLLAPSIBLE_ROLES and bid not in failed_ids and event_of(beat or {})["text"]:
+            standing_repeats[role] = standing_repeats.get(role, 0) + 1
     kept, pruned = [], []
     for index, beat in enumerate(beats or []):
         beat = beat if isinstance(beat, dict) else {}
         beat_id = _text(beat.get("beat_id")) or f"beat_{index + 1:02d}"
-        role = _text(beat.get("role") or beat.get("causal_role")).lower()
+        role = _holder(beat)
         function = _text(beat.get("event_function"))
         mapped_optional = bool(mapping and role and mapping.role_for(function) == role
                                and function not in mapping.required and role not in required)
         optional = role in OPTIONAL_ROLES or scope_of(beat) == PARALLEL_CASE or mapped_optional
-        if beat_id in failed_ids and optional:
+        expendable_repeat = role in COLLAPSIBLE_ROLES and standing_repeats.get(role, 0) > 0
+        if beat_id in failed_ids and (optional or expendable_repeat):
             pruned.append({"beat_id": beat_id, "role": role,
                            "event": event_of(beat)["text"],
-                           "reason": "unsupported and not required by the causal chain"})
+                           "reason": ("unsupported repeat of a role another beat still carries"
+                                      if expendable_repeat and not optional else
+                                      "unsupported and not required by the causal chain")})
         else:
             kept.append(beat)
     return kept, pruned

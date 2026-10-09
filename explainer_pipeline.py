@@ -549,17 +549,69 @@ HUMAN_REF_LINE = (
 )
 
 
+# Words that do not name the opening object even when its label contains them: articles, the
+# prepositions that introduce its setting, and quantity adjectives.
+_OBJECT_LABEL_STOPWORDS = frozenset({
+    "a", "an", "the", "of", "single", "one", "lone", "two", "three", "some", "small", "large",
+    "above", "over", "on", "in", "at", "by", "beside", "under", "below", "with", "from", "near",
+    "behind", "before", "inside", "outside", "across", "against", "into", "onto", "through",
+    "and", "its", "his", "her", "their",
+})
+_OBJECT_LABEL_PREPOSITIONS = frozenset({
+    "above", "over", "on", "in", "at", "by", "beside", "under", "below", "with", "from", "near",
+    "behind", "before", "inside", "outside", "across", "against", "into", "onto", "through",
+})
+
+
+def _opening_object_head_words(label: str) -> list[str]:
+    """The words that name the object itself, not its setting.
+
+    "a single sparrow above a grain field" names a sparrow; the grain field is where it is. The
+    subject phrase is everything before the first preposition, and its content words are what a
+    state has to ask for before the verifier may demand the object in frame.
+    """
+    words = re.findall(r"[a-z]+", _s(label).casefold())
+    subject = []
+    for word in words:
+        if word in _OBJECT_LABEL_PREPOSITIONS and subject:
+            break
+        subject.append(word)
+    heads = [w for w in subject if w not in _OBJECT_LABEL_STOPWORDS and len(w) > 2]
+    return heads or [w for w in words if w not in _OBJECT_LABEL_STOPWORDS and len(w) > 2]
+
+
 def _opening_object_wanted(state: dict, continuity_pack: dict | None) -> bool:
     """Did this state's own prompt ask for the opening object to be in frame?
 
     required_objects is what reaches the image model. If the object is not in there, the model was
     never told to draw it and rejecting the frame for its absence tests the plan, not the picture.
+
+    Matched on the object's own name, never on its setting. The first version accepted any
+    required item that was a substring of the label, so on the first live 300s run that bought
+    images (2026-09-22) a state whose prompt asked for "yellow locusts" and "grain" was held to
+    "a single sparrow above a grain field" because "grain" sits inside that label -- drawn twice
+    more from the same sparrow-less prompt, rejected three times, and the run stopped with four
+    accepted opening frames beside it. The picture matched its prompt; the rule did not.
     """
     label = _s(((continuity_pack or {}).get("opening_object") or {}).get("label")).casefold()
     if not label:
         return False
+    heads = _opening_object_head_words(label)
+    if not heads:
+        return False
     required = [_s(item).casefold() for item in (state.get("required_objects") or [])]
-    return any(label == item or label in item or item in label for item in required if item)
+    for item in required:
+        if not item:
+            continue
+        if label == item or label in item:
+            return True
+        item_words = set(re.findall(r"[a-z]+", item))
+        for head in heads:
+            stem = head[:-1] if len(head) > 4 and head.endswith("s") else head
+            if any(w == head or w == stem or (len(w) > 4 and w.rstrip("s") == stem)
+                   for w in item_words):
+                return True
+    return False
 
 
 def _scene_reference_paths(scene: dict, *, human_ok: bool, mascot_ok: bool) -> list[str] | None:
@@ -1713,6 +1765,245 @@ def _ensure_hook_fits_budget(script: dict, cost_sink=None) -> tuple[dict, float]
     if scenes and hook in _s(scenes[0].get("narration")):
         scenes[0]["narration"] = _s(scenes[0]["narration"]).replace(hook, rewritten, 1)
     script["hook"] = rewritten
+    return script, cost
+
+
+def _align_callback_object(script: dict, log=lambda message: None) -> bool:
+    """Make final_callback_object equal opening_object, which the planner is told it MUST be.
+
+    Free and deterministic. The beat-sheet prompt says `final_callback_object` "MUST exactly
+    equal opening_object", the continuity pack copies it into the closing state's label, and
+    `validate_evidence_plan` refuses the run when the two labels differ -- after research, script,
+    fact-check, ledger and storyboard were all bought. Measured 2026-09-22 on both surviving 300s
+    Four Pests drafts: "a single sparrow above a grain field" against "a single sparrow BACK above
+    a grain field", and "a dead sparrow falling from an exhausted sky" against "a living sparrow
+    back on a rice stalk". Neither run reached this gate live only because an earlier gate fired
+    first; the offline replay did. A rule asked for in a prompt and enforced by a gate, with no
+    step that makes it true, is the shape every stop on this lane has had.
+
+    The close REUSES the opening asset by design (exact_reuse on the callback state), so the
+    label carries no separate image and equality loses nothing. Returns whether it changed.
+    """
+    contract = script.get("_story_contract")
+    if not isinstance(contract, dict):
+        return False
+    opening = _s(contract.get("opening_object")).strip()
+    final = _s(contract.get("final_callback_object")).strip()
+    if not opening or opening.casefold() == final.casefold():
+        return False
+    contract["final_callback_object"] = opening
+    log(f"Callback object aligned to the opening object: {final!r} -> {opening!r}")
+    return True
+
+
+def _ensure_close_returns_to_object(script: dict, cost_sink=None,
+                                    log=lambda message: None) -> tuple[dict, float]:
+    """Make the closing scene name the opening object, the way the storyboard gate will test it.
+
+    NO_CALLBACK is the third member of the LONG_HOOK / SOFT_HINGE family: a presentation rule the
+    writer was asked for and did not deliver, measured by a deterministic check, and enforced
+    at the storyboard gate after research, script, fact-check and the claim ledger were all
+    bought. Measured 2026-09-22 on a 300s Four Pests run: 22 scenes, ledger PASS on the third
+    repair pass, runtime PASS, and the close -- "Every fix touches a web you can't fully see" --
+    never said sparrow, grain or field. The contract replan had already spent its one retry on
+    LATE_MECHANISM. Killed at the last pre-spend gate for one missing sentence.
+
+    APPEND-ONLY. The close is a `tool` beat, a lesson rather than an event, so a sentence that
+    returns to the opening image adds no factual claim and moves no claim binding: every existing
+    sentence stays byte-identical and the callback is added after them. The writer is asked for
+    that one sentence first; if it does not answer, does not keep the original, or still fails the
+    same predicate the gate applies, a plain deterministic line is used instead, so the repair
+    cannot leave the gate failing on the thing it exists to fix. Best-effort in the manner of its
+    siblings: any other failure returns the script unchanged.
+    """
+    import causal_story as _cs
+
+    scenes = script.get("scenes") or []
+    contract = script.get("_story_contract")
+    contract = contract if isinstance(contract, dict) else {}
+    opening_object = _s(contract.get("opening_object")).strip()
+    index = next((i for i in range(len(scenes) - 1, -1, -1)
+                  if _s(scenes[i].get("causal_role")).lower() in _cs.CLOSING_ROLES), None)
+    if not opening_object or index is None:
+        return script, 0.0
+    original = _s(scenes[index].get("narration")).strip()
+    if not original or _cs.close_returns_to_object(opening_object, original):
+        return script, 0.0
+
+    cost = 0.0
+    callback = ""
+    try:
+        response = _claude().messages.create(
+            model=ANTHROPIC_MODEL, max_tokens=200,
+            system="You add one sentence to the end of a narrated explainer. Return ONLY JSON.",
+            messages=[{"role": "user", "content":
+                       f"The story opened on this image: \"{opening_object}\". Its closing "
+                       f"narration never returns to it:\n\n\"{original}\"\n\n"
+                       "Write ONE short sentence (at most 16 words) to speak AFTER that "
+                       "narration that brings the viewer back to that exact opening image, "
+                       "naming it plainly. It is not a question, it states no new fact and no "
+                       "number, and it does not repeat the lesson. "
+                       'Return {"callback":"..."}'}],
+        )
+        cost += _msg_cost(response.usage)
+        if cost_sink is not None:
+            cost_sink.append(_msg_cost(response.usage))
+        parsed, _ = _parse_script_json(response.content[0].text)
+        callback = _s((parsed or {}).get("callback")).strip()
+    except Exception as exc:
+        log(f"  ⚠ callback sentence: {type(exc).__name__}; using the plain line")
+        callback = ""
+    if (not callback or len(callback.split()) > 16
+            or not _cs.close_returns_to_object(opening_object, callback)):
+        # Deterministic fallback, written from the planner's own opening object.
+        noun = re.sub(r"^(a|an|the)\s+", "", opening_object, flags=re.I)
+        callback = f"Remember that {noun}."
+    callback = callback.rstrip(".") + "."
+    scenes[index]["narration"] = original + " " + callback
+    # Append-only, so every bound phrase is still a substring; re-derive anyway so the anchors
+    # and timing bindings that read narration positions see the new length.
+    try:
+        rederive_narration_bindings(script, log)
+    except Exception:
+        pass
+    log(f"Close returns to opening object: appended \"{callback}\" to scene {index + 1}")
+    return script, cost
+
+
+# A miss this small is a tightening job, not a story defect. Larger misses mean the sheet put the
+# principle in the wrong place, and no amount of trimming should hide that from the gate.
+_MECHANISM_TRIM_MAX_WORDS = int(os.environ.get("MECHANISM_TRIM_MAX_WORDS", "30"))
+
+
+def _mechanism_position(scenes: list[dict], engine_id=None, compiled: bool = False) -> dict:
+    """Where the mechanism lands, in the storyboard gate's own units and against its own line.
+
+    The gate clocks narration at illustrated_story.REFERENCE_WPM and tests
+    mechanism.start_sec > runtime_sec * pct. Both sides are words at one rate, so the verdict is a
+    fraction of WORDS -- which is what makes it repairable by cutting words before the mechanism
+    and nothing else. Computed here with the same constants rather than restated.
+    """
+    import causal_story as _cs
+    import illustrated_story as _il
+    import story_engines as _se
+    counts = [len(_s(scene.get("narration")).split()) for scene in scenes]
+    total = sum(counts)
+    index = next((i for i, scene in enumerate(scenes)
+                  if _s(scene.get("causal_role")).lower() == _cs.MECHANISM), None)
+    engine = (_se.get(engine_id, compiled=compiled)
+              if isinstance(engine_id, str) and engine_id.strip() else None)
+    pct = _se.mechanism_deadline_pct(engine, _cs.MECHANISM_DEADLINE_PCT)
+    runtime_sec = total / _il.REFERENCE_WPM * 60.0 if total else 0.0
+    if runtime_sec and _cs.is_short_form(runtime_sec):
+        pct = max(pct, _cs.SHORT_FORM_MECHANISM_PCT)
+    before = sum(counts[:index]) if index is not None else 0
+    return {"index": index, "before": before, "total": total, "pct": pct,
+            "late": index is not None and total > 0 and before > pct * total}
+
+
+def _ensure_mechanism_meets_deadline(script: dict, cost_sink=None, log=lambda message: None,
+                                     research_dossier: dict | None = None) -> tuple[dict, float]:
+    """Pull a mechanism that lands just past its deadline back inside it, by tightening the
+    scenes before it. Never by moving the line, never by moving the beat.
+
+    LATE_MECHANISM is the fourth of the presentation rules the storyboard gate enforces on a
+    fully-bought draft (LONG_HOOK, SOFT_HINGE, NO_CALLBACK are the others), and the one
+    BUILD_NOTES calls the lane's open blocker: the planner aims at 20% and lands 1-11 seconds past
+    it. Measured 2026-09-22 on two consecutive 300s Four Pests runs: 55s past a 53s mark, then 48s
+    past a 46s mark, both after research, script, three ledger passes and the runtime contract had
+    passed. The contract replan had already spent its one retry on the same code.
+
+    The line stays where the corpus put it (BUILD_NOTES: raising it moved the beat later). The
+    beat stays where the sheet put it. What moves is the word count in front of it: the longest
+    pre-mechanism scenes, excluding the opener that carries the hook, are asked to lose a few
+    words each while keeping their sourced phrases verbatim. Bounded to a small miss
+    (_MECHANISM_TRIM_MAX_WORDS); a larger one is a story-shape problem and is left for the gate.
+    Best-effort like its siblings, and the same verify-and-revert as the hinge: if the tightened
+    scenes lose their evidence, every rewrite is put back.
+    """
+    import causal_story as _cs
+
+    scenes = script.get("scenes") or []
+    engine_id = script.get("_story_engine")
+    position = _mechanism_position(scenes, engine_id, bool(script.get("_compiled_story")))
+    if not position["late"]:
+        return script, 0.0
+    pct, before, total = position["pct"], position["before"], position["total"]
+    # before - cut <= pct * (total - cut)  =>  cut >= (before - pct*total) / (1 - pct)
+    needed = int(math.ceil((before - pct * total) / max(1e-6, 1.0 - pct))) + 2
+    if needed > _MECHANISM_TRIM_MAX_WORDS:
+        log(f"Mechanism lands at {before / total:.1%} of the words against a {pct:.0%} line; "
+            f"{needed} words is more than a tightening pass should hide — leaving it to the gate")
+        return script, 0.0
+
+    candidates = sorted(range(1, position["index"]),
+                        key=lambda i: -len(_s(scenes[i].get("narration")).split()))
+    cost, remaining, rewrites = 0.0, needed, {}
+    for i in candidates[:3]:
+        if remaining <= 0:
+            break
+        original = _s(scenes[i].get("narration")).strip()
+        words = len(original.split())
+        ask = min(remaining, max(3, int(words * 0.4)))
+        keep = "; ".join(_s((ref or {}).get("narration_phrase"))
+                         for ref in (scenes[i].get("claim_refs") or [])
+                         if isinstance(ref, dict) and _s((ref or {}).get("narration_phrase")))[:400]
+        keep_rule = (f'\nTHESE SOURCED PHRASES MUST SURVIVE VERBATIM: "{keep}".\n' if keep else "")
+        try:
+            response = _claude().messages.create(
+                model=ANTHROPIC_MODEL, max_tokens=600,
+                system="You tighten one scene of a narrated explainer. Return ONLY JSON.",
+                messages=[{"role": "user", "content":
+                           f"This scene is {words} words. Return it at most {words - ask} words:"
+                           f'\n\n"{original}"\n\nCut filler, not facts: keep every fact, number, '
+                           "name and date, keep the same meaning and order, keep any opening "
+                           "chapter marker, add nothing new. It stays plain spoken prose."
+                           + keep_rule + 'Return {"narration":"..."}'}],
+            )
+            cost += _msg_cost(response.usage)
+            if cost_sink is not None:
+                cost_sink.append(_msg_cost(response.usage))
+            parsed, _ = _parse_script_json(response.content[0].text)
+            candidate = _s((parsed or {}).get("narration")).strip()
+        except Exception as exc:
+            log(f"  ⚠ tighten scene {i + 1}: {type(exc).__name__}; skipping it")
+            continue
+        got = words - len(candidate.split())
+        keeps = all(phrase in candidate for phrase in keep.split("; ") if phrase) if keep else True
+        if not candidate or got <= 0 or not keeps:
+            continue
+        rewrites[i] = (original, candidate)
+        remaining -= got
+    if not rewrites:
+        return script, cost
+
+    def _joins_pass() -> bool:
+        try:
+            return bool((validate_claim_joins(script, research_dossier) or {}).get("passed"))
+        except Exception:
+            return True     # unmeasurable is not the same as broken; do not revert on it
+
+    before_ok = _joins_pass()
+    for i, (_orig, candidate) in rewrites.items():
+        scenes[i]["narration"] = candidate
+    try:
+        rederive_narration_bindings(script, log, research_dossier)
+    except Exception:
+        pass
+    if before_ok and not _joins_pass():
+        for i, (original, _cand) in rewrites.items():
+            scenes[i]["narration"] = original
+        try:
+            rederive_narration_bindings(script, log, research_dossier)
+        except Exception:
+            pass
+        log("  mechanism left where it was: the tightened scenes lost their evidence")
+        return script, cost
+    after = _mechanism_position(scenes, engine_id, bool(script.get("_compiled_story")))
+    log(f"Mechanism deadline: {before / total:.1%} -> "
+        f"{after['before'] / max(1, after['total']):.1%} of the words against a {pct:.0%} line, "
+        f"cutting {needed - remaining} word(s) across {len(rewrites)} scene(s)"
+        + ("" if not after["late"] else " — still past it; the gate decides"))
     return script, cost
 
 
@@ -3248,6 +3539,40 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             cost += sum(_spine_cost)
             _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
+        # A CONTRADICTED required role is the planner's error, not the evidence's, and the
+        # research repair below cannot touch it. Re-ask the planner once with the judge's own
+        # reason quoted back -- the compile-retry pattern above, gated by the same fail-safe
+        # rule: contradiction_correction returns "" for every other failure.
+        _inversion = (_compiler.contradiction_correction(_spine)
+                      if _roles.get("compiled") and not _spine["passed"] else "")
+        if _inversion and not _diagnostic_render():
+            print("Spine contradicted — re-asking the planner once: "
+                  + "; ".join(_s(i.get("beat_id")) for i in (_spine.get("unrepairable") or [])
+                              if _s(i.get("code")) == "REQUIRED_ROLE_CONTRADICTED"))
+            _retry_plan, _retry_cost = _ask_planner(_inversion)
+            cost += _retry_cost
+            _retry_beats = _beats_of(_retry_plan)
+            _retry_roles = _compiler.compile_roles(
+                _retry_beats, sheet_engine_id, _claims_for_roles)
+            if _retry_roles.get("passed"):
+                _retry_prepared = _planning.prepare(
+                    _retry_beats, sheet_engine_id, _claims_for_roles,
+                    _lr_claims_by_case(research_dossier), question=question,
+                    repair=_repair_incentive_citations, cost_sink=cost_sink, cache=_cache)
+                cost += _retry_prepared["cost_usd"]
+                print(_sfm.spine_summary(_retry_prepared["beats"], _retry_prepared["compiled"]))
+                # Keep the retry only if it actually passes; a sheet that fails differently is
+                # not progress, and the original's failure report is already persisted.
+                if _retry_prepared["compiled"]["passed"]:
+                    plan, beats, _roles = _retry_plan, _retry_beats, _retry_roles
+                    _spine, _sb = _retry_prepared["compiled"], _retry_prepared["beats"]
+                    style_mode = (_s(plan.get("style_mode")) or style_mode).strip().lower()
+                    throughline = _s(plan.get("throughline")).strip() or throughline
+                    print("  ✓ spine replan succeeded")
+                else:
+                    print("  ✗ spine replan still unsupported — failing on the original")
+            else:
+                print("  ✗ spine replan did not compile — failing on the original")
         if not _spine["passed"] and not _diagnostic_render():
             from durable_execution import current as _current_runtime
             import research_coverage
@@ -4049,7 +4374,7 @@ def _research_cache_enabled() -> bool:
 #   v1  every claim whose quote was not found on its page is dropped
 #   v2  transport failure and content failure are separated; unfetchable sources are carried
 #       tagged `provider_attested_unfetchable` rather than deleted
-RESEARCH_RETENTION_CONTRACT = "retention_v2_attested_unfetchable"
+RESEARCH_RETENTION_CONTRACT = "retention_v3_invalid_url_quarantine"
 
 
 def _research_cache_path(question: str, request: str = "") -> str:
@@ -8500,7 +8825,12 @@ def _research_token_budget(claims_high: int) -> int:
                int(max(0, int(claims_high or 0)) * _RESEARCH_TOKENS_PER_CLAIM))
 # Narration overshoots are repaired per scene, so a second pass sees a strictly smaller list than
 # the first. Two is the ceiling; the loop stops earlier the moment a pass stops making progress.
-_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "2")))
+# Four, not two. The loop below already stops the moment a pass fails to shrink the failing
+# list, so the ceiling only matters while repair is still converging -- and at 300 s it is:
+# measured 2026-09-22 on a 20-scene Four Pests script, 16 -> 4 -> 2 failing, then the ceiling
+# refused the render for two narration overshoots the next pass would have rewritten. Each pass
+# touches only the scenes still failing, so passes three and four are small and bounded.
+_CLAIM_REPAIR_PASSES = max(1, int(os.environ.get("CLAIM_REPAIR_PASSES", "4")))
 
 
 def _script_gate_hard() -> bool:
@@ -8598,17 +8928,51 @@ def _lr_claims_by_case(dossier: dict) -> dict:
     return _claims_by_parallel_case(dossier or {})
 
 
-def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
-    """Is hook length the only thing standing between this draft and the render?
+# The presentation rules a finished draft can fail without its STORY being wrong, each with a
+# repair that leaves the beat sheet untouched. A replan is the right answer to a story that does
+# not work; it is a catastrophic answer to any of these, because the sheet it returns is a
+# different story whose evidence has to be re-established from scratch. Measured 2026-09-22 across
+# three consecutive 300s runs: a replan bought for LATE_MECHANISM returned a sheet whose reversal
+# was contradicted (run 5), one whose mechanism was still late by a smaller margin (run 7), and
+# one that added NO_CALLBACK (run 6). All three drafts had a supported spine before the replan.
+_PRESENTATION_CODES = frozenset({"LONG_HOOK", "SOFT_HINGE", "NO_CALLBACK", "LATE_MECHANISM"})
 
-    Deliberately narrow. A replan is the right answer to a story that does not work; it is a
-    catastrophic answer to a sentence that is two words long, because the sheet it returns is a
-    different story whose evidence has to be re-established from scratch.
-    """
+
+def _blocking_codes(validation: dict, causal_errors: list) -> list[str]:
     codes = [_s(item.get("code")) for item in (validation or {}).get("errors") or []]
-    codes += [_s(item.get("code")) if isinstance(item, dict) else _s(item)
-              for item in causal_errors or []]
+    for item in causal_errors or []:
+        text = _s(item.get("code")) if isinstance(item, dict) else _s(item)
+        # Storyboard errors arrive as "CODE: message" strings; keep the code.
+        codes.append(text.split(":", 1)[0].strip())
+    return [code for code in codes if code]
+
+
+def _only_hook_length_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is hook length the only thing standing between this draft and the render?"""
+    codes = _blocking_codes(validation, causal_errors)
     return bool(codes) and all(code == "LONG_HOOK" for code in codes)
+
+
+def _only_presentation_blocks(validation: dict, causal_errors: list) -> bool:
+    """Is every blocking code one the pre-gate repairs can fix without a new sheet?"""
+    codes = _blocking_codes(validation, causal_errors)
+    return bool(codes) and all(code in _PRESENTATION_CODES for code in codes)
+
+
+def _repair_presentation(script: dict, cost_sink=None, log=lambda message: None,
+                         research_dossier: dict | None = None) -> tuple[dict, float]:
+    """Run the four presentation repairs the storyboard gate would otherwise fail on."""
+    total = 0.0
+    _align_callback_object(script, log)
+    script, cost = _ensure_hook_fits_budget(script, cost_sink)
+    total += float(cost or 0.0)
+    script, cost = _ensure_hinge_fits_budget(script, cost_sink, log, research_dossier)
+    total += float(cost or 0.0)
+    script, cost = _ensure_close_returns_to_object(script, cost_sink, log)
+    total += float(cost or 0.0)
+    script, cost = _ensure_mechanism_meets_deadline(script, cost_sink, log, research_dossier)
+    total += float(cost or 0.0)
+    return script, total
 
 
 def _validate_claims(script: dict, dossier: dict, cost_sink: list | None = None) -> dict:
@@ -8870,17 +9234,18 @@ def _causal_contract_report(script: dict, question: str) -> tuple[bool, list[str
         return False, [f"storyboard could not be built ({type(exc).__name__})"]
 
 
-def _script_cache_enabled() -> bool:
-    """Development-only reuse of an expensive script, OFF unless SCRIPT_CACHE=1.
+def _script_cache_enabled(causal_lane: bool = False) -> bool:
+    """Reuse a script that already passed the pre-spend gates. ON for the causal lane.
 
-    Deliberately not on by default, unlike the research cache. Evidence for a question does not
-    change between renders, so reusing it is honest; a SCRIPT is the creative output, and silently
-    serving the same one for every render of a topic would be a product decision disguised as an
-    optimisation.
-
-    It exists because iterating on everything downstream — storyboard, causal contract, claim
-    binding, the render itself — cost a full research-plus-script-plus-replan cycle per attempt,
-    and those stages are where the failures actually were.
+    It was development-only, off unless SCRIPT_CACHE=1, on the argument that a script is the
+    creative output and serving the same one for every render would be a product decision in
+    disguise. On the causal lane that argument is inverted: the script is derived from a fixed
+    evidence sheet by a contract-checked planner, rewriting it is the most expensive stage before
+    the spend, and measured 2026-09-22 five consecutive 300s renders each rewrote it from scratch
+    -- three of them dying on a later gate the previous draft had already cleared. The operator
+    asked for the reuse. SCRIPT_CACHE=0 forces a fresh draft; SCRIPT_CACHE=1 turns it on for the
+    other lanes too. The fingerprint includes the prompt source and the claim set, so an edited
+    prompt or new research never serves a stale script.
 
     Same pytest rule as the research cache, and for the same reason: a stubbed generator writes a
     perfectly valid script, which the cache would then serve to the next test instead of the thing
@@ -8888,7 +9253,10 @@ def _script_cache_enabled() -> bool:
     """
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return False
-    return (os.environ.get("SCRIPT_CACHE", "") or "").strip().lower() in ("1", "true", "yes", "on")
+    flag = (os.environ.get("SCRIPT_CACHE", "") or "").strip().lower()
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return causal_lane or flag in ("1", "true", "yes", "on")
 
 
 def _script_cache_path(question: str, fingerprint: str) -> str:
@@ -8922,8 +9290,9 @@ def _script_fingerprint(*, duration_sec: int, video_format: str, story_format: s
     ]).encode()).hexdigest()
 
 
-def _cached_graded_script(question: str, fingerprint: str, log) -> dict | None:
-    if not _script_cache_enabled():
+def _cached_graded_script(question: str, fingerprint: str, log,
+                          causal_lane: bool = False) -> dict | None:
+    if not _script_cache_enabled(causal_lane):
         return None
     try:
         with open(_script_cache_path(question, fingerprint), encoding="utf-8") as handle:
@@ -8932,14 +9301,19 @@ def _cached_graded_script(question: str, fingerprint: str, log) -> dict | None:
         return None
     if not (script.get("scenes") or []):
         return None
-    log(f"Script: reusing {len(script['scenes'])} cached scenes for this question "
-        f"(SCRIPT_CACHE=0 to force a fresh write) — DEVELOPMENT REUSE, not a fresh draft")
+    passed = ", ".join(script.get("_gates_passed") or []) or "engagement grade"
+    log(f"Script: reusing {len(script['scenes'])} cached scenes for this question, "
+        f"already past {passed} (SCRIPT_CACHE=0 to force a fresh write)")
     return script
 
 
-def _store_graded_script(question: str, fingerprint: str, script: dict) -> None:
-    if not _script_cache_enabled() or not (script.get("scenes") or []):
+def _store_graded_script(question: str, fingerprint: str, script: dict,
+                         causal_lane: bool = False, gate: str = "") -> None:
+    if not _script_cache_enabled(causal_lane) or not (script.get("scenes") or []):
         return
+    if gate:
+        gates = [g for g in (script.get("_gates_passed") or []) if g != gate]
+        script["_gates_passed"] = gates + [gate]
     path = _script_cache_path(question, fingerprint)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -8994,14 +9368,19 @@ def generate_graded_script(question, duration_sec, style, image_guidance, video_
         #
         # `_ensure_hook_fits_budget` already exists and does exactly this. When hook length is the
         # ONLY thing blocking, it is the whole repair; anything else still replans as before.
-        if causal_lane and _only_hook_length_blocks(best_validation, best_causal_errors):
-            best, _hook_cost = _ensure_hook_fits_budget(best, cost_sink)
-            total_generation_cost += float(_hook_cost or 0.0)
+        if causal_lane and _only_presentation_blocks(best_validation, best_causal_errors):
+            log("Presentation-only failures (" + ", ".join(sorted(set(
+                _blocking_codes(best_validation, best_causal_errors))))
+                + ") — repairing the draft rather than replanning the sheet")
+            best, _repair_cost = _repair_presentation(best, cost_sink, log, research_dossier)
+            total_generation_cost += float(_repair_cost or 0.0)
             best_validation = validate_longform_story(best, question)
             best_causal_ok, best_causal_errors = _causal_contract_report(best, question)
-            log(f"Hook trimmed to budget instead of replanning; contract "
+            log(f"Draft repaired in place instead of replanning; contract "
                 f"{best_validation.get('score', 0)}/100"
-                + (" and the causal contract now passes" if best_causal_ok else ""))
+                + (" and the causal contract now passes" if best_causal_ok
+                   else "; still failing: " + ", ".join(sorted(set(
+                       _blocking_codes(best_validation, best_causal_errors))))))
             if best_validation.get("passed") and best_causal_ok:
                 break
         fixes = "; ".join(x.get("message", "") for x in best_validation.get("errors", [])[:6])
@@ -9929,6 +10308,7 @@ def run_explainer_pipeline(
     # ── RESUME: if a checkpoint exists, reuse the script + already-paid scene assets ──
     state_path = os.path.join(output_dir, "_state.json")
     resumed = False
+    script_fingerprint = ""     # set on the fresh-script path; a resumed script is never re-stored
     asset_resume_allowed = False
     research_dossier: dict = {}
     claim_validation: dict | None = None
@@ -10064,7 +10444,8 @@ def run_explainer_pipeline(
                 causal_lane=illustrated_story_on,
                 operator_direction=script_operator_direction,
                 research_dossier=research_dossier)
-            script = _cached_graded_script(question, script_fingerprint, log)
+            script = _cached_graded_script(question, script_fingerprint, log,
+                                           causal_lane=illustrated_story_on)
             if script is None:
                 script = generate_graded_script(question, duration_sec, style, image_guidance,
                                                 video_format, series, cost_sink=aux_costs, log=log,
@@ -10080,9 +10461,15 @@ def run_explainer_pipeline(
         log(f"Style mode: {style_mode}")
 
         # 1b. Fact-check pass — verify the science, correct errors before rendering.
-        if fact_check and scenes:
+        # Not twice. A cached script was fact-checked before it was stored, and this pass
+        # REWRITES narration, so running it again on the same text is a paid call that can only
+        # move phrases the claim ledger has already bound.
+        if fact_check and scenes and script.get("_fact_checked"):
+            log("Fact-check: already applied to this cached script ✓")
+        elif fact_check and scenes:
             log("stage:Fact-checking script...")
             script, fc_notes, fc_cost = factcheck_script(script, question, research_dossier)
+            script["_fact_checked"] = True
             script["_script_cost_usd"] = round(script.get("_script_cost_usd", 0.0) + fc_cost, 4)
             if fc_notes:
                 log(f"Fact-check: {len(fc_notes)} correction(s) applied")
@@ -10177,7 +10564,8 @@ def run_explainer_pipeline(
                 # Survived fact-check and the ledger, so it is worth reusing. Caching at
                 # generation instead cached a draft that failed the ledger six scenes later, and
                 # the next run would have iterated against it.
-                _store_graded_script(question, script_fingerprint, script)
+                _store_graded_script(question, script_fingerprint, script,
+                                     causal_lane=illustrated_story_on, gate="claim ledger")
         # CAST-FREE ILLUSTRATED LANE. The corpus is explicit about who is on screen: "simple
         # round-headed stick figures represent everyone -- the authority figures (marked by uniform
         # hats), the ordinary population (marked by regional dress), and a lone narrator-avatar figure
@@ -10302,6 +10690,16 @@ def run_explainer_pipeline(
         # grading were already bought.
         script, _hinge_cost = _ensure_hinge_fits_budget(
             script, aux_costs, log, research_dossier)
+        # NO_CALLBACK completes the set: the close must name the opening object, and the gate
+        # below measures exactly that.
+        # The evidence plan's callback state is labelled from the contract; equal labels are a
+        # rule the planner is asked for and the plan gate enforces. Made true here.
+        _align_callback_object(script, log)
+        script, _callback_cost = _ensure_close_returns_to_object(script, aux_costs, log)
+        # LATE_MECHANISM by a few words is the last of the set, and the one that has killed the
+        # most drafts. Tighten the scenes in front of the mechanism; the line and the beat stay.
+        script, _deadline_cost = _ensure_mechanism_meets_deadline(
+            script, aux_costs, log, research_dossier)
         storyboard = illustrated_story_lane.build_storyboard(script, question)
         if not (storyboard.get("validation") or {}).get("passed"):
             storyboard_errors = (storyboard.get("validation") or {}).get("errors") or []
@@ -10346,6 +10744,11 @@ def run_explainer_pipeline(
         log("Illustrated storyboard: PASS — %d beats across %d recurring locations"
             % (len(storyboard.get("beats") or []),
                len((storyboard.get("visual_bible") or {}).get("locations") or [])))
+        # Store the REPAIRED script: the next run of this question lands past the storyboard
+        # gate with the callback, hinge, hook and mechanism fixes already in the text.
+        if not resumed and script_fingerprint:
+            _store_graded_script(question, script_fingerprint, script,
+                                 causal_lane=illustrated_story_on, gate="storyboard")
         try:
             temporary_state = state_path + ".tmp"
             with open(temporary_state, "w", encoding="utf-8") as handle:
@@ -11162,7 +11565,7 @@ def run_explainer_pipeline(
     r0 = _gen_assets((0, scenes[0]))   # generates scene-1 image + audio (counts toward cost)
     if video_format != "social" and not r0.get("evidence_ok"):
         evidence_validation = validate_evidence_plan(
-            evidence_plan, require_verified_assets=True, opening_only=True)
+            evidence_plan, require_verified_assets=True, opening_only=True, purchased_through=1)
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:
@@ -11258,8 +11661,12 @@ def run_explainer_pipeline(
                 raise RuntimeError(
                     "One or more first-tranche evidence assets were explicitly rejected.")
             log("  ⚠ [ASSETS, advisory] first-tranche assets rejected — continuing")
+        # Scoped to the tranche actually bought. The compiler's `opening` is the first 30% of the
+        # story; this tranche is the first 45 seconds of measured audio. At 300s those differ by
+        # four scenes, and the gate was refusing the run for images it had not been asked for.
         evidence_validation = validate_evidence_plan(
-            evidence_plan, require_verified_assets=True, opening_only=True)
+            evidence_plan, require_verified_assets=True, opening_only=True,
+            purchased_through=opening_stop)
         with open(evidence_plan_path, "w") as handle:
             json.dump(evidence_plan, handle, indent=2, ensure_ascii=False)
         with open(evidence_validation_path, "w") as handle:

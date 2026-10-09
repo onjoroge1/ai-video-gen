@@ -151,3 +151,64 @@ def test_finished_library_serves_local_renders_when_the_database_has_no_row(
                     assert len(artifact.content) == expected
 
     anyio.run(run)
+
+
+def test_finished_library_shows_local_renders_beside_database_rows(monkeypatch, tmp_path):
+    """A populated database must not hide the films rendered on this machine.
+
+    On the laptop, DATABASE_URL points at the production library and Blob is off, so every
+    local render lands in index.json and never in Postgres. The listing fell back to the local
+    index only when the database was EMPTY -- so the moment production had one row, every
+    local film vanished from /finished. Measured 22 Sep 2026: three illustrated films on disk,
+    none listed. Production is unchanged: durable_storage_required() still forbids local rows.
+    """
+    app = FastAPI()
+    finished_api.mount(app, str(tmp_path), Path("static"))
+    monkeypatch.setattr(finished_api.db, "db_enabled", lambda: True)
+    monkeypatch.setattr(finished_api.artifact_store, "durable_storage_required", lambda: False)
+    local_id = _seed_local_render(tmp_path)
+
+    class OneRowStore:
+        def finished_list(self, **_kwargs):
+            return [{"id": "pg1", "title": "Production film", "format": "illustrated-story",
+                     "status": "done", "video_url": "https://blob.example/pg1.mp4",
+                     "created_at": "2020-01-01T00:00:00+00:00", "artifacts": {}, "metadata": {}}]
+
+    monkeypatch.setattr(finished_api, "PostgresStore", OneRowStore)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            body = (await client.get("/api/finished")).json()
+            by_id = {row["id"]: row for row in body["videos"]}
+            assert set(by_id) == {"pg1", local_id}
+            assert by_id["pg1"]["storage"] == "blob"
+            assert by_id[local_id]["storage"] == "local"
+            # The local file is newer than the 2020 database row, so it lists first.
+            assert body["videos"][0]["id"] == local_id
+
+    anyio.run(run)
+
+
+def test_finished_library_never_merges_local_rows_where_durable_storage_is_required(
+        monkeypatch, tmp_path):
+    app = FastAPI()
+    finished_api.mount(app, str(tmp_path), Path("static"))
+    monkeypatch.setattr(finished_api.db, "db_enabled", lambda: True)
+    monkeypatch.setattr(finished_api.artifact_store, "durable_storage_required", lambda: True)
+    _seed_local_render(tmp_path)
+
+    class OneRowStore:
+        def finished_list(self, **_kwargs):
+            return [{"id": "pg1", "title": "Production film", "video_url": "https://b/x.mp4",
+                     "created_at": "2020-01-01T00:00:00+00:00", "artifacts": {}, "metadata": {}}]
+
+    monkeypatch.setattr(finished_api, "PostgresStore", OneRowStore)
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            body = (await client.get("/api/finished")).json()
+            assert [row["id"] for row in body["videos"]] == ["pg1"]
+
+    anyio.run(run)

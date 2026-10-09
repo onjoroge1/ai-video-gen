@@ -210,3 +210,31 @@ def test_early_attention_functions_are_derived_from_the_retention_vocabulary():
         for name in sc._early_attention_functions(mapping):
             assert name not in mapping.required, "required roles are already guaranteed"
             assert mapping.role_for(name) in attention
+
+
+def test_a_claim_without_an_https_source_is_quarantined_not_fatal():
+    """The second one-bad-row-kills-the-dossier shape, measured on a live 300s run.
+
+    Two claims out of 46 came back with a source that was not a valid HTTPS URL. Neither could
+    ever license narration, and validate_research_dossier rejected them correctly -- and rejected
+    the WHOLE DOSSIER, after the research was paid for. The disallowed-source filter already
+    quarantines weak domains before verification; an invalid source belongs in the same bin.
+    """
+    out = lr.filter_disallowed_source_claims({"claims": [
+        _claim("c01", source_url="https://www.fao.org/sparrows"),
+        _claim("c02", source_url="Zhang, Four Pests, 1958 (print)"),
+        _claim("c03", source_url="http://insecure.example.org/page"),
+        _claim("c04", source_url="https://www.fao.org/locusts"),
+    ]})
+    assert [c["claim_id"] for c in out["claims"]] == ["c01", "c04"]
+    assert [(e["claim"]["claim_id"], e["reason"]) for e in out["excluded_claims"]] == [
+        ("c02", "invalid_source_url"), ("c03", "invalid_source_url")]
+    assert out["source_filter"] == {"version": 1, "candidate_count": 4,
+                                    "retained_count": 2, "excluded_count": 2}
+
+
+def test_quarantining_an_invalid_source_does_not_weaken_the_url_rule():
+    """The dossier gate still rejects a non-HTTPS source; it simply no longer sees the row."""
+    report = lr.validate_research_dossier(
+        {"claims": [_claim("c02", source_url="Zhang, Four Pests, 1958 (print)")]})
+    assert any(issue["code"] == "invalid_source_url" for issue in report["errors"])

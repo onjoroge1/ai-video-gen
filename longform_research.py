@@ -467,7 +467,17 @@ def filter_disallowed_source_claims(dossier: dict) -> dict:
     result = copy.deepcopy(dossier)
     retained, excluded = [], []
     for claim in result.get("claims") or []:
-        if _weak_source_domain(_text(claim.get("source_url"))):
+        source_url = _text(claim.get("source_url"))
+        # A claim with no valid HTTPS source is the same class as a weak domain: it can never
+        # license narration, so it is quarantined here rather than failing the whole dossier.
+        # Measured 2026-09-22: two such rows out of 46 killed a 300s Four Pests run at the
+        # research gate, after the research was paid for and before a word was scripted --
+        # the same shape as the self-contradictory row that quarantine_contradicted_claims
+        # handles. validate_research_dossier still rejects `invalid_source_url`; it simply no
+        # longer sees a row removed for exactly that reason.
+        if not _valid_https(source_url):
+            excluded.append({"claim": claim, "reason": "invalid_source_url"})
+        elif _weak_source_domain(source_url):
             excluded.append({"claim": claim, "reason": "weak_source_domain"})
         else:
             retained.append(claim)

@@ -713,7 +713,21 @@ MAX_VISUAL_STATE_SECONDS = 3.5
 
 
 def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
-                           opening_only: bool = False) -> dict:
+                           opening_only: bool = False,
+                           purchased_through: int | None = None) -> dict:
+    """Validate the plan; with `require_verified_assets`, also demand accepted images.
+
+    `purchased_through` is the pre-purchase gate's boundary: the number of leading scenes whose
+    images have actually been bought. The compiler's `opening` flag covers the first 30% of the
+    STORY (`_opening_scene_count`), while the 45-second tranche the pipeline buys before the
+    rendered gate is measured in AUDIO seconds -- and at 300s, with 12-18s scenes, those are
+    three scenes against seven. Measured 2026-09-22 on the first run to reach this gate: every
+    bought asset accepted, and the gate refused the run for four scenes it had not been asked to
+    buy yet ("not explicitly accepted", planned). Scenes past the boundary keep every structural
+    check and are counted as planned, exactly as a fresh plan is; only the acceptance check and
+    the verified-cut ratio are scoped to what was purchased. None means the old behaviour: every
+    opening scene must be accepted.
+    """
     errors: list[dict] = []
     pack = plan.get("continuity_pack") if isinstance(plan, dict) else None
     scenes = plan.get("scenes") if isinstance(plan, dict) else None
@@ -854,7 +868,8 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                 errors.append(_issue(
                     "missing_source_asset", "Reframe/reuse state has no declared source asset.",
                     scene=scene_index + 1, state_id=state_id))
-            verify_state = require_verified_assets and (not opening_only or opening)
+            purchased = purchased_through is None or scene_index < int(purchased_through)
+            verify_state = require_verified_assets and (not opening_only or opening) and purchased
             if verify_state:
                 if _text(state.get("asset_status")) not in ACCEPTED_ASSET_STATUSES:
                     errors.append(_issue(
@@ -870,7 +885,7 @@ def validate_evidence_plan(plan: dict, *, require_verified_assets: bool = False,
                     accepted_distinct.add(_text(state.get("asset_id")))
                 if strategy == "detail_reframe" and state.get("detail_verification_passed"):
                     verified_detail = True
-            if opening and state_index > 0:
+            if opening and state_index > 0 and purchased:
                 opening_cuts.append(state)
         # The twin of the state-count floor above, and it needs the same physics guard. Two
         # DISTINCT assets cannot come out of a beat with room for one state -- the rule was

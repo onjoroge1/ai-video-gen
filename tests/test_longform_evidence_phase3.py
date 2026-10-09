@@ -418,3 +418,52 @@ def test_phase_three_reports_are_exposed_in_ui_and_api():
         "/api/explainer/evidence-validation/{job_id}",
         "/api/explainer/continuity/{job_id}",
     }.issubset(paths)
+
+
+def _accept_scene(plan, index, tmp_path):
+    for state in plan["scenes"][index]["states"]:
+        path = tmp_path / (state["asset_id"].replace(":", "-") + ".jpg")
+        path.write_bytes(b"image")
+        record_asset_verification(
+            state, asset_path=str(path),
+            verification={"passed": True, "visible_information": True, "reasons": []})
+
+
+def test_the_pre_purchase_gate_is_scoped_to_the_scenes_actually_bought(tmp_path):
+    """The compiler's `opening` is the first 30% of the story; the tranche the pipeline buys
+    before the rendered gate is the first 45 seconds of audio. Measured 2026-09-22 at 300s:
+    three scenes bought against seven flagged, every bought asset accepted, and the gate refused
+    the run for four scenes it had not asked for."""
+    plan = compile_evidence_plan(_script())
+    assert plan["scenes"][0]["opening"] and plan["scenes"][1]["opening"], "fixture: two opening scenes"
+    _accept_scene(plan, 0, tmp_path)
+
+    unscoped = validate_evidence_plan(plan, require_verified_assets=True, opening_only=True)
+    assert "rejected_or_missing_asset" in _codes(unscoped), "old behaviour: scene 2 must be bought"
+
+    scoped = validate_evidence_plan(plan, require_verified_assets=True, opening_only=True,
+                                    purchased_through=1)
+    assert "rejected_or_missing_asset" not in _codes(scoped)
+    assert "opening_visible_information_ratio" not in _codes(scoped)
+    assert scoped["opening_cut_count"] == 1, "the ratio counts only purchased opening cuts"
+
+
+def test_a_rejected_asset_inside_the_purchased_tranche_still_fails(tmp_path):
+    plan = compile_evidence_plan(_script())
+    _accept_scene(plan, 0, tmp_path)
+    state = plan["scenes"][0]["states"][1]
+    record_asset_verification(
+        state, asset_path=state["asset_path"],
+        verification={"passed": False, "visible_information": False, "reasons": ["wrong object"]})
+    scoped = validate_evidence_plan(plan, require_verified_assets=True, opening_only=True,
+                                    purchased_through=1)
+    assert "rejected_or_missing_asset" in _codes(scoped)
+
+
+def test_both_pre_purchase_call_sites_pass_their_boundary():
+    import inspect
+    import explainer_pipeline as ep
+    src = inspect.getsource(ep.run_explainer_pipeline)
+    assert src.count("opening_only=True") == 2
+    assert "opening_only=True, purchased_through=1)" in src, "smoke test: one scene bought"
+    assert "purchased_through=opening_stop)" in src, "tranche gate: the scenes the loop bought"

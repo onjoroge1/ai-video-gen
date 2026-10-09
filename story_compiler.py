@@ -758,6 +758,49 @@ def compile_correction(result: dict) -> str:
         "change. Do not add, remove or reorder beats, and do not change any narration.\n")
 
 
+def contradiction_correction(spine: dict) -> str:
+    """A planner-facing correction when a REQUIRED role was judged CONTRADICTED, or "" otherwise.
+
+    WHY THIS EXISTS. narrow_required_roles emits REQUIRED_ROLE_CONTRADICTED with the advice
+    "research or replan it", and nothing replanned. The research repair cannot help -- the cited
+    claims are fine, the planner stated them backwards -- so the run died on one inverted beat.
+    Measured 2026-09-22 on a 300s Four Pests sheet: eleven beats, ten supported, and the reversal
+    said farmers substituted above-ground crops for sweet potatoes when the claim says the
+    opposite. Boundary A was right to refuse it; the planner was one re-ask from fixing it.
+
+    FAIL-SAFE BY DESIGN, like compile_correction. Only REQUIRED_ROLE_CONTRADICTED qualifies: the
+    judge has named a specific factual inversion the planner can correct from the same claims.
+    An unsupported or missing role gets nothing here -- re-asking the model for evidence it does
+    not have is how a real objection gets sampled away.
+    """
+    if not isinstance(spine, dict) or spine.get("passed"):
+        return ""
+    blocked = [issue for issue in (spine.get("unrepairable") or [])
+               if isinstance(issue, dict)
+               and sfm._text(issue.get("code")) == "REQUIRED_ROLE_CONTRADICTED"]
+    if not blocked:
+        return ""
+    verdicts = {}
+    for row in ((spine.get("cascade") or {}).get("evidence") or []):
+        if isinstance(row, dict) and row.get("beat_id"):
+            verdicts[sfm._text(row["beat_id"])] = row
+    lines = []
+    for issue in blocked:
+        beat_id = sfm._text(issue.get("beat_id"))
+        role = sfm._text(issue.get("role"))
+        reason = sfm._text((verdicts.get(beat_id) or {}).get("reason"))
+        lines.append(f"  - {beat_id} ({role}): the cited claims CONTRADICT this event."
+                     + (f" Judge: {reason}" if reason else ""))
+    return (
+        "\nCORRECTION — your previous beat sheet stated a required event backwards. Boundary A "
+        "judged the evidence CONTRADICTED for these beats. Rewrite ONLY these beats so each event "
+        "states what its cited claims actually say, in the direction the judge describes, and "
+        "return the whole sheet again keeping every other beat, its event text, its role, its "
+        "event_function and its claim_refs byte-identical:\n" + "\n".join(lines)
+        + "\nKeep the same role and event_function on the rewritten beats. Do not add, remove or "
+        "reorder beats, and do not invent facts the claim_refs do not state.\n")
+
+
 def summary(result: dict) -> str:
     if not result.get("compiled"):
         return f"Roles not compiled: {result.get('reason', '')}"

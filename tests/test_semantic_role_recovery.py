@@ -156,3 +156,36 @@ def test_saved_checkpoint_eligibility_never_promotes_a_rejection(tmp_path, chang
     if change == "none":
         new_key = {**saved["identity"], "role_contract": facts.ROLE_CONTRACT_VERSION}
         assert new_key != saved["identity"], "old completed decision cannot satisfy the new key"
+
+
+def _escalation(beat_id, text):
+    return {"beat_id": beat_id, "role": "escalation",
+            "event": {"text": text, "claim_refs": ["c1"]}}
+
+
+def test_a_failing_repeat_of_a_repeatable_role_is_pruned_while_another_stands():
+    """Measured on a 300s Four Pests run: eight escalation beats, six supported, two citing a
+    claim the classifier called `mechanism`. Every required function was marked supported and
+    the run still stopped, twice across a replan, on the two expendable repeats."""
+    beats = [_escalation("e1", "Locust numbers rose in 1958."),
+             _escalation("e2", "Counties with more sparrows lost 5.3 percent of their rice."),
+             _escalation("e3", "By 1959 locust swarms reached crisis levels.")]
+    kept, pruned = facts.prune_unsupported_optional(beats, {"e2"}, "removed_keystone")
+    assert [b["beat_id"] for b in kept] == ["e1", "e3"]
+    assert [(p["beat_id"], p["reason"]) for p in pruned] == [
+        ("e2", "unsupported repeat of a role another beat still carries")]
+
+
+def test_the_only_holder_of_a_repeatable_role_is_never_pruned():
+    """The role is required even though repeats are not: with no standing holder the failure
+    must surface as a missing role, not vanish into a prune."""
+    beats = [_escalation("e1", "Locust numbers rose in 1958.")]
+    kept, pruned = facts.prune_unsupported_optional(beats, {"e1"}, "removed_keystone")
+    assert [b["beat_id"] for b in kept] == ["e1"] and pruned == []
+    assert "escalation" in facts.spine_coverage(kept, {"e1"}, "removed_keystone")["missing"]
+
+
+def test_every_holder_failing_is_still_a_missing_role():
+    beats = [_escalation("e1", "One."), _escalation("e2", "Two.")]
+    kept, pruned = facts.prune_unsupported_optional(beats, {"e1", "e2"}, "removed_keystone")
+    assert len(kept) == 2 and pruned == []

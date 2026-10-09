@@ -166,6 +166,20 @@ def mount(app: FastAPI, finished_dir: str, static_dir: Path) -> None:
                     })
             else:
                 rows = _local_rows(finished_dir, q, limit, offset)
+        elif not artifact_store.durable_storage_required():
+            # A populated database used to hide every local render. On the laptop the Postgres
+            # rows are production films (Blob is the only way a row gets there) and the local
+            # index holds the films rendered here -- with DATABASE_URL set and no Blob token, the
+            # three illustrated films that existed on 22 Sep 2026 were invisible at /finished
+            # even though the studio was running on the machine that made them. Merge the local
+            # rows the database does not know about; Postgres stays authoritative for any id it
+            # has, and production still fails closed above via durable_storage_required().
+            known = {str(row.get("id")) for row in rows}
+            extra = [row for row in _local_rows(finished_dir, q, limit, 0)
+                     if str(row.get("id")) not in known]
+            if extra:
+                rows = sorted(rows + extra, key=lambda row: str(row.get("created_at") or ""),
+                              reverse=True)[:max(1, min(limit, 200))]
         for row in rows:
             row.setdefault("storage", "blob" if row.get("video_url") else "local")
         return {"videos": rows, "count": len(rows), "limit": limit, "offset": offset}
