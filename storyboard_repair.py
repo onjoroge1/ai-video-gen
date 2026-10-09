@@ -43,10 +43,16 @@ RESTATED_CODE = "OPENING_RESTATED"
 # for the forest", 17 words; the hinge fitter kept the original and no repair owned the code).
 # The repair moves the facts to the end of the row before the hinge and leaves the turn.
 HINGE_CODE = "SOFT_HINGE"
+# Read-through defects from V15 (2026-10-08), each owned by one named scene: a continuation that
+# re-tells its parent, a scene opening on "That <noun>" nothing named, and a close that assumes an
+# outcome the reversal never told.
+SCENE_EDIT_CODES = {"CONTINUATION_REPEATS", "DANGLING_REFERENCE"}
+PRESUPPOSE_CODE = "CLOSE_PRESUPPOSES_OUTCOME"
 REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
-               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE} | SYNTHESIS_CODES)
+               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE, PRESUPPOSE_CODE}
+              | SYNTHESIS_CODES | SCENE_EDIT_CODES)
 _RESTATED = re.compile(r"^OPENING_RESTATED:\s*(\S+)\s+re-tells the (\w+)")
-CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT"}
+CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT", "CLOSE_PRESUPPOSES_OUTCOME"}
 # Two to four sentences on an 18-word close needs more than the old +20.
 CLOSE_GROWTH_WORDS = 40
 
@@ -186,6 +192,16 @@ def plan(script, board):
         selected.add(hinge)
         consequence_scene = consequence_scene if consequence_scene is not None else before[-1]
         selected.add(consequence_scene)
+    scene_edits = []
+    for error in errors:
+        code, _, rest = error.partition(":")
+        if code in SCENE_EDIT_CODES:
+            named = rest.strip().split(" ", 1)[0]
+            if named in ids:
+                selected.add(ids.index(named))
+                scene_edits.append({"scene_id": named, "code": code, "finding": rest.strip()[:240]})
+            else:
+                return None
     # The restated scenes, named by the check's own message ("<scene_id> re-tells the <role>").
     restated = []
     for error in errors:
@@ -207,6 +223,7 @@ def plan(script, board):
             "synthesis_index": synthesis,
             "close_contract": str(script.get("_close_contract") or ""),
             "restated": restated,
+            "scene_edits": scene_edits,
             "synthesis_scene_ids": [ids[i] for i in synthesis_parts],
             "consequence_scene_id": ids[consequence_scene] if consequence_scene is not None else "",
             "hinge_scene_id": ids[hinge_scene] if hinge_scene is not None else "",
@@ -248,6 +265,19 @@ def prompt(script, edit):
             + (f"The beats you never touched, which must each be echoed by one of their own words: "
                f"{edit['shorten']['must_touch']}. " if edit['shorten'].get('must_touch') else ""))
            if edit.get("shorten") else "")
+        + ("".join(
+            (f"Scene {item['scene_id']} RE-TELLS the scene before it ({item['finding']}). Keep only "
+             "what it adds -- the next fact, consequence or detail -- and cut every clause that says "
+             "the same event again; it may get shorter. "
+             if item["code"] == "CONTINUATION_REPEATS" else
+             f"Scene {item['scene_id']} opens by pointing at something nothing named "
+             f"({item['finding']}). Rewrite only its first sentence so it refers back to what the "
+             "scene before actually said, and so it does not contradict it. ")
+            for item in edit.get("scene_edits") or []))
+        + ("The close is requested because it ASSUMES AN OUTCOME the reversal never told (for "
+           "example that the plan worked or the need was met). Remove that assumption -- also from "
+           "any question or 'if' -- and end on what the film established. "
+           if any(e.startswith("CLOSE_PRESUPPOSES_OUTCOME") for e in edit["errors"]) else "")
         + ((f"The hinge scene {edit['hinge_scene_id']} is requested because it runs long: return "
             f"it at most {edit['hinge_max_words']} words, the flat turn that breaks the apparent "
             "success (\"Except the grids came off.\", \"Twenty-six queens were gone.\"), never a "

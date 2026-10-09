@@ -137,3 +137,56 @@ def test_a_long_hinge_is_repaired_by_moving_its_facts_into_the_row_before():
         assert "hinge over its word cap" in str(exc)
     else:
         raise AssertionError("a long hinge was accepted")
+
+
+# ── V15 read-through defects, caught before spend (2026-10-08) ───────────────
+
+def _steps(*rows):
+    return [{"step_id": f"s{i}", "role": r, "situation": t, "continues": c, "index": i}
+            for i, (r, t, c) in enumerate(rows)]
+
+
+def test_a_continuation_that_retells_its_parent_is_caught():
+    steps = _steps(("escalation", "By 2005 these bees turned up in Florida, far from any marching "
+                                  "front, riding in on trucks and ships.", ""),
+                   ("escalation", "By 2005 the hybrid turned up in Florida, far from the marching "
+                                  "front. Trucks and ships carried it in.", "s0"))
+    issues = []
+    cs._check_continuation_repeats(steps, issues)
+    assert [i["code"] for i in issues] == ["CONTINUATION_REPEATS"]
+    steps[1]["situation"] = "Within a decade the colonies there were indistinguishable from the rest."
+    issues = []
+    cs._check_continuation_repeats(steps, issues)
+    assert issues == []
+
+
+def test_a_reference_to_something_never_named_is_caught_and_an_earlier_one_is_not():
+    steps = _steps(("escalation", "One slow march that no fence or border could hold.", ""),
+                   ("escalation", "That wall held for years.", ""))
+    issues = []
+    cs._check_dangling_reference(steps, issues)
+    assert [i["code"] for i in issues] == ["DANGLING_REFERENCE"]
+    steps = _steps(("setup", "The calm temper of the European bees.", ""),
+                   ("escalation", "The hybrids kept a fierce streak.", ""),
+                   ("escalation", "That temper travels with them.", ""))
+    issues = []
+    cs._check_dangling_reference(steps, issues)
+    assert issues == [], "a noun the film named earlier may be pointed back at"
+
+
+def test_a_close_cannot_assume_an_outcome_the_reversal_never_told():
+    steps = _steps(("reversal", "The gentle European hives were gone.", ""),
+                   ("tool", "If the fix finally filled the harvest, was it worth it?", ""))
+    issues = []
+    cs._check_close_presupposes_outcome(steps, issues)
+    assert [i["code"] for i in issues] == ["CLOSE_PRESUPPOSES_OUTCOME"]
+    steps[0]["situation"] = "Brazil's harvest filled again once keepers adapted."
+    issues = []
+    cs._check_close_presupposes_outcome(steps, issues)
+    assert issues == []
+
+
+def test_all_three_are_repairable_and_name_their_scenes():
+    for code in ("CONTINUATION_REPEATS", "DANGLING_REFERENCE", "CLOSE_PRESUPPOSES_OUTCOME"):
+        assert code in repair.REPAIRABLE
+    assert "CLOSE_PRESUPPOSES_OUTCOME" in repair.CLOSE_CODES

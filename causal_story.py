@@ -802,7 +802,10 @@ def close_contract_text(spoken_numbers: list, opening_object: str) -> str:
     return (f"The close is {CLOSE_MIN_SENTENCES} to {CLOSE_MAX_SENTENCES} sentences: {number}"
             f"its LAST sentence returns to the exact opening object {opening_object!r} now that the "
             "story has changed what it means. It is rhetoric built from what the film already said: "
-            "no new fact, no new number, no new name or place.")
+            "no new fact, no new number, no new name or place. It never states OR PRESUPPOSES an "
+            "outcome the body did not tell -- not in a question, not in an 'if' -- such as the plan "
+            "having worked or the need having been met; if the film never said whether the need was "
+            "met, the close says what the story did to it instead.")
 
 
 def _close_sentences(text: str) -> int:
@@ -1038,6 +1041,97 @@ def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
             steps[min(first_mechanism, len(steps)) - 1]["step_id"]))
 
 
+# Words that name an outcome for the opening's need. A close may only use one the body after the
+# hinge already used (V15, 2026-10-08: "if the fix finally filled the harvest" -- no scene ever said
+# the harvest recovered, and the sources did not either).
+_OUTCOME_WORDS = {
+    "fill": r"fill(?:ed|s|ing)?", "work": r"work(?:ed|s|ing)?", "succeed": r"succe(?:ed|eded|eds|ss|ssful)",
+    "solve": r"solv(?:e|ed|es)", "recover": r"recover(?:ed|s|y)?", "pay off": r"(?:paid|pays?) off",
+    "thrive": r"thriv(?:e|ed|es|ing)", "rescue": r"rescu(?:e|ed)", "save": r"saved",
+    "boom": r"boom(?:ed|ing)?", "flourish": r"flourish(?:ed|es|ing)?"}
+# Words after "These/That" that are not a pointed-at noun ("These were", "These wild colonies").
+_NOT_REFERENT_NOUNS = frozenset({
+    "were", "was", "are", "is", "had", "have", "did", "do", "does", "could", "would", "will",
+    "wild", "new", "old", "same", "feral", "early", "few", "two", "three", "four", "small",
+    "big", "large", "first", "last", "hybrid", "young", "gentle", "fierce", "african",
+    "european", "bees", "bee", "colonies"})
+# Nouns too general for "That <noun>" to dangle.
+_GENERIC_REFERENTS = frozenset({
+    "way", "time", "moment", "day", "year", "years", "pace", "kind", "question", "answer", "story",
+    "point", "change", "is", "was", "one", "part", "thing", "idea", "same", "first", "last", "next",
+    "much", "many", "number", "rate", "speed", "scale", "choice", "mistake", "plan", "fix",
+    "problem", "line", "moment", "night", "morning", "season", "summer", "winter", "spring"})
+
+
+def _check_continuation_repeats(steps: list[dict], issues: list[dict]) -> None:
+    """A continuation part carries the beat forward; it never tells its parent again.
+
+    V15 (2026-10-08): the Florida beat was split in two and the second part re-narrated the
+    first ("By 2005 these bees turned up in Florida ... trucks and ships" twice in a row);
+    duplicate_narration's 0.75 overlap missed the paraphrase. Synthesis parts are judged by
+    SYNTHESIS_REPEATED.
+    """
+    for previous, step in zip(steps, steps[1:]):
+        if not step["continues"] or step["role"] != previous["role"] or step["role"] == SYNTHESIS:
+            continue
+        a, b = _content_stems(previous["situation"]), _content_stems(step["situation"])
+        shared = len(a & b)
+        if a and b and ((shared >= 4 and shared / min(len(a), len(b)) >= 0.45)
+                        or (shared >= 6 and shared / min(len(a), len(b)) >= 0.30)):
+            issues.append(_issue(
+                "CONTINUATION_REPEATS",
+                f"{step['step_id']} re-tells {previous['step_id']} ({shared} shared content "
+                "words); a continuation adds the next fact or consequence, it never says the "
+                "same event again", step["step_id"]))
+
+
+def _check_dangling_reference(steps: list[dict], issues: list[dict]) -> None:
+    """A scene that opens on 'That <noun>' points at something the scene before named.
+
+    V15 (2026-10-08): "...no fence or border could hold." then "That wall held for years." --
+    no wall had been mentioned, and the sentence contradicted the one before it.
+    """
+    seen: set = set()
+    for previous, step in zip(steps, steps[1:]):
+        # Anything the film has named so far may be pointed back at; "That temper" after an
+        # earlier "calm temper" is a reference, "That wall" with no wall anywhere is not.
+        seen |= {w[:5] for w in re.findall(r"[a-z]+", previous["situation"].lower())}
+        match = re.match(r"^\s*(?:(?:but|and|so|yet)\s+)?(?:that|this|those|these)\s+([a-z]+)",
+                         _MARKER.sub("", step["situation"]).strip(), re.I)
+        if not match:
+            continue
+        noun = match.group(1).lower()
+        if noun in _GENERIC_REFERENTS or noun in _NOT_REFERENT_NOUNS or len(noun) < 3:
+            continue
+        if noun[:5] not in seen:
+            issues.append(_issue(
+                "DANGLING_REFERENCE",
+                f"{step['step_id']} opens on '{match.group(0).strip()}', but the scene before "
+                f"never names a {noun}; refer back only to what was just said", step["step_id"]))
+
+
+def _check_close_presupposes_outcome(steps: list[dict], issues: list[dict]) -> None:
+    """The close may not assume a result the body never told (see _OUTCOME_STEMS)."""
+    closes = [s for s in steps if s["role"] in CLOSING_ROLES]
+    # The outcome is told where the story tells outcomes: the reversal (and a generalization).
+    # Judging against the whole body let an unrelated "the air fills" license "if the fix filled
+    # the harvest" (V15).
+    told = [s for s in steps if s["role"] in (REVERSAL, GENERALIZATION)]
+    if not closes or not told:
+        return
+    body = " ".join(s["situation"] for s in told).lower()
+    for close in closes:
+        text = close["situation"].lower()
+        assumed = sorted(name for name, pattern in _OUTCOME_WORDS.items()
+                         if re.search(r"\b" + pattern + r"\b", text)
+                         and not re.search(r"\b" + pattern + r"\b", body))
+        if assumed:
+            issues.append(_issue(
+                "CLOSE_PRESUPPOSES_OUTCOME",
+                f"{close['step_id']} speaks of an outcome ({', '.join(assumed)}...) that no scene after "
+                "the turn told; the close returns only to what the film established", close["step_id"]))
+
+
 def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
     """THE BODY BEGINS AFTER THE CONSEQUENCE (operator brief, 2026-10-07: the most important rule).
 
@@ -1168,6 +1262,9 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
 
     if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
         _check_opening_restated(steps, issues)
+        _check_continuation_repeats(steps, issues)
+        _check_dangling_reference(steps, issues)
+        _check_close_presupposes_outcome(steps, issues)
         _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [],
                                           _text(payload.get("opening_consequence_text")))
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
