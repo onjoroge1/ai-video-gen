@@ -49,10 +49,11 @@ HINGE_CODE = "SOFT_HINGE"
 SCENE_EDIT_CODES = {"CONTINUATION_REPEATS", "DANGLING_REFERENCE"}
 PRESUPPOSE_CODE = "CLOSE_PRESUPPOSES_OUTCOME"
 REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
-               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE, PRESUPPOSE_CODE}
+               RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE, PRESUPPOSE_CODE, "CLOSE_REPEATS"}
               | SYNTHESIS_CODES | SCENE_EDIT_CODES)
 _RESTATED = re.compile(r"^OPENING_RESTATED:\s*(\S+)\s+re-tells the (\w+)")
-CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT", "CLOSE_PRESUPPOSES_OUTCOME"}
+CLOSE_CODES = {"NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT", "CLOSE_PRESUPPOSES_OUTCOME",
+               "CLOSE_REPEATS"}
 # Two to four sentences on an 18-word close needs more than the old +20.
 CLOSE_GROWTH_WORDS = 40
 
@@ -274,6 +275,10 @@ def prompt(script, edit):
              f"({item['finding']}). Rewrite only its first sentence so it refers back to what the "
              "scene before actually said, and so it does not contradict it. ")
             for item in edit.get("scene_edits") or []))
+        + ("The close is requested because it SAYS ITS POINT TWICE (two sentences carrying the "
+           "same idea). Keep the stronger one, cut the other, and let the last sentence return to "
+           "the opening object without restating the moral. "
+           if any(e.startswith("CLOSE_REPEATS") for e in edit["errors"]) else "")
         + ("The close is requested because it ASSUMES AN OUTCOME the reversal never told (for "
            "example that the plan worked or the need was met). Remove that assumption -- also from "
            "any question or 'if' -- and end on what the film established. "

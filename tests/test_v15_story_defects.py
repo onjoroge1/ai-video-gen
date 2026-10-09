@@ -190,3 +190,20 @@ def test_all_three_are_repairable_and_name_their_scenes():
     for code in ("CONTINUATION_REPEATS", "DANGLING_REFERENCE", "CLOSE_PRESUPPOSES_OUTCOME"):
         assert code in repair.REPAIRABLE
     assert "CLOSE_PRESUPPOSES_OUTCOME" in repair.CLOSE_CODES
+
+
+def test_a_close_that_says_its_moral_twice_is_caught():
+    """V16 (2026-10-08): the moral twice in one close; V13-V15 closes never shared more than two."""
+    steps = _steps(("reversal", "The gentle hives were gone.", ""),
+                   ("tool", "So here is the question worth keeping: before you remove a barrier, ask "
+                            "what it was actually holding back. Picture that screen again now. Ask what "
+                            "a barrier holds back before you lift it, and look at the hive box.", ""))
+    issues = []
+    cs._check_close_repeats(steps, issues, "a wooden hive box")
+    assert [i["code"] for i in issues] == ["CLOSE_REPEATS"]
+    steps[1]["situation"] = ("So here is the question worth keeping: before you remove a barrier, ask "
+                             "what it was actually holding back. Then look at the hive box.")
+    issues = []
+    cs._check_close_repeats(steps, issues, "a wooden hive box")
+    assert issues == []
+    assert "CLOSE_REPEATS" in repair.REPAIRABLE and "CLOSE_REPEATS" in repair.CLOSE_CODES

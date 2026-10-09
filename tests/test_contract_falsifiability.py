@@ -140,6 +140,11 @@ MUTATIONS = {
     "CLOSE_PRESUPPOSES_OUTCOME": lambda s: (s.update(opening_contract="ladder_v1"),
                                             s["steps"][-1].update(situation=s["steps"][-1]["situation"]
                                                                   + " So the plan finally succeeded.")),
+    # The close saying its moral twice (V16, 2026-10-08).
+    "CLOSE_REPEATS": lambda s: (s.update(opening_contract="ladder_v1"),
+                                s["steps"][-1].update(situation=s["steps"][-1]["situation"]
+                                    + " Before you remove a barrier, ask what it was holding back."
+                                    + " Ask what a barrier holds back before you remove it.")),
     # A second synthesis part re-walking the same beats as the first (V14, 2026-10-08).
     "SYNTHESIS_REPEATED":  lambda s: (_with_synthesis(s, "The bounty paid for tails, so farms bred "
                                                          "cobras and the trade ended."),

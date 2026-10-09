@@ -1132,6 +1132,33 @@ def _check_close_presupposes_outcome(steps: list[dict], issues: list[dict]) -> N
                 "the turn told; the close returns only to what the film established", close["step_id"]))
 
 
+def _check_close_repeats(steps: list[dict], issues: list[dict], opening_object: str = "") -> None:
+    """The close says its point once.
+
+    V16 (2026-10-08): "before you remove a barrier, ask what it was actually holding back" and,
+    two sentences later, "Ask what a barrier holds back before you lift it". Two close sentences
+    sharing four or more content words (the opening object excluded, since the last sentence
+    returns to it by contract) are one sentence said twice. Measured on V13-V15: at most two.
+    """
+    drop = {w[:4] for w in re.findall(r"[a-z]+", _text(opening_object).lower())}
+    closes = [s for s in steps if s["role"] in CLOSING_ROLES]
+    if not closes:
+        return
+    text = " ".join(_MARKER.sub("", s["situation"]) for s in closes)
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    keyed = [{w[:4] for w in re.findall(r"[a-z]+", part.lower()) if len(w) >= 4} - drop
+             for part in sentences]
+    for i in range(len(sentences)):
+        for k in range(i + 1, len(sentences)):
+            if len(keyed[i] & keyed[k]) >= 4:
+                issues.append(_issue(
+                    "CLOSE_REPEATS",
+                    f"{closes[-1]['step_id']} says the same point twice: {sentences[i][:70]!r} and "
+                    f"{sentences[k][:70]!r}; the close states its point once",
+                    closes[-1]["step_id"]))
+                return
+
+
 def _check_opening_restated(steps: list[dict], issues: list[dict]) -> None:
     """THE BODY BEGINS AFTER THE CONSEQUENCE (operator brief, 2026-10-07: the most important rule).
 
@@ -1265,6 +1292,7 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
         _check_continuation_repeats(steps, issues)
         _check_dangling_reference(steps, issues)
         _check_close_presupposes_outcome(steps, issues)
+        _check_close_repeats(steps, issues, _text(payload.get("opening_object")))
         _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [],
                                           _text(payload.get("opening_consequence_text")))
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
