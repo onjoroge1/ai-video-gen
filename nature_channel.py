@@ -40,9 +40,12 @@ THUMBNAIL_STEER = (
 # emperor penguin long-form). Appended to the writer, spine-planner and scene-expansion prompts
 # on this channel only, beside the per-episode operator direction.
 WRITING_RULES = (
-    "Open with the episode question, immediately followed by the specific behaviour that makes "
-    "it interesting. Treat this as ONE hook: the question is the first spoken sentence, the "
-    "behaviour the second, and the problem the rest of the video resolves the third.\n"
+    "Open with the series question in its direct form, 'Why is this [animal] the worst "
+    "mother/father/parent?', immediately followed by the specific behaviour that motivates it. "
+    "Treat this as ONE hook: the question is the first spoken sentence, the behaviour the "
+    "second, and the problem the rest of the video resolves the third. The accusation is "
+    "something the episode examines, never an established fact or a label anyone gave the "
+    "animal.\n"
     "Keep the animal and the parental behaviour named in the title central to the story. Do not "
     "let an interesting side mechanism take over; a survival mechanism gets one compact "
     "explanation and then the story moves to a need it cannot meet.\n"
@@ -62,9 +65,11 @@ WRITING_RULES = (
     "universal ('never touches', 'costs nothing') that a source states as a tendency. Do not "
     "invent a reputation, emergency, or guaranteed outcome. Omit precise measurements that do "
     "not advance the parent's story.\n"
-    "End with one brief verdict demonstrated by the final action, on the image of the young "
-    "being fed. The evidence decides the verdict: a misunderstood behaviour, a hard trade-off, "
-    "or a strategy that costs some offspring. Not every episode acquits the parent.")
+    "End with one brief verdict demonstrated by the final behaviour, on the image of the young. "
+    "The evidence decides the verdict: a misunderstood behaviour, a hard trade-off, or a "
+    "strategy that costs some offspring. Not every episode acquits the parent, and a verdict "
+    "must not contradict the stakes the episode set up ('not helpless' after 'cannot feed "
+    "itself'). Prefer 'she left it with fuel, not a guarantee' to 'she did not really leave'.")
 
 
 def writing_rules_block(channel: str | None) -> str:

@@ -1,0 +1,78 @@
+{
+  "format": "causal_story_v1",
+  "note": "Story payload for the second Terrible Parents Short (harp seal), revision 2 on the editor's review of 2026-09-25: direct series question, two revelations (her milk supplied the fuel; the fuel cannot replace the ice), the swimming claim qualified to diving ability, the mating detour removed, and a conditional verdict. Figures come from pages that were read: NOAA Fisheries and Fisheries and Oceans Canada harp seal profiles, the DFO / PLOS One ice work, and Stenson and Hammill on early swimming. The caused_by chain follows physical cause, not the order facts are revealed.",
+  "story": {
+    "title": "Why Is This Harp Seal the Worst Mother?",
+    "runtime_sec": 40.0,
+    "format_tag": "",
+    "engine": "strange_behaviour",
+    "opening_object": "the pup she leaves on the ice",
+    "start_state": "a mother who nurses for twelve days and then leaves her pup on the ice for good looks like the worst mother",
+    "hook": {
+      "line": "Why is this harp seal the worst mother?",
+      "withheld_subject": ""
+    },
+    "steps": [
+      {
+        "step_id": "twelve_days_then_gone",
+        "role": "setup",
+        "event_function": "behaviour_observed",
+        "start_sec": 0.0,
+        "label": "about twelve days of nursing, then she leaves",
+        "chapter": 1,
+        "situation": "A harp seal mother nurses her pup on the pack ice for about twelve days, then leaves it there."
+      },
+      {
+        "step_id": "not_ready_to_feed_itself",
+        "role": "hinge",
+        "event_function": "constraint_found",
+        "start_sec": 6.7,
+        "label": "no more milk, and it is not ready to feed itself",
+        "chapter": 1,
+        "caused_by": "twelve_days_then_gone",
+        "situation": "The pup is not yet ready to feed itself."
+      },
+      {
+        "step_id": "milk_built_the_reserves",
+        "role": "mechanism",
+        "event_function": "function_shown",
+        "start_sec": 12.9,
+        "label": "her milk built the fat the pup lives on for weeks",
+        "chapter": 2,
+        "caused_by": "twelve_days_then_gone",
+        "situation": "Before leaving, her milk helps the pup gain about five pounds a day and build fat reserves, and that fat becomes its food supply for weeks."
+      },
+      {
+        "step_id": "ice_while_diving_develops",
+        "role": "escalation",
+        "event_function": "evidence_mounts",
+        "start_sec": 21.7,
+        "label": "the fuel cannot replace the ice beneath it",
+        "chapter": 3,
+        "caused_by": "not_ready_to_feed_itself",
+        "situation": "The pup still needs ice while its diving ability develops; if storms break the ice up too early, young pups can drown."
+      },
+      {
+        "step_id": "feeding_for_themselves",
+        "role": "reversal",
+        "event_function": "outcome_for_young",
+        "start_sec": 30.6,
+        "label": "surviving pups begin feeding for themselves",
+        "chapter": 4,
+        "caused_by": "milk_built_the_reserves",
+        "situation": "Later, surviving pups begin feeding for themselves."
+      },
+      {
+        "step_id": "fuel_not_a_guarantee",
+        "role": "verdict",
+        "event_function": "",
+        "start_sec": 33.0,
+        "label": "fuel, not a guarantee",
+        "chapter": 4,
+        "caused_by": "feeding_for_themselves",
+        "situation": "She left it with fuel, not a guarantee: her milk buys time, and the ice has to last."
+      }
+    ],
+    "parallel_cases": []
+  }
+}

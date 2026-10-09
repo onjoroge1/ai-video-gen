@@ -1,0 +1,187 @@
+{
+  "name": "harp_seal",
+  "title": "Why Is This Harp Seal the Worst Mother?",
+  "channel": "nature",
+  "engine": "strange_behaviour",
+  "story": "spec/harp_seal_story.json",
+  "voice": "onyx",
+  "music_mood": "tender",
+  "model": "kling-v3-pro",
+  "hard_cap_usd": 12.0,
+  "_status": "APPROVED revision 2, 2026-09-25: the editor's 111-word script (direct series question, two revelations, qualified swimming claim, mating detour removed, conditional verdict). Eight paid shots reused, two new (b6b forage, b7b close). Cap $12; spent $9.16 before this revision.",
+  "style": "Painterly natural-history illustration, vertical 9:16 composition, pack ice of the Gulf of St. Lawrence in late winter, palette of white and blue-grey ice, pale sky, one warm accent of low sun, soft directional light, fine texture, no text, no lettering, no logos. Harp seals drawn accurately: the adult female silver-grey with a black face and a black harp-shaped saddle across her back, dark eyes, short front flippers; the pup a whitecoat with long yellowish-white woolly fur, black eyes and nose, plump and short-bodied. No people, no boats, no equipment anywhere in frame. ",
+  "end_rule": " Keep the exact same camera position, framing, lens, lighting, palette and placement of every animal and object as the reference image; change only what is described.",
+  "negative": "text, letters, numbers, watermark, logo, cartoon, anime, extra limbs, extra heads, deformed anatomy, duplicate seals, wrong seal species, sea lion, ears, people, boat, ship, helicopter, bottle, camera shake, flicker, cuts",
+  "beats": [
+    {
+      "id": "b1",
+      "caption": "12 DAYS. THEN GONE.",
+      "vo": "Why is this harp seal the worst mother? She nurses her pup for about twelve days. Then she leaves.",
+      "shots": [
+        {
+          "id": "b1a",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.8
+          ],
+          "start": "Medium shot on flat pack ice at low sun. An adult female harp seal lies on her side on the ice, and a small whitecoat pup lies pressed against her belly, nursing. Open grey water shows at the far edge of the ice behind them.",
+          "end": "The same camera and animals. The pup still lies against her belly, nursing; the mother has lifted her head slightly to look toward the open water at the edge of the ice.",
+          "motion": "Locked camera, no camera movement. The pup nurses with small movements; the mother slowly lifts her head and turns it toward the open water. Nothing else moves. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b1b",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.6
+          ],
+          "start": "Wide shot on pack ice at low sun. A whitecoat pup lies alone in the centre of an ice pan. A few metres away an adult female harp seal is at the edge of the ice, her head and front flippers already over the dark water.",
+          "end": "The same camera. The pup lies alone in the centre of the ice pan. The mother is gone: only a ring of ripples spreads on the dark water at the edge of the ice where she slipped in.",
+          "motion": "Locked camera, no camera movement. The adult seal slides forward off the edge of the ice into the dark water and disappears, leaving ripples. The pup does not move. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b2",
+      "caption": "NO MORE MILK",
+      "vo": "No more meals from Mom. And it is not ready to feed itself. So what keeps it alive?",
+      "shots": [
+        {
+          "id": "b2a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.8
+          ],
+          "start": "Close shot, low angle, on a whitecoat harp seal pup lying on the ice, seen from the front, its dark eyes open, woolly white fur catching the low sun. The ice around it is empty.",
+          "end": "The same camera and the same single whitecoat pup, alone. It has raised its head and turned it to look toward the empty ice and water on one side; nothing else in the frame has changed. The ONLY animal in the frame is this one pup: no adult seal, no second seal of any kind, only empty ice around it.",
+          "motion": "Locked camera, no camera movement. The lone pup raises its head and turns it slowly to one side, looking across the empty ice; fur moves slightly in the wind. No other animal appears at any point. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b3",
+      "caption": "BEFORE SHE LEFT",
+      "vo": "Before leaving, her milk helps it gain about five pounds a day and build fat reserves.",
+      "shots": [
+        {
+          "id": "b3a",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.0
+          ],
+          "start": "Medium shot on pack ice. A newborn harp seal pup, thin and long-bodied with slightly yellowish white fur, lies beside its mother's belly, nursing. The mother lies on her side, grey with the black harp saddle visible on her back.",
+          "end": "The same camera and mother. The pup is the same pup but now clearly fat: its body twice as thick, round and barrel-shaped like a plump sausage, neck folds visible, still nursing at the same spot on the mother's belly. The mother is unchanged.",
+          "motion": "Locked camera, no camera movement. The pup slowly fills out, growing rounder and plumper as it nurses, its body becoming barrel-shaped; the mother is still. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b3b",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.0
+          ],
+          "start": "Close shot on a very plump whitecoat pup lying on the ice on its side, its belly round, next to the resting mother's flank.",
+          "end": "The same camera. The plump pup has rolled onto its belly and lifted its head; the mother's flank is still beside it.",
+          "motion": "Locked camera, no camera movement. The plump pup rolls from its side onto its belly and lifts its head. Nothing else moves. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b4",
+      "caption": "AFTER WEANING",
+      "vo": "That fat becomes its food supply for weeks.",
+      "shots": [
+        {
+          "id": "b4a",
+          "duration": 5,
+          "use": [
+            0.0,
+            3.6
+          ],
+          "start": "Wide shot of a single plump whitecoat pup lying alone in the middle of a large ice pan in bright low sun, its coat white and woolly, calm water at the edge of the ice. There is NO adult seal anywhere in the frame: only this one pup, alone.",
+          "end": "The same camera and pan. The same single pup, alone, but its white woolly coat is patchy and shedding to show a dark-grey spotted coat beneath, the light has gone flat and grey, and the pup looks leaner. There is NO adult seal anywhere in the frame: only this one pup, alone.",
+          "motion": "Locked camera, no camera movement. Time passes on the lone pup: the light shifts from warm to flat grey, its white coat thins and sheds in patches to show grey spotted fur beneath, and it grows a little leaner. No other animal appears. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "caption": "IF ICE BREAKS EARLY",
+      "vo": "But there is a catch. The pup still needs ice while its diving ability develops. If storms break it up too early, young pups can drown.",
+      "shots": [
+        {
+          "id": "b5a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.2
+          ],
+          "start": "Close shot on a single lean young harp seal lying alone on the ice, grey spotted coat with patches of white lanugo still clinging, head down, ribs faintly suggested. There is NO adult seal anywhere in the frame: only this one pup, alone.",
+          "end": "The same camera and the same single young seal, alone, with EXACTLY the same grey spotted moulting coat and the same patches of white fur as the reference (it is not a white pup). It has lifted its head and looks toward the water at the edge of the ice. There is NO adult seal anywhere in the frame.",
+          "motion": "Locked camera, no camera movement. The lean young seal slowly lifts its head and looks toward the edge of the ice. Nothing else moves. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b6a",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.8
+          ],
+          "start": "Wide shot of pack ice under a dark storm sky. Four or five whitecoat pups lie scattered across one large intact ice pan; wind streaks snow across the surface. No adult seals: the mothers have left.",
+          "end": "The same camera. The ice pan has broken into several small separate fragments with wide channels of dark water between them; two pups remain, each on its own small fragment, and the other pups are gone. No adult seals.",
+          "motion": "Locked camera, no camera movement. Wind-driven snow streams across the frame; the ice pan cracks and splits into fragments that drift apart, dark water opening between them; pups are left on separate pieces. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b6",
+      "caption": "FEEDING FOR ITSELF",
+      "vo": "Later, surviving pups begin feeding for themselves.",
+      "shots": [
+        {
+          "id": "b7a",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.4
+          ],
+          "start": "Medium shot on the edge of an ice pan. A single lean young harp seal lies alone at the very edge of the ice above dark water. Its coat is short, silver-grey with dark spots, and has NO white woolly fur at all: it is a moulted juvenile, not a whitecoat pup. There is NO adult seal anywhere in the frame.",
+          "end": "The same camera. The ice pan is now completely EMPTY: no seal of any kind lies on it. The same single grey-spotted young seal (no white fur) is in the water just below the edge of the ice, only its sleek grey head above the surface, ripples spreading around it. No other seal, pup or adult, appears anywhere.",
+          "motion": "Locked camera, no camera movement. The lone young seal slides forward off the edge of the ice into the water and surfaces with its head up, ripples spreading. No other animal appears. Painterly natural-history illustration look, no cuts."
+        },
+        {
+          "id": "b6b",
+          "duration": 5,
+          "use": [
+            0.0,
+            2.6
+          ],
+          "start": "Fully underwater shot, the whole frame below the surface: clear blue-green water, sunlight rays from above, no ice surface, no sky, no horizon. A single young harp seal in its grey spotted coat swims toward a loose school of small silver fish. The ONLY animal in the frame is this one grey-spotted young seal: no whitecoat pup, no adult, no second seal of any kind.",
+          "end": "The same fully underwater camera. The young seal has closed on the school, jaws open at one small silver fish, the rest scattering; bubbles trail from it. No ice surface, no sky. The ONLY animal in the frame is this one grey-spotted young seal: no whitecoat pup, no adult, no second seal of any kind.",
+          "motion": "Locked camera, no camera movement. The young seal swims forward into the school of small fish, opens its jaws at one, and the school scatters; bubbles trail behind it. No other seal appears. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    },
+    {
+      "id": "b7",
+      "caption": "HER MILK BUYS TIME",
+      "vo": "She left it with fuel, not a guarantee. Her milk buys time. The ice has to last.",
+      "shots": [
+        {
+          "id": "b7b",
+          "duration": 5,
+          "use": [
+            0.0,
+            4.8
+          ],
+          "start": "Wide shot at low sun. A single young harp seal in its short grey spotted coat lies alone near the edge of a large ice pan; calm dark water beyond the edge, distant broken ice on the horizon. The ONLY animal in the frame is this one grey-spotted young seal: no whitecoat pup, no adult, no second seal of any kind.",
+          "end": "The same camera and pan. The same single grey-spotted young seal, still alone, has lifted its head toward the low sun; the water at the edge is calm, the horizon unchanged. The ONLY animal in the frame is this one grey-spotted young seal: no whitecoat pup, no adult, no second seal of any kind.",
+          "motion": "Locked camera, no camera movement. The grey-spotted young seal lifts its head toward the low sun and blinks; its short coat catches the light; a thin drift of blown snow crosses the ice in the foreground; the water glitters. No other animal appears. Painterly natural-history illustration look, no cuts."
+        }
+      ]
+    }
+  ]
+}

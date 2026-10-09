@@ -1878,5 +1878,31 @@
     "human-review_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/45711ddf.human-review",
     "readiness_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/45711ddf.readiness",
     "opening_preview_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/45711ddf.opening_preview"
+  },
+  "3cae632b": {
+    "title": "Can You Name Them From the Shadow?",
+    "status": "degraded",
+    "format": "short-quiz",
+    "question": "African wild animals",
+    "scene_count": 17,
+    "visual_style": "cinematic",
+    "topic_channel": "",
+    "actual_cost": 0.398,
+    "duration_sec": 10.1,
+    "retention_readiness_score": null,
+    "rendered_contract_score": null,
+    "rendered_contract_status": null,
+    "technical_status": null,
+    "automated_grade_status": null,
+    "editorial_status": null,
+    "promotion_status": null,
+    "pilot_reused": false,
+    "parent_job_id": null,
+    "parent_video_sha256": null,
+    "path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/3cae632b.mp4",
+    "txt_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/3cae632b.txt",
+    "srt_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/3cae632b.srt",
+    "desc_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/3cae632b.desc",
+    "quiz-control_path": "/Users/obadiah/Documents/video/.claude/worktrees/youtube-shorts-toolkit-23e774/finished_videos/3cae632b.quiz-control"
   }
 }
