@@ -1,1011 +1,1252 @@
 {
- "generated": "2026-10-08",
+ "generated": "2026-10-09",
+ "method": "scripts/topic_market.py",
  "ranked": [
   {
-   "slug": "dingo-fence",
-   "question": "Australia Built a 5,600 km Fence to Keep Dingoes Out and the Kangaroos Took Over",
-   "search": "dingo fence kangaroos ecosystem",
-   "curiosity_gap": 8,
-   "visual_promise": 8,
-   "production_fit": 7,
-   "fact_confidence": 7,
-   "novelty": 8,
-   "score": 67,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.373,
-    "outlier": 0.832,
-    "demand": 0.595,
-    "recency": 1.0,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.7,
-    "fact": 0.7,
-    "novelty": 0.8,
-    "evidence": 1.0,
-    "saturation": 0.083
-   },
-   "own_fit_evidence": 0,
-   "market": {
-    "relevant_count": 12,
-    "median_views": 3731.0,
-    "median_views_per_day": 29.945196480938414,
-    "outlier": 175.34387563655855,
-    "recency_days": 79,
-    "competition": 1
-   },
-   "top_competitors": [
-    {
-     "id": "mnvPQQGQM40",
-     "title": "Australia Built a Giant Transcontinental Fence to Stop the Invasion of 10 Billion Rabbits",
-     "channel": "Mandarin Tech",
-     "views": 654208,
-     "days": 79,
-     "views_per_day": 8281.113924050633,
-     "relevant": true
-    },
-    {
-     "id": "zUo0vnxmSW4",
-     "title": "Why Australia Built a Fence Across the Entire Continent",
-     "channel": "BRIGHT SIDE",
-     "views": 462393,
-     "days": 864,
-     "views_per_day": 535.1770833333334,
-     "relevant": true
-    },
-    {
-     "id": "VFhFfd7c92c",
-     "title": "Why the World's Longest Fence Determines Dingoes' Future",
-     "channel": "Terra Mater",
-     "views": 338005,
-     "days": 1903,
-     "views_per_day": 177.61692065160273,
-     "relevant": true
-    }
-   ]
-  },
-  {
-   "slug": "thylacine-bounty",
-   "question": "Tasmania Paid a Bounty on the Tasmanian Tiger and Killed the Last of Its Kind",
-   "search": "Tasmanian tiger bounty extinction thylacine",
-   "curiosity_gap": 8,
-   "visual_promise": 8,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 6,
-   "score": 64,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.31,
-    "outlier": 0.851,
-    "demand": 0.576,
-    "recency": 1.0,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.6,
-    "evidence": 1.0,
-    "saturation": 0.167
-   },
-   "own_fit_evidence": 0,
-   "market": {
-    "relevant_count": 18,
-    "median_views": 2846.5,
-    "median_views_per_day": 16.396187962364433,
-    "outlier": 197.2534691726682,
-    "recency_days": 29,
-    "competition": 2
-   },
-   "top_competitors": [
-    {
-     "id": "KJbTCszHtoA",
-     "title": "These Tasmanian Tiger Photos Were A Hoax",
-     "channel": "Forrest Galante",
-     "views": 561482,
-     "days": 853,
-     "views_per_day": 658.2438452520515,
-     "relevant": true
-    },
-    {
-     "id": "rY5ntt3_Zhs",
-     "title": "Is the Tasmanian Tiger REALLY Coming Back From Extinction?",
-     "channel": "Forrest Galante",
-     "views": 512929,
-     "days": 722,
-     "views_per_day": 710.4279778393352,
-     "relevant": true
-    },
-    {
-     "id": "fF7nP9a6_xA",
-     "title": "If Tasmanian Tigers Aren't Extinct, They're Alive HERE!",
-     "channel": "Fishing Urban Ontario",
-     "views": 155034,
-     "days": 158,
-     "views_per_day": 981.2278481012659,
-     "relevant": true
-    }
-   ]
-  },
-  {
-   "slug": "asian-carp",
-   "question": "America Imported Asian Carp to Clean Its Ponds and Now They Rule the Mississippi",
-   "search": "Asian carp invasion Mississippi",
-   "curiosity_gap": 7,
-   "visual_promise": 8,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 5,
-   "score": 64,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.362,
-    "outlier": 1.0,
-    "demand": 0.587,
-    "recency": 1.0,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.5,
-    "evidence": 1.0,
-    "saturation": 0.25
-   },
-   "own_fit_evidence": 0,
-   "market": {
-    "relevant_count": 20,
-    "median_views": 3331.0,
-    "median_views_per_day": 27.069230769230767,
-    "outlier": 1818.7466226358451,
-    "recency_days": 6,
-    "competition": 3
-   },
-   "top_competitors": [
-    {
-     "id": "YnZp1jtOhR0",
-     "title": "The Worst Fish in America: Asian Carpocalypse",
-     "channel": "VICE News",
-     "views": 6058245,
-     "days": 4397,
-     "views_per_day": 1377.813281783034,
-     "relevant": true
-    },
-    {
-     "id": "dMyK0QDoREU",
-     "title": "The NEW \"Modified-Unified\" Method of Asian Carp Removal",
-     "channel": "Kentucky Afield",
-     "views": 2451656,
-     "days": 2395,
-     "views_per_day": 1023.6559498956159,
-     "relevant": true
-    },
-    {
-     "id": "mOZ9t04iuKE",
-     "title": "Asian Carp Are Vanishing in the Illinois River \u2014The Real Predator Was Unexpected",
-     "channel": "Blue Trees",
-     "views": 2137347,
-     "days": 66,
-     "views_per_day": 32384.045454545456,
-     "relevant": true
-    }
-   ]
-  },
-  {
-   "slug": "macquarie-cats",
-   "question": "Removing the Cats of Macquarie Island Let the Rabbits Destroy It",
-   "search": "Macquarie Island cats rabbits eradication",
-   "curiosity_gap": 8,
-   "visual_promise": 7,
-   "production_fit": 7,
-   "fact_confidence": 9,
-   "novelty": 8,
-   "score": 64,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.18,
-    "outlier": 1.0,
-    "demand": 0.331,
-    "recency": 1.0,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.7,
-    "fact": 0.9,
-    "novelty": 0.8,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
-   "market": {
-    "relevant_count": 15,
-    "median_views": 96,
-    "median_views_per_day": 4.25,
-    "outlier": 878.25,
-    "recency_days": 78,
-    "competition": 0
-   },
-   "top_competitors": [
-    {
-     "id": "SPbubQJBtQQ",
-     "title": "Macquarie Removed Every Rabbit From The Island  \u2014 What Returned Was Unbelievable",
-     "channel": "Living Moves",
-     "views": 84312,
-     "days": 91,
-     "views_per_day": 926.5054945054945,
-     "relevant": true
-    },
-    {
-     "id": "qCmBK99lpco",
-     "title": "Australia Releases Cats Onto Island To Kill Rats - WHAT HAPPENED NEXT WAS EVEN WORSE",
-     "channel": "Regen Eco",
-     "views": 25418,
-     "days": 78,
-     "views_per_day": 325.87179487179486,
-     "relevant": true
-    },
-    {
-     "id": "6tE7Y9SAxzo",
-     "title": "This Is How Australia ERADICATED ALL INVASIVE RABBITS AND RATS On Macquarie Island After 100+ Years",
-     "channel": "Regen Eco",
-     "views": 6634,
-     "days": 6,
-     "views_per_day": 1105.6666666666667,
-     "relevant": true
-    }
-   ]
-  },
-  {
-   "slug": "nz-stoats",
-   "question": "New Zealand Brought Stoats to Kill Rabbits and They Hunted the Native Birds",
-   "search": "stoats New Zealand introduced rabbits birds",
-   "curiosity_gap": 8,
-   "visual_promise": 7,
-   "production_fit": 8,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 61,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.23,
-    "outlier": 1.0,
-    "demand": 0.488,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.8,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.083
-   },
-   "own_fit_evidence": 0,
-   "market": {
-    "relevant_count": 10,
-    "median_views": 851.5,
-    "median_views_per_day": 7.328032345013478,
-    "outlier": 1329.8214914856137,
-    "recency_days": 645,
-    "competition": 1
-   },
-   "top_competitors": [
-    {
-     "id": "yANKtdbop-E",
-     "title": "Lurcher Dog Hunting Rabbits - Ferreting in New Zealand 5 \ud83c\uddf3\ud83c\uddff",
-     "channel": "Zeus Polecat",
-     "views": 1132343,
-     "days": 645,
-     "views_per_day": 1755.570542635659,
-     "relevant": true
-    },
-    {
-     "id": "bp_wb2FgL94",
-     "title": "Kids In New Zealand Are Out To Kill The Country\u2019s Invasive Mammals (HBO)",
-     "channel": "VICE News",
-     "views": 313664,
-     "days": 3118,
-     "views_per_day": 100.59781911481718,
-     "relevant": true
-    },
-    {
-     "id": "r0TBHg2X84g",
-     "title": "How the RSPB\u2019s hunt for stoats on Orkney is now a wild goose chase",
-     "channel": "Fieldsports Channel",
-     "views": 14202,
-     "days": 1855,
-     "views_per_day": 7.6560646900269544,
-     "relevant": true
-    }
-   ]
-  },
-  {
    "slug": "emu-war",
-   "question": "Australia Sent Machine Guns Against the Emus in 1932 and the Emus Won",
-   "search": "Great Emu War 1932",
-   "curiosity_gap": 9,
-   "visual_promise": 8,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 5,
-   "score": 59,
-   "breakdown": {
-    "curiosity": 0.9,
-    "velocity": 0.049,
-    "outlier": 1.0,
-    "demand": 0.349,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.5,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "search": "great emu war",
    "market": {
-    "relevant_count": 17,
-    "median_views": 123,
-    "median_views_per_day": 0.5769230769230769,
-    "outlier": 23453.308943089432,
-    "recency_days": 501,
-    "competition": 0
+    "n": 22,
+    "median_views": 314441.0,
+    "top_views": 28651484,
+    "n_100k": 15,
+    "recent_median_vpd": 62.72509960159363,
+    "n_recent": 9,
+    "small_breakouts": 2
    },
    "top_competitors": [
     {
-     "id": "-4xIm2l4KCw",
-     "title": "How Australia Lost War Against Birds | The Great EMU War",
-     "channel": "Zem TV",
-     "views": 2884757,
-     "days": 1098,
-     "views_per_day": 2627.283242258652,
-     "relevant": true
+     "title": "Emu War - OverSimplified (Mini-Wars #4)",
+     "views": 28651484,
+     "days": 2884,
+     "vpd": 9934.633841886269,
+     "subs": 9660000,
+     "channel": "OverSimplified"
     },
     {
-     "id": "5lbO2BnV3Ak",
-     "title": "The Great Emu War, 1932 (Weird Wars)",
-     "channel": "Simple History",
-     "views": 2215861,
-     "days": 3006,
-     "views_per_day": 737.1460412508317,
-     "relevant": true
+     "title": "The Great Emu War",
+     "views": 9165404,
+     "days": 3726,
+     "vpd": 2459.8507783145465,
+     "subs": 4810000,
+     "channel": "Sam O'Nella Academy"
     },
     {
-     "id": "dyQ4lmAApKQ",
-     "title": "Australia Had a Full-Blown War Against Emus and Lost",
-     "channel": "Thoughty2",
-     "views": 972785,
-     "days": 2078,
-     "views_per_day": 468.1352261790183,
-     "relevant": true
+     "title": "The Great Emu War feat. Kate Peterman",
+     "views": 2880008,
+     "days": 1868,
+     "vpd": 1541.76017130621,
+     "subs": 90700,
+     "channel": "Puppet History Inc"
+    }
+   ]
+  },
+  {
+   "slug": "escobar-hippos",
+   "search": "pablo escobar hippos",
+   "market": {
+    "n": 19,
+    "median_views": 55317,
+    "top_views": 7025155,
+    "n_100k": 8,
+    "recent_median_vpd": 247.97191011235955,
+    "n_recent": 11,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Pablo Escobar's hippos keep multiplying and Colombia doesn't know how to stop it",
+     "views": 7025155,
+     "days": 2799,
+     "vpd": 2509.8803143979994,
+     "subs": 3320000,
+     "channel": "CBS Mornings"
+    },
+    {
+     "title": "Colombia\u2019s Cocaine Hippo Problem Is Worse Than You Think",
+     "views": 5151363,
+     "days": 26,
+     "vpd": 198129.34615384616,
+     "subs": 436000,
+     "channel": "KPassionate"
+    },
+    {
+     "title": "Pablo Escobar's 'Cocaine Hippos' Might Finally Need to Be Killed",
+     "views": 2909476,
+     "days": 1954,
+     "vpd": 1488.9846468781986,
+     "subs": 9300000,
+     "channel": "VICE News"
+    }
+   ]
+  },
+  {
+   "slug": "aral-sea",
+   "search": "aral sea disappeared",
+   "market": {
+    "n": 13,
+    "median_views": 73638,
+    "top_views": 1450790,
+    "n_100k": 5,
+    "recent_median_vpd": 295.4764285714286,
+    "n_recent": 8,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Aral Sea: The sea that dried up in 40 years - BBC News",
+     "views": 1450790,
+     "days": 4241,
+     "vpd": 342.08677198773876,
+     "subs": 20100000,
+     "channel": "BBC News"
+    },
+    {
+     "title": "What remains of the dried-out Aral Sea, a man-made ecological disaster? \u2022 FRANCE 24 English",
+     "views": 762396,
+     "days": 720,
+     "vpd": 1058.8833333333334,
+     "subs": 3690000,
+     "channel": "FRANCE 24 English"
+    },
+    {
+     "title": "The Aral Sea: How the USSR Destroyed the World's Largest Lake",
+     "views": 394641,
+     "days": 603,
+     "vpd": 654.4626865671642,
+     "subs": 447000,
+     "channel": "Places"
+    }
+   ]
+  },
+  {
+   "slug": "dust-bowl",
+   "search": "dust bowl what caused it",
+   "market": {
+    "n": 17,
+    "median_views": 93202,
+    "top_views": 1584361,
+    "n_100k": 8,
+    "recent_median_vpd": 109.86806638374033,
+    "n_recent": 4,
+    "small_breakouts": 6
+   },
+   "top_competitors": [
+    {
+     "title": "What People Ate to Survive During the Dust Bowl",
+     "views": 1584361,
+     "days": 1916,
+     "vpd": 826.910751565762,
+     "subs": 4730000,
+     "channel": "Weird History"
+    },
+    {
+     "title": "History Brief: the Dust Bowl",
+     "views": 1403158,
+     "days": 3952,
+     "vpd": 355.0501012145749,
+     "subs": 107000,
+     "channel": "Reading Through History"
+    },
+    {
+     "title": "The Dust Bowl: Darkness in the Great Depression",
+     "views": 706664,
+     "days": 2141,
+     "vpd": 330.0625875758991,
+     "subs": 1070000,
+     "channel": "Geographics"
     }
    ]
   },
   {
    "slug": "australia-rabbits",
-   "question": "Thomas Austin Released 24 Rabbits in Australia and a Continent Spent a Century Fighting Them",
-   "search": "rabbits Australia Thomas Austin myxomatosis",
-   "curiosity_gap": 8,
-   "visual_promise": 8,
-   "production_fit": 8,
-   "fact_confidence": 9,
-   "novelty": 5,
-   "score": 57,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.122,
-    "outlier": 0.782,
-    "demand": 0.396,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.8,
-    "fact": 0.9,
-    "novelty": 0.5,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "search": "rabbits australia invasion",
    "market": {
-    "relevant_count": 12,
-    "median_views": 238.0,
-    "median_views_per_day": 2.0783866995073894,
-    "outlier": 127.91596638655462,
-    "recency_days": 1475,
-    "competition": 0
+    "n": 17,
+    "median_views": 25957,
+    "top_views": 4522961,
+    "n_100k": 6,
+    "recent_median_vpd": 62.77146982824137,
+    "n_recent": 14,
+    "small_breakouts": 1
    },
    "top_competitors": [
     {
-     "id": "hsLj8AyvXQk",
-     "title": "Australia's MASSIVE rabbit problem",
-     "channel": "History of Everything Podcast",
-     "views": 30444,
-     "days": 1475,
-     "views_per_day": 20.64,
-     "relevant": true
+     "title": "How To Deal With 287 Million Wild Rabbits Of Australian Farmers - Farming Documentary",
+     "views": 4522961,
+     "days": 1311,
+     "vpd": 3450.0083905415713,
+     "subs": 853000,
+     "channel": "Tony 98 - Discovery"
     },
     {
-     "id": "CgzU-s7zHlY",
-     "title": "Australia's Rabbit Problem Explained",
-     "channel": "Fresco",
-     "views": 18732,
-     "days": 2147,
-     "views_per_day": 8.72473218444341,
-     "relevant": true
+     "title": "Why don't they eat wild rabbits in Australia? They have millions of them! The reason is surprising\u2026",
+     "views": 3063785,
+     "days": 1344,
+     "vpd": 2279.6019345238096,
+     "subs": 285000,
+     "channel": "Incredible Stories"
     },
     {
-     "id": "abSQx0n36oo",
-     "title": "Why 24 Rabbits Almost Destroyed a Continent",
-     "channel": "CuriousReason",
-     "views": 3186,
-     "days": 281,
-     "views_per_day": 11.338078291814947,
-     "relevant": true
+     "title": "281 Million Wild Rabbits Destroy Farms And How Australian Farmers Deal With Them",
+     "views": 710124,
+     "days": 936,
+     "vpd": 758.6794871794872,
+     "subs": 853000,
+     "channel": "Tony 98 - Discovery"
     }
    ]
   },
   {
-   "slug": "nz-possums",
-   "question": "New Zealand Imported Possums for Fur and Now Fights 30 Million of Them",
-   "search": "possums New Zealand introduced fur pest",
-   "curiosity_gap": 7,
-   "visual_promise": 6,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 55,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.127,
-    "outlier": 0.804,
-    "demand": 0.555,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.6,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "kudzu",
+   "search": "kudzu vine that ate the south",
    "market": {
-    "relevant_count": 9,
-    "median_views": 2133,
-    "median_views_per_day": 2.2164318000531775,
-    "outlier": 147.05297702766057,
-    "recency_days": 3118,
-    "competition": 0
+    "n": 11,
+    "median_views": 11690,
+    "top_views": 3697220,
+    "n_100k": 4,
+    "recent_median_vpd": 16.82456140350877,
+    "n_recent": 5,
+    "small_breakouts": 2
    },
    "top_competitors": [
     {
-     "id": "bp_wb2FgL94",
-     "title": "Kids In New Zealand Are Out To Kill The Country\u2019s Invasive Mammals (HBO)",
-     "channel": "VICE News",
-     "views": 313664,
-     "days": 3118,
-     "views_per_day": 100.59781911481718,
-     "relevant": true
+     "title": "The Vine that Ate the South - The Terror & Revival of Kudzu",
+     "views": 3697220,
+     "days": 807,
+     "vpd": 4581.437422552664,
+     "subs": 4730000,
+     "channel": "Wendigoon"
     },
     {
-     "id": "URZClgFZnng",
-     "title": "Possum trapping in New Zealand - A day out possuming.",
-     "channel": "Bryan Ritchie",
-     "views": 36041,
-     "days": 3438,
-     "views_per_day": 10.483129726585224,
-     "relevant": true
+     "title": "Kudzu",
+     "views": 215828,
+     "days": 7037,
+     "vpd": 30.67045616029558,
+     "subs": 5710,
+     "channel": "UT Institute of Agriculture"
     },
     {
-     "id": "VApN_5af_qA",
-     "title": "How to Trap Possums with a Flipping Timmy | Connovation New Zealand",
-     "channel": "Connovation",
-     "views": 9544,
-     "days": 1659,
-     "views_per_day": 5.75286317058469,
-     "relevant": true
+     "title": "Kudzu: The Vine That Covered The South In Darkness",
+     "views": 165247,
+     "days": 1217,
+     "vpd": 135.7822514379622,
+     "subs": 2150000,
+     "channel": "Animalogic"
     }
    ]
   },
   {
-   "slug": "australia-camels",
-   "question": "Australia Imported Camels to Cross the Desert and Now Shoots Them From Helicopters",
-   "search": "feral camels Australia cull",
-   "curiosity_gap": 7,
-   "visual_promise": 7,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 55,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.149,
-    "outlier": 0.453,
-    "demand": 0.605,
-    "recency": 0.75,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "burmese-pythons",
+   "search": "burmese pythons everglades",
    "market": {
-    "relevant_count": 11,
-    "median_views": 4245,
-    "median_views_per_day": 2.9367816091954024,
-    "outlier": 15.741342756183746,
-    "recency_days": 300,
-    "competition": 0
+    "n": 17,
+    "median_views": 660434,
+    "top_views": 4036457,
+    "n_100k": 15,
+    "recent_median_vpd": 691.2666666666667,
+    "n_recent": 11,
+    "small_breakouts": 3
    },
    "top_competitors": [
     {
-     "id": "BIAP90YFNrA",
-     "title": "What Happened When Australia Tried to Get Rid of 160,000 Camels?",
-     "channel": "Infomation",
-     "views": 66822,
-     "days": 300,
-     "views_per_day": 222.74,
-     "relevant": true
+     "title": "The Bounty Hunters Catching Pythons In Florida (HBO)",
+     "views": 4036457,
+     "days": 2796,
+     "vpd": 1443.654148783977,
+     "subs": 9300000,
+     "channel": "VICE News"
     },
     {
-     "id": "SuccpyCTZZk",
-     "title": "Camel Cull in Australia -  Landline ABC Tahmina Ansari",
-     "channel": "Aus Camel",
-     "views": 16604,
-     "days": 4235,
-     "views_per_day": 3.9206611570247936,
-     "relevant": true
+     "title": "Giant Snake of the Everglades - The Invasive Burmese Python",
+     "views": 3040355,
+     "days": 4287,
+     "vpd": 709.2034056449731,
+     "subs": 21800000,
+     "channel": "Brave Wilderness"
     },
     {
-     "id": "Yc8k49m0HfA",
-     "title": "\"Feral Camels Australia\"",
-     "channel": "PawsAndLaughs",
-     "views": 6205,
-     "days": 498,
-     "views_per_day": 12.459839357429718,
-     "relevant": true
+     "title": "Python hunters take on Florida Everglades' snake problem",
+     "views": 1903797,
+     "days": 3432,
+     "vpd": 554.7194055944055,
+     "subs": 3320000,
+     "channel": "CBS Mornings"
     }
    ]
   },
   {
-   "slug": "hanoi-rat-hunt",
-   "question": "Colonial Hanoi Paid a Bounty for Rat Tails in 1902 and Got Rat Farms Instead",
-   "search": "Great Hanoi Rat Hunt",
-   "curiosity_gap": 9,
-   "visual_promise": 8,
-   "production_fit": 8,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 54,
-   "breakdown": {
-    "curiosity": 0.9,
-    "velocity": 0.027,
-    "outlier": 0.674,
-    "demand": 0.233,
-    "recency": 0.35,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.8,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "lionfish",
+   "search": "lionfish invasion",
    "market": {
-    "relevant_count": 17,
-    "median_views": 24,
-    "median_views_per_day": 0.27804616210413313,
-    "outlier": 64.91666666666667,
-    "recency_days": null,
-    "competition": 0
+    "n": 22,
+    "median_views": 143288.5,
+    "top_views": 3896348,
+    "n_100k": 12,
+    "recent_median_vpd": 16.708712613784137,
+    "n_recent": 13,
+    "small_breakouts": 3
    },
    "top_competitors": [
     {
-     "id": "CRGX0XaB7BI",
-     "title": "The Great Hanoi Rat Massacre of 1902",
-     "channel": "Everything Everywhere (Everything Everywhere)",
-     "views": 1558,
-     "days": 1812,
-     "views_per_day": 0.8598233995584988,
-     "relevant": true
+     "title": "Divers Fight the Invasive Lionfish | National Geographic",
+     "views": 3896348,
+     "days": 4095,
+     "vpd": 951.4891330891331,
+     "subs": 26500000,
+     "channel": "National Geographic"
     },
     {
-     "id": "ZQPblyM8y2E",
-     "title": "The Hanoi Rat Massacre",
-     "channel": "Storyin",
-     "views": 615,
-     "days": 885,
-     "views_per_day": 0.6949152542372882,
-     "relevant": true
+     "title": "The 'Shocking' New Predators Targeting Lionfish | Save Our Species | BBC Earth Science",
+     "views": 1757058,
+     "days": 583,
+     "vpd": 3013.821612349914,
+     "subs": 1820000,
+     "channel": "BBC Earth Science"
     },
     {
-     "id": "gsEmQWCTmaQ",
-     "title": "The Great Rat Hunt of Hanoi | \u09a6\u09cd\u09af \u0997\u09cd\u09b0\u09c7\u099f \u09b0\u200d\u09cd\u09af\u09be\u099f \u09b9\u09be\u09a8\u09cd\u099f \u0985\u09ac \u09b9\u09cd\u09af\u09be\u09a8\u09df!#No_Stories",
-     "channel": "No Stories",
-     "views": 518,
-     "days": 1863,
-     "views_per_day": 0.27804616210413313,
-     "relevant": true
+     "title": "Florida\u2019s Lionfish Invasion | The Daily Show",
+     "views": 1260425,
+     "days": 2896,
+     "vpd": 435.2296270718232,
+     "subs": 14000000,
+     "channel": "The Daily Show"
     }
    ]
   },
   {
-   "slug": "nile-perch",
-   "question": "Nile Perch Were Put Into Lake Victoria for Food and Hundreds of Fish Species Vanished",
-   "search": "Nile perch Lake Victoria introduced",
-   "curiosity_gap": 7,
-   "visual_promise": 7,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 54,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.167,
-    "outlier": 0.675,
-    "demand": 0.471,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "feral-hogs",
+   "search": "feral hogs invasion america",
    "market": {
-    "relevant_count": 20,
-    "median_views": 669.0,
-    "median_views_per_day": 3.650744825270385,
-    "outlier": 65.44693572496263,
-    "recency_days": 2676,
-    "competition": 0
+    "n": 20,
+    "median_views": 143161.5,
+    "top_views": 3627638,
+    "n_100k": 10,
+    "recent_median_vpd": 227.76487431084274,
+    "n_recent": 16,
+    "small_breakouts": 6
    },
    "top_competitors": [
     {
-     "id": "J5oks5cUwcg",
-     "title": "The History of Lake Victoria's Ecological Crisis",
-     "channel": "Ecotasia",
-     "views": 43784,
-     "days": 3265,
-     "views_per_day": 13.41010719754977,
-     "relevant": true
+     "title": "The Feral Pig Problem in Texas",
+     "views": 3627638,
+     "days": 1925,
+     "vpd": 1884.4872727272727,
+     "subs": 21100000,
+     "channel": "PowerfulJRE"
     },
     {
-     "id": "-PfnlWki4iI",
-     "title": "Impact of Nile perch in lake victoria",
-     "channel": "Shabani Mfinanga",
-     "views": 25650,
-     "days": 2676,
-     "views_per_day": 9.585201793721973,
-     "relevant": true
+     "title": "Feral Hogs: Last Week Tonight with John Oliver (HBO)",
+     "views": 3230134,
+     "days": 109,
+     "vpd": 29634.256880733945,
+     "subs": 10200000,
+     "channel": "LastWeekTonight"
     },
     {
-     "id": "JyxSYAooBdw",
-     "title": "Lake Victoria: Nile Perch",
-     "channel": "JHMcKnight11",
-     "views": 25172,
-     "days": 6533,
-     "views_per_day": 3.8530537272309813,
-     "relevant": true
+     "title": "U.S. fighting to stop Canadian 'super pigs' from invading",
+     "views": 2164891,
+     "days": 1291,
+     "vpd": 1676.9101471727342,
+     "subs": 12200000,
+     "channel": "NBC News"
     }
    ]
   },
   {
-   "slug": "operation-cat-drop",
-   "question": "Spraying DDT on Borneo Villages Ended With Cats Parachuted In",
-   "search": "Operation Cat Drop Borneo DDT",
-   "curiosity_gap": 9,
-   "visual_promise": 8,
-   "production_fit": 7,
-   "fact_confidence": 5,
-   "novelty": 8,
-   "score": 53,
-   "breakdown": {
-    "curiosity": 0.9,
-    "velocity": 0.03,
-    "outlier": 0.61,
-    "demand": 0.375,
-    "recency": 0.35,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.7,
-    "fact": 0.5,
-    "novelty": 0.8,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "asian-carp",
+   "search": "asian carp invasion",
    "market": {
-    "relevant_count": 13,
-    "median_views": 177,
-    "median_views_per_day": 0.32427736534512713,
-    "outlier": 43.28813559322034,
-    "recency_days": null,
-    "competition": 0
+    "n": 20,
+    "median_views": 32225.0,
+    "top_views": 5738317,
+    "n_100k": 7,
+    "recent_median_vpd": 61.8042273042273,
+    "n_recent": 18,
+    "small_breakouts": 7
    },
    "top_competitors": [
     {
-     "id": "jGr6nIDxBJk",
-     "title": "278- Operazione Cat Drop : gatti paracadutisti, DDT e Malaria [Aperistorie]",
-     "channel": "La Biblioteca di Alessandria",
-     "views": 7662,
-     "days": 276,
-     "views_per_day": 27.76086956521739,
-     "relevant": true
+     "title": "The Fight Against America\u2019s Most Hated Fish: Asian Carp",
+     "views": 5738317,
+     "days": 625,
+     "vpd": 9181.3072,
+     "subs": 61400,
+     "channel": "Wild Waters - Animal Documentaries"
     },
     {
-     "id": "LxoIeUQbuNg",
-     "title": "Britain Parachuted 23 Cats Into Rat-Infested Jungle In 1960 \u2014 What The Cats Did Was Unbelievable",
-     "channel": "Daily Discoveries",
-     "views": 2692,
-     "days": 126,
-     "views_per_day": 21.365079365079364,
-     "relevant": true
+     "title": "Asian Carp Are Vanishing in the Illinois River \u2014The Real Predator Was Unexpected",
+     "views": 2138182,
+     "days": 66,
+     "vpd": 32396.696969696968,
+     "subs": 6090,
+     "channel": "Blue Trees"
     },
     {
-     "id": "7JJ6ZEhHd-k",
-     "title": "The Cats of Borneo Incident",
-     "channel": "lesloandinero",
-     "views": 2053,
-     "days": 6331,
-     "views_per_day": 0.32427736534512713,
-     "relevant": true
+     "title": "\"Silent Invaders\" Asian Carp 2013",
+     "views": 1793577,
+     "days": 4924,
+     "vpd": 364.25203086921204,
+     "subs": 20700,
+     "channel": "NorthAmericanFishing"
     }
    ]
   },
   {
    "slug": "central-park-starlings",
-   "question": "Someone Released 100 Starlings in Central Park and America Now Has 200 Million",
-   "search": "European starlings Central Park Schieffelin",
-   "curiosity_gap": 8,
-   "visual_promise": 7,
-   "production_fit": 8,
-   "fact_confidence": 8,
-   "novelty": 6,
-   "score": 52,
-   "breakdown": {
-    "curiosity": 0.8,
-    "velocity": 0.13,
-    "outlier": 0.496,
-    "demand": 0.394,
-    "recency": 0.35,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.8,
-    "fact": 0.8,
-    "novelty": 0.6,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "search": "starlings shakespeare central park",
    "market": {
-    "relevant_count": 5,
-    "median_views": 230,
-    "median_views_per_day": 2.31886155330439,
-    "outlier": 20.9,
-    "recency_days": null,
-    "competition": 0
+    "n": 6,
+    "median_views": 49.5,
+    "top_views": 2063,
+    "n_100k": 0,
+    "recent_median_vpd": 0.1711988506542962,
+    "n_recent": 4,
+    "small_breakouts": 0
    },
    "top_competitors": [
     {
-     "id": "_6-fe8E_8Q8",
-     "title": "Why are European Starlings in North America?",
-     "channel": "Ecotasia",
-     "views": 4807,
-     "days": 2073,
-     "views_per_day": 2.31886155330439,
-     "relevant": true
+     "title": "The manifest destiny of starlings | The Commoners",
+     "views": 2063,
+     "days": 3075,
+     "vpd": 0.6708943089430894,
+     "subs": 74100,
+     "channel": "Aeon Video"
     },
     {
-     "id": "07q0ipUiAVA",
-     "title": "Starlings at Central Parc NYC",
-     "channel": "Tilman K\u00fcntzel",
-     "views": 760,
-     "days": 3913,
-     "views_per_day": 0.1942243802708919,
-     "relevant": true
+     "title": "Shakespeare and Starlings: Busting a Birding Myth",
+     "views": 79,
+     "days": 404,
+     "vpd": 0.19554455445544555,
+     "subs": 2030,
+     "channel": "A Birding Naturalist"
     },
     {
-     "id": "aancokXQIC4",
-     "title": "America Spends $800 Million a Year on Starlings. One Bird Does It For Free",
-     "channel": "EcoReborn",
-     "views": 230,
-     "days": 114,
-     "views_per_day": 2.017543859649123,
-     "relevant": true
+     "title": "The Philosophy of Starlings",
+     "views": 78,
+     "days": 2563,
+     "vpd": 0.030433086227077643,
+     "subs": 292,
+     "channel": "Lynne Marie Rosenberg"
     }
    ]
   },
   {
    "slug": "hawaii-mongoose",
-   "question": "Hawaii Released Mongooses to Kill Rats in the Cane Fields and They Ate the Birds",
-   "search": "mongoose Hawaii introduced rats",
-   "curiosity_gap": 7,
-   "visual_promise": 7,
-   "production_fit": 8,
-   "fact_confidence": 8,
-   "novelty": 7,
-   "score": 50,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.103,
-    "outlier": 0.392,
-    "demand": 0.499,
-    "recency": 0.45,
-    "own_fit": 0.5,
-    "visual": 0.7,
-    "production": 0.8,
-    "fact": 0.8,
-    "novelty": 0.7,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "search": "mongoose hawaii mistake",
    "market": {
-    "relevant_count": 14,
-    "median_views": 987.5,
-    "median_views_per_day": 1.5919179685774447,
-    "outlier": 10.45367088607595,
-    "recency_days": 2536,
-    "competition": 0
+    "n": 10,
+    "median_views": 1992.5,
+    "top_views": 318510,
+    "n_100k": 1,
+    "recent_median_vpd": 9.578432298058466,
+    "n_recent": 6,
+    "small_breakouts": 0
    },
    "top_competitors": [
     {
-     "id": "2PEHppYZS1w",
-     "title": "Controlling Invasive Rats In Hawaii | Hawaiian Conservation Conference",
-     "channel": "Automatic Trap Company",
-     "views": 10323,
-     "days": 2536,
-     "views_per_day": 4.070583596214511,
-     "relevant": true
+     "title": "The Mass-Murdering Mongoose - Hawaiian History - Extra History",
+     "views": 318510,
+     "days": 1225,
+     "vpd": 260.0081632653061,
+     "subs": 4620000,
+     "channel": "Extra History"
     },
     {
-     "id": "-XhJy7f6rHQ",
-     "title": "Rat Lungworm Disease in Hawaii Concerns Renewed",
-     "channel": "Big Island Video News",
-     "views": 8225,
-     "days": 4207,
-     "views_per_day": 1.9550748752079867,
-     "relevant": true
+     "title": "Hawaii Releases Mongoose To Kill Rats - WHAT HAPPENED NEXT TERRIFIED SCIENTISTS",
+     "views": 9425,
+     "days": 33,
+     "vpd": 285.6060606060606,
+     "subs": 4970,
+     "channel": "Regen Eco"
     },
     {
-     "id": "xbPClva4LkA",
      "title": "The Mongoose Invasion: Hawaii\u2019s Biggest Mistake!",
-     "channel": "Impressive Nature",
-     "views": 6903,
-     "days": 593,
-     "views_per_day": 11.640809443507589,
-     "relevant": true
+     "views": 6914,
+     "days": 594,
+     "vpd": 11.63973063973064,
+     "subs": 9450,
+     "channel": "Impressive Nature"
     }
    ]
   },
   {
-   "slug": "delhi-cobra-bounty",
-   "question": "The Cobra Bounty in Delhi That Supposedly Created Cobra Farms",
-   "search": "cobra effect bounty Delhi",
-   "curiosity_gap": 9,
-   "visual_promise": 8,
-   "production_fit": 8,
-   "fact_confidence": 4,
-   "novelty": 4,
-   "score": 48,
-   "breakdown": {
-    "curiosity": 0.9,
-    "velocity": 0.024,
-    "outlier": 0.494,
-    "demand": 0.174,
-    "recency": 0.35,
-    "own_fit": 0.5,
-    "visual": 0.8,
-    "production": 0.8,
-    "fact": 0.4,
-    "novelty": 0.4,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "nile-perch",
+   "search": "nile perch lake victoria",
    "market": {
-    "relevant_count": 8,
-    "median_views": 10.0,
-    "median_views_per_day": 0.2461808367071525,
-    "outlier": 20.6,
-    "recency_days": null,
-    "competition": 0
+    "n": 9,
+    "median_views": 6717,
+    "top_views": 232700,
+    "n_100k": 2,
+    "recent_median_vpd": 13.849484536082475,
+    "n_recent": 5,
+    "small_breakouts": 1
    },
    "top_competitors": [
     {
-     "id": "W348RxcTn-o",
-     "title": "The Cobra Effect: How British India\u2019s Bounty Backfired",
-     "channel": "Tales from the Clipped",
-     "views": 206,
-     "days": 650,
-     "views_per_day": 0.3169230769230769,
-     "relevant": true
+     "title": "Catching Giant Nile Perches In Dangerous Waters | Fishing For Giants | Earth Touch",
+     "views": 232700,
+     "days": 414,
+     "vpd": 562.0772946859903,
+     "subs": 223000,
+     "channel": "Untamed"
     },
     {
-     "id": "EwtU3AwIfik",
-     "title": "The Delhi Cobra Disaster: How Britain Funded a Snake Cartel \ud83d\udc0d",
-     "channel": "Economic Fails",
-     "views": 97,
-     "days": 21,
-     "views_per_day": 4.619047619047619,
-     "relevant": true
+     "title": "Catching a 100lb+ Nile Perch in the \"Devils Cauldron\" | Uganda Fishing Trip",
+     "views": 159684,
+     "days": 37,
+     "vpd": 4315.783783783784,
+     "subs": 933,
+     "channel": "Packed Angling"
     },
     {
-     "id": "xLkUpgIeH2k",
+     "title": "Impact of Nile perch in lake victoria",
+     "views": 25656,
+     "days": 2677,
+     "vpd": 9.583862532685842,
+     "subs": 35,
+     "channel": "Shabani Mfinanga"
+    }
+   ]
+  },
+  {
+   "slug": "dingo-fence",
+   "search": "dingo fence",
+   "market": {
+    "n": 9,
+    "median_views": 3128,
+    "top_views": 373513,
+    "n_100k": 2,
+    "recent_median_vpd": 2.051546391752577,
+    "n_recent": 5,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Dingo Fence | The Longest Fence in the World | Short Wildlife Documentary",
+     "views": 373513,
+     "days": 76,
+     "vpd": 4914.644736842105,
+     "subs": 861,
+     "channel": "Kate Church"
+    },
+    {
+     "title": "Why the World's Longest Fence Determines Dingoes' Future",
+     "views": 338018,
+     "days": 1904,
+     "vpd": 177.53046218487395,
+     "subs": 625000,
+     "channel": "Terra Mater"
+    },
+    {
+     "title": "World's longest fence protecting Australia's sheep from dingoes gets a makeover | ABC News",
+     "views": 26418,
+     "days": 2277,
+     "vpd": 11.602108036890646,
+     "subs": 2630000,
+     "channel": "ABC News (Australia)"
+    }
+   ]
+  },
+  {
+   "slug": "thylacine-bounty",
+   "search": "tasmanian tiger extinction",
+   "market": {
+    "n": 15,
+    "median_views": 83689,
+    "top_views": 3807594,
+    "n_100k": 7,
+    "recent_median_vpd": 642.844846277487,
+    "n_recent": 10,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Did This Man Find The Extinct Tasmanian Tiger?",
+     "views": 3807594,
+     "days": 1751,
+     "vpd": 2174.5254140491147,
+     "subs": 19200000,
+     "channel": "VICE"
+    },
+    {
+     "title": "Why I Believe The Tasmanian Tiger Is Still Alive...",
+     "views": 2770415,
+     "days": 960,
+     "vpd": 2885.8489583333335,
+     "subs": 3000000,
+     "channel": "Forrest Galante"
+    },
+    {
+     "title": "Wildlife Expert Reviews Top 6 Tasmanian Tiger Sightings",
+     "views": 2239079,
+     "days": 729,
+     "vpd": 3071.4389574759944,
+     "subs": 3000000,
+     "channel": "Forrest Galante"
+    }
+   ]
+  },
+  {
+   "slug": "cobra-effect",
+   "search": "cobra effect",
+   "market": {
+    "n": 17,
+    "median_views": 27838,
+    "top_views": 2191668,
+    "n_100k": 7,
+    "recent_median_vpd": 568.1224489795918,
+    "n_recent": 9,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "The Cobra Effect: Why Anti-Adblock Policies Could Hurt Revenue Instead",
+     "views": 2191668,
+     "days": 1231,
+     "vpd": 1780.3964256701868,
+     "subs": 12700,
+     "channel": "Galaxius"
+    },
+    {
+     "title": "The Cobra Effect: Why Good Intentions Don\u2019t Solve Problems - Konstantin Kisin",
+     "views": 859246,
+     "days": 724,
+     "vpd": 1186.8038674033148,
+     "subs": 1940000,
+     "channel": "Triggernometry"
+    },
+    {
      "title": "The Cobra Effect",
-     "channel": "History Gone",
-     "views": 27,
-     "days": 81,
-     "views_per_day": 0.3333333333333333,
-     "relevant": true
+     "views": 567225,
+     "days": 2101,
+     "vpd": 269.9785816277963,
+     "subs": 19200,
+     "channel": "Leo Birenberg & Zach Robinson - Topic"
     }
    ]
   },
   {
-   "slug": "mosquitofish",
-   "question": "The Mosquito-Eating Fish Released Around the World That Ate Everything Else",
-   "search": "mosquitofish gambusia invasive",
-   "curiosity_gap": 7,
-   "visual_promise": 6,
-   "production_fit": 7,
-   "fact_confidence": 8,
-   "novelty": 8,
-   "score": 47,
-   "breakdown": {
-    "curiosity": 0.7,
-    "velocity": 0.006,
-    "outlier": 0.527,
-    "demand": 0.317,
-    "recency": 0.35,
-    "own_fit": 0.5,
-    "visual": 0.6,
-    "production": 0.7,
-    "fact": 0.8,
-    "novelty": 0.8,
-    "evidence": 1.0,
-    "saturation": 0.0
-   },
-   "own_fit_evidence": 0,
+   "slug": "hanoi-rat-hunt",
+   "search": "great hanoi rat massacre",
    "market": {
-    "relevant_count": 5,
-    "median_views": 79,
-    "median_views_per_day": 0.057261124525698516,
-    "outlier": 25.481012658227847,
-    "recency_days": null,
-    "competition": 0
+    "n": 11,
+    "median_views": 618,
+    "top_views": 7032,
+    "n_100k": 0,
+    "recent_median_vpd": 1.2984693877551021,
+    "n_recent": 9,
+    "small_breakouts": 0
    },
    "top_competitors": [
     {
-     "id": "bVK7TFdyChs",
-     "title": "Collecting WILD Mosquito Fish For Freshwater Aquariums pt2",
-     "channel": "Bucket Ponds",
-     "views": 2013,
-     "days": 2411,
-     "views_per_day": 0.8349232683533804,
-     "relevant": true
+     "title": "The Great Hanoi Rat Massacre",
+     "views": 7032,
+     "days": 115,
+     "vpd": 61.14782608695652,
+     "subs": 78900,
+     "channel": "BT Reports"
     },
     {
-     "id": "CjRvZcpihOE",
-     "title": "Gambusia affinis || JAMAICAN MOSQUITO FISH",
-     "channel": "Fish Keeping Jamaica & ADVENTURES",
-     "views": 166,
-     "days": 2899,
-     "views_per_day": 0.057261124525698516,
-     "relevant": true
+     "title": "The Great Hanoi Rat Massacre of 1902 | Laughs from the Past | S5E1",
+     "views": 2336,
+     "days": 2633,
+     "vpd": 0.8872009115077858,
+     "subs": 4270,
+     "channel": "Laughs from the Past"
     },
     {
-     "id": "M8x-rTqcRVA",
-     "title": "The backyard Fish Tank. Mosquito fish and guppies.",
-     "channel": "BlessedAreWe!!",
-     "views": 79,
-     "days": 522,
-     "views_per_day": 0.15134099616858238,
-     "relevant": true
+     "title": "The Great Hanoi Rat Massacre of 1902",
+     "views": 1558,
+     "days": 1813,
+     "vpd": 0.8593491450634307,
+     "subs": 4650,
+     "channel": "Everything Everywhere (Everything Everywhere)"
+    }
+   ]
+  },
+  {
+   "slug": "operation-cat-drop",
+   "search": "operation cat drop borneo",
+   "market": {
+    "n": 12,
+    "median_views": 572.5,
+    "top_views": 584221,
+    "n_100k": 1,
+    "recent_median_vpd": 0.9922879177377892,
+    "n_recent": 7,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Systems thinking: a cautionary tale (cats in Borneo)",
+     "views": 584221,
+     "days": 4538,
+     "vpd": 128.73975319524018,
+     "subs": 75700,
+     "channel": "Sustainability Illustrated"
+    },
+    {
+     "title": "Operation Cat Drop; It\u2019s What it Sounds Like\u2026",
+     "views": 24054,
+     "days": 1141,
+     "vpd": 21.08150744960561,
+     "subs": 106000,
+     "channel": "Ed Nash's Military Matters"
+    },
+    {
+     "title": "Operation Cat Drop~ History from Home",
+     "views": 3988,
+     "days": 1648,
+     "vpd": 2.4199029126213594,
+     "subs": 1390,
+     "channel": "Tim the Historian"
+    }
+   ]
+  },
+  {
+   "slug": "nutria",
+   "search": "nutria louisiana invasion",
+   "market": {
+    "n": 11,
+    "median_views": 6473,
+    "top_views": 7235545,
+    "n_100k": 2,
+    "recent_median_vpd": 19.217069496481262,
+    "n_recent": 6,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Hunting GIANT Marsh RATS for Food | Louisiana Nutria Hunting and Cooking",
+     "views": 7235545,
+     "days": 1710,
+     "vpd": 4231.312865497076,
+     "subs": 167000,
+     "channel": "Outside the Levees"
+    },
+    {
+     "title": "Beloved nutria rat allowed to stay with adopted family in Bucktown",
+     "views": 126762,
+     "days": 1300,
+     "vpd": 97.50923076923077,
+     "subs": 155000,
+     "channel": "WVUE FOX 8 New Orleans"
+    },
+    {
+     "title": "Nutria: the rodent wreaking havoc on California's landscape",
+     "views": 99515,
+     "days": 2946,
+     "vpd": 33.77970128988459,
+     "subs": 4060000,
+     "channel": "Guardian News"
+    }
+   ]
+  },
+  {
+   "slug": "gypsy-moth",
+   "search": "gypsy moth trouvelot",
+   "market": {
+    "n": 12,
+    "median_views": 511.0,
+    "top_views": 2977,
+    "n_100k": 0,
+    "recent_median_vpd": 0.02857142857142857,
+    "n_recent": 3,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Gypsy Moths Decimate Forests (CBS News)",
+     "views": 2977,
+     "days": 7058,
+     "vpd": 0.42179087560215356,
+     "subs": 7100000,
+     "channel": "CBS News"
+    },
+    {
+     "title": "The Gypsy Moth Invasion of 1869",
+     "views": 2188,
+     "days": 631,
+     "vpd": 3.467511885895404,
+     "subs": 95,
+     "channel": "Nature Labs"
+    },
+    {
+     "title": "Gypsy Moths",
+     "views": 1862,
+     "days": 7291,
+     "vpd": 0.25538334933479634,
+     "subs": 12,
+     "channel": "Merrick"
+    }
+   ]
+  },
+  {
+   "slug": "grey-squirrels",
+   "search": "grey squirrels britain red squirrel",
+   "market": {
+    "n": 19,
+    "median_views": 8890,
+    "top_views": 191709,
+    "n_100k": 3,
+    "recent_median_vpd": 33.07135470527405,
+    "n_recent": 11,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Facts you need to know about GREY SQUIRRELS!",
+     "views": 191709,
+     "days": 2073,
+     "vpd": 92.47901591895803,
+     "subs": 126000,
+     "channel": "A Shot Of Wildlife"
+    },
+    {
+     "title": "Britain Brought Back a Predator That Saved Its Red Squirrels \u2014 What Happened Next Was Totally Unreal",
+     "views": 189623,
+     "days": 36,
+     "vpd": 5267.305555555556,
+     "subs": 7180,
+     "channel": "Apex Arena"
+    },
+    {
+     "title": "Where Red Squirrels Live | Destination WILD",
+     "views": 164740,
+     "days": 3478,
+     "vpd": 47.366302472685454,
+     "subs": 6520000,
+     "channel": "Nat Geo Animals"
+    }
+   ]
+  },
+  {
+   "slug": "salton-sea",
+   "search": "salton sea accident",
+   "market": {
+    "n": 7,
+    "median_views": 7135,
+    "top_views": 1503294,
+    "n_100k": 1,
+    "recent_median_vpd": 47.590858675486004,
+    "n_recent": 4,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "When California's Greatest Treasure Became a National Disgrace: The Salton Sea - IT'S HISTORY",
+     "views": 1503294,
+     "days": 1629,
+     "vpd": 922.8324125230203,
+     "subs": 892000,
+     "channel": "IT'S HISTORY"
+    },
+    {
+     "title": "Salton Sea: California\u2019s Accidental Lake That Turned Deadly | Forgotten America",
+     "views": 14871,
+     "days": 253,
+     "vpd": 58.77865612648221,
+     "subs": 19700,
+     "channel": "Hidden Places in America "
+    },
+    {
+     "title": "How an Accident Shaped the Salton Sea\u2019s Story",
+     "views": 10344,
+     "days": 2141,
+     "vpd": 4.831387202241943,
+     "subs": 6950,
+     "channel": "Treasure Trail"
+    }
+   ]
+  },
+  {
+   "slug": "smokey-bear-fires",
+   "search": "fire suppression backfired wildfires",
+   "market": {
+    "n": 11,
+    "median_views": 103263,
+    "top_views": 1852159,
+    "n_100k": 6,
+    "recent_median_vpd": 3.0524412296564196,
+    "n_recent": 3,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "How Fighting Wildfires Works",
+     "views": 1852159,
+     "days": 2949,
+     "vpd": 628.0634113258732,
+     "subs": 4920000,
+     "channel": "Wendover Productions"
+    },
+    {
+     "title": "How decades of stopping forest fires made them worse",
+     "views": 1080902,
+     "days": 1843,
+     "vpd": 586.4905046120456,
+     "subs": 12700000,
+     "channel": "Vox"
+    },
+    {
+     "title": "Facing Wildfire Risk, Homeowners Turn to New Innovations to Protect Their Homes",
+     "views": 243986,
+     "days": 1237,
+     "vpd": 197.2400970088925,
+     "subs": 395000,
+     "channel": "NBC Bay Area"
+    }
+   ]
+  },
+  {
+   "slug": "brown-tree-snake",
+   "search": "brown tree snake guam",
+   "market": {
+    "n": 16,
+    "median_views": 10214.5,
+    "top_views": 1312188,
+    "n_100k": 2,
+    "recent_median_vpd": 2.9674703557312254,
+    "n_recent": 6,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "2 Million Snakes Have Taken Over The Island Of Guam (HBO)",
+     "views": 1312188,
+     "days": 3171,
+     "vpd": 413.8088930936613,
+     "subs": 9300000,
+     "channel": "VICE News"
+    },
+    {
+     "title": "The US Dropped 2,000 Poisoned Mice on Guam by Parachute \u2014 Here's What Happened to the Snakes",
+     "views": 497090,
+     "days": 15,
+     "vpd": 33139.333333333336,
+     "subs": 1740,
+     "channel": "Wildly Wrong"
+    },
+    {
+     "title": "How These Snakes Caused Power Outages in Guam",
+     "views": 47618,
+     "days": 4382,
+     "vpd": 10.866727521679598,
+     "subs": 4300000,
+     "channel": "Smithsonian Channel"
+    }
+   ]
+  },
+  {
+   "slug": "water-hyacinth",
+   "search": "water hyacinth lake victoria",
+   "market": {
+    "n": 13,
+    "median_views": 4480,
+    "top_views": 181736,
+    "n_100k": 1,
+    "recent_median_vpd": 2.361596009975062,
+    "n_recent": 3,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Turning menacing hyacinth into manure |  DW English",
+     "views": 181736,
+     "days": 3396,
+     "vpd": 53.51472320376914,
+     "subs": 6460000,
+     "channel": "DW News"
+    },
+    {
+     "title": "What is feeding the water hyacinth? experts speak out",
+     "views": 35168,
+     "days": 2786,
+     "vpd": 12.623115577889447,
+     "subs": 179000,
+     "channel": "Chams Media Tv"
+    },
+    {
+     "title": "Could Lake Victoria's water hyacinth invasion have a silver lining?",
+     "views": 28461,
+     "days": 2506,
+     "vpd": 11.357142857142858,
+     "subs": 3690000,
+     "channel": "FRANCE 24 English"
+    }
+   ]
+  },
+  {
+   "slug": "australia-camels",
+   "search": "feral camels australia",
+   "market": {
+    "n": 15,
+    "median_views": 50436,
+    "top_views": 1911047,
+    "n_100k": 5,
+    "recent_median_vpd": 103.14976958525345,
+    "n_recent": 11,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Camel Control and Advocacy in the Outback",
+     "views": 1911047,
+     "days": 1063,
+     "vpd": 1797.7864534336782,
+     "subs": 110000,
+     "channel": "Jack Out The Back"
+    },
+    {
+     "title": "Outback camels: culls and carcasses or milk and meat? \ud83d\udc2a | Meet the Ferals Ep 8 | ABC Australia",
+     "views": 1225430,
+     "days": 2373,
+     "vpd": 516.4053940160135,
+     "subs": 472000,
+     "channel": "ABC Australia"
+    },
+    {
+     "title": "Camels in the Outback | Al Jazeera World",
+     "views": 831411,
+     "days": 5028,
+     "vpd": 165.35620525059664,
+     "subs": 18300000,
+     "channel": "Al Jazeera English"
+    }
+   ]
+  },
+  {
+   "slug": "zebra-mussels",
+   "search": "zebra mussels great lakes",
+   "market": {
+    "n": 18,
+    "median_views": 12222.5,
+    "top_views": 355820,
+    "n_100k": 5,
+    "recent_median_vpd": 185.00714285714287,
+    "n_recent": 14,
+    "small_breakouts": 4
+   },
+   "top_competitors": [
+    {
+     "title": "What's Eating Invasive Mussels?",
+     "views": 355820,
+     "days": 66,
+     "vpd": 5391.212121212121,
+     "subs": 37200,
+     "channel": "Great Lakes Now"
+    },
+    {
+     "title": "Zebra Mussels Are Vanishing Across the Great Lakes \u2014 Scientists Finally Found What's Killing Them",
+     "views": 292071,
+     "days": 32,
+     "vpd": 9127.21875,
+     "subs": 56700,
+     "channel": "Agriculture Flow"
+    },
+    {
+     "title": "America Spent $5 Billion Fighting Zebra Mussels. Three Native Species Did More",
+     "views": 292064,
+     "days": 134,
+     "vpd": 2179.582089552239,
+     "subs": 56700,
+     "channel": "Agriculture Flow"
+    }
+   ]
+  },
+  {
+   "slug": "snakeheads",
+   "search": "snakehead fish invasion",
+   "market": {
+    "n": 11,
+    "median_views": 169092,
+    "top_views": 1482728,
+    "n_100k": 9,
+    "recent_median_vpd": 286.5966101694915,
+    "n_recent": 7,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Invasion of the Snakeheads! | National Geographic",
+     "views": 1482728,
+     "days": 6888,
+     "vpd": 215.2624854819977,
+     "subs": 26500000,
+     "channel": "National Geographic"
+    },
+    {
+     "title": "Most INVASIVE FISH in Florida...Catch Clean Cook (Bullseye Snakehead)",
+     "views": 961688,
+     "days": 936,
+     "vpd": 1027.4444444444443,
+     "subs": 869000,
+     "channel": "Landshark Outdoors"
+    },
+    {
+     "title": "The Origin Of 'The Fish From Hell' | SNAKEHEAD | River Monsters",
+     "views": 323013,
+     "days": 2613,
+     "vpd": 123.61768082663605,
+     "subs": 2880000,
+     "channel": "River Monsters\u2122"
+    }
+   ]
+  },
+  {
+   "slug": "macquarie-cats",
+   "search": "macquarie island cats rabbits",
+   "market": {
+    "n": 5,
+    "median_views": 6665,
+    "top_views": 84314,
+    "n_100k": 0,
+    "recent_median_vpd": 469.7458791208791,
+    "n_recent": 4,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Macquarie Removed Every Rabbit From The Island  \u2014 What Returned Was Unbelievable",
+     "views": 84314,
+     "days": 91,
+     "vpd": 926.5274725274726,
+     "subs": 10200,
+     "channel": "Living Moves"
+    },
+    {
+     "title": "The remarkable recovery of Macquarie Island",
+     "views": 7308,
+     "days": 3124,
+     "vpd": 2.3393085787451984,
+     "subs": 36200,
+     "channel": "Australian Academy of Science"
+    },
+    {
+     "title": "This Is How Australia ERADICATED ALL INVASIVE RABBITS AND RATS On Macquarie Island After 100+ Years",
+     "views": 6665,
+     "days": 7,
+     "vpd": 952.1428571428571,
+     "subs": 4970,
+     "channel": "Regen Eco"
+    }
+   ]
+  },
+  {
+   "slug": "nz-stoats",
+   "search": "stoats new zealand birds",
+   "market": {
+    "n": 12,
+    "median_views": 265.0,
+    "top_views": 29435,
+    "n_100k": 0,
+    "recent_median_vpd": 4.415530153724872,
+    "n_recent": 8,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "New Zealand's Most Wanted: Possums, Rats, Stoats",
+     "views": 29435,
+     "days": 3559,
+     "vpd": 8.2705816240517,
+     "subs": 6710000,
+     "channel": "The Wall Street Journal"
+    },
+    {
+     "title": "Stoats eat rock wrens",
+     "views": 18292,
+     "days": 4924,
+     "vpd": 3.7148659626320066,
+     "subs": 36900,
+     "channel": "Department of Conservation"
+    },
+    {
+     "title": "They Released 7,800 Stoats Into Land Ruled by Rabbits \u2014 140 Years Later, Nobody Saw This Coming",
+     "views": 14376,
+     "days": 68,
+     "vpd": 211.41176470588235,
+     "subs": 56700,
+     "channel": "Agriculture Flow"
+    }
+   ]
+  },
+  {
+   "slug": "chestnut-blight",
+   "search": "american chestnut blight",
+   "market": {
+    "n": 19,
+    "median_views": 38351,
+    "top_views": 690937,
+    "n_100k": 6,
+    "recent_median_vpd": 458.36658778664935,
+    "n_recent": 12,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "The American Chestnut Massacre",
+     "views": 690937,
+     "days": 282,
+     "vpd": 2450.131205673759,
+     "subs": 957000,
+     "channel": "Wendigang"
+    },
+    {
+     "title": "When Giants Roamed Appalachia: The Story of the Chestnut",
+     "views": 614958,
+     "days": 573,
+     "vpd": 1073.2251308900525,
+     "subs": 427000,
+     "channel": "The Appalachian Storyteller"
+    },
+    {
+     "title": "Finding Dozens Of American Chestnut Trees",
+     "views": 510637,
+     "days": 778,
+     "vpd": 656.3457583547557,
+     "subs": 601000,
+     "channel": "Learn Your Land"
+    }
+   ]
+  },
+  {
+   "slug": "yellowstone-wolves",
+   "search": "yellowstone wolves reintroduction",
+   "market": {
+    "n": 18,
+    "median_views": 271532.0,
+    "top_views": 46209163,
+    "n_100k": 11,
+    "recent_median_vpd": 100.7158322754681,
+    "n_recent": 12,
+    "small_breakouts": 3
+   },
+   "top_competitors": [
+    {
+     "title": "How Wolves Change Rivers",
+     "views": 46209163,
+     "days": 4620,
+     "vpd": 10001.983333333334,
+     "subs": 135000,
+     "channel": "Sustainable Human"
+    },
+    {
+     "title": "U.S. Releases 14 Canadian Wolves Into the Wild and Saves $94 Billion",
+     "views": 6487819,
+     "days": 676,
+     "vpd": 9597.365384615385,
+     "subs": 878000,
+     "channel": "WILD VERSUS"
+    },
+    {
+     "title": "Wild Wolves: Pack Life (Full Episode) | Yellowstone Wolf Dynasty | Nat Geo Animals",
+     "views": 4668644,
+     "days": 646,
+     "vpd": 7227.003095975232,
+     "subs": 6520000,
+     "channel": "Nat Geo Animals"
     }
    ]
   }
