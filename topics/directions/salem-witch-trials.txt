@@ -1,0 +1,40 @@
+Bolt Explains History: one sourced history story, ~5-minute landscape illustrated documentary.
+The story shape is a verdict a whole community reached and later had to take back.
+
+OPENING: put the viewer inside one ordinary villager's practical problem in Salem Village: a
+neighbour's household is in distress, the minister and the magistrates are looking for a cause,
+and the villager has a farm, a family and a reputation to keep. Give the community's decision
+(to treat the afflicted girls' accusations as evidence of witchcraft) its reasoning as the sources
+give it. Reach the first unintended consequence as efficiently as the story allows: the
+accusations spreading beyond the first few people. The body begins after that consequence and
+never re-tells it.
+
+Causal arc (as questions for research to answer, not facts): What did the afflicted girls do, and
+how did local leaders interpret it? Who were the first people accused, and why were they easy to
+accuse? What was "spectral evidence" and why could an accused person not disprove it? How did
+confessing versus denying change what happened to the accused? How did the accusations spread, and
+to whom? What did the court do, and who stopped it, how, and when? What did the colony and its
+people later say or do to acknowledge the wrong (apologies, reversals of attainder, compensation),
+and what exactly do the sources say about each?
+
+Verify: the number of people accused, jailed, executed and who died in custody; the dates of the
+first accusations and of the last executions; the name and role of the special court; the role of
+Governor Phips and of Increase Mather's argument about spectral evidence; Samuel Sewall's public
+apology and its date; Ann Putnam Jr.'s apology and its date; the later legislative exonerations,
+including the most recent one. Separate documented fact from later legend: how were the convicted
+executed, and is any popular image of the trials unsupported by the records? Is any popular
+modern explanation (for example ergot poisoning) a documented finding or a hypothesis?
+
+Research starting points: the Salem Witch Trials Documentary Archive and Transcription Project,
+University of Virginia (https://salem.lib.virginia.edu/); the Massachusetts General Court /
+Commonwealth of Massachusetts records of the exoneration acts (https://malegislature.gov/);
+the National Park Service, Salem Maritime National Historical Park pages on 1692
+(https://www.nps.gov/sama/).
+
+Storyboard: the one recurring story object is a handwritten deposition page (a court examination
+record), drawn the same way every time; the mechanism cutaway shows spectral evidence as one
+picture: an accuser pointing at an empty space where only she claims to see the accused's "shape",
+while the real accused stands elsewhere, with arrows showing why denial cannot answer it, no text;
+no maps; people in frame; the viewpoint villager visually consistent; documented people (the
+magistrates, the minister, the governor) look different from one another and carry only documented
+actions. No gore, no depiction of the executions themselves beyond the gallows hill at a distance.

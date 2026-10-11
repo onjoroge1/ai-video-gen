@@ -99,13 +99,18 @@ CHANNELS = {
     },
 }
 
-# Which narrative engines a channel's episodes may use. World and History are deliberately
-# unrestricted: their episodes have been selected freely among the six older engines and that
-# behaviour is measured. Nature is new and has exactly two shapes, so the selector is not offered
+# Which narrative engines a channel's episodes may use. World is deliberately unrestricted: its
+# episodes have been selected freely among the six older engines and that behaviour is measured. Nature is new and has exactly two shapes, so the selector is not offered
 # a bounty engine for a penguin: an engine chosen "by how the story turns" still has to be one
 # the channel contract admits.
 CHANNEL_ENGINES = {
     NATURE: ("mistaken_verdict", "strange_behaviour"),
+    # History (2026-10-10): the first Salem run was offered all engines, chose backfiring_solution
+    # ("an incentive somebody exploits"), and failed its own setup and mechanism roles before any
+    # media spend: a court admitting spectral evidence is not an exploited bounty. Backfires now
+    # belong to World, and the animal engines to World and Nature; History tells a state programme
+    # and its cost through the three human-history shapes.
+    HISTORY: ("accumulating_indictment", "power_reversal", "almost_happened_plan"),
 }
 
 
