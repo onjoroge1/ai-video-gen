@@ -36,11 +36,16 @@ def main() -> int:
     parser.add_argument("--topic-channel", default="")
     parser.add_argument("--motion-mode", default="stills")   # motion returns once the scripts hold (2026-10-02)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--packaging", choices=("world", "history"), default="world",
+                        help="title and thumbnail style: world (FATAL ERROR backfire packaging for "
+                             "backfire engines) or history (Bolt Explains History)")
     parser.add_argument("--stop-after", choices=("plan", "script"), default="",
                         help="plan: write plan.json/plan_for_approval.md and stop (copy to "
                              "plan.approved.json to approve); script: stop after the narration")
     args = parser.parse_args()
 
+    if args.packaging == "history":
+        os.environ["PACKAGING_STYLE"] = "history"
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     log_path = out / "run.log"

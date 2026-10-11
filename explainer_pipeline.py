@@ -15378,10 +15378,15 @@ def run_explainer_pipeline(
     #       (backfire_packaging). The title is settled here, before the description and the
     #       thumbnail read it, and every number in it must be spoken in the finished narration.
     import backfire_packaging as _backfire
-    _backfire_packaged = _backfire.applies(script, video_format)
-    if _backfire_packaged:
+    import history_packaging as _history
+    # PACKAGING_STYLE=history (Bolt Explains History) wins over the engine test: a history film
+    # must never go out as a FATAL ERROR split frame, whichever engine its planner chose.
+    _history_packaged = _history.applies(video_format)
+    _backfire_packaged = _backfire.applies(script, video_format) and not _history_packaged
+    _packager = _history if _history_packaged else (_backfire if _backfire_packaged else None)
+    if _packager is not None:
         try:
-            _packaged_title = _backfire.propose_title(
+            _packaged_title = _packager.propose_title(
                 script.get("title", question), question, full_transcript, cost_sink=aux_costs,
                 log=log)
         except Exception as exc:
@@ -15389,7 +15394,7 @@ def run_explainer_pipeline(
             log(f"⚠ Packaging title failed ({type(exc).__name__}) — keeping the script title")
         if _packaged_title and _packaged_title != script.get("title"):
             log(f'Packaging title: "{script.get("title", "")}" → "{_packaged_title}"')
-            script["_packaging"] = {"version": _backfire.VERSION,
+            script["_packaging"] = {"version": _packager.VERSION,
                                     "script_title": script.get("title", ""),
                                     "title": _packaged_title}
             script["title"] = _packaged_title
@@ -15409,7 +15414,12 @@ def run_explainer_pipeline(
     _thumb_report: dict = {}
     try:
         log("stage:Generating thumbnail...")
-        if _backfire_packaged:
+        if _history_packaged:
+            thumbnail_path = _history.generate_thumbnail(
+                script.get("title", question), question, full_transcript, output_dir,
+                cost_sink=img_costs, report=_thumb_report, log=log,
+                illustrated=illustrated_story_on)
+        elif _backfire_packaged:
             thumbnail_path = _backfire.generate_thumbnail(
                 script.get("title", question), question, full_transcript, output_dir,
                 cost_sink=img_costs, report=_thumb_report, log=log,

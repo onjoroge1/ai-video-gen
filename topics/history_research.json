@@ -1,0 +1,1207 @@
+{
+ "generated": "2026-10-10",
+ "method": "scripts/topic_market.py",
+ "channel": "history",
+ "ranked": [
+  {
+   "slug": "rasputin",
+   "engine": "power",
+   "search": "how rasputin gained power over the tsar",
+   "market": {
+    "n": 14,
+    "median_views": 312.5,
+    "top_views": 2218259,
+    "n_100k": 3,
+    "recent_median_vpd": 1.2578822911192853,
+    "n_recent": 12,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "How was Rasputin a real person?",
+     "views": 2218259,
+     "days": 358,
+     "vpd": 6196.254189944134,
+     "subs": 148000,
+     "channel": "Skyleryaps"
+    },
+    {
+     "title": "RASPUTIN: The Devil in the Palace",
+     "views": 1263029,
+     "days": 1156,
+     "vpd": 1092.5856401384083,
+     "subs": 1600000,
+     "channel": "Horses "
+    },
+    {
+     "title": "The UnXplained: Rasputin's Dark Prophecies Revealed (Special) | History",
+     "views": 486086,
+     "days": 904,
+     "vpd": 537.7057522123894,
+     "subs": 15500000,
+     "channel": "HISTORY"
+    }
+   ]
+  },
+  {
+   "slug": "wu-zetian",
+   "engine": "power",
+   "search": "wu zetian concubine to emperor",
+   "market": {
+    "n": 9,
+    "median_views": 888256,
+    "top_views": 3653550,
+    "n_100k": 5,
+    "recent_median_vpd": 2.4642857142857144,
+    "n_recent": 5,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Wu Zetian: China's First & Only Female Emperor | Empress Who Ruled The World | Timeline",
+     "views": 3653550,
+     "days": 2753,
+     "vpd": 1327.1158735924446,
+     "subs": 5900000,
+     "channel": "Timeline - World History Documentaries"
+    },
+    {
+     "title": "The Astonishing Life Of China's Tyrant Empress | Wu Zetian | Absolute History",
+     "views": 3583130,
+     "days": 2457,
+     "vpd": 1458.3353683353682,
+     "subs": 3700000,
+     "channel": "Absolute History"
+    },
+    {
+     "title": "The Rise and Fall of Wu Zetian",
+     "views": 1972939,
+     "days": 1247,
+     "vpd": 1582.148356054531,
+     "subs": 1540000,
+     "channel": "Historically"
+    }
+   ]
+  },
+  {
+   "slug": "ching-shih",
+   "engine": "power",
+   "search": "ching shih pirate queen",
+   "market": {
+    "n": 15,
+    "median_views": 13467,
+    "top_views": 3823909,
+    "n_100k": 3,
+    "recent_median_vpd": 10.548789646554356,
+    "n_recent": 10,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Cheng I Sao - Pirate Queen - Extra History",
+     "views": 3823909,
+     "days": 3178,
+     "vpd": 1203.24386406545,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "Ching Shih: The Pirate Queen feat. Joyce Louis-Jean",
+     "views": 1739527,
+     "days": 2003,
+     "vpd": 868.4608087868198,
+     "subs": 91900,
+     "channel": "Puppet History Inc"
+    },
+    {
+     "title": "Ching Shih: The Pirate Widow Menace of the South China Sea",
+     "views": 268653,
+     "days": 2150,
+     "vpd": 124.95488372093023,
+     "subs": 2440000,
+     "channel": "Biographics"
+    }
+   ]
+  },
+  {
+   "slug": "empress-theodora",
+   "engine": "power",
+   "search": "empress theodora from actress to empress",
+   "market": {
+    "n": 11,
+    "median_views": 125,
+    "top_views": 70652,
+    "n_100k": 0,
+    "recent_median_vpd": 0.5553021318006265,
+    "n_recent": 10,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "How a Courtesan Became Empress of Rome (Theodora's story)",
+     "views": 70652,
+     "days": 205,
+     "vpd": 344.6439024390244,
+     "subs": 30900,
+     "channel": "Brass & Blood"
+    },
+    {
+     "title": "How did a Woman from the Streets Become an Empress - Theodora",
+     "views": 7749,
+     "days": 1154,
+     "vpd": 6.714904679376083,
+     "subs": 827,
+     "channel": "The Emotional Code"
+    },
+    {
+     "title": "\ud83d\udc83From Actress to Empress \u2014 Theodora\u2019s Unbelievable Rise to Power",
+     "views": 1472,
+     "days": 132,
+     "vpd": 11.151515151515152,
+     "subs": 1770,
+     "channel": "ReAlive: History by AI"
+    }
+   ]
+  },
+  {
+   "slug": "cortes-aztecs",
+   "engine": "power",
+   "search": "how cortes conquered the aztec empire",
+   "market": {
+    "n": 21,
+    "median_views": 229394,
+    "top_views": 2557227,
+    "n_100k": 13,
+    "recent_median_vpd": 120.71062482004031,
+    "n_recent": 12,
+    "small_breakouts": 4
+   },
+   "top_competitors": [
+    {
+     "title": "What The Aztecs Knew In 1519 That They Never Told Anyone",
+     "views": 2557227,
+     "days": 782,
+     "vpd": 3270.111253196931,
+     "subs": 5710000,
+     "channel": "Thoughty2"
+    },
+    {
+     "title": "Aztecs: Arrival of Cortes and the Conquistadors",
+     "views": 1859708,
+     "days": 2921,
+     "vpd": 636.6682642930504,
+     "subs": 4210000,
+     "channel": "Kings and Generals"
+    },
+    {
+     "title": "FALL of the Aztecs: How 400 Spaniards Toppled an Empire | Animated History",
+     "views": 1351465,
+     "days": 1078,
+     "vpd": 1253.678107606679,
+     "subs": 2540000,
+     "channel": "The Armchair Historian"
+    }
+   ]
+  },
+  {
+   "slug": "haitian-revolution",
+   "engine": "power",
+   "search": "haitian revolution toussaint louverture",
+   "market": {
+    "n": 19,
+    "median_views": 93962,
+    "top_views": 4500309,
+    "n_100k": 9,
+    "recent_median_vpd": 11.33044982698962,
+    "n_recent": 9,
+    "small_breakouts": 2
+   },
+   "top_competitors": [
+    {
+     "title": "Haitian Revolutions: Crash Course World History #30",
+     "views": 4500309,
+     "days": 5168,
+     "vpd": 870.8028250773993,
+     "subs": 17200000,
+     "channel": "CrashCourse"
+    },
+    {
+     "title": "PBS Egalite for All: Toussaint Louverture and the Haitian Revolution (2009)",
+     "views": 827913,
+     "days": 5043,
+     "vpd": 164.17073170731706,
+     "subs": 6890,
+     "channel": "Uptown Flava"
+    },
+    {
+     "title": "Toussaint Louverture and the Haitian Revolution",
+     "views": 755595,
+     "days": 1444,
+     "vpd": 523.2652354570637,
+     "subs": 456000,
+     "channel": "Gresham College"
+    }
+   ]
+  },
+  {
+   "slug": "project-habakkuk",
+   "engine": "almost",
+   "search": "project habakkuk ice aircraft carrier",
+   "market": {
+    "n": 7,
+    "median_views": 941,
+    "top_views": 189859,
+    "n_100k": 2,
+    "recent_median_vpd": 4.925596184419714,
+    "n_recent": 6,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Project Habakkuk: The INSANE Aircraft Carrier Made From Ice",
+     "views": 189859,
+     "days": 1104,
+     "vpd": 171.97373188405797,
+     "subs": 1610000,
+     "channel": "Megaprojects"
+    },
+    {
+     "title": "What Happened to Project Habakkuk?",
+     "views": 126692,
+     "days": 870,
+     "vpd": 145.62298850574712,
+     "subs": 887000,
+     "channel": "Found And Explained"
+    },
+    {
+     "title": "Project Habakkuk: The Plan to Build an Aircraft Carrier Out of Ice",
+     "views": 1701,
+     "days": 357,
+     "vpd": 4.764705882352941,
+     "subs": 52500,
+     "channel": "XWHistory"
+    }
+   ]
+  },
+  {
+   "slug": "atlantropa",
+   "engine": "almost",
+   "search": "atlantropa plan to drain the mediterranean",
+   "market": {
+    "n": 19,
+    "median_views": 961,
+    "top_views": 6888488,
+    "n_100k": 6,
+    "recent_median_vpd": 0.519333732503753,
+    "n_recent": 12,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "What Would Happen If We Drained the Mediterranean Sea?",
+     "views": 6888488,
+     "days": 3312,
+     "vpd": 2079.8574879227053,
+     "subs": 7940000,
+     "channel": "RealLifeLore"
+    },
+    {
+     "title": "The Bizarre Plan to Drain the Mediterranean: Atlantropa",
+     "views": 4830717,
+     "days": 3630,
+     "vpd": 1330.7760330578512,
+     "subs": 6740000,
+     "channel": "Tom Scott"
+    },
+    {
+     "title": "Atlantropa: The $1 Trillion Dam to Drain the Mediterranean",
+     "views": 1771418,
+     "days": 1007,
+     "vpd": 1759.1042701092354,
+     "subs": 1610000,
+     "channel": "MegaBuilds"
+    }
+   ]
+  },
+  {
+   "slug": "project-a119",
+   "engine": "almost",
+   "search": "project a119 plan to nuke the moon",
+   "market": {
+    "n": 10,
+    "median_views": 95.0,
+    "top_views": 156941,
+    "n_100k": 2,
+    "recent_median_vpd": 0.1685185185185185,
+    "n_recent": 8,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Insane Plan to Nuke The Moon in 1959 (Project A119)",
+     "views": 156941,
+     "days": 2598,
+     "vpd": 60.40839107005389,
+     "subs": 158000,
+     "channel": "RealLifeLore2"
+    },
+    {
+     "title": "The Shocking Plan to Nuke the Moon (Project A119)",
+     "views": 104745,
+     "days": 1207,
+     "vpd": 86.78127589063794,
+     "subs": 1610000,
+     "channel": "Megaprojects"
+    },
+    {
+     "title": "Why the U.S. Wanted to Nuke the Moon | Project A119",
+     "views": 4244,
+     "days": 450,
+     "vpd": 9.431111111111111,
+     "subs": 3430,
+     "channel": "Revalix"
+    }
+   ]
+  },
+  {
+   "slug": "gunpowder-plot",
+   "engine": "almost",
+   "search": "gunpowder plot guy fawkes",
+   "market": {
+    "n": 23,
+    "median_views": 92367,
+    "top_views": 942631,
+    "n_100k": 10,
+    "recent_median_vpd": 69.47196261682242,
+    "n_recent": 11,
+    "small_breakouts": 3
+   },
+   "top_competitors": [
+    {
+     "title": "Guy Fawkes and the Conspiracy of the Gunpowder Plot",
+     "views": 942631,
+     "days": 2715,
+     "vpd": 347.19373848987107,
+     "subs": 2440000,
+     "channel": "Biographics"
+    },
+    {
+     "title": "Guy Fawkes and The Gunpowder Plot | History KS1| BBC Teach",
+     "views": 644574,
+     "days": 1926,
+     "vpd": 334.6697819314642,
+     "subs": 235000,
+     "channel": "BBC Bitesize for Teachers"
+    },
+    {
+     "title": "The Gunpowder Plot | Guy Fawkes Documentary | Reel Truth Science",
+     "views": 570054,
+     "days": 2760,
+     "vpd": 206.5413043478261,
+     "subs": 629000,
+     "channel": "Banijay Science"
+    }
+   ]
+  },
+  {
+   "slug": "arkhipov",
+   "engine": "almost",
+   "search": "vasili arkhipov man who saved the world",
+   "market": {
+    "n": 12,
+    "median_views": 162890.0,
+    "top_views": 27106095,
+    "n_100k": 7,
+    "recent_median_vpd": 0.8445139899049363,
+    "n_recent": 8,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Man Who Saved The World",
+     "views": 27106095,
+     "days": 678,
+     "vpd": 39979.491150442474,
+     "subs": 25300000,
+     "channel": "Vsauce"
+    },
+    {
+     "title": "The Soviet Scientist Who Saved the World",
+     "views": 2836467,
+     "days": 475,
+     "vpd": 5971.50947368421,
+     "subs": 5580000,
+     "channel": "fern"
+    },
+    {
+     "title": "How ONE Russian Soldier SAVED The World!",
+     "views": 1593447,
+     "days": 945,
+     "vpd": 1686.1873015873016,
+     "subs": 2060000,
+     "channel": "MrSpherical"
+    }
+   ]
+  },
+  {
+   "slug": "stanislav-petrov",
+   "engine": "almost",
+   "search": "stanislav petrov nuclear false alarm 1983",
+   "market": {
+    "n": 5,
+    "median_views": 404,
+    "top_views": 63571,
+    "n_100k": 0,
+    "recent_median_vpd": 1.1952279202279201,
+    "n_recent": 4,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Nuclear Close Call of 1983 | Stanislav Petrov",
+     "views": 63571,
+     "days": 2797,
+     "vpd": 22.728280300321774,
+     "subs": 363000,
+     "channel": "House of History"
+    },
+    {
+     "title": "The Stanislav Petrov Incident, Minute by Minute",
+     "views": 935,
+     "days": 286,
+     "vpd": 3.269230769230769,
+     "subs": 6370,
+     "channel": "Forgotten Fallout"
+    },
+    {
+     "title": "1983 Nuclear False Alarm: How Stanislav Petrov Stopped a Global Disaster",
+     "views": 404,
+     "days": 208,
+     "vpd": 1.9423076923076923,
+     "subs": 1560,
+     "channel": "Dr Zoee"
+    }
+   ]
+  },
+  {
+   "slug": "piltdown-man",
+   "engine": "verdict",
+   "search": "piltdown man hoax",
+   "market": {
+    "n": 18,
+    "median_views": 3678.5,
+    "top_views": 202324,
+    "n_100k": 2,
+    "recent_median_vpd": 2.8378389602775203,
+    "n_recent": 12,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "40 Year Hoax: The Piltdown Man | Plainly Difficult Short Documentary",
+     "views": 202324,
+     "days": 1316,
+     "vpd": 153.74164133738603,
+     "subs": 1100000,
+     "channel": "Plainly Difficult"
+    },
+    {
+     "title": "Piltdown Man | The Biggest Archaeological Mystery",
+     "views": 180081,
+     "days": 753,
+     "vpd": 239.15139442231074,
+     "subs": 593000,
+     "channel": "The Rest Is History"
+    },
+    {
+     "title": "Piltdown Man Hoax on Discovery Science Part 1",
+     "views": 33083,
+     "days": 7042,
+     "vpd": 4.69795512638455,
+     "subs": 813,
+     "channel": "Dan"
+    }
+   ]
+  },
+  {
+   "slug": "semmelweis",
+   "engine": "verdict",
+   "search": "semmelweis handwashing doctors ignored",
+   "market": {
+    "n": 7,
+    "median_views": 62,
+    "top_views": 531,
+    "n_100k": 0,
+    "recent_median_vpd": 0.49166666666666664,
+    "n_recent": 5,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "History of Medicine and Science for Kids: Semmelweis' Handwashing Experiment - A Medical Milestone",
+     "views": 531,
+     "days": 1080,
+     "vpd": 0.49166666666666664,
+     "subs": 151,
+     "channel": "Healthy Tales from History"
+    },
+    {
+     "title": "Ignoring Ignaz Semmelweis - Doctors Refusing to Wash Their Hands - Bad Ideas",
+     "views": 480,
+     "days": 2716,
+     "vpd": 0.17673048600883653,
+     "subs": 1840,
+     "channel": "Bad Ideas"
+    },
+    {
+     "title": "Ignaz Semmelweis  -  Innovative Doctors - Shunned for suggesting doctors wash their hands.",
+     "views": 108,
+     "days": 1268,
+     "vpd": 0.08517350157728706,
+     "subs": 1150,
+     "channel": "Inspiring a Positive Mindset"
+    }
+   ]
+  },
+  {
+   "slug": "dreyfus-affair",
+   "engine": "verdict",
+   "search": "dreyfus affair explained",
+   "market": {
+    "n": 22,
+    "median_views": 4435.5,
+    "top_views": 1524459,
+    "n_100k": 4,
+    "recent_median_vpd": 2.3987854251012144,
+    "n_recent": 9,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Dreyfus Affair: Explained (Short Animated Documentary)",
+     "views": 1524459,
+     "days": 2380,
+     "vpd": 640.5289915966387,
+     "subs": 1920000,
+     "channel": "History Matters"
+    },
+    {
+     "title": "Alfred Dreyfus: A Miscarriage of Justice",
+     "views": 126514,
+     "days": 1503,
+     "vpd": 84.17431803060546,
+     "subs": 2440000,
+     "channel": "Biographics"
+    },
+    {
+     "title": "The Dreyfus Affair (1894-1906)",
+     "views": 116632,
+     "days": 1394,
+     "vpd": 83.66714490674319,
+     "subs": 83600,
+     "channel": "Sam Aronow"
+    }
+   ]
+  },
+  {
+   "slug": "salem-witch-trials",
+   "engine": "verdict",
+   "search": "salem witch trials what really happened",
+   "market": {
+    "n": 21,
+    "median_views": 281398,
+    "top_views": 15585599,
+    "n_100k": 15,
+    "recent_median_vpd": 586.9588377723971,
+    "n_recent": 11,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The Haunting Of The Salem Witch Trials",
+     "views": 15585599,
+     "days": 3424,
+     "vpd": 4551.8688668224295,
+     "subs": 5330000,
+     "channel": "BuzzFeed Unsolved Network"
+    },
+    {
+     "title": "What really happened during the Salem Witch Trials - Brian A. Pavlac",
+     "views": 8278417,
+     "days": 2350,
+     "vpd": 3522.7306382978722,
+     "subs": 22900000,
+     "channel": "TED-Ed"
+    },
+    {
+     "title": "America's Hidden Stories: Salem's Secrets \ud83e\udd10 FULL EPISODE | Smithsonian Channel",
+     "views": 2646059,
+     "days": 2110,
+     "vpd": 1254.0563981042653,
+     "subs": 4300000,
+     "channel": "Smithsonian Channel"
+    }
+   ]
+  },
+  {
+   "slug": "tulip-mania",
+   "engine": "verdict",
+   "search": "tulip mania myth",
+   "market": {
+    "n": 16,
+    "median_views": 26.0,
+    "top_views": 712460,
+    "n_100k": 2,
+    "recent_median_vpd": 0.22242647058823528,
+    "n_recent": 14,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "The World's First Financial Bubble? - Tulip Mania - European History - Part 1 - Extra History",
+     "views": 712460,
+     "days": 1617,
+     "vpd": 440.6060606060606,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "The World's First Financial Bubble? Tulip Mania! | European History | Extra History Complete",
+     "views": 280656,
+     "days": 154,
+     "vpd": 1822.4415584415585,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "Tulip Mania  - LIES - European History - Extra History",
+     "views": 60505,
+     "days": 1575,
+     "vpd": 38.41587301587302,
+     "subs": 4620000,
+     "channel": "Extra History"
+    }
+   ]
+  },
+  {
+   "slug": "john-snow-cholera",
+   "engine": "indict",
+   "search": "john snow cholera broad street pump",
+   "market": {
+    "n": 13,
+    "median_views": 37811,
+    "top_views": 2882915,
+    "n_100k": 5,
+    "recent_median_vpd": 4.0119686262902805,
+    "n_recent": 4,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "England: The Broad Street Pump - You Know Nothing, John Snow - Extra History - Part 1",
+     "views": 2882915,
+     "days": 3983,
+     "vpd": 723.804920913884,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "John Snow and the 1854 Broad Street cholera outbreak",
+     "views": 566847,
+     "days": 3461,
+     "vpd": 163.78127708754695,
+     "subs": 256000,
+     "channel": "Harvard Online"
+    },
+    {
+     "title": "John Snow and the cholera outbreak of 1854 with Mike Jay | Medical London",
+     "views": 241138,
+     "days": 6542,
+     "vpd": 36.85998165698563,
+     "subs": 108000,
+     "channel": "Wellcome Collection"
+    }
+   ]
+  },
+  {
+   "slug": "great-stink",
+   "engine": "indict",
+   "search": "great stink london 1858",
+   "market": {
+    "n": 18,
+    "median_views": 4706.0,
+    "top_views": 1086119,
+    "n_100k": 3,
+    "recent_median_vpd": 4.53954991087344,
+    "n_recent": 14,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Smelly Facts About London's The Great Stink of 1858",
+     "views": 1086119,
+     "days": 2288,
+     "vpd": 474.70236013986016,
+     "subs": 4730000,
+     "channel": "Weird History"
+    },
+    {
+     "title": "The Great Stink of 1858",
+     "views": 961269,
+     "days": 3458,
+     "vpd": 277.9840948525159,
+     "subs": 3250000,
+     "channel": "Today I Found Out"
+    },
+    {
+     "title": "History and Sewage: The Great Stink of 1858",
+     "views": 691781,
+     "days": 2979,
+     "vpd": 232.21920107418597,
+     "subs": 1650000,
+     "channel": "The History Guy: History Deserves to Be Remembered"
+    }
+   ]
+  },
+  {
+   "slug": "triangle-shirtwaist",
+   "engine": "indict",
+   "search": "triangle shirtwaist factory fire",
+   "market": {
+    "n": 23,
+    "median_views": 95611,
+    "top_views": 2234515,
+    "n_100k": 11,
+    "recent_median_vpd": 14.239669421487603,
+    "n_recent": 5,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Ep #9: When the American Dream Goes Up in Flames: Triangle Shirtwaist Fire | Dark History Podcast",
+     "views": 2234515,
+     "days": 1871,
+     "vpd": 1194.2891501870658,
+     "subs": 8000000,
+     "channel": "Bailey Sarian"
+    },
+    {
+     "title": "The Triangle Shirtwaist Fire - Horror in Manhattan - Extra History",
+     "views": 1436761,
+     "days": 3108,
+     "vpd": 462.278314028314,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "The Triangle Shirtwaist Factory Fire | History",
+     "views": 962812,
+     "days": 3344,
+     "vpd": 287.92224880382776,
+     "subs": 15500000,
+     "channel": "HISTORY"
+    }
+   ]
+  },
+  {
+   "slug": "molasses-flood",
+   "engine": "indict",
+   "search": "boston molasses flood",
+   "market": {
+    "n": 19,
+    "median_views": 40452,
+    "top_views": 3060717,
+    "n_100k": 5,
+    "recent_median_vpd": 37.31609908378809,
+    "n_recent": 10,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Great Molasses Flood feat. Garrett Watts",
+     "views": 3060717,
+     "days": 1996,
+     "vpd": 1533.4253507014027,
+     "subs": 91900,
+     "channel": "Puppet History Inc"
+    },
+    {
+     "title": "The Great Molasses Flood | Boston Brown Bread",
+     "views": 2928521,
+     "days": 1362,
+     "vpd": 2150.162261380323,
+     "subs": 4500000,
+     "channel": "Tasting History with Max Miller"
+    },
+    {
+     "title": "The Boston Molasses Disaster of 1919",
+     "views": 586846,
+     "days": 2280,
+     "vpd": 257.38859649122804,
+     "subs": 1650000,
+     "channel": "The History Guy: History Deserves to Be Remembered"
+    }
+   ]
+  },
+  {
+   "slug": "irish-famine",
+   "engine": "indict",
+   "search": "irish potato famine why",
+   "market": {
+    "n": 22,
+    "median_views": 249419.5,
+    "top_views": 2757711,
+    "n_100k": 14,
+    "recent_median_vpd": 139.77757685352623,
+    "n_recent": 9,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "Irish Potato Famine - Isle of Blight - Part 1 - Extra History",
+     "views": 2757711,
+     "days": 2793,
+     "vpd": 987.3651987110634,
+     "subs": 4620000,
+     "channel": "Extra History"
+    },
+    {
+     "title": "The Irish Potato Famine (1845\u20131852)",
+     "views": 2534587,
+     "days": 2958,
+     "vpd": 856.8583502366464,
+     "subs": 5120000,
+     "channel": "Simple History"
+    },
+    {
+     "title": "Irish Stew From 1900 & The Irish Potato Famine",
+     "views": 1709933,
+     "days": 2034,
+     "vpd": 840.6750245821042,
+     "subs": 4500000,
+     "channel": "Tasting History with Max Miller"
+    }
+   ]
+  },
+  {
+   "slug": "library-alexandria",
+   "engine": "other",
+   "search": "what really destroyed the library of alexandria",
+   "market": {
+    "n": 24,
+    "median_views": 499.5,
+    "top_views": 3720337,
+    "n_100k": 7,
+    "recent_median_vpd": 3.9626836813611757,
+    "n_recent": 20,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "How much was lost when the Library of Alexandria burned?",
+     "views": 3720337,
+     "days": 1852,
+     "vpd": 2008.821274298056,
+     "subs": 652000,
+     "channel": "toldinstone"
+    },
+    {
+     "title": "What really happened to the Library of Alexandria? - Elizabeth Cox",
+     "views": 2978321,
+     "days": 2979,
+     "vpd": 999.7720711648204,
+     "subs": 22900000,
+     "channel": "TED-Ed"
+    },
+    {
+     "title": "The Library of Alexandria is Weirder Than You Think",
+     "views": 2158113,
+     "days": 40,
+     "vpd": 53952.825,
+     "subs": 59500,
+     "channel": "Nils History"
+    }
+   ]
+  },
+  {
+   "slug": "kerkoporta",
+   "engine": "other",
+   "search": "fall of constantinople open gate kerkoporta",
+   "market": {
+    "n": 5,
+    "median_views": 151,
+    "top_views": 1153,
+    "n_100k": 0,
+    "recent_median_vpd": 2.9038461538461537,
+    "n_recent": 5,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Did Constantinople Fall Because of an Open Door? #history #constantinople #shorts",
+     "views": 1153,
+     "days": 51,
+     "vpd": 22.607843137254903,
+     "subs": 573,
+     "channel": "Scrolls Untold"
+    },
+    {
+     "title": "Why the walls of Constantinople actually fell",
+     "views": 533,
+     "days": 312,
+     "vpd": 1.7083333333333333,
+     "subs": 470,
+     "channel": "History Unlocked"
+    },
+    {
+     "title": "World of 1453 -  May 29, 1453 \u2014 Constantinople Falls (Scene 3)",
+     "views": 151,
+     "days": 52,
+     "vpd": 2.9038461538461537,
+     "subs": 99,
+     "channel": "Crossroads of Civilizations"
+    }
+   ]
+  },
+  {
+   "slug": "franz-ferdinand",
+   "engine": "other",
+   "search": "franz ferdinand assassination wrong turn",
+   "market": {
+    "n": 3,
+    "median_views": 8484,
+    "top_views": 772372,
+    "n_100k": 1,
+    "recent_median_vpd": 54.99701343952215,
+    "n_recent": 2,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "How the Assassination of Archduke Franz Ferdinand Unfolded with Dan Snow",
+     "views": 772372,
+     "days": 4488,
+     "vpd": 172.09714795008912,
+     "subs": 2010000,
+     "channel": "History Hit"
+    },
+    {
+     "title": "The Wrong Turn That Killed Archduke Franz Ferdinand and Started WWI",
+     "views": 8484,
+     "days": 82,
+     "vpd": 103.46341463414635,
+     "subs": 1200,
+     "channel": "Eras Reanimated"
+    },
+    {
+     "title": "The Wrong Turn That Started World War One | Franz Ferdinand",
+     "views": 320,
+     "days": 49,
+     "vpd": 6.530612244897959,
+     "subs": 2440,
+     "channel": "Sankofa Global"
+    }
+   ]
+  },
+  {
+   "slug": "dancing-plague",
+   "engine": "other",
+   "search": "dancing plague of 1518",
+   "market": {
+    "n": 13,
+    "median_views": 32841,
+    "top_views": 2612360,
+    "n_100k": 3,
+    "recent_median_vpd": 30.79197860962567,
+    "n_recent": 8,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "People Danced Until They LITERALLY Died?! - The Dancing Plague of 1518",
+     "views": 2612360,
+     "days": 1808,
+     "vpd": 1444.8893805309735,
+     "subs": 8000000,
+     "channel": "Bailey Sarian"
+    },
+    {
+     "title": "The Strasbourg Dancing Plague | A Short Documentary | Fascinating Horror",
+     "views": 405366,
+     "days": 2360,
+     "vpd": 171.76525423728813,
+     "subs": 1460000,
+     "channel": "Fascinating Horror"
+    },
+    {
+     "title": "BIZARRE HISTORY: The Dancing Plague Of 1518",
+     "views": 403583,
+     "days": 1325,
+     "vpd": 304.5909433962264,
+     "subs": 3760000,
+     "channel": "Jessii Vee"
+    }
+   ]
+  },
+  {
+   "slug": "greek-fire",
+   "engine": "other",
+   "search": "greek fire lost secret",
+   "market": {
+    "n": 15,
+    "median_views": 69,
+    "top_views": 990445,
+    "n_100k": 3,
+    "recent_median_vpd": 0.24561403508771928,
+    "n_recent": 13,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Mystery of Greek Fire Solved?",
+     "views": 990445,
+     "days": 310,
+     "vpd": 3194.983870967742,
+     "subs": 952000,
+     "channel": "Today I Learned Science"
+    },
+    {
+     "title": "How Greek Fire was Used to Target Enemy Ships",
+     "views": 383977,
+     "days": 2371,
+     "vpd": 161.94727962884858,
+     "subs": 4300000,
+     "channel": "Smithsonian Channel"
+    },
+    {
+     "title": "What Actually was Greek Fire?",
+     "views": 129736,
+     "days": 1107,
+     "vpd": 117.19602529358627,
+     "subs": 3250000,
+     "channel": "Today I Found Out"
+    }
+   ]
+  },
+  {
+   "slug": "mansa-musa",
+   "engine": "other",
+   "search": "mansa musa gold crashed cairo economy",
+   "market": {
+    "n": 6,
+    "median_views": 356.0,
+    "top_views": 8763,
+    "n_100k": 0,
+    "recent_median_vpd": 2.9590355805243447,
+    "n_recent": 6,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Mansa Musa's Gold Destroyed Cairo's Economy in Weeks",
+     "views": 8763,
+     "days": 358,
+     "vpd": 24.477653631284916,
+     "subs": 199,
+     "channel": "Medieval History Chronicles"
+    },
+    {
+     "title": "Mansa Musa\u2019s Gold Crashed Cairo\u2019s Economy! (The Richest Man Ever)",
+     "views": 974,
+     "days": 175,
+     "vpd": 5.565714285714286,
+     "subs": 7280,
+     "channel": "Edu History TV"
+    },
+    {
+     "title": "How Mansa Musa\u2019s Pilgrimage Crashed Cairo\u2019s Economy With Gold!",
+     "views": 590,
+     "days": 267,
+     "vpd": 2.209737827715356,
+     "subs": 1250,
+     "channel": "The Chrono Archives"
+    }
+   ]
+  },
+  {
+   "slug": "karansebes",
+   "engine": "other",
+   "search": "battle of karansebes",
+   "market": {
+    "n": 10,
+    "median_views": 765.0,
+    "top_views": 97464,
+    "n_100k": 0,
+    "recent_median_vpd": 0.6037977174340812,
+    "n_recent": 6,
+    "small_breakouts": 0
+   },
+   "top_competitors": [
+    {
+     "title": "Biggest Fail in History: Battle of Karansebes",
+     "views": 97464,
+     "days": 2774,
+     "vpd": 35.134823359769285,
+     "subs": 47800,
+     "channel": "Tooky History"
+    },
+    {
+     "title": "COUNTRYBALLS | Battle of Karansebes 1788 |",
+     "views": 55145,
+     "days": 2542,
+     "vpd": 21.693548387096776,
+     "subs": 27600,
+     "channel": "\u01b5ing_Animator"
+    },
+    {
+     "title": "A Brief History of: The battle of Karansebes",
+     "views": 50409,
+     "days": 3362,
+     "vpd": 14.993753718024985,
+     "subs": 1100000,
+     "channel": "Plainly Difficult"
+    }
+   ]
+  },
+  {
+   "slug": "defenestration-prague",
+   "engine": "other",
+   "search": "defenestration of prague",
+   "market": {
+    "n": 13,
+    "median_views": 2102,
+    "top_views": 1774416,
+    "n_100k": 3,
+    "recent_median_vpd": 1.8926417370325694,
+    "n_recent": 5,
+    "small_breakouts": 1
+   },
+   "top_competitors": [
+    {
+     "title": "The Defenestrations of Prague feat. Brian David Gilbert",
+     "views": 1774416,
+     "days": 1422,
+     "vpd": 1247.831223628692,
+     "subs": 91900,
+     "channel": "Puppet History Inc"
+    },
+    {
+     "title": "The Defenestrations of Prague: Unbiased History:",
+     "views": 302042,
+     "days": 2149,
+     "vpd": 140.55002326663563,
+     "subs": 209000,
+     "channel": "Dovahhatty"
+    },
+    {
+     "title": "The 30 Years' War (1618-48) and the Second Defenestration of Prague - Peter Wilson",
+     "views": 248635,
+     "days": 3061,
+     "vpd": 81.22672329304149,
+     "subs": 456000,
+     "channel": "Gresham College"
+    }
+   ]
+  }
+ ]
+}
