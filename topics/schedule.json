@@ -14,10 +14,16 @@
     "recent_median_vpd": 61.8042273042273,
     "small_breakouts": 7
    },
-   "status": "queued",
+   "status": "uploaded",
    "job": "jobs/asian-carp",
-   "notes": "",
-   "lane": "step1-nature"
+   "notes": "2026-10-11 run failed at the illustrated storyboard gate after 911s (not retried, not waived): 'Illustrated storyboard failed: The revised narration still failed storyboard validation. Original errors: SYNTHESIS_SKIPS_A_BEAT: the synthesis echoes 7/8 chain beats; it never touches scene_018; DANGLING_REFERENCE: scene_016 opens on \"That pressure\", but the scene before never names a pressure.' Research and fact-check passed (52 claims bound). Narration was also over length (937 words, 348s est. for 300s). Diagnostics: jobs/asian-carp/illustrated_storyboard_repair_v1.json, semantic_failure_illustrated-storyboard.json. Spend $3.74 (Anthropic only). Resume with --resume once the operator decides how to handle it. 2026-10-11 operator-approved manual fix (session): scene_016 dangling \"That pressure\" -> \"The fight for food\"; recap sentence reworded to echo scene_018 (\"Startled by boat motors, they launched\"). Resumed with --resume. Rendered 2026-10-11: contract 82 (<85), readiness 84 B, degraded: script 62, hook 67 (institution as subject). Read-through: two sentences told twice (opening pond line; silvers by 1998). Not uploaded. Recut x2 (dup sentences, 45-states wording, farmers-not-agencies, unsupported distance). Contract 82/86/82 across identical-story runs: the causal-storytelling judge swung 16/20/16. Operator approved private upload at 82 on 2026-10-11.",
+   "lane": "step1-nature",
+   "spend_usd": 11.51,
+   "contract": 82,
+   "readiness": 88,
+   "runtime_sec": 327.8,
+   "video_id": "eWJr_iwUNx4",
+   "studio": "https://studio.youtube.com/video/eWJr_iwUNx4/edit"
   },
   {
    "date": "2026-10-13",
@@ -33,7 +39,10 @@
    },
    "status": "queued",
    "job": "jobs/radium-girls",
-   "notes": ""
+   "notes": " 2026-10-11 operator: test 8 minutes (480 s) and packaging v3 (story-sentence title, per-film thumbnail headline) here; companion Short restarts with this run.",
+   "duration_sec": 480,
+   "max_cost_usd": 28,
+   "angle": "history"
   },
   {
    "date": "2026-10-15",
@@ -460,5 +469,10 @@
    "reason": "low demand"
   }
  ],
- "selection": "2026-10-09: scripts/topic_market.py (short search, title keyword relevance, long-form only, small-channel breakouts = >=50k views and >=3x the channel's subscribers). Our long films get ~97% of views from subscriber feeds, so picks favour topics that travel on browse/suggested. 2026-10-09 (later): mixed in inventions (step 2) and rules (step 3), alternating with nature films. Those markets are winner-take-all (one 40M+ video, thin median); picks favour a healthy median or a clear documented story."
+ "selection": "2026-10-09: scripts/topic_market.py (short search, title keyword relevance, long-form only, small-channel breakouts = >=50k views and >=3x the channel's subscribers). Our long films get ~97% of views from subscriber feeds, so picks favour topics that travel on browse/suggested. 2026-10-09 (later): mixed in inventions (step 2) and rules (step 3), alternating with nature films. Those markets are winner-take-all (one 40M+ video, thin median); picks favour a healthy median or a clear documented story.",
+ "item_options": {
+  "duration_sec": "runtime target, default 300",
+  "max_cost_usd": "per-run hard cap, default 18 (scale ~1.6x for 480 s)",
+  "angle": "history (default) or unfolding: see topics/direction_template.md"
+ }
 }
