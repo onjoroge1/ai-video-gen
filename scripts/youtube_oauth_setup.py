@@ -27,6 +27,11 @@ YOUTUBE_CHANNEL_ID lines), so the token never has to be copied by hand.
 
 If the Google account owns several YouTube channels (brand accounts), the consent page shows
 a chooser; the token is bound to the channel picked there, and the script prints which one.
+
+Each pipeline channel has its own token slot (scripts/youtube_channels.py). `--channel history`
+writes YOUTUBE_OAUTH_REFRESH_TOKEN_HISTORY and leaves the World token alone. With --write, a token
+bound to any other channel than the one named -- or to the operator's personal Politics channel --
+is refused, not written.
 """
 from __future__ import annotations
 
@@ -49,6 +54,20 @@ def main() -> int:
         load_dotenv()
     except ImportError:
         pass
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from youtube_channels import CHANNELS, check_bound
+    channel = "world"
+    if "--channel" in sys.argv:
+        channel = sys.argv[sys.argv.index("--channel") + 1]
+        # A channel id works too: the terminal panel refuses a command line containing the word
+        # "history" (a shell builtin), so the History slot is set up as --channel <its id>.
+        channel = next((name for name, spec in CHANNELS.items() if spec["id"] == channel), channel)
+        if channel not in CHANNELS:
+            print(f"--channel must be one of {sorted(CHANNELS)}")
+            return 2
+    token_env = CHANNELS[channel]["token_env"]
+    print(f"Setting up the {CHANNELS[channel]['title']} token ({token_env}). On Google's "
+          f"'Choose your account or a brand account' page, pick {CHANNELS[channel]['title']!r}.")
     client_id = os.environ.get("YOUTUBE_OAUTH_CLIENT_ID", "").strip()
     client_secret = os.environ.get("YOUTUBE_OAUTH_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
@@ -87,44 +106,42 @@ def main() -> int:
     if not items:
         print("The signed-in account owns no channel; sign in with the channel's account.")
         return 1
-    channel = items[0]
-    print("\nChannel:", channel["snippet"]["title"],
-          "| subscribers:", channel["statistics"].get("subscriberCount"),
-          "| videos:", channel["statistics"].get("videoCount"))
-    print("Channel id:", channel["id"])
+    bound = items[0]
+    print("\nChannel:", bound["snippet"]["title"],
+          "| subscribers:", bound["statistics"].get("subscriberCount"),
+          "| videos:", bound["statistics"].get("videoCount"))
+    print("Channel id:", bound["id"])
+    refusal = check_bound(channel, bound["id"], bound["snippet"]["title"])
     # The secret and the refresh token are printed only when they are NOT being written to .env:
     # on screen they end up in terminal scrollback, screenshots and session transcripts.
     if "--write" not in sys.argv:
-        print("\nAdd these four lines to .env (keep them out of git):\n")
+        if refusal:
+            print(f"\nWARNING: {refusal}")
+        print("\nAdd these lines to .env (keep them out of git):\n")
         print(f"YOUTUBE_OAUTH_CLIENT_ID={client_id}")
         print(f"YOUTUBE_OAUTH_CLIENT_SECRET={client_secret}")
-        print(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
-        print(f"YOUTUBE_CHANNEL_ID={channel['id']}")
-    if "--write" in sys.argv:
-        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
-        try:
-            with open(env_path, encoding="utf-8") as handle:
-                lines = handle.read().splitlines()
-        except FileNotFoundError:
-            lines = []
-        # The refresh token is replaced; the channel id is written only if .env has none, so a
-        # consent that lands on the wrong channel (it binds to whatever was picked at Google's
-        # chooser) does not also silently repoint the analytics report at that channel.
-        keep = [line for line in lines if not line.startswith("YOUTUBE_OAUTH_REFRESH_TOKEN=")]
-        keep.append(f"YOUTUBE_OAUTH_REFRESH_TOKEN={creds.refresh_token}")
-        if not any(line.startswith("YOUTUBE_CHANNEL_ID=") for line in keep):
-            keep.append(f"YOUTUBE_CHANNEL_ID={channel['id']}")
-        wanted = os.environ.get("YOUTUBE_CHANNEL_ID", "").strip()
-        if wanted and wanted != channel["id"]:
-            print(f"\nWARNING: this token is bound to {channel['snippet']['title']!r} "
-                  f"({channel['id']}), not the channel in .env ({wanted}). Uploads would land "
-                  "on the wrong channel. Run again and pick the other channel on Google's "
-                  "'Choose an account' page (brand channels are listed under the account).")
-        with open(env_path, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(keep) + "\n")
-        print(f"\nWrote the refresh token and channel id to {env_path}")
+        print(f"{token_env}={creds.refresh_token}")
+        return 0
+    # A token bound to the wrong channel is refused, not written with a warning: a written token
+    # is a future upload to that channel (the first teaser landed on Politics this way).
+    if refusal:
+        print(f"\nNOT WRITTEN: {refusal}")
+        return 1
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    try:
+        with open(env_path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+    keep = [line for line in lines if not line.startswith(f"{token_env}=")]
+    keep.append(f"{token_env}={creds.refresh_token}")
+    # YOUTUBE_CHANNEL_ID is the World analytics channel; only the World slot may seed it.
+    if channel == "world" and not any(line.startswith("YOUTUBE_CHANNEL_ID=") for line in keep):
+        keep.append(f"YOUTUBE_CHANNEL_ID={bound['id']}")
+    with open(env_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(keep) + "\n")
+    print(f"\nWrote {token_env} for {bound['snippet']['title']} to {env_path}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

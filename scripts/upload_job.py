@@ -26,6 +26,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("job")
     parser.add_argument("--title", default="")
+    parser.add_argument("--channel", default="world", choices=["world", "history"])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     job = os.path.abspath(args.job)
@@ -42,13 +43,14 @@ def main(argv=None) -> int:
     if not title:
         sys.exit("no title: pass --title or finish the run so run_result.json has one")
     preflight = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "preflight.py"),
-                                "--need-upload", "--min-free-gb", "0"], capture_output=True, text=True)
+                                "--need-upload", "--min-free-gb", "0", "--channel", args.channel],
+                               capture_output=True, text=True)
     youtube_line = [line for line in preflight.stdout.splitlines() if "youtube" in line]
     if not youtube_line or not youtube_line[0].startswith("PASS"):
         print("\n".join(youtube_line) or preflight.stdout)
         return 1
     cmd = [sys.executable, os.path.join(ROOT, "scripts", "youtube_upload.py"),
-           "--video", video, "--title", title]
+           "--video", video, "--title", title, "--channel", args.channel]
     if os.path.isfile(os.path.join(job, "description.txt")):
         cmd += ["--description-file", os.path.join(job, "description.txt")]
     if os.path.isfile(os.path.join(job, "thumbnail.jpg")):
@@ -63,6 +65,7 @@ def main(argv=None) -> int:
     if not args.dry_run:
         with open(record_path, "w", encoding="utf-8") as handle:
             json.dump({"video_id": match.group(1), "title": title, "privacy": "private",
+                       "channel": args.channel,
                        "studio": f"https://studio.youtube.com/video/{match.group(1)}/edit"}, handle, indent=1)
     return 0
 

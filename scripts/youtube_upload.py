@@ -22,16 +22,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CATEGORY_EDUCATION = "27"
 
 
-def _creds():
+def _creds(channel: str = "world"):
     from dotenv import load_dotenv
     load_dotenv(os.path.join(ROOT, ".env"))
     from google.oauth2.credentials import Credentials
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from youtube_channels import CHANNELS
+    token_env = CHANNELS[channel]["token_env"]
     missing = [k for k in ("YOUTUBE_OAUTH_CLIENT_ID", "YOUTUBE_OAUTH_CLIENT_SECRET",
-                           "YOUTUBE_OAUTH_REFRESH_TOKEN") if not os.environ.get(k)]
+                           token_env) if not os.environ.get(k)]
     if missing:
         sys.exit(f"missing in .env: {', '.join(missing)}")
     return Credentials(
-        None, refresh_token=os.environ["YOUTUBE_OAUTH_REFRESH_TOKEN"],
+        None, refresh_token=os.environ[token_env],
         token_uri="https://oauth2.googleapis.com/token",
         client_id=os.environ["YOUTUBE_OAUTH_CLIENT_ID"],
         client_secret=os.environ["YOUTUBE_OAUTH_CLIENT_SECRET"],
@@ -49,6 +52,8 @@ def main() -> int:
     ap.add_argument("--tags", default="", help="comma-separated")
     ap.add_argument("--short", action="store_true", help="append #Shorts to the title")
     ap.add_argument("--publish-at", default="", help="RFC3339 UTC; sets privacy private + schedule")
+    ap.add_argument("--channel", default="world", choices=["world", "history"],
+                    help="which channel's token to use; the bound channel must match")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -101,17 +106,16 @@ def main() -> int:
 
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
-    yt = build("youtube", "v3", credentials=_creds(), cache_discovery=False)
+    yt = build("youtube", "v3", credentials=_creds(args.channel), cache_discovery=False)
     # An upload lands on the channel the TOKEN is bound to (the one picked at Google's account
     # chooser), not on YOUTUBE_CHANNEL_ID. The first teaser upload (2026-09-30) landed on the
     # wrong channel this way. Refuse rather than misfile.
     mine = yt.channels().list(part="id,snippet", mine=True).execute().get("items") or []
     bound = mine[0]["id"] if mine else ""
-    wanted = os.environ.get("YOUTUBE_CHANNEL_ID", "").strip()
-    if wanted and bound != wanted:
-        sys.exit(f"token is bound to channel {bound} ({mine[0]['snippet']['title']!r}) but "
-                 f"YOUTUBE_CHANNEL_ID is {wanted}; re-run scripts/youtube_oauth_setup.py "
-                 "--write and pick the right channel at Google's account chooser")
+    from youtube_channels import check_bound
+    refusal = check_bound(args.channel, bound, mine[0]["snippet"]["title"] if mine else "")
+    if refusal:
+        sys.exit(refusal)
     media = MediaFileUpload(args.video, mimetype="video/mp4", chunksize=8 * 1024 * 1024,
                             resumable=True)
     request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
