@@ -200,7 +200,10 @@ def plan(script, board):
             named = rest.strip().split(" ", 1)[0]
             if named in ids:
                 selected.add(ids.index(named))
-                scene_edits.append({"scene_id": named, "code": code, "finding": rest.strip()[:240]})
+                item = {"scene_id": named, "code": code, "finding": rest.strip()[:240]}
+                if code == "DANGLING_REFERENCE" and ids.index(named) > 0:
+                    item.update(_previous_scene_words(scenes[ids.index(named) - 1]))
+                scene_edits.append(item)
             else:
                 return None
     # The restated scenes, named by the check's own message ("<scene_id> re-tells the <role>").
@@ -217,7 +220,16 @@ def plan(script, board):
     planted = sorted(cs.lead_numbers({"line": script.get("hook"),
                                       "cold_open": script.get("_cold_open"),
                                       "consequence": opening_plan.get("consequence")}))
+    echo_words = {}
+    if synthesis is not None:
+        for error in errors:
+            match = re.search(r"SYNTHESIS_SKIPS_A_BEAT:.*?never touches ([^-]+?) --", error)
+            for missed in ([t.strip() for t in match.group(1).split(",")] if match else []):
+                words = _echo_words(scenes, synthesis, missed)
+                if words:
+                    echo_words[missed] = words
     return {"errors": errors, "scene_ids": [ids[i] for i in sorted(selected)],
+            "echo_words": echo_words,
             "mechanism_index": mechanism, "close_index": close,
             "opening_word_limit": opening_limit, "opening_object": opening,
             "planted_numbers": planted if script.get("_close_contract") else [],
@@ -233,6 +245,43 @@ def plan(script, board):
                                    .get("consequence") or []),
             "consequence_text": str((script.get("_opening") or {}).get("consequence") or ""),
             "deadline_fraction": pct, "original_counts": counts}
+
+
+def _previous_scene_words(scene: dict) -> dict:
+    """What a dangling opener may point back at: the scene before's last sentence and its words."""
+    text = str(scene.get("narration") or "").strip()
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    words = []
+    for word in re.findall(r"[A-Za-z][A-Za-z'-]+", text):
+        low = word.lower()
+        if len(low) >= 4 and low not in cs._STOPWORDS and low not in words:
+            words.append(low)
+    return {"previous_sentence": sentences[-1] if sentences else "", "previous_words": words[:24]}
+
+
+def _echo_words(scenes: list[dict], synthesis: int, scene_id: str) -> list[str]:
+    """The skipped beat's own distinctive words, as the recap check counts them.
+
+    The check matches five-letter stems of words a chain beat shares with at most one other beat;
+    a paraphrase ("spooked", "leaped") echoes nothing it can see. Handing the repair the exact
+    words makes the one bounded retry converge instead of re-paraphrasing (Asian carp, 2026-10-11).
+    """
+    chain = [s for s in scenes[:synthesis]
+             if s.get("causal_role") in (cs.MECHANISM, cs.ESCALATION) and not s.get("continues")]
+    counts: dict = {}
+    for beat in chain:
+        for stem in cs._content_stems(beat.get("narration")):
+            counts[stem] = counts.get(stem, 0) + 1
+    beat = next((b for b in chain if b.get("scene_id") == scene_id), None)
+    if beat is None:
+        return []
+    words = []
+    for word in re.findall(r"[a-z]+", str(beat.get("narration") or "").lower()):
+        if len(word) < 4 or word in cs._STOPWORDS or word in cs._SIGNPOST_WORDS:
+            continue
+        if counts.get(word[:5], 0) <= 2 and word not in words:
+            words.append(word)
+    return sorted(words, key=len, reverse=True)[:6]
 
 
 def prompt(script, edit):
@@ -264,7 +313,10 @@ def prompt(script, edit):
                f"{edit['shorten']['forbidden_tokens']}; name the place or count only as an earlier "
                "scene named it. " if edit['shorten'].get('forbidden_tokens') else "")
             + (f"The beats you never touched, which must each be echoed by one of their own words: "
-               f"{edit['shorten']['must_touch']}. " if edit['shorten'].get('must_touch') else ""))
+               f"{edit['shorten']['must_touch']}"
+               + (f" -- use one of these exact words for each: {edit['echo_words']}"
+                  if edit.get("echo_words") else "") + ". "
+               if edit['shorten'].get('must_touch') else ""))
            if edit.get("shorten") else "")
         + ("".join(
             (f"Scene {item['scene_id']} RE-TELLS the scene before it ({item['finding']}). Keep only "
@@ -272,8 +324,15 @@ def prompt(script, edit):
              "the same event again; it may get shorter. "
              if item["code"] == "CONTINUATION_REPEATS" else
              f"Scene {item['scene_id']} opens by pointing at something nothing named "
-             f"({item['finding']}). Rewrite only its first sentence so it refers back to what the "
-             "scene before actually said, and so it does not contradict it. ")
+             f"({item['finding']}). Rewrite only its first sentence. Do NOT swap the noun for "
+             "another one the scene before never said (\"That pressure\" -> \"That shortage\" "
+             "was rejected for exactly this, 2026-10-11). Either NAME what the scene before "
+             "described, in its own words"
+             + (f" -- it ended: \"{item['previous_sentence']}\", and its words include "
+                f"{item['previous_words']}" if item.get("previous_sentence") else "")
+             + " -- with a plain article, e.g. \"The fight for food\", or open on this scene's own "
+             "subject without pointing back at all. Use \"That\"/\"This\" only before a noun the "
+             "scene before actually says. It must not contradict the scene before. ")
             for item in edit.get("scene_edits") or []))
         + ("The close is requested because it SAYS ITS POINT TWICE (two sentences carrying the "
            "same idea). Keep the stronger one, cut the other, and let the last sentence return to "
@@ -313,7 +372,10 @@ def prompt(script, edit):
            "mechanism and escalation scene in order as cause -> cost, using only words those scenes "
            "already said; add no number, name, date or place they did not. The error names the "
            "scenes it never touched; each of those must be echoed by one of its own content "
-           "words. Open the scene on a joint to the scene before it (\"So\", \"Put together\", "
+           "words -- the SAME word, not a synonym (\"spooked\" for \"startle\" and \"leaped\" for "
+           "\"launches\" were not counted, 2026-10-11). "
+           + (f"Use at least one of these exact words for each: {edit['echo_words']}. "
+              if edit.get("echo_words") else "") + "Open the scene on a joint to the scene before it (\"So\", \"Put together\", "
            "\"One choice, the whole length of it\") and let one sentence address the viewer, so "
            "the rewritten scene stays inside the sentence-mix bands that are checked with it. "
            if edit.get("synthesis_index") is not None and edit["scene_ids"]
