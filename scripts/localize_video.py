@@ -126,6 +126,9 @@ def main(argv=None) -> int:
     parser.add_argument("--langs", default="es,pt,id,hi")
     parser.add_argument("--channel", default="world", choices=["world", "history"])
     parser.add_argument("--no-captions", action="store_true")
+    parser.add_argument("--if-changed", action="store_true",
+                        help="do nothing unless the live title/description differ from the last "
+                             "localized source or a requested language is missing (no model calls)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     from dotenv import load_dotenv
@@ -157,10 +160,23 @@ def main(argv=None) -> int:
             previous = json.load(open(record_path, encoding="utf-8"))
         except ValueError:
             previous = {}
+    wanted = [l.strip() for l in args.langs.split(",") if l.strip()]
+    if args.if_changed and previous.get("video_id") == args.video_id:
+        done = {lang for lang, entry in (previous.get("languages") or {}).items()
+                if isinstance(entry.get("metadata"), dict) and entry["metadata"].get("title")}
+        if previous.get("source") == source and set(wanted) <= done:
+            print("unchanged: live title and description match the localized source; nothing to do")
+            return 0
+        if previous.get("source") != source:
+            # A retitle in Studio: re-translate the metadata; the narration and its subtitles
+            # have not changed, so existing caption tracks are kept.
+            args.no_captions = args.no_captions or set(wanted) <= set(
+                (previous.get("languages") or {}).keys())
+            print("live title or description changed since the last localization; re-translating")
     # Runs for a subset of languages add to the record instead of replacing it.
     record = {"video_id": args.video_id, "source": source, "model": MODEL,
               "languages": dict(previous.get("languages") or {}) if previous.get("video_id") == args.video_id else {}}
-    for lang in [l.strip() for l in args.langs.split(",") if l.strip()]:
+    for lang in wanted:
         entry: dict = {}
         translated = translate_metadata(source["title"], source["description"], lang)
         problems = check_translation(source, translated)
