@@ -2,8 +2,9 @@
 
 Run this yourself; it opens your browser for Google's consent screen and must be approved by
 the account that owns the channel. The scopes requested are
-youtube.readonly, yt-analytics.readonly and youtube.upload (private uploads via
-scripts/youtube_upload.py; it cannot edit or delete existing videos).
+youtube.readonly, yt-analytics.readonly, youtube.upload (private uploads via
+scripts/youtube_upload.py) and youtube.force-ssl (localized metadata, captions and tags on existing
+videos via scripts/localize_video.py; it could also delete videos, and no script here does).
 
 Before running, in Google Cloud Console (https://console.cloud.google.com):
   1. APIs & Services -> Library: enable "YouTube Data API v3" and "YouTube Analytics API".
@@ -45,6 +46,9 @@ SCOPES = [
     # API compliance audit, every API upload is locked to private, which is the intended
     # workflow here: the operator reviews in Studio and makes it public by hand.
     "https://www.googleapis.com/auth/youtube.upload",
+    # Edit existing videos' metadata: localized titles and descriptions, translated captions,
+    # tags (operator, 2026-10-11). It can also edit or delete videos; no script here deletes one.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 

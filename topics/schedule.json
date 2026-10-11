@@ -473,6 +473,7 @@
  "item_options": {
   "duration_sec": "runtime target, default 300",
   "max_cost_usd": "per-run hard cap, default 18 (scale ~1.6x for 480 s)",
-  "angle": "history (default) or unfolding: see topics/direction_template.md"
+  "angle": "history (default) or unfolding: see topics/direction_template.md",
+  "langs": "localized title/description + subtitle languages, default es,pt,id,hi (scripts/localize_video.py)"
  }
 }
