@@ -39,6 +39,7 @@ def _creds(channel: str = "world"):
         client_id=os.environ["YOUTUBE_OAUTH_CLIENT_ID"],
         client_secret=os.environ["YOUTUBE_OAUTH_CLIENT_SECRET"],
         scopes=["https://www.googleapis.com/auth/youtube.upload",
+                "https://www.googleapis.com/auth/youtube.force-ssl",
                 "https://www.googleapis.com/auth/youtube.readonly"])
 
 
