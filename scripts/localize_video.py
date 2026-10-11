@@ -75,7 +75,10 @@ def translate_metadata(title: str, description: str, lang: str) -> dict:
         f"You localize YouTube metadata into {LANG_NAMES.get(lang, lang)} for a documentary channel. "
         "Write the title the way a native YouTube creator in that language would: natural, "
         "curiosity-led, the same story and the same claim, never a word-for-word gloss, at most "
-        "100 characters. Translate the description faithfully: keep every number exactly, every "
+        "100 characters. Never add a qualifier to a number (more than, over, about, nearly) the "
+        "English does not plainly mean: 'It Took Over 45 States' means it conquered 45 states, "
+        "not more than 45 (es and id read it that way, 2026-10-11). "
+        "Translate the description faithfully: keep every number exactly, every "
         "URL unchanged, every chapter line's timestamp unchanged (translate only its label), "
         "hashtags unchanged, line breaks kept. Add no claim the English does not make. "
         "Return ONLY JSON {\"title\": \"...\", \"description\": \"...\"}.")
@@ -137,7 +140,9 @@ def main(argv=None) -> int:
     source = {"title": snippet["title"], "description": snippet.get("description", "")}
     default_lang = snippet.get("defaultLanguage") or "en"
     localizations = dict(video.get("localizations") or {})
-    localizations.setdefault(default_lang, source)
+    # The default language's entry mirrors the live English title and description; a stale one
+    # kept the old title after a retitle (2026-10-11).
+    localizations[default_lang] = source
     cues = []
     srt_path = os.path.join(args.job, "captions.srt")
     if not args.no_captions and os.path.isfile(srt_path):
@@ -145,7 +150,16 @@ def main(argv=None) -> int:
     existing_tracks = {c["snippet"]["language"] for c in yt.captions().list(
         part="snippet", videoId=args.video_id).execute().get("items", [])
         if c["snippet"].get("trackKind") != "asr"}
-    record = {"video_id": args.video_id, "source": source, "model": MODEL, "languages": {}}
+    record_path = os.path.join(args.job, "localizations.json")
+    previous = {}
+    if os.path.isfile(record_path):
+        try:
+            previous = json.load(open(record_path, encoding="utf-8"))
+        except ValueError:
+            previous = {}
+    # Runs for a subset of languages add to the record instead of replacing it.
+    record = {"video_id": args.video_id, "source": source, "model": MODEL,
+              "languages": dict(previous.get("languages") or {}) if previous.get("video_id") == args.video_id else {}}
     for lang in [l.strip() for l in args.langs.split(",") if l.strip()]:
         entry: dict = {}
         translated = translate_metadata(source["title"], source["description"], lang)
@@ -177,7 +191,7 @@ def main(argv=None) -> int:
                 entry["captions_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
         elif lang in existing_tracks:
             entry["captions"] = "existing track kept"
-        record["languages"][lang] = entry
+        record["languages"][lang] = {**record["languages"].get(lang, {}), **entry}
         print(f"{lang}: {entry.get('metadata', {}).get('title') or entry['metadata']}"
               f" | captions: {entry.get('caption_track') or entry.get('captions') or entry.get('captions_error')}")
     if not args.dry_run:
@@ -187,7 +201,7 @@ def main(argv=None) -> int:
                 "localizations": localizations}
         body["snippet"]["defaultLanguage"] = default_lang
         yt.videos().update(part="snippet,localizations", body=body).execute()
-    with open(os.path.join(args.job, "localizations.json"), "w", encoding="utf-8") as handle:
+    with open(record_path, "w", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False, indent=1)
     print("written:", os.path.join(args.job, "localizations.json"),
           "(dry run, nothing sent)" if args.dry_run else "")
