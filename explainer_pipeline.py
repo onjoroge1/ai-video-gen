@@ -9985,6 +9985,22 @@ def _preflight_verifier_credit(log=print, scene_index: int | None = None) -> Non
 
 def _blind_rendered_story_judge(contact_sheet_path: str, transcript_cues: list[dict],
                                 cost_sink: list | None = None) -> dict:
+    """The blind judge, run BLIND_JUDGE_VOTES times (default 3) and merged by majority per field.
+
+    A single run moved the Asian carp contract 82 -> 86 -> 82 on an unchanged story
+    (longform_rendered_gate.merge_blind_votes). About $0.03 a vote.
+    """
+    from longform_rendered_gate import merge_blind_votes
+    try:
+        votes = max(1, int(os.environ.get("BLIND_JUDGE_VOTES", "3") or 3))
+    except ValueError:
+        votes = 3
+    return merge_blind_votes([_blind_rendered_story_judge_once(
+        contact_sheet_path, transcript_cues, cost_sink=cost_sink) for _ in range(votes)])
+
+
+def _blind_rendered_story_judge_once(contact_sheet_path: str, transcript_cues: list[dict],
+                                     cost_sink: list | None = None) -> dict:
     """Judge the chronological rendered opening without planner metadata or expected answers."""
     try:
         with open(contact_sheet_path, "rb") as handle:

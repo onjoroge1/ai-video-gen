@@ -835,6 +835,39 @@ def cross_check_blind_observations(blind: dict, deterministic: dict) -> dict:
     return checked
 
 
+BLIND_BOOL_FIELDS = (
+    "subject_readable", "objective_readable", "anomaly_readable", "investigation_develops",
+    "evidence_accumulates", "causal_story", "belief_change_earned", "forward_question_readable",
+    "multi_shot_storytelling", "slideshow", "bolt_useful", "captions_obscure_evidence",
+    "comprehensible_audio_story")
+
+
+def merge_blind_votes(votes: list[dict]) -> dict:
+    """One judgement from several runs of the blind judge: a strict majority per boolean.
+
+    Measured on the Asian carp film (2026-10-11): the same story scored 82, 86 and 82 because
+    one boolean in "Evidence accumulation and causal storytelling" flipped between runs, and one
+    boolean there is 4 contract points -- enough to move a film across the 85 upload bar. Each
+    field is now the strict majority of the valid votes (a tie is False, the judge's own rule for
+    an unrecoverable fact), and the text and list fields come from the vote that agrees with
+    that majority most often, so the evidence quoted matches the verdict scored.
+    """
+    valid = [v for v in votes if isinstance(v, dict) and v.get("valid") is not False
+             and not v.get("judge_error")]
+    if not valid:
+        return next((v for v in votes if isinstance(v, dict)), {"valid": False,
+                                                               "judge_error": "no votes"})
+    majority = {field: sum(1 for v in valid if v.get(field) is True) * 2 > len(valid)
+                for field in BLIND_BOOL_FIELDS}
+    representative = max(valid, key=lambda v: sum(
+        1 for field in BLIND_BOOL_FIELDS if bool(v.get(field)) == majority[field]))
+    merged = {**representative, **majority}
+    merged["votes"] = len(valid)
+    merged["vote_split"] = {field: f"{sum(1 for v in valid if v.get(field) is True)}/{len(valid)}"
+                            for field in BLIND_BOOL_FIELDS}
+    return merged
+
+
 def _fraction_score(maximum: int, values: list[bool]) -> int:
     return round(maximum * sum(bool(value) for value in values) / max(1, len(values)))
 
