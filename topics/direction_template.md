@@ -33,3 +33,23 @@ Verify: <specific numbers or claims to confirm or drop>. Separate documented fac
 Research starting points: <2-4 reputable URLs: government, museum, university, peer-reviewed>.
 
 Storyboard: <the one recurring object>; <the mechanism cutaway idea>; no maps; people in frame.
+
+## Angle: unfolding (schedule item `"angle": "unfolding"`)
+
+For a story that is still happening (cane toads and the ants, quolls and rodents now being tried
+against them; carp and the barriers and harvest programmes). The topic winners in these lanes
+are present-tense: the fight-back, not only the original mistake (measured 2026-10-11: "Australia
+Used Ants to Destroy Millions of Cane Toads", 1.1M views on a 107k channel).
+
+OPENING: inside one person's present-day practical problem with the consequence (a ranger, a
+farmer, a fisher), second person, the need tangible before any date or name. The original
+intervention is the backstory, told in one or two beats as the cause of today's problem.
+
+Causal arc (as questions, not facts): what is the consequence costing people or wildlife today,
+according to current sources? What countermeasures are being tried now, by whom, since when?
+What do the measurements so far actually show, including what has NOT worked? What is still
+unknown? Close on what the evidence supports today, never on a promise the sources do not make.
+
+Verify: dates and results of every countermeasure named, and whether each result is a field
+measurement, a trial, or a proposal. Prefer the last three years of government, university and
+peer-reviewed sources; say plainly when a result is preliminary.

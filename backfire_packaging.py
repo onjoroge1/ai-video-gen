@@ -40,7 +40,7 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 TITLE_MAX_CHARS = 70
 TITLE_ATTEMPTS = 2
-VERSION = "backfire_packaging_v2"
+VERSION = "backfire_packaging_v3"
 
 _HEADLINE_FONTS = (
     "/System/Library/Fonts/Supplemental/Impact.ttf",
@@ -50,7 +50,16 @@ _HEADLINE_FONTS = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 )
 
-_TITLE_RE = re.compile(r"^The .+ Mistake That .+$")
+# v3 (operator, 2026-10-11): titles are a story sentence, not the "The <X> Mistake That <Y>" label.
+# The topic winners read as a plain sentence and a twist -- "China Killed All Their Sparrows (Then
+# Came The Famine)", "When China Went to War With Sparrows and Lost" -- while ours read as a stack
+# of compound adjectives ("The 101-Cane-Toad Mistake That Poisoned..."). Two shapes are accepted:
+# two short sentences ("China Declared War on Sparrows. The Locusts Won.") or a sentence with a
+# parenthetical turn ("... (Then Came the Famine)").
+_TITLE_TWO_SENTENCES = re.compile(r"^[A-Z0-9][^.!()]{7,}\. [A-Z0-9][^.!()]{1,}[.!]$")
+_TITLE_PAREN_TURN = re.compile(r"^[A-Z0-9][^.!()]{7,} \((?:Then|And|But|Now|Until) [^()]{2,}\)$")
+_OLD_FORMULA = re.compile(r"^The .+ Mistake That .+$")
+HEADLINE_MAX_CHARS = 18
 
 
 def enabled() -> bool:
@@ -123,20 +132,43 @@ def numbers_supported(headline: str, transcript: str) -> bool:
 
 _TITLE_SYSTEM = (
     "You write YouTube titles for a documentary channel about interventions that backfired. "
-    "Every title uses exactly this formula: \"The <object> Mistake That <consequence>\". "
-    "<object> is the concrete thing the intervention attacked, paid for, or introduced, ideally "
-    "quantified with a number the narration speaks (\"2-Billion Bird\", \"$24M\", \"Rat Bounty\", "
-    "\"102-Toad\"). <consequence> is the literal outcome in 3-6 plain words (\"Starved a Nation\", "
-    "\"Created Millions More\", \"Poisoned Australia's Predators\"). Rules: at most 70 characters; "
-    "no colon, question mark, quotation marks or emoji; every number must appear in the transcript; "
-    "no claim the transcript does not make; name the real animal or thing, not a metaphor. "
-    "Return ONLY JSON: {\"title\": \"...\"}"
+    "Write the story as one plain sentence and a twist, in ONE of two shapes: (a) two short "
+    "sentences, the act then the turn -- \"China Declared War on Sparrows. The Locusts Won.\", "
+    "\"Australia Released 101 Toads to Save Its Sugar. Big Mistake.\"; or (b) a sentence with "
+    "a parenthetical turn starting with Then, And, But, Now or Until -- \"China Killed All Its "
+    "Sparrows (Then Came the Famine)\". The subject is who acted (a country, a city, farmers, a "
+    "government), the verb is plain and physical (killed, released, built, banned, brought), "
+    "and the turn names the consequence the narration actually reaches. Never use the label "
+    "formula \"The <X> Mistake That <Y>\". Rules: at most 70 characters; no colon, question "
+    "mark, quotation marks or emoji; every number must appear in the transcript; no claim the "
+    "transcript does not make. Return ONLY JSON: {\"title\": \"...\"}"
 )
+
+
+def headline_words(candidate: str, title: str, transcript: str) -> tuple[str, ...]:
+    """A per-film thumbnail headline, or the fixed FATAL ERROR when the proposal is unusable.
+
+    v3 (2026-10-11): "FATAL ERROR" on every thumbnail told a returning viewer nothing; the topic
+    winners carry a different two- or three-word irony each time ("NATURE'S KARMA", "ENEMY OF
+    THE STATE", "THIS WENT BADLY"). Short enough to stay large; numbers must be spoken; it may
+    not simply repeat the title.
+    """
+    text = re.sub(r"\s+", " ", (candidate or "").strip().upper())
+    words = text.split()
+    if not 2 <= len(words) <= 3 or len(text) > HEADLINE_MAX_CHARS:
+        return HEADLINE
+    if any(ch in text for ch in ':?"“”\n') or text.lower() in (title or "").lower():
+        return HEADLINE
+    if not numbers_supported(text, transcript or ""):
+        return HEADLINE
+    return tuple(words)
 
 
 def title_valid(candidate: str, transcript: str) -> bool:
     text = (candidate or "").strip()
-    if not text or len(text) > TITLE_MAX_CHARS or not _TITLE_RE.match(text):
+    if not text or len(text) > TITLE_MAX_CHARS or _OLD_FORMULA.match(text):
+        return False
+    if not (_TITLE_TWO_SENTENCES.match(text) or _TITLE_PAREN_TURN.match(text)):
         return False
     if any(ch in text for ch in ':?"“”\n'):
         return False
@@ -203,7 +235,10 @@ _STRATEGY_SYSTEM = (
     "{\"pairs\": [{\"crossed_out_subject\": \"3-6 words, the species in the act\", "
     "\"crossed_out_scene\": \"one sentence, close, the act that fills the left panel\", "
     "\"consequence_subject\": \"3-6 words, the threat\", \"consequence_scene\": \"one sentence: "
-    "the frightened person in the foreground and the threat closing in\"}, {...}]}"
+    "the frightened person in the foreground and the threat closing in\", \"headline\": \"2-3 "
+    "WORDS in capitals, at most 18 characters: the irony or the stake (THE LOCUSTS WON, IT "
+    "BACKFIRED, NOBODY STOPPED THEM), never the title repeated, every number spoken in the "
+    "transcript\"}, {...}]}"
 )
 
 
@@ -229,9 +264,12 @@ def strategy(title: str, question: str, transcript: str, cost_sink: list | None 
         if all(str(pair.get(key) or "").strip() for key in
                ("crossed_out_subject", "crossed_out_scene", "consequence_subject",
                 "consequence_scene")):
-            keep.append({key: str(pair[key]).strip() for key in
-                         ("crossed_out_subject", "crossed_out_scene", "consequence_subject",
-                          "consequence_scene")})
+            kept = {key: str(pair[key]).strip() for key in
+                    ("crossed_out_subject", "crossed_out_scene", "consequence_subject",
+                     "consequence_scene")}
+            if str(pair.get("headline") or "").strip():
+                kept["headline"] = str(pair["headline"]).strip().upper()
+            keep.append(kept)
     return keep[:2]
 
 
@@ -421,10 +459,11 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
                 stroke_width=stroke + 2, stroke_fill=(0, 0, 0, 160))
         cursor += width + gap
     base.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(4)))
-    colors = (YELLOW, WHITE)
+    # First word yellow, the rest white: "FATAL ERROR" unchanged, "THE LOCUSTS WON" reads as one line.
+    colors = (YELLOW,) + (WHITE,) * max(1, len(headline) - 1)
     cursor = x
     for index, (word, width) in enumerate(zip(headline, widths)):
-        ImageDraw.Draw(base).text((cursor, y), word, font=font, fill=(*colors[index % 2], 255),
+        ImageDraw.Draw(base).text((cursor, y), word, font=font, fill=(*colors[min(index, len(colors) - 1)], 255),
                                   stroke_width=stroke, stroke_fill=(*BLACK, 255))
         cursor += width + gap
     base.convert("RGB").save(out_path, "JPEG", quality=92)
@@ -498,7 +537,7 @@ BACKFIRE_THUMB_GRADE_SYSTEM = (
     "4. one_subject_per_panel: does each panel hold one dominant focal point (the act; the face) "
     "that passes the squint test, with the swarm or crowd reading as one background shape rather "
     "than many competing foreground things?\n"
-    "5. headline_legible: is the headline exactly two words and readable at mobile size?\n"
+    "5. headline_legible: is the headline two or three words and readable at mobile size?\n"
     "6. single_ring: is there exactly ONE red ring in the frame -- no second drawn circle, "
     "slash or crossed-out sign anywhere?\n"
     "7. medium_matches: is the artwork in the EXPECTED MEDIUM stated after this list -- photoreal "
@@ -590,13 +629,15 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
             if detect_drawn_ring(bg, cost_sink, log):
                 log("artwork still carries a ring; leaving the overlay ring off this candidate")
                 keep_ring = False
-        compose(bg, vpath, ring_overlay=keep_ring)
+        words = headline_words(pair.get("headline", ""), title, transcript)
+        compose(bg, vpath, headline=words, ring_overlay=keep_ring)
         grade = ep.grade_thumbnail(vpath, title, cost_sink=cost_sink, **grade_kwargs)
         # Only the count used to survive this line. Every shipped backfire thumbnail logged
         # "weak (4/8)" with no record of WHICH four items failed or what the grader would change,
         # so the operator could not tell a bad render from an unpassable checklist. Keep the
         # whole verdict: it is the only evidence the next redesign has.
-        rendered.append({"pair": pair, "path": vpath, "fails": (grade or {}).get("fails"),
+        rendered.append({"pair": pair, "path": vpath, "headline": " ".join(words),
+                         "fails": (grade or {}).get("fails"),
                          "items": (grade or {}).get("items"),
                          "redesign_note": (grade or {}).get("redesign_note")})
         if best_grade is None or (grade or {}).get("fails", 99) < best_grade.get("fails", 99):
@@ -613,8 +654,12 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
         except OSError:
             pass
     rep.update({
-        "version": VERSION, "headline": " ".join(HEADLINE), "grammar": "fatal_error_split",
-        "pairs": [{**item["pair"], "fails": item["fails"], "items": item["items"],
+        "version": VERSION,
+        "headline": next((item["headline"] for item in rendered if item["path"] == best_path),
+                         " ".join(HEADLINE)),
+        "grammar": "fatal_error_split",
+        "pairs": [{**item["pair"], "headline_used": item["headline"], "fails": item["fails"],
+                   "items": item["items"],
                    "redesign_note": item["redesign_note"]} for item in rendered],
         "chosen": next((i for i, item in enumerate(rendered) if item["path"] == best_path), None),
         "qa": "skipped" if not best_grade or best_grade.get("fails") == 99 else "ok",

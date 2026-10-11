@@ -37,17 +37,43 @@ def test_spoken_numbers_reads_compounds_the_way_a_narrator_says_them():
     assert "3000" not in bp.spoken_numbers("three toads and a thousand beetles")
 
 
-def test_title_formula_and_spoken_numbers():
-    assert bp.title_valid("The 102-Toad Mistake That Poisoned Australia's Predators", TRANSCRIPT)
-    assert bp.title_valid("The Beetle Mistake That Made Australia Toxic", TRANSCRIPT)
+def test_title_is_a_story_sentence_and_numbers_are_spoken():
+    """v3 (2026-10-11): a plain sentence and a turn, not the "The <X> Mistake That <Y>" label."""
+    assert bp.title_valid("Australia Released 102 Toads to Save Its Sugar. Big Mistake.", TRANSCRIPT)
+    assert bp.title_valid("Queensland Brought In Toads to Eat Beetles (Then They Spread)", TRANSCRIPT)
+    # The old label formula is refused now, with or without a valid number.
+    assert not bp.title_valid("The 102-Toad Mistake That Poisoned Australia's Predators", TRANSCRIPT)
     # A number the narration never speaks is the same defect as an unsupported claim.
-    assert not bp.title_valid("The 3,000-Toad Mistake That Poisoned a Continent", TRANSCRIPT)
-    # Formula, punctuation and length are all hard rules.
+    assert not bp.title_valid("Australia Released 3,000 Toads. Big Mistake.", TRANSCRIPT)
+    # Shape, punctuation and length are hard rules.
     assert not bp.title_valid("Why Cane Toads Backfired", TRANSCRIPT)
-    assert not bp.title_valid("The Toad Mistake: Why It Backfired", TRANSCRIPT)
-    assert not bp.title_valid("The Toad Mistake That Backfired?", TRANSCRIPT)
-    assert not bp.title_valid("The " + "Very " * 14 + "Long Mistake That Backfired", TRANSCRIPT)
+    assert not bp.title_valid("Toads: Why It Backfired. Badly.", TRANSCRIPT)
+    assert not bp.title_valid("Did the Toads Backfire? Yes.", TRANSCRIPT)
+    assert not bp.title_valid("Australia " + "Really " * 12 + "Released Toads. Oops.", TRANSCRIPT)
     assert not bp.title_valid("", TRANSCRIPT)
+
+
+def test_headline_is_per_film_with_a_fixed_fallback():
+    title = "Australia Released 102 Toads to Save Its Sugar. Big Mistake."
+    assert bp.headline_words("the beetles won", title, TRANSCRIPT) == ("THE", "BEETLES", "WON")
+    assert bp.headline_words("IT BACKFIRED", title, TRANSCRIPT) == ("IT", "BACKFIRED")
+    for bad in ("", "WON", "THIS IS FAR TOO LONG", "BIG MISTAKE", "3000 TOADS", "WHY? NOW"):
+        assert bp.headline_words(bad, title, TRANSCRIPT) == bp.HEADLINE, bad
+
+
+def test_compose_three_word_headline_first_word_yellow(tmp_path):
+    bg = tmp_path / "bg.jpg"
+    Image.new("RGB", (1536, 1024), (30, 60, 30)).save(bg)
+    out = bp.compose(str(bg), str(tmp_path / "t.jpg"), headline=("THE", "LOCUSTS", "WON"))
+    image = Image.open(out).convert("RGB")
+    bx0, by0, bx1, by1 = bp.geometry(1280, 720)["headline_box"]
+    yellow = white = 0
+    for x in range(bx0, bx1, 6):
+        for y in range(by0, by1, 6):
+            px = _sample(image, x, y)
+            yellow += px[0] > 200 and px[1] > 180 and px[2] < 90
+            white += px[0] > 235 and px[1] > 235 and px[2] > 235
+    assert yellow > 5 and white > yellow, (yellow, white)
 
 
 def test_image_prompt_leaves_overlays_to_the_compositor():

@@ -237,7 +237,11 @@ def main() -> int:
     if os.path.isfile(os.path.join(job, "run_result.json")):
         run_result = json.load(open(os.path.join(job, "run_result.json")))
     title = run_result.get("title") or os.path.basename(job)
-    headline = args.headline or re.sub(r"\s+That\s.*$", "", title, flags=re.I)
+    # On-screen headline: the act, not the whole story. "The X Mistake That Y" keeps "The X
+    # Mistake"; a story-sentence title (backfire packaging v3, 2026-10-11) keeps its first
+    # sentence or the clause before its parenthetical turn.
+    headline = args.headline or re.split(r"\.\s|\s\(", re.sub(r"\s+That\s.*$", "", title,
+                                                              flags=re.I))[0].rstrip(".")
 
     shots = _shots_until(job, until) if args.mode != "pillarbox" else []
     mode = "reframe" if shots else "pillarbox"
@@ -306,7 +310,8 @@ def main() -> int:
         description = first[:300].rstrip() + "\n\nFull story on the channel. #Shorts"
     package = {
         "teaser": out_path, "mode": mode, "seconds": until, "source_title": title,
-        "title": (headline.title() if headline.isupper() else headline)[:88] + " #Shorts",
+        "title": (title if not re.search(r"\sMistake\s+That\s", title, re.I) else
+                  (headline.title() if headline.isupper() else headline))[:88] + " #Shorts",
         "description": description, "phrases": len(phrases),
         "tags": ["shorts", "animal history", "invasive species", "ecology", "backfire"],
     }
