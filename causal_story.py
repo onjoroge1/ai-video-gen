@@ -1085,6 +1085,43 @@ def _check_continuation_repeats(steps: list[dict], issues: list[dict]) -> None:
                 "same event again", step["step_id"]))
 
 
+SENTENCE_REPEAT_OVERLAP = 0.8
+_REPEAT_FILLER = {"then", "your", "they", "them", "their", "there", "were", "have", "what", "when",
+                  "into", "about", "just", "more", "than", "even", "only", "over", "once", "will",
+                  "would", "could", "been", "each", "every", "with", "from"}
+
+
+def _sentence_stems(sentence: str) -> set:
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", sentence.lower())
+            if len(w) >= 4 and w not in _STOPWORDS and w not in _REPEAT_FILLER}
+
+
+def _check_sentence_repeats(steps: list[dict], issues: list[dict]) -> None:
+    """No sentence is said twice in a row, inside a scene or across a scene boundary.
+
+    Asian carp (2026-10-11): "...your ponds keep turning thick and green. Your catfish ponds keep
+    turning thick and green." and "Then the silvers, showing up in the catch by 1998. The silvers
+    came last, showing up in the catch by 1998." Both shipped: CONTINUATION_REPEATS compares whole
+    scenes and one repeated sentence is too small a share of a scene. Measured on V13-V16 and the
+    carp script: both repeats overlap 1.0; the nearest honest neighbour scored 0.67.
+    """
+    sequence = [(step["step_id"], sentence) for step in steps
+                for sentence in re.split(r"(?<=[.!?])\s+", _MARKER.sub("", step["situation"]).strip())
+                if sentence.strip()]
+    flagged: set = set()
+    for (_, first), (step_id, second) in zip(sequence, sequence[1:]):
+        a, b = _sentence_stems(first), _sentence_stems(second)
+        shorter = min(len(a), len(b))
+        shared = len(a & b)
+        if shorter >= 3 and shared >= 3 and shared / shorter >= SENTENCE_REPEAT_OVERLAP \
+                and step_id not in flagged:
+            flagged.add(step_id)
+            issues.append(_issue(
+                "SENTENCE_REPEATED",
+                f"{step_id} says the sentence before it again: {first[:70]!r} then {second[:70]!r}; "
+                "keep one and cut the other", step_id))
+
+
 def _check_dangling_reference(steps: list[dict], issues: list[dict]) -> None:
     """A scene that opens on 'That <noun>' points at something the scene before named.
 
@@ -1290,6 +1327,7 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
     if _text(payload.get("opening_contract")) == OPENING_CONTRACT:
         _check_opening_restated(steps, issues)
         _check_continuation_repeats(steps, issues)
+        _check_sentence_repeats(steps, issues)
         _check_dangling_reference(steps, issues)
         _check_close_presupposes_outcome(steps, issues)
         _check_close_repeats(steps, issues, _text(payload.get("opening_object")))

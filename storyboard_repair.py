@@ -46,7 +46,7 @@ HINGE_CODE = "SOFT_HINGE"
 # Read-through defects from V15 (2026-10-08), each owned by one named scene: a continuation that
 # re-tells its parent, a scene opening on "That <noun>" nothing named, and a close that assumes an
 # outcome the reversal never told.
-SCENE_EDIT_CODES = {"CONTINUATION_REPEATS", "DANGLING_REFERENCE"}
+SCENE_EDIT_CODES = {"CONTINUATION_REPEATS", "DANGLING_REFERENCE", "SENTENCE_REPEATED"}
 PRESUPPOSE_CODE = "CLOSE_PRESUPPOSES_OUTCOME"
 REPAIRABLE = ({"LATE_MECHANISM", "NO_CALLBACK", "NO_NUMBER_CALLBACK", "CLOSE_SENTENCE_COUNT",
                RESTATED_CODE, CONSEQUENCE_CODE, HINGE_CODE, PRESUPPOSE_CODE, "CLOSE_REPEATS"}
@@ -323,6 +323,10 @@ def prompt(script, edit):
              "what it adds -- the next fact, consequence or detail -- and cut every clause that says "
              "the same event again; it may get shorter. "
              if item["code"] == "CONTINUATION_REPEATS" else
+             f"Scene {item['scene_id']} SAYS A SENTENCE TWICE in a row ({item['finding']}). Cut the "
+             "second saying from this scene, or merge the two into one sentence that keeps every "
+             "fact once; change nothing else, and leave the hook verbatim. "
+             if item["code"] == "SENTENCE_REPEATED" else
              f"Scene {item['scene_id']} opens by pointing at something nothing named "
              f"({item['finding']}). Rewrite only its first sentence. Do NOT swap the noun for "
              "another one the scene before never said (\"That pressure\" -> \"That shortage\" "

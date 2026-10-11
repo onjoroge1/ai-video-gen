@@ -131,6 +131,13 @@ MUTATIONS = {
                                            "continues": esc["step_id"],
                                            "start_sec": esc["start_sec"] + 0.5}))(
                                            next(x for x in s["steps"] if x["role"] == "escalation"))),
+    # The same sentence said twice in a row (Asian carp, 2026-10-11: "Your catfish ponds keep
+    # turning thick and green." straight after the hook said it).
+    "SENTENCE_REPEATED": lambda s: (s.update(opening_contract="ladder_v1"),
+                                    (lambda esc: esc.update(situation=esc["situation"].rstrip()
+                                                            + " Your catfish ponds keep turning thick and green."
+                                                            + " Your catfish ponds keep turning thick and green.")
+                                     )(next(x for x in s["steps"] if x["role"] == "escalation"))),
     # A scene opening on "That <noun>" that nothing named (V15: "That wall held for years").
     "DANGLING_REFERENCE": lambda s: (s.update(opening_contract="ladder_v1"),
                                      next(x for x in s["steps"] if x["role"] == "escalation")
