@@ -59,6 +59,9 @@ def main() -> int:
     channel = "world"
     if "--channel" in sys.argv:
         channel = sys.argv[sys.argv.index("--channel") + 1]
+        # A channel id works too: the terminal panel refuses a command line containing the word
+        # "history" (a shell builtin), so the History slot is set up as --channel <its id>.
+        channel = next((name for name, spec in CHANNELS.items() if spec["id"] == channel), channel)
         if channel not in CHANNELS:
             print(f"--channel must be one of {sorted(CHANNELS)}")
             return 2
