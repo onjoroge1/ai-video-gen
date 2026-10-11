@@ -58,8 +58,17 @@ _INSTITUTION = re.compile(
 # A place name alone is fine ("Brazil wanted more honey"); a PERSON as the actor is not.
 _PERSONAL_NAME = re.compile(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\b")
 # Place names are two-word-capitalised sometimes but are not actors; allow the common ones.
-_PLACE = re.compile(r"\b(South Africa|North America|South America|New Zealand|United States|"
-                    r"Rio Claro|Sao Paulo|S\u00e3o Paulo|Costa Rica|Puerto Rico|New Mexico)\b")
+_PLACE = re.compile(
+    r"\b(South Africa|North America|South America|New Zealand|United States|"
+    r"Rio Claro|Sao Paulo|S\u00e3o Paulo|Costa Rica|Puerto Rico|New Mexico|New York|"
+    # A compass, region or "Great" word, or a geographic noun, makes a two-capitalised-word pair
+    # a place, not an actor. "the American South" scored the Asian carp hook as naming a person
+    # (2026-10-11), and the schedule opens next on Mexico City, the Great Plains, Lake Victoria.
+    r"(?:North|South|East|West|Northern|Southern|Eastern|Western|Central|Upper|Lower|Great|"
+    r"American|Australian|African|European|Asian|Pacific|Atlantic|Lake|Mount|Gulf|Cape)\s+[A-Z][a-z]+|"
+    r"[A-Z][a-z]+\s+(?:City|River|Lake|Sea|Ocean|Valley|Island|Islands|Mountains|Coast|Basin|"
+    r"Plains|Bay|Canal|Desert|Delta|County|State|Province|Territory|Peninsula|Forest|Everglades|"
+    r"South|North|East|West|Outback))\b")
 # The verbs that put the viewer in the frame.
 _IMPERATIVE = re.compile(
     r"^\s*(?:all right,?\s+|ok(?:ay)?,?\s+|so,?\s+|now,?\s+)?"
