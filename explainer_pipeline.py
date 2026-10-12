@@ -4004,6 +4004,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     THE WHOLE beat sheet, so no batch can re-teach another's beat; (3) run a final 'state once'
     pass that rewrites any line that still repeats. Each Claude call stays small enough that the
     JSON never truncates."""
+    # STORY_ENGINE pins the narrative engine for one run (run_illustrated_local --engine). Radium
+    # Girls (2026-10-12) was planned as a backfiring_solution -- "an incentive somebody exploits"
+    # -- put Curie's cancer hopes in the mechanism slot and pruned the real mechanism (radium
+    # taken into bone like calcium). Salem failed the same way. An operator who knows the shape
+    # can name it; an unknown name is ignored and the selector chooses as before.
+    if not pinned_engine:
+        import story_engines as _se_pin
+        _env_engine = (os.environ.get("STORY_ENGINE", "") or "").strip().lower()
+        pinned_engine = _env_engine if _env_engine in _se_pin.ENGINES else ""
     # The opening mode is decided once the planner returns (see the hook block); bound here so
     # every later reference in this function -- the writer's directions, the returned script --
     # has a value on paths that never reach that block.

@@ -36,6 +36,9 @@ def main() -> int:
     parser.add_argument("--topic-channel", default="")
     parser.add_argument("--motion-mode", default="stills")   # motion returns once the scripts hold (2026-10-02)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--engine", default="",
+                        help="pin the story engine for this run, e.g. accumulating_indictment "
+                             "(story_engines.ENGINES); empty lets the selector choose")
     parser.add_argument("--opening", choices=("ladder", "myth"), default="ladder",
                         help="ladder: the human-first frame; myth: the myth-buster opening "
                              "(\"You'd think ...\", bust, danger, question, then the story)")
@@ -44,6 +47,8 @@ def main() -> int:
                              "plan.approved.json to approve); script: stop after the narration")
     args = parser.parse_args()
 
+    if args.engine:
+        os.environ["STORY_ENGINE"] = args.engine
     if args.opening == "myth":
         os.environ["OPENING_HOOK"] = "myth"
     out = Path(args.out).resolve()
