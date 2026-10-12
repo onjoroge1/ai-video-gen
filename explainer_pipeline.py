@@ -6300,7 +6300,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                 "max_uses": min(_WEB_SEARCH_MAX_USES, 6) if evidence_gaps else _WEB_SEARCH_MAX_USES}],
         # Leave time for a durable worker to settle this response and yield to its replacement.
         # SDK retries are disabled in _anthropic_native when a durable runtime is active.
-        timeout=max(1.0, min(240.0, float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
+        # 240 s is the durable worker's ceiling. A local run may raise it (RESEARCH_TIMEOUT_MAX):
+        # Radium Girls (2026-10-12) asked research to search and fetch six named sources, every
+        # attempt ran past 240 s, and six SDK retries turned that into two 1,704-second failures.
+        timeout=max(1.0, min(float(os.environ.get("RESEARCH_TIMEOUT_MAX", "240") or 240),
+                             float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
     )
     if evidence_gaps:
         request["max_tokens"] = min(_RESEARCH_MAX_TOKENS, 6000)
