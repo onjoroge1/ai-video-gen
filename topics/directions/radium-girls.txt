@@ -27,10 +27,23 @@ Corporation in New Jersey and the Radium Dial Company in Illinois -- confirm or 
 practice; any count of workers or deaths; the court cases, their dates and outcomes; any standard or law that
 followed. Separate documented fact from later retellings; do not dramatize any death beyond what a source states.
 
-Research starting points: U.S. EPA Radionuclide Basics: Radium (https://www.epa.gov/radiation/radionuclide-basics-radium);
-CDC/ATSDR toxicological profile and ToxFAQs for radium (https://www.atsdr.cdc.gov/); Oak Ridge Associated
-Universities Health Physics Museum on radium products (https://www.orau.org/health-physics-museum/); the National
-Library of Medicine / PubMed Central for peer-reviewed history of the dial painters (https://www.ncbi.nlm.nih.gov/pmc/).
+Research starting points (each checked 2026-10-12: it opens to an automated fetch and states the beat named):
+- U.S. National Archives, "The Radium Girls at the National Archives"
+  (https://text-message.blogs.archives.gov/2018/01/04/the-radium-girls-at-the-national-archives): how small amounts of
+  radium were said to benefit the body; lip pointing; the calcium mechanism; the out-of-court settlements.
+- Library of Congress, "Radium Girls: Living Dead Women" (https://blogs.loc.gov/headlinesandheroes/2019/03/radium-girls-living-dead-women/):
+  the 1928 New Jersey settlement.
+- Oak Ridge Associated Universities, "Radium Girls: the health scandal of radium dial painters"
+  (https://orau.org/blog/history/radium-girls-the-health-scandal-of-radium-dial-painters-in-the-1920s-and-1930s.html):
+  instructors and what the painters were told about safety.
+- Memorial University of Newfoundland, "Radium Watch-Dial Painters" (https://www.mun.ca/biology/scarr/Radium_Watch-Dial_Painters.html):
+  radium as a bone seeker, chemically similar to calcium.
+- Illinois Public Media, "The Radium Girls: An Illinois Tragedy"
+  (https://ipm-prod.will.illinois.edu/news/story/illinois-issues-the-radium-girls-an-illinois-tragedy): the Ottawa painters and
+  the 1938 Illinois Industrial Commission decision.
+- ORAU Health Physics Museum, Radithor (https://www.orau.org/health-physics-museum/collection/radioactive-quack-cures/pills-potions-and-other-miscellany/radithor.html):
+  radium sold as a health product.
+Prefer these over pages that refuse automated fetches; the mechanism and the reckoning must be quoted from a page that opens.
 
 Storyboard: the one recurring story object is a single luminous watch dial with its numbers glowing, drawn the
 same way every time; the mechanism cutaway shows, in one picture with arrows and no text, radium taking calcium's
