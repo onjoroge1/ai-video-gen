@@ -40,23 +40,26 @@ import re
 FITS, NEEDS_NARROWING, NO_STORY = "fits", "needs_narrowing", "no_story"
 
 WORLD, HISTORY, NATURE = "world", "history", "nature"
-EDITORIAL_VERSION = "bolt_three_channels_v3_nature"
+EDITORIAL_VERSION = "bolt_three_channels_v4_world_backfires"
 CHANNELS = {
     WORLD: {
         "name": "Bolt Explains the World",
-        "banner": "ANIMAL CONTROL. UNEXPECTED CONSEQUENCES.",
-        "promise": "What humans did to animal populations -- and what happened next.",
-        "requires": "an intervention aimed at an ANIMAL POPULATION (a bounty, an eradication "
-                    "campaign, a deliberate introduction, a predator-removal programme) and a "
-                    "documented aftermath for that population or the ecosystem around it. The "
-                    "intervention must TARGET the animals: diverting a river and ruining a "
-                    "fishery is not this channel, because nobody was intervening on the fish",
-        "examples": "Hanoi's 1902 rat-tail bounty and the rat farms it created; China's Four "
-                    "Pests sparrow campaign; Australia's cane toads, introduced against beetles "
-                    "and now the pest; Hawaii's mongooses, released for rats they barely touched",
+        "banner": "GOOD INTENTIONS. UNEXPECTED CONSEQUENCES.",
+        "promise": "What people did to fix a problem -- and what happened next.",
+        # Widened 2026-10-12 to the operator's mixed schedule (decided 2026-10-09): animal
+        # interventions, inventions adopted and rules enforced. Radium Girls was refused here as
+        # "not an animal-population campaign" before a word was researched.
+        "requires": "ONE deliberate fix -- an animal population introduced, removed or TARGET the "
+                    "animals with a bounty or campaign; an invention or product adopted; or a "
+                    "rule or incentive enforced -- and a documented consequence its makers did "
+                    "not intend, ideally the opposite of the fix's purpose",
+        "examples": "Hanoi's 1902 rat-tail bounty and the rat farms it created; Australia's cane "
+                    "toads, introduced against beetles and now the pest; radium sold as a health "
+                    "product and painted on watch dials; leaded petrol adopted to stop engine "
+                    "knock; Mexico City's one-day-a-week car ban and the extra cars it brought",
         "excludes": "general animal facts, animal quizzes, food explainers, unrealized proposals "
-                    "such as the American hippo-import plan, and environmental disasters where no "
-                    "animal population was the target",
+                    "such as the American hippo-import plan, accidents with no deliberate fix "
+                    "behind them, and daily news",
     },
     HISTORY: {
         "name": "Bolt Explains History",
@@ -357,6 +360,9 @@ _SYSTEM = (
     + "\n\nANIMALS WIN TIES. A state-run campaign against an animal population belongs to WORLD, "
       "not HISTORY, even though a government ran it. Otherwise HISTORY absorbs almost everything "
       "and the channels collapse back into one.\n"
+      "BACKFIRES GO TO WORLD. A fix whose consequence undercut its own purpose -- a product, an "
+      "invention, a rule or an incentive -- belongs to WORLD, even when a company or a state made "
+      "it. HISTORY keeps state programmes judged by what they cost the people subjected to them.\n"
       "NATURE TAKES ONLY WHAT ANIMALS DO. If a human programme is anywhere in the causal chain, "
       "the question belongs to WORLD or HISTORY. NATURE needs either a RECORDED misreading of "
       "the behaviour (a name, a label, a textbook line) or a behaviour that LOOKS like neglect "
