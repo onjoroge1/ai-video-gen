@@ -4661,6 +4661,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = _beats_of(plan)
+    import hook_patterns as _hp_fold
+    if _hp_fold.myth_mode():
+        beats = _fold_opening_lines(plan, beats)
     # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
@@ -4837,9 +4840,20 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _sb = prepared["beats"]
         else:
             # Engines without factual-function compilation keep their existing labelling pass.
-            beats, spine_cost = _assign_causal_spine(
-                beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
-                pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
+            if _approved and all(_s(b.get("causal_role")) for b in beats):
+                # An operator-approved sheet keeps its roles. Radium Girls (2026-10-12): the
+                # labeller re-assigned an approved sheet, made the claim-free myth line the setup
+                # and the "picture the job" line the intervention, demoted the real setup and
+                # decision to escalations, and the spine refused what the operator had approved.
+                # The roles are still VALIDATED below (compile_spine); they are not re-chosen.
+                spine_cost = 0.0
+                beats[0]["_story_engine"] = sheet_engine_id
+                beats[0]["_planned_story_engine"] = sheet_engine_id
+                print("[spine] operator-approved roles kept; labelling skipped")
+            else:
+                beats, spine_cost = _assign_causal_spine(
+                    beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
+                    pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
             cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
             sheet_engine_id = beats[0].get("_story_engine") or sheet_engine_id
             _spine_cost = _ledger.StageCostSink(cost_sink, _ledger.BOUNDARY_A)
@@ -11678,6 +11692,51 @@ from longform_research import era_split as _lr_era_split, \
 import event_functions as _ef
 import story_compiler as _compiler
 import story_fact_model as _sfm
+
+
+def _beat_claim_ids(beat: dict) -> list:
+    event = beat.get("event") if isinstance(beat.get("event"), dict) else {}
+    ids = [_s(c) for c in (event.get("claim_refs") or []) if _s(c)]
+    for ref in beat.get("claim_refs") or []:
+        cid = _s(ref.get("claim_id")) if isinstance(ref, dict) else _s(ref)
+        if cid and cid not in ids:
+            ids.append(cid)
+    return ids
+
+
+def _fold_opening_lines(plan: dict, beats: list) -> list:
+    """Myth-buster opening: claim-free lines before the first sourced beat are OPENING LINES.
+
+    "You'd think radium was feared from the very start." and "Picture the job..." assert no
+    history, so they cannot be a story role -- yet as beats they were labelled setup and
+    intervention and the spine reported both roles missing (Radium Girls, 2026-10-12). They are
+    folded into the first sourced beat: its text leads with them, it keeps its own role and
+    claims, and the beats are renumbered (caused_by and mechanism_beat follow). A line that
+    repeats the hook is dropped, since the hook is prepended to the first scene anyway.
+    """
+    lead = []
+    for beat in beats:
+        if _beat_claim_ids(beat):
+            break
+        lead.append(beat)
+    if not lead or len(lead) == len(beats):
+        return beats
+    hook = _s(plan.get("hook")).strip().casefold()
+    lines = [_s(b.get("beat")).strip() for b in lead
+             if _s(b.get("beat")).strip() and _s(b.get("beat")).strip().casefold() != hook]
+    rest = [dict(b) for b in beats[len(lead):]]
+    first = rest[0]
+    first["opening_lines"] = lines
+    first["beat"] = " ".join([*lines, _s(first.get("beat")).strip()]).strip()
+    shift = len(lead)
+    for b in rest:
+        b["n"] = int(b.get("n") or 0) - shift
+        if isinstance(b.get("caused_by"), int):
+            b["caused_by"] = max(0, b["caused_by"] - shift)
+    if int(plan.get("mechanism_beat") or 0) > shift:
+        plan["mechanism_beat"] = int(plan["mechanism_beat"]) - shift
+    print(f"[opening] {shift} claim-free opening line(s) folded into beat 1 (myth-buster)")
+    return rest
 
 
 def _spine_beats(beats: list) -> list:
