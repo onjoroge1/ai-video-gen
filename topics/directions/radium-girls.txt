@@ -19,6 +19,21 @@ swallowed radium harms the body (for example, whether the body treats it like ca
 did the companies know and say? What legal cases followed, what was decided, and what changed afterwards in worker
 safety or radiation standards?
 
+STORY SPINE (which research fact fills which role; say each only as the sources state it):
+- setup: the women hired to paint luminous watch dials, and the job itself (who, where, from when) -- an event or
+  context claim about the work, NOT how the paint glows.
+- false resolution: radium believed beneficial -- sold and talked about as good for the body.
+- intervention (the decision): the painters taught to point their brushes with their lips, and told by their
+  employers that radium was harmless or good for them.
+- mechanism: why it harmed them -- radium taken up like calcium and deposited in bone (the answer to the opening
+  question).
+- hinge: the first illnesses among the painters.
+- escalation: the illnesses and deaths that followed, and how the companies responded.
+- reversal: the reckoning -- the 1928 New Jersey settlement and the 1938 Illinois Industrial Commission ruling, as
+  sources state them.
+- verdict: the conclusion those cases support, stated as a conclusion, not as another dated event.
+How the paint glowed is background inside a scene, never the setup.
+
 MECHANISM (the answer to the opening question): the documented biological reason radium harmed the women, in plain
 words, stated as the answer: "It was never the glow. It was ..." -- only as research supports it.
 
