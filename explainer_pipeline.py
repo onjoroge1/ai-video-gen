@@ -4726,6 +4726,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # scored as a frame (the three devices a frame can carry). A plan without an opening
         # block -- an older cache, a stub, OPENING_MODE=hook -- takes the hook path as before.
         _ladder = _opening_mode() == "ladder" and bool(_plan_opening(plan))
+        import hook_patterns as _hp_guard
+        if causal_lane and _hp_guard.myth_mode() and not _plan_opening(plan):
+            # Radium Girls (2026-10-12): the planner prompt for engines without factual-function
+            # compilation never asks for `opening`, so a myth-buster run silently fell back to the
+            # one-line-hook contract (cold open, cast lead, Bolt) and failed its script at 0/100
+            # after the full writing spend. Refuse here, before any narration is bought.
+            raise ValueError(
+                "MYTH_OPENING_WITHOUT_OPENING_PLAN: the myth-buster opening needs the plan's "
+                "`opening` block (frame, problem, solution, transition, consequence, claim_refs); "
+                f"the {sheet_engine_id} planner did not write one. Approve a plan with it "
+                "(--stop-after plan, edit plan.approved.json) or run without --opening myth.")
         if _ladder:
             _frame = _s(_plan_opening(plan).get("frame")).strip()
             if _frame:

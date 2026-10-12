@@ -35,6 +35,11 @@ STORY SPINE (which research fact fills which role; say each only as the sources 
 How the paint glowed is background inside a scene, never the setup.
 Claim bindings in the cached research (2026-10-12): setup cites c10 (and c67); the decision cites c13 and c18;
 the hinge cites c30; the reckoning cites c32, c81, c36 and c66; the mechanism cites the calcium/bone-seeker claim.
+Two wording rules the fact-check enforced (2026-10-12): the DECISION says the painters were "encouraged" to
+point their brushes with their lips, exactly as the source does -- never "the official method", "taught on the
+first day" or "nobody told them to be afraid". The VERDICT names no event, person, practice or object from the
+story (not even the brush between the lips): it is only the corrected myth, e.g. "It was never the glow. It was a
+metal the body mistook for calcium."
 The VERDICT cites NO claim: it is the narrator's own conclusion restating the corrected myth ("It was never the
 glow..."), adding no new date, name or event. c14 and c17 (radium ingested with each brushstroke) are mechanism
 claims and belong in the mechanism or escalation, never the setup.
