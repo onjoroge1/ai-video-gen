@@ -1847,7 +1847,7 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
                            # The rules must match the scorer: a frame under the ladder, the hook
                            # devices otherwise. HOOK_RULES under the ladder asked for a number
                            # and an actor and then scored the sentence as a frame.
-                           (_hp.FRAME_RULES if ladder else _hp.HOOK_RULES)
+                           (_hp.frame_rules() if ladder else _hp.HOOK_RULES)
                            + f"\nTITLE: {_s(plan.get('title'))}\nTHROUGHLINE: {_s(plan.get('throughline'))}\n"
                            + "THE ONLY FACTS YOU MAY USE (every number, date and name must appear "
                              "in one of these):\n" + "\n".join(f"- {c}" for c in claims)
@@ -4196,10 +4196,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # sensible thing and causing the disaster -- and travelled into the ladder's planner prompt
         # beside THE OPENING, which defines the same field as a frame. V11 and V12 (2026-10-07)
         # both returned the actor sentence. Under the ladder the field has one owner.
+        import hook_patterns as _hp_mode
         _hook_paragraph = (
-            "\nThe \"hook\" field is the FRAME of THE OPENING (rules below): one sentence that puts "
-            "the viewer in the role the problem belongs to, second person by default, naming no "
-            "institution and narrating nothing that has happened yet.\n"
+            ("\nThe \"hook\" field is the MYTH LINE of THE OPENING (rules below): \"You'd think "
+             "<the assumption a viewer would make>\", the viewer's own guess, naming no institution "
+             "and narrating nothing that has happened yet.\n" if _hp_mode.myth_mode() else
+             "\nThe \"hook\" field is the FRAME of THE OPENING (rules below): one sentence that puts "
+             "the viewer in the role the problem belongs to, second person by default, naming no "
+             "institution and narrating nothing that has happened yet.\n")
             if _opening_mode() == "ladder" else
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
             "the situation inverts. Write it as a complete grammatical sentence whose SUBJECT is a "
@@ -5244,11 +5248,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if causal_lane and _ladder:
             import hook_patterns as _hp_open
             opening_direction += (
-                (" " + _hp_open.OPENING_WRITER_RULES + " OPENING PLAN (combine these beats; the "
+                (" " + _hp_open.opening_writer_rules() + " OPENING PLAN (combine these beats; the "
                  "claims they cite are in your ceiling -- say nothing a listed missing_claim "
                  "would be needed for): "
                  + json.dumps(_plan_opening(plan), ensure_ascii=False))
-                if is_first else (" " + _hp_open.OPENING_BODY_RULE))
+                if is_first else (" " + _hp_open.opening_body_rule()))
         if causal_lane and is_first and _cold_text:
             opening_direction += (
                 f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '

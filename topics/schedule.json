@@ -26,7 +26,7 @@
    "studio": "https://studio.youtube.com/video/eWJr_iwUNx4/edit"
   },
   {
-   "date": "2026-10-13",
+   "date": "2026-10-11",
    "slug": "radium-girls",
    "question": "Radium Was Sold as a Health Miracle and the Women Who Painted Glowing Watch Dials Paid for It",
    "lane": "step2-invention",
@@ -39,7 +39,7 @@
    },
    "status": "queued",
    "job": "jobs/radium-girls",
-   "notes": " 2026-10-11 operator: test 8 minutes (480 s) and packaging v3 (story-sentence title, per-film thumbnail headline) here; companion Short restarts with this run.",
+   "notes": " 2026-10-11 operator: test 8 minutes (480 s) and packaging v3 (story-sentence title, per-film thumbnail headline) here; companion Short restarts with this run. Moved from 2026-10-13 to 2026-10-11 at the operator's request (run now).",
    "duration_sec": 480,
    "max_cost_usd": 28,
    "angle": "history"
