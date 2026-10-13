@@ -37,12 +37,13 @@
     "recent_median_vpd": 216.96772724315178,
     "small_breakouts": 2
    },
-   "status": "queued",
+   "status": "running",
    "job": "jobs/radium-girls",
-   "notes": " 2026-10-11 operator: test 8 minutes (480 s) and packaging v3 (story-sentence title, per-film thumbnail headline) here; companion Short restarts with this run. Moved from 2026-10-13 to 2026-10-11 at the operator's request (run now).",
+   "notes": " 2026-10-11 operator: test 8 minutes (480 s) and packaging v3 (story-sentence title, per-film thumbnail headline) here; companion Short restarts with this run. Moved from 2026-10-13 to 2026-10-11 at the operator's request (run now). 2026-10-12: run in the operator's session with the myth-buster opening (--opening myth); routine session stopped (stuck on an approval).",
    "duration_sec": 480,
    "max_cost_usd": 28,
-   "angle": "history"
+   "angle": "history",
+   "opening": "myth"
   },
   {
    "date": "2026-10-15",
@@ -55,10 +56,11 @@
     "recent_median_vpd": 247.97191011235955,
     "small_breakouts": 0
    },
-   "status": "queued",
+   "status": "running",
    "job": "jobs/escobar-hippos",
-   "notes": "",
-   "lane": "step1-nature"
+   "notes": " 2026-10-13: run early in the operator's session with the myth-buster opening; sources fetch-checked first.",
+   "lane": "step1-nature",
+   "opening": "myth"
   },
   {
    "date": "2026-10-17",
