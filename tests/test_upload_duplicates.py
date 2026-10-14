@@ -54,3 +54,15 @@ def test_file_sha256_reads_the_bytes(tmp_path):
     other = tmp_path / "copy.mp4"
     other.write_bytes(b"same bytes")
     assert yu.file_sha256(str(clip)) == yu.file_sha256(str(other))
+
+
+def test_every_upload_declares_synthetic_media_and_stays_private():
+    body = yu.request_body("The Cane Toad Mistake", "Created with AI assistance.", ["cane toads"])
+    assert body["status"]["containsSyntheticMedia"] is True
+    assert body["status"]["privacyStatus"] == "private"
+    assert "publishAt" not in body["status"]
+    scheduled = yu.request_body("x #Shorts", "d" * 6000, [str(i) for i in range(40)],
+                                "2026-10-20T14:00:00Z")
+    assert scheduled["status"]["containsSyntheticMedia"] is True
+    assert scheduled["status"]["publishAt"] == "2026-10-20T14:00:00Z"
+    assert len(scheduled["snippet"]["description"]) == 5000 and len(scheduled["snippet"]["tags"]) == 30

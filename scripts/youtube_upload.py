@@ -17,6 +17,10 @@ ignored; a film and its #Shorts teaser are different kinds). The World channel h
 in 12 days -- review builds, and one cane toad Short uploaded seven times -- while its reach
 collapsed. A deliberate repeat (a hook test) passes with --allow-duplicate "reason", which the
 ledger records.
+
+Every upload declares altered or synthetic content (status.containsSyntheticMedia, 2026-10-14):
+the films' pictures and narration are generated, and YouTube asks for the label on realistic
+generated media. The description's own AI line was the only disclosure before.
 """
 from __future__ import annotations
 
@@ -89,6 +93,19 @@ def channel_uploads(yt, channel_id: str) -> list[dict]:
         token = page.get("nextPageToken")
         if not token:
             return out
+
+
+def request_body(title: str, description: str, tags: list[str], publish_at: str = "") -> dict:
+    """The videos.insert body: private, Education, and declared as synthetic media."""
+    body = {
+        "snippet": {"title": title, "description": description[:5000], "tags": tags[:30],
+                    "categoryId": CATEGORY_EDUCATION, "defaultLanguage": "en"},
+        "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
+                   "license": "youtube", "embeddable": True, "containsSyntheticMedia": True},
+    }
+    if publish_at:
+        body["status"]["publishAt"] = publish_at
+    return body
 
 
 def record_upload(entry: dict, path: str = LEDGER) -> None:
@@ -171,14 +188,7 @@ def main() -> int:
         cleaned.append(tag)
         total += len(tag) + 2
     tags = cleaned
-    body = {
-        "snippet": {"title": title, "description": description[:5000], "tags": tags[:30],
-                    "categoryId": CATEGORY_EDUCATION, "defaultLanguage": "en"},
-        "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
-                   "license": "youtube", "embeddable": True},
-    }
-    if args.publish_at:
-        body["status"]["publishAt"] = args.publish_at
+    body = request_body(title, description, tags, args.publish_at)
     sha = file_sha256(args.video)
     if args.dry_run:
         for reason in duplicate_reasons(sha, title, "", load_ledger(), []):
