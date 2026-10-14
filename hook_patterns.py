@@ -70,6 +70,14 @@ _PLACE = re.compile(
     r"[A-Z][a-z]+\s+(?:City|River|Lake|Sea|Ocean|Valley|Island|Islands|Mountains|Coast|Basin|"
     r"Plains|Bay|Canal|Desert|Delta|County|State|Province|Territory|Peninsula|Forest|Everglades|"
     r"South|North|East|West|Outback))\b")
+# A state, institution or organisation is not a person, however it is capitalised. "the Soviet
+# Union" stopped the first History film (Aral Sea, 2026-10-14) at the opening identity check,
+# after its script was paid for, as "a person the dossier does not name".
+_ORGANISATION_NAME = re.compile(
+    r"\b[A-Z][a-z]+\s+(?:Union|Republic|Empire|Kingdom|Federation|Government|Ministry|Party|"
+    r"Army|Navy|Court|Council|Congress|Parliament|Commission|Committee|Bureau|Agency|Company|"
+    r"Corporation|Survey|Service|Department|Administration|Authority|Nations|Institute|"
+    r"University|Academy|Bank|Organization|Organisation)\b")
 # The verbs that put the viewer in the frame.
 _IMPERATIVE = re.compile(
     r"^\s*(?:all right,?\s+|ok(?:ay)?,?\s+|so,?\s+|now,?\s+)?"
@@ -178,6 +186,9 @@ _NOT_A_GIVEN_NAME = frozenset({
     "the", "in", "on", "at", "by", "for", "a", "an", "and", "but", "when", "after", "before",
     "feral", "greater", "south", "north", "east", "west", "new", "united", "bee", "bees",
     "african", "africanized", "european", "brazilian", "american", "central", "northern",
+    # Nationality and state adjectives: "Soviet Union", "Soviet Kazakhstan" (2026-10-14).
+    "soviet", "russian", "chinese", "british", "french", "german", "japanese", "indian",
+    "mexican", "colombian", "uzbek", "kazakh", "turkmen", "romanian", "australian", "asian",
     "southern", "eastern", "western", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december", "dr", "mr", "mrs", "ms",
     # Sentence openers. "Where European bees..." read as a person named Where European and

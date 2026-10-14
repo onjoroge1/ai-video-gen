@@ -1894,7 +1894,11 @@ def _opening_identity_findings(script: dict, dossier: dict | None) -> list[dict]
     narration that appear nowhere in the dossier's claims.
     """
     import hook_patterns as _hp
-    claims = " ".join(_s(c.get("claim")) for c in ((dossier or {}).get("claims") or [])
+    # The claim AND its verified quote: the claim is a summary ("a Soviet water-diversion
+    # project") while the quote is the source's own words ("the Soviet Union undertook ..."),
+    # and a name the source itself carries is a sourced name.
+    claims = " ".join(f"{_s(c.get('claim'))} {_s(c.get('support_quote'))}"
+                      for c in ((dossier or {}).get("claims") or [])
                       if isinstance(c, dict)).casefold()
     if not claims:
         return []
@@ -1902,8 +1906,14 @@ def _opening_identity_findings(script: dict, dossier: dict | None) -> list[dict]
     scenes = script.get("scenes") or []
     for index in _opening_scene_span(scenes):
         text = _s(scenes[index].get("narration"))
-        for match in _hp._PERSONAL_NAME.findall(text):
-            if _hp._PLACE.search(match):
+        for found in _hp._PERSONAL_NAME.finditer(text):
+            match = found.group(0)
+            # The two-token match can be the front of a longer institutional name ("State
+            # Planning Committee"), so the next capitalised word is read with it.
+            following = re.match(r"\s+[A-Z][a-z]+", text[found.end():])
+            extended = match + (following.group(0) if following else "")
+            if (_hp._PLACE.search(match) or _hp._ORGANISATION_NAME.search(match)
+                    or _hp._ORGANISATION_NAME.search(extended)):
                 continue
             first, second = (token.lower() for token in match.split()[:2])
             # Neither half may be a word that is capitalised for a reason other than being a
