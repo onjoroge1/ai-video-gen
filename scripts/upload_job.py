@@ -59,7 +59,10 @@ def _description_without_tag_line(path: str) -> str:
 # The pipeline's generic line said nothing about what the channel is; the audit rewrote every
 # film to this one (2026-10-13). A channel without its own line keeps whatever the film had.
 CTAS = {"world": "Subscribe to Bolt Explains the World for illustrated true stories of fixes "
-                 "that backfired."}
+                 "that backfired.",
+        # Matches the History channel description (2026-10-14).
+        "history": "Subscribe to Bolt Explains History for true stories of what governments "
+                   "imposed, and what it cost."}
 _OLD_CTA = re.compile(r"^Subscribe (for clear, no-spin explainers|to Bolt Explains the World for "
                       r"illustrated (stories|documentaries) about human decisions)", re.I)
 _HASHTAG_LINE = re.compile(r"^\s*(#\w+\s*)+$")
@@ -102,6 +105,9 @@ def audience_tags(job: str, transcript: str, channel: str = "world") -> list[str
     documentary"; "invasive species documentary" only for an introduction story, which the
     narration says in that word (carp, toads, hippos -- not the Yellowstone wolves or sparrows).
     """
+    if channel == "history":
+        # The History channel's own layer: who the film is for, not what it is about.
+        return ["history documentary", "dark history"]
     if channel != "world":
         return []
     slug = os.path.basename(job.rstrip("/"))
@@ -146,7 +152,9 @@ def build_tags(job: str, title: str, channel: str = "world") -> list[str]:
     except Exception as exc:  # noqa: BLE001 - a failed harvest falls back to the pipeline's tags
         error = f"{type(exc).__name__}: {str(exc)[:160]}"
     audience = audience_tags(job, transcript, channel)
-    result = tag_strategy.select_tags(videos, transcript, title, pipeline_tags, audience=audience)
+    result = tag_strategy.select_tags(videos, transcript, title, pipeline_tags, audience=audience,
+                                      brand=tag_strategy.CHANNEL_TAGS.get(channel,
+                                                                         tag_strategy.CHANNEL_TAG))
     result.update(search=search, harvest_error=error, audience=audience)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=1)
