@@ -25,7 +25,7 @@ import os
 import re
 import shutil
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 import nature_channel
 
@@ -145,23 +145,66 @@ _TITLE_SYSTEM = (
 )
 
 
+_HEADLINE_STOP = {"the", "a", "an", "and", "of", "to", "in", "on", "it", "its", "is", "was", "for",
+                  "they", "them", "their", "this", "that", "from", "with", "by", "at", "all"}
+
+
+def _headline_echoes_title(text: str, title: str) -> bool:
+    """A headline may not repeat a word of the title: "FROM FOUR" under "Escobar Brought Four
+    Hippos..." and "CANNOT STOP THEM" under "...Colombia Cannot Stop Them." both only echoed it
+    (audit, 2026-10-13). The thumbnail has to add the consequence, not restate the title."""
+    def words(value: str) -> set[str]:      # plural-folded: HIPPO echoes "Hippos"
+        return {re.sub(r"(?<=[a-z]{3})(es|s)$", "", w)
+                for w in re.findall(r"[a-z0-9]+", value.lower()) if w not in _HEADLINE_STOP}
+    return bool(words(text) & words(title or "")) or text.lower() in (title or "").lower()
+
+
 def headline_words(candidate: str, title: str, transcript: str) -> tuple[str, ...]:
     """A per-film thumbnail headline, or the fixed FATAL ERROR when the proposal is unusable.
 
     v3 (2026-10-11): "FATAL ERROR" on every thumbnail told a returning viewer nothing; the topic
     winners carry a different two- or three-word irony each time ("NATURE'S KARMA", "ENEMY OF
     THE STATE", "THIS WENT BADLY"). Short enough to stay large; numbers must be spoken; it may
-    not simply repeat the title.
+    not repeat a word of the title.
     """
     text = re.sub(r"\s+", " ", (candidate or "").strip().upper())
     words = text.split()
     if not 2 <= len(words) <= 3 or len(text) > HEADLINE_MAX_CHARS:
         return HEADLINE
-    if any(ch in text for ch in ':?"“”\n') or text.lower() in (title or "").lower():
+    if any(ch in text for ch in ':?"“”\n') or _headline_echoes_title(text, title):
         return HEADLINE
     if not numbers_supported(text, transcript or ""):
         return HEADLINE
     return tuple(words)
+
+
+_HEADLINE_SYSTEM = (
+    "You write the 2-3 word headline on a YouTube thumbnail for a documentary about an "
+    "intervention that backfired. It names the consequence or the irony the narration reaches "
+    "(RIVER TAKEN, THE LOCUSTS WON, NOBODY STOPPED THEM), in capitals, at most 18 characters, "
+    "and it uses NO word of the title. Every number must be spoken in the transcript. Return "
+    "ONLY JSON: {\"headlines\": [\"...\", \"...\", \"...\", \"...\", \"...\"]}"
+)
+
+
+def propose_headlines(title: str, transcript: str, rejected: list[str] | None = None,
+                      cost_sink: list | None = None) -> list[str]:
+    """Five fresh headline candidates when every proposal failed; [] on any failure."""
+    import explainer_pipeline as ep
+
+    try:
+        user = (f'TITLE: "{title}"\nREJECTED (echo the title or break a rule): '
+                f'{", ".join(rejected or []) or "none"}\n\nTRANSCRIPT:\n{transcript[:5000]}')
+        response = ep._claude().messages.create(
+            model=ep.ANTHROPIC_MODEL, max_tokens=200, system=_HEADLINE_SYSTEM,
+            messages=[{"role": "user", "content": user}])
+        if cost_sink is not None:
+            cost_sink.append(ep._msg_cost(response.usage))
+        parsed, _ = ep._parse_script_json(response.content[0].text)
+    except Exception:
+        return []
+    found = (parsed or {}).get("headlines") if isinstance(parsed, dict) else None
+    return [str(h).strip().upper() for h in found or [] if str(h).strip()][:5]
 
 
 def title_valid(candidate: str, transcript: str) -> bool:
@@ -379,7 +422,7 @@ def geometry(tw: int, th: int) -> dict:
 
 def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
             headline: tuple[str, str] = HEADLINE, ring_overlay: bool = True,
-            slash: bool = False) -> str:
+            slash: bool = False, band: bool = True) -> str:
     """Fit the two-scene background and draw divider, prohibition ring, arrow and headline.
 
     `ring_overlay=False` leaves the ring out, for a background that already contains one. The
@@ -389,9 +432,22 @@ def compose(bg_path: str, out_path: str, tw: int = 1280, th: int = 720,
     """
     geo = geometry(tw, th)
     base = ImageOps.fit(Image.open(bg_path).convert("RGB"), (tw, th)).convert("RGBA")
+    (x0, y0), (x1, y1) = geo["divider"]
+
+    # A dark band behind the headline, consequence panel only: the hippo thumbnail's yellow sat
+    # on a pale sky at about 1.16:1 contrast (audit, 2026-10-13); the stroke alone was carrying it.
+    if band:
+        top = int(th * 0.32)
+        shade = Image.new("L", (tw, th), 0)
+        sd = ImageDraw.Draw(shade)
+        for y in range(top):
+            sd.line([(0, y), (tw, y)], fill=int(165 * (1 - y / top) ** 1.4))
+        panel = Image.new("L", (tw, th), 0)
+        ImageDraw.Draw(panel).polygon([(x0, 0), (tw, 0), (tw, th), (x1, th)], fill=255)
+        zero = Image.new("L", (tw, th), 0)
+        base.alpha_composite(Image.merge("RGBA", (zero, zero, zero, ImageChops.multiply(shade, panel))))
 
     # Divider: a thin white line with a soft shadow so the two panels read as a split frame.
-    (x0, y0), (x1, y1) = geo["divider"]
     _glow(base, lambda d, c: d.line([(x0, y0), (x1, y1)], fill=c, width=14), BLACK, 6, 150)
     ImageDraw.Draw(base).line([(x0, y0), (x1, y1)], fill=(*WHITE, 235), width=5)
 
@@ -566,6 +622,31 @@ def thumb_grade_system(illustrated: bool) -> str:
     return BACKFIRE_THUMB_GRADE_SYSTEM + f"\nEXPECTED MEDIUM: the film this thumbnail fronts is {medium}."
 
 
+def _settle_headline(pair: dict, pairs: list[dict], title: str, transcript: str, fresh: dict,
+                     cost_sink: list | None, log) -> tuple[str, ...]:
+    """The pair's own headline; else another pair's; else a regenerated one; FATAL ERROR last.
+
+    The audit (2026-10-13) retired FATAL ERROR as the routine answer: the hippo film shipped it
+    because its one usable proposal echoed the title, with no second attempt.
+    """
+    tried = []
+    for candidate in [pair.get("headline", "")] + [p.get("headline", "") for p in pairs if p is not pair]:
+        words = headline_words(candidate, title, transcript)
+        if words != HEADLINE:
+            return words
+        if candidate:
+            tried.append(candidate)
+    if "headlines" not in fresh:
+        fresh["headlines"] = propose_headlines(title, transcript, tried, cost_sink)
+        log(f"thumbnail headline: {len(tried)} proposal(s) refused; regenerated {fresh['headlines']}")
+    for candidate in fresh["headlines"]:
+        words = headline_words(candidate, title, transcript)
+        if words != HEADLINE:
+            return words
+    log("thumbnail headline: no usable headline; FATAL ERROR fallback")
+    return HEADLINE
+
+
 def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                        cost_sink: list | None = None, report: dict | None = None,
                        log=lambda message: None, pairs: list[dict] | None = None,
@@ -598,6 +679,7 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
     out = os.path.join(out_dir, "thumbnail.jpg")
     best_path, best_grade, fell = None, None, False
     rendered = []
+    fresh: dict = {}
     for index, pair in enumerate(pairs[:limit]):
         bg = os.path.join(out_dir, f"_thumb_backfire_bg_{index}.jpg")
         vpath = os.path.join(out_dir, f"_thumb_backfire_{index}.jpg")
@@ -629,7 +711,7 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
             if detect_drawn_ring(bg, cost_sink, log):
                 log("artwork still carries a ring; leaving the overlay ring off this candidate")
                 keep_ring = False
-        words = headline_words(pair.get("headline", ""), title, transcript)
+        words = _settle_headline(pair, pairs[:limit], title, transcript, fresh, cost_sink, log)
         compose(bg, vpath, headline=words, ring_overlay=keep_ring)
         grade = ep.grade_thumbnail(vpath, title, cost_sink=cost_sink, **grade_kwargs)
         # Only the count used to survive this line. Every shipped backfire thumbnail logged
@@ -668,6 +750,9 @@ def generate_thumbnail(title: str, question: str, transcript: str, out_dir: str,
                      and best_grade.get("fails", 0) >= 3),
         "fallback": fell, "variants": len(rendered), "checklist_version": checklist,
     })
+    rep["headline_fallback"] = rep["headline"] == " ".join(HEADLINE)
+    if fresh.get("headlines") is not None:
+        rep["headlines_regenerated"] = fresh["headlines"]
     # write_report had no caller outside scripts/repackage_backfire.py, so a pipeline run left no
     # packaging.json: the per-item verdicts above lived only in the in-memory report and the log
     # line below. Best-effort, like everything else here -- an unwritable job dir must not cost

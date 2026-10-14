@@ -8,10 +8,17 @@ No provider is called here: the composition is pure Pillow and the title check i
 import json
 import os
 
+import pytest
 from PIL import Image
 
 import backfire_packaging as bp
 import explainer_pipeline as ep
+
+
+@pytest.fixture(autouse=True)
+def _no_headline_provider(monkeypatch):
+    """No provider is called here: regenerated headlines are stubbed unless a test supplies them."""
+    monkeypatch.setattr(bp, "propose_headlines", lambda *a, **k: [])
 
 TRANSCRIPT = ("In 1935 Queensland released about one hundred and two toads from Hawaii. "
               "Within decades the toads had spread across 1 million square kilometres.")
@@ -276,3 +283,58 @@ def test_v2_ring_has_no_slash_unless_asked(tmp_path):
     cx, cy = bp.geometry(1280, 720)["ring_center"]
     assert plain.getpixel((cx, cy))[0] < 100, "the ring's centre should be untouched background"
     assert slashed.getpixel((cx, cy))[0] > 180, "slash=True should still draw the diagonal"
+
+
+def test_headline_may_not_repeat_a_title_word():
+    """Audit 2026-10-13: "FROM FOUR" and "CANNOT STOP THEM" only restated the hippo title."""
+    title = "Escobar Brought Four Hippos to His Ranch. Colombia Cannot Stop Them."
+    transcript = "Four hippos. That is a species claiming a whole river for itself."
+    assert bp.headline_words("FROM FOUR", title, transcript) == bp.HEADLINE
+    assert bp.headline_words("CANNOT STOP THEM", title, transcript) == bp.HEADLINE
+    assert bp.headline_words("HIPPO NATION", title, transcript) == bp.HEADLINE
+    assert bp.headline_words("RIVER TAKEN", title, transcript) == ("RIVER", "TAKEN")
+
+
+def test_failed_headlines_are_regenerated_before_falling_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(ep, "generate_image", _fake_image)
+    monkeypatch.setattr(bp, "detect_drawn_ring", lambda *a, **k: False)
+    monkeypatch.setattr(ep, "grade_thumbnail", lambda *a, **k: _verdict(0, "fine"))
+    asked = []
+
+    def fake_propose(title, transcript, rejected=None, cost_sink=None):
+        asked.append(list(rejected or []))
+        return ["BIG MISTAKE", "BEETLES WON"]          # the first echoes the title
+
+    monkeypatch.setattr(bp, "propose_headlines", fake_propose)
+    pairs = [dict(_PAIRS[0], headline="BIG MISTAKE"), dict(_PAIRS[1], headline="SAVE ITS SUGAR")]
+    report = {}
+    bp.generate_thumbnail("Australia Released 102 Toads to Save Its Sugar. Big Mistake.",
+                          "cane toads", TRANSCRIPT, str(tmp_path), report=report, pairs=pairs)
+    assert len(asked) == 1 and asked[0] == ["BIG MISTAKE", "SAVE ITS SUGAR"]   # asked once per film
+    assert report["headline"] == "BEETLES WON" and report["headline_fallback"] is False
+    assert report["headlines_regenerated"] == ["BIG MISTAKE", "BEETLES WON"]
+
+
+def test_another_pairs_headline_is_used_before_asking_again(monkeypatch, tmp_path):
+    monkeypatch.setattr(ep, "generate_image", _fake_image)
+    monkeypatch.setattr(bp, "detect_drawn_ring", lambda *a, **k: False)
+    monkeypatch.setattr(ep, "grade_thumbnail", lambda *a, **k: _verdict(0, "fine"))
+    monkeypatch.setattr(bp, "propose_headlines", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    pairs = [dict(_PAIRS[0], headline="BIG MISTAKE"), dict(_PAIRS[1], headline="THE BEETLES WON")]
+    report = {}
+    bp.generate_thumbnail("Australia Released 102 Toads to Save Its Sugar. Big Mistake.",
+                          "cane toads", TRANSCRIPT, str(tmp_path), report=report, pairs=pairs)
+    assert {p["headline_used"] for p in report["pairs"]} == {"THE BEETLES WON"}
+
+
+def test_headline_sits_on_a_dark_band_in_the_consequence_panel(tmp_path):
+    bg = tmp_path / "bg.jpg"
+    Image.new("RGB", (1536, 1024), (200, 210, 230)).save(bg)       # a pale sky
+    banded = Image.open(bp.compose(str(bg), str(tmp_path / "b.jpg"), headline=("RIVER", "TAKEN")))
+    plain = Image.open(bp.compose(str(bg), str(tmp_path / "p.jpg"), headline=("RIVER", "TAKEN"),
+                                  band=False))
+    point = (1270, 8)                                             # top-right corner, no text
+    assert sum(banded.convert("RGB").getpixel(point)) < sum(plain.convert("RGB").getpixel(point)) - 150
+    # The left panel and the lower right panel are untouched.
+    for spot in ((40, 8), (1200, 650)):
+        assert abs(sum(banded.convert("RGB").getpixel(spot)) - sum(plain.convert("RGB").getpixel(spot))) < 12
