@@ -36,6 +36,9 @@ MAX_TOTAL_CHARS = 480
 MIN_VIEWS = 5_000
 CONSENSUS_CARRIERS = 4
 CHANNEL_TAG = "bolt explains the world"
+# The brand tag is the channel's own name. A History film tagged "bolt explains the world" would
+# point YouTube at the other channel's audience (2026-10-14, first History upload).
+CHANNEL_TAGS = {"world": CHANNEL_TAG, "history": "bolt explains history"}
 _JUNK = {"video", "videos", "youtube", "viral", "trending", "fyp", "foryou", "subscribe",
          "new", "latest", "best", "top", "amazing", "shorts", "short", "ytshorts", "news",
          "breaking news"}
@@ -123,7 +126,8 @@ def harvest(search: str, api_key: str, max_results: int = 25) -> list[dict]:
 
 
 def select_tags(videos: list[dict], transcript: str, title: str, pipeline_tags: list[str],
-                short: bool = False, audience: list[str] | None = None) -> dict:
+                short: bool = False, audience: list[str] | None = None,
+                brand: str = CHANNEL_TAG) -> dict:
     """`audience` is the fixed layer that tells YouTube who the film is for ("unintended
     consequences", "nature documentary"); with "shorts" and the channel name its room is
     reserved before the topic tags are chosen, so a long harvest cannot crowd it out."""
@@ -151,7 +155,8 @@ def select_tags(videos: list[dict], transcript: str, title: str, pipeline_tags: 
     reserved = [_norm(t) for t in audience or [] if _norm(t)]
     if short:
         reserved.append("shorts")
-    reserved.append(CHANNEL_TAG)
+    brand = _norm(brand) or CHANNEL_TAG
+    reserved.append(brand)
     reserved = list(dict.fromkeys(reserved))
     topic_tags = MAX_TAGS - len(reserved)
     topic_chars = MAX_TOTAL_CHARS - tags_chars(reserved) - 1
@@ -199,7 +204,7 @@ def select_tags(videos: list[dict], transcript: str, title: str, pipeline_tags: 
     for tag in reserved:
         if tag not in sources:
             chosen.append(tag)
-            sources[tag] = {"source": "brand" if tag == CHANNEL_TAG else
+            sources[tag] = {"source": "brand" if tag == brand else
                             "format" if tag == "shorts" else "audience"}
     return {"tags": chosen, "sources": sources, "rejected": rejected,
             "harvested_videos": len(videos)}

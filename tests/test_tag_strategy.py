@@ -112,8 +112,10 @@ def test_upload_description_applies_the_channel_template():
     assert "Tags:" not in out and "no-spin" not in out
     assert upload_job.CTAS["world"] in out
     assert "#one #two #three\n" in out and "#four" not in out
-    # A channel without its own line keeps the film's.
-    assert "no-spin" in upload_job.upload_description(text, "history")
+    # History has its own line now (2026-10-14); a channel without one keeps the film's.
+    history = upload_job.upload_description(text, "history")
+    assert upload_job.CTAS["history"] in history and "no-spin" not in history
+    assert "no-spin" in upload_job.upload_description(text, "nature")
 
 
 def test_short_link_goes_above_the_subscribe_line_once():
@@ -134,4 +136,17 @@ def test_audience_tags_follow_the_direction_and_the_narration(tmp_path):
                                        "(an invention adopted).\n")
     assert upload_job.audience_tags(str(job), "radium paint") == [
         "unintended consequences", "history documentary"]
-    assert upload_job.audience_tags(str(job), "x", channel="history") == []
+    assert upload_job.audience_tags(str(job), "x", channel="history") == [
+        "history documentary", "dark history"]
+    assert upload_job.audience_tags(str(job), "x", channel="nature") == []
+
+
+def test_a_history_film_carries_its_own_channel_name_not_the_worlds():
+    """The first History upload would have been tagged 'bolt explains the world'."""
+    picked = ts.select_tags([], TRANSCRIPT, TITLE, PIPELINE, audience=["history documentary"],
+                            brand=ts.CHANNEL_TAGS["history"])
+    assert picked["tags"][-1] == "bolt explains history"
+    assert ts.CHANNEL_TAG not in picked["tags"]
+    assert picked["sources"]["bolt explains history"]["source"] == "brand"
+    # World is unchanged.
+    assert ts.select_tags([], TRANSCRIPT, TITLE, PIPELINE)["tags"][-1] == ts.CHANNEL_TAG
