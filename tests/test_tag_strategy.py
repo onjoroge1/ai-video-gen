@@ -43,7 +43,8 @@ def test_generic_words_and_other_channels_names_are_refused():
     assert picked["rejected"]["viral"] == "generic"
     assert picked["rejected"]["vice news"] == "another channel's name"
     assert "watch" not in picked["tags"]                  # said in the film, but off the topic
-    assert "carp" in picked["tags"]
+    # A single word is a fragment of the topic's name, not a search (audit, 2026-10-13).
+    assert picked["rejected"]["carp"] == "single-word fragment" and "carp" not in picked["tags"]
 
 
 def test_a_category_tag_four_winners_share_is_kept():
@@ -75,3 +76,62 @@ def test_upload_removes_the_visible_tag_line_from_the_description(tmp_path):
     desc.write_text("Hook line.\n\nTags: a, b, c\n\nDisclosure.\n")
     cleaned = upload_job._description_without_tag_line(str(desc))
     assert "Tags:" not in cleaned and "Hook line." in cleaned and "Disclosure." in cleaned
+
+
+def test_fragments_entity_labels_format_words_news_and_hobby_intent_are_refused():
+    """Audit 2026-10-13: the bees film carried 'bees', 'killer', 'bee (animal)', and the carp film
+    'carp fishing' and 'eating carp'; 'news' and 'documentary' name no topic or audience."""
+    videos = [_video(2_000_000, ["silver carp", "carp", "carp fishing", "eating carp",
+                                 "asian carp (fish)", "documentary", "news", "explainer video"])]
+    picked = ts.select_tags(videos, TRANSCRIPT + " fishing eating", TITLE,
+                            PIPELINE + ["documentary", "carp", "educational video"])
+    assert "silver carp" in picked["tags"]
+    for tag, reason in (("carp", "single-word fragment"), ("carp fishing", "hobby or cooking intent"),
+                        ("eating carp", "hobby or cooking intent"), ("asian carp (fish)", "entity label"),
+                        ("documentary", "generic"), ("news", "generic"),
+                        ("explainer video", "format word"), ("educational video", "format word")):
+        assert tag not in picked["tags"], tag
+        assert picked["rejected"][tag] == reason, (tag, picked["rejected"][tag])
+
+
+def test_the_audience_layer_and_brand_keep_their_room_after_a_long_harvest():
+    audience = ["unintended consequences", "nature documentary", "invasive species documentary"]
+    many = [_video(1_000_000, [f"carp river {i}" for i in range(60)])]
+    picked = ts.select_tags(many, TRANSCRIPT + " ".join(str(i) for i in range(60)), TITLE,
+                            PIPELINE, short=True, audience=audience)
+    tags = picked["tags"]
+    assert tags[-5:] == audience + ["shorts", ts.CHANNEL_TAG]      # the template's order, last
+    assert len(tags) <= ts.MAX_TAGS and ts.tags_chars(tags) <= ts.MAX_TOTAL_CHARS
+    assert {picked["sources"][t]["source"] for t in audience} == {"audience"}
+
+
+def test_upload_description_applies_the_channel_template():
+    text = ("Hook.\n\nTags: a, b, c\n\nSubscribe for clear, no-spin explainers on how the world really "
+            "works — new videos regularly.\n\n#one #two #three #four #five\n\n🤖 AI line.")
+    out = upload_job.upload_description(text, "world")
+    assert "Tags:" not in out and "no-spin" not in out
+    assert upload_job.CTAS["world"] in out
+    assert "#one #two #three\n" in out and "#four" not in out
+    # A channel without its own line keeps the film's.
+    assert "no-spin" in upload_job.upload_description(text, "history")
+
+
+def test_short_link_goes_above_the_subscribe_line_once():
+    desc = f"Hook.\n\n{upload_job.CTAS['world']}\n\n🤖 AI line.\n"
+    once = upload_job.add_short_line(desc, "abc123")
+    lines = once.splitlines()
+    assert lines[lines.index(upload_job.CTAS["world"]) - 1] == "Short version: https://youtube.com/shorts/abc123"
+    assert upload_job.add_short_line(once, "abc123") == once
+
+
+def test_audience_tags_follow_the_direction_and_the_narration(tmp_path):
+    job = tmp_path / "carp"
+    job.mkdir()
+    (job / "direction.txt").write_text("Bolt Explains the World: one sourced animal-intervention backfire.\n")
+    assert upload_job.audience_tags(str(job), "the carp became an invasive species") == [
+        "unintended consequences", "nature documentary", "invasive species documentary"]
+    (job / "direction.txt").write_text("Bolt Explains the World: one sourced intervention backfire "
+                                       "(an invention adopted).\n")
+    assert upload_job.audience_tags(str(job), "radium paint") == [
+        "unintended consequences", "history documentary"]
+    assert upload_job.audience_tags(str(job), "x", channel="history") == []
