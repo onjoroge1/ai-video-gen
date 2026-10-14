@@ -1344,10 +1344,33 @@ def spine_summary(beats: list[dict], compiled: dict) -> str:
         for issue in compiled["collapsed_duplicates"]:
             lines.append(f"  ~ {issue['beat_id']} == {issue.get('duplicate_of')}: "
                          f"{event_of(by_id.get(issue['beat_id'], {}))['text'][:90]}")
+    # Why each beat failed, from the cascade: a judge's verdict, or the judge never answering.
+    cascade = compiled.get("cascade") or {}
+    why = {}
+    for row in (cascade.get("judgments") or []) + (cascade.get("evidence") or []):
+        if row.get("beat_id") and not row.get("passed"):
+            why[row["beat_id"]] = (f"[{row.get('verdict', 'evidence')}] "
+                                   f"{_text(row.get('reason'))} "
+                                   + "; ".join(row.get("unsupported_details") or [])).strip()
+    for row in cascade.get("unavailable") or []:
+        if row.get("beat_id"):
+            why[row["beat_id"]] = (f"[JUDGE UNAVAILABLE — not a verdict] "
+                                   f"{_text(row.get('reason'))[:160]}")
     if compiled["pruned"]:
         lines += ["", "Pruned — unsupported and not required:"]
         for row in compiled["pruned"]:
             lines.append(f"  x {row['beat_id']} [{row['role']}]: {row['event'][:90]}")
+            if why.get(row["beat_id"]):
+                lines.append(f"      {why[row['beat_id']][:300]}")
+    if cascade.get("unavailable"):
+        # The spine fails while any judge call went unanswered, even when every listed role
+        # passed -- the Aral Sea report showed full coverage and nothing failing, and the run
+        # still re-planned, with no line saying why.
+        lines += ["", "EVIDENCE JUDGE UNAVAILABLE — these checks got no answer (retryable, not a "
+                      "verdict); the spine cannot pass until they are judged:"]
+        for row in cascade["unavailable"]:
+            lines.append(f"  ? {row.get('beat_id')} [{row.get('stage', 'evidence')}]: "
+                         f"{_text(row.get('reason'))[:160]}")
     if compiled["still_failing"]:
         # Every failure states its cause. A beat listed here with no reason sends an operator
         # hunting through three layers to find out whether the evidence or the schema rejected it.

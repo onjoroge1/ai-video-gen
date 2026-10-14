@@ -2160,6 +2160,13 @@ class PlanApprovalRequired(RuntimeError):
     stop there (stop_after_plan). Copy it to plan.approved.json, edited or not, and rerun."""
 
 
+class ApprovedPlanRefused(ValueError):
+    """An operator-approved beat sheet cannot be told as approved, so the run stops rather than
+    re-planning. Aral Sea (2026-10-14): the spine check failed the approved sheet, the planner
+    was re-asked, and its new sheet replaced the approved one -- restoring a beat the operator had
+    removed and dropping the two the operator had kept. An approval is of a specific sheet."""
+
+
 class ScriptApprovalRequired(RuntimeError):
     """The script passed every pre-spend gate and the operator asked to approve it before render.
 
@@ -4712,6 +4719,12 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # dies. compile_correction returns "" for any code outside the mechanical set, so a new
         # code fails closed instead of being sampled at until it passes.
         _correction = _compiler.compile_correction(_roles)
+        if _correction and _approved:
+            raise ApprovedPlanRefused(
+                "APPROVED_PLAN_DOES_NOT_COMPILE: "
+                + "; ".join(f"{_s(i.get('code'))}: {_s(i.get('message'))}"
+                            for i in (_roles.get("issues") or []))
+                + " -- edit plan.approved.json and rerun; an approved sheet is never re-planned.")
         if _correction:
             print("Beat sheet did not compile — re-asking the planner once: "
                 + "; ".join(_s(i.get("code")) for i in (_roles.get("issues") or [])))
@@ -4837,7 +4850,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         except Exception as _hook_exc:         # noqa: BLE001 - a paid call that failed is logged
             print(f"[hook] re-ask unavailable: {type(_hook_exc).__name__}: {str(_hook_exc)[:120]}")
         _cold_fix = "" if _ladder else _cold_open_correction(plan, research_dossier)
-        if _cold_fix and _roles.get("compiled"):
+        if _cold_fix and _roles.get("compiled") and _approved:
+            print("[plan] approved sheet: cold-open re-plan skipped; the storyboard gate reports it")
+        if _cold_fix and _roles.get("compiled") and not _approved:
             print("Beat sheet has no usable cold open — re-asking the planner once")
             _retry_plan, _retry_cost = _ask_planner(_cold_fix)
             cost += _retry_cost
@@ -4886,6 +4901,24 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             cost += sum(_spine_cost)
             _sb = _spine["effective_beats"]
         print(_sfm.spine_summary(_sb, _spine))
+        # AN UNAVAILABLE JUDGE IS NOT A VERDICT. A provider error leaves the beat unjudged; the
+        # spine counted it as failed, pruned it if optional, and failed the whole sheet, which
+        # then triggered a re-plan (Aral Sea, 2026-10-14: the Owens Lake and dust beats). Failed
+        # judge calls are never cached (claim_entailment._judged), so one pause and a second
+        # prepare re-asks only the calls that did not get an answer.
+        if (not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled")
+                and (_spine.get("cascade") or {}).get("unavailable")):
+            _unjudged = sorted({_s(r.get("beat_id")) for r in _spine["cascade"]["unavailable"]})
+            print(f"Evidence judge unavailable for {', '.join(_unjudged)} — pausing and asking "
+                  "again before anything is re-planned or pruned")
+            time.sleep(max(0, int(os.environ.get("JUDGE_RETRY_WAIT_SEC", "20") or 20)))
+            _again = _planning.prepare(
+                beats, sheet_engine_id, _claims_for_roles, _lr_claims_by_case(research_dossier),
+                question=question, repair=_repair_incentive_citations,
+                cost_sink=cost_sink, cache=_cache)
+            cost += _again["cost_usd"]
+            _spine, _sb = _again["compiled"], _again["beats"]
+            print(_sfm.spine_summary(_sb, _spine))
         # THE OTHER CANDIDATES ARE ALREADY PAID FOR. choose_plan ranks sheets on STRUCTURE --
         # beat count, distinctness, cold open -- which says nothing about whether the evidence
         # supports them, so the winner can be refused here while a sibling would have passed.
@@ -4917,7 +4950,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
                     print(_sfm.spine_summary(_sb, _spine))
                     break
                 print(f"  candidate #{_idx + 1} is also unsupported")
-        if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled"):
+        if not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled") and _approved:
+            print("[plan] approved sheet: no re-plan; a research repair may re-cite its beats, "
+                  "and otherwise the run stops with the report")
+        if (not _spine["passed"] and not _diagnostic_render() and _roles.get("compiled")
+                and not _approved):
             # ONE RE-ASK WITH THE VERDICT QUOTED BACK, before buying more research. The failure
             # this catches is a citation choice, not a shortage of evidence: the penguin run
             # (2026-09-25) cited c04 ("no nest materials") for the egg-on-feet hinge while c06
@@ -5021,6 +5058,18 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if not _spine["passed"] and not _diagnostic_render():
             raise _sfm.StorySpineUnsupported(_sfm.spine_summary(_sb, _spine),
                                              spine=_spine, beats=_sb)
+        # An approved sheet keeps its beats. Narrowing a beat to what its source states is a
+        # fidelity repair and stands; DROPPING an approved beat changes what was approved (the
+        # operator kept Owens Lake, and it vanished), so the run stops and says which beats and
+        # why. APPROVED_PLAN_ALLOW_PRUNE=1 accepts the prunes for this run.
+        if (_approved and _spine["passed"] and _spine.get("pruned") and not _diagnostic_render()
+                and os.environ.get("APPROVED_PLAN_ALLOW_PRUNE", "") != "1"):
+            raise ApprovedPlanRefused(
+                "APPROVED_BEATS_PRUNED: the evidence check would drop approved beat(s) "
+                + ", ".join(_s(r.get("beat_id")) for r in _spine["pruned"])
+                + ". Edit them in plan.approved.json (narrow the wording to the cited quote, or "
+                "remove them) and rerun, or rerun with APPROVED_PLAN_ALLOW_PRUNE=1 to accept.\n\n"
+                + _sfm.spine_summary(_sb, _spine))
         # These are the narrowed, pruned and re-cited objects that were actually accepted.
         beats = (_compiler.presentation_beats(
                      _sb, sheet_engine_id,
