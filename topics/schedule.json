@@ -242,9 +242,9 @@
     "recent_median_vpd": 295.4764285714286,
     "small_breakouts": 1
    },
-   "status": "reserve",
+   "status": "moved_history",
    "job": "jobs/aral-sea",
-   "notes": "next in line; give it a date to queue it"
+   "notes": "2026-10-14: moved to Bolt Explains History (state_programme engine). Direction topics/directions/aral-sea-history.txt, job jobs/history-aral-sea; run by hand with --topic-channel history --packaging history, outside the World routine."
   },
   {
    "date": null,

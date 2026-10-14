@@ -57,7 +57,9 @@ def test_sixty_seconds_narrows_the_menu_and_ninety_restores_it():
     short = ep._feasible_engines(60)
     assert se.BACKFIRING_SOLUTION not in short
     assert se.ACCUMULATING_INDICTMENT in short
-    assert set(ep._feasible_engines(90)) == set(se.ENGINES)
+    # Every engine fits at 90 s; History's own engine is offered only on History.
+    assert set(ep._feasible_engines(90)) == set(se.ENGINES) - {se.STATE_PROGRAMME}
+    assert se.STATE_PROGRAMME in ep._feasible_engines(90, channel="history")
 
 
 def test_the_selector_never_offers_an_engine_that_cannot_fit(monkeypatch):

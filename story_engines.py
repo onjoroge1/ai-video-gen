@@ -31,6 +31,7 @@ POWER_REVERSAL = "power_reversal"
 REMOVED_KEYSTONE = "removed_keystone"
 MISTAKEN_VERDICT = "mistaken_verdict"
 STRANGE_BEHAVIOUR = "strange_behaviour"
+STATE_PROGRAMME = "state_programme"
 
 
 # REVEAL_DEADLINE_PCT: engines whose principle IS the reveal cannot state it in the first fifth.
@@ -229,6 +230,28 @@ ENGINES: dict[str, dict[str, Any]] = {
         "mechanism_deadline_pct": 0.30,
         "audience_before": "the behaviour looks like abandonment",
         "audience_after": "the behaviour is how the young get fed",
+    },
+    STATE_PROGRAMME: {
+        "name": "The State Programme",
+        # Bolt Explains History (2026-10-14). The channel's stories are a government programme and
+        # what it cost the people it acted on, and neither human-history engine fitted: Radium Girls
+        # under accumulating_indictment and Salem under backfiring_solution both died on roles the
+        # facts could not fill, and accumulating_indictment had no event map, so it fell through to
+        # the Alex/Bolt investigation contract. Same milestone order as removed_keystone, which is
+        # the most-exercised compiled shape, with a verdict close: the History close restates the
+        # opening claim now that the cost is shown; it does not hand the viewer a question.
+        "premise": ("A GOVERNMENT imposes a programme -- a law, decree, campaign or project -- "
+                    "toward a stated aim, and the people or place it acts on pay a documented "
+                    "cost. The programme may even succeed on its own terms; the harm need not "
+                    "have been unforeseen, and nobody exploits a reward."),
+        "reference": "Soviet Aral Sea diversions (History channel brief)",
+        "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.SYNTHESIS, cs.VERDICT),
+        "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL,
+                     cs.VERDICT),
+        "closing": cs.VERDICT,
+        "audience_before": "the programme looks like progress, or necessity",
+        "audience_after": "the cost was part of the plan, and people paid it",
     },
 }
 

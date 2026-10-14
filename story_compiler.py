@@ -987,6 +987,15 @@ def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
                 "Name what stopped the plan, in one short sentence that OPENS AS THE GAP "
                 "('Except ...', 'But ...', 'Not quite:') and is never a question. Do not claim it "
                 "had already succeeded. No new historical detail.",
+            # A state programme's turn is the cost, not an exploit and not a broken promise: the
+            # Aral diversions DID grow the cotton. Say what the plan cost, and never say anyone
+            # meant the harm unless an accepted event shows them deciding it.
+            "state_programme":
+                "Name the cost the programme carried, in one short sentence that OPENS AS THE GAP "
+                "('Except ...', 'But ...', 'Not quite:') and is never a question: what the "
+                "programme was doing to the people or the place. Do not say anyone exploited "
+                "anything, and attribute no intent the events do not show. No new historical "
+                "detail.",
         }.get(engine_id,
               "Break the apparent success in one short sentence that OPENS AS THE GAP "
               "('Except ...', 'But ...', 'Not quite:') and is never a question, using only the "
