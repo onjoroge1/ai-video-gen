@@ -121,6 +121,12 @@ PROGRAMME_IMPOSED = "programme_imposed"
 HARM_PATHWAY = "harm_pathway"
 HARM_ACCUMULATES = "harm_accumulates"
 COST_RECKONED = "cost_reckoned"
+# The History channel's defining beat: the cost was KNOWN. Measured on the first Aral Sea sheet
+# (2026-10-14): "Soviet hydrologists understood before the canals were built that diverting the
+# water would have serious consequences for the sea" had no function to live in, was filed as
+# context, and context is never narrated -- the film would have lost the one fact that makes it
+# History rather than a natural disaster. Optional: many programmes left no recorded warning.
+WARNING_RECORDED = "warning_recorded"
 
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
                    COMPOUNDS_EXPLOIT, OUTCOME_STATE,
@@ -132,6 +138,7 @@ EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXP
                    EVIDENCE_MOUNTS, READING_CORRECTED, VERDICT_PERSISTS,
                    CONSTRAINT_FOUND, OUTCOME_FOR_YOUNG,
                    PROGRAMME_IMPOSED, HARM_PATHWAY, HARM_ACCUMULATES, COST_RECKONED,
+                   WARNING_RECORDED,
                    CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
@@ -244,6 +251,11 @@ WHAT_EACH_FUNCTION_IS = {
                    "the sea at a fraction of its size, the toll published, the programme "
                    "repealed and what it left behind. Exactly one beat. 'The programme failed' "
                    "is not enough: say what became of the people or the place",
+    WARNING_RECORDED: "a documented moment when the programme's own experts, officials or critics "
+                      "stated the harm it would cause, before or while it was carried out: who "
+                      "said it, when, as the record gives it. Not the harm itself, and never a "
+                      "motive -- it records that the cost was known, not why it was accepted. "
+                      "At most one beat",
 }
 
 
@@ -450,6 +462,9 @@ STATE_PROGRAMME = EngineFunctionMap(
     to_role={ESTABLISHES_PROBLEM: "setup",
              PROGRAMME_IMPOSED: "intervention",
              APPARENT_SUCCESS: "false_resolution",
+             # A planner beat holding the hinge replaces the compiler's device hinge
+             # (story_compiler.presentation_beats), as strange_behaviour's constraint does.
+             WARNING_RECORDED: "hinge",
              HARM_PATHWAY: "mechanism",
              HARM_ACCUMULATES: "escalation",
              COST_RECKONED: "reversal",
@@ -466,6 +481,7 @@ STATE_PROGRAMME = EngineFunctionMap(
         "setup": "the condition the state set out to change, as it stood before the programme",
         "intervention": "the programme imposed: the law, decree, campaign or project, and its aim",
         "false_resolution": "the programme working on its own terms -- the part that succeeded",
+        "hinge": "the record that the cost was known: a warning given, a report filed",
         "mechanism": "how the programme produced the harm, as a recorded fact",
         "escalation": "the cost accumulating, one further documented step each scene",
         "reversal": "what the people or the place became",

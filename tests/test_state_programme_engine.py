@@ -111,3 +111,24 @@ def test_state_programme_is_history_only_and_history_uses_only_compiled_shapes()
 
 def test_the_score_has_a_mood_for_the_engine():
     assert se.STATE_PROGRAMME in illustrated_score._MOODS
+
+
+def test_a_recorded_warning_is_the_turn_and_replaces_the_compilers_device():
+    """The Aral sheet filed 'hydrologists understood before the canals were built' as context,
+    which is never narrated; a History film without its warning is a natural disaster."""
+    warning = {"beat_id": "a2w", "event_function": ef.WARNING_RECORDED,
+               "event": {"text": "Soviet hydrologists understood before the main canals were built "
+                                 "that the diversions would make the sea's level drop sharply.",
+                         "claim_refs": ["c43"]},
+               "changes_state": {"from": "the plan delivers cotton",
+                                 "to": "the cost is known in advance"}}
+    sheet = ARAL[:3] + [warning] + ARAL[3:]
+    out = sc.compile_roles(sheet, se.STATE_PROGRAMME)
+    assert out["passed"], sc.summary(out)
+    assert out["roles"]["a2w"] == "hinge"
+    beats = sc.presentation_beats(sc.splice_derived(out["beats"], out), se.STATE_PROGRAMME,
+                                  duration_sec=300)
+    hinges = [b for b in beats if b["role"] == "hinge"]
+    assert [b["beat_id"] for b in hinges] == ["a2w"], "the warning is the hinge; no device is added"
+    # A warning is recorded as an event or as context; the turn may cite either.
+    assert {"event", "context"} <= set(sfm.accepted_claim_kinds("hinge", se.STATE_PROGRAMME))
