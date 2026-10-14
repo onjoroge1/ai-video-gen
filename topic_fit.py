@@ -113,13 +113,34 @@ CHANNEL_ENGINES = {
     # media spend: a court admitting spectral evidence is not an exploited bounty. Backfires now
     # belong to World, and the animal engines to World and Nature; History tells a state programme
     # and its cost through the three human-history shapes.
-    HISTORY: ("accumulating_indictment", "power_reversal", "almost_happened_plan"),
+    # 2026-10-14: History uses only COMPILED shapes. accumulating_indictment and power_reversal have
+    # no event map, so a History film planned under either fell through to the Alex/Bolt
+    # investigation contract and failed it (Radium Girls: "No visible evidence changes Alex's
+    # belief", "Bolt useful measurement"). state_programme is the channel's own shape.
+    HISTORY: ("state_programme", "almost_happened_plan"),
 }
+
+# Engines that belong to one channel. An unrestricted channel (World) is still offered every other
+# engine exactly as before; it is never offered another channel's own shape, so a World rule story
+# such as Hoy No Circula cannot be planned as a History programme with a verdict close.
+EXCLUSIVE_ENGINES = {"state_programme": HISTORY}
 
 
 def engines_for_channel(channel: str) -> tuple[str, ...] | None:
     """Allowed engine ids for a channel, or None when the channel does not restrict them."""
     return CHANNEL_ENGINES.get((channel or "").strip().lower())
+
+
+def engine_admitted(engine_id: str, channel: str) -> bool:
+    """May this channel's episodes use this engine? Restricted channels list theirs; every channel
+    is kept off another channel's exclusive engine."""
+    engine_id = (engine_id or "").strip().lower()
+    channel = (channel or "").strip().lower()
+    owner = EXCLUSIVE_ENGINES.get(engine_id)
+    if owner is not None and owner != channel:
+        return False
+    allowed = engines_for_channel(channel)
+    return engine_id in allowed if allowed else True
 
 
 # Editorial research queue, not approved claims or a promise of a finished video.

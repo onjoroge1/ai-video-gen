@@ -242,14 +242,15 @@ def test_the_nature_channel_restricts_the_engines_the_selector_may_offer():
     assert tf.engines_for_channel(tf.NATURE) == (se.MISTAKEN_VERDICT, se.STRANGE_BEHAVIOUR)
     assert tf.engines_for_channel(tf.WORLD) is None and tf.engines_for_channel("") is None
     assert set(ep._feasible_engines(180, channel=tf.NATURE)) == {se.MISTAKEN_VERDICT, se.STRANGE_BEHAVIOUR}
-    assert len(ep._feasible_engines(180, channel=tf.WORLD)) == len(se.ENGINES)
+    # Unrestricted, except for another channel's own engine (state_programme is History's).
+    assert set(ep._feasible_engines(180, channel=tf.WORLD)) == set(se.ENGINES) - {se.STATE_PROGRAMME}
     # The run sets the context variable; the selector reads it when no channel is passed.
     token = ep._TOPIC_CHANNEL.set(tf.NATURE)
     try:
         assert set(ep._feasible_engines(240)) == {se.MISTAKEN_VERDICT, se.STRANGE_BEHAVIOUR}
     finally:
         ep._TOPIC_CHANNEL.reset(token)
-    assert len(ep._feasible_engines(240)) == len(se.ENGINES)
+    assert set(ep._feasible_engines(240)) == set(se.ENGINES) - {se.STATE_PROGRAMME}
 
 
 def test_a_wrong_engine_from_the_model_falls_back_inside_the_channel(monkeypatch):
@@ -304,7 +305,9 @@ def test_the_older_channels_keep_their_intervention_rule(channel):
 
 
 def test_history_offers_only_the_human_history_engines():
-    """The first Salem run chose the bounty engine and failed its own setup and mechanism roles."""
-    assert tf.engines_for_channel(tf.HISTORY) == (
-        se.ACCUMULATING_INDICTMENT, se.POWER_REVERSAL, se.ALMOST_HAPPENED_PLAN)
+    """The first Salem run chose the bounty engine and failed its own setup and mechanism roles.
+
+    2026-10-14: only COMPILED shapes. accumulating_indictment and power_reversal have no event map
+    and fell through to the Alex/Bolt investigation contract (Radium Girls)."""
+    assert tf.engines_for_channel(tf.HISTORY) == (se.STATE_PROGRAMME, se.ALMOST_HAPPENED_PLAN)
     assert se.BACKFIRING_SOLUTION not in tf.engines_for_channel(tf.HISTORY)

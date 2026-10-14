@@ -1,0 +1,57 @@
+Bolt Explains History: one sourced history story, ~5-minute landscape illustrated documentary.
+The story shape is a state programme and what it cost (engine state_programme): a government plan
+that worked on its own terms while a sea, and the people who lived from it, paid for it.
+
+OPENING: put the viewer inside one ordinary fishing family's practical life in a port town on the
+Aral Sea: the boats, the catch, the cannery, the work. Then the state's decision (to turn the
+region's rivers onto the desert to grow cotton) with its reasoning as the sources give it, before
+any official name. Reach the first consequence (the sea beginning to fall) within about forty
+seconds of narration. The body begins after that consequence and never re-tells it.
+
+Causal arc (as questions for research to answer, not facts): Why did Soviet planners want cotton
+from Central Asia, and from when? Which rivers were diverted, how, and from when? Did the cotton
+harvests rise, and by how much, as the sources state it? What happened to the water reaching the
+sea, and then to its level, area and saltiness, year by year? What happened to the fishing
+industry and the port towns? What did the exposed seabed do, and what health effects do the
+sources document (state each exactly as sourced; never more)? Did anyone in authority know or
+warn what the diversions would do to the sea, and what is recorded of it? What is the sea now: the
+northern part and the dam built to save it, and the southern part?
+
+STORY SPINE (which research fact fills which role; say each only as the sources state it):
+- setup: the need the state set out to meet, as it stood before the programme.
+- intervention (programme_imposed): the diversion of the rivers for irrigation, by whom, from when.
+- false resolution (apparent_success, if sourced): the cotton the programme delivered.
+- mechanism (harm_pathway): the diverted rivers no longer bringing the sea its water.
+- escalation (harm_accumulates, several): the shrinking sea, the fisheries and port towns, the
+  contaminated dust, each a distinct sourced step in the order it happened.
+- reversal (cost_reckoned): what the sea and its people became, as record (for example the dried
+  eastern basin, and the northern sea held behind its dam).
+- verdict: the narrator's own conclusion restating the corrected claim; it cites no claim and names
+  no event, person, number or object from the story, e.g. "It was never a natural disaster. It
+  was a plan that worked."
+
+Verify: the decade the diversions began (sources say the 1950s and 1960s); every figure for the
+sea's area, volume, level or saltiness, with its year; any fish-catch or job figure, with its year;
+the names of the port towns; the dam's name, completion year and effect on the northern sea; the
+year the eastern basin dried; any statement that officials expected or accepted the sea's loss,
+and exactly who said it and where it is recorded. Separate documented fact from later legend.
+
+Research starting points (each checked 2026-10-14: it opens to an automated fetch):
+- NASA Earth Observatory, "World of Change: Shrinking Aral Sea"
+  (https://earthobservatory.nasa.gov/world-of-change/AralSea): the 1960s diversion project, the
+  rivers turned onto farms for cotton, fisheries and the communities that depended on them
+  collapsing, the contaminated dust from the exposed lakebed, the Kok-Aral dike and dam (2005).
+- NASA Earth Observatory, "The Aral Sea Loses Its Eastern Lobe"
+  (https://earthobservatory.nasa.gov/images/84437/the-aral-sea-loses-its-eastern-lobe): the Soviet
+  government diverting the Amu Darya and Syr Darya to irrigate farmland in the 1950s and 1960s, and
+  the eastern basin drying in 2014.
+Prefer these over pages that refuse automated fetches; the mechanism and the reckoning must be
+quoted from a page that opens.
+
+Storyboard: the one recurring story object is a fishing boat on the shore of the port town, drawn
+the same way every time, first afloat and later stranded on sand; the mechanism cutaway shows, in
+one picture with arrows and no text, the two rivers turned into irrigation canals and cotton fields
+while the sea receives nothing; no maps; people in frame; the viewpoint fishing family visually
+consistent; documented people look different from one another and carry only documented actions.
+No gore; any health harm is shown through people and their surroundings, never through illness
+close-ups.

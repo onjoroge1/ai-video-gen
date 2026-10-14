@@ -3003,8 +3003,10 @@ def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[s
     import topic_fit
     fits = [engine_id for engine_id in _se.ENGINES
             if _engine_runtime_fit(engine_id, duration_sec)["fits"]]
-    allowed = topic_fit.engines_for_channel(_TOPIC_CHANNEL.get() if channel is None else channel)
-    return [engine_id for engine_id in fits if engine_id in allowed] if allowed else fits
+    channel = _TOPIC_CHANNEL.get() if channel is None else channel
+    # engine_admitted keeps an unrestricted channel off another channel's exclusive engine
+    # (state_programme is History's) while leaving its selection otherwise as it was.
+    return [engine_id for engine_id in fits if topic_fit.engine_admitted(engine_id, channel)]
 
 
 def _minimum_feasible_runtime(engine_id: str, duration_sec: float) -> int:

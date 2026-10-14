@@ -109,6 +109,19 @@ VERDICT_PERSISTS = "verdict_persists"
 CONSTRAINT_FOUND = "constraint_found"
 OUTCOME_FOR_YOUNG = "outcome_for_young"
 
+# --- the state_programme family (Bolt Explains History) -----------------------------------------
+# A government imposes a programme and people or a place pay for it. Nobody exploits a reward, so
+# changes_incentive has no referent (Salem, 2026-10-10: offered backfiring_solution, the planner
+# failed its own setup and mechanism roles before any media spend). And unlike removed_keystone
+# the harm is human and may have been foreseen: the Soviet planners were told what diverting the
+# Amu Darya and Syr Darya would do to the Aral Sea. Every step is something an archive can cite,
+# so, as in almost_happened_plan and removed_keystone, nothing is derived: HARM_PATHWAY is a
+# recorded fact (the rivers no longer reached the sea), not a relationship to compute.
+PROGRAMME_IMPOSED = "programme_imposed"
+HARM_PATHWAY = "harm_pathway"
+HARM_ACCUMULATES = "harm_accumulates"
+COST_RECKONED = "cost_reckoned"
+
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
                    COMPOUNDS_EXPLOIT, OUTCOME_STATE,
                    PLAN_PROPOSED, GAINS_BACKING, OPPOSITION_MOUNTS, COLLAPSE_CAUSE,
@@ -118,6 +131,7 @@ EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXP
                    BEHAVIOUR_OBSERVED, VERDICT_RECORDED, ANOMALY_FOUND, FUNCTION_SHOWN,
                    EVIDENCE_MOUNTS, READING_CORRECTED, VERDICT_PERSISTS,
                    CONSTRAINT_FOUND, OUTCOME_FOR_YOUNG,
+                   PROGRAMME_IMPOSED, HARM_PATHWAY, HARM_ACCUMULATES, COST_RECKONED,
                    CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
@@ -214,6 +228,22 @@ WHAT_EACH_FUNCTION_IS = {
                        "secretion, a substitute feeding) is evidence_mounts, not this: the first "
                        "penguin sheet filed the male's crop secretion here and produced two "
                        "outcomes, one of them citing a mechanism claim",
+    PROGRAMME_IMPOSED: "the moment a state formally imposed the programme -- a law passed, a "
+                       "decree issued, a campaign or project ordered -- with who ordered it and "
+                       "its stated aim as the record gives it. NOT the idea being discussed: the "
+                       "order itself. Exactly one beat; an earlier or later amendment is context",
+    HARM_PATHWAY: "the documented link between what the programme did and the harm it caused, "
+                  "stated as a recorded fact: 'the diverted rivers no longer reached the sea', "
+                  "'the government ordered industrial alcohol poisoned, and people kept "
+                  "drinking it'. Not a motive, and not yet the size of the harm",
+    HARM_ACCUMULATES: "a further documented cost of the programme, in the order it happened: "
+                      "the shoreline retreating, deaths counted, institutions filling, a "
+                      "livelihood ending. May repeat; each one a distinct sourced step -- a "
+                      "further reach, a further scale, a further cost",
+    COST_RECKONED: "what the people or the place became, as record, once the cost was counted: "
+                   "the sea at a fraction of its size, the toll published, the programme "
+                   "repealed and what it left behind. Exactly one beat. 'The programme failed' "
+                   "is not enough: say what became of the people or the place",
 }
 
 
@@ -407,9 +437,45 @@ STRANGE_BEHAVIOUR = EngineFunctionMap(
                    "function, returning to the opening; no verdict attributed to anyone and no "
                    "new facts"})
 
+# The History channel's shape (2026-10-14). The harm need not have been unforeseen and the outcome
+# need not invert the aim: a programme that SUCCEEDED on its own terms while people paid for it is
+# the core case (topic_fit.HISTORY). apparent_success is optional for the same reason as
+# removed_keystone's intended_effect: some programmes never looked like they worked. The close is
+# a verdict device the compiler appends, as in strange_behaviour -- a restatement, never a cited
+# fact, so the planner is never shown a function that would invite it to source a summary.
+STATE_PROGRAMME = EngineFunctionMap(
+    "state_programme",
+    required=(ESTABLISHES_PROBLEM, PROGRAMME_IMPOSED, HARM_PATHWAY, HARM_ACCUMULATES,
+              COST_RECKONED),
+    to_role={ESTABLISHES_PROBLEM: "setup",
+             PROGRAMME_IMPOSED: "intervention",
+             APPARENT_SUCCESS: "false_resolution",
+             HARM_PATHWAY: "mechanism",
+             HARM_ACCUMULATES: "escalation",
+             COST_RECKONED: "reversal",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    # Histories describe a programme's harm as a process ("as the inflow fell the sea shrank"),
+    # and the research classifier files that as mechanism -- the same refusal that cost cane
+    # toads three sheets under removed_keystone. Boundary A still has to show each beat follows
+    # from its claim; the kind gate only stops refusing the channel's shape.
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism"),
+                 "escalation": ("event", "context", "outcome", "mechanism"),
+                 "reversal": ("event", "context", "outcome", "mechanism")},
+    role_meanings={
+        "setup": "the condition the state set out to change, as it stood before the programme",
+        "intervention": "the programme imposed: the law, decree, campaign or project, and its aim",
+        "false_resolution": "the programme working on its own terms -- the part that succeeded",
+        "mechanism": "how the programme produced the harm, as a recorded fact",
+        "escalation": "the cost accumulating, one further documented step each scene",
+        "reversal": "what the people or the place became",
+        "verdict": "a narration device, not a fact: the opening claim restated now that the cost "
+                   "is shown, returning to the opening; no new facts and no motive attributed to "
+                   "anyone the story has not shown deciding"})
+
 MAPS = {engine.engine_id: engine
         for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN, REMOVED_KEYSTONE,
-                       MISTAKEN_VERDICT, STRANGE_BEHAVIOUR)}
+                       MISTAKEN_VERDICT, STRANGE_BEHAVIOUR, STATE_PROGRAMME)}
 
 
 def map_for(engine_id: str) -> EngineFunctionMap | None:
