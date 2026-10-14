@@ -1,5 +1,5 @@
 {
- "cadence": "every other day, 06:00 local",
+ "cadence": "every 4 days, 06:00 local (slowed 2026-10-14 by the operator: new films get almost no home-feed test; return to every other day once a film's day-2 home views beat its day 1 and >=50% are still watching at 30 s)",
  "monthly_spend_cap_usd": 250,
  "per_run_cost_cap_usd": 18,
  "items": [
@@ -120,7 +120,7 @@
    ]
   },
   {
-   "date": "2026-10-17",
+   "date": "2026-10-19",
    "slug": "hoy-no-circula",
    "question": "Mexico City Banned Each Car One Day a Week to Clean Its Air and People Bought More Cars",
    "lane": "step3-rule",
@@ -136,7 +136,7 @@
    "notes": ""
   },
   {
-   "date": "2026-10-19",
+   "date": "2026-10-23",
    "slug": "burmese-pythons",
    "question": "Pet Pythons Got Loose in the Everglades and Florida's Mammals Started Disappearing",
    "market": {
@@ -152,7 +152,7 @@
    "lane": "step1-nature"
   },
   {
-   "date": "2026-10-21",
+   "date": "2026-10-27",
    "slug": "leaded-gasoline",
    "question": "An Engineer Cured Engine Knock With Lead in Gasoline and Put Lead Into the Air for Decades",
    "lane": "step2-invention",
@@ -168,7 +168,7 @@
    "notes": ""
   },
   {
-   "date": "2026-10-23",
+   "date": "2026-10-31",
    "slug": "dust-bowl",
    "question": "America Plowed Up the Great Plains for Wheat and the Soil Blew Away",
    "market": {
@@ -184,7 +184,7 @@
    "lane": "step1-nature"
   },
   {
-   "date": "2026-10-25",
+   "date": "2026-11-04",
    "slug": "hanoi-rat-tails",
    "question": "Colonial Hanoi Paid for Rat Tails and People Started Farming Rats: The Real Cobra Effect",
    "lane": "step3-rule",
@@ -200,7 +200,7 @@
    "notes": "The Delhi cobra bounty is poorly documented; the Hanoi rat hunt (1902) is the documented case. The direction must keep the cobra story as legend and tell Hanoi as the record."
   },
   {
-   "date": "2026-10-27",
+   "date": "2026-11-08",
    "slug": "feral-hogs",
    "question": "Hunters Released Wild Boar in America for Sport and Now Feral Hogs Are Everywhere",
    "market": {
@@ -216,7 +216,7 @@
    "lane": "step1-nature"
   },
   {
-   "date": "2026-10-29",
+   "date": "2026-11-12",
    "slug": "fordlandia",
    "question": "Henry Ford Built an American Town in the Amazon to Grow Rubber and the Jungle Won",
    "lane": "step3-rule",

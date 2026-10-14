@@ -10,16 +10,93 @@ Studio after reviewing it. This script never changes an existing video.
         [--short] [--publish-at 2026-10-02T14:00:00Z] [--dry-run]
 
 Prints the video id and Studio URL. --dry-run prints the request body and uploads nothing.
+
+Refuses a duplicate (2026-10-14): a file already uploaded (by sha256, from the local ledger
+jobs/yt/upload_ledger.json) or a title already on the channel in any privacy state (hashtags
+ignored; a film and its #Shorts teaser are different kinds). The World channel had 27 uploads
+in 12 days -- review builds, and one cane toad Short uploaded seven times -- while its reach
+collapsed. A deliberate repeat (a hook test) passes with --allow-duplicate "reason", which the
+ledger records.
 """
 from __future__ import annotations
 
 import argparse
+import datetime
+import hashlib
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CATEGORY_EDUCATION = "27"
+LEDGER = os.path.join(ROOT, "jobs", "yt", "upload_ledger.json")
+
+
+def title_key(title: str) -> tuple[str, bool]:
+    """(the title without hashtags or punctuation, is it a Short)."""
+    short = "#shorts" in (title or "").lower()
+    words = re.findall(r"[a-z0-9]+", re.sub(r"#\w+", " ", (title or "").lower()))
+    return " ".join(words), short
+
+
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def load_ledger(path: str = LEDGER) -> list[dict]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get("uploads") or []
+    except (OSError, ValueError):
+        return []
+
+
+def duplicate_reasons(sha: str, title: str, channel_id: str, ledger: list[dict],
+                      existing: list[dict]) -> list[str]:
+    """Why this upload would duplicate one already made; [] when it would not.
+
+    `existing` holds the channel's uploads as {"id", "title", "privacy"}; `ledger` the local
+    record of earlier uploads with their file hashes."""
+    reasons = []
+    for entry in ledger:
+        if entry.get("sha256") == sha and entry.get("channel_id") in (None, channel_id):
+            reasons.append(f"this file was already uploaded as {entry.get('video_id')} "
+                           f"({entry.get('uploaded_at', '?')[:10]}, \"{entry.get('title', '')}\")")
+    key = title_key(title)
+    for video in existing:
+        if key[0] and title_key(video.get("title", "")) == key:
+            reasons.append(f"the channel already has {video.get('id')} ({video.get('privacy', '?')}) "
+                           f"titled \"{video.get('title', '')}\"")
+    return reasons
+
+
+def channel_uploads(yt, channel_id: str) -> list[dict]:
+    """Every upload on the channel, any privacy (the owner's token sees private ones)."""
+    playlist = yt.channels().list(part="contentDetails", id=channel_id).execute()["items"][0][
+        "contentDetails"]["relatedPlaylists"]["uploads"]
+    out, token = [], None
+    while True:
+        page = yt.playlistItems().list(part="snippet,status", playlistId=playlist, maxResults=50,
+                                       pageToken=token).execute()
+        out += [{"id": item["snippet"]["resourceId"]["videoId"], "title": item["snippet"]["title"],
+                 "privacy": (item.get("status") or {}).get("privacyStatus", "?")}
+                for item in page.get("items") or []]
+        token = page.get("nextPageToken")
+        if not token:
+            return out
+
+
+def record_upload(entry: dict, path: str = LEDGER) -> None:
+    data = {"uploads": load_ledger(path)}
+    data["uploads"].append(entry)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=1, ensure_ascii=False)
 
 
 def _creds(channel: str = "world"):
@@ -55,6 +132,9 @@ def main() -> int:
     ap.add_argument("--publish-at", default="", help="RFC3339 UTC; sets privacy private + schedule")
     ap.add_argument("--channel", default="world", choices=["world", "history"],
                     help="which channel's token to use; the bound channel must match")
+    ap.add_argument("--allow-duplicate", default="", metavar="REASON",
+                    help="upload even if this file or title is already on the channel; the reason "
+                         "is recorded in jobs/yt/upload_ledger.json (e.g. a deliberate hook test)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -99,7 +179,10 @@ def main() -> int:
     }
     if args.publish_at:
         body["status"]["publishAt"] = args.publish_at
+    sha = file_sha256(args.video)
     if args.dry_run:
+        for reason in duplicate_reasons(sha, title, "", load_ledger(), []):
+            print(f"DUPLICATE (ledger): {reason}")
         print(json.dumps(body, indent=1, ensure_ascii=False))
         print(f"video: {args.video} ({os.path.getsize(args.video) / 1e6:.1f} MB)"
               + (f"\nthumbnail: {args.thumbnail}" if args.thumbnail else ""))
@@ -117,6 +200,10 @@ def main() -> int:
     refusal = check_bound(args.channel, bound, mine[0]["snippet"]["title"] if mine else "")
     if refusal:
         sys.exit(refusal)
+    reasons = duplicate_reasons(sha, title, bound, load_ledger(), channel_uploads(yt, bound))
+    if reasons and not args.allow_duplicate.strip():
+        sys.exit("refused, duplicate upload:\n  " + "\n  ".join(reasons)
+                 + "\nReview builds stay local; a deliberate repeat needs --allow-duplicate \"reason\".")
     media = MediaFileUpload(args.video, mimetype="video/mp4", chunksize=8 * 1024 * 1024,
                             resumable=True)
     request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
@@ -127,6 +214,11 @@ def main() -> int:
             print(f"  upload {int(status.progress() * 100)}%")
     video_id = response["id"]
     print(f"uploaded (private): https://studio.youtube.com/video/{video_id}/edit")
+    record_upload({"video_id": video_id, "title": title, "channel": args.channel, "channel_id": bound,
+                   "sha256": sha, "file": os.path.relpath(os.path.abspath(args.video), ROOT),
+                   "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                   **({"allowed_duplicate": args.allow_duplicate.strip(), "duplicates": reasons}
+                      if reasons else {})})
     if args.thumbnail:
         try:
             yt.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(
