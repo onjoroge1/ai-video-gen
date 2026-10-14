@@ -224,6 +224,9 @@ def scope_of(beat: dict) -> str:
     existed.
     """
     scope = _text((beat or {}).get("scope")).lower()
+    # A planner that writes "parallel" means the comparison; read as primary it made the Aral Sea
+    # Owens Lake beat "the primary story sourced from a parallel case" (2026-10-14).
+    scope = {"parallel": PARALLEL_CASE, "comparison": PARALLEL_CASE}.get(scope, scope)
     return scope if scope in SCOPES else PRIMARY_STORY
 
 

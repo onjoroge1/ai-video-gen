@@ -309,13 +309,34 @@ def _default_judge(payload: dict) -> dict:
         payload["cost_sink"].append(ep._msg_cost(response.usage))
     # A malformed 600-token verdict is an unavailable judgment. Never launch an unaccounted
     # 16k-token script-JSON repair from this small, bounded provider call.
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw[raw.find("{"):raw.rfind("}") + 1]
+    return parse_verdict(response.content[0].text)
+
+
+def parse_verdict(text: str) -> dict:
+    """The verdict object from a judge reply, or {} when there is none.
+
+    The judge sometimes reasons in prose and puts the JSON last. Only fenced or bare JSON used to
+    parse, so a correct "partially_entailed" verdict on the Aral Sea dust beat (2026-10-14) came
+    back as {} -- "unusable judge verdict ''" -- on every attempt, and the spine failed on a beat
+    the judge had actually decided. The last parseable object in the reply is the verdict.
+    """
+    raw = (text or "").strip()
     try:
-        return json.loads(raw)
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
     except (ValueError, TypeError):
-        return {}
+        pass
+    end = raw.rfind("}")
+    start = raw.rfind("{", 0, end + 1)
+    while start != -1 and end != -1:
+        try:
+            value = json.loads(raw[start:end + 1])
+            if isinstance(value, dict):
+                return value
+        except (ValueError, TypeError):
+            pass
+        start = raw.rfind("{", 0, start)
+    return {}
 
 
 def _judged(payload: dict, key: str, judge: Callable[[dict], Any] | None,
