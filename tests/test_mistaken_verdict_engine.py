@@ -301,3 +301,10 @@ def test_the_older_channels_keep_their_intervention_rule(channel):
     import explainer_pipeline as ep
 
     assert "ONE intervention, bounded in time and place" in ep._causal_topic_system(channel)
+
+
+def test_history_offers_only_the_human_history_engines():
+    """The first Salem run chose the bounty engine and failed its own setup and mechanism roles."""
+    assert tf.engines_for_channel(tf.HISTORY) == (
+        se.ACCUMULATING_INDICTMENT, se.POWER_REVERSAL, se.ALMOST_HAPPENED_PLAN)
+    assert se.BACKFIRING_SOLUTION not in tf.engines_for_channel(tf.HISTORY)
