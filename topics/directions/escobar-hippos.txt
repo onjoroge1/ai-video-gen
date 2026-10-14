@@ -1,0 +1,45 @@
+Bolt Explains the World: one sourced animal-intervention backfire, ~5-minute landscape illustrated documentary.
+MYTH-BUSTER OPENING (run with --opening myth).
+
+OPENING: the hook is the viewer's own guess, posed as a guess and never as a claim about what people believed: for
+example "You'd think four hippos left behind on a ranch would simply die out." Use a myth line ONLY if a ledger
+claim proves it wrong. Then: the bust (one cited sentence: the hippos multiplied -- the census figure as the source
+states it -- NOT yet why), the danger (one cited sentence: declared invasive, a threat to the river ecosystem, as
+sources state it), and the open question (for example "So why can't Colombia stop them?"). Then the viewer's role:
+someone who lives or works along the river near the old estate, the need tangible (the river, the fishing, the
+cattle) before any name. Give the decision (the hippos brought to a private zoo, and what happened to them after
+their owner's death) as the sources give it. Reach the first unintended consequence (the hippos leaving the estate
+for the rivers) within about forty seconds of narration.
+
+Causal arc (as questions for research to answer, not facts): How many hippos were brought to Hacienda Napoles, of
+which sexes, and when? What happened to them after Escobar's death in 1993? Where did they go, and how did the
+population grow? What in Colombia lets them breed so fast (predators, droughts, climate, water)? What harm do they
+do or threaten to rivers, native species and people, according to the sources? What has Colombia decided to do
+(sterilization, relocation, culling), and what do the sources say about whether it is working?
+
+MECHANISM (the answer to the opening question): the documented reason the population grows unchecked, stated as
+the answer -- for example "Nothing here does what lions and droughts do in Africa" -- only as research supports it.
+
+Verify: the founding count and sexes; the import year (sources differ: the 1980s, 1991); the 1993 date; every
+population figure and its year and method; any projection (state it as a projection); the government's plan and
+its date. Separate documented fact from legend; do not dramatize attacks beyond what a source states.
+
+Research starting points (each checked 2026-10-13: it opens to an automated fetch and states the beat named):
+- Scientific American (reprinting Nature), "Colombia's 'Cocaine Hippo' Population Is Even Bigger Than Scientists
+  Thought" (https://www.scientificamerican.com/article/colombias-cocaine-hippo-population-is-even-bigger-than-scientists-thought/):
+  three females and one male; the 181-215 census; no natural predators or droughts.
+- NBC / Associated Press, "Colombia will try to control hippo population originally brought in by Pablo Escobar"
+  (https://www.nbcdfw.com/news/national-international/colombia-will-try-to-control-hippo-population-originally-brought-in-by-pablo-escobar/3377731/):
+  the 1980s import, Escobar's death in 1993, no natural predators, the invasive declaration, the control plan.
+- BBC Wildlife via Yahoo News, "Pablo Escobar's cocaine hippos top 200"
+  (https://news.yahoo.com/pablo-escobars-cocaine-hippos-top-144957202.html): descended from four adults.
+Prefer these over pages that refuse automated fetches; the mechanism must be quoted from a page that opens.
+
+DECISION and VERDICT wording: the decision says only what sources state (brought to a private zoo; left after his
+death). The VERDICT names no event, person or number: only the corrected myth, e.g. "Four hippos were never a small
+mistake. A place with nothing to stop them made them a big one."
+
+Storyboard: the one recurring story object is the old wooden zoo gate of the estate, drawn the same way every time;
+the mechanism cutaway shows, in one picture with arrows and no text, an African river with lions and a dry season
+beside a Colombian river with neither; no maps; people in frame; the viewpoint river resident visually consistent;
+documented people look different and carry only documented actions. No gore.

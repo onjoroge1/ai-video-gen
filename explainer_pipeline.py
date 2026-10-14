@@ -1847,7 +1847,7 @@ def _rewrite_hook_to_contract(plan: dict, dossier: dict | None, cost_sink=None,
                            # The rules must match the scorer: a frame under the ladder, the hook
                            # devices otherwise. HOOK_RULES under the ladder asked for a number
                            # and an actor and then scored the sentence as a frame.
-                           (_hp.FRAME_RULES if ladder else _hp.HOOK_RULES)
+                           (_hp.frame_rules() if ladder else _hp.HOOK_RULES)
                            + f"\nTITLE: {_s(plan.get('title'))}\nTHROUGHLINE: {_s(plan.get('throughline'))}\n"
                            + "THE ONLY FACTS YOU MAY USE (every number, date and name must appear "
                              "in one of these):\n" + "\n".join(f"- {c}" for c in claims)
@@ -4004,6 +4004,15 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     THE WHOLE beat sheet, so no batch can re-teach another's beat; (3) run a final 'state once'
     pass that rewrites any line that still repeats. Each Claude call stays small enough that the
     JSON never truncates."""
+    # STORY_ENGINE pins the narrative engine for one run (run_illustrated_local --engine). Radium
+    # Girls (2026-10-12) was planned as a backfiring_solution -- "an incentive somebody exploits"
+    # -- put Curie's cancer hopes in the mechanism slot and pruned the real mechanism (radium
+    # taken into bone like calcium). Salem failed the same way. An operator who knows the shape
+    # can name it; an unknown name is ignored and the selector chooses as before.
+    if not pinned_engine:
+        import story_engines as _se_pin
+        _env_engine = (os.environ.get("STORY_ENGINE", "") or "").strip().lower()
+        pinned_engine = _env_engine if _env_engine in _se_pin.ENGINES else ""
     # The opening mode is decided once the planner returns (see the hook block); bound here so
     # every later reference in this function -- the writer's directions, the returned script --
     # has a value on paths that never reach that block.
@@ -4196,10 +4205,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # sensible thing and causing the disaster -- and travelled into the ladder's planner prompt
         # beside THE OPENING, which defines the same field as a frame. V11 and V12 (2026-10-07)
         # both returned the actor sentence. Under the ladder the field has one owner.
+        import hook_patterns as _hp_mode
         _hook_paragraph = (
-            "\nThe \"hook\" field is the FRAME of THE OPENING (rules below): one sentence that puts "
-            "the viewer in the role the problem belongs to, second person by default, naming no "
-            "institution and narrating nothing that has happened yet.\n"
+            ("\nThe \"hook\" field is the MYTH LINE of THE OPENING (rules below): \"You'd think "
+             "<the assumption a viewer would make>\", the viewer's own guess, naming no institution "
+             "and narrating nothing that has happened yet.\n" if _hp_mode.myth_mode() else
+             "\nThe \"hook\" field is the FRAME of THE OPENING (rules below): one sentence that puts "
+             "the viewer in the role the problem belongs to, second person by default, naming no "
+             "institution and narrating nothing that has happened yet.\n")
             if _opening_mode() == "ladder" else
             f"\nThe \"hook\" is ONE sentence of at most {_cs.MAX_HOOK_WORDS} words promising how "
             "the situation inverts. Write it as a complete grammatical sentence whose SUBJECT is a "
@@ -4648,6 +4661,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     style_mode = (_s(plan.get("style_mode")) or "educational").strip().lower()
     throughline = _s(plan.get("throughline")).strip()
     beats = _beats_of(plan)
+    import hook_patterns as _hp_fold
+    if _hp_fold.myth_mode():
+        beats = _fold_opening_lines(plan, beats)
     # Defined for every lane. The retrieval below only runs on the causal lane, and a name bound on
     # one branch is a NameError on the others the moment the prompt concatenates it.
     if causal_lane:
@@ -4710,6 +4726,17 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # scored as a frame (the three devices a frame can carry). A plan without an opening
         # block -- an older cache, a stub, OPENING_MODE=hook -- takes the hook path as before.
         _ladder = _opening_mode() == "ladder" and bool(_plan_opening(plan))
+        import hook_patterns as _hp_guard
+        if causal_lane and _hp_guard.myth_mode() and not _plan_opening(plan):
+            # Radium Girls (2026-10-12): the planner prompt for engines without factual-function
+            # compilation never asks for `opening`, so a myth-buster run silently fell back to the
+            # one-line-hook contract (cold open, cast lead, Bolt) and failed its script at 0/100
+            # after the full writing spend. Refuse here, before any narration is bought.
+            raise ValueError(
+                "MYTH_OPENING_WITHOUT_OPENING_PLAN: the myth-buster opening needs the plan's "
+                "`opening` block (frame, problem, solution, transition, consequence, claim_refs); "
+                f"the {sheet_engine_id} planner did not write one. Approve a plan with it "
+                "(--stop-after plan, edit plan.approved.json) or run without --opening myth.")
         if _ladder:
             _frame = _s(_plan_opening(plan).get("frame")).strip()
             if _frame:
@@ -4824,9 +4851,20 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             _sb = prepared["beats"]
         else:
             # Engines without factual-function compilation keep their existing labelling pass.
-            beats, spine_cost = _assign_causal_spine(
-                beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
-                pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
+            if _approved and all(_s(b.get("causal_role")) for b in beats):
+                # An operator-approved sheet keeps its roles. Radium Girls (2026-10-12): the
+                # labeller re-assigned an approved sheet, made the claim-free myth line the setup
+                # and the "picture the job" line the intervention, demoted the real setup and
+                # decision to escalations, and the spine refused what the operator had approved.
+                # The roles are still VALIDATED below (compile_spine); they are not re-chosen.
+                spine_cost = 0.0
+                beats[0]["_story_engine"] = sheet_engine_id
+                beats[0]["_planned_story_engine"] = sheet_engine_id
+                print("[spine] operator-approved roles kept; labelling skipped")
+            else:
+                beats, spine_cost = _assign_causal_spine(
+                    beats, question, duration_sec, int(plan.get("mechanism_beat") or 0),
+                    pinned_engine=pinned_engine, preferred_engine=sheet_engine_id)
             cost += _charge(cost_sink, _ledger.CAUSAL_SPINE, spine_cost, "role labelling")
             sheet_engine_id = beats[0].get("_story_engine") or sheet_engine_id
             _spine_cost = _ledger.StageCostSink(cost_sink, _ledger.BOUNDARY_A)
@@ -5244,11 +5282,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if causal_lane and _ladder:
             import hook_patterns as _hp_open
             opening_direction += (
-                (" " + _hp_open.OPENING_WRITER_RULES + " OPENING PLAN (combine these beats; the "
+                (" " + _hp_open.opening_writer_rules() + " OPENING PLAN (combine these beats; the "
                  "claims they cite are in your ceiling -- say nothing a listed missing_claim "
                  "would be needed for): "
                  + json.dumps(_plan_opening(plan), ensure_ascii=False))
-                if is_first else (" " + _hp_open.OPENING_BODY_RULE))
+                if is_first else (" " + _hp_open.opening_body_rule()))
         if causal_lane and is_first and _cold_text:
             opening_direction += (
                 f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
@@ -6287,7 +6325,11 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                 "max_uses": min(_WEB_SEARCH_MAX_USES, 6) if evidence_gaps else _WEB_SEARCH_MAX_USES}],
         # Leave time for a durable worker to settle this response and yield to its replacement.
         # SDK retries are disabled in _anthropic_native when a durable runtime is active.
-        timeout=max(1.0, min(240.0, float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
+        # 240 s is the durable worker's ceiling. A local run may raise it (RESEARCH_TIMEOUT_MAX):
+        # Radium Girls (2026-10-12) asked research to search and fetch six named sources, every
+        # attempt ran past 240 s, and six SDK retries turned that into two 1,704-second failures.
+        timeout=max(1.0, min(float(os.environ.get("RESEARCH_TIMEOUT_MAX", "240") or 240),
+                             float(os.environ.get("RESEARCH_TIMEOUT_SEC", "240")))),
     )
     if evidence_gaps:
         request["max_tokens"] = min(_RESEARCH_MAX_TOKENS, 6000)
@@ -11661,6 +11703,51 @@ from longform_research import era_split as _lr_era_split, \
 import event_functions as _ef
 import story_compiler as _compiler
 import story_fact_model as _sfm
+
+
+def _beat_claim_ids(beat: dict) -> list:
+    event = beat.get("event") if isinstance(beat.get("event"), dict) else {}
+    ids = [_s(c) for c in (event.get("claim_refs") or []) if _s(c)]
+    for ref in beat.get("claim_refs") or []:
+        cid = _s(ref.get("claim_id")) if isinstance(ref, dict) else _s(ref)
+        if cid and cid not in ids:
+            ids.append(cid)
+    return ids
+
+
+def _fold_opening_lines(plan: dict, beats: list) -> list:
+    """Myth-buster opening: claim-free lines before the first sourced beat are OPENING LINES.
+
+    "You'd think radium was feared from the very start." and "Picture the job..." assert no
+    history, so they cannot be a story role -- yet as beats they were labelled setup and
+    intervention and the spine reported both roles missing (Radium Girls, 2026-10-12). They are
+    folded into the first sourced beat: its text leads with them, it keeps its own role and
+    claims, and the beats are renumbered (caused_by and mechanism_beat follow). A line that
+    repeats the hook is dropped, since the hook is prepended to the first scene anyway.
+    """
+    lead = []
+    for beat in beats:
+        if _beat_claim_ids(beat):
+            break
+        lead.append(beat)
+    if not lead or len(lead) == len(beats):
+        return beats
+    hook = _s(plan.get("hook")).strip().casefold()
+    lines = [_s(b.get("beat")).strip() for b in lead
+             if _s(b.get("beat")).strip() and _s(b.get("beat")).strip().casefold() != hook]
+    rest = [dict(b) for b in beats[len(lead):]]
+    first = rest[0]
+    first["opening_lines"] = lines
+    first["beat"] = " ".join([*lines, _s(first.get("beat")).strip()]).strip()
+    shift = len(lead)
+    for b in rest:
+        b["n"] = int(b.get("n") or 0) - shift
+        if isinstance(b.get("caused_by"), int):
+            b["caused_by"] = max(0, b["caused_by"] - shift)
+    if int(plan.get("mechanism_beat") or 0) > shift:
+        plan["mechanism_beat"] = int(plan["mechanism_beat"]) - shift
+    print(f"[opening] {shift} claim-free opening line(s) folded into beat 1 (myth-buster)")
+    return rest
 
 
 def _spine_beats(beats: list) -> list:

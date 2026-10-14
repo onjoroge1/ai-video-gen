@@ -187,9 +187,13 @@ def test_a_programme_that_worked_and_cost_everything_is_not_refused():
     assert "succeeded at" in seen["system"].lower() or "SUCCEEDED" in seen["system"]
 
 
-def test_a_river_diversion_is_not_the_animal_channel():
-    """The intervention has to TARGET the animals. Nobody was intervening on the fish."""
-    assert "nobody was intervening on the fish" in tf.CHANNELS[tf.WORLD]["requires"]
+def test_world_takes_backfires_of_any_fix_not_only_animals():
+    """2026-10-12: Radium Girls was refused as 'not an animal-population campaign'. The mixed
+    schedule (animals, inventions, rules) is World's promise; HISTORY keeps state programmes
+    judged by their human cost."""
+    requires = tf.CHANNELS[tf.WORLD]["requires"]
+    assert "invention or product adopted" in requires and "rule or incentive enforced" in requires
+    assert "BACKFIRES GO TO WORLD" in tf._SYSTEM and "ANIMALS WIN TIES" in tf._SYSTEM
 
 
 def test_the_channel_can_be_asserted_and_still_challenged():
@@ -215,7 +219,8 @@ def test_the_ui_channels_and_the_screen_share_one_definition():
     world, history, nature = (c["niche"] for c in app.CHANNELS)
     assert "READ as neglect, cruelty, theft or abandonment" in nature, \
         "the Nature channel's boundary: a recorded misreading, not a nature fact"
-    assert "TARGET the animals" in world, "the World/History boundary, stated to the operator"
+    assert "TARGET the animals" in world and "invention or product adopted" in world, \
+        "the World/History boundary, stated to the operator"
     assert "TARGET the animals" in tf.CHANNELS[tf.WORLD]["requires"]
     assert "ANIMALS WIN TIES" in tf._SYSTEM
     # The rule that would otherwise refuse the history channel's own first episode.

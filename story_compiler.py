@@ -157,7 +157,7 @@ def _hook_rules() -> str:
 def _opening_rules() -> str:
     """The human-first opening, kept beside the hook rules it replaces under the ladder."""
     import hook_patterns
-    return hook_patterns.OPENING_RULES
+    return hook_patterns.opening_rules()
 
 
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None,

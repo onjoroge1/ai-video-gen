@@ -43,6 +43,7 @@ as cheap on a sourced history channel.
 """
 from __future__ import annotations
 
+import os
 import re
 
 # The listener, present as a word. One regex for the whole pipeline, owned by causal_story.
@@ -234,8 +235,14 @@ _FRAME_EVENT = re.compile(
 
 
 def frame_names_role(line: str) -> bool:
-    """Does this sentence give the viewer a role to occupy, without narrating an event?"""
+    """Does this sentence give the viewer a role to occupy, without narrating an event?
+
+    Under the myth-buster opening (OPENING_HOOK=myth) the viewer's own guess -- "You'd think
+    killer bees carry deadlier venom." -- is the frame: it occupies the viewer, not a job.
+    """
     line = _text(line)
+    if myth_mode() and _MYTH_FRAME.search(line) and not _FRAME_EVENT.search(line):
+        return True
     return bool(_FRAME_ROLE.search(line)) and not _FRAME_EVENT.search(line)
 
 
@@ -437,3 +444,68 @@ HOOK_RULES = (
     "Every number, date and name in the hook must come from a cited claim; an invented one is "
     "refused by a later gate, and a duration you COMPUTED from two sourced dates (1957 to 1990 "
     "becoming 'thirty-three years') counts as invented. No clickbait filler.\n")
+
+
+# ── Myth-buster opening (operator, 2026-10-12) ───────────────────────────────────────────────
+# An opt-in variant of the ladder: OPENING_HOOK=myth. The film opens on an assumption the viewer
+# would make, half-busts it with a sourced line, states the danger and opens ONE question, then
+# tells the story; the mechanism answers the question and the close restates the myth corrected.
+# The killer bees curve lost a third of viewers in seven seconds on a honey-yield frame while the
+# thumbnail promised a swarm; the myth line delivers the promise without spending the answer.
+_MYTH_FRAME = re.compile(r"^\s*(?:you'?d|you would|you might|you probably)\s+"
+                         r"(?:think|guess|expect|assume|imagine|picture)\b", re.I)
+
+
+def myth_mode() -> bool:
+    return (os.environ.get("OPENING_HOOK", "") or "").strip().lower() == "myth"
+
+
+MYTH_OPENING_RULES = (
+    "MYTH-BUSTER OPENING (this film): the hook field is a MYTH line, not a role frame: \"You'd "
+    "think <the assumption a viewer would make about this subject>.\" At most 14 words, second "
+    "person, posed as the VIEWER'S OWN GUESS -- never 'people believe', 'experts thought' or "
+    "'history says', which would be a claim needing a source. Then plan, in opening.problem and in "
+    "this order: (1) THE BUST -- one cited sentence that says the assumption is wrong WITHOUT "
+    "giving the true cause (\"It doesn't. Sting for sting, it's no worse than an ordinary "
+    "honeybee.\"); (2) THE DANGER -- one cited sentence of what this thing actually did; (3) the "
+    "open question in opening.question (\"So what made them killers?\"); (4) the viewer's role and "
+    "practical problem as usual. The true cause is held for the MECHANISM beat, which answers the "
+    "question in plain words (\"It was never the venom. It was how many bees answer, and how "
+    "fast.\"). The callback restates the myth corrected before the opening object. Reach the "
+    "first unintended consequence within about forty seconds of narration. If no ledger claim "
+    "busts a viewer's likely assumption, use the ordinary frame instead.\n")
+
+MYTH_FRAME_RULES = (
+    "THE MYTH LINE is the first sentence the viewer hears: \"You'd think <assumption>.\" -- the "
+    "assumption a viewer would make about the subject, which a ledger claim proves wrong. It is the "
+    "viewer's own guess, never a claim about what people or experts believed. It names no "
+    "institution, narrates no event and does not give the true cause. At most 14 words.")
+
+MYTH_WRITER_RULES = (
+    " MYTH-BUSTER: the first scene speaks, right after the myth line (prepended for you), the bust "
+    "(one sentence, cited, the assumption is wrong -- not yet why), the danger (one sentence, "
+    "cited) and the open question, asked once, BEFORE the viewer's role and problem. Keep these "
+    "three to about twenty-five words in all; the role and problem follow at once.")
+
+MYTH_BODY_RULE = (
+    " MYTH-BUSTER: the mechanism scene ANSWERS the opening's question in its first or second "
+    "sentence, plainly (\"It was never the venom. It was ...\"). At most two body scenes may "
+    "carry a callback of at most six words (\"Same sting. Different bee.\"); never re-ask the "
+    "question. The close restates the myth corrected in one sentence before returning to the "
+    "opening object.")
+
+
+def opening_rules() -> str:
+    return OPENING_RULES + (MYTH_OPENING_RULES if myth_mode() else "")
+
+
+def frame_rules() -> str:
+    return MYTH_FRAME_RULES if myth_mode() else FRAME_RULES
+
+
+def opening_writer_rules() -> str:
+    return OPENING_WRITER_RULES + (MYTH_WRITER_RULES if myth_mode() else "")
+
+
+def opening_body_rule() -> str:
+    return OPENING_BODY_RULE + (MYTH_BODY_RULE if myth_mode() else "")

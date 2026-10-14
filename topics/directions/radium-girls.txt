@@ -1,0 +1,77 @@
+Bolt Explains the World: one sourced intervention backfire (an invention adopted that did the opposite of its
+purpose), ~8-minute landscape illustrated documentary. MYTH-BUSTER OPENING (run with --opening myth).
+
+OPENING: the hook is the viewer's own guess about radium, posed as a guess and never as a claim about what
+people believed: for example "You'd think radium was feared from the start." Use a myth line ONLY if a ledger
+claim proves it wrong; if research does not support it, pick another assumption a claim does bust, or fall back
+to the ordinary frame. Then: the bust (one cited sentence: the assumption is wrong, NOT yet why), the danger (one
+cited sentence of what radium did to the women who worked with it), and the one open question the film answers
+(for example "So what was it really doing to them?"). Then the viewer's role: a young woman taking a job painting
+glowing numbers on watch dials, the need tangible (the pay, the glamour, the work) before any company name. Give
+the decision (how the women were taught to paint, and what they were told about safety) its rationale as the
+sources give it. Reach the first unintended consequence within about forty seconds of narration.
+
+Causal arc (as questions for research to answer, not facts): How was radium marketed and sold to the public in the
+1910s-1920s, and what health claims were made? Who painted luminous watch dials, where, for which companies, and
+for what pay? How were the painters taught to shape their brushes, and what were they told about the paint's
+safety? What happened to their health, and when did doctors connect it to the paint? What is the mechanism by which
+swallowed radium harms the body (for example, whether the body treats it like calcium and deposits it in bone)? What
+did the companies know and say? What legal cases followed, what was decided, and what changed afterwards in worker
+safety or radiation standards?
+
+STORY SPINE (which research fact fills which role; say each only as the sources state it):
+- setup: the women hired to paint luminous watch dials, and the job itself (who, where, from when) -- an event or
+  context claim about the work, NOT how the paint glows.
+- false resolution: radium believed beneficial -- sold and talked about as good for the body.
+- intervention (the decision): the painters taught to point their brushes with their lips, and told by their
+  employers that radium was harmless or good for them.
+- mechanism: why it harmed them -- radium taken up like calcium and deposited in bone (the answer to the opening
+  question).
+- hinge: the first illnesses among the painters.
+- escalation: the illnesses and deaths that followed, and how the companies responded.
+- reversal: the reckoning -- the 1928 New Jersey settlement and the 1938 Illinois Industrial Commission ruling, as
+  sources state them.
+- verdict: the conclusion those cases support, stated as a conclusion, not as another dated event.
+How the paint glowed is background inside a scene, never the setup.
+Claim bindings in the cached research (2026-10-12): setup cites c10 (and c67); the decision cites c13 and c18;
+the hinge cites c30; the reckoning cites c32, c81, c36 and c66; the mechanism cites the calcium/bone-seeker claim.
+Two wording rules the fact-check enforced (2026-10-12): the DECISION says the painters were "encouraged" to
+point their brushes with their lips, exactly as the source does -- never "the official method", "taught on the
+first day" or "nobody told them to be afraid". The VERDICT names no event, person, practice or object from the
+story (not even the brush between the lips): it is only the corrected myth, e.g. "It was never the glow. It was a
+metal the body mistook for calcium."
+The VERDICT cites NO claim: it is the narrator's own conclusion restating the corrected myth ("It was never the
+glow..."), adding no new date, name or event. c14 and c17 (radium ingested with each brushstroke) are mechanism
+claims and belong in the mechanism or escalation, never the setup.
+
+MECHANISM (the answer to the opening question): the documented biological reason radium harmed the women, in plain
+words, stated as the answer: "It was never the glow. It was ..." -- only as research supports it.
+
+Verify: the years of dial painting and of the first deaths; the companies and places (for example the U.S. Radium
+Corporation in New Jersey and the Radium Dial Company in Illinois -- confirm or drop); the "lip, dip, paint"
+practice; any count of workers or deaths; the court cases, their dates and outcomes; any standard or law that
+followed. Separate documented fact from later retellings; do not dramatize any death beyond what a source states.
+
+Research starting points (each checked 2026-10-12: it opens to an automated fetch and states the beat named):
+- U.S. National Archives, "The Radium Girls at the National Archives"
+  (https://text-message.blogs.archives.gov/2018/01/04/the-radium-girls-at-the-national-archives): how small amounts of
+  radium were said to benefit the body; lip pointing; the calcium mechanism; the out-of-court settlements.
+- Library of Congress, "Radium Girls: Living Dead Women" (https://blogs.loc.gov/headlinesandheroes/2019/03/radium-girls-living-dead-women/):
+  the 1928 New Jersey settlement.
+- Oak Ridge Associated Universities, "Radium Girls: the health scandal of radium dial painters"
+  (https://orau.org/blog/history/radium-girls-the-health-scandal-of-radium-dial-painters-in-the-1920s-and-1930s.html):
+  instructors and what the painters were told about safety.
+- Memorial University of Newfoundland, "Radium Watch-Dial Painters" (https://www.mun.ca/biology/scarr/Radium_Watch-Dial_Painters.html):
+  radium as a bone seeker, chemically similar to calcium.
+- Illinois Public Media, "The Radium Girls: An Illinois Tragedy"
+  (https://ipm-prod.will.illinois.edu/news/story/illinois-issues-the-radium-girls-an-illinois-tragedy): the Ottawa painters and
+  the 1938 Illinois Industrial Commission decision.
+- ORAU Health Physics Museum, Radithor (https://www.orau.org/health-physics-museum/collection/radioactive-quack-cures/pills-potions-and-other-miscellany/radithor.html):
+  radium sold as a health product.
+Prefer these over pages that refuse automated fetches; the mechanism and the reckoning must be quoted from a page that opens.
+
+Storyboard: the one recurring story object is a single luminous watch dial with its numbers glowing, drawn the
+same way every time; the mechanism cutaway shows, in one picture with arrows and no text, radium taking calcium's
+place in bone if research supports it; no maps; people in frame; the viewpoint dial painter visually consistent;
+documented people look different from one another and carry only documented actions. No gore and no depiction of
+injuries beyond what a source states; illness is shown through the people and their surroundings, not wounds.
