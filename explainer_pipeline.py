@@ -14994,6 +14994,9 @@ def run_explainer_pipeline(
                 opening_script, retention_validation or {}, opening_metrics, opening_cues,
                 preview=preview_state)
             readiness_report_path, readiness_json_path = write_readiness_report(readiness, output_dir)
+            # The opening's own copy. retention_readiness.json above is kept for compatibility and
+            # is overwritten by the final pass, which left no record of the opening grade at all.
+            write_readiness_report(readiness, output_dir, stem="retention_readiness_open45")
             log(f"45-second Retention Readiness: {readiness['score']}/100 "
                 f"({readiness['grade']}) — {readiness['label']}")
             inspection = inspect_rendered_opening(

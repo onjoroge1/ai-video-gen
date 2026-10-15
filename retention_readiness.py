@@ -390,10 +390,18 @@ def score_retention_readiness(
     }
 
 
-def write_readiness_report(report: dict, out_dir: str) -> tuple[str, str]:
+def write_readiness_report(report: dict, out_dir: str, *,
+                           stem: str = "retention_readiness") -> tuple[str, str]:
+    """Write <stem>.txt and <stem>.json.
+
+    The 45-second gate and the final pass both wrote the default stem, so the final pass erased
+    the opening grade: every job folder held only the whole-film score, and the opening's had to
+    be recomputed from the inspection frames to be seen at all. The gate now also writes
+    `retention_readiness_open45`, which nothing overwrites.
+    """
     os.makedirs(out_dir, exist_ok=True)
-    text_path = os.path.join(out_dir, "retention_readiness.txt")
-    json_path = os.path.join(out_dir, "retention_readiness.json")
+    text_path = os.path.join(out_dir, f"{stem}.txt")
+    json_path = os.path.join(out_dir, f"{stem}.json")
     lines = [
         f"RETENTION READINESS SCORE — {report['score']}/100 ({report['grade']})",
         report["label"], report["disclaimer"], "",
