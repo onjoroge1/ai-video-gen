@@ -27,10 +27,39 @@ def test_the_constants_are_the_decision():
 @pytest.mark.parametrize("job", sorted(LABELLED))
 def test_the_read_quote_locates_every_hand_label_exactly(job):
     entry = SAVED[job]
+    # Reported under the enforcing fallback ...
     turn = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"],
                            quote=entry["label"]["quote"])
-    assert turn["source"] == "quote" and turn["consequence_spoken"] is True
-    assert turn["turn_words"] == entry["label"]["words"]
+    assert turn["consequence_spoken"] is True and turn["source"] == "fallback"
+    assert turn["quote_turn_words"] == entry["label"]["words"]
+    # ... and enforcing under the design's locator.
+    designed = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"],
+                               quote=entry["label"]["quote"], locator="quote")
+    assert designed["source"] == "quote" and designed["turn_words"] == entry["label"]["words"]
+
+
+_CHECK_A = os.path.join(ROOT, "fixtures", "opening_turn", "read_check_2026-10-15.json")
+
+
+def test_paid_check_a_put_enforcement_on_the_structural_fallback():
+    """Check (a), 2026-10-15: the pipeline's read quoted the labelled turn on 5 of 8 saved openings
+    (escobar quoted two sentences; both Aral films a later sentence). The bar was 8/8."""
+    with open(_CHECK_A, encoding="utf-8") as handle:
+        reads = json.load(handle)["reads"]
+    assert sum(r["matched"] for r in reads.values()) == 5 and len(reads) == 8
+    assert ot.TURN_LOCATOR == "fallback"
+    for job, read in reads.items():
+        entry = SAVED[job]
+        turn = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote=read["read_quote"])
+        fallback = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"])
+        # The read's answer changes nothing that is enforced ...
+        assert (turn["turn_words"], turn["late"], turn["source"]) == \
+            (fallback["turn_words"], fallback["late"], "fallback"), job
+        # ... and where it located one sentence, it never sat earlier than the label.
+        if turn.get("quote_turn_words") is not None and read["label_words"]:
+            assert turn["quote_turn_words"] >= read["label_words"], job
+        if read["label_words"] is None:
+            assert turn["consequence_spoken"] is False
 
 
 @pytest.mark.parametrize("job", sorted(SAVED))
@@ -53,14 +82,18 @@ def test_the_shapes_match_the_plans():
                                 "history-aral-sea-v2")} == {"B"}
 
 
-def test_v14_never_states_it_and_the_read_saying_so_is_a_finding():
+def test_v14_never_states_it_and_the_read_saying_so_is_reported():
     entry = SAVED["bees_v14"]
     turn = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote="NONE")
     assert turn["consequence_spoken"] is False and turn["source"] == "fallback" and turn["late"]
     script = _script("bees_v14", _opening_turn=turn)
-    assert ot.read_says_unspoken(script)
+    # Under the enforcing fallback the read's NONE is a report: the storyboard is not blocked on it.
+    assert not ot.read_says_unspoken(script)
+    assert "NO sentence states the consequence (report only)" in ot.log_line(turn, "read")
+    # Under the design's locator it is a finding, bound to the narration it judged.
+    assert ot.read_says_unspoken(script, locator="quote")
     script["scenes"][2]["narration"] += " Then the grids came off and the queens left."
-    assert not ot.read_says_unspoken(script), "a finding on old narration does not bind new words"
+    assert not ot.read_says_unspoken(script, locator="quote"), "a finding on old narration does not bind new words"
 
 
 def test_a_quote_outside_the_window_or_across_two_sentences_is_refused():
@@ -68,11 +101,16 @@ def test_a_quote_outside_the_window_or_across_two_sentences_is_refused():
     frame_quote = "Your bees are European honey bees, built for a temperate climate."
     assert ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"],
                            quote=frame_quote)["source"] == "fallback"
+    assert "quote_turn_words" not in ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"],
+                                                     quote=frame_quote)
     two = "They were contained. Except in October 1957, grids off, twenty-six queens flew free."
-    assert ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote=two)["source"] == "fallback"
+    assert "quote_turn_words" not in ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"],
+                                                     quote=two, locator="quote")
+    assert ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote=two,
+                           locator="quote")["source"] == "fallback"
     # Punctuation, case and curly quotes are folded; the words must be verbatim.
     loose = "except in october 1957 grids off twenty six queens flew free"
-    assert ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote=loose)["turn_words"] == 163
+    assert ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote=loose)["quote_turn_words"] == 163
 
 
 def test_scope():
@@ -91,6 +129,13 @@ def test_scope():
 
 # ── 6. the deletion paper test ──────────────────────────────────────────────────────────────
 
+# What the enforcing fallback counts on the same deleted openings: shape B is counted to the end
+# of the first mechanism beat, so carp and aral-v2 stay late though their consequence sentence
+# now ends at 110 and 97 words.
+FALLBACK_AFTER_DELETION = {"bees_v16": 104, "asian-carp": 158, "history-aral-sea-v2": 122,
+                           "escobar-hippos": 126}
+
+
 @pytest.mark.parametrize("job", ["bees_v16", "asian-carp", "history-aral-sea-v2", "escobar-hippos"])
 def test_the_target_is_reachable_by_deleting_existing_sentences(job):
     entry = SAVED[job]
@@ -98,7 +143,8 @@ def test_the_target_is_reachable_by_deleting_existing_sentences(job):
     scenes = copy.deepcopy(entry["scenes"])
     for scene in scenes:
         scene["narration"] = _delete(scene["narration"], deletion["delete"])
-    turn = ot.measure_turn(scenes, entry["opening"], entry["engine"], quote=entry["label"]["quote"])
+    turn = ot.measure_turn(scenes, entry["opening"], entry["engine"], quote=entry["label"]["quote"],
+                           locator="quote")
     assert turn["source"] == "quote" and turn["turn_words"] == deletion["expected_words"]
     text = " ".join(s["narration"] for s in scenes)
     assert all(sentence in text for sentence in deletion["must_keep"]), "decision, rationale, consequence"
@@ -106,6 +152,9 @@ def test_the_target_is_reachable_by_deleting_existing_sentences(job):
         assert turn["late"], "the myth block keeps escobar over the limit: it must count inside the budget"
     else:
         assert not turn["late"]
+    enforced = ot.measure_turn(scenes, entry["opening"], entry["engine"], quote=entry["label"]["quote"])
+    assert enforced["turn_words"] == FALLBACK_AFTER_DELETION[job]
+    assert enforced["late"] == (enforced["shape"] == "B"), "shape B is late by the fallback"
 
 
 
@@ -115,8 +164,11 @@ def test_turn_end_sec_reads_the_word_times_without_adding_the_pause_twice():
     scenes = [{"causal_role": "setup", "narration": "Imagine you keep bees here."},
               {"causal_role": "intervention", "narration": "Kerr imported queens. They lived."},
               {"causal_role": "hinge", "narration": "Except the grids came off, and the queens flew free."},
-              {"causal_role": "mechanism", "narration": "They bred."}]
-    turn = ot.measure_turn(scenes, {}, "removed_keystone", quote="the queens flew free")
+              {"causal_role": "mechanism", "narration": "They bred.",
+               "event": {"text": "They bred.", "claim_refs": ["c10"]}}]
+    # Shape A (the consequence claim is not the mechanism's): the fallback counts to the hinge.
+    turn = ot.measure_turn(scenes, {"claim_refs": {"consequence": ["c07"]}}, "removed_keystone",
+                           quote="the queens flew free")
     assert turn["scene"] == 3 and turn["turn_words"] == 20
     times = [[], [], [["Except", 0.0, 1.0], ["the", 1.0, 1.1], ["grids", 1.1, 1.5], ["came", 1.5, 1.7],
                       ["off,", 1.7, 2.0], ["and", 2.0, 2.1], ["the", 2.1, 2.2], ["queens", 2.2, 2.6],

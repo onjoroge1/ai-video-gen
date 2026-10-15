@@ -253,9 +253,9 @@ def structural_row_times(job_dir: str) -> list[float]:
 
 def turn_timing(job_dir: str) -> dict:
     """Where the first consequence sentence ends, from the job's saved script, its audio timing
-    report and the per-scene word_times (opening_turn). The read's quote locates it when the
-    script carries one; otherwise the conservative structural fallback does. {} when the job has
-    no mechanism row or no timing."""
+    report and the per-scene word_times (opening_turn). The enforcing structural fallback locates
+    it; the read's quote, when the script carries one, is reported as turn_quote_words. {} when
+    the job has no mechanism row or no timing."""
     try:
         import opening_turn
         with open(os.path.join(job_dir, "_state.json"), encoding="utf-8") as handle:
@@ -284,6 +284,7 @@ def turn_timing(job_dir: str) -> dict:
             word_times.append([])
     timing = opening_turn.turn_end_sec(scenes, turn, starts, word_times)
     return {"turn_words": turn.get("turn_words"), "turn_source": turn.get("source"),
+            "turn_quote_words": turn.get("quote_turn_words"),
             "turn_shape": turn.get("shape"), "turn_scene": turn.get("scene"),
             "turn_end_sec": timing.get("turn_end_sec"),
             "turn_late": bool(turn.get("late") or timing.get("late")),

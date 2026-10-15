@@ -60,10 +60,12 @@ def test_the_read_asks_for_the_turn_and_counts_to_it(monkeypatch):
     review = ep._evaluate_opening(_script("bees_v16"), [], lines.append)
     assert review["score"] == 88 and review["words_to_first_escalation"] == 273
     assert "words_to_consequence" not in review
-    assert review["turn"]["turn_words"] == 163 and review["turn"]["late"] and review["turn"]["source"] == "quote"
+    # Enforced by the structural fallback (check (a)); the read's quote is reported beside it.
+    assert review["turn"]["turn_words"] == 163 and review["turn"]["late"] and review["turn"]["source"] == "fallback"
+    assert review["turn"]["quote_turn_words"] == 163 and review["turn"]["consequence_spoken"] is True
     assert '"turn"' in fake.calls[0]["system"] and "Turn: copy, word for word" in fake.calls[0]["messages"][0]["content"]
     assert any("273 words to first escalation" in line for line in lines)
-    assert any("LATE_TURN" in line for line in lines)
+    assert any("LATE_TURN" in line and "(report only)" in line for line in lines)
 
 
 def test_an_off_scope_read_is_the_read_it_was(monkeypatch):
@@ -166,13 +168,18 @@ def test_the_previous_opening_stands_when_any_adoption_check_fails(monkeypatch):
     rows["scene_001"] = " ".join(rows["scene_001"].split()[:39])
     held, lines, _ = _held(monkeypatch, rows)
     assert held and "Maria Silva" in lines[-1]
-    # the re-read still measures it late
+    # the re-measured turn is still late: only the frame's restatement was cut
+    rows = {s["scene_id"]: s["narration"] for s in SAVED["bees_v16"]["scenes"][:4]}
+    rows["scene_001"] = rows["scene_001"].replace(" Thinner than it should be.", "")
+    held, lines, _ = _held(monkeypatch, rows, reread=_read(9, ESCAPE))
+    assert held and "still ends at word 158" in lines[-1]
+    # the re-read says no sentence states the consequence
+    held, lines, _ = _held(monkeypatch, _trimmed_rows(), reread=_read(9, "NONE"))
+    assert held and "says no sentence states the consequence" in lines[-1]
+    # a re-read quoting some other sentence is a report: the fallback decides, and 104 fits
     held, lines, _ = _held(monkeypatch, _trimmed_rows(),
                            reread=_read(9, "But a new bee in the forest was only the start."))
-    assert held and ("still ends at word" in lines[-1] or "no sentence" in lines[-1])
-    # the re-read finds no sentence stating the consequence
-    held, lines, _ = _held(monkeypatch, _trimmed_rows(), reread=_read(9, "NONE"))
-    assert held
+    assert not held, lines
     # the re-read scores lower
     held, lines, _ = _held(monkeypatch, _trimmed_rows(), reread=_read(8, ESCAPE))
     assert held and "re-read scored" in lines[-1]
@@ -202,20 +209,22 @@ def test_a_consequence_repair_that_pushes_the_turn_past_116_is_refused():
     edit = repair.plan(script, {"validation": {"errors": [
         "OPENING_CONSEQUENCE_UNSPOKEN: no scene before the mechanism binds it"]}})
     turn = edit["turn"]
-    assert turn["mode"] == "row" and turn["before_words"] == sum(_counts(script)[:3]) == 94
-    assert turn["consequence_row_cap"] == 116 - sum(_counts(script)[:2])
+    # Counted to the hinge (the enforcing fallback, shape A), not to the row the repair writes.
+    assert sum(_counts(script)[:3]) == 94 and _counts(script)[3] == 8
+    assert turn["mode"] == "row" and turn["before_words"] == 94 + 8
+    assert turn["consequence_row_cap"] == 116 - sum(_counts(script)[:2]) - 8
     assert "THE TURN DEADLINE" in repair.prompt(script, edit)
     base = script["scenes"][2]["narration"]
-    too_long = base + " " + " ".join(["then"] * 23)
+    too_long = base + " " + " ".join(["then"] * 15)
     with pytest.raises(ValueError, match="pushes the opening's turn past 116"):
         repair.apply_response(script, edit, {"scenes": [{"scene_id": "scene_003", "narration": too_long}]})
     fits = base + " In October 1957 the grids came off and twenty-six queens left for the forest."
     candidate = repair.apply_response(script, edit, {"scenes": [{"scene_id": "scene_003", "narration": fits}]})
     stamped = candidate["_opening_turn"]
-    assert stamped["source"] == "hint" and stamped["turn_words"] == 94 + 14 and not stamped["late"]
-    assert stamped["hint_scene_id"] == "scene_003"
+    assert stamped["source"] == "fallback" and stamped["turn_words"] == 94 + 14 + 8 and not stamped["late"]
+    assert stamped["hint_scene_id"] == "scene_003" and stamped["hint_turn_words"] == 108
     # and it is what the pipeline re-measures after the repair
-    assert ot.remeasure(candidate)["turn_words"] == 108
+    assert ot.remeasure(candidate)["turn_words"] == 116 and ot.remeasure(candidate)["hint_turn_words"] == 108
 
 
 def test_a_soft_hinge_repair_that_pushes_the_turn_past_116_is_refused():
@@ -252,3 +261,57 @@ def test_off_scope_repairs_carry_no_turn():
     assert "turn" not in edit
 
 
+
+
+# ── shape B under the enforcing fallback ────────────────────────────────────────────────────
+
+CARP_FIX = "Cut the second telling of the need."
+CARP_NAMES = "The carp reached the Ohio and Cumberland Rivers."
+
+
+def _carp_review(monkeypatch, score_each, fix=CARP_FIX):
+    fake = _Fake([_read(score_each, "Flood waters rose over the pond banks and poured through "
+                                    "the spillways, and the carp went with them.", fix=fix)])
+    _patch(monkeypatch, fake)
+    return ep._evaluate_opening(_script("asian-carp"), [], lambda m: None)
+
+
+def test_a_shape_b_turn_at_the_mechanism_end_buys_no_turn_revision(monkeypatch):
+    review = _carp_review(monkeypatch, 9)
+    turn = review["turn"]
+    assert turn["shape"] == "B" and turn["late"] and turn["turn_words"] == 219
+    assert ot.turn_row_is_mechanism(SAVED["asian-carp"]["scenes"], turn)
+    fake = _Fake([])
+    _patch(monkeypatch, fake)
+    lines = []
+    script = _script("asian-carp")
+    out, cost = ep._revise_opening_once(script, review, _dossier("asian-carp"), [], {}, lines.append)
+    assert out is script and cost == 0.0 and not fake.calls
+    assert "cannot reach it without cutting the mechanism" in lines[0]
+    assert not script.get("_opening_revision_attempted")
+
+
+def test_a_score_revision_on_a_shape_b_film_is_held_only_if_the_turn_moves_later(monkeypatch):
+    review = _carp_review(monkeypatch, 7)          # 68: the read's own score asks for a revision
+    assert review["score"] < 80 and review["turn"]["late"]
+    scenes = SAVED["asian-carp"]["scenes"]
+    first = scenes[0]["narration"]
+    shorter = first.replace(" That is the quiet promise.", "") if "That is the quiet promise." in first \
+        else " ".join(first.split()[:-3])
+    assert shorter != first
+    reply = json.dumps({"scenes": [{"id": 1, "narration": shorter}]})
+    fake = _Fake([reply, _read(7, "NONE", fix="")])
+    _patch(monkeypatch, fake)
+    lines = []
+    out, _ = ep._revise_opening_once(_script("asian-carp"), review, _dossier("asian-carp", CARP_NAMES),
+                                     [], {}, lines.append)
+    assert out is not None and "THE TURN IS LATE" not in fake.calls[0]["messages"][0]["content"]
+    # the re-read heard no consequence where the first read did: held
+    assert "says no sentence states the consequence" in lines[-1]
+    fake = _Fake([reply, _read(7, "x", fix="")])
+    _patch(monkeypatch, fake)
+    lines = []
+    out, _ = ep._revise_opening_once(_script("asian-carp"), review, _dossier("asian-carp", CARP_NAMES),
+                                     [], {}, lines.append)
+    assert out["_opening_review"]["turn"]["turn_words"] < review["turn"]["turn_words"], lines
+    assert out["_opening_review"]["turn"]["late"], "still late by the fallback, and adopted: it moved earlier"

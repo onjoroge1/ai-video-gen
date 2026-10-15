@@ -254,11 +254,15 @@ more must reach their turn by 45 s: the sentence that first states the consequen
 must end within 116 spoken words, counted from the frame's first word (45 s at the slowest
 measured 2.588 words per second). The writer gets a 103-word (40 s) target: the opening rows are
 budgeted from it instead of the 20% mechanism deadline, and the freed words go to the body. The
-opening read quotes the turn sentence and `opening_turn.py` counts the words up to it; a quote
-that does not match one sentence falls back to a conservative structural measure. A late turn
-triggers the opening's single revision even at a read score of 80 or more; it is adopted only if
-the re-measured turn fits and the ledger, identity and re-read checks pass. A storyboard repair
-that pushes the turn past 116 words is refused. The turn's end time is measured from the TTS word
+turn is enforced by a conservative structural measure in `opening_turn.py`: the end of the hinge
+when the consequence is its own fact (shape A), or the end of the first mechanism beat when the
+consequence is the mechanism's event (shape B, every state_programme film). The opening read also
+quotes the turn sentence, but that quote is a report only: in the paid check of 2026-10-15 it
+matched the hand labels on 5 of 8 saved openings, below the required 8 of 8. Shape-B films are
+late by this measure by construction, so they record `late_turn` and no revision is bought for
+it. A late shape-A turn triggers the opening's single revision even at a read score of 80 or
+more; it is adopted only if the re-measured turn fits and the ledger, identity and re-read checks
+pass. A storyboard repair that pushes the turn past 116 words is refused. The turn's end time is measured from the TTS word
 timings and reported in `run_result.json` (`opening_turn`), `retention_readiness_open45.json` and
 `measure_vs_reference`; it is never part of the readiness score. A film still late after its one
 revision records `late_turn` {words, est_sec, measured_sec} in run_result and the topic report;

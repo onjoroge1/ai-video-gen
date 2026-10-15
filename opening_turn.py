@@ -23,15 +23,22 @@ backfiring_solution and state_programme at a requested runtime of 225 s or more.
 20% cap is already under 45 s; hook mode and the reveal engines are untouched.
 
 MEASUREMENT.
-  * By quote: the read's "turn" field is accepted only when it is a verbatim substring of ONE
-    sentence between the first intervention row and the last part of the first mechanism beat;
-    turn_words is every spoken word through the end of that sentence.
+  * ENFORCED BY THE STRUCTURAL FALLBACK ALONE since paid check (a), 2026-10-15 (TURN_LOCATOR):
+    the read's quote matched the hand labels on 5 of the 8 saved openings, and the bar was 8/8.
+  * By quote (reported; enforcing only under TURN_LOCATOR="quote"): the read's "turn" field is
+    accepted only when it is a verbatim substring of ONE sentence between the first intervention
+    row and the last part of the first mechanism beat; quote_turn_words is every spoken word
+    through the end of that sentence.
   * Conservative fallback, which never under-measures the hand labels (tests/fixtures):
       shape A -- the consequence claims are disjoint from the mechanism event's -- the end of the
                hinge row (the bees: the hinge says the escape);
       shape B -- they overlap, the engine is state_programme (harm_pathway IS the mechanism), or
                the consequence claims are unknown -- the end of the first mechanism beat's last
                part (carp, aral, escobar: the planner filed the consequence as the mechanism).
+  * Shape B under the fallback is late BY CONSTRUCTION: the allocator ends the opening group at
+    103 words and the first mechanism beat follows it, so the end of that beat lands at about
+    103 + 60-75 words. The single revision is not bought for it (it could only get there by
+    cutting the mechanism into the opening budget); the film records late_turn.
   * After TTS: turn_end_sec = the scene's start_sec + the word's end in that scene's
     word_times. Report-only, never part of the readiness score (no third opening grade).
 
@@ -65,6 +72,16 @@ ROW_FLOOR_WORDS = 25
 HINGE_WORDS = 10
 MYTH_BLOCK_WORDS = 33
 NONE_QUOTE = "NONE"
+# WHAT ENFORCES THE TURN. The design located it by the read's verbatim "turn" quote, on the
+# condition that the quote matched the critic's hand labels on all eight saved openings. Paid check
+# (a), 2026-10-15 ($0.128, eight reads): 5/8. bees_v13, v15, v16 and carp quoted the labelled
+# sentence and bees_v14 answered NONE, but escobar quoted two sentences ("They bred. Then their
+# young wandered off ..."), and aral and aral-v2 quoted a later, more explicit sentence than the
+# label (247 against 159 words; 197 against 172). The read never measured EARLIER than a label,
+# but the bar was 8/8, so by the operator's rule for that check the turn is ENFORCED by the
+# structural fallback alone: "fallback". The quote is still asked for and recorded beside it
+# (quote_turn_words, quote_scene, consequence_spoken) as a report. "quote" restores the design.
+TURN_LOCATOR = "fallback"
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _OPENING_ROWS = ("setup", "intervention", "false_resolution")
@@ -230,17 +247,35 @@ def is_none_quote(quote) -> bool:
     return _text(quote).strip("\"'. ").upper() == NONE_QUOTE
 
 
+def fallback_row(bounds: dict, shape: str) -> int:
+    """The conservative structural turn row: shape A, the hinge (the row before the mechanism when
+    there is none); shape B, the last part of the first mechanism beat."""
+    if shape == "A":
+        index = bounds["hinge"] if bounds["hinge"] is not None else bounds["mechanism"] - 1
+    else:
+        index = bounds["hi"]
+    return max(0, index)
+
+
 def measure_turn(scenes: list, opening: dict | None, engine_id: str | None, quote: str = "",
-                 row_hint: int | None = None, applies: bool = True) -> dict:
+                 row_hint: int | None = None, applies: bool = True,
+                 locator: str | None = None) -> dict:
     """Where the turn ends, in spoken words from the frame's first word. See the module notes.
 
+    `locator` (default TURN_LOCATOR): "fallback" -- turn_words, scene, late and source are the
+    structural fallback; the read's quote, when it locates one sentence in the window, is reported
+    as quote_turn_words / quote_scene and decides nothing. "quote" -- the design: the quote first,
+    then `row_hint`, then the fallback.
+
     `row_hint`: a row known to END on the consequence (a storyboard repair that appended it
-    there); used only when the quote does not locate the turn.
+    there). Under "quote" it is used when the quote does not locate the turn; under "fallback" it
+    is reported only, because the repair was ASKED to put the consequence there.
     """
+    locator = (locator or TURN_LOCATOR).strip().lower()
     scenes = [s for s in scenes or [] if isinstance(s, dict)]
     bounds = window(scenes)
     base = {"applies": bool(applies), "limit_words": TURN_LIMIT_WORDS,
-            "target_words": TURN_TARGET_WORDS, "limit_sec": TURN_LIMIT_SEC}
+            "target_words": TURN_TARGET_WORDS, "limit_sec": TURN_LIMIT_SEC, "locator": locator}
     if not bounds:
         return dict(base, measurable=False, late=False)
     shape = scenes_shape(scenes, opening, engine_id)
@@ -250,24 +285,39 @@ def measure_turn(scenes: list, opening: dict | None, engine_id: str | None, quot
         spoken, quote = False, ""
     found = locate(scenes, quote, bounds["lo"], bounds["hi"]) if quote else None
     if found:
+        spoken = True
+    hint = (int(row_hint) if row_hint is not None and bounds["lo"] <= int(row_hint) <= bounds["hi"]
+            else None)
+    if locator == "quote" and found:
         index, _sentence, words = found
-        source, spoken = "quote", True
-    elif row_hint is not None and bounds["lo"] <= int(row_hint) <= bounds["hi"]:
-        index = int(row_hint)
-        words, source = _words_before(scenes, index + 1), "hint"
+        source = "quote"
+    elif locator == "quote" and hint is not None:
+        index, source = hint, "hint"
+        words = _words_before(scenes, index + 1)
     else:
-        if shape == "A":
-            index = bounds["hinge"] if bounds["hinge"] is not None else bounds["mechanism"] - 1
-        else:
-            index = bounds["hi"]
-        index = max(0, index)
+        index = fallback_row(bounds, shape)
         words, source = _words_before(scenes, index + 1), "fallback"
-    return dict(base, measurable=True, turn_words=words, scene=index + 1,
-                scene_id=_text(scenes[index].get("scene_id")), source=source, shape=shape,
-                quote=quote if found else "", consequence_spoken=spoken,
-                est_sec=round(words / WORDS_PER_SECOND, 1),
-                late=bool(applies) and words > TURN_LIMIT_WORDS,
-                window=[bounds["lo"] + 1, bounds["hi"] + 1], digest=window_digest(scenes))
+    out = dict(base, measurable=True, turn_words=words, scene=index + 1,
+               scene_id=_text(scenes[index].get("scene_id")), source=source, shape=shape,
+               quote=quote if found else "", consequence_spoken=spoken,
+               est_sec=round(words / WORDS_PER_SECOND, 1),
+               late=bool(applies) and words > TURN_LIMIT_WORDS,
+               window=[bounds["lo"] + 1, bounds["hi"] + 1], digest=window_digest(scenes))
+    if found:
+        out.update(quote_turn_words=found[2], quote_scene=found[0] + 1)
+    if hint is not None and source != "hint":
+        out.update(hint_turn_words=_words_before(scenes, hint + 1), hint_scene=hint + 1)
+    return out
+
+
+def turn_row_is_mechanism(scenes: list, turn: dict | None) -> bool:
+    """Does the measured turn end on a mechanism row? Under the fallback that is every shape-B
+    film: the turn is counted to the end of the first mechanism beat, which the allocator places
+    after the 103-word opening group, so it is late by construction and no opening revision can
+    bring it inside 116 words without cutting the mechanism into the opening budget."""
+    index = int((turn or {}).get("scene") or 0) - 1
+    scenes = scenes or []
+    return 0 <= index < len(scenes) and isinstance(scenes[index], dict) and _role(scenes[index]) == "mechanism"
 
 
 def measure_script(script: dict, quote: str = "", row_hint: int | None = None) -> dict:
@@ -298,8 +348,14 @@ def remeasure(script: dict) -> dict:
     return turn
 
 
-def read_says_unspoken(script: dict) -> bool:
-    """The opening read found no sentence stating the consequence, on the narration it read."""
+def read_says_unspoken(script: dict, locator: str | None = None) -> bool:
+    """The opening read found no sentence stating the consequence, on the narration it read.
+
+    Under the "fallback" locator the read's turn answer is a report, NONE included, so this is
+    False and OPENING_CONSEQUENCE_UNSPOKEN stays with the claim-binding check (check (a) got
+    bees_v14's NONE right, but the bar was the whole field 8/8; see TURN_LOCATOR)."""
+    if (locator or TURN_LOCATOR).strip().lower() != "quote":
+        return False
     turn = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
     if turn.get("consequence_spoken") is not False:
         return False
@@ -361,7 +417,8 @@ def run_result_fields(script: dict | None) -> dict:
     if not isinstance(turn, dict) or not turn.get("measurable"):
         return {}
     keep = ("applies", "turn_words", "est_sec", "measured_sec", "source", "shape", "scene",
-            "quote", "late", "limit_words", "target_words", "revised")
+            "quote", "late", "limit_words", "target_words", "revised", "locator",
+            "quote_turn_words", "quote_scene", "consequence_spoken", "read_quote")
     return {"opening_turn": {k: turn.get(k) for k in keep if k in turn},
             "late_turn": late_turn_record(turn)}
 
@@ -373,11 +430,18 @@ def log_line(turn: dict, stage: str) -> str:
              "fallback": f"structural fallback, shape {turn.get('shape')}"}.get(turn.get("source"), "")
     measured = (f", ends at {turn['measured_sec']:.1f}s" if isinstance(turn.get("measured_sec"), (int, float))
                 else "")
+    report = ""
+    if turn.get("source") != "quote" and turn.get("quote_turn_words") is not None:
+        report = (f" — the read quotes scene {turn.get('quote_scene')}, ending at word "
+                  f"{turn['quote_turn_words']} (report only)")
+    elif turn.get("consequence_spoken") is False:
+        report = " — the read says NO sentence states the consequence (report only)"
     return (f"Turn ({stage}): {turn['turn_words']} words to the end of the first consequence "
             f"(scene {turn['scene']}, {where}; ~{turn['est_sec']:.1f}s at {WORDS_PER_SECOND} w/s"
             f"{measured}) — target {TURN_TARGET_WORDS}, limit {TURN_LIMIT_WORDS}"
             + (" — LATE_TURN" if turn.get("late") else "")
-            + ("" if turn.get("applies") else " (report only: the turn rule does not bind this film)"))
+            + ("" if turn.get("applies") else " (report only: the turn rule does not bind this film)")
+            + report)
 
 
 # ── the plan, before any writing spend ─────────────────────────────────────────────────────────

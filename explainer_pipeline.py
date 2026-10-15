@@ -286,6 +286,10 @@ ANTHROPIC_MODEL = "claude-opus-4-8"
 # Narration cap for the hinge beat, sourced from the story contract so the
 # expansion prompt and the validator cannot drift apart.
 _HINGE_WORDS = __import__("causal_story").MAX_HINGE_WORDS
+# Scenes per expansion call (see the EXPANSION loop in _generate_script_chunked). A name rather
+# than a literal so the opening-only writer eval (turn by 45, 2026-10-15) can ask for exactly the
+# frame-through-mechanism rows with the pipeline's own prompt; production keeps ten.
+EXPANSION_BATCH_SCENES = 10
 IMAGE_MODEL = "gpt-image-2"
 TTS_MODEL = "tts-1-hd"
 TRANSCRIPTION_MODEL = "whisper-1"
@@ -1956,9 +1960,10 @@ def _evaluate_opening(script: dict, cost_sink=None, log=lambda message: None) ->
     body re-tells any opening beat. Reported, never blocking; None when the judge is unavailable.
 
     Under the turn rule (opening_turn, operator decision 2026-10-14) the same read also quotes the
-    first sentence that states the consequence. That quote is the ONE positional quantity: it is
-    accepted only as a verbatim sentence in the turn window, and the words through it are counted
-    deterministically, with a conservative structural fallback. It is never part of the score.
+    first sentence that states the consequence. The turn is ENFORCED by the conservative
+    structural fallback (opening_turn.TURN_LOCATOR: the quote matched 5 of 8 hand labels in paid
+    check (a), 2026-10-15, against a bar of 8/8); the quote, accepted only as one verbatim sentence
+    in the turn window, is recorded beside it as a report. Neither is part of the score.
     """
     import opening_turn as _ot
     scenes = script.get("scenes") or []
@@ -2022,12 +2027,12 @@ def _evaluate_opening(script: dict, cost_sink=None, log=lambda message: None) ->
         + (" — BODY RESTATES THE OPENING" if review["body_restates_opening"] else "")
         + (f" — fix: {review['fix']}" if review["fix"] else ""))
     if review.get("turn"):
-        log(_ot.log_line(review["turn"], "read")
-            + ("" if review["turn"].get("source") == "quote" else
-               (" — the read says NO sentence states the consequence"
-                if review["turn"].get("consequence_spoken") is False else
-                f" — the read's quote did not match one sentence in the window: "
-                f"{review['turn'].get('read_quote', '')[:80]!r}")))
+        _t = review["turn"]
+        log(_ot.log_line(_t, "read")
+            + ("" if _t.get("source") == "quote" or _t.get("quote_turn_words") is not None
+               or _t.get("consequence_spoken") is False else
+               f" — the read's quote did not match one sentence in the window: "
+               f"{_t.get('read_quote', '')[:80]!r}"))
     return review
 
 
@@ -2047,9 +2052,18 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
     only the row receiving the consequence (or the hinge) may grow, by at most 20 words (the
     +-15 rule held escobar's asked-for cut); a locked phrase may be cut whole only when its claim
     carries neither the solution nor the consequence (locked words were 68-90 of the pre-turn
-    words in three films). Adopted only if: the re-measured turn is within 116 words by the
-    re-read's quote, every changed scene passes the ledger, the identity check is clean and the
-    re-read scores no lower. Otherwise the previous opening stands.
+    words in three films). Adopted only if: the re-measured turn is within 116 words, every
+    changed scene passes the ledger, the identity check is clean and the re-read scores no lower
+    and does not answer that NO sentence states the consequence. Otherwise the previous opening
+    stands.
+
+    THE MEASURE IS THE STRUCTURAL FALLBACK (opening_turn.TURN_LOCATOR, paid check (a) 2026-10-15:
+    the read's quote matched 5/8 hand labels). Two things follow. A turn the fallback counts to
+    the end of the first MECHANISM beat (every shape-B film) is late by construction and only a
+    rewrite of the mechanism itself could bring it inside 116 words, so LATE_TURN alone does not
+    buy this revision there; the film records late_turn. And a revision bought for the read's
+    score is held only if it moves the turn LATER (past 116, or past where it already was), not
+    because a shape-B turn stays where the mechanism ends.
 
     ONE PER FILM. Under the turn rule the attempt is marked on the script before the paid call,
     so a resumed run that reads the opening again does not buy a second revision; and
@@ -2062,6 +2076,12 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
     turn = (review or {}).get("turn") if isinstance((review or {}).get("turn"), dict) else {}
     turn_rule = bool(turn.get("applies")) and bool(turn.get("measurable"))
     late = turn_rule and bool(turn.get("late")) and turn_revision
+    if late and turn.get("source") != "quote" and _ot.turn_row_is_mechanism(script.get("scenes"), turn):
+        log(f"Opening revision: LATE_TURN is the structural fallback at the end of the first "
+            f"mechanism beat ({turn.get('turn_words')} words, shape {turn.get('shape')}); an opening "
+            "revision cannot reach it without cutting the mechanism, so none is bought for the turn"
+            + (" (the read's own score still asks for one)" if review.get("score", 0) < 80 else ""))
+        late = False
     if turn_rule and script.get("_opening_revision_attempted"):
         log("Opening revision: already attempted once for this film; the opening stands")
         return script, 0.0
@@ -2217,11 +2237,21 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
             f"{review.get('score')}; the previous opening stands"); return script, cost
     if turn_rule:
         again_turn = again.get("turn") or {}
-        if again_turn.get("late"):
+        # Bought for the turn: it must land inside the limit. Bought for the read's score: it may
+        # not move the turn later -- past the limit, or past where an already-late turn was.
+        allowed = (_ot.TURN_LIMIT_WORDS if late or not turn.get("late")
+                   else int(turn.get("turn_words") or 0))
+        if again_turn.get("measurable") and int(again_turn.get("turn_words") or 0) > allowed:
             log(f"Opening revision held: the turn still ends at word {again_turn.get('turn_words')} "
-                f"(limit {_ot.TURN_LIMIT_WORDS}); the previous opening stands"); return script, cost
-        if (late or turn.get("source") == "quote") and again_turn.get("source") != "quote":
-            log("Opening revision held: the re-read finds no sentence that states the consequence; "
+                f"(limit {allowed}); the previous opening stands"); return script, cost
+        if _ot.TURN_LOCATOR == "quote":
+            if (late or turn.get("source") == "quote") and again_turn.get("source") != "quote":
+                log("Opening revision held: the re-read finds no sentence that states the "
+                    "consequence; the previous opening stands"); return script, cost
+        elif again_turn.get("consequence_spoken") is False and turn.get("consequence_spoken") is not False:
+            # The read's answer is a report, but a rewrite after which the re-read hears no
+            # consequence is not adopted: holding it only keeps the opening that stood.
+            log("Opening revision held: the re-read says no sentence states the consequence; "
                 "the previous opening stands"); return script, cost
     candidate["_opening_review"] = dict(again, revised_from=review)
     log(f"Opening revised ({changed} scene(s)): {review.get('score')} -> {again.get('score')}"
@@ -2848,9 +2878,12 @@ def _record_opening_turn(script: dict, log=lambda message: None) -> dict:
             f"{turn.get('source')}, shape {turn.get('shape')}), past the {_ot.TURN_LIMIT_WORDS}-word / "
             f"{_ot.TURN_LIMIT_SEC:.0f}s limit. The run continues on this opening and run_result "
             "records late_turn -- reported, not a degraded reason (operator decision, 2026-10-14). "
-            "To fix it by hand, stop and edit plan.approved.json (at most three narrated beats "
-            "before the mechanism; the consequence cited in opening.claim_refs.consequence) -- an "
-            "approved sheet is never re-planned.")
+            + ("Shape B is counted to the end of the first mechanism beat, so this measure is late "
+               "by construction; the read's quote (report only) is in the line above. "
+               if turn.get("shape") == "B" and turn.get("source") == "fallback" else
+               "To fix it by hand, stop and edit plan.approved.json (at most three narrated beats "
+               "before the mechanism; the consequence cited in opening.claim_refs.consequence) -- an "
+               "approved sheet is never re-planned."))
     return turn
 
 
@@ -5637,7 +5670,7 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # fields, claim_refs and now a role, and sixteen of those overran the response budget — a run
     # died on "Unterminated string" at char 41222, which is almost exactly 16 scenes of this shape.
     # Smaller batches cost more calls but cannot silently truncate a script mid-object.
-    per_batch = 10
+    per_batch = EXPANSION_BATCH_SCENES
     all_scenes = []
     bi = 0
     # One retry per batch when the writer returns the wrong NUMBER of scenes. Measured on the

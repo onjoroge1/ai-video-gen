@@ -257,6 +257,9 @@ def plan(script, board):
 # position check here, is advisory for ladder films). A repair that touches the rows up to the
 # turn is measured before and after, and one that PUSHES the turn past the limit is refused;
 # an opening already past it is not made un-repairable by this (it is recorded as late_turn).
+# The measure is opening_turn's enforced one -- the structural fallback since paid check (a) --
+# so the row a repair writes the consequence into is recorded (hint_scene_id) but the turn is
+# still counted to the hinge (shape A) or the end of the first mechanism beat (shape B).
 def _turn_words(script, scenes, mode, row):
     import opening_turn as ot
     prior = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
@@ -284,12 +287,13 @@ def _turn_edit(script, scenes, counts, consequence_scene, hinge_scene, edited_ro
     turn = {"limit_words": ot.TURN_LIMIT_WORDS, "mode": mode, "row": row,
             "before_words": before["turn_words"]}
     if consequence_scene is not None and before["turn_words"] <= ot.TURN_LIMIT_WORDS:
-        # What the consequence row may hold: the limit less every word before it and, when the
-        # turn is measured at the hinge, the rows between it and the hinge (the hinge at most ten).
+        # What the consequence row may hold: the limit less every word before it and every word
+        # after it through the row the turn is counted to (a hinge at most ten).
+        turn_row = int(before["scene"]) - 1
         between = 0
-        if row is not None and row > consequence_scene:
+        if turn_row > consequence_scene:
             between = sum(min(counts[i], cs.MAX_HINGE_WORDS) if i == hinge_scene else counts[i]
-                          for i in range(consequence_scene + 1, row + 1))
+                          for i in range(consequence_scene + 1, turn_row + 1))
         turn["consequence_row_cap"] = max(
             0, ot.TURN_LIMIT_WORDS - sum(counts[:consequence_scene]) - between)
     return turn

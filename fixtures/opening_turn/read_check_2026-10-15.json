@@ -1,0 +1,61 @@
+{
+ "_about": "Paid check (a), 2026-10-15: explainer_pipeline._evaluate_opening (claude-opus-4-8, the pipeline's own read) WITH the turn field on the eight saved openings, read-only from each job's _state.json. 5/8 matched the critic's hand labels; the bar was 8/8, so opening_turn.TURN_LOCATOR = 'fallback'. Spend from usage: $0.1277.",
+ "reads": {
+  "asian-carp": {
+   "label_words": 171,
+   "label_quote": "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them.",
+   "read_quote": "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them.",
+   "read_score": 86,
+   "matched": true
+  },
+  "bees_v13": {
+   "label_words": 146,
+   "label_quote": "But in October 1957, twenty-six queens escaped into the forest.",
+   "read_quote": "But in October 1957, twenty-six queens escaped into the forest.",
+   "read_score": 88,
+   "matched": true
+  },
+  "bees_v14": {
+   "label_words": null,
+   "label_quote": "NONE",
+   "read_quote": "NONE",
+   "read_score": 86,
+   "matched": true
+  },
+  "bees_v15": {
+   "label_words": 179,
+   "label_quote": "Then the grids came off, and twenty-six queens left.",
+   "read_quote": "Then the grids came off, and twenty-six queens left.",
+   "read_score": 88,
+   "matched": true
+  },
+  "bees_v16": {
+   "label_words": 163,
+   "label_quote": "Except in October 1957, grids off, twenty-six queens flew free.",
+   "read_quote": "Except in October 1957, grids off, twenty-six queens flew free.",
+   "read_score": 90,
+   "matched": true
+  },
+  "escobar-hippos": {
+   "label_words": 236,
+   "label_quote": "Then their young wandered off into the surrounding landscape.",
+   "read_quote": "They bred. Then their young wandered off into the surrounding landscape.",
+   "read_score": 80,
+   "matched": false
+  },
+  "history-aral-sea": {
+   "label_words": 159,
+   "label_quote": "But the sea got nothing back.",
+   "read_quote": "The reading for the whole year was nothing. Not a drop reached the sea.",
+   "read_score": 84,
+   "matched": false
+  },
+  "history-aral-sea-v2": {
+   "label_words": 172,
+   "label_quote": "The reading came back as nothing.",
+   "read_quote": "For that whole year, not one drop of the Syr Darya reached the Aral, and the sea had quietly begun to fall.",
+   "read_score": 78,
+   "matched": false
+  }
+ }
+}
