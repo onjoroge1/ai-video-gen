@@ -10,6 +10,7 @@ of every anchor is readable from its word index:
 import copy
 import inspect
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -54,12 +55,14 @@ def _clean_scene(scene):
             _state(scene, 3, "kilo lima")]
 
 
-def _ctx(middle, *, third=None, script=SCRIPT, validation=VALIDATION, **kwargs):
-    states = [_clean_scene(1), middle, third if third is not None else _clean_scene(3)]
+def _ctx(middle, *, third=None, first=None, script=SCRIPT, validation=VALIDATION,
+         durations=None, **kwargs):
+    states = [first if first is not None else _clean_scene(1), middle,
+              third if third is not None else _clean_scene(3)]
     return retry.OpeningContext(
         scenes=[{"narration": NARRATION, "story_role": role} for role in ROLES],
-        durations=[DURATION] * 3, word_times=[_words() for _ in range(3)], states=states,
-        script=script, validation=validation, **kwargs)
+        durations=list(durations or [DURATION] * 3), word_times=[_words() for _ in range(3)],
+        states=states, script=script, validation=validation, **kwargs)
 
 
 def _crowded_crop_scene():
@@ -315,6 +318,14 @@ def test_a_drop_that_leaves_an_opening_beat_one_distinct_picture_is_rejected():
     assert not candidate["valid"]
     assert any("insufficient_distinct_evidence_assets" in reason
                for reason in candidate["rejected_because"])
+    # And the decision acts on it: that drop scores 92 A at 6/6 and is still never chosen. (The
+    # same opening without its evidence plan takes exactly this drop.)
+    decision = retry.decide_opening_retry(ctx)
+    assert decision["outcome"] == "below_b_after_retry" and decision["edits"] == []
+    assert ("drop", "state:s002:e02") not in {(e["op"], e["state_id"])
+                                              for e in decision["edits"]}
+    unplanned = retry.decide_opening_retry(_ctx(copy.deepcopy(middle)))
+    assert [(e["op"], e["state_id"]) for e in unplanned["edits"]] == [("drop", "state:s002:e02")]
 
 
 def test_a_drop_that_pushes_bolt_past_35_percent_is_rejected():
@@ -336,6 +347,29 @@ def test_a_drop_that_pushes_bolt_past_35_percent_is_rejected():
     assert not candidate["valid"]
     assert any("Bolt" in reason or "bolt_state_budget" in reason
                for reason in candidate["rejected_because"])
+
+
+def test_a_drop_that_raises_a_bolt_ratio_already_over_35_percent_is_rejected():
+    # The plan as planned is already at 37.5%, so validate_evidence_plan's own
+    # bolt_state_budget_exceeded is not NEW for the candidate; only the explicit "after > before"
+    # rule stands between the decision and a drop that makes it worse.
+    def bolt(state):
+        return dict(state, include_bolt=True, purpose="action", bolt_action="Bolt lifts the gate")
+    middle = [_state(2, 1, "alpha bravo", "master"), _state(2, 2, "foxtrot golf"),
+              _state(2, 3, "hotel india"), _state(2, 4, "kilo lima")]
+    ctx = _ctx(middle)
+    ctx.evidence_plan = _plan_for(ctx.states,
+                                  extra_states=[bolt(_state(4, n, "x")) for n in range(1, 7)])
+    baseline = retry.evaluate(ctx, [])
+    assert baseline["bolt_ratio"] > 0.35
+    assert ("bolt_state_budget_exceeded", None) in baseline["validation_errors"]
+    candidate = retry.evaluate(ctx, [retry.drop_edit(middle[2])],
+                               baseline=retry.compare_baseline(baseline))
+    assert candidate["score"] >= 80 and candidate["ratio"] >= 0.75
+    assert candidate["rejected_because"] == ["Bolt ratio 40% over 35%"]
+    assert not candidate["valid"] and not candidate["accepted"]
+    decision = retry.decide_opening_retry(ctx)
+    assert decision["outcome"] == "below_b_after_retry" and decision["edits"] == []
 
 
 def test_edits_never_reorder_states():
@@ -369,6 +403,49 @@ def test_rendered_gate_checks_hold_margin_cadence_and_source_change():
     # A motion shot is judged against its clip allowance, not the still limit.
     motion = [[_shot("a", 2.0), _shot("b", 5.0, kind="i2v"), _shot("c", 2.0)]]
     assert retry.rendered_gate_checks(motion, 0.45)["passed"]
+
+
+def test_the_hold_margin_is_on_holds_the_recut_creates_never_on_ones_already_planned():
+    def plan(hold):
+        return [[_shot("a", 2.0), _shot("b", hold), _shot("c", 2.0)]]
+    planned = retry.long_holds(plan(3.45))
+    assert planned == [(0, "", "b", 0.0, 3.45)]
+    # The same 3.45 s hold, untouched: the gate accepts it and it ships either way.
+    assert retry.rendered_gate_checks(plan(3.45), 0.45, baseline_holds=planned)["passed"]
+    # Lengthened by the re-cut, or new: the margin applies.
+    lengthened = retry.rendered_gate_checks(plan(3.48), 0.45, baseline_holds=planned)
+    assert not lengthened["passed"] and "holds 3.48s" in lengthened["failures"][0]
+    # Past the gate's own 3.5 s it fails whatever the plan as planned held.
+    over = [[_shot("a", 2.0), _shot("b", 3.55), _shot("c", 2.0)]]
+    checks = retry.rendered_gate_checks(over, 0.45, baseline_holds=retry.long_holds(over))
+    assert not checks["passed"] and "past the rendered gate's 3.5s" in checks["failures"][0]
+
+
+def test_an_untouched_legal_hold_elsewhere_does_not_block_the_fix():
+    # Scene 1 runs 7.45 s, so its untouched last picture holds 3.45 s: legal at the rendered gate,
+    # and over the retry's 3.4 s margin. The crowded crop in scene 2 is still dropped.
+    ctx = _ctx(_crowded_crop_scene(), durations=[7.45, DURATION, DURATION])
+    decision = retry.decide_opening_retry(ctx)
+    assert decision["before"]["gate"]["max_still_sec"] == 3.45
+    assert decision["outcome"] == "passed"
+    assert [(e["op"], e["state_id"]) for e in decision["edits"]] == [("drop", "state:s002:e03")]
+    assert decision["after"]["gate"]["passed"] and decision["after"]["score"] >= 80
+
+
+def test_a_candidate_failing_the_rendered_gate_is_never_chosen():
+    # Scene 2 runs 7.5 s with three crowded anchors. Dropping either crowded picture scores 96 A
+    # at 5/6 aligned -- and leaves its last picture holding 3.50 s, a hold the plan as planned
+    # (longest still 3.0 s) never had. Nothing else lifts the opening, so it renders as planned.
+    middle = [_state(2, 1, "alpha bravo", "master"), _state(2, 2, "bravo charlie"),
+              _state(2, 3, "charlie delta"), _state(2, 4, "kilo lima")]
+    ctx = _ctx(middle, durations=[DURATION, 7.5, DURATION])
+    decision = retry.decide_opening_retry(ctx)
+    assert decision["before"]["gate"]["max_still_sec"] == 3.0
+    gated = [row for row in decision["candidates"]
+             if any("a still holds 3.50s" in reason for reason in row["rejected_because"])]
+    assert gated and all(row["score"] >= 90 and row["ratio"] >= 0.75 for row in gated)
+    assert decision["outcome"] != "passed"
+    assert decision["edits"] == []
 
 
 def test_acceptance_needs_b_no_hard_failure_and_75_percent_alignment():
@@ -417,6 +494,23 @@ def test_a_below_b_opening_with_no_better_candidate_keeps_its_plan():
     assert decision["llm_calls"] == 0
 
 
+def test_a_crop_is_never_dropped_for_alignment_under_an_unchanged_capped_score():
+    # killerbees01's shape: a valid crop drop moves the alignment (2/7 -> 4/6) and the score
+    # stays a capped 69. best_attempt keeps the plan as planned; the crop stays on screen.
+    first = [_state(1, 1, "alpha bravo", "master"), _state(1, 2, "foxtrot golf"),
+             _state(1, 3, "hotel india", "detail_reframe", source_asset_id="asset:s001:e02"),
+             _state(1, 4, "kilo lima")]
+    ctx = _ctx(_duplicate_scene(2), first=first, third=_duplicate_scene(3))
+    decision = retry.decide_opening_retry(ctx, rebind=None)
+    crop = [row for row in decision["candidates"] if row["label"] == "drop crop state:s001:e03"]
+    assert crop and crop[0]["score"] == 69 and (crop[0]["aligned"], crop[0]["cuts"]) == (4, 6)
+    assert not any("opening validation" in r or "holds" in r
+                   for r in crop[0]["rejected_because"]), "the crop drop itself is valid"
+    assert decision["outcome"] == "below_b_after_retry"
+    assert decision["edits"] == []
+    assert (decision["after"]["aligned"], decision["after"]["cuts"]) == (2, 7)
+
+
 def test_an_opening_already_at_b_is_not_retried():
     decision = retry.decide_opening_retry(_ctx(_clean_scene(2)), rebind=_Rebind())
     assert decision["outcome"] == "not_needed" and decision["edits"] == []
@@ -440,7 +534,15 @@ def test_r2_runs_once_only_when_r1_fails_and_its_anchor_is_validated():
 
 def test_r2_is_not_called_when_r1_succeeds_or_the_ceiling_is_under_b():
     rebind = _Rebind()
-    retry.decide_opening_retry(_ctx(_crowded_crop_scene()), rebind=rebind)
+    # R1 passes and leaves one cut it could not place ('zulu yankee whiskey' is not in the
+    # narration): a target R2 COULD re-bind, and must not, because R1 already passed.
+    third = [_state(3, 1, "alpha bravo", "master"), _state(3, 2, "foxtrot golf"),
+             _state(3, 3, "zulu yankee whiskey")]
+    decision = retry.decide_opening_retry(_ctx(_crowded_crop_scene(), third=third),
+                                          rebind=rebind)
+    assert decision["outcome"] == "passed" and decision["rung"] == "R1"
+    assert decision["after"]["aligned"] < decision["after"]["cuts"]
+    assert decision["llm_calls"] == 0 and decision["r2"] is None
     retry.decide_opening_retry(_ctx(_duplicate_scene(), third=_duplicate_scene(3),
                                     script=WEAK_SCRIPT, validation=WEAK_VALIDATION),
                                rebind=rebind)
@@ -491,6 +593,60 @@ def test_the_r2_request_carries_measured_words_and_marks_only_the_targets():
     (scene,) = payload["scenes"]
     assert scene["scene"] == 2 and scene["words"][5] == ["foxtrot", 2.0]
     assert [p["rebind"] for p in scene["pictures_in_order"]] == [False, False, True]
+
+
+def test_r2_over_a_state_the_r1_seed_reanchored_keeps_the_plans_own_old_anchor():
+    # The R1 seed moves e03 'kilo' back to its clause start, 'hotel india juliet, kilo'; e02's
+    # cut is pushed by its own repair, so e03 is still unaligned and R2 re-binds both. R2 is
+    # checked against the SEED's states, so its e03 edit says old='hotel india juliet, kilo' --
+    # an anchor the shared plan never carried. The pipeline would refuse it and render 69 D.
+    narration = ("alpha bravo charlie, delta echo foxtrot golf. hotel india juliet, kilo lima "
+                 "mike november. oscar papa quebec, romeo sierra tango uniform. victor whiskey "
+                 "xray")
+    duration = len(narration.split()) * STEP + 0.2
+    states = [_state(1, n, anchor, "master" if n == 1 else "distinct") for n, anchor in
+              enumerate(["alpha bravo", "charlie", "kilo", "mike november", "quebec, romeo"], 1)]
+    ctx = retry.OpeningContext(
+        scenes=[{"narration": narration, "story_role": "cold_consequence"}],
+        durations=[duration], word_times=[_words(narration)], states=[states],
+        script=SCRIPT, validation=VALIDATION, planned_counts=[7])
+    rebind = _Rebind({"anchors": [{"state_id": "state:s001:e02", "anchor_phrase": "echo foxtrot"},
+                                  {"state_id": "state:s001:e03", "anchor_phrase": "india juliet"}]})
+    decision = retry.decide_opening_retry(ctx, rebind=rebind)
+    assert decision["outcome"] == "passed" and decision["rung"] == "R2"
+    assert rebind.calls and rebind.calls[0]["targets"] == ["state:s001:e02", "state:s001:e03"]
+    assert [(e["state_id"], e["old"], e["new"]) for e in decision["edits"]] == [
+        ("state:s001:e02", "charlie", "echo foxtrot"),
+        ("state:s001:e03", "kilo", "india juliet")]
+    assert retry.apply_edits_in_place(copy.deepcopy(ctx.states), decision["edits"]) == []
+
+
+def _every_fixture():
+    yield _ctx(_crowded_crop_scene())
+    yield _ctx(_crowded_anchor_scene(2), third=_crowded_anchor_scene(3))
+    yield _ctx([_state(2, 1, "alpha bravo", "master"), _state(2, 2, "foxtrot golf"),
+                _state(2, 3, "hotel india"), _state(2, 4, "kilo lima")])
+    yield _duplicates()
+
+
+@pytest.mark.parametrize("index", range(4))
+def test_a_decisions_edits_always_apply_to_the_untouched_plan(index):
+    ctx = list(_every_fixture())[index]
+    decision = retry.decide_opening_retry(ctx, rebind=_Rebind(copy.deepcopy(REBIND_BOTH)))
+    assert decision["outcome"] in retry.DECIDED_OUTCOMES
+    assert retry.apply_edits_in_place(copy.deepcopy(ctx.states), decision["edits"]) == []
+    for row in decision["candidates"]:
+        if row["accepted"]:
+            assert not any("do not apply" in r for r in row["rejected_because"])
+
+
+def test_evaluate_refuses_edits_the_shared_plan_would_refuse():
+    ctx = _ctx(_duplicate_scene())
+    stale = {"op": "reanchor", "state_id": "state:s002:e03", "old": "not this anchor",
+             "new": "kilo lima", "rung": "R2", "how": ""}
+    candidate = retry.evaluate(ctx, [stale])
+    assert not candidate["compiled"] and not candidate["valid"]
+    assert "edits do not apply to the plan" in candidate["rejected_because"][0]
 
 
 # ── script shortfall, the stop, and the degraded reason ───────────────────────────────────────
@@ -553,14 +709,57 @@ def test_the_degraded_reason_names_aligned_cuts_and_score():
     aligned, cuts = retry.cut_alignment(plan)
     assert retry.degraded_reason(decision, readiness, plan) == (
         f"opening45 below B after retry ({aligned}/{cuts} cuts aligned, score 69)")
-    assert retry.degraded_reason({"outcome": "passed"}, readiness, plan) == ""
     assert retry.degraded_reason(decision, {"score": 86, "hard_failures": []}, plan) == ""
 
 
-def test_the_pipeline_adds_the_degraded_reason_and_the_run_result():
+def test_the_degraded_reason_reads_the_measured_opening_whatever_the_outcome_says():
+    ctx = _duplicates()
+    plan = retry.compile_opening(ctx)
+    measured = retry.score_opening(ctx, plan)["report"]          # 69 D, semantic_sync
+    at_b = {"score": 86, "hard_failures": []}
+    # A replayed `passed`, an `error` whose edits were refused, a not_needed prediction the render
+    # did not bear out, an approved opening: each rendered under B and each says so.
+    for record, needle in (({"outcome": "passed"}, "retry outcome passed"),
+                           ({"outcome": "error", "decided": True}, "the retry failed"),
+                           ({"outcome": "not_needed"}, "retry outcome not_needed"),
+                           ({"outcome": "skipped", "skip_kind": "no_plan",
+                             "skip_reason": "no plan"}, "retry skipped: no plan"),
+                           ({"outcome": "approved_by_review", "skip_kind": "approved"},
+                            "approved by a bound human review")):
+        reason = retry.degraded_reason(record, measured, plan)
+        assert reason.startswith("opening45 below B") and needle in reason, reason
+        assert "score 69" in reason
+        assert retry.degraded_reason(record, at_b, plan) == ""
+    # The rule turned off, or a lane it does not run in: as before this rule, no reason.
+    for kind in ("off", "not_illustrated", "controlled_pilot"):
+        assert retry.degraded_reason({"outcome": "skipped", "skip_kind": kind}, measured,
+                                     plan) == ""
+    # Nothing measured (the render never happened): only an outcome that says below B speaks.
+    assert retry.degraded_reason({"outcome": "passed"}, None, None) == ""
+    assert retry.degraded_reason({"outcome": "below_b_after_retry",
+                                  "after": {"score": 69, "aligned": 4, "cuts": 6}}, None,
+                                 None) == "opening45 below B after retry (4/6 cuts aligned, score 69)"
+
+
+def test_the_pipelines_opening_reason_holds_a_shortfall_to_the_override():
+    measured = {"score": 69, "hard_failures": ["semantic_sync"]}
+    shortfall = {"outcome": "script_shortfall", "ceiling": 75}
+    assert ep._opening_degraded_reason(shortfall, measured, None) == ""
+    reason = ep._opening_degraded_reason(dict(shortfall, continued_below_b=True), measured, None)
+    assert reason.startswith("opening45 below B: script shortfall")
+    below = {"outcome": "below_b_after_retry"}
+    plan = [[{"start_sec": 0.0}, {"start_sec": 2.0, "semantic_aligned": True},
+             {"start_sec": 4.0, "semantic_aligned": False}]]
+    assert ep._opening_degraded_reason(below, measured, plan) == (
+        "opening45 below B after retry (1/2 cuts aligned, score 69)")
+    assert ep._opening_degraded_reason(below, {"score": 84, "hard_failures": []}, plan) == ""
+    assert ep._opening_degraded_reason({}, measured, plan) == ""
+    assert ep._opening_degraded_reason(None, measured, plan) == ""
+
+
+def test_the_pipeline_wires_the_opening_reason_and_the_run_result():
     source = inspect.getsource(ep.run_explainer_pipeline)
-    assert "_opening_retry.degraded_reason(" in source
-    assert "reasons.append(_opening_reason)" in source
+    assert "_opening_degraded_reason(\n        opening_retry_record, opening_readiness" in source
     assert '"opening_retry": _opening_retry_result(opening_retry_record)' in source
 
 
@@ -576,12 +775,18 @@ def test_the_retry_runs_after_the_image_preflight_and_before_the_gate_render():
     assert preflight < hook < render < freeze
 
 
-def test_the_stop_comes_after_the_controlled_pilot_return_and_before_later_purchase():
+def test_the_stop_comes_straight_after_the_decision_before_any_render_or_review():
+    # The decision is known before the render: stopping there buys no gate render and no blind
+    # judge for an opening the run refuses, and no armed-lane gate (RuntimeError on the rendered
+    # contract, HumanReviewRequired) can ask a person to approve that opening first.
     source = inspect.getsource(ep.run_explainer_pipeline)
-    pilot_return = source.index('"controlled_pilot": True')
+    hook = source.index("opening_retry_record = _opening_retry_at_gate(")
     stop = source.index("_stop_if_opening_below_b(opening_retry_record")
+    render = source.index("_render_first_minute_preview(\n")
+    review = source.index("raise HumanReviewRequired(\n                        \"Rendered opening")
     later = source.index("later = []")
-    assert pilot_return < stop < later
+    assert hook < stop < render < review < later
+    assert source.count("_stop_if_opening_below_b(") == 1
 
 
 # ── the pipeline wrapper: apply, persist, replay, skip ────────────────────────────────────────
@@ -606,8 +811,12 @@ def gate(tmp_path, monkeypatch):
         path.write_bytes(f"audio {k}".encode())
         audio.append(str(path))
 
-    def launch(*, word_times=None, controlled_pilot=False):
-        states = [_clean_scene(1), _duplicate_scene(2), _duplicate_scene(3)]
+    def launch(*, word_times=None, controlled_pilot=False, illustrated=True, script=SCRIPT,
+               validation=VALIDATION, middle=None, evidence_dropped=None,
+               motion_state_ids=frozenset()):
+        # A fresh plan every launch, as a resume recompiles it from the script.
+        states = [_clean_scene(1), middle() if middle else _duplicate_scene(2),
+                  _duplicate_scene(3)]
         plan = {"continuity_pack": {}, "scenes": [
             {"scene_index": k, "opening": True, "state_capacity": 4, "states": scene_states}
             for k, scene_states in enumerate(states)]}
@@ -615,11 +824,14 @@ def gate(tmp_path, monkeypatch):
                     "aud": audio[k], "aud_ok": True, "evidence_states": states[k],
                     "word_times": (word_times or _words)() if k == 1 else _words()}
                    for k in range(3)]
+        if evidence_dropped:
+            results[1]["evidence_dropped"] = list(evidence_dropped)
         logged, sink = [], []
         record = ep._opening_retry_at_gate(
-            opening_results=results, script=SCRIPT, retention_validation=VALIDATION,
-            evidence_plan=plan, motion_state_ids=frozenset(), opening_stop=3,
+            opening_results=results, script=script, retention_validation=validation,
+            evidence_plan=plan, motion_state_ids=frozenset(motion_state_ids), opening_stop=3,
             output_dir=str(tmp_path), controlled_pilot=controlled_pilot,
+            illustrated_story_on=illustrated,
             human_review_path=str(tmp_path / "human_review.json"),
             rendered_contract_path=str(tmp_path / "rendered_contract.json"),
             threshold_profile={}, evidence_plan_path=str(tmp_path / "evidence_asset_plan.json"),
@@ -660,6 +872,50 @@ def test_a_resume_replays_the_saved_decision_without_a_second_model_call(gate):
     assert any("replayed from opening_retry.json" in line for line in logged)
 
 
+def test_a_replayed_script_shortfall_whose_script_was_fixed_is_decided_again(gate):
+    # Same audio, words and states, so the key matches. The whole-script axes the report blamed
+    # were fixed in later scenes: re-scoring the saved record no longer reproduces ceiling 66.
+    first, *_ = gate["launch"](script=WEAK_SCRIPT, validation=WEAK_VALIDATION)
+    assert first["outcome"] == "script_shortfall" and first["ceiling"] < 80
+    with pytest.raises(ep.OpeningBelowB):
+        ep._stop_if_opening_below_b(dict(first), str(gate["dir"]), log=lambda m: None)
+    record, states, _plan, logged, _sink = gate["launch"]()
+    assert record["key"] == first["key"] and not record.get("replayed")
+    assert record["outcome"] == "passed" and record["after"]["score"] >= 80
+    assert states[1][2]["anchor_phrase"] == "kilo lima"
+    assert any("no longer describes this opening" in line and "ceiling" in line
+               for line in logged)
+    ep._stop_if_opening_below_b(record, str(gate["dir"]), log=lambda m: None)
+
+
+def test_a_replayed_pass_whose_script_got_weaker_is_decided_again(gate):
+    first, *_ = gate["launch"]()
+    assert first["outcome"] == "passed" and len(gate["calls"]) == 1
+    record, states, *_ = gate["launch"](script=WEAK_SCRIPT, validation=WEAK_VALIDATION)
+    assert not record.get("replayed")
+    assert record["outcome"] == "script_shortfall" and record["edits"] == []
+    assert states[1][2]["anchor_phrase"] == "foxtrot golf"
+    assert len(gate["calls"]) == 1, "a script shortfall never calls the model"
+    with pytest.raises(ep.OpeningBelowB):
+        ep._stop_if_opening_below_b(record, str(gate["dir"]), log=lambda m: None)
+
+
+def test_an_error_is_not_a_decision_and_is_never_replayed(gate, monkeypatch):
+    first, *_ = gate["launch"]()
+    assert retry.replayable(first, first["key"])
+    assert not retry.replayable(dict(first, outcome="error"), first["key"])
+    assert not retry.replayable(dict(first, outcome="skipped"), first["key"])
+
+    def broken(_ctx, rebind=None):
+        raise RuntimeError("scorer exploded")
+    monkeypatch.setattr(ep._opening_retry, "decide_opening_retry", broken)
+    (gate["dir"] / "opening_retry.json").unlink()
+    record, states, *_ = gate["launch"]()
+    assert record["outcome"] == "error" and states[1][2]["anchor_phrase"] == "foxtrot golf"
+    # Persisted like any outcome, so no older record can stand in for what this launch did.
+    assert json.loads((gate["dir"] / "opening_retry.json").read_text())["outcome"] == "error"
+
+
 def test_different_word_timings_decide_again(gate):
     gate["launch"]()
     shifted = lambda: [[w, round(a + 0.01, 3), round(b + 0.01, 3)] for w, a, b in _words()]
@@ -671,6 +927,7 @@ def test_different_word_timings_decide_again(gate):
 def test_skips_controlled_pilots_and_opening_retry_off(gate, monkeypatch):
     record, states, *_ = gate["launch"](controlled_pilot=True)
     assert record["outcome"] == "skipped" and "controlled pilot" in record["skip_reason"]
+    assert record["skip_kind"] == "controlled_pilot"
     assert states[1][2]["anchor_phrase"] == "foxtrot golf"
     monkeypatch.setenv("OPENING_RETRY", "0")
     record, states, *_ = gate["launch"]()
@@ -680,21 +937,137 @@ def test_skips_controlled_pilots_and_opening_retry_off(gate, monkeypatch):
     assert not (gate["dir"] / "opening_retry.json").exists()
 
 
-def test_skips_an_opening_a_bound_human_review_approved(gate):
-    preview = gate["dir"] / "first_minute_preview.mp4"
-    contract = gate["dir"] / "rendered_contract.json"
-    preview.write_bytes(b"approved preview")
+def test_a_long_form_lane_that_is_not_illustrated_behaves_as_before(gate):
+    # The cartoon/Bolt explainer, Evidence Mystery and experimental mode reach the same gate.
+    record, states, *_ = gate["launch"](illustrated=False)
+    assert record["outcome"] == "skipped" and record["skip_kind"] == "not_illustrated"
+    assert states[1][2]["anchor_phrase"] == "foxtrot golf" and len(states[1]) == 3
+    assert gate["calls"] == []
+    assert not (gate["dir"] / "opening_retry.json").exists()
+    ep._stop_if_opening_below_b(record, str(gate["dir"]), log=lambda m: None)
+    assert ep._opening_degraded_reason(record, {"score": 69, "hard_failures": ["x"]}, None) == ""
+    run = inspect.getsource(ep.run_explainer_pipeline)
+    assert "illustrated_story_on=illustrated_story_on," in run
+
+
+def _approve_preview(directory, content=b"approved preview"):
+    preview = directory / "first_minute_preview.mp4"
+    contract = directory / "rendered_contract.json"
+    preview.write_bytes(content)
     contract.write_text("{}")
-    (gate["dir"] / "human_review.json").write_text(json.dumps({
+    (directory / "human_review.json").write_text(json.dumps({
         "decision": "approve", "preview_sha256": ep.sha256_file(str(preview)),
         "rendered_report_sha256": ep.sha256_file(str(contract))}))
+    return preview
+
+
+def test_skips_an_opening_a_bound_human_review_approved_as_planned(gate):
+    preview = _approve_preview(gate["dir"])
     record, states, *_ = gate["launch"]()
-    assert record["outcome"] == "skipped" and "human review" in record["skip_reason"]
+    assert record["outcome"] == "approved_by_review" and "human review" in record["skip_reason"]
     assert states[1][2]["anchor_phrase"] == "foxtrot golf" and gate["calls"] == []
+    saved = json.loads((gate["dir"] / "opening_retry.json").read_text())
+    assert saved["outcome"] == "approved_by_review" and not saved.get("edits")
+    ep._stop_if_opening_below_b(record, str(gate["dir"]), log=lambda m: None)
     # An approval of a DIFFERENT preview is not an approval of this opening.
     preview.write_bytes(b"another preview")
     record, *_ = gate["launch"]()
     assert record["outcome"] == "passed"
+
+
+def test_an_approved_re_cut_is_re_applied_when_the_key_moves(gate):
+    # Launch 1 re-cuts and renders that re-cut; the operator approves the preview. Launch 2 buys
+    # the word timings again and they move 10 ms: the key changes. The re-cut the operator saw is
+    # rendered again -- not the un-retried 69 D plan -- with no new decision and no model call.
+    first, *_ = gate["launch"]()
+    assert first["outcome"] == "passed" and first["edits"] and len(gate["calls"]) == 1
+    _approve_preview(gate["dir"], b"preview rendered with the re-cut")
+    shifted = lambda: [[w, round(a + 0.01, 3), round(b + 0.01, 3)] for w, a, b in _words()]
+    record, states, _plan, logged, sink = gate["launch"](word_times=shifted)
+    assert record["outcome"] == "passed" and record["replayed"] is True
+    assert record["replay_reason"] == "bound approval of the re-cut"
+    assert record["edits"] == first["edits"] and record["key"] == first["key"]
+    assert record["applied_key"] != first["key"]
+    assert states[1][2]["anchor_phrase"] == "kilo lima"
+    assert states[2][2]["anchor_phrase"] == "kilo lima"
+    assert len(gate["calls"]) == 1 and sink == []
+    saved = json.loads((gate["dir"] / "opening_retry.json").read_text())
+    assert saved["replay_reason"] == "bound approval of the re-cut"
+
+
+def test_an_approved_re_cut_that_no_longer_fits_is_decided_again(gate):
+    first, *_ = gate["launch"]()
+    _approve_preview(gate["dir"], b"preview rendered with the re-cut")
+    saved = json.loads((gate["dir"] / "opening_retry.json").read_text())
+    saved["edits"][0]["state_id"] = "state:s009:e09"
+    (gate["dir"] / "opening_retry.json").write_text(json.dumps(saved))
+    record, states, _plan, logged, _sink = gate["launch"]()
+    assert not record.get("replayed") and record["outcome"] == "passed"
+    assert len(gate["calls"]) == 2
+    assert any("no longer fits the plan" in line for line in logged)
+
+
+def test_the_wrapper_counts_rejected_states_in_the_planned_floor(gate):
+    four = lambda: [_state(2, 1, "alpha bravo", "master"), _state(2, 2, "foxtrot golf"),
+                    _state(2, 3, "hotel india"), _state(2, 4, "kilo lima")]
+    record, *_ = gate["launch"](middle=four)
+    assert [s for s in record["dropped_state_ids"] if s.startswith("state:s002")], \
+        "control: with four planned, the floor of three allows the drop"
+    gate["dir"].joinpath("opening_retry.json").unlink()
+    # Five planned, one already rejected by _opening_assets_policy: floor four, nothing goes.
+    record, states, *_ = gate["launch"](
+        middle=four, evidence_dropped=[{"state_id": "state:s002:e05", "reason": "rejected"}])
+    assert not [s for s in record["dropped_state_ids"] if s.startswith("state:s002")]
+    assert len(states[1]) == 4
+
+
+def test_the_wrapper_forwards_the_paid_motion_clips(gate):
+    four = lambda: [_state(2, 1, "alpha bravo", "master"), _state(2, 2, "foxtrot golf"),
+                    _state(2, 3, "hotel india"), _state(2, 4, "kilo lima")]
+    record, *_ = gate["launch"](middle=four)
+    (dropped,) = [s for s in record["dropped_state_ids"] if s.startswith("state:s002")]
+    gate["dir"].joinpath("opening_retry.json").unlink()
+    record, states, *_ = gate["launch"](middle=four, motion_state_ids={dropped})
+    assert dropped not in record["dropped_state_ids"]
+    assert dropped in {s["state_id"] for s in states[1]}
+
+
+class _FakeClaude:
+    """A stand-in for ep._claude(): records the request, returns a canned reply and usage."""
+
+    def __init__(self, text):
+        self.requests = []
+        self.text = text
+        self.messages = SimpleNamespace(create=self.create)
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        return SimpleNamespace(usage=SimpleNamespace(input_tokens=1200, output_tokens=80),
+                               content=[SimpleNamespace(type="text", text=self.text)])
+
+
+@pytest.mark.parametrize("reply, parsed", [
+    ('```json\n{"anchors": [{"state_id": "state:s002:e03", "anchor_phrase": "kilo lima"}]}\n```',
+     {"anchors": [{"state_id": "state:s002:e03", "anchor_phrase": "kilo lima"}]}),
+    ('{"anchors": []} and then some prose', {"anchors": []}),
+    ("I could not place any of these pictures.", None),
+])
+def test_the_real_r2_call_uses_the_script_model_and_books_its_cost(monkeypatch, reply, parsed):
+    fake = _FakeClaude(reply)
+    monkeypatch.setattr(ep, "_claude", lambda: fake)
+    ctx = _ctx(_duplicate_scene())
+    request = retry.rebind_request(ctx, ctx.states, ["state:s002:e03"])
+    sink = []
+    answer, cost = ep._opening_anchor_rebind(request, cost_sink=sink)
+    (sent,) = fake.requests
+    assert sent["model"] == ep.ANTHROPIC_MODEL
+    assert sent["system"] == request["system"]
+    assert sent["messages"] == [{"role": "user", "content": request["user"]}]
+    expected = ep._msg_cost(SimpleNamespace(input_tokens=1200, output_tokens=80))
+    assert expected > 0
+    assert sink == [expected], "the cost is booked even when the reply is unusable"
+    assert cost == round(expected, 6)
+    assert answer == parsed
 
 
 def test_retry_key_moves_with_audio_words_states_and_motion():

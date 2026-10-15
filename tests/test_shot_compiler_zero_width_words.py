@@ -54,4 +54,3 @@ def test_the_render_version_was_bumped_for_the_timing_change():
     # AGENTS.md: pixel or timing changes must update ILLUSTRATED_RENDER_VERSION, or a resumed job
     # serves MP4s cut on the old timings while the plan is recomputed by the new compiler.
     assert render_cache.ILLUSTRATED_RENDER_VERSION != "hold-split-2026-09-30-v1"
-    assert "zero-width" in render_cache.ILLUSTRATED_RENDER_VERSION

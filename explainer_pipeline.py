@@ -7431,11 +7431,12 @@ def _opening_below_b_allowed() -> bool:
 def _opening_approved_by_bound_review(human_review_path: str | None,
                                       rendered_contract_path: str | None,
                                       preview_path: str) -> bool:
-    """A human approval of THIS opening, bound by hash to the preview and report on disk.
+    """A human approval bound by hash to the preview and report on disk.
 
-    Checked before the re-render, against the previous launch's artifacts: the binding test the
-    gate applies afterwards (prior_review_bound) is the same one. A re-cut would change the preview
-    and void the approval, so an approved opening is not re-cut.
+    Checked before the re-render, against the PREVIOUS launch's artifacts: the binding test the
+    gate applies afterwards (prior_review_bound) is the same one. That preview was rendered with
+    the previous launch's opening_retry edits, if it had any, so the caller re-applies those edits
+    rather than skipping the retry: a new re-cut, or none, would render an opening nobody approved.
     """
     try:
         if not (human_review_path and os.path.isfile(human_review_path)
@@ -7493,7 +7494,8 @@ def _write_opening_retry_report(decision: dict, output_dir: str) -> tuple[str, s
 def _opening_retry_at_gate(*, opening_results: list[dict], script: dict,
                            retention_validation: dict | None, evidence_plan: dict,
                            motion_state_ids, opening_stop: int, output_dir: str,
-                           controlled_pilot: bool, human_review_path: str | None,
+                           controlled_pilot: bool, illustrated_story_on: bool,
+                           human_review_path: str | None,
                            rendered_contract_path: str | None, threshold_profile: dict | None,
                            evidence_plan_path: str | None, cost_sink: list | None,
                            log=print) -> dict:
@@ -7504,24 +7506,32 @@ def _opening_retry_at_gate(*, opening_results: list[dict], script: dict,
     the final readiness all read the plan that was scored. The decision is written to
     opening_retry.json with a key over the opening's audio, measured words and states, because
     every resume recompiles the evidence plan from the script and an edit kept only in memory is
-    quietly reverted: on a matching key it is replayed, with no new decision and no model call.
+    quietly reverted: on a matching key, and when re-scoring the saved edits still measures what
+    the record says, it is replayed, with no new decision and no model call.
+
+    The illustrated lane only. Every other long-form lane reaches this gate too (the cartoon/Bolt
+    explainer, Evidence Mystery, experimental mode) and behaves as it did before this rule: no
+    drop, no model call, no stop.
 
     Never raises for its own sake. A failure to decide is logged and the opening renders as
-    planned; the stop for a script shortfall is a separate step, after the render.
+    planned; the stop for a script shortfall is a separate step (_stop_if_opening_below_b).
     """
-    def skipped(why: str) -> dict:
+    def skipped(why: str, kind: str, outcome: str = "skipped") -> dict:
         log(f"Opening retry: skipped — {why}")
         return {"version": _opening_retry.RETRY_VERSION, "decided": False,
-                "outcome": "skipped", "skip_reason": why}
+                "outcome": outcome, "skip_reason": why, "skip_kind": kind}
 
     if not _opening_retry_enabled():
-        return skipped("OPENING_RETRY=0")
+        return skipped("OPENING_RETRY=0", "off")
+    if not illustrated_story_on:
+        return skipped("not the illustrated lane", "not_illustrated")
     if controlled_pilot:
-        return skipped("controlled pilot (it stops at the opening for editorial review)")
+        return skipped("controlled pilot (it stops at the opening for editorial review)",
+                       "controlled_pilot")
     gate = [result for result in opening_results if result.get("aud_ok")]
     states = [result.get("evidence_states") for result in gate]
     if not gate or any(not isinstance(item, list) or not item for item in states):
-        return skipped("the opening has no evidence-state plan to re-cut")
+        return skipped("the opening has no evidence-state plan to re-cut", "no_plan")
     record_path = os.path.join(output_dir, OPENING_RETRY_RECORD)
     try:
         ctx = _opening_retry.OpeningContext(
@@ -7565,29 +7575,68 @@ def _opening_retry_at_gate(*, opening_results: list[dict], script: dict,
                 previous = json.load(handle)
         except (OSError, ValueError):
             previous = None
+    if not isinstance(previous, dict):
+        previous = None
+    previous_edits = (previous or {}).get("edits")
+    previous_edits = previous_edits if isinstance(previous_edits, list) else []
+    # The preview on disk is the previous launch's, and since this rule it was rendered WITH that
+    # launch's edits. An approval of it is an approval of the re-cut, so the re-cut is what this
+    # launch renders; only an approved preview that no re-cut touched means "leave it as planned".
+    approved = _opening_approved_by_bound_review(
+        human_review_path, rendered_contract_path,
+        os.path.join(output_dir, "first_minute_preview.mp4"))
+    if approved and not previous_edits:
+        record = skipped("a bound human review already approved this opening, as planned",
+                         "approved", outcome="approved_by_review")
+        if previous:
+            record["previous_outcome"] = previous.get("outcome")
+        # Written over any older record, so opening_retry.json never reports a decision this
+        # launch did not render.
+        persist(record)
+        return record
     if _opening_retry.replayable(previous, key):
-        problems = _opening_retry.apply_edits_in_place(states, previous["edits"])
+        mismatches = _opening_retry.replay_mismatches(ctx, previous)
+        problems = mismatches or _opening_retry.apply_edits_in_place(states, previous_edits)
         if not problems:
             record = dict(previous, replayed=True,
                           replayed_at=datetime.now(timezone.utc).isoformat())
             persist(record)
             log(_opening_retry.summary_line(record) + " [replayed from opening_retry.json: same "
-                "audio, words and states; no new decision, no model call]")
+                "audio, words and states, re-scored to the same result; no new decision, no "
+                "model call]")
             return record
-        log("Opening retry: the saved decision no longer applies ("
+        log("Opening retry: the saved decision no longer describes this opening ("
+            + "; ".join(problems[:3]) + ")"
+            + (" — a bound review approved it; re-applying it if it still fits" if approved
+               else " — deciding again"))
+    if approved:
+        # The key moved (re-bought word timings, a changed motion set) but an operator approved
+        # the re-cut this record describes. Re-apply it when it still fits the plan, rather than
+        # rendering the un-retried opening the operator never saw.
+        problems = _opening_retry.apply_edits_in_place(states, previous_edits)
+        if not problems:
+            # `key` stays the one the decision was made FROM; this launch's is kept beside it.
+            record = dict(previous, replayed=True, replay_reason="bound approval of the re-cut",
+                          replayed_at=datetime.now(timezone.utc).isoformat(), applied_key=key)
+            persist(record)
+            log(_opening_retry.summary_line(record) + " [re-applied: a bound human review "
+                "approved this re-cut; no new decision, no model call]")
+            return record
+        log("Opening retry: the approved re-cut no longer fits the plan ("
             + "; ".join(problems[:3]) + ") — deciding again")
-    if _opening_approved_by_bound_review(
-            human_review_path, rendered_contract_path,
-            os.path.join(output_dir, "first_minute_preview.mp4")):
-        return skipped("a bound human review already approved this opening")
     try:
         decision = _opening_retry.decide_opening_retry(
             ctx, rebind=lambda request: _opening_anchor_rebind(request, cost_sink=cost_sink))
     except Exception as exc:                # noqa: BLE001 - the opening still renders as planned
         log(f"Opening retry unavailable ({type(exc).__name__}: {str(exc)[:120]}) — "
             "the opening renders as planned")
-        return {"version": _opening_retry.RETRY_VERSION, "decided": False, "outcome": "error",
-                "key": key, "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        record = {"version": _opening_retry.RETRY_VERSION, "decided": False, "outcome": "error",
+                  "key": key, "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        try:
+            persist(record)     # over any older record: nothing from it is applied this launch
+        except OSError:
+            pass
+        return record
     decision["key"] = key
     decision["decided_at"] = datetime.now(timezone.utc).isoformat()
     if previous and previous.get("key") and previous.get("key") != key:
@@ -7595,11 +7644,13 @@ def _opening_retry_at_gate(*, opening_results: list[dict], script: dict,
     if decision.get("edits"):
         problems = _opening_retry.apply_edits_in_place(states, decision["edits"])
         if problems:
-            # Cannot happen with edits built from these very lists; if it does, render as planned
-            # rather than a half-applied plan the decision never scored.
+            # Cannot happen: evaluate() refuses any candidate whose edits would not apply to these
+            # very lists. If it does, render as planned rather than a half-applied plan the
+            # decision never scored; the gate's measured readiness then names the opening.
             log("Opening retry: edits did not apply (" + "; ".join(problems[:3]) + ") — "
                 "the opening renders as planned")
-            decision.update(edits=[], outcome="error", error="; ".join(problems[:6]))
+            decision.update(edits=[], outcome="error", error="; ".join(problems[:6]),
+                            after=decision.get("before"), dropped_state_ids=[], reanchored=[])
     persist(decision)
     log(_opening_retry.summary_line(decision))
     if decision.get("llm_calls"):
@@ -7637,6 +7688,22 @@ def _opening_retry_result(record: dict) -> dict:
         "continued_below_b": bool(record.get("continued_below_b")),
         "report_path": record.get("report_path", ""),
     }
+
+
+def _opening_degraded_reason(record: dict, readiness: dict | None,
+                             plan: list | None) -> str:
+    """The opening's degraded reason for the run result, or ''.
+
+    Read from the readiness the gate measured on the rendered opening (opening_retry.degraded_
+    reason). A script shortfall reaches the reasons only when the operator continued past the stop.
+    """
+    if not isinstance(record, dict):
+        return ""
+    reason = _opening_retry.degraded_reason(record, readiness, plan)
+    if reason and record.get("outcome") == "script_shortfall" and not record.get(
+            "continued_below_b"):
+        return ""
+    return reason
 
 
 def _stop_if_opening_below_b(record: dict, output_dir: str, log=print) -> None:
@@ -15261,9 +15328,15 @@ def run_explainer_pipeline(
             retention_validation=retention_validation, evidence_plan=evidence_plan,
             motion_state_ids=frozenset(state_motion_clips), opening_stop=opening_stop,
             output_dir=output_dir, controlled_pilot=controlled_pilot,
+            illustrated_story_on=illustrated_story_on,
             human_review_path=human_review_path, rendered_contract_path=rendered_contract_path,
             threshold_profile=threshold_profile, evidence_plan_path=evidence_plan_path,
             cost_sink=aux_costs, log=log)
+        # A script-shortfall opening stops HERE: the decision is known before anything is rendered,
+        # so neither the gate render nor its blind judge is bought for an opening the run will
+        # refuse, and no armed-lane gate below can ask a person to approve it first. One whose
+        # cuts could not be placed continues with its best attempt and is marked degraded below.
+        _stop_if_opening_below_b(opening_retry_record, output_dir, log)
         log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
             (first_minute_preview_path, opening_metrics, opening_cues,
@@ -15531,9 +15604,6 @@ def run_explainer_pipeline(
                     "visual assets will not be purchased.")
             log("  ⚠ [OPENING FREEZE, advisory] opening not approved/frozen — "
                 "continuing to the remaining scenes")
-        # A script-shortfall opening stops here, before any later image is bought; one whose cuts
-        # could not be placed continues with its best attempt and is marked degraded below.
-        _stop_if_opening_below_b(opening_retry_record, output_dir, log)
 
     later = []
     if opening_stop < len(scenes):
@@ -16115,11 +16185,11 @@ def run_explainer_pipeline(
         reasons.append("retention readiness hard failure(s): "
                        + ", ".join(str(h) for h in readiness["hard_failures"]))
     # The opening is frozen into the film, so the final grade dilutes it: bees_v16b shipped a 69 D
-    # opening inside a 93 A film. An opening the retry could not lift to B says so on its own.
-    _opening_reason = _opening_retry.degraded_reason(
+    # opening inside a 93 A film. An opening the gate MEASURED under B says so on its own, whatever
+    # the retry's record says (a stale replay, a refused edit, an approval); see degraded_reason.
+    _opening_reason = _opening_degraded_reason(
         opening_retry_record, opening_readiness, opening_shot_plan or None)
-    if _opening_reason and (opening_retry_record.get("outcome") != "script_shortfall"
-                            or opening_retry_record.get("continued_below_b")):
+    if _opening_reason:
         reasons.append(_opening_reason)
     # The rendered contract's own verdict. The delivered film's rendered_contract.json carried
     # publishable:false, calibrated:false and an uncertified_reason, and none of it reached this

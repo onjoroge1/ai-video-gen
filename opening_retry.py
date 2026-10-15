@@ -50,6 +50,7 @@ until it says yes is not a retry rule.
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import math
@@ -60,6 +61,7 @@ from longform_evidence import _anchor_key, validate_evidence_plan
 from longform_rendered_gate import (
     MOTION_HOLD_ALLOWANCE_SECONDS,
     OPENING_AVG_STATE_RANGE,
+    OPENING_MAX_STATE_SECONDS,
     PROVISIONAL_THRESHOLD_PROFILE,
 )
 from longform_shots import (
@@ -80,7 +82,10 @@ TARGET_SCORE = 80
 # exactly 80 with no other visual point to spare. 0.75 earns 2.
 ACCEPT_ALIGNMENT = 0.75
 # The rendered gate rejects a still held past 3.5 s. A candidate that lands ON the line (bees_v16b's
-# best drop left a 3.50 s hold) passes by rounding, so the retry requires margin.
+# best drop left a 3.50 s hold) passes by rounding, so the retry requires margin -- on the holds a
+# re-cut creates or lengthens. A hold already in the plan, untouched by the edit, ships either way
+# and the gate accepts it, so it is no reason to refuse the re-cut (8 of 30 saved openings carry
+# one between 3.40 and 3.50 s; history-aral-sea holds 3.46 s).
 ACCEPT_MAX_HOLD_SECONDS = 3.4
 SPACING_SECONDS = MIN_SHOT_SECONDS
 ACCEPTED_STATUSES = {"accepted", "reused_exact"}
@@ -227,13 +232,31 @@ def uncapped_score(report: dict) -> int:
     return round(100.0 * int(report.get("raw_score") or 0) / assessed) if assessed else 0
 
 
-def rendered_gate_checks(plan: list[list[dict]], source_change_floor: float) -> dict:
+def long_holds(plan: list[list[dict]]) -> list[tuple]:
+    """Every still held past the retry's margin, keyed by where it sits and how long it is.
+
+    Two plans share a key only for the same picture, starting at the same instant, for the same
+    duration, in the same scene -- a hold the re-cut left exactly as it was.
+    """
+    out = []
+    for k, scene in enumerate(plan):
+        for shot in scene:
+            duration = float(shot.get("duration") or 0.0)
+            if shot.get("kind") != "i2v" and duration > ACCEPT_MAX_HOLD_SECONDS:
+                out.append((k, _text(shot.get("state_id")), _text(shot.get("source")),
+                            round(float(shot.get("start_sec") or 0.0), 3), round(duration, 3)))
+    return out
+
+
+def rendered_gate_checks(plan: list[list[dict]], source_change_floor: float, *,
+                         baseline_holds: list | None = None) -> dict:
     """The rendered gate's deterministic cadence checks, computed on the plan before encoding.
 
     Same arithmetic as longform_rendered_gate.inspect_rendered_opening over the flattened shots:
-    average state length inside OPENING_AVG_STATE_RANGE, no still past the hold limit (here with
-    margin, ACCEPT_MAX_HOLD_SECONDS), no motion shot past its clip allowance, and the source-change
-    ratio at or above the slideshow line.
+    average state length inside OPENING_AVG_STATE_RANGE, no still past the gate's 3.5 s, no motion
+    shot past its clip allowance, and the source-change ratio at or above the slideshow line. A
+    still past ACCEPT_MAX_HOLD_SECONDS fails too, unless the plan as planned already held it
+    unchanged (`baseline_holds`, from long_holds): the margin is on what the re-cut does.
     """
     shots = [shot for scene in plan for shot in scene]
     durations = [float(shot.get("duration") or 0.0) for shot in shots]
@@ -245,11 +268,22 @@ def rendered_gate_checks(plan: list[list[dict]], source_change_floor: float) -> 
     max_still = max(stills, default=0.0)
     ratio = changes / max(1, len(shots) - 1)
     low, high = OPENING_AVG_STATE_RANGE
+    untouched = collections.Counter(tuple(hold) for hold in (baseline_holds or []))
+    new_holds = []
+    for hold in long_holds(plan):
+        if untouched[hold] > 0:
+            untouched[hold] -= 1
+        else:
+            new_holds.append(hold)
     failures = []
     if not low <= average <= high:
         failures.append(f"average state {average:.2f}s is outside {low}-{high}s")
-    if max_still > ACCEPT_MAX_HOLD_SECONDS:
-        failures.append(f"a still holds {max_still:.2f}s (limit {ACCEPT_MAX_HOLD_SECONDS}s "
+    if max_still > OPENING_MAX_STATE_SECONDS:
+        failures.append(f"a still holds {max_still:.2f}s, past the rendered gate's "
+                        f"{OPENING_MAX_STATE_SECONDS}s")
+    elif new_holds:
+        longest = max(hold[-1] for hold in new_holds)
+        failures.append(f"a still holds {longest:.2f}s (limit {ACCEPT_MAX_HOLD_SECONDS}s "
                         "with margin under the 3.5s gate)")
     if any(d > MOTION_HOLD_ALLOWANCE_SECONDS for d in motion):
         failures.append(f"a motion shot holds {max(motion):.2f}s past its clip allowance")
@@ -257,6 +291,7 @@ def rendered_gate_checks(plan: list[list[dict]], source_change_floor: float) -> 
         failures.append(f"source-change ratio {ratio:.2f} is under {source_change_floor:.2f}")
     return {"average_state_sec": round(average, 3), "max_still_sec": round(max_still, 3),
             "source_change_ratio": round(ratio, 3), "shot_count": len(shots),
+            "long_holds": long_holds(plan), "new_long_holds": new_holds,
             "passed": not failures, "failures": failures}
 
 
@@ -426,6 +461,28 @@ def apply_edits(states: list[list[dict]], edits: list[dict]) -> list[list[dict]]
     return out
 
 
+def edit_problems(states: list[list[dict]], edits: list[dict]) -> list[str]:
+    """Why `edits` would not apply to `states` as they stand; empty when they would.
+
+    The same test apply_edits_in_place makes on the shared lists. evaluate() makes it on every
+    candidate too, so no decision can choose edits the pipeline would then refuse -- an R2 re-bind
+    of a state the R1 seed had already re-anchored once carried the seed's phrase as `old`.
+    """
+    by_id = {_text(state.get("state_id")): state for scene in states for state in scene}
+    problems = []
+    for edit in edits:
+        state_id = edit.get("state_id")
+        state = by_id.get(state_id)
+        if state is None:
+            problems.append(f"{state_id}: not in the opening plan")
+        elif edit.get("op") not in ("drop", "reanchor"):
+            problems.append(f"{state_id}: unknown edit {edit.get('op')!r}")
+        elif edit.get("op") == "reanchor" and _text(state.get("anchor_phrase")) != edit.get("old"):
+            problems.append(f"{state_id}: anchor is "
+                            f"{_text(state.get('anchor_phrase'))!r}, not {edit.get('old')!r}")
+    return problems
+
+
 def apply_edits_in_place(states: list[list[dict]], edits: list[dict]) -> list[str]:
     """Apply the chosen edits to the SHARED lists, or nothing at all.
 
@@ -433,16 +490,7 @@ def apply_edits_in_place(states: list[list[dict]], edits: list[dict]) -> list[st
     longer match the plan is not applied by halves: the caller decides again instead.
     """
     by_id = {_text(state.get("state_id")): state for scene in states for state in scene}
-    problems = []
-    for edit in edits:
-        state = by_id.get(edit.get("state_id"))
-        if state is None:
-            problems.append(f"{edit.get('state_id')}: not in the opening plan")
-        elif edit.get("op") == "reanchor" and _text(state.get("anchor_phrase")) != edit.get("old"):
-            problems.append(f"{edit.get('state_id')}: anchor is "
-                            f"{_text(state.get('anchor_phrase'))!r}, not {edit.get('old')!r}")
-        elif edit.get("op") not in ("drop", "reanchor"):
-            problems.append(f"{edit.get('state_id')}: unknown edit {edit.get('op')!r}")
+    problems = edit_problems(states, edits)
     if problems:
         return problems
     drops = {e["state_id"] for e in edits if e["op"] == "drop"}
@@ -565,19 +613,43 @@ def _validate(ctx: OpeningContext, states: list[list[dict]]) -> dict | None:
                                   opening_only=True, purchased_through=ctx.purchased_through)
 
 
+def _planned_long_holds(ctx: OpeningContext) -> list[tuple]:
+    try:
+        return long_holds(compile_opening(ctx))
+    except ValueError:
+        return []
+
+
+def compare_baseline(baseline: dict) -> dict:
+    """What every candidate is measured against: the plan as planned, evaluated once."""
+    return {"validation_errors": baseline.get("validation_errors") or [],
+            "bolt_ratio": baseline.get("bolt_ratio"),
+            "long_holds": list((baseline.get("gate") or {}).get("long_holds") or [])}
+
+
 def evaluate(ctx: OpeningContext, edits: list[dict], *, label: str = "", rung: str = "",
              baseline: dict | None = None) -> dict:
     """Compile, score and check one candidate. Never raises for a bad candidate; it is rejected."""
-    states = apply_edits(ctx.states, edits)
     result = {"label": label, "rung": rung, "edits": list(edits), **_edit_counts(edits),
               "compiled": False, "valid": False, "accepted": False, "rejected_because": []}
+    problems = edit_problems(ctx.states, edits)
+    if problems:
+        result["rejected_because"].append("edits do not apply to the plan: "
+                                          + "; ".join(problems[:3]))
+        return result
+    states = apply_edits(ctx.states, edits)
     try:
         plan = compile_opening(ctx, states)
     except ValueError as exc:
         result["rejected_because"].append(f"does not compile: {str(exc)[:160]}")
         return result
     scored = score_opening(ctx, plan)
-    gate = rendered_gate_checks(plan, ctx.source_change_floor)
+    # The holds the plan as planned already carries are not the re-cut's doing.
+    if baseline is not None and "long_holds" in baseline:
+        untouched = baseline["long_holds"]
+    else:
+        untouched = long_holds(plan) if not edits else _planned_long_holds(ctx)
+    gate = rendered_gate_checks(plan, ctx.source_change_floor, baseline_holds=untouched)
     validation = _validate(ctx, states)
     result.update({
         "compiled": True, "plan": plan, "states": states, "report": scored["report"],
@@ -937,9 +1009,16 @@ def validate_rebind(ctx: OpeningContext, states: list[list[dict]], targets: list
 
 
 def _merge_reanchors(edits: list[dict], extra: list[dict]) -> list[dict]:
+    """The seed's edits with R2's re-anchors laid over them.
+
+    R2 is validated against the SEED's states, so a state the seed had already re-anchored comes
+    back with the seed's phrase as `old`. The seed's edit is replaced, and its `old` -- the anchor
+    the shared plan actually carries -- is kept, or the pipeline refuses the merged edit.
+    """
     replaced = {e["state_id"] for e in extra}
-    return [e for e in edits if not (e.get("op") == "reanchor" and e["state_id"] in replaced)] \
-        + list(extra)
+    seed_old = {e["state_id"]: e["old"] for e in edits if e.get("op") == "reanchor"}
+    kept = [e for e in edits if not (e.get("op") == "reanchor" and e["state_id"] in replaced)]
+    return kept + [dict(e, old=seed_old.get(e["state_id"], e["old"])) for e in extra]
 
 
 # ── The decision ──────────────────────────────────────────────────────────────────────────────
@@ -991,6 +1070,22 @@ def below_b_axes(report: dict) -> list[dict]:
     return rows
 
 
+def _clears_b(result: dict) -> bool:
+    return (int(result.get("score") or 0) >= TARGET_SCORE and result.get("grade") in ("A", "B")
+            and not result.get("hard_failures"))
+
+
+def outcome_class(before: dict, ceiling: int, after: dict) -> str:
+    """The outcome _decide reaches from these three measurements (`after` an evaluate() result)."""
+    if not (int(before.get("score") or 0) < TARGET_SCORE or before.get("hard_failures")):
+        return "not_needed"
+    if int(ceiling) < TARGET_SCORE:
+        return "script_shortfall"
+    if after.get("accepted"):
+        return "passed"
+    return "passed_without_margin" if _clears_b(after) else "below_b_after_retry"
+
+
 def decide_opening_retry(ctx: OpeningContext, *,
                          rebind: Callable[[dict], tuple[Any, float]] | None = None) -> dict:
     """Diagnose, then climb the ladder. Returns the decision; applies nothing.
@@ -1010,8 +1105,7 @@ def decide_opening_retry(ctx: OpeningContext, *,
 
 def _decide(ctx: OpeningContext, rebind) -> dict:
     baseline = evaluate(ctx, [], label="as planned", rung="")
-    baseline_for_compare = {"validation_errors": baseline.get("validation_errors") or [],
-                            "bolt_ratio": baseline.get("bolt_ratio")}
+    baseline_for_compare = compare_baseline(baseline)
     diagnosis = diagnose_opening(ctx)
     ceiling = diagnosis["ceiling"]
     decision: dict = {
@@ -1091,8 +1185,7 @@ def _decide(ctx: OpeningContext, rebind) -> dict:
     # The best attempt can clear B by grade and still miss the acceptance margin (wolves01: 91 A
     # at 8/11 = 73% aligned, under 75%). It is applied either way, as the best attempt; only an
     # opening that is still under B, or still capped, is reported as one.
-    clears = (int(best.get("score") or 0) >= TARGET_SCORE and best.get("grade") in ("A", "B")
-              and not best.get("hard_failures"))
+    clears = _clears_b(best)
     decision.update(outcome="passed_without_margin" if clears else "below_b_after_retry",
                     rung=best.get("rung") or None, edits=best.get("edits") or [],
                     after=_summary(best), label=best.get("label"))
@@ -1130,10 +1223,64 @@ def retry_key(*, audio_sha256: list[str], word_times: list, states: list[list[di
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+# What _decide can conclude. An `error` record is not a decision: its edits were not applied, and a
+# resume decides again rather than rendering its failure a second time.
+DECIDED_OUTCOMES = ("not_needed", "script_shortfall", "passed", "passed_without_margin",
+                    "below_b_after_retry")
+
+
 def replayable(record: Any, key: str) -> bool:
     return (isinstance(record, dict) and record.get("decided") is True
+            and record.get("outcome") in DECIDED_OUTCOMES
             and record.get("key") == key and record.get("version") == RETRY_VERSION
             and isinstance(record.get("edits"), list))
+
+
+_REPLAY_FIELDS = ("score", "grade", "hard_failures", "aligned", "cuts")
+
+
+def replay_mismatches(ctx: OpeningContext, record: dict) -> list[str]:
+    """Why a saved decision no longer describes this opening; empty when it still does.
+
+    The key covers the opening's audio, words and states. The score also reads the whole-script
+    validation, the script's packaging fields, the verification flags and the scorer and compiler
+    themselves, and none of those is in the key -- so a replay is RE-SCORED first (pure, $0,
+    milliseconds): the plan as planned and the plan with the saved edits must measure exactly what
+    the record says, and land in the same outcome. A script_shortfall whose later scenes were since
+    rewritten, or a `passed` re-cut whose script got weaker, is decided again rather than stopping
+    the run, or shipping unflagged, on a score the gate no longer measures. Never raises.
+    """
+    edits = record.get("edits") or []
+    problems = edit_problems(ctx.states, edits)
+    if problems:
+        return problems
+    try:
+        base = evaluate(ctx, [], label="as planned")
+        if not base.get("compiled"):
+            return ["the plan as planned no longer compiles"]
+        after = evaluate(ctx, edits, baseline=compare_baseline(base)) if edits else base
+        if not after.get("compiled"):
+            return ["the saved edits no longer compile"]
+        ceiling = recut_ceiling(base["report"])
+    except Exception as exc:                # noqa: BLE001 - an unscorable replay is decided again
+        return [f"re-scoring failed ({type(exc).__name__}: {str(exc)[:120]})"]
+    fresh = {"before": _summary(base), "after": _summary(after)}
+    saved = {"before": record.get("before") or {},
+             "after": record.get("after") or record.get("before") or {}}
+    mismatches = []
+    for side in ("before", "after"):
+        for field in _REPLAY_FIELDS:
+            was, now = saved[side].get(field), fresh[side].get(field)
+            if field == "hard_failures":
+                was, now = list(was or []), list(now or [])
+            if was != now:
+                mismatches.append(f"{side} {field} was {was!r}, now {now!r}")
+    if record.get("ceiling") != ceiling:
+        mismatches.append(f"re-cut ceiling was {record.get('ceiling')!r}, now {ceiling}")
+    outcome = outcome_class(fresh["before"], ceiling, after)
+    if outcome != record.get("outcome"):
+        mismatches.append(f"outcome was {record.get('outcome')!r}, now {outcome!r}")
+    return mismatches
 
 
 def summary_line(decision: dict) -> str:
@@ -1141,6 +1288,10 @@ def summary_line(decision: dict) -> str:
     after = decision.get("after") or before
     outcome = decision.get("outcome")
     aligned = f"aligned {after.get('aligned')}/{after.get('cuts')}"
+    if outcome == "error":
+        return (f"Opening retry: error — {decision.get('error') or 'no decision'}; the opening "
+                f"renders as planned ({before.get('score')} {before.get('grade')}, "
+                f"aligned {before.get('aligned')}/{before.get('cuts')})")
     if outcome == "not_needed":
         return (f"Opening retry: not needed — {before.get('score')} {before.get('grade')}, "
                 f"{aligned}")
@@ -1226,21 +1377,49 @@ def below_b_report(decision: dict) -> tuple[dict, str]:
     return report, "\n".join(lines).rstrip() + "\n"
 
 
+# Skips that leave the opening exactly as it was before this rule existed: the retry was turned
+# off, or this is not a lane it runs in. Every other record -- a decision, an error, an approval --
+# is held to the opening the gate actually measured.
+RULE_OFF_SKIPS = ("off", "not_illustrated", "controlled_pilot")
+
+
 def degraded_reason(decision: dict, readiness: dict | None, plan: list[list[dict]] | None) -> str:
-    """The degraded reason for an opening that stayed under B after the retry, or ''."""
-    if not isinstance(decision, dict) or decision.get("outcome") not in (
-            "below_b_after_retry", "script_shortfall"):
+    """The degraded reason for an opening that rendered under B, or ''.
+
+    Read from the readiness the 45-second gate MEASURED on the rendered plan, whatever the
+    record's outcome says: a replayed `passed` whose inputs moved, an `error` whose edits were
+    refused, or an approved opening all render below B without the outcome saying so. Only when
+    the gate measured nothing does the decision's own `after` stand in, and then only for the
+    outcomes that already say below B.
+    """
+    if not isinstance(decision, dict) or not decision:
+        return ""
+    outcome = decision.get("outcome")
+    if outcome == "skipped" and decision.get("skip_kind") in RULE_OFF_SKIPS:
         return ""
     readiness = readiness or {}
-    score = readiness.get("score", (decision.get("after") or {}).get("score"))
-    if readiness and int(score or 0) >= TARGET_SCORE and not readiness.get("hard_failures"):
+    if readiness:
+        score = readiness.get("score")
+        if int(score or 0) >= TARGET_SCORE and not readiness.get("hard_failures"):
+            return ""
+    elif outcome in ("below_b_after_retry", "script_shortfall"):
+        score = (decision.get("after") or {}).get("score")
+    else:
         return ""
     if plan:
         aligned, cuts = cut_alignment(plan)
     else:
-        aligned = (decision.get("after") or {}).get("aligned")
-        cuts = (decision.get("after") or {}).get("cuts")
-    if decision.get("outcome") == "script_shortfall":
+        aligned = (decision.get("after") or decision.get("before") or {}).get("aligned")
+        cuts = (decision.get("after") or decision.get("before") or {}).get("cuts")
+    if outcome == "script_shortfall":
         return (f"opening45 below B: script shortfall (re-cut ceiling {decision.get('ceiling')}, "
                 f"score {score}); continued under OPENING_RETRY_ALLOW_BELOW_B")
-    return f"opening45 below B after retry ({aligned}/{cuts} cuts aligned, score {score})"
+    if outcome == "below_b_after_retry":
+        return f"opening45 below B after retry ({aligned}/{cuts} cuts aligned, score {score})"
+    if outcome == "approved_by_review":
+        return (f"opening45 below B, approved by a bound human review ({aligned}/{cuts} cuts "
+                f"aligned, score {score})")
+    why = {"error": "the retry failed and the opening rendered as planned",
+           "skipped": f"retry skipped: {decision.get('skip_reason') or 'no reason recorded'}",
+           }.get(outcome, f"retry outcome {outcome}, but the rendered opening measured under B")
+    return f"opening45 below B ({why}; {aligned}/{cuts} cuts aligned, score {score})"
