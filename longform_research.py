@@ -432,9 +432,15 @@ def _valid_https(url: str) -> bool:
 
 
 def _canonical_url(url: str) -> str:
+    # "www." is the same page: web search returned https://cbsnews.com/amp/news/... while the
+    # claim cited https://www.cbsnews.com/amp/news/..., and the provenance check dropped two
+    # verified CBS claims as "never returned by web search" (hippo remake, 2026-10-15).
     try:
         parsed = urlparse(url)
-        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
+        host = parsed.netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return f"{parsed.scheme.lower()}://{host}{parsed.path.rstrip('/')}"
     except Exception:
         return _text(url)
 

@@ -146,12 +146,23 @@ def synthesis_caps(chain_count: int) -> tuple[int, int]:
     return words, max(SYNTHESIS_MAX_SENTENCES, -(-words // 15))
 
 
+def synthesis_switched_off() -> bool:
+    """SYNTHESIS_DEVICE=off: no recap at all (operator, 2026-10-15). The YouTube review of the
+    hippo film flagged its "trace the whole chain once more" scene, and the films the home feed
+    tested had already lost three quarters of their viewers by then. Default on. Both the
+    compiler (synthesis_planned) and the storyboard contract (_check_synthesis) read it: switching
+    off only the first planned no recap and then refused the storyboard as SYNTHESIS_MISSING."""
+    return (os.environ.get("SYNTHESIS_DEVICE", "on") or "on").strip().lower() == "off"
+
+
 def synthesis_planned(engine: dict | None, duration_sec: float) -> bool:
     """Does this film carry a synthesis? The engine names it and the runtime can hold it.
 
     An unknown runtime (0) adds NO device: every existing compiler caller that passes no
     duration keeps the sheet it had, and the pipeline always passes the requested runtime.
     """
+    if synthesis_switched_off():
+        return False
     if not engine or SYNTHESIS not in (engine.get("sequence") or ()):
         return False
     try:
@@ -888,7 +899,7 @@ def _check_synthesis(steps: list[dict], issues: list[dict], engine: dict | None,
     """
     present = [s for s in steps if s["role"] == SYNTHESIS]
     demanded = bool((engine or {}).get("compiled_synthesis")) and (
-        float(runtime_sec or 0.0) >= SYNTHESIS_MIN_RUNTIME_SEC)
+        float(runtime_sec or 0.0) >= SYNTHESIS_MIN_RUNTIME_SEC) and not synthesis_switched_off()
     if not present:
         if demanded:
             issues.append(_issue(

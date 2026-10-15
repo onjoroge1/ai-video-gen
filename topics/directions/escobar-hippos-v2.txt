@@ -1,0 +1,72 @@
+Bolt Explains the World: one sourced animal-introduction backfire, ~5-minute landscape illustrated documentary.
+REMAKE of hFk6YVSa0xk (2026-10-15). WITNESS OPENING (run with --opening witness --no-synthesis --music).
+
+WHY THIS REMAKE: on the three films the home feed tested, viewers held for about 11 seconds and then half
+or more left by 30-35 seconds -- exactly where each film turned from its hook back into setup and scenery
+("Picture the land that received them... For a hippo, this is a buffet"). After 35 seconds the curves were
+flat. So the first 35 seconds carry stakes a viewer can see, told through people, and the story only starts
+going back in time once the viewer is holding a question.
+
+OPENING (human, stakes first):
+- The myth line, the viewer's own guess: "You'd think four hippos left behind on a ranch would simply die out."
+- THE BUST with the scale: ONE cited fact, as the sources state it (the census count and its year, OR the
+  ranking as the largest invasive species) -- not three facts in one sentence -- and not yet why. Each
+  population figure is said once in the whole film.
+- THE WITNESS: Alvaro Molina near Puerto Triunfo -- the female hippo that had recently given birth moved
+  beneath his canoe while he was fishing and spilled him into the water, and he lived. Only what the source
+  (CBS) says: no invented thoughts, words, injuries or details.
+- THE QUESTION, once: "So why can't Colombia stop them?"
+- Then the viewer's role, second person: someone who fishes or farms along the Magdalena near the old
+  estate, the need tangible (the river, the catch, the cattle) in one or two sentences, never restated.
+- The decision as the sources give it (four hippos, their sexes, shipped to Escobar's private zoo at
+  Hacienda Napoles; the year as the sources state it) and the first unintended consequence -- after his
+  death in 1993 the hippos stayed, bred, and left the estate for the rivers -- within the 45-second turn.
+- The nickname "cocaine hippos" may be said once, as the sources use it.
+
+BODY (each scene adds a fact, a cause or a turn; no "Picture...", "Imagine..." or "Think about..."
+restatement lines; no recap scene):
+Causal arc as questions for research to answer, not facts: Why can the population grow here when it
+cannot in Africa (predators, droughts, year-round water and food), as quoted from a source page that opens?
+How fast has it grown, by what estimate and method? How far have hippos spread down the Magdalena? What do
+their waste and wallows do to lakes and fish (cyanobacteria, dissolved oxygen, fish kills), as studies
+measured it? What contact with people do sources document beyond the opening's witness (attacks on fishing
+communities, a school yard), without re-telling Molina? What has Colombia decided and tried -- sterilization,
+relocation offers, the culling decision -- with dates, and what do the newest sources say about whether it
+is working? What do authorities project for 2030 and 2035 (state projections as projections)?
+
+CLOSE: return to Alvaro Molina's stretch of river -- the witness -- in one sentence, then the corrected myth
+("Four hippos were never a small mistake...") and the old wooden zoo gate. The verdict names no number.
+
+REQUIRED WITNESS EVIDENCE (research must return this as its own claim, quoted from the page): what
+happened to Alvaro Molina near Puerto Triunfo -- the CBS News report "Colombia's 'cocaine hippos'..." at
+https://www.cbsnews.com/news/colombia-cocaine-hippos-pablo-escobars-invasive-species/ (also served at
+cbsnews.com/amp/news/colombia-cocaine-hippos-pablo-escobars-invasive-species). Quote the sentence about the
+movement beneath his canoe that spilled him into the water while he was fishing, and the detail that the
+hippo was a female that had recently given birth, if the page says so.
+
+NARRATION LIMITS (from the first remake draft): the zoo gate is a PICTURE, not an event -- never narrate
+handlers walking away or gates being opened or left open; no source says so. Never say "year-round", "all
+year" or "no dry season": the sources say "no predators and ample food and water". No weights or numbers
+the claims do not state ("four tons").
+
+NO COMPARISON CASES: do not plan parallel cases from other countries or species (pythons, cane toads,
+Nile perch). Every beat is this story.
+
+Verify: the founding count and sexes; the import year (sources differ); the 1993 date; every population
+figure with its year and method; every projection as a projection; Colombia's decisions and their dates;
+Molina's incident exactly as the source tells it. Do not dramatize attacks beyond what a source states.
+
+Research starting points (each opened to an automated fetch on 2026-10-13):
+- Scientific American (reprinting Nature), "Colombia's 'Cocaine Hippo' Population Is Even Bigger Than
+  Scientists Thought": three females and one male; the 181-215 census; no natural predators or droughts.
+- NBC / Associated Press, "Colombia will try to control hippo population originally brought in by Pablo
+  Escobar": the import, Escobar's death in 1993, no natural predators, the invasive declaration, the plan.
+- BBC Wildlife via Yahoo News, "Pablo Escobar's cocaine hippos top 200": descended from four adults.
+- CBS News on the "cocaine hippos" (Alvaro Molina near Puerto Triunfo).
+- The 2023 Scientific Reports study of 14 lakes near Hacienda Napoles (nature.com/articles/s41598-023-33028-y).
+
+STORYBOARD: every sentence of the opening gets a different composition (no repeated shot); people in frame;
+Alvaro Molina drawn the same way each time he appears and only doing what the source says; the viewpoint
+river resident visually consistent and distinct from him; the recurring story object is the old wooden zoo
+gate of the estate, drawn the same way every time; the mechanism cutaway shows, in one picture, an African
+river with lions and a dry season beside a Colombian river with neither; no maps; no gore.

@@ -67,9 +67,15 @@ def main() -> int:
     parser.add_argument("--engine", default="",
                         help="pin the story engine for this run, e.g. accumulating_indictment "
                              "(story_engines.ENGINES); empty lets the selector choose")
-    parser.add_argument("--opening", choices=("ladder", "myth"), default="ladder",
+    parser.add_argument("--opening", choices=("ladder", "myth", "witness"), default="ladder",
                         help="ladder: the human-first frame; myth: the myth-buster opening "
-                             "(\"You'd think ...\", bust, danger, question, then the story)")
+                             "(\"You'd think ...\", bust, danger, question, then the story); "
+                             "witness: the myth opening with the scale in the bust and one "
+                             "documented person's moment in place of the danger")
+    parser.add_argument("--no-synthesis", action="store_true",
+                        help="plan no recap (synthesis) scene before the close")
+    parser.add_argument("--music", action="store_true",
+                        help="add the locally composed chamber score (ILLUSTRATED_MUSIC=1)")
     parser.add_argument("--packaging", choices=("world", "history"), default="world",
                         help="title and thumbnail style: world (FATAL ERROR backfire packaging for "
                              "backfire engines) or history (Bolt Explains History)")
@@ -80,8 +86,12 @@ def main() -> int:
 
     if args.engine:
         os.environ["STORY_ENGINE"] = args.engine
-    if args.opening == "myth":
-        os.environ["OPENING_HOOK"] = "myth"
+    if args.opening in ("myth", "witness"):
+        os.environ["OPENING_HOOK"] = args.opening
+    if args.no_synthesis:
+        os.environ["SYNTHESIS_DEVICE"] = "off"
+    if args.music:
+        os.environ["ILLUSTRATED_MUSIC"] = "1"
     if args.packaging == "history":
         os.environ["PACKAGING_STYLE"] = "history"
     out = Path(args.out).resolve()

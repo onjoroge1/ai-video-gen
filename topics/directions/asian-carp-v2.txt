@@ -1,0 +1,87 @@
+Bolt Explains the World: one sourced animal-introduction backfire, ~5-minute landscape illustrated documentary.
+REMAKE of eWJr_iwUNx4 (2026-10-15). WITNESS OPENING (run with --opening witness --no-synthesis --music).
+
+WHY THIS REMAKE: on the three films the home feed tested, viewers held for about 11 seconds and then half
+or more left by 30-35 seconds -- exactly where each film turned from its hook back into setup. The first
+carp film spent its first 53 seconds on the pond problem before anything went wrong, and buried the leaping
+carp at 3:16 and "45 states" at 4:20. After 35 seconds the curves were flat. So the first 35 seconds carry
+stakes a viewer can see, told through people, and the story only goes back to 1973 once the viewer is
+holding a question.
+
+OPENING (human, stakes first):
+- The myth line, the viewer's own guess, e.g. "You'd think a fish brought in to clean ponds would stay in
+  the pond."
+- THE BUST with the scale: ONE cited fact about SILVER AND BIGHEAD CARP, and not yet why -- how far up the
+  Mississippi system they have spread (as far north as Minnesota), how much is pulled out (commercial
+  fishers on the Illinois River regularly catch up to 25,000 pounds of bighead and silver carp a day, per
+  the Michigan DNR page below; 240,000 pounds from one Missouri lake in 2018), or their share of the fish
+  in a river reach if a source states it. Do NOT use the "45 states" figure: it describes GRASS carp, a different fish imported for weeds, and
+  this film is about the pond-cleaning silver and bighead carp.
+- THE WITNESS: one documented person at the moment the consequence reached them. Ask research for a NAMED
+  person a source describes -- a boater or angler struck by a leaping silver carp, or the commercial fisher
+  who in June 2017 caught a silver carp below the T.J. O'Brien Lock and Dam, nine miles from Lake Michigan,
+  on the lake side of the electric barriers. If no source names anyone, describe the person exactly as the
+  source does ("a commercial fisher", "boaters"). Only what the source says: no invented names, thoughts,
+  words or injuries.
+- THE QUESTION, once, e.g. "So how did a pond cleaner get past every wall built to stop it?"
+- Then the viewer's role, second person: you run catfish ponds (or a wastewater lagoon -- whichever the
+  sources document) in the American South and the water keeps turning green; you would rather not use
+  chemicals. One or two sentences, never restated.
+- The decision as the sources give it (silver and bighead carp brought from Asia in the 1970s, to graze
+  plankton and algae, for aquaculture and food; the year and state as the sources state them) and the
+  first unintended consequence -- fish escaping the ponds into open water by the route the sources
+  document -- within the 45-second turn.
+
+BODY (each scene adds a fact, a cause or a turn; no "Picture...", "Imagine..." or "Think about..."
+restatement lines; no recap scene):
+Causal arc as questions for research to answer, not facts: How did they escape (floods, other routes) and
+when? How did they spread up the Mississippi and its tributaries, and in what order? Why do they thrive
+(fecundity, no predator that eats adults, plankton food)? What do they take from native fish and mussels,
+as studies measured it? What happens to boaters when silver carp are disturbed (the witness was the
+opening; do not re-tell them)? What has been built or tried -- the electric barriers on the Chicago canal,
+commercial harvest, the "copi" market name -- with dates? What do the NEWEST sources (2023-2026) say about
+carp numbers on the Illinois River: are they falling, and why (contract harvest, native predators)? Use
+that as the reversal only if a source supports it; scope every "taken over" claim to the reaches sources
+describe.
+
+CLOSE: return to the witness -- that person or that stretch of river -- in one sentence, then the corrected
+myth and the opening object (the pond-side crate the carp arrived in). Claim only an outcome the sources
+support. The verdict names no number.
+
+REQUIRED WITNESS EVIDENCE (research must return each as its own claim, quoted from the page):
+- WHO caught the June 2017 silver carp below the T.J. O'Brien Lock and Dam: the Michigan DNR page
+  https://www.michigan.gov/invasives/id-report/fish/invasive-carp says a commercial fisher caught it, about
+  nine miles from Lake Michigan and on the Lake Michigan side of the electric barriers. Quote that sentence
+  with the person in it.
+- The boater injuries: https://www.nwf.org/Magazines/National-Wildlife/2010/Asian-Carp -- several boaters
+  injured by leaping silver carp, with broken jaws, noses, ribs, arms and legs. Quote it.
+- If any news report NAMES a person struck by a leaping silver carp, return that too, quoted.
+The film MUST include the leaping-carp danger to boaters as one body scene.
+
+NARRATION LIMITS (from the hippo remake's first draft): narrate only what a claim says -- no invented
+actions by unnamed people, no weights, speeds or counts the claims do not state, and no "most of the
+fish" or "taken over" beyond the reaches a source names. Never call the 2017 fisher "contracted".
+
+NO COMPARISON CASES: do not plan parallel cases from other countries or species (cane toads, Nile perch,
+pythons). Every beat is this story.
+
+Verify: the year and place of first import and who did it; the escape routes and dates; how far upstream
+the fish have reached and whether they have entered the Great Lakes (the 2017 capture below the O'Brien
+Lock is ONE fish, not an established population -- say so if used); any share-of-biomass or catch figure;
+the barrier's location, type and opening year; documented injuries; the market name and when it was adopted.
+
+Research starting points:
+https://nas.er.usgs.gov/queries/FactSheet.aspx?SpeciesID=549 (USGS NAS, silver carp)
+https://nas.er.usgs.gov/queries/FactSheet.aspx?SpeciesID=551 (USGS NAS, bighead carp)
+https://www.usgs.gov/faqs/what-are-invasive-carp (USGS FAQ: 1970s import, escape, spread)
+https://www.michigan.gov/invasives/id-report/fish/invasive-carp (the June 2017 capture below O'Brien Lock)
+https://www.nwf.org/Magazines/National-Wildlife/2010/Asian-Carp (boater injuries)
+https://invasivecarp.us/ (Invasive Carp Regional Coordinating Committee)
+
+STORYBOARD: every sentence of the opening gets a different composition (the first film repeated one crate
+shot for 18 seconds); silver carp are SILVER-GREY and bighead carp grey-brown -- never orange, gold, koi- or
+goldfish-like, even under a red colour grade; people in frame; the witness drawn consistently and only doing
+what the source says; the viewpoint pond keeper visually consistent and distinct; the recurring story object
+is the pond-side fish crate, drawn the same way every time; one mechanism cutaway: an underwater picture of
+carp gill rakers filtering plankton, with arrows to the plankton no longer reaching native fish, no text;
+no maps -- show the spread as concrete places (a flooded spillway, a boat ramp, a lock and dam).

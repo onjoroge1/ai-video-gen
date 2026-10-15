@@ -6674,9 +6674,40 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
     return result
 
 
+_REQUIRED_EVIDENCE = re.compile(r"^REQUIRED[A-Z ]*EVIDENCE\b.*?(?=\n[ \t]*\n|\Z)", re.S | re.M)
+
+
+def _required_evidence(direction: str) -> str:
+    """The direction's "REQUIRED ... EVIDENCE" paragraph, flattened for the research request.
+
+    Research is commissioned from the question alone; the operator direction reaches the planner,
+    not the researcher. So a direction's "research starting points" never reached research at
+    all, and the hippo remake's witness (Alvaro Molina, CBS) came back only by luck on the first
+    film and not at all on the remake (2026-10-15). A direction may name the evidence a film
+    cannot be made without in one paragraph headed REQUIRED ... EVIDENCE; "" when it has none, so
+    every other request stays byte-identical and keeps its cache and ledger keys.
+    """
+    match = _REQUIRED_EVIDENCE.search(direction or "")
+    return " ".join(match.group(0).split()) if match else ""
+
+
+_EVIDENCE_LABEL = re.compile(r"^\s*REQUIRED[A-Z ]*EVIDENCE\b[^:]*:\s*", re.I)
+
+
+def _strip_evidence_labels(dossier: dict) -> dict:
+    """Research echoed the request's heading into the claim text ("REQUIRED WITNESS EVIDENCE:
+    Alvaro Molina, 57, ..."), and claim text is what the writer narrates and the fidelity checks
+    compare against. The label is request metadata: drop it from every claim. A cached dossier is
+    cleaned on read, so no paid research is repeated (2026-10-15)."""
+    for claim in (dossier or {}).get("claims") or []:
+        if isinstance(claim, dict) and isinstance(claim.get("claim"), str):
+            claim["claim"] = _EVIDENCE_LABEL.sub("", claim["claim"])
+    return dossier
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None, evidence_gaps: list | None = None,
-                              duration_sec: float = 90.0) -> dict:
+                              duration_sec: float = 90.0, required_evidence: str = "") -> dict:
     """Build a cited, pre-script claim ledger with server-side web search.
 
     The claim target SCALES WITH RUNTIME. It was a flat 22-28 regardless, so a 300-second film
@@ -6733,6 +6764,9 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
            f"{events_for_runtime(duration_sec)} distinct factual events without any one of them "
            "resting on a single source. " if scaled else "")
         + channel_coverage
+        + (f"REQUIRED EVIDENCE named by the operator -- search for each named page and return each "
+           f"item as its own claim, quoted from that page, using a URL from your search results "
+           f"(still omit any you cannot support): {required_evidence} " if required_evidence else "")
         + "Ask for more than the video "
         "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
         "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
@@ -6819,7 +6853,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     # Consult the cache only now that the request exists, because the request is part of the key.
     cached = _cached_research_dossier(question, prompt, log)
     if cached:
-        return cached
+        return _strip_evidence_labels(cached)
     client = _anthropic_native()
     request = dict(
         model=ANTHROPIC_MODEL,
@@ -6957,7 +6991,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             cost_sink.append(round(extra_searches * _WEB_SEARCH_COST_CEILING, 4))
     text_blocks = [_s(getattr(block, "text", "")) for block in dossier_response.content
                    if _s(getattr(block, "text", ""))]
-    dossier = parse_research_dossier_text(text_blocks)
+    dossier = _strip_evidence_labels(parse_research_dossier_text(text_blocks))
     dossier["version"] = 1
     citation_records = {}
     for turn in responses:
@@ -14296,7 +14330,8 @@ def run_explainer_pipeline(
                 try:
                     screen_topic_fit(question, aux_costs, log, channel=topic_channel)
                     research_dossier = generate_research_dossier(
-                        question, cost_sink=aux_costs, log=log, duration_sec=duration_sec)
+                        question, cost_sink=aux_costs, log=log, duration_sec=duration_sec,
+                        required_evidence=_required_evidence(operator_direction))
                 except Exception as exc:
                     if research_mode == "required":
                         raise
@@ -14402,6 +14437,25 @@ def run_explainer_pipeline(
                     "DUPLICATE_NARRATION: scenes say the same thing — "
                     + "; ".join(f"scene {d['scene']} repeats scene {d['duplicate_of']} "
                                 f"({d['overlap']:.0%})" for d in _remaining))
+            # WITNESS POLISH (operator, 2026-10-15). The witness writer rules ban 'Picture ...' /
+            # 'Imagine ...' lines after the role frame, a continuation that re-tells its own beat,
+            # and a recapping close; the hippo remake's writer did all three. One bounded editor
+            # pass, before the claim judgement so the rewrite is judged like everything else.
+            # Reported, never blocking: a surviving defect is a taste failure, not a fact failure.
+            import hook_patterns as _hp_witness
+            if _hp_witness.witness_mode():
+                import script_editor as _script_editor
+                _wdefects = _script_editor.detect_witness_defects(script)
+                if _wdefects:
+                    log("Witness polish: " + "; ".join(
+                        f"scene {d['scene']} {d['code']} ({d['note'][:40]})" for d in _wdefects))
+                    script, _wcost, _wleft = _script_editor.edit(
+                        script, research_dossier, _wdefects, aux_costs, log)
+                    if _wcost:
+                        rederive_narration_bindings(script, log, research_dossier)
+                        scenes = script.get("scenes", [])
+                    if _wleft:
+                        log(f"Witness polish: {len(_wleft)} defect(s) remain (reported, not blocking)")
             claim_validation = _validate_claims(script, research_dossier, aux_costs)
             script["_claim_validation"] = claim_validation
             # REPAIR WHILE IT IS CONVERGING, up to a hard ceiling. One attempt took a run from
