@@ -25,6 +25,7 @@ REPEAT = "REPEAT"
 COLD_OPEN_RESTATED = "COLD_OPEN_RESTATED"
 META_PHRASE = "META_PHRASE"
 FILLER = "FILLER"
+CLOSE_RECAP = "CLOSE_RECAP"
 HOOK_TOO_LONG = "HOOK_TOO_LONG"
 HINGE_TOO_LONG = "HINGE_TOO_LONG"
 EXCEEDS_EVENT = "EXCEEDS_EVENT"
@@ -51,14 +52,60 @@ _SYSTEM = (
     "holds that the earlier scene left out. A rewrite that keeps the same nouns in a new order "
     "fails the gate and is thrown away. "
     "META_PHRASE / FILLER -- remove the phrase that narrates the video or points backwards; say "
-    "the content directly. HOOK_TOO_LONG / HINGE_TOO_LONG -- cut to the budget without losing the "
-    "turn. EXCEEDS_EVENT -- cut the listed unsupported details rather than hedging them. "
+    "the content directly; a 'Picture ...' or 'Imagine ...' sentence becomes the plain statement "
+    "of what is there. CLOSE_RECAP -- the close re-walks the story ('So trace the whole chain "
+    "back ...'); delete the recap sentences and put in their place ONE sentence that returns to "
+    "the person or place of the opening as the opening described them, adding no fact; keep the "
+    "closing question and the final image. HOOK_TOO_LONG / HINGE_TOO_LONG -- cut to the budget "
+    "without losing the turn. EXCEEDS_EVENT -- cut the listed unsupported details rather than "
+    "hedging them. "
     "Return ONLY JSON: {\"scenes\": [{\"scene\": <1-based index>, \"narration\": \"...\"}]}"
 )
 
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+# The witness opening's writer rules (hook_patterns.WITNESS_*) ban these, and the hippo remake's
+# writer used them anyway (2026-10-15): "So picture the fallout...", "Picture a slow manatee...",
+# "Imagine being the one who has to choose", and a close that began "So trace the whole chain
+# back" with synthesis switched off. Rules the model may ignore need a check that cannot.
+_FILLER_LEAD = re.compile(r"^(?:(?:so|and|now|but)\s*,?\s+)?(?:picture|imagine|think about)\b", re.I)
+_RECAP = re.compile(r"\btrace\b[^.!?]*\b(?:back|chain|once more)\b|\bthe whole chain\b|"
+                    r"\bonce more\b|\bto recap\b|\blet'?s recap\b", re.I)
+
+
+def detect_witness_defects(script: dict) -> list[dict]:
+    """Witness-mode defects: a "Picture/Imagine/Think about" sentence outside the opening rows
+    (the role frame there is allowed), a continuation scene that re-tells its own beat, and a
+    close that recaps. Free; the editor pass is the only spend. Each carries witness=True so the
+    editor re-checks it after the rewrite."""
+    import causal_story as cs
+    import explainer_pipeline as ep
+    scenes = script.get("scenes") or []
+    out: list[dict] = []
+    for i, scene in enumerate(scenes, 1):
+        role = _text(scene.get("causal_role") or scene.get("role")).lower()
+        sentences = re.split(r"(?<=[.!?])\s+", _text(scene.get("narration")))
+        if role not in cs.OPENING_ROLES:
+            lead = next((s for s in sentences if _FILLER_LEAD.search(s.strip())), "")
+            if lead:
+                out.append({"scene": i, "code": FILLER, "note": lead.strip()[:80], "witness": True})
+        if role in cs.CLOSING_ROLES:
+            recap = next((s for s in sentences if _RECAP.search(s)), "")
+            if recap:
+                out.append({"scene": i, "code": CLOSE_RECAP, "note": recap.strip()[:80],
+                            "witness": True})
+    for d in ep.duplicate_narration(scenes):
+        if d.get("continuation"):
+            shared = sorted(_words(scenes[d["scene"] - 1].get("narration"))
+                            & _words(scenes[d["duplicate_of"] - 1].get("narration")))
+            out.append({"scene": d["scene"], "code": REPEAT, "witness": True,
+                        "note": f"re-tells scene {d['duplicate_of']}, the beat it continues; "
+                                f"shared words: {', '.join(shared)}"})
+    out.sort(key=lambda d: (d["scene"], d["code"]))
+    return out
 
 
 def _words(text: str) -> set[str]:
@@ -206,6 +253,8 @@ def edit(script: dict, research_dossier: dict | None, defects: list[dict],
             log(f"  editor: scene {index} went {was}->{now} words; keeping the original")
             return script, round(cost, 4), defects
     after = detect_defects(candidate, None)
+    if any(d.get("witness") for d in defects):
+        after = after + detect_witness_defects(candidate)
     wanted = {k for k in _keys(defects) if k[1] != EXCEEDS_EVENT}
     still = wanted & _keys(after)
     new_repeats = {k for k in _keys(after) if k[1] in (REPEAT, COLD_OPEN_RESTATED)} - _keys(defects)

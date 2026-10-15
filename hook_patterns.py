@@ -468,7 +468,14 @@ _MYTH_FRAME = re.compile(r"^\s*(?:you'?d|you would|you might|you probably)\s+"
 
 
 def myth_mode() -> bool:
-    return (os.environ.get("OPENING_HOOK", "") or "").strip().lower() == "myth"
+    """The myth line opens the film: OPENING_HOOK=myth, and its witness variant."""
+    return (os.environ.get("OPENING_HOOK", "") or "").strip().lower() in ("myth", "witness")
+
+
+def witness_mode() -> bool:
+    """OPENING_HOOK=witness: the myth opening, with a documented person's moment in place of the
+    one-sentence danger and the scale carried by the bust (retention review, 2026-10-15)."""
+    return (os.environ.get("OPENING_HOOK", "") or "").strip().lower() == "witness"
 
 
 MYTH_OPENING_RULES = (
@@ -497,6 +504,54 @@ MYTH_WRITER_RULES = (
     "(one sentence, cited, the assumption is wrong -- not yet why), the danger (one sentence, "
     "cited) and the open question, asked once, BEFORE the viewer's role and problem. Keep these "
     "three to about twenty-five words in all; the role and problem follow at once.")
+
+# ── Witness opening (operator, 2026-10-15) ───────────────────────────────────────────────────
+# Measured on the three World films the home feed tested (cane toad, elk, bees): viewers held
+# until about 11 s, then 50-65% left by 30-35 s, and the curve was flat after that. Each film had
+# turned from its hook back into setup at that point ("Explained like you are five. Two native
+# scarab beetles were pests..."). The witness variant keeps the myth line and spends the next
+# seconds on stakes a viewer can see -- the scale, and one documented person at the moment the
+# consequence reached them -- before the question and the story. It never invents the person:
+# a source names them or describes them, and the film says only what the source says.
+WITNESS_OPENING_RULES = (
+    "WITNESS OPENING (this film): the hook field is a MYTH line, not a role frame: \"You'd "
+    "think <the assumption a viewer would make about this subject>.\" At most 14 words, second "
+    "person, posed as the VIEWER'S OWN GUESS -- never 'people believe', 'experts thought' or "
+    "'history says', which would be a claim needing a source. Then plan, in opening.problem and in "
+    "this order: (1) THE BUST -- one cited sentence that says the assumption is wrong and carries "
+    "the SCALE as a source states it (a count, a reach, a ranking), WITHOUT giving the true cause "
+    "(\"They didn't. There are now as many as two hundred.\"); (2) THE WITNESS -- one or two cited "
+    "sentences: ONE documented person at the moment the consequence reached them, as the source "
+    "tells it -- where they were, what happened to them, how it ended (\"Near Puerto Triunfo, a "
+    "hippo rose beneath Alvaro Molina's canoe and tipped him into the river. He lived.\"). Name "
+    "the person only if the source names them; otherwise describe them as the source does ('a "
+    "commercial fisher', 'a boater'). Never invent a name, a thought, a feeling, a quotation or a "
+    "detail the source does not give; (3) the open question in opening.question; (4) the viewer's "
+    "role and practical problem as usual, then the decision and the consequence. Before the "
+    "question there is no backstory and no year except inside the witness's own cited moment. The "
+    "witness moment is told ONCE: no body beat re-tells it, and the close returns to that person "
+    "or that place in one sentence. The true cause is held for the MECHANISM beat, which answers "
+    "the question in plain words. If no ledger claim gives a documented person at the "
+    "consequence, plan the plain myth opening (a one-sentence danger) instead.\n")
+
+WITNESS_WRITER_RULES = (
+    " WITNESS: the first scene speaks, right after the myth line (prepended for you), the bust "
+    "(one sentence, cited, with its scale -- not yet why), the witness (one or two sentences: the "
+    "documented person's moment, concrete and plain, exactly as the source tells it, with no "
+    "invented name, thought or quotation) and the open question, asked once, BEFORE the viewer's "
+    "role and problem. Keep these to about forty-five words in all; the role, the decision and the "
+    "consequence follow at once. Apart from the role frame, no sentence begins 'Picture', "
+    "'Imagine' or 'Think about'.")
+
+WITNESS_BODY_RULE = (
+    " WITNESS: the witness's moment was told in the opening; no body scene re-tells it. No "
+    "sentence begins 'Picture', 'Imagine' or 'Think about': every sentence adds a fact, a cause "
+    "or a turn. The close returns to the witness -- that person or that place -- in one sentence "
+    "before the corrected myth and the opening object.")
+
+TURN_WITNESS_RULE = (
+    " The myth line, the bust, the witness and the question are counted INSIDE the first row's "
+    "narration_words; they are not extra.")
 
 MYTH_BODY_RULE = (
     " MYTH-BUSTER: the mechanism scene ANSWERS the opening's question in its first or second "
@@ -567,6 +622,8 @@ def opening_rules(turn_rule: bool = False, engine_id: str = "") -> str:
         rules = rules.replace(_NO_FIXED_LENGTH, TURN_PLANNER_RULE
                               + (TURN_HISTORY_PLANNER_RULE
                                  if (engine_id or "").strip().lower() == "state_programme" else ""))
+    if witness_mode():
+        return rules + WITNESS_OPENING_RULES
     return rules + (MYTH_OPENING_RULES if myth_mode() else "")
 
 
@@ -575,15 +632,17 @@ def frame_rules() -> str:
 
 
 def opening_writer_rules(turn_rule: bool = False, shape: str = "", engine_id: str = "") -> str:
-    rules = OPENING_WRITER_RULES + (MYTH_WRITER_RULES if myth_mode() else "")
+    lead = WITNESS_WRITER_RULES if witness_mode() else (MYTH_WRITER_RULES if myth_mode() else "")
+    rules = OPENING_WRITER_RULES + lead
     if not turn_rule:
         return rules
     return (rules + _turn_text(TURN_WRITER_RULES)
             + (TURN_SHAPE_B_RULE if shape == "B" else "")
             + (TURN_HISTORY_WRITER_RULE if (engine_id or "").strip().lower() == "state_programme" else "")
-            + (TURN_MYTH_RULE if myth_mode() else ""))
+            + (TURN_WITNESS_RULE if witness_mode() else (TURN_MYTH_RULE if myth_mode() else "")))
 
 
 def opening_body_rule(turn_rule: bool = False, shape: str = "") -> str:
-    rule = OPENING_BODY_RULE + (MYTH_BODY_RULE if myth_mode() else "")
+    rule = (OPENING_BODY_RULE + (MYTH_BODY_RULE if myth_mode() else "")
+            + (WITNESS_BODY_RULE if witness_mode() else ""))
     return rule + (TURN_BODY_RULE if turn_rule and shape == "B" else "")
