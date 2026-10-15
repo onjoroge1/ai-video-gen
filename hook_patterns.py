@@ -506,17 +506,84 @@ MYTH_BODY_RULE = (
     "opening object.")
 
 
-def opening_rules() -> str:
-    return OPENING_RULES + (MYTH_OPENING_RULES if myth_mode() else "")
+# ── THE TURN BY 45 SECONDS (operator decision, 2026-10-14; opening_turn) ──────────────────────
+# The ONE length the ladder now carries: the sentence that first states the consequence ends
+# within 45 s of narration -- 116 spoken words at the slowest measured rate, frame included --
+# and the writer is given a 40-s target, about 103. It replaces "there is no fixed length", which
+# the allocator answered with the 20% mechanism deadline: 164-166 opening words and a turn at
+# 54-66 s on seven of eight saved films. Scoped by opening_turn.rule_applies (ladder, a backfire
+# or History engine, 225 s or more); every other film reads the rules above unchanged.
+_NO_FIXED_LENGTH = ("Reach the consequence as efficiently as the story allows -- there is no "
+                    "fixed length.")
+TURN_PLANNER_RULE = (
+    "Reach the consequence within about forty seconds of narration: about 100 spoken words "
+    "counting the frame, and never past 116. So plan at most three narrated beats before it -- "
+    "the problem, the decision (with its reason) and at most one transition or apparent success "
+    "-- combining solution and transition where the facts allow, and cite in "
+    "opening.claim_refs.consequence the claims that state the consequence itself.")
+TURN_HISTORY_PLANNER_RULE = (
+    " FOR A STATE PROGRAMME the consequence is the FIRST HARM, stated plainly ('by 1961 the "
+    "river no longer reached the sea'), and it closes the apparent-success beat ('And it "
+    "worked -- the cotton came. But ...'). A recorded warning (warning_recorded) is the hinge "
+    "that FOLLOWS it as the indictment ('Soviet hydrologists had said it would.'); the warning "
+    "is never the turn itself.")
+TURN_WRITER_RULES = (
+    " THE TURN BY FORTY SECONDS: the sentence that states the consequence ends within about "
+    "{target} spoken words of the film's first word, frame included, and never past {limit}; "
+    "the opening rows' narration_words already add up to that. Spend them on the need -- said "
+    "ONCE, through one tangible instance, never restated in other words -- the decision and the "
+    "reason the sources give for it, and the consequence. No signposts ('So someone set out "
+    "to ...', 'So the problem is simple to state', 'That is the quiet promise'), no second "
+    "telling of the need, no headcount or scenery the turn does not need.")
+TURN_SHAPE_B_RULE = (
+    " IN THIS FILM THE CONSEQUENCE IS ALSO THE MECHANISM'S EVENT: say it in plain words at the "
+    "close of the row before the hinge, or in the hinge itself -- what happened, WITHOUT its year, "
+    "place-name, station or count ('the carp went with them', 'the sea got nothing back'); "
+    "those markers belong to the mechanism, and a year said in the opening and again later reads "
+    "as a re-telling. The first mechanism scene then OPENS on the documented outcome, with its "
+    "details, rather than leading up to it.")
+TURN_HISTORY_WRITER_RULE = (
+    " STATE PROGRAMME: the false_resolution row says the plan worked and ENDS on the first harm, "
+    "plainly and without its year ('And it worked. The cotton came. But the river no longer "
+    "reached the sea.'); a hinge that is the recorded warning follows it as the indictment "
+    "('Soviet hydrologists had said it would.'), and the mechanism then documents the year and "
+    "the gauge.")
+TURN_MYTH_RULE = (
+    " The myth line, the bust, the danger and the question are counted INSIDE the first row's "
+    "narration_words; they are not extra.")
+TURN_BODY_RULE = (
+    " The consequence was said in plain words before the hinge; the first mechanism scene opens "
+    "on the documented outcome with its year, place and count, and does not lead up to it.")
+
+
+def _turn_text(text: str) -> str:
+    import opening_turn
+    return text.format(target=opening_turn.TURN_TARGET_WORDS, limit=opening_turn.TURN_LIMIT_WORDS)
+
+
+def opening_rules(turn_rule: bool = False, engine_id: str = "") -> str:
+    rules = OPENING_RULES
+    if turn_rule:
+        rules = rules.replace(_NO_FIXED_LENGTH, TURN_PLANNER_RULE
+                              + (TURN_HISTORY_PLANNER_RULE
+                                 if (engine_id or "").strip().lower() == "state_programme" else ""))
+    return rules + (MYTH_OPENING_RULES if myth_mode() else "")
 
 
 def frame_rules() -> str:
     return MYTH_FRAME_RULES if myth_mode() else FRAME_RULES
 
 
-def opening_writer_rules() -> str:
-    return OPENING_WRITER_RULES + (MYTH_WRITER_RULES if myth_mode() else "")
+def opening_writer_rules(turn_rule: bool = False, shape: str = "", engine_id: str = "") -> str:
+    rules = OPENING_WRITER_RULES + (MYTH_WRITER_RULES if myth_mode() else "")
+    if not turn_rule:
+        return rules
+    return (rules + _turn_text(TURN_WRITER_RULES)
+            + (TURN_SHAPE_B_RULE if shape == "B" else "")
+            + (TURN_HISTORY_WRITER_RULE if (engine_id or "").strip().lower() == "state_programme" else "")
+            + (TURN_MYTH_RULE if myth_mode() else ""))
 
 
-def opening_body_rule() -> str:
-    return OPENING_BODY_RULE + (MYTH_BODY_RULE if myth_mode() else "")
+def opening_body_rule(turn_rule: bool = False, shape: str = "") -> str:
+    rule = OPENING_BODY_RULE + (MYTH_BODY_RULE if myth_mode() else "")
+    return rule + (TURN_BODY_RULE if turn_rule and shape == "B" else "")

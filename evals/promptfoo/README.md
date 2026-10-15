@@ -12,9 +12,13 @@ rendered; a full run costs well under a dollar. Use it before and after any chan
     npx promptfoo@latest eval -c evals/promptfoo/editor.yaml
     npx promptfoo@latest view
 
-* `planner.yaml` — one case per dossier in `fixtures/`; asserts: valid JSON, `score_plan` >= 75
-  (compiles, no duplicate roles, cited cold open, distinct facts per beat, enough events, the
-  pre-incentive budget), the cold-open shape rules, event count within 20% of the runtime's need.
+* `planner.yaml` — one case per dossier in `fixtures/`, planned with the LADDER opening the
+  pipeline uses (`OPENING_MODE` default); asserts: valid JSON, `score_plan` >= 75 (compiles, no
+  duplicate roles, distinct facts per beat, enough events, the pre-incentive budget), the turn-by-45
+  feasibility (`opening_turn.plan_feasibility`: consequence cited from the dossier, at most three
+  narrated beats before the mechanism, a floor inside the 103-word target), event count within
+  20% of the runtime's need. The carp, escobar (myth) and Aral (state_programme) dossiers are the
+  three films whose consequence was planned as the mechanism's event.
 * `editor.yaml` — the delivered killer bees script with its repeats; asserts: every detected
   defect resolved and no new repeat, lengths held within 35%, no meta phrases.
 

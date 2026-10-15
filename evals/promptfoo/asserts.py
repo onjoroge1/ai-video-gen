@@ -55,6 +55,28 @@ def plan_has_cold_open(output, context) -> dict:
             "reason": "; ".join(i["code"] for i in issues) or f"cold open: {text[:80]}"}
 
 
+def plan_turn_feasible(output, context) -> dict:
+    """The ladder opening can reach its consequence by the turn target (opening_turn): an opening
+    block whose consequence cites claims the dossier holds, at most three narrated beats before
+    the mechanism, and a frame + rows + hinge floor inside 103 words. Replaces
+    plan_has_cold_open, which asked for the hook-mode cold open no ladder film is planned with."""
+    import opening_turn
+    v = context.get("vars") or {}
+    plan = _json(output)
+    if not isinstance(plan, dict):
+        return {"pass": False, "score": 0.0, "reason": "not a JSON object"}
+    report = opening_turn.plan_feasibility(
+        plan, v.get("engine") or "removed_keystone", _fixture(v["dossier"]),
+        int(v.get("duration") or 300), opening_mode="ladder", myth=bool(v.get("myth")))
+    if not report.get("applies"):
+        return {"pass": True, "score": 1.0, "reason": "turn rule does not apply to this case"}
+    ok = bool(report.get("feasible"))
+    return {"pass": ok, "score": 1.0 if ok else 0.0,
+            "reason": (f"shape {report.get('shape')}, {report.get('rows_before_mechanism')} rows "
+                       f"before the mechanism, floor {report.get('estimate_words')} words; "
+                       + ("; ".join(report.get("issues") or []) or "feasible"))}
+
+
 def plan_event_count(output, context) -> dict:
     from longform_research import events_for_runtime
     import story_planner as sp

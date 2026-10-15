@@ -1,0 +1,30 @@
+{
+ "_about": "Paid writer check (b), 2026-10-15: explainer_pipeline's own expansion prompt (claude-opus-4-8) for bees_v16's opening rows 1-4 (frame through the hinge) under the turn budgets (setup 25, intervention 25, false_resolution 26, hinge 10; 17-word frame), then the pipeline's opening read on it with the saved body spliced after. Narration after finalize_narration (the frame prepended to row 1). Rows 5-6 (the mechanism beat) were not bought: the $0.50 cap. Read: rationale 9, score 86, turn NONE.",
+ "rows": [
+  "setup",
+  "intervention",
+  "false_resolution",
+  "hinge"
+ ],
+ "budgets": [
+  25,
+  25,
+  26,
+  10
+ ],
+ "narration": [
+  "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat. Your bees are European honey bees, built for cool, temperate air. In Brazil's heat they work poorly, so the honey barely trickles in. The jars come up short.",
+  "So in 1956 geneticist Warwick Kerr imported African honey bee queens, meaning to cross them for a tropical bee far more productive than the European stock.",
+  "The surviving queens were held at a research apiary near Rio Claro. Forty-eight lived to the next year; attrition left twenty-nine colonies, each sealed behind queen excluder grids that let workers pass but trapped the queens.",
+  "But a grid only works while it stays on."
+ ],
+ "read_turn": "NONE",
+ "read_scores": {
+  "clarity": 9,
+  "rationale": 9,
+  "movement": 8,
+  "efficiency": 8,
+  "tangibility": 9
+ },
+ "read_fix": "State plainly that the grids came off and the queens escaped into the forest, rather than leaving it implied by 'a grid only works while it stays on.'"
+}

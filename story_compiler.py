@@ -61,7 +61,7 @@ def _early_attention_functions(mapping) -> tuple:
                  if name not in mapping.required and mapping.role_for(name) in attention)
 
 
-def _repeat_to_reach_count(mapping, duration) -> str:
+def _repeat_to_reach_count(mapping, duration, early_first: bool = True) -> str:
     """How to reach the event count: variety first, then the functions that may recur.
 
     THE OVERCORRECTION THIS FIXES. The first version of this clause named only the repeatable
@@ -80,6 +80,10 @@ def _repeat_to_reach_count(mapping, duration) -> str:
     repeats. For removed_keystone that is `intended_effect` -- the plan appearing to work before the
     mechanism explains why it could not -- which is both the missing early attention beat and the
     beat that makes the reversal land.
+
+    `early_first=False` under the turn rule (opening_turn) for removed_keystone: the hinge now
+    lands by 45 s and supplies that early attention beat, and an intended_effect asked for FIRST
+    is a third row before the consequence. The planner may still choose it; it is not pushed.
     """
     repeatable = _repeatable_functions(mapping)
     if not repeatable:
@@ -88,7 +92,7 @@ def _repeat_to_reach_count(mapping, duration) -> str:
     extra = max(0, wanted - len(mapping.required))
     if not extra:
         return ""
-    early = _early_attention_functions(mapping)[:extra]
+    early = _early_attention_functions(mapping)[:extra] if early_first else ()
     variety = (
         f'FIRST, spend {len(early)} of them on {", ".join(early)} -- once each, in engine order. '
         'These are not optional decoration: they are the beats that re-earn attention, and without '
@@ -154,10 +158,11 @@ def _hook_rules() -> str:
     return hook_patterns.HOOK_RULES
 
 
-def _opening_rules() -> str:
-    """The human-first opening, kept beside the hook rules it replaces under the ladder."""
+def _opening_rules(turn_rule: bool = False, engine_id: str = "") -> str:
+    """The human-first opening, kept beside the hook rules it replaces under the ladder. Under
+    the turn rule it carries the 40-second consequence target instead of 'no fixed length'."""
     import hook_patterns
-    return hook_patterns.opening_rules()
+    return hook_patterns.opening_rules(turn_rule=turn_rule, engine_id=engine_id)
 
 
 def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slot_plan=None,
@@ -172,6 +177,8 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
     functions = tuple(mapping.to_role)
     import causal_story
     ladder = str(opening_mode or "hook").strip().lower() == "ladder"
+    import opening_turn
+    turn_rule = opening_turn.rule_applies(engine_id, duration, "ladder" if ladder else "")
     schema = {
         "title": "", "hook": f"at most {causal_story.MAX_HOOK_WORDS} words, with a named actor "
                                "and the concrete title subject; see THE HOOK rules below",
@@ -247,7 +254,8 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         # ONE OWNER OF THE EVENT COUNT. With a slot plan present this clause said "EXACTLY ONCE
         # ... 16 events" beside the plan's "Return EXACTLY 18"; two counts in one prompt is the
         # same disagreement as two gates on one sentence, so the slot plan speaks alone.
-        + ("" if slot_plan else _repeat_to_reach_count(mapping, duration))
+        + ("" if slot_plan else _repeat_to_reach_count(
+            mapping, duration, early_first=not (turn_rule and engine_id == "removed_keystone")))
         # WHERE the incentive changes, not just that it does. The compiler DERIVES the mechanism
         # from the changes_incentive beat, and causal_story:450 fails any mechanism whose start_sec
         # is past `runtime_sec * pct` -- 60s of a 300s film. Every event before changes_incentive
@@ -271,7 +279,7 @@ def factual_plan_prompt(question, duration, count, engine_id, cast_rules="", slo
         # THE HOOK. All three delivered films used one construction -- actor did X to
         # achieve Y, then the bad thing -- which states the purpose AND the outcome,
         # closing the question the film exists to answer. Measured 30, 45 and 55 of 100.
-        + (_opening_rules() if ladder else
+        + (_opening_rules(turn_rule, engine_id) if ladder else
            _hook_rules()
            # COLD OPEN. Measured on the cane toad film (2026-10-02): hook, then 48 s of setup
            # before the first consequence at 52.9 s; browse viewers who clicked a FATAL ERROR

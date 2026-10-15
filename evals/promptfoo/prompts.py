@@ -26,9 +26,13 @@ def planner(context: dict) -> list[dict]:
     import story_planner as sp
     v = context.get("vars") or {}
     dossier = _fixture(v["dossier"])
+    if v.get("myth"):
+        os.environ["OPENING_HOOK"] = "myth"     # the escobar case was planned as a myth-buster
+    else:
+        os.environ.pop("OPENING_HOOK", None)
     user = sp.planner_prompt(
         v["question"], int(v.get("duration") or 300), v.get("engine") or "removed_keystone",
-        dossier, operator_direction=v.get("direction") or "")
+        dossier, operator_direction=v.get("direction") or "", opening_mode="ladder")
     return [{"role": "system", "content": sp.planner_system_prompt()},
             {"role": "user", "content": user}]
 

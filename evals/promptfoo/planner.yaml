@@ -20,8 +20,10 @@ defaultTest:
     - type: is-json
     - type: python
       value: file://asserts.py:plan_score
+    # The ladder opening (the production default) is planned without a cold open, so the
+    # cold-open assert judged a request no film makes; the turn-by-45 feasibility replaces it.
     - type: python
-      value: file://asserts.py:plan_has_cold_open
+      value: file://asserts.py:plan_turn_feasible
     - type: python
       value: file://asserts.py:plan_event_count
 
@@ -43,4 +45,23 @@ tests:
       question: "Brazil Imported African Bees to Make More Honey and Twenty-Six Swarms Escaped as the Killer Bees"
       dossier: dossier_killerbees.json
       engine: removed_keystone
+      duration: 300
+  - description: Asian carp (introduced species; the consequence is the mechanism's flood)
+    vars:
+      question: "America Imported Asian Carp to Clean Its Fish Ponds and Now They Rule the Mississippi"
+      dossier: dossier_asiancarp.json
+      engine: removed_keystone
+      duration: 300
+  - description: Escobar's hippos (myth-buster opening; the turn landed at 89 s)
+    vars:
+      question: "Pablo Escobar Brought Four Hippos to His Ranch and Now Colombia Cannot Stop Them"
+      dossier: dossier_escobarhippos.json
+      engine: removed_keystone
+      duration: 300
+      myth: true
+  - description: Aral Sea (History, state_programme; the turn is the first harm)
+    vars:
+      question: "What the Soviet Union's cotton plan cost the Aral Sea and the people who lived from it"
+      dossier: dossier_aralsea.json
+      engine: state_programme
       duration: 300

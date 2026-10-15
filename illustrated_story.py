@@ -232,6 +232,14 @@ def _first_visual(scene: dict) -> str:
     return _text(scene.get("image_prompt")) or _text(scene.get("visible_consequence"))
 
 
+def _consequence_unspoken_by_read(script: dict) -> bool:
+    try:
+        import opening_turn
+        return opening_turn.read_says_unspoken(script)
+    except Exception:  # noqa: BLE001 - a report input never breaks the storyboard
+        return False
+
+
 def build_storyboard(script: dict, question: str) -> dict:
     """Normalize existing scenes into an auditable intent-and-continuity storyboard."""
     scenes = script.get("scenes") or []
@@ -372,6 +380,10 @@ def build_storyboard(script: dict, question: str) -> dict:
         "opening_consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
                                        .get("consequence") or []),
         "opening_consequence_text": _text((script.get("_opening") or {}).get("consequence")),
+        # The opening read's semantic finding that NO sentence states the consequence (turn rule,
+        # opening_turn), valid only while the narration it read stands. Claim binding passes an
+        # empty hinge that inherits the mechanism's claims, so it cannot answer this alone.
+        "opening_consequence_unspoken_read": _consequence_unspoken_by_read(script),
         "start_state": _text(contract.get("accepted_belief")),
         "opening_object": opening_object,
         # The generalization check needs the cases the spine pass fetched. Omitting them here made

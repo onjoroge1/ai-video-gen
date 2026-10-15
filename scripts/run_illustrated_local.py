@@ -38,6 +38,21 @@ def _add_ledger(summary: dict, out: Path) -> None:
         pass
 
 
+def _add_turn(summary: dict, out: Path) -> None:
+    # Where the first consequence ended, and late_turn when it missed the 45-second limit after
+    # its one revision (opening_turn). Reported, never a degraded reason (operator, 2026-10-14).
+    # Read from the checkpoint when the pipeline stopped before returning (OpeningBelowB).
+    if summary.get("opening_turn") is not None:
+        return
+    try:
+        import opening_turn
+        state = json.loads((out / "_state.json").read_text())
+        summary.update(opening_turn.run_result_fields(state.get("script") or {})
+                       or {"opening_turn": None, "late_turn": None})
+    except Exception:  # noqa: BLE001 - a report field never fails the run record
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--question", required=True)
@@ -123,14 +138,17 @@ def main() -> int:
                        "opening_retry_report_path": exc.report_path,
                        "opening_retry": ep._opening_retry_result(exc.decision)}
             _add_ledger(stopped, out)
+            _add_turn(stopped, out)
             (out / "run_result.json").write_text(json.dumps(stopped, indent=2, default=str))
         raise
     summary = {k: result.get(k) for k in (
         "status", "output_path", "title", "hook", "scene_count", "duration_sec", "est_cost",
         "actual_cost", "degraded_reasons", "thumbnail_path", "transcript_path", "srt_path",
         "description_path", "technical_status", "automated_grade_status", "rendered_contract_path",
-        "storyboard_path", "generation_manifest_path", "opening_retry")}
+        "storyboard_path", "generation_manifest_path", "opening_retry", "opening_turn",
+        "late_turn")}
     _add_ledger(summary, out)
+    _add_turn(summary, out)
     (out / "run_result.json").write_text(json.dumps(summary, indent=2, default=str))
     log(f"DONE in {time.time() - started:.0f}s: {json.dumps(summary, default=str)[:600]}")
     return 0
