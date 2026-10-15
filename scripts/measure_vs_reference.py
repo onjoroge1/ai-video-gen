@@ -24,6 +24,8 @@ import statistics
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # The reference film's numbers, measured 2026-10-07 with the same filters below
 # (scene threshold 0.25, silence -35 dB for 0.6 s, freeze noise 0.003 for 1 s, whisper base).
 REFERENCE = {
@@ -190,6 +192,10 @@ ROWS = [
     ("first_you_sec", "first 'you' (s)"),
     ("first_number_sec", "first number (s)"),
     ("first_question_sec", "first question (s)"),
+    # THE TURN (opening_turn): where the first consequence sentence ENDS. The limit is 45 s; the
+    # reference film is a different engine and has no comparable turn, so its column is blank.
+    ("turn_words", "words to the turn"),
+    ("turn_end_sec", "turn ends (s), limit 45"),
 ]
 
 
@@ -243,6 +249,45 @@ def structural_row_times(job_dir: str) -> list[float]:
     return [float(starts[i]) for i, scene in enumerate(scenes)
             if str(scene.get("causal_role") or scene.get("story_role") or "").lower() in roles
             and i > 0]
+
+
+def turn_timing(job_dir: str) -> dict:
+    """Where the first consequence sentence ends, from the job's saved script, its audio timing
+    report and the per-scene word_times (opening_turn). The read's quote locates it when the
+    script carries one; otherwise the conservative structural fallback does. {} when the job has
+    no mechanism row or no timing."""
+    try:
+        import opening_turn
+        with open(os.path.join(job_dir, "_state.json"), encoding="utf-8") as handle:
+            script = json.load(handle).get("script") or {}
+        with open(os.path.join(job_dir, "audio_timing_report.json"), encoding="utf-8") as handle:
+            report = json.load(handle)
+    except (OSError, ValueError, ImportError):
+        return {}
+    scenes = script.get("scenes") or []
+    turn = (opening_turn.remeasure(script) if isinstance(script.get("_opening_turn"), dict)
+            else opening_turn.measure_script(script))
+    if not turn.get("measurable"):
+        return {}
+    starts = [None] * len(scenes)
+    for position, entry in enumerate(report.get("scenes") or []):
+        index = int((entry or {}).get("scene") or position + 1) - 1
+        if 0 <= index < len(starts):
+            starts[index] = (entry or {}).get("start_sec")
+    word_times = []
+    for index in range(len(scenes)):
+        try:
+            with open(os.path.join(job_dir, "audio", f"scene_{index:02d}.mp3.word_times.json"),
+                      encoding="utf-8") as handle:
+                word_times.append(json.load(handle).get("word_times") or [])
+        except (OSError, ValueError):
+            word_times.append([])
+    timing = opening_turn.turn_end_sec(scenes, turn, starts, word_times)
+    return {"turn_words": turn.get("turn_words"), "turn_source": turn.get("source"),
+            "turn_shape": turn.get("shape"), "turn_scene": turn.get("scene"),
+            "turn_end_sec": timing.get("turn_end_sec"),
+            "turn_late": bool(turn.get("late") or timing.get("late")),
+            "turn_rule_applies": bool(turn.get("applies"))}
 
 
 def format_table(ours: dict, reference: dict) -> str:
@@ -299,6 +344,8 @@ def main(argv: list[str] | None = None) -> int:
         stem = os.path.splitext(args.reference)[0]
         reference = measure(args.reference, stem + ".srt", stem + ".txt")
     ours = measure(video, captions, transcript, joints)
+    if job_dir:
+        ours.update(turn_timing(job_dir))
     ours["reference"] = reference
     if job_dir:
         with open(os.path.join(job_dir, "measure_vs_reference.json"), "w", encoding="utf-8") as handle:

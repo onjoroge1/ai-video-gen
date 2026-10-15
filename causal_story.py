@@ -1011,7 +1011,8 @@ def _consequence_is_spoken(text: str, consequence_text: str) -> bool:
 
 
 def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
-                                      consequence_claims: list, consequence_text: str = "") -> None:
+                                      consequence_claims: list, consequence_text: str = "",
+                                      unspoken_by_read: bool = False) -> None:
     """The opening's consequence is spoken before the mechanism.
 
     V14 (2026-10-08): the planner's consequence beat cited the excluders coming off and the
@@ -1022,9 +1023,22 @@ def _check_opening_consequence_spoken(steps: list[dict], issues: list[dict],
     first mechanism.
     """
     wanted = {_text(c) for c in consequence_claims or [] if _text(c)}
-    if (not wanted and not _text(consequence_text)) or not steps:
+    if not steps:
         return
     first_mechanism = next((s["index"] for s in steps if s["role"] == MECHANISM), len(steps))
+    if unspoken_by_read:
+        # The opening read (opening_turn) found no sentence that states the consequence, on this
+        # exact narration. Bindings cannot overrule it: the carp hinge "But a pond is not a
+        # sealed box." binds the flood's claims through the mechanism it precedes.
+        issues.append(_issue(
+            "OPENING_CONSEQUENCE_UNSPOKEN",
+            "the opening read finds no sentence that states the consequence; the ordinary act "
+            "and what it released must be spoken once, in the row before the hinge, before the "
+            "body explains what the released thing did",
+            steps[min(first_mechanism, len(steps)) - 1]["step_id"]))
+        return
+    if not wanted and not _text(consequence_text):
+        return
     spoken = set()
     said = False
     for step in steps:
@@ -1332,7 +1346,8 @@ def validate_causal_story(payload: dict, engine: dict | None = None) -> dict:
         _check_close_presupposes_outcome(steps, issues)
         _check_close_repeats(steps, issues, _text(payload.get("opening_object")))
         _check_opening_consequence_spoken(steps, issues, payload.get("opening_consequence_claims") or [],
-                                          _text(payload.get("opening_consequence_text")))
+                                          _text(payload.get("opening_consequence_text")),
+                                          bool(payload.get("opening_consequence_unspoken_read")))
         demoted = [i for i in issues if i["code"] in LADDER_ADVISORY_CODES]
         issues = [i for i in issues if i["code"] not in LADDER_ADVISORY_CODES]
         warnings.extend(demoted)

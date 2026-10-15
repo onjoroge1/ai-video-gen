@@ -1,0 +1,4995 @@
+{
+ "asian-carp": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you run a catfish farm in the American South, and your ponds keep turning thick and green.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you run a catfish farm in the American South, and your ponds keep turning thick and green.",
+   "problem": "Your aquaculture ponds and lagoons keep clouding with algal blooms, weeds and parasites you would rather not fight with chemicals.",
+   "solution": "Fish farmers and agencies brought in silver and bighead carp from China in 1973, stocking them in Arkansas ponds to filter the plankton and improve the water quality.",
+   "transition": "The same voracious filter-feeders sat in pond-side crates waiting to graze the water clean.",
+   "consequence": "Then flood waters washed the carp out of the ponds and into local rivers, streams and lakes.",
+   "question": "How did a fish meant to clean a pond end up ruling stretches of the Mississippi?",
+   "callback": {
+    "kind": "object",
+    "text": "the pond-side fish crate, now empty, beside water the carp no longer stay in"
+   },
+   "claim_refs": {
+    "problem": [
+     "c18",
+     "c32"
+    ],
+    "solution": [
+     "c25",
+     "c06"
+    ],
+    "transition": [
+     "c10",
+     "c24"
+    ],
+    "consequence": [
+     "c19",
+     "c15"
+    ]
+   },
+   "missing_claims": [
+    "the sources do not give the specific pond owner's name or the exact flood event that first carried carp into open water"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Imagine you run a catfish farm in the American South, and your ponds keep turning thick and green. Algae, weeds, the parasites that bloom in warm standing water. You could reach for chemicals. But nobody wants that in the water fish grow in.",
+    "event": {
+     "text": "Asian carp were introduced to aquaculture ponds and wastewater treatment facilities in the Southeast to help keep them clear of weeds, parasites, and algal blooms.",
+     "claim_refs": [
+      "c18",
+      "c32"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c18",
+      "c32"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_001b",
+    "beat_id": "event_01b",
+    "causal_role": "setup",
+    "continues": "event_01",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "So you need a cleaner that works without chemicals. Something that eats the very plankton clouding your water. A living filter, grazing the ponds clear day and night. That is the quiet promise.",
+    "event": {
+     "text": "Asian carp were introduced to aquaculture ponds and wastewater treatment facilities in the Southeast to help keep them clear of weeds, parasites, and algal blooms.",
+     "claim_refs": [
+      "c18",
+      "c32"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c18",
+      "c32"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So in 1973, fish farmers brought silver and bighead carp over from China. The first of them went into ponds in Arkansas. Filter-feeders, imported to control the plankton and to be eaten.",
+    "event": {
+     "text": "Silver carp and bighead carp were imported from China in 1973 to improve water quality of aquaculture ponds, initially in Arkansas, for phytoplankton control and human consumption.",
+     "claim_refs": [
+      "c25",
+      "c06",
+      "c08"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c06",
+      "narration_phrase": "So in 1973, fish farmers brought silver and bighead carp over from China."
+     },
+     {
+      "claim_id": "c25",
+      "narration_phrase": "So in 1973, fish farmers brought silver and bighead carp over from China."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c25",
+      "c06",
+      "c10",
+      "c24",
+      "c19",
+      "c15"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003b",
+    "beat_id": "event_02b",
+    "causal_role": "intervention",
+    "continues": "event_02",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "And at first, it worked. The carp sweep plankton from the water by the mouthful, clouded ponds turning clearer week by week. A cheap, living solution. No chemicals, just fish doing the work.",
+    "event": {
+     "text": "Silver carp and bighead carp were imported from China in 1973 to improve water quality of aquaculture ponds, initially in Arkansas, for phytoplankton control and human consumption.",
+     "claim_refs": [
+      "c25",
+      "c06",
+      "c08"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c25",
+      "narration_phrase": "The carp sweep plankton from the water by the mouthful, clouded ponds turning clearer week by week."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c25",
+      "c06",
+      "c10",
+      "c24",
+      "c19",
+      "c15"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But a pond is not a sealed box.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c15",
+      "narration_phrase": "But a pond is not a sealed box."
+     },
+     {
+      "claim_id": "c19",
+      "narration_phrase": "But a pond is not a sealed box."
+     },
+     {
+      "claim_id": "c32",
+      "narration_phrase": "But a pond is not a sealed box."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c19",
+      "c15"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_006",
+    "beat_id": "event_04",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Then the rains came. Flood waters rose over the pond banks and poured through the spillways, and the carp went with them. Out of the ponds, down the ditches, into the rivers, streams and lakes.",
+    "event": {
+     "text": "Flood waters caused the exotic carp to escape confinement and spread into local rivers, streams and lakes of the Mississippi River basin.",
+     "claim_refs": [
+      "c19",
+      "c15",
+      "c32"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c15",
+      "narration_phrase": "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them."
+     },
+     {
+      "claim_id": "c19",
+      "narration_phrase": "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_006b",
+    "beat_id": "event_04b",
+    "causal_role": "mechanism",
+    "continues": "event_04",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Picture it from the fish's side. A barrier that held for years, gone in an afternoon. The same filter-feeders you bought to graze one pond were now loose in open water, feeding wherever they drifted.",
+    "event": {
+     "text": "Flood waters caused the exotic carp to escape confinement and spread into local rivers, streams and lakes of the Mississippi River basin.",
+     "claim_refs": [
+      "c19",
+      "c15",
+      "c32"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c15",
+      "narration_phrase": "The same filter-feeders you bought to graze one pond were now loose in open water, feeding wherever they drifted."
+     },
+     {
+      "claim_id": "c19",
+      "narration_phrase": "The same filter-feeders you bought to graze one pond were now loose in open water, feeding wherever they drifted."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_008",
+    "beat_id": "event_06",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "From there, the carp did not stay put. By 1989 the bigheads and silvers had pushed well beyond the Mississippi, up into the Tennessee and the Cumberland Rivers. New waters, far from any pond.",
+    "event": {
+     "text": "Having escaped to the Mississippi River Basin in the 1970s, bighead and silver carp had invaded the Tennessee and Cumberland Rivers by 1989.",
+     "claim_refs": [
+      "c38",
+      "c29"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c29",
+      "narration_phrase": "By 1989 the bigheads and silvers had pushed well beyond the Mississippi, up into the Tennessee and the Cumberland Rivers."
+     },
+     {
+      "claim_id": "c38",
+      "narration_phrase": "By 1989 the bigheads and silvers had pushed well beyond the Mississippi, up into the Tennessee and the Cumberland Rivers."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_04",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_14",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you run a catfish farm in the American South, and your ponds keep turning thick and green.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you run a catfish farm in the American South, and your ponds keep turning thick and green.",
+    "problem": "Your aquaculture ponds and lagoons keep clouding with algal blooms, weeds and parasites you would rather not fight with chemicals.",
+    "solution": "Fish farmers and agencies brought in silver and bighead carp from China in 1973, stocking them in Arkansas ponds to filter the plankton and improve the water quality.",
+    "transition": "The same voracious filter-feeders sat in pond-side crates waiting to graze the water clean.",
+    "consequence": "Then flood waters washed the carp out of the ponds and into local rivers, streams and lakes.",
+    "question": "How did a fish meant to clean a pond end up ruling stretches of the Mississippi?",
+    "callback": {
+     "kind": "object",
+     "text": "the pond-side fish crate, now empty, beside water the carp no longer stay in"
+    },
+    "claim_refs": {
+     "problem": [
+      "c18",
+      "c32"
+     ],
+     "solution": [
+      "c25",
+      "c06"
+     ],
+     "transition": [
+      "c10",
+      "c24"
+     ],
+     "consequence": [
+      "c19",
+      "c15"
+     ]
+    },
+    "missing_claims": [
+     "the sources do not give the specific pond owner's name or the exact flood event that first carried carp into open water"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "Asian carp were introduced to aquaculture ponds and wastewater treatment facilities in the Southeast to help keep them clear of weeds, parasites, and algal blooms.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "Asian carp were introduced to aquaculture ponds and wastewater treatment facilities in the Southeast to help keep them clear of weeds, parasites, and algal blooms.",
+      "claim_refs": [
+       "c18",
+       "c32"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "Silver carp and bighead carp were imported from China in 1973 to improve water quality of aquaculture ponds, initially in Arkansas, for phytoplankton control and human consumption.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "Silver carp and bighead carp were imported from China in 1973 to improve water quality of aquaculture ponds, initially in Arkansas, for phytoplankton control and human consumption.",
+      "claim_refs": [
+       "c25",
+       "c06",
+       "c08"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_04",
+     "beat": "Flood waters caused the exotic carp to escape confinement and spread into local rivers, streams and lakes of the Mississippi River basin.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "Flood waters caused the exotic carp to escape confinement and spread into local rivers, streams and lakes of the Mississippi River basin.",
+      "claim_refs": [
+       "c19",
+       "c15",
+       "c32"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "Having escaped to the Mississippi River Basin in the 1970s, bighead and silver carp had invaded the Tennessee and Cumberland Rivers by 1989.",
+     "event_function": "population_responds",
+     "caused_by": "scene_006",
+     "scope": "primary_story",
+     "event": {
+      "text": "Having escaped to the Mississippi River Basin in the 1970s, bighead and silver carp had invaded the Tennessee and Cumberland Rivers by 1989.",
+      "claim_refs": [
+       "c38",
+       "c29"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Bighead carp were first collected by the Long Term Resource Monitoring Program in 1991 from Pool 26, and silver carp first appeared in collections in 1998.",
+     "event_function": "population_responds",
+     "caused_by": "scene_008",
+     "scope": "primary_story",
+     "event": {
+      "text": "Bighead carp were first collected by the Long Term Resource Monitoring Program in 1991 from Pool 26, and silver carp first appeared in collections in 1998.",
+      "claim_refs": [
+       "c28"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "By the late 1990s bigheaded carp had become extremely abundant in parts of the Mississippi River drainage.",
+     "event_function": "population_responds",
+     "caused_by": "scene_010",
+     "scope": "primary_story",
+     "event": {
+      "text": "By the late 1990s bigheaded carp had become extremely abundant in parts of the Mississippi River drainage.",
+      "claim_refs": [
+       "c36"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "Populations of silver carp and bighead carp increased exponentially in the greater Mississippi River Basin, and their filter-feeding reduced food available to native species.",
+     "event_function": "population_responds",
+     "caused_by": "scene_012",
+     "scope": "primary_story",
+     "event": {
+      "text": "Populations of silver carp and bighead carp increased exponentially in the greater Mississippi River Basin, and their filter-feeding reduced food available to native species.",
+      "claim_refs": [
+       "c16",
+       "c33",
+       "c10"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "Detrimental effects on native fish and economically important fisheries have occurred where these invasive filter-feeding carp are abundant, and they can outcompete native species and transform the surrounding environment.",
+     "event_function": "population_responds",
+     "caused_by": "scene_014",
+     "scope": "primary_story",
+     "event": {
+      "text": "Detrimental effects on native fish and economically important fisheries have occurred where these invasive filter-feeding carp are abundant, and they can outcompete native species and transform the surrounding environment.",
+      "claim_refs": [
+       "c33",
+       "c30"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "Silver carp leap 10 to 15 feet out of the water when spooked by boats in U.S. waters, and several boaters have suffered broken jaws, noses, ribs, arms and legs after being struck.",
+     "event_function": "population_responds",
+     "caused_by": "scene_016",
+     "scope": "primary_story",
+     "event": {
+      "text": "Silver carp leap 10 to 15 feet out of the water when spooked by boats in U.S. waters, and several boaters have suffered broken jaws, noses, ribs, arms and legs after being struck.",
+      "claim_refs": [
+       "c39",
+       "c40",
+       "c42"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_14",
+     "beat": "The U.S. Army Corps of Engineers constructed electrical barriers on the Chicago Sanitary and Ship Canal, which connects the Mississippi River to the Great Lakes, the first opening in 2002 to repel invasive fish.",
+     "event_function": "population_responds",
+     "caused_by": "scene_018",
+     "scope": "primary_story",
+     "event": {
+      "text": "The U.S. Army Corps of Engineers constructed electrical barriers on the Chicago Sanitary and Ship Canal, which connects the Mississippi River to the Great Lakes, the first opening in 2002 to repel invasive fish.",
+      "claim_refs": [
+       "c43",
+       "c44",
+       "c45"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "Large portions of America's interior river systems are now occupied by one or more Asian carp species, with at least one species established in 45 states.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_020",
+     "scope": "primary_story",
+     "event": {
+      "text": "Large portions of America's interior river systems are now occupied by one or more Asian carp species, with at least one species established in 45 states.",
+      "claim_refs": [
+       "c20",
+       "c15"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c24",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c34",
+   "c35",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c45",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55"
+  ],
+  "label": {
+   "words": 171,
+   "sec": 61.9,
+   "quote": "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them."
+  },
+  "deletion": {
+   "delete": [
+    "So you need a cleaner that works without chemicals.",
+    "Something that eats the very plankton clouding your water.",
+    "A living filter, grazing the ponds clear day and night.",
+    "That is the quiet promise.",
+    "The carp sweep plankton from the water by the mouthful, clouded ponds turning clearer week by week.",
+    "A cheap, living solution.",
+    "No chemicals, just fish doing the work."
+   ],
+   "expected_words": 110,
+   "must_keep": [
+    "You could reach for chemicals.",
+    "So in 1973, fish farmers brought silver and bighead carp over from China.",
+    "Filter-feeders, imported to control the plankton and to be eaten.",
+    "Flood waters rose over the pond banks and poured through the spillways, and the carp went with them."
+   ]
+  }
+ },
+ "bees_v13": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "problem": "Your bees are European bees, better suited to temperate climates, and in Brazil's tropics they forage poorly and your harvest stays thin.",
+   "solution": "A geneticist, Warwick Kerr, imports queens of an African bee in 1956, hoping to breed a bee as productive as the Africans but gentle enough to keep — a honey producer for the tropics.",
+   "transition": "The imported queens are kept at a research apiary near Rio Claro, their hive boxes fitted with queen-excluder grids to hold the queens inside.",
+   "consequence": "In October 1957 a local beekeeper noticed the queen excluders and removed them, and twenty-six African queens with their small swarms escaped into the nearby forest.",
+   "question": "What happens when the bee built to save your harvest is also built to defend its nest to the death?",
+   "callback": {
+    "kind": "object",
+    "text": "the honey jars you were trying to fill"
+   },
+   "claim_refs": {
+    "problem": [
+     "c39",
+     "c02"
+    ],
+    "solution": [
+     "c01",
+     "c02",
+     "c36",
+     "c03"
+    ],
+    "transition": [
+     "c04",
+     "c05",
+     "c09"
+    ],
+    "consequence": [
+     "c06",
+     "c07",
+     "c08"
+    ]
+   },
+   "missing_claims": [
+    "why the local beekeeper removed the queen excluders"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat. Your bees came from Europe, bred for cool meadows and long temperate summers. In Brazil's heat they forage poorly. The jars on your shelf stay stubbornly thin.",
+    "event": {
+     "text": "European honey bees performed poorly in Brazil's tropical setting, keeping Brazilian honey production very low.",
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c02",
+      "narration_phrase": "Your bees came from Europe, bred for cool meadows and long temperate summers."
+     },
+     {
+      "claim_id": "c39",
+      "narration_phrase": "Your bees came from Europe, bred for cool meadows and long temperate summers."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_001b",
+    "beat_id": "event_01b",
+    "causal_role": "setup",
+    "continues": "event_01",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Season after season it is the same. The hives stay quiet, the comb stays light, the harvest stays small. You need a bee that thrives where yours struggles.",
+    "event": {
+     "text": "European honey bees performed poorly in Brazil's tropical setting, keeping Brazilian honey production very low.",
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So in 1956 a geneticist, Warwick Kerr, brings in queens of an African bee from South Africa. The plan is to breed a tropical honey producer that out-works the European kind.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata queens from South Africa to produce bees more productive than European honey bees in Brazil's tropics.",
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c02",
+      "c03"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "So in 1956 a geneticist, Warwick Kerr, brings in queens of an African bee from South Africa."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "So in 1956 a geneticist, Warwick Kerr, brings in queens of an African bee from South Africa."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c36",
+      "c03",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003b",
+    "beat_id": "event_02b",
+    "causal_role": "intervention",
+    "continues": "event_02",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "The imported queens live at a research apiary near Rio Claro. Each hive box wears a queen-excluder grid across its mouth: a barrier sized to let workers pass but hold every queen inside.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata queens from South Africa to produce bees more productive than European honey bees in Brazil's tropics.",
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c02",
+      "c03"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "Each hive box wears a queen-excluder grid across its mouth: a barrier sized to let workers pass but hold every queen inside."
+     },
+     {
+      "claim_id": "c02",
+      "narration_phrase": "Each hive box wears a queen-excluder grid across its mouth: a barrier sized to let workers pass but hold every queen inside."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "Each hive box wears a queen-excluder grid across its mouth: a barrier sized to let workers pass but hold every queen inside."
+     },
+     {
+      "claim_id": "c36",
+      "narration_phrase": "Each hive box wears a queen-excluder grid across its mouth: a barrier sized to let workers pass but hold every queen inside."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c36",
+      "c03",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But in October 1957, twenty-six queens escaped into the forest.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_006",
+    "beat_id": "event_04",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Out in the groves the loose queens and their drones met the European bees already kept there. They bred together. Their offspring were something new — the Africanized honey bee, unlike either parent.",
+    "event": {
+     "text": "The escaped queens and drones hybridized with the existing European honey bee population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c11",
+      "narration_phrase": "Out in the groves the loose queens and their drones met the European bees already kept there."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_006b",
+    "beat_id": "event_04b",
+    "causal_role": "mechanism",
+    "continues": "event_04",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Picture it as a single new line written over two old ones. Not the gentle European worker. Not quite the African either. A bee that carried its own behaviour into the wild.",
+    "event": {
+     "text": "The escaped queens and drones hybridized with the existing European honey bee population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_008",
+    "beat_id": "event_05",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "The hybrid did not stay in its corner of the forest. It kept breeding into nearby colonies, and because the offspring stayed Africanized, the gentle European bees began to vanish.",
+    "event": {
+     "text": "The Africanized bees interbred with European honey bees in new areas; because the hybrid offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+     "claim_refs": [
+      "c55",
+      "c43"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c43",
+      "narration_phrase": "It kept breeding into nearby colonies, and because the offspring stayed Africanized, the gentle European bees began to vanish."
+     },
+     {
+      "claim_id": "c55",
+      "narration_phrase": "It kept breeding into nearby colonies, and because the offspring stayed Africanized, the gentle European bees began to vanish."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_04",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_05",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_12",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+    "problem": "Your bees are European bees, better suited to temperate climates, and in Brazil's tropics they forage poorly and your harvest stays thin.",
+    "solution": "A geneticist, Warwick Kerr, imports queens of an African bee in 1956, hoping to breed a bee as productive as the Africans but gentle enough to keep — a honey producer for the tropics.",
+    "transition": "The imported queens are kept at a research apiary near Rio Claro, their hive boxes fitted with queen-excluder grids to hold the queens inside.",
+    "consequence": "In October 1957 a local beekeeper noticed the queen excluders and removed them, and twenty-six African queens with their small swarms escaped into the nearby forest.",
+    "question": "What happens when the bee built to save your harvest is also built to defend its nest to the death?",
+    "callback": {
+     "kind": "object",
+     "text": "the honey jars you were trying to fill"
+    },
+    "claim_refs": {
+     "problem": [
+      "c39",
+      "c02"
+     ],
+     "solution": [
+      "c01",
+      "c02",
+      "c36",
+      "c03"
+     ],
+     "transition": [
+      "c04",
+      "c05",
+      "c09"
+     ],
+     "consequence": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    },
+    "missing_claims": [
+     "why the local beekeeper removed the queen excluders"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "European honey bees performed poorly in Brazil's tropical setting, keeping Brazilian honey production very low.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "European honey bees performed poorly in Brazil's tropical setting, keeping Brazilian honey production very low.",
+      "claim_refs": [
+       "c39",
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata queens from South Africa to produce bees more productive than European honey bees in Brazil's tropics.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata queens from South Africa to produce bees more productive than European honey bees in Brazil's tropics.",
+      "claim_refs": [
+       "c01",
+       "c36",
+       "c02",
+       "c03"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_04",
+     "beat": "The escaped queens and drones hybridized with the existing European honey bee population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "The escaped queens and drones hybridized with the existing European honey bee population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+      "claim_refs": [
+       "c10",
+       "c11"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_05",
+     "beat": "The Africanized bees interbred with European honey bees in new areas; because the hybrid offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+     "event_function": "population_responds",
+     "caused_by": "scene_006",
+     "scope": "primary_story",
+     "event": {
+      "text": "The Africanized bees interbred with European honey bees in new areas; because the hybrid offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+      "claim_refs": [
+       "c55",
+       "c43"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "Feral Africanized bees retained the highly defensive trait of their African ancestors and kept most unfavorable African traits rather than the gentleness breeders had hoped for.",
+     "event_function": "population_responds",
+     "caused_by": "scene_008",
+     "scope": "primary_story",
+     "event": {
+      "text": "Feral Africanized bees retained the highly defensive trait of their African ancestors and kept most unfavorable African traits rather than the gentleness breeders had hoped for.",
+      "claim_refs": [
+       "c38",
+       "c40"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Africanized bees had a lower defensive threshold, reacted faster, responded about 2.4 times faster to alarm pheromone, and pursued targets farther than European bees.",
+     "event_function": "population_responds",
+     "caused_by": "scene_010",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees had a lower defensive threshold, reacted faster, responded about 2.4 times faster to alarm pheromone, and pursued targets farther than European bees.",
+      "claim_refs": [
+       "c16",
+       "c18",
+       "c15",
+       "c14"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "Africanized bee venom is no more painful or voluminous than normal honey bee venom; the danger comes from many more bees stinging because they are more sensitive to alarm pheromone and produce much more of it.",
+     "event_function": "population_responds",
+     "caused_by": "scene_012",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bee venom is no more painful or voluminous than normal honey bee venom; the danger comes from many more bees stinging because they are more sensitive to alarm pheromone and produce much more of it.",
+      "claim_refs": [
+       "c19",
+       "c20",
+       "c22"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "Within a few years of the escape, wild bees relentlessly attacked farm animals and humans in Brazil, causing livestock losses and human fatalities.",
+     "event_function": "population_responds",
+     "caused_by": "scene_014",
+     "scope": "primary_story",
+     "event": {
+      "text": "Within a few years of the escape, wild bees relentlessly attacked farm animals and humans in Brazil, causing livestock losses and human fatalities.",
+      "claim_refs": [
+       "c13"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "The Africanized bees spread northward through South and Central America at nearly one mile per day at the peak of their expansion, reaching Mexico in 1985.",
+     "event_function": "population_responds",
+     "caused_by": "scene_016",
+     "scope": "primary_story",
+     "event": {
+      "text": "The Africanized bees spread northward through South and Central America at nearly one mile per day at the peak of their expansion, reaching Mexico in 1985.",
+      "claim_refs": [
+       "c28",
+       "c25",
+       "c14"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, with the first recorded US death from their stings in 1993.",
+     "event_function": "population_responds",
+     "caused_by": "scene_018",
+     "scope": "primary_story",
+     "event": {
+      "text": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, with the first recorded US death from their stings in 1993.",
+      "claim_refs": [
+       "c26",
+       "c42"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_12",
+     "beat": "Africanized bees were detected in Arizona in 1993 and New Mexico and southern California by 1995, and by 2005 appeared in Florida through human-assisted transport by trucks, ships, or railcars.",
+     "event_function": "population_responds",
+     "caused_by": "scene_020",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees were detected in Arizona in 1993 and New Mexico and southern California by 1995, and by 2005 appeared in Florida through human-assisted transport by trucks, ships, or railcars.",
+      "claim_refs": [
+       "c27",
+       "c29",
+       "c30"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "Brazilian beekeeping shifted from European bee culture to one dominated by the Africanized honey bee, which spread as one of the most astounding insect invaders in recent history.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_022",
+     "scope": "primary_story",
+     "event": {
+      "text": "Brazilian beekeeping shifted from European bee culture to one dominated by the Africanized honey bee, which spread as one of the most astounding insect invaders in recent history.",
+      "claim_refs": [
+       "c43",
+       "c38",
+       "c37"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 146,
+   "sec": 54.4,
+   "quote": "But in October 1957, twenty-six queens escaped into the forest."
+  }
+ },
+ "bees_v14": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "problem": "Your bees are European honey bees, better suited to a temperate climate, and in the tropical heat they produce very little honey, so your jars stay empty.",
+   "solution": "A geneticist, Warwick Kerr, imports African honey bee queens in 1956 to breed a bee more productive than the European stock in Brazil's tropical setting.",
+   "transition": "The surviving queens are kept near Rio Claro in hive boxes fitted with queen excluder grids that hold the large queens inside.",
+   "consequence": "In October 1957 a passing beekeeper notices the queen excluders and removes them, and 26 African queens leave with small swarms into the nearby forest.",
+   "question": "What happens when the bee that makes more honey is also the one nobody can stand next to?",
+   "callback": {
+    "kind": "object",
+    "text": "the honey jars the beekeeper wanted to fill"
+   },
+   "claim_refs": {
+    "problem": [
+     "c39"
+    ],
+    "solution": [
+     "c01",
+     "c02"
+    ],
+    "transition": [
+     "c04",
+     "c05",
+     "c09"
+    ],
+    "consequence": [
+     "c06",
+     "c07",
+     "c08"
+    ]
+   },
+   "missing_claims": [
+    "why the passing beekeeper removed the queen excluders",
+    "the exact number of resulting human deaths in Brazil"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat. Your bees came from Europe, built for cooler air. In Brazil's heat they sulk, foraging little, filling your jars with barely a trickle. Season after season, the shelves stay half empty.",
+    "event": {
+     "text": "European honey bees performed poorly in Brazil, keeping Brazilian honey production very low.",
+     "claim_refs": [
+      "c39"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_002",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "So a decision is made to change the bee itself. In 1956, geneticist Warwick Kerr imports African honey bee queens, Apis mellifera scutellata, to breed stock far more productive than European bees in Brazil's tropical setting. Where European colonies wilt, these thrive.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to breed stock more productive than European bees in Brazil's tropical setting.",
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c36"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "In 1956, geneticist Warwick Kerr imports African honey bee queens, Apis mellifera scutellata, to breed stock far more productive than European bees in Brazil's tropical setting."
+     },
+     {
+      "claim_id": "c02",
+      "narration_phrase": "In 1956, geneticist Warwick Kerr imports African honey bee queens, Apis mellifera scutellata, to breed stock far more productive than European bees in Brazil's tropical setting."
+     },
+     {
+      "claim_id": "c36",
+      "narration_phrase": "In 1956, geneticist Warwick Kerr imports African honey bee queens, Apis mellifera scutellata, to breed stock far more productive than European bees in Brazil's tropical setting."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_04",
+    "causal_role": "false_resolution",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "So the next step is to tame them. The plan is careful, almost gentle. The aim is a hybrid that keeps the African bees' hunger for nectar but carries the calm temper of the European bees. A bee that works hard and still lets you stand beside it. On paper, the best of both.",
+    "event": {
+     "text": "The program aimed for hybrids combining the African bees' foraging success with the gentleness of European bees.",
+     "claim_refs": [
+      "c40",
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c02",
+      "narration_phrase": "The aim is a hybrid that keeps the African bees' hunger for nectar but carries the calm temper of the European bees."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_004",
+    "beat_id": "event_05:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But the forest doesn't read the plan.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c10",
+      "narration_phrase": "But the forest doesn't read the plan."
+     },
+     {
+      "claim_id": "c11",
+      "narration_phrase": "But the forest doesn't read the plan."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_05",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So it writes its own. Chapter one. Out in the open grove, those escaped African queens and their drones breed with the European bees already living there. The cross makes a new bee: the Africanized honey bee, its genetics and behavior unlike either parent.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population to produce the Africanized honey bee, distinct in genetics and behavior from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c10",
+      "narration_phrase": "Out in the open grove, those escaped African queens and their drones breed with the European bees already living there."
+     },
+     {
+      "claim_id": "c11",
+      "narration_phrase": "Out in the open grove, those escaped African queens and their drones breed with the European bees already living there."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_005b",
+    "beat_id": "event_05b",
+    "causal_role": "mechanism",
+    "continues": "event_05",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "And this new bee does not wait quietly in a box. It spreads through the groves on its own terms, settling into hollow trees and fence posts, mixing itself into every managed colony it can reach.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population to produce the Africanized honey bee, distinct in genetics and behavior from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c10",
+      "narration_phrase": "It spreads through the groves on its own terms, settling into hollow trees and fence posts, mixing itself into every managed colony it can reach."
+     },
+     {
+      "claim_id": "c11",
+      "narration_phrase": "It spreads through the groves on its own terms, settling into hollow trees and fence posts, mixing itself into every managed colony it can reach."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_007",
+    "beat_id": "event_06",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "But the gentleness never arrives. The feral hybrids keep the fierce, highly defensive streak of their African ancestors — the very trait the breeders had hoped to breed away.",
+    "event": {
+     "text": "The feral Africanized hybrids retained the highly defensive trait of their African ancestors rather than the gentleness the program sought.",
+     "claim_refs": [
+      "c38",
+      "c40"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c38",
+      "narration_phrase": "The feral hybrids keep the fierce, highly defensive streak of their African ancestors — the very trait the breeders had hoped to breed away."
+     },
+     {
+      "claim_id": "c40",
+      "narration_phrase": "The feral hybrids keep the fierce, highly defensive streak of their African ancestors — the very trait the breeders had hoped to breed away."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_04",
+    "causal_role": "false_resolution"
+   },
+   {
+    "beat_id": "event_05:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_05",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_13",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+    "problem": "Your bees are European honey bees, better suited to a temperate climate, and in the tropical heat they produce very little honey, so your jars stay empty.",
+    "solution": "A geneticist, Warwick Kerr, imports African honey bee queens in 1956 to breed a bee more productive than the European stock in Brazil's tropical setting.",
+    "transition": "The surviving queens are kept near Rio Claro in hive boxes fitted with queen excluder grids that hold the large queens inside.",
+    "consequence": "In October 1957 a passing beekeeper notices the queen excluders and removes them, and 26 African queens leave with small swarms into the nearby forest.",
+    "question": "What happens when the bee that makes more honey is also the one nobody can stand next to?",
+    "callback": {
+     "kind": "object",
+     "text": "the honey jars the beekeeper wanted to fill"
+    },
+    "claim_refs": {
+     "problem": [
+      "c39"
+     ],
+     "solution": [
+      "c01",
+      "c02"
+     ],
+     "transition": [
+      "c04",
+      "c05",
+      "c09"
+     ],
+     "consequence": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    },
+    "missing_claims": [
+     "why the passing beekeeper removed the queen excluders",
+     "the exact number of resulting human deaths in Brazil"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "European honey bees performed poorly in Brazil, keeping Brazilian honey production very low.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "European honey bees performed poorly in Brazil, keeping Brazilian honey production very low.",
+      "claim_refs": [
+       "c39"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to breed stock more productive than European bees in Brazil's tropical setting.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to breed stock more productive than European bees in Brazil's tropical setting.",
+      "claim_refs": [
+       "c01",
+       "c02",
+       "c36"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_04",
+     "beat": "The program aimed for hybrids combining the African bees' foraging success with the gentleness of European bees.",
+     "event_function": "intended_effect",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "The program aimed for hybrids combining the African bees' foraging success with the gentleness of European bees.",
+      "claim_refs": [
+       "c40",
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_05",
+     "beat": "The escaped African queens and drones hybridized with the existing European population to produce the Africanized honey bee, distinct in genetics and behavior from either parent.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "The escaped African queens and drones hybridized with the existing European population to produce the Africanized honey bee, distinct in genetics and behavior from either parent.",
+      "claim_refs": [
+       "c10",
+       "c11"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "The feral Africanized hybrids retained the highly defensive trait of their African ancestors rather than the gentleness the program sought.",
+     "event_function": "population_responds",
+     "caused_by": "scene_005",
+     "scope": "primary_story",
+     "event": {
+      "text": "The feral Africanized hybrids retained the highly defensive trait of their African ancestors rather than the gentleness the program sought.",
+      "claim_refs": [
+       "c38",
+       "c40"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "African-derived colonies showed higher rates of colony growth, reproduction, and swarming, and competed more vigorously than Europeans for nectar and nest sites.",
+     "event_function": "population_responds",
+     "caused_by": "scene_007",
+     "scope": "primary_story",
+     "event": {
+      "text": "African-derived colonies showed higher rates of colony growth, reproduction, and swarming, and competed more vigorously than Europeans for nectar and nest sites.",
+      "claim_refs": [
+       "c12",
+       "c54"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "Africanized bees interbred with European honey bees in new areas; because the hybrid offspring were also Africanized, the less aggressive European bees gradually disappeared.",
+     "event_function": "population_responds",
+     "caused_by": "scene_009",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees interbred with European honey bees in new areas; because the hybrid offspring were also Africanized, the less aggressive European bees gradually disappeared.",
+      "claim_refs": [
+       "c55"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "Within a few years of the escape, wild bees relentlessly attacked farm animals and humans, causing livestock losses and eventually human fatalities among Brazilian farmers.",
+     "event_function": "population_responds",
+     "caused_by": "scene_011",
+     "scope": "primary_story",
+     "event": {
+      "text": "Within a few years of the escape, wild bees relentlessly attacked farm animals and humans, causing livestock losses and eventually human fatalities among Brazilian farmers.",
+      "claim_refs": [
+       "c13"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "Africanized venom is no more painful or voluminous than European venom; the danger comes from many more bees stinging, because the colonies are very sensitive to alarm pheromone and produce much more of it.",
+     "event_function": "population_responds",
+     "caused_by": "scene_013",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized venom is no more painful or voluminous than European venom; the danger comes from many more bees stinging, because the colonies are very sensitive to alarm pheromone and produce much more of it.",
+      "claim_refs": [
+       "c19",
+       "c20",
+       "c15"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "Africanized bees responded to alarm pheromone about 2.4 times faster and roughly 30 times as fast to a moving target, mobilizing a greater proportion of the colony than European bees.",
+     "event_function": "population_responds",
+     "caused_by": "scene_015",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees responded to alarm pheromone about 2.4 times faster and roughly 30 times as fast to a moving target, mobilizing a greater proportion of the colony than European bees.",
+      "claim_refs": [
+       "c18",
+       "c16",
+       "c17"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_13",
+     "beat": "The first natural US colony was found near Hidalgo, Texas, in 1990; the bees were detected in Arizona in 1993 and in New Mexico and southern California by 1995, and the first recorded US death from their stings occurred in 1993.",
+     "event_function": "population_responds",
+     "caused_by": "scene_017",
+     "scope": "primary_story",
+     "event": {
+      "text": "The first natural US colony was found near Hidalgo, Texas, in 1990; the bees were detected in Arizona in 1993 and in New Mexico and southern California by 1995, and the first recorded US death from their stings occurred in 1993.",
+      "claim_refs": [
+       "c26",
+       "c27",
+       "c42"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "Brazilian beekeeping shifted from a European honey bee culture to one dominated by the Africanized honey bee, and beekeepers can requeen hives with European-genetics queens from reputable breeders to counter Africanization.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_019",
+     "scope": "primary_story",
+     "event": {
+      "text": "Brazilian beekeeping shifted from a European honey bee culture to one dominated by the Africanized honey bee, and beekeepers can requeen hives with European-genetics queens from reputable breeders to counter Africanization.",
+      "claim_refs": [
+       "c43",
+       "c33"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": null,
+   "sec": null,
+   "quote": "NONE",
+   "presupposed_words": 167,
+   "presupposed_sec": 61.5
+  }
+ },
+ "bees_v15": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a beekeeper in Brazil, filling thin jars from bees that wilt in the tropical heat.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you're a beekeeper in Brazil, filling thin jars from bees that wilt in the tropical heat.",
+   "problem": "Your bees are European honey bees, better suited to a temperate climate, and in Brazil's heat they forage poorly and your honey yield stays very low.",
+   "solution": "In 1956 the geneticist Warwick Kerr imported African honey bee queens, meaning to breed a bee more productive than the European stock in Brazil's tropics.",
+   "transition": "The imported queens were held at a research apiary near Rio Claro, their hive boxes fitted with queen-excluder grids to keep them contained.",
+   "consequence": "In October 1957 a passing beekeeper noticed the excluders and removed them, and twenty-six African queens left with small swarms into the nearby forest.",
+   "question": "What happens when the bee bred to fix your harvest cannot be kept in the box?",
+   "callback": {
+    "kind": "object",
+    "text": "the honey jars -- eventually filled, but by the bees that got away"
+   },
+   "claim_refs": {
+    "problem": [
+     "c39",
+     "c02"
+    ],
+    "solution": [
+     "c01",
+     "c36",
+     "c02",
+     "c03"
+    ],
+    "transition": [
+     "c04",
+     "c05",
+     "c09"
+    ],
+    "consequence": [
+     "c06",
+     "c07",
+     "c08"
+    ]
+   },
+   "missing_claims": [
+    "sources do not state why the beekeeper removed the excluders, and Kerr did not release the bees deliberately"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Imagine you're a beekeeper in Brazil, filling thin jars from bees that wilt in the tropical heat. Your bees came from Europe, built for cool meadows and long gentle springs. In Brazil's heat they forage listlessly. The combs stay light. Every jar you fill is a stubborn half-measure.",
+    "event": {
+     "text": "European honey bees performed poorly in Brazil's tropical conditions, and Brazilian honey production was very low because the species was adapted to temperate climates.",
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_001b",
+    "beat_id": "event_01b",
+    "causal_role": "setup",
+    "continues": "event_01",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "So the problem is simple to state. A temperate bee in a tropical country. It works the way it always worked, just in the wrong climate, and the harvest never adds up to a living.",
+    "event": {
+     "text": "European honey bees performed poorly in Brazil's tropical conditions, and Brazilian honey production was very low because the species was adapted to temperate climates.",
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c02",
+      "narration_phrase": "It works the way it always worked, just in the wrong climate, and the harvest never adds up to a living."
+     },
+     {
+      "claim_id": "c39",
+      "narration_phrase": "It works the way it always worked, just in the wrong climate, and the harvest never adds up to a living."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39",
+      "c02"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So someone went looking for a bee that belonged in the heat. In 1956 the geneticist Warwick Kerr brought African honey bee queens to Brazil, sixty-three of them alive, meaning to breed a producer that beat the European stock in the tropics.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata from Africa, acquiring 63 live queens, intending to breed a bee more productive than European stock in Brazil's tropical setting.",
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c03",
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr brought African honey bee queens to Brazil, sixty-three of them alive, meaning to breed a producer that beat the European stock in the tropics."
+     },
+     {
+      "claim_id": "c02",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr brought African honey bee queens to Brazil, sixty-three of them alive, meaning to breed a producer that beat the European stock in the tropics."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr brought African honey bee queens to Brazil, sixty-three of them alive, meaning to breed a producer that beat the European stock in the tropics."
+     },
+     {
+      "claim_id": "c36",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr brought African honey bee queens to Brazil, sixty-three of them alive, meaning to breed a producer that beat the European stock in the tropics."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c02",
+      "c03",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003b",
+    "beat_id": "event_02b",
+    "causal_role": "intervention",
+    "continues": "event_02",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "The queens were held at a research apiary near Rio Claro. Each hive box wore a queen-excluder grid across its mouth, bars spaced so workers slip through but the broad queen cannot. That grid was the whole plan. Keep her in, breed on your terms.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata from Africa, acquiring 63 live queens, intending to breed a bee more productive than European stock in Brazil's tropical setting.",
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c03",
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "Each hive box wore a queen-excluder grid across its mouth, bars spaced so workers slip through but the broad queen cannot."
+     },
+     {
+      "claim_id": "c02",
+      "narration_phrase": "Each hive box wore a queen-excluder grid across its mouth, bars spaced so workers slip through but the broad queen cannot."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "Each hive box wore a queen-excluder grid across its mouth, bars spaced so workers slip through but the broad queen cannot."
+     },
+     {
+      "claim_id": "c36",
+      "narration_phrase": "Each hive box wore a queen-excluder grid across its mouth, bars spaced so workers slip through but the broad queen cannot."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c36",
+      "c02",
+      "c03",
+      "c04",
+      "c05",
+      "c09",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_05:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "Then the grids came off, and twenty-six queens left.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_006",
+    "beat_id": "event_05",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So where did those queens go? Into European hives already standing in the groves. The African drones found the resident colonies, and the two bloodlines mixed on their own terms.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population, and because the hybrid offspring are themselves considered Africanized, the less aggressive European bees gradually disappeared.",
+     "claim_refs": [
+      "c10",
+      "c11",
+      "c55"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c11",
+      "narration_phrase": "The African drones found the resident colonies, and the two bloodlines mixed on their own terms."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_006b",
+    "beat_id": "event_05b",
+    "causal_role": "mechanism",
+    "continues": "event_05",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "But here is the catch you would not expect. The hybrid young carried the African line forward, generation after generation. Slowly the gentler European bees thinned out of the groves until they were simply gone.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population, and because the hybrid offspring are themselves considered Africanized, the less aggressive European bees gradually disappeared.",
+     "claim_refs": [
+      "c10",
+      "c11",
+      "c55"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_008",
+    "beat_id": "event_06",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So the groves kept their bees. But these were not the same bees. Every feral colony held onto its ancestors' temper, a defense that fired faster, hit harder, and pulled far more of the hive into the fight.",
+    "event": {
+     "text": "The feral Africanized bees retained most of the unfavourable traits of their African ancestors, including a defensive response more rapid, more intense and involving a greater proportion of the colony than European bees.",
+     "claim_refs": [
+      "c40",
+      "c38",
+      "c15",
+      "c16"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c15",
+      "narration_phrase": "Every feral colony held onto its ancestors' temper, a defense that fired faster, hit harder, and pulled far more of the hive into the fight."
+     },
+     {
+      "claim_id": "c16",
+      "narration_phrase": "Every feral colony held onto its ancestors' temper, a defense that fired faster, hit harder, and pulled far more of the hive into the fight."
+     },
+     {
+      "claim_id": "c38",
+      "narration_phrase": "Every feral colony held onto its ancestors' temper, a defense that fired faster, hit harder, and pulled far more of the hive into the fight."
+     },
+     {
+      "claim_id": "c40",
+      "narration_phrase": "Every feral colony held onto its ancestors' temper, a defense that fired faster, hit harder, and pulled far more of the hive into the fight."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_05:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_05",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_12",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_15",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_15:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_15:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a beekeeper in Brazil, filling thin jars from bees that wilt in the tropical heat.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a beekeeper in Brazil, filling thin jars from bees that wilt in the tropical heat.",
+    "problem": "Your bees are European honey bees, better suited to a temperate climate, and in Brazil's heat they forage poorly and your honey yield stays very low.",
+    "solution": "In 1956 the geneticist Warwick Kerr imported African honey bee queens, meaning to breed a bee more productive than the European stock in Brazil's tropics.",
+    "transition": "The imported queens were held at a research apiary near Rio Claro, their hive boxes fitted with queen-excluder grids to keep them contained.",
+    "consequence": "In October 1957 a passing beekeeper noticed the excluders and removed them, and twenty-six African queens left with small swarms into the nearby forest.",
+    "question": "What happens when the bee bred to fix your harvest cannot be kept in the box?",
+    "callback": {
+     "kind": "object",
+     "text": "the honey jars -- eventually filled, but by the bees that got away"
+    },
+    "claim_refs": {
+     "problem": [
+      "c39",
+      "c02"
+     ],
+     "solution": [
+      "c01",
+      "c36",
+      "c02",
+      "c03"
+     ],
+     "transition": [
+      "c04",
+      "c05",
+      "c09"
+     ],
+     "consequence": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    },
+    "missing_claims": [
+     "sources do not state why the beekeeper removed the excluders, and Kerr did not release the bees deliberately"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "European honey bees performed poorly in Brazil's tropical conditions, and Brazilian honey production was very low because the species was adapted to temperate climates.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "European honey bees performed poorly in Brazil's tropical conditions, and Brazilian honey production was very low because the species was adapted to temperate climates.",
+      "claim_refs": [
+       "c39",
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata from Africa, acquiring 63 live queens, intending to breed a bee more productive than European stock in Brazil's tropical setting.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In 1956 Brazilian geneticist Warwick Kerr imported Apis mellifera scutellata from Africa, acquiring 63 live queens, intending to breed a bee more productive than European stock in Brazil's tropical setting.",
+      "claim_refs": [
+       "c01",
+       "c36",
+       "c03",
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_05",
+     "beat": "The escaped African queens and drones hybridized with the existing European population, and because the hybrid offspring are themselves considered Africanized, the less aggressive European bees gradually disappeared.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "The escaped African queens and drones hybridized with the existing European population, and because the hybrid offspring are themselves considered Africanized, the less aggressive European bees gradually disappeared.",
+      "claim_refs": [
+       "c10",
+       "c11",
+       "c55"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "The feral Africanized bees retained most of the unfavourable traits of their African ancestors, including a defensive response more rapid, more intense and involving a greater proportion of the colony than European bees.",
+     "event_function": "population_responds",
+     "caused_by": "scene_006",
+     "scope": "primary_story",
+     "event": {
+      "text": "The feral Africanized bees retained most of the unfavourable traits of their African ancestors, including a defensive response more rapid, more intense and involving a greater proportion of the colony than European bees.",
+      "claim_refs": [
+       "c40",
+       "c38",
+       "c15",
+       "c16"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Africanized bees are very sensitive to alarm pheromone and produce much more of it; one study found nine of twelve alarm components stronger than in European bees, and the danger comes not from stronger venom but from many more bees stinging.",
+     "event_function": "population_responds",
+     "caused_by": "scene_008",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees are very sensitive to alarm pheromone and produce much more of it; one study found nine of twelve alarm components stronger than in European bees, and the danger comes not from stronger venom but from many more bees stinging.",
+      "claim_refs": [
+       "c20",
+       "c17",
+       "c19",
+       "c22"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "Within a few years of the escape, reports arrived of wild bees relentlessly attacking farm animals and humans, with many Brazilian farmers suffering livestock losses and, eventually, human fatalities.",
+     "event_function": "population_responds",
+     "caused_by": "scene_010",
+     "scope": "primary_story",
+     "event": {
+      "text": "Within a few years of the escape, reports arrived of wild bees relentlessly attacking farm animals and humans, with many Brazilian farmers suffering livestock losses and, eventually, human fatalities.",
+      "claim_refs": [
+       "c13"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "The Africanized hybrid spread throughout South America at a peak rate of almost one mile per day and was first reported in Mexico in 1985.",
+     "event_function": "population_responds",
+     "caused_by": "scene_012",
+     "scope": "primary_story",
+     "event": {
+      "text": "The Africanized hybrid spread throughout South America at a peak rate of almost one mile per day and was first reported in Mexico in 1985.",
+      "claim_refs": [
+       "c25",
+       "c28",
+       "c14"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, and the first recorded US death from Africanized bee stings occurred in 1993.",
+     "event_function": "population_responds",
+     "caused_by": "scene_014",
+     "scope": "primary_story",
+     "event": {
+      "text": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, and the first recorded US death from Africanized bee stings occurred in 1993.",
+      "claim_refs": [
+       "c26",
+       "c42"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "Africanized bees were detected in Arizona in 1993 and in New Mexico and southern California by 1995.",
+     "event_function": "population_responds",
+     "caused_by": "scene_016",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees were detected in Arizona in 1993 and in New Mexico and southern California by 1995.",
+      "claim_refs": [
+       "c27"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_12",
+     "beat": "By 2005 Africanized bees appeared for the first time in Louisiana, Arkansas and Florida; the Florida arrival was not contiguous with the southwestern spread and was most likely due to human-assisted transport by trucks, ships or railcars.",
+     "event_function": "population_responds",
+     "caused_by": "scene_018",
+     "scope": "primary_story",
+     "event": {
+      "text": "By 2005 Africanized bees appeared for the first time in Louisiana, Arkansas and Florida; the Florida arrival was not contiguous with the southwestern spread and was most likely due to human-assisted transport by trucks, ships or railcars.",
+      "claim_refs": [
+       "c29",
+       "c30"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_15",
+     "beat": "Brazilian beekeeping shifted from a European honey bee culture that predominated until 1957 to a climate dominated by the Africanized honey bee thereafter, and the Africanized bee cannot ordinarily be distinguished from European bees by eye.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_020",
+     "scope": "primary_story",
+     "event": {
+      "text": "Brazilian beekeeping shifted from a European honey bee culture that predominated until 1957 to a climate dominated by the Africanized honey bee thereafter, and the Africanized bee cannot ordinarily be distinguished from European bees by eye.",
+      "claim_refs": [
+       "c43",
+       "c32"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 179,
+   "sec": 63.6,
+   "quote": "Then the grids came off, and twenty-six queens left."
+  }
+ },
+ "bees_v16": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "problem": "Your bees are European honey bees, better suited to a temperate climate, and in Brazil's tropics they produce very little honey, so your jars come up short.",
+   "solution": "To breed a bee that thrives in the heat, geneticist Warwick Kerr imported African honey bee queens in 1956, meaning to cross them for a bee more productive than the European stock.",
+   "transition": "The surviving African queens were kept at a research apiary near Rio Claro, held inside hive boxes fitted with queen excluder grids that let workers pass but trapped the queens.",
+   "consequence": "In October 1957 a local beekeeper noticed the excluders and removed them, and twenty-six African queens left with small swarms into the nearby forest.",
+   "question": "What happens when the bee you bred for honey keeps everything you tried to breed out?",
+   "callback": {
+    "kind": "object",
+    "text": "the honey jars the beekeeper meant to fill"
+   },
+   "claim_refs": {
+    "problem": [
+     "c39"
+    ],
+    "solution": [
+     "c01",
+     "c02"
+    ],
+    "transition": [
+     "c04",
+     "c05"
+    ],
+    "consequence": [
+     "c06",
+     "c07",
+     "c08"
+    ]
+   },
+   "missing_claims": [
+    "why the local beekeeper removed the queen excluders"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat. Your bees are European honey bees, built for a temperate climate. In Brazil's heat, they work half-heartedly and the comb fills slowly. You tilt the jar to pour, and barely a trickle comes. The harvest is thin. Thinner than it should be.",
+    "event": {
+     "text": "Brazilian honey production was very low because the European honey bee is better adapted to a more temperate environment than Brazil's tropics.",
+     "claim_refs": [
+      "c39"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c39"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_002",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "So someone set out to breed a better bee. In 1956 the geneticist Warwick Kerr imported African honey bee queens to Brazil, meaning to cross them with the local stock. The goal was simple: a bee that works through the tropical heat and fills those jars.",
+    "event": {
+     "text": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to the Americas to produce bees more productive than European honey bees in Brazil's tropical setting.",
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c36"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr imported African honey bee queens to Brazil, meaning to cross them with the local stock."
+     },
+     {
+      "claim_id": "c02",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr imported African honey bee queens to Brazil, meaning to cross them with the local stock."
+     },
+     {
+      "claim_id": "c36",
+      "narration_phrase": "In 1956 the geneticist Warwick Kerr imported African honey bee queens to Brazil, meaning to cross them with the local stock."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c04",
+      "c05",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_03",
+    "causal_role": "false_resolution",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "The surviving queens went to a research apiary near Rio Claro. Forty-eight lived to the next year, and attrition left twenty-nine colonies. Each sat in a hive box fitted with a queen excluder grid: a barrier wide enough for workers, too narrow for the queens. They were contained.",
+    "event": {
+     "text": "The imported queens were taken to a quarantine area near Rio Claro, where 48 survived to the next year and natural attrition left 29 colonies maintained in hive boxes fitted with queen excluders.",
+     "claim_refs": [
+      "c04",
+      "c05"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c04",
+      "narration_phrase": "Each sat in a hive box fitted with a queen excluder grid: a barrier wide enough for workers, too narrow for the queens."
+     },
+     {
+      "claim_id": "c05",
+      "narration_phrase": "Each sat in a hive box fitted with a queen excluder grid: a barrier wide enough for workers, too narrow for the queens."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c01",
+      "c02",
+      "c04",
+      "c05",
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_004",
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "Except in October 1957, grids off, twenty-six queens flew free.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_04",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "In the open grove, those African queens met the European drones already living there. They mated. Their eggs carried both lines at once, and out of that crossing came a new bee, the Africanized honey bee, unlike either parent.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c10",
+      "narration_phrase": "Their eggs carried both lines at once, and out of that crossing came a new bee, the Africanized honey bee, unlike either parent."
+     },
+     {
+      "claim_id": "c11",
+      "narration_phrase": "Their eggs carried both lines at once, and out of that crossing came a new bee, the Africanized honey bee, unlike either parent."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_005b",
+    "beat_id": "event_04b",
+    "causal_role": "mechanism",
+    "continues": "event_04",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "And this one did not behave like its parents. It kept the African temper and the tropical drive, folded into a body built for Brazil. The breeders had wanted a honey maker. What flew out was something else entirely.",
+    "event": {
+     "text": "The escaped African queens and drones hybridized with the existing European population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "claim_refs": [
+      "c10",
+      "c11"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_007",
+    "beat_id": "event_05",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "But a new bee in the forest was only the start. The hybrids mated with the European colonies nearby, and the offspring came out Africanized too. Every crossing tilted the same way.",
+    "event": {
+     "text": "The hybrid interbred with European honey bees, and because the offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+     "claim_refs": [
+      "c55",
+      "c54"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c55",
+      "narration_phrase": "The hybrids mated with the European colonies nearby, and the offspring came out Africanized too."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_03",
+    "causal_role": "false_resolution"
+   },
+   {
+    "beat_id": "event_04:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_04",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_05",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_12",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_15",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_15:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_15:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a beekeeper in Brazil, trying to fill jars from bees that struggle in the heat.",
+    "problem": "Your bees are European honey bees, better suited to a temperate climate, and in Brazil's tropics they produce very little honey, so your jars come up short.",
+    "solution": "To breed a bee that thrives in the heat, geneticist Warwick Kerr imported African honey bee queens in 1956, meaning to cross them for a bee more productive than the European stock.",
+    "transition": "The surviving African queens were kept at a research apiary near Rio Claro, held inside hive boxes fitted with queen excluder grids that let workers pass but trapped the queens.",
+    "consequence": "In October 1957 a local beekeeper noticed the excluders and removed them, and twenty-six African queens left with small swarms into the nearby forest.",
+    "question": "What happens when the bee you bred for honey keeps everything you tried to breed out?",
+    "callback": {
+     "kind": "object",
+     "text": "the honey jars the beekeeper meant to fill"
+    },
+    "claim_refs": {
+     "problem": [
+      "c39"
+     ],
+     "solution": [
+      "c01",
+      "c02"
+     ],
+     "transition": [
+      "c04",
+      "c05"
+     ],
+     "consequence": [
+      "c06",
+      "c07",
+      "c08"
+     ]
+    },
+    "missing_claims": [
+     "why the local beekeeper removed the queen excluders"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "Brazilian honey production was very low because the European honey bee is better adapted to a more temperate environment than Brazil's tropics.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "Brazilian honey production was very low because the European honey bee is better adapted to a more temperate environment than Brazil's tropics.",
+      "claim_refs": [
+       "c39"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to the Americas to produce bees more productive than European honey bees in Brazil's tropical setting.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In 1956 Brazilian geneticist Warwick Kerr imported African honey bee queens (Apis mellifera scutellata) to the Americas to produce bees more productive than European honey bees in Brazil's tropical setting.",
+      "claim_refs": [
+       "c01",
+       "c02",
+       "c36"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_03",
+     "beat": "The imported queens were taken to a quarantine area near Rio Claro, where 48 survived to the next year and natural attrition left 29 colonies maintained in hive boxes fitted with queen excluders.",
+     "event_function": "intended_effect",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "The imported queens were taken to a quarantine area near Rio Claro, where 48 survived to the next year and natural attrition left 29 colonies maintained in hive boxes fitted with queen excluders.",
+      "claim_refs": [
+       "c04",
+       "c05"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_04",
+     "beat": "The escaped African queens and drones hybridized with the existing European population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "The escaped African queens and drones hybridized with the existing European population, producing the Africanized honey bee, genetically and behaviorally distinct from either parent.",
+      "claim_refs": [
+       "c10",
+       "c11"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_05",
+     "beat": "The hybrid interbred with European honey bees, and because the offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+     "event_function": "population_responds",
+     "caused_by": "scene_005",
+     "scope": "primary_story",
+     "event": {
+      "text": "The hybrid interbred with European honey bees, and because the offspring are also Africanized, the less aggressive European bees gradually disappeared.",
+      "claim_refs": [
+       "c55",
+       "c54"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Within a few years of the escape, reports arrived of wild bees relentlessly attacking farm animals and humans, with livestock losses and eventually human fatalities among poor Brazilian farmers.",
+     "event_function": "population_responds",
+     "caused_by": "scene_007",
+     "scope": "primary_story",
+     "event": {
+      "text": "Within a few years of the escape, reports arrived of wild bees relentlessly attacking farm animals and humans, with livestock losses and eventually human fatalities among poor Brazilian farmers.",
+      "claim_refs": [
+       "c13"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "The danger comes not from stronger venom, which is no more painful than a European bee's, but from a defensive response that is more rapid, more intense, and involves a greater proportion of the colony, with bees responding far faster and chasing much farther.",
+     "event_function": "population_responds",
+     "caused_by": "scene_009",
+     "scope": "primary_story",
+     "event": {
+      "text": "The danger comes not from stronger venom, which is no more painful than a European bee's, but from a defensive response that is more rapid, more intense, and involves a greater proportion of the colony, with bees responding far faster and chasing much farther.",
+      "claim_refs": [
+       "c19",
+       "c15",
+       "c18"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, as the bees advanced at nearly a mile a day at peak expansion.",
+     "event_function": "population_responds",
+     "caused_by": "scene_011",
+     "scope": "primary_story",
+     "event": {
+      "text": "The first natural colony of Africanized honey bees in the United States was found in 1990 near Hidalgo, Texas, as the bees advanced at nearly a mile a day at peak expansion.",
+      "claim_refs": [
+       "c26",
+       "c28"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "Africanized bees were detected in Arizona in 1993, and by 1995 in New Mexico and southern California; the first recorded US death from their stings occurred in 1993.",
+     "event_function": "population_responds",
+     "caused_by": "scene_013",
+     "scope": "primary_story",
+     "event": {
+      "text": "Africanized bees were detected in Arizona in 1993, and by 1995 in New Mexico and southern California; the first recorded US death from their stings occurred in 1993.",
+      "claim_refs": [
+       "c27",
+       "c42"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_12",
+     "beat": "By 2005 Africanized bees appeared for the first time in Louisiana, Arkansas, and Florida; Florida's arrival was not contiguous with the southwestern spread and was most likely due to human-assisted transport by trucks, ships, or railcars.",
+     "event_function": "population_responds",
+     "caused_by": "scene_015",
+     "scope": "primary_story",
+     "event": {
+      "text": "By 2005 Africanized bees appeared for the first time in Louisiana, Arkansas, and Florida; Florida's arrival was not contiguous with the southwestern spread and was most likely due to human-assisted transport by trucks, ships, or railcars.",
+      "claim_refs": [
+       "c29",
+       "c30"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_15",
+     "beat": "Brazilian beekeeping shifted from a European honey bee culture that predominated until 1957 to a climate dominated by the Africanized honey bee thereafter, and beekeepers can reverse Africanization by requeening hives with European-stock queens from reputable breeders.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_017",
+     "scope": "primary_story",
+     "event": {
+      "text": "Brazilian beekeeping shifted from a European honey bee culture that predominated until 1957 to a climate dominated by the Africanized honey bee thereafter, and beekeepers can reverse Africanization by requeening hives with European-stock queens from reputable breeders.",
+      "claim_refs": [
+       "c43",
+       "c33"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 163,
+   "sec": 60.1,
+   "quote": "Except in October 1957, grids off, twenty-six queens flew free."
+  },
+  "deletion": {
+   "delete": [
+    "You tilt the jar to pour, and barely a trickle comes.",
+    "The harvest is thin.",
+    "Thinner than it should be.",
+    "So someone set out to breed a better bee.",
+    "The goal was simple: a bee that works through the tropical heat and fills those jars.",
+    "Forty-eight lived to the next year, and attrition left twenty-nine colonies.",
+    "They were contained."
+   ],
+   "expected_words": 104,
+   "must_keep": [
+    "In 1956 the geneticist Warwick Kerr imported African honey bee queens to Brazil, meaning to cross them with the local stock.",
+    "Except in October 1957, grids off, twenty-six queens flew free."
+   ]
+  }
+ },
+ "escobar-hippos": {
+  "engine": "removed_keystone",
+  "runtime_sec": 300.0,
+  "hook": "You'd think four hippos left behind on a ranch would simply die out.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "You'd think four hippos left behind on a ranch would simply die out.",
+   "problem": "They didn't. A single male and three females have multiplied into an estimated 150 to 200 hippos spread across the Magdalena and Cauca rivers. Colombia has declared them an invasive species, and fishing communities along the river have come under attack from animals that are among the most dangerous in the world.",
+   "solution": "Pablo Escobar brought the four hippos in 1981 to stock an open-door private zoo at Hacienda Napoles; after he was killed in 1993 the zoo closed, most animals died or were moved, but the hippos were left on site because they were too difficult to transport.",
+   "transition": "Left behind in a hot, well-watered savanna near the Magdalena River, the hippos began to reproduce and disperse.",
+   "consequence": "They walked out of the estate and into the rivers, marshes and cattle ponds of the surrounding landscape, where they kept breeding.",
+   "question": "So why can't Colombia stop them?",
+   "callback": {
+    "kind": "object",
+    "text": "the old wooden zoo gate of Hacienda Napoles, left standing open behind them"
+   },
+   "claim_refs": {
+    "problem": [
+     "c36",
+     "c01",
+     "c32",
+     "c29",
+     "c28"
+    ],
+    "solution": [
+     "c03",
+     "c01",
+     "c05",
+     "c07"
+    ],
+    "transition": [
+     "c35",
+     "c05"
+    ],
+    "consequence": [
+     "c05",
+     "c08"
+    ]
+   },
+   "missing_claims": [
+    "why Escobar chose hippos specifically for the zoo",
+    "why the government did not remove the hippos in the years immediately after 1993"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "You'd think four hippos left behind on a ranch would simply die out. They didn't. The hippos descended from a small herd imported by Escobar now roam the Magdalena River basin. Colombia's environment ministry declared the hippos an invasive species. So why can't Colombia stop them?",
+    "event": {
+     "text": "Escobar's Hacienda Napoles estate sat in rolling pastureland near Doradal, west of the Magdalena River, amid floodplain lakes, man-made cattle ponds and small streams in a hot savanna region criss-crossed by rivers, marshes and swamps with abundant hippo food.",
+     "claim_refs": [
+      "c08",
+      "c35"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c57",
+      "narration_phrase": "The hippos descended from a small herd imported by Escobar now roam the Magdalena River basin."
+     },
+     {
+      "claim_id": "c32",
+      "narration_phrase": "Colombia's environment ministry declared the hippos an invasive species."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c36",
+      "c01",
+      "c32",
+      "c29",
+      "c28"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_001b",
+    "beat_id": "event_01b",
+    "causal_role": "setup",
+    "continues": "event_01",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Picture the land that received them. A hot savanna near the Magdalena River, rolling pastureland broken by floodplain lakes, man-made cattle ponds and slow streams. For a hippo, this is a buffet.",
+    "event": {
+     "text": "Escobar's Hacienda Napoles estate sat in rolling pastureland near Doradal, west of the Magdalena River, amid floodplain lakes, man-made cattle ponds and small streams in a hot savanna region criss-crossed by rivers, marshes and swamps with abundant hippo food.",
+     "claim_refs": [
+      "c08",
+      "c35"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c08",
+      "narration_phrase": "A hot savanna near the Magdalena River, rolling pastureland broken by floodplain lakes, man-made cattle ponds and slow streams."
+     },
+     {
+      "claim_id": "c35",
+      "narration_phrase": "A hot savanna near the Magdalena River, rolling pastureland broken by floodplain lakes, man-made cattle ponds and slow streams."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c36",
+      "c01",
+      "c32",
+      "c29",
+      "c28"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_02",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So how did they get here? In 1981, four hippos — three females and one male — were shipped from a zoo in the United States to a private, open-door zoo on this estate.",
+    "event": {
+     "text": "Four hippos — three females and one male — were imported to Colombia in 1981 from a zoo in the United States for Pablo Escobar's open-door private zoo at Hacienda Napoles, alongside giraffes, zebras and concrete dinosaurs.",
+     "claim_refs": [
+      "c01",
+      "c03",
+      "c04"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "In 1981, four hippos — three females and one male — were shipped from a zoo in the United States to a private, open-door zoo on this estate."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "In 1981, four hippos — three females and one male — were shipped from a zoo in the United States to a private, open-door zoo on this estate."
+     },
+     {
+      "claim_id": "c04",
+      "narration_phrase": "In 1981, four hippos — three females and one male — were shipped from a zoo in the United States to a private, open-door zoo on this estate."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c03",
+      "c01",
+      "c05",
+      "c07",
+      "c35",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003b",
+    "beat_id": "event_02b",
+    "causal_role": "intervention",
+    "continues": "event_02",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Picture wandering in off the road and finding yourself among them. They weren't alone. Giraffes ambled across the grass. Zebras grazed near the ponds. And those strange concrete dinosaurs stood watch over the whole collection, an open-door spectacle anyone could wander into.",
+    "event": {
+     "text": "Four hippos — three females and one male — were imported to Colombia in 1981 from a zoo in the United States for Pablo Escobar's open-door private zoo at Hacienda Napoles, alongside giraffes, zebras and concrete dinosaurs.",
+     "claim_refs": [
+      "c01",
+      "c03",
+      "c04"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c01",
+      "narration_phrase": "And those strange concrete dinosaurs stood watch over the whole collection, an open-door spectacle anyone could wander into."
+     },
+     {
+      "claim_id": "c03",
+      "narration_phrase": "And those strange concrete dinosaurs stood watch over the whole collection, an open-door spectacle anyone could wander into."
+     },
+     {
+      "claim_id": "c04",
+      "narration_phrase": "And those strange concrete dinosaurs stood watch over the whole collection, an open-door spectacle anyone could wander into."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c03",
+      "c01",
+      "c05",
+      "c07",
+      "c35",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_03:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But open doors work both ways.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c05",
+      "c08"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_006",
+    "beat_id": "event_03",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Then the man behind it was gone. In 1993, Escobar was killed and the zoo closed. Most of the animals died or were shipped to zoos. The hippos stayed. They were simply too heavy, too dangerous, too difficult to move anywhere.",
+    "event": {
+     "text": "After Escobar's death in 1993 the zoo closed; most animals died or went to zoos, but the hippos were left on site because they were difficult to transport, and they began to reproduce and disperse into the surrounding landscape.",
+     "claim_refs": [
+      "c05",
+      "c07",
+      "c06"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_006b",
+    "beat_id": "event_03b",
+    "causal_role": "mechanism",
+    "continues": "event_03",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "And here is the thing that changed everything. Left in a warm basin, with water and food year-round, the hippos did not die out. They bred. Then their young wandered off into the surrounding landscape.",
+    "event": {
+     "text": "After Escobar's death in 1993 the zoo closed; most animals died or went to zoos, but the hippos were left on site because they were difficult to transport, and they began to reproduce and disperse into the surrounding landscape.",
+     "claim_refs": [
+      "c05",
+      "c07",
+      "c06"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_008",
+    "beat_id": "event_06",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "How fast can a few abandoned animals really spread? Count it out. Since their release to the wild, the Colombian hippo population has grown at an estimated seven to fourteen and a half percent every single year.",
+    "event": {
+     "text": "Since their release to the wild, the Colombian hippo population has grown at an estimated rate of 7 to 14.5 percent per year.",
+     "claim_refs": [
+      "c09"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c09",
+      "narration_phrase": "Since their release to the wild, the Colombian hippo population has grown at an estimated seven to fourteen and a half percent every single year."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_02",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_03:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_03",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:tool",
+    "causal_role": "tool",
+    "presentation_device": "tool"
+   }
+  ],
+  "plan": {
+   "hook": "You'd think four hippos left behind on a ranch would simply die out.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "You'd think four hippos left behind on a ranch would simply die out.",
+    "problem": "They didn't. A single male and three females have multiplied into an estimated 150 to 200 hippos spread across the Magdalena and Cauca rivers. Colombia has declared them an invasive species, and fishing communities along the river have come under attack from animals that are among the most dangerous in the world.",
+    "solution": "Pablo Escobar brought the four hippos in 1981 to stock an open-door private zoo at Hacienda Napoles; after he was killed in 1993 the zoo closed, most animals died or were moved, but the hippos were left on site because they were too difficult to transport.",
+    "transition": "Left behind in a hot, well-watered savanna near the Magdalena River, the hippos began to reproduce and disperse.",
+    "consequence": "They walked out of the estate and into the rivers, marshes and cattle ponds of the surrounding landscape, where they kept breeding.",
+    "question": "So why can't Colombia stop them?",
+    "callback": {
+     "kind": "object",
+     "text": "the old wooden zoo gate of Hacienda Napoles, left standing open behind them"
+    },
+    "claim_refs": {
+     "problem": [
+      "c36",
+      "c01",
+      "c32",
+      "c29",
+      "c28"
+     ],
+     "solution": [
+      "c03",
+      "c01",
+      "c05",
+      "c07"
+     ],
+     "transition": [
+      "c35",
+      "c05"
+     ],
+     "consequence": [
+      "c05",
+      "c08"
+     ]
+    },
+    "missing_claims": [
+     "why Escobar chose hippos specifically for the zoo",
+     "why the government did not remove the hippos in the years immediately after 1993"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "Escobar's Hacienda Napoles estate sat in rolling pastureland near Doradal, west of the Magdalena River, amid floodplain lakes, man-made cattle ponds and small streams in a hot savanna region criss-crossed by rivers, marshes and swamps with abundant hippo food.",
+     "event_function": "establishes_balance",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "Escobar's Hacienda Napoles estate sat in rolling pastureland near Doradal, west of the Magdalena River, amid floodplain lakes, man-made cattle ponds and small streams in a hot savanna region criss-crossed by rivers, marshes and swamps with abundant hippo food.",
+      "claim_refs": [
+       "c08",
+       "c35"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_02",
+     "beat": "Four hippos — three females and one male — were imported to Colombia in 1981 from a zoo in the United States for Pablo Escobar's open-door private zoo at Hacienda Napoles, alongside giraffes, zebras and concrete dinosaurs.",
+     "event_function": "species_moved",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "Four hippos — three females and one male — were imported to Colombia in 1981 from a zoo in the United States for Pablo Escobar's open-door private zoo at Hacienda Napoles, alongside giraffes, zebras and concrete dinosaurs.",
+      "claim_refs": [
+       "c01",
+       "c03",
+       "c04"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_03",
+     "beat": "After Escobar's death in 1993 the zoo closed; most animals died or went to zoos, but the hippos were left on site because they were difficult to transport, and they began to reproduce and disperse into the surrounding landscape.",
+     "event_function": "hidden_link",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "After Escobar's death in 1993 the zoo closed; most animals died or went to zoos, but the hippos were left on site because they were difficult to transport, and they began to reproduce and disperse into the surrounding landscape.",
+      "claim_refs": [
+       "c05",
+       "c07",
+       "c06"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "Since their release to the wild, the Colombian hippo population has grown at an estimated rate of 7 to 14.5 percent per year.",
+     "event_function": "population_responds",
+     "caused_by": "scene_006",
+     "scope": "primary_story",
+     "event": {
+      "text": "Since their release to the wild, the Colombian hippo population has grown at an estimated rate of 7 to 14.5 percent per year.",
+      "claim_refs": [
+       "c09"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "Anecdotal hippo observations have been reported nearly 400 km from the original release site along the Magdalena River, near Magangue.",
+     "event_function": "population_responds",
+     "caused_by": "scene_008",
+     "scope": "primary_story",
+     "event": {
+      "text": "Anecdotal hippo observations have been reported nearly 400 km from the original release site along the Magdalena River, near Magangue.",
+      "claim_refs": [
+       "c11"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "Sampling 14 small lakes around Hacienda Napoles, researchers found cyanobacteria more prevalent in hippo-filled lakes — likely because nutrients in large quantities of hippo waste fertilise the bacteria — and dissolved oxygen sometimes dipped below the level fish can handle.",
+     "event_function": "population_responds",
+     "caused_by": "scene_010",
+     "scope": "primary_story",
+     "event": {
+      "text": "Sampling 14 small lakes around Hacienda Napoles, researchers found cyanobacteria more prevalent in hippo-filled lakes — likely because nutrients in large quantities of hippo waste fertilise the bacteria — and dissolved oxygen sometimes dipped below the level fish can handle.",
+      "claim_refs": [
+       "c23",
+       "c24",
+       "c26",
+       "c22"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "Decomposition of organic matter imported by hippos can result in anoxic conditions and mass mortality of fishes during high-flow events, when material is exported downstream out of hippo pools.",
+     "event_function": "population_responds",
+     "caused_by": "scene_012",
+     "scope": "primary_story",
+     "event": {
+      "text": "Decomposition of organic matter imported by hippos can result in anoxic conditions and mass mortality of fishes during high-flow events, when material is exported downstream out of hippo pools.",
+      "claim_refs": [
+       "c55"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "Fishing communities along the Magdalena River have come under attack from hippos — among the most dangerous animals in the world — and some have invaded a school yard; near Puerto Triunfo, Alvaro Molina was fishing when a female hippo that had recently given birth moved beneath his canoe and spilled him into the water.",
+     "event_function": "population_responds",
+     "caused_by": "scene_014",
+     "scope": "primary_story",
+     "event": {
+      "text": "Fishing communities along the Magdalena River have come under attack from hippos — among the most dangerous animals in the world — and some have invaded a school yard; near Puerto Triunfo, Alvaro Molina was fishing when a female hippo that had recently given birth moved beneath his canoe and spilled him into the water.",
+      "claim_refs": [
+       "c28",
+       "c29",
+       "c30"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "An estimated 150 to 200 hippos, recognized by Guinness World Records as the largest invasive species on the planet, are distributed mainly across the Magdalena and Cauca rivers; authorities warn the population could exceed 500 by 2030 and reach 1,000 by 2035 without intervention, with a narrow window and high costs for control.",
+     "event_function": "system_resettles",
+     "caused_by": "scene_016",
+     "scope": "primary_story",
+     "event": {
+      "text": "An estimated 150 to 200 hippos, recognized by Guinness World Records as the largest invasive species on the planet, are distributed mainly across the Magdalena and Cauca rivers; authorities warn the population could exceed 500 by 2030 and reach 1,000 by 2035 without intervention, with a narrow window and high costs for control.",
+      "claim_refs": [
+       "c17",
+       "c36",
+       "c15",
+       "c16",
+       "c43"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c01",
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c13",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c22",
+   "c23",
+   "c24",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c32",
+   "c33",
+   "c34",
+   "c35",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c40",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c45",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 236,
+   "sec": 89.0,
+   "quote": "Then their young wandered off into the surrounding landscape."
+  },
+  "deletion": {
+   "delete": [
+    "Picture the land that received them.",
+    "A hot savanna near the Magdalena River, rolling pastureland broken by floodplain lakes, man-made cattle ponds and slow streams.",
+    "For a hippo, this is a buffet.",
+    "So how did they get here?",
+    "Picture wandering in off the road and finding yourself among them.",
+    "They weren't alone.",
+    "Giraffes ambled across the grass.",
+    "Zebras grazed near the ponds.",
+    "And those strange concrete dinosaurs stood watch over the whole collection, an open-door spectacle anyone could wander into.",
+    "Most of the animals died or were shipped to zoos.",
+    "They were simply too heavy, too dangerous, too difficult to move anywhere.",
+    "And here is the thing that changed everything."
+   ],
+   "expected_words": 126,
+   "must_keep": [
+    "You'd think four hippos left behind on a ranch would simply die out.",
+    "In 1981, four hippos — three females and one male — were shipped from a zoo in the United States to a private, open-door zoo on this estate.",
+    "Then their young wandered off into the surrounding landscape."
+   ]
+  }
+ },
+ "history-aral-sea": {
+  "engine": "state_programme",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you crew a fishing boat on the Aral Sea, hauling nets that feed your whole port town.",
+   "problem": "Your living comes from a sea that is the world's fourth-largest lake, and in 1959 the fleet you work with hauls in close to 50,000 metric tonnes of fish a year.",
+   "solution": "In the 1960s the Soviet Union undertakes a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn the desert into cotton farms, drawing the water off the rivers that feed your sea.",
+   "transition": "Those two rivers, the Amu Darya and Syr Darya, are the sea's main inflow, and the new canals carry their water to the cotton fields instead.",
+   "consequence": "The decline of the Aral begins in 1961: that year the Syr Darya discharge station at Kazalinsk records no discharge at all into the sea for the whole year.",
+   "question": "What does a plan that grew cotton cost the sea and everyone who lived from it?",
+   "callback": {
+    "kind": "object",
+    "text": "the fishing boat, afloat at the start and stranded on dry sand at the close"
+   },
+   "claim_refs": {
+    "problem": [
+     "c08",
+     "c23"
+    ],
+    "solution": [
+     "c02",
+     "c04"
+    ],
+    "transition": [
+     "c03",
+     "c55"
+    ],
+    "consequence": [
+     "c05",
+     "c06"
+    ]
+   },
+   "missing_claims": [
+    "the ledger does not give the personal circumstances or reactions of any individual fishing family",
+    "the ledger does not state why Soviet planners accepted the sea's loss, only that hydrologists understood the consequence"
+   ]
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery. Imagine the deck under your boots, nets dripping, the catch sliding into crates bound for the cannery. Your whole port town eats from this water. It is no pond — it stretches to the horizon.",
+    "event": {
+     "text": "Before 1960 the Aral Sea was the world's fourth-largest lake.",
+     "claim_refs": [
+      "c08"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c08",
+      "narration_phrase": "Imagine the deck under your boots, nets dripping, the catch sliding into crates bound for the cannery."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c08",
+      "c23"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_001b",
+    "beat_id": "event_01b",
+    "causal_role": "setup",
+    "continues": "event_01",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "The sea is the world's fourth-largest lake, and in 1959 your fleet lands close to fifty thousand tonnes of fish a year. This is your whole world.",
+    "event": {
+     "text": "Before 1960 the Aral Sea was the world's fourth-largest lake.",
+     "claim_refs": [
+      "c08"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c08",
+      "narration_phrase": "The sea is the world's fourth-largest lake, and in 1959 your fleet lands close to fifty thousand tonnes of fish a year."
+     },
+     {
+      "claim_id": "c23",
+      "narration_phrase": "The sea is the world's fourth-largest lake, and in 1959 your fleet lands close to fifty thousand tonnes of fish a year."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c08",
+      "c23"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_03",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So the state looked at the dry plains around you and saw cotton. In the 1960s the Soviet Union began a huge water project across Kazakhstan, Uzbekistan and Turkmenistan, meaning to turn that desert into farmland.",
+    "event": {
+     "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn them into cotton and other farms.",
+     "claim_refs": [
+      "c02"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c02",
+      "narration_phrase": "In the 1960s the Soviet Union began a huge water project across Kazakhstan, Uzbekistan and Turkmenistan, meaning to turn that desert into farmland."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c02",
+      "c04",
+      "c03",
+      "c55",
+      "c05",
+      "c06"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_003b",
+    "beat_id": "event_03b",
+    "causal_role": "intervention",
+    "continues": "event_03",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "The plan was simple. Draw the water off the rivers feeding your sea and send it to the cotton instead. Canals opened, the current turned, and the flow that once reached the shore now ran out across the fields.",
+    "event": {
+     "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn them into cotton and other farms.",
+     "claim_refs": [
+      "c02"
+     ]
+    },
+    "claim_refs": [],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c02",
+      "c04",
+      "c03",
+      "c55",
+      "c05",
+      "c06"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_06:hinge",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But the sea got nothing back.",
+    "presentation_device": "hinge",
+    "event": {
+     "text": "",
+     "claim_refs": []
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c05",
+      "narration_phrase": "But the sea got nothing back."
+     },
+     {
+      "claim_id": "c06",
+      "narration_phrase": "But the sea got nothing back."
+     }
+    ],
+    "opening_ceiling": {
+     "claim_refs": [
+      "c05",
+      "c06"
+     ]
+    }
+   },
+   {
+    "scene_id": "scene_006",
+    "beat_id": "event_06",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "The decline began in 1961. That year, one river's flow was measured as it neared the sea — at the discharge station at Kazalinsk on the Syr Darya. The reading for the whole year was nothing. Not a drop reached the sea.",
+    "event": {
+     "text": "The decline of the Aral Sea began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "claim_refs": [
+      "c05",
+      "c06"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c05",
+      "narration_phrase": "That year, one river's flow was measured as it neared the sea — at the discharge station at Kazalinsk on the Syr Darya."
+     },
+     {
+      "claim_id": "c06",
+      "narration_phrase": "That year, one river's flow was measured as it neared the sea — at the discharge station at Kazalinsk on the Syr Darya."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_006b",
+    "beat_id": "event_06b",
+    "causal_role": "mechanism",
+    "continues": "event_06",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "Picture what that meant on the shore. The water that fed the sea was now feeding the fields, mile after mile of them. A sea this size loses water to the sun every single day — and with the rivers gone, nothing came to replace it.",
+    "event": {
+     "text": "The decline of the Aral Sea began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "claim_refs": [
+      "c05",
+      "c06"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c05",
+      "narration_phrase": "A sea this size loses water to the sun every single day — and with the rivers gone, nothing came to replace it."
+     },
+     {
+      "claim_id": "c06",
+      "narration_phrase": "A sea this size loses water to the sun every single day — and with the rivers gone, nothing came to replace it."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_008",
+    "beat_id": "event_07",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "You might expect the planners to ease off once the shore began pulling back. They did the opposite. The losses to the sea were plain by the mid-1960s — yet year after year, more land was broken for cotton, and the fields only grew.",
+    "event": {
+     "text": "Although losses to the Aral were evident by the mid-1960s, Soviet planners kept increasing the acreage devoted to cotton well into the 1980s.",
+     "claim_refs": [
+      "c07"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c07",
+      "narration_phrase": "The losses to the sea were plain by the mid-1960s — yet year after year, more land was broken for cotton, and the fields only grew."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_03",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_06:hinge",
+    "causal_role": "hinge",
+    "presentation_device": "hinge"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_08",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_12",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_14",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:verdict",
+    "causal_role": "verdict",
+    "presentation_device": "verdict"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you crew a fishing boat on the Aral Sea, hauling nets that feed your whole port town.",
+    "problem": "Your living comes from a sea that is the world's fourth-largest lake, and in 1959 the fleet you work with hauls in close to 50,000 metric tonnes of fish a year.",
+    "solution": "In the 1960s the Soviet Union undertakes a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn the desert into cotton farms, drawing the water off the rivers that feed your sea.",
+    "transition": "Those two rivers, the Amu Darya and Syr Darya, are the sea's main inflow, and the new canals carry their water to the cotton fields instead.",
+    "consequence": "The decline of the Aral begins in 1961: that year the Syr Darya discharge station at Kazalinsk records no discharge at all into the sea for the whole year.",
+    "question": "What does a plan that grew cotton cost the sea and everyone who lived from it?",
+    "callback": {
+     "kind": "object",
+     "text": "the fishing boat, afloat at the start and stranded on dry sand at the close"
+    },
+    "claim_refs": {
+     "problem": [
+      "c08",
+      "c23"
+     ],
+     "solution": [
+      "c02",
+      "c04"
+     ],
+     "transition": [
+      "c03",
+      "c55"
+     ],
+     "consequence": [
+      "c05",
+      "c06"
+     ]
+    },
+    "missing_claims": [
+     "the ledger does not give the personal circumstances or reactions of any individual fishing family",
+     "the ledger does not state why Soviet planners accepted the sea's loss, only that hydrologists understood the consequence"
+    ]
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "Before 1960 the Aral Sea was the world's fourth-largest lake.",
+     "event_function": "establishes_problem",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "Before 1960 the Aral Sea was the world's fourth-largest lake.",
+      "claim_refs": [
+       "c08"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_03",
+     "beat": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn them into cotton and other farms.",
+     "event_function": "programme_imposed",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan to turn them into cotton and other farms.",
+      "claim_refs": [
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "The decline of the Aral Sea began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "event_function": "harm_pathway",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "The decline of the Aral Sea began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+      "claim_refs": [
+       "c05",
+       "c06"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Although losses to the Aral were evident by the mid-1960s, Soviet planners kept increasing the acreage devoted to cotton well into the 1980s.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_006",
+     "scope": "primary_story",
+     "event": {
+      "text": "Although losses to the Aral were evident by the mid-1960s, Soviet planners kept increasing the acreage devoted to cotton well into the 1980s.",
+      "claim_refs": [
+       "c07"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_08",
+     "beat": "The rate of level decline accelerated: about 0.21 metres per year in the 1960s, 0.6 metres per year in the 1970s, and 0.8 metres per year in the 1980s.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_008",
+     "scope": "primary_story",
+     "event": {
+      "text": "The rate of level decline accelerated: about 0.21 metres per year in the 1960s, 0.6 metres per year in the 1970s, and 0.8 metres per year in the 1980s.",
+      "claim_refs": [
+       "c14"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "Aral Sea fish catches fell sharply through the 1960s and 1970s, and commercial fishing had totally disappeared by around 1982-1983 because of high salinity and shrinkage.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_010",
+     "scope": "primary_story",
+     "event": {
+      "text": "Aral Sea fish catches fell sharply through the 1960s and 1970s, and commercial fishing had totally disappeared by around 1982-1983 because of high salinity and shrinkage.",
+      "claim_refs": [
+       "c21"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_12",
+     "beat": "Moynaq, once a thriving fishing port on the Aral Sea, now lies roughly 150 km from the water, stranded in the Aralkum Desert and known for its ship graveyard.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_012",
+     "scope": "primary_story",
+     "event": {
+      "text": "Moynaq, once a thriving fishing port on the Aral Sea, now lies roughly 150 km from the water, stranded in the Aralkum Desert and known for its ship graveyard.",
+      "claim_refs": [
+       "c26"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_14",
+     "beat": "Karakalpakstan, home to around 1.5 million people, has been the human population hardest hit by the Aral Sea's ecological devastation.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_014",
+     "scope": "primary_story",
+     "event": {
+      "text": "Karakalpakstan, home to around 1.5 million people, has been the human population hardest hit by the Aral Sea's ecological devastation.",
+      "claim_refs": [
+       "c33"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "Since 1960 the Aral Sea has lost about 88 percent of its surface area and 92 percent of its water volume.",
+     "event_function": "cost_reckoned",
+     "caused_by": "scene_016",
+     "scope": "primary_story",
+     "event": {
+      "text": "Since 1960 the Aral Sea has lost about 88 percent of its surface area and 92 percent of its water volume.",
+      "claim_refs": [
+       "c10"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c24",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c33",
+   "c34",
+   "c35",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c45",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 159,
+   "sec": 57.3,
+   "quote": "But the sea got nothing back."
+  }
+ },
+ "history-aral-sea-v2": {
+  "engine": "state_programme",
+  "runtime_sec": 300.0,
+  "hook": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery.",
+  "opening": {
+   "voice": "second_person",
+   "frame": "Imagine you're a fishing family on the Aral Sea, loading the morning catch from your boat into the cannery.",
+   "problem": "Your whole living comes off this water: in 1959 the Aral fleet hauled in close to 50,000 tonnes of fish, carp and bream and sturgeon, from a sea fed for centuries by two great rivers.",
+   "solution": "Then the state decides the desert should grow cotton, and in the 1960s it diverts the Amu Darya and Syr Darya onto new farmland across Kazakhstan, Uzbekistan and Turkmenistan.",
+   "transition": "The water that once reached your shore is turned instead into irrigation canals far upstream.",
+   "consequence": "In 1961 the sea begins to fall, and the Syr Darya station at Kazalinsk records no discharge into the Aral at all for the whole year.",
+   "question": "What does a plan that works cost the sea it drinks dry?",
+   "callback": {
+    "kind": "object",
+    "text": "the same fishing boat, left on bare sand where the water used to be"
+   },
+   "claim_refs": {},
+   "missing_claims": []
+  },
+  "scenes": [
+   {
+    "scene_id": "scene_001",
+    "beat_id": "event_01",
+    "causal_role": "setup",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery. Two rivers fed it, and for centuries the Amu Darya flowed from the high Pamir Mountains into a lake so wide you could not see its far shore. Picture it: the world's fourth-largest, about sixty-eight thousand square kilometres of water.",
+    "event": {
+     "text": "Before 1960 the Aral Sea was the world's fourth-largest lake, about 68,000 square kilometres, fed for centuries by the Amu Darya flowing from the Pamir mountains.",
+     "claim_refs": [
+      "c08",
+      "c03"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c03",
+      "narration_phrase": "Two rivers fed it, and for centuries the Amu Darya flowed from the high Pamir Mountains into a lake so wide you could not see its far shore."
+     },
+     {
+      "claim_id": "c08",
+      "narration_phrase": "Two rivers fed it, and for centuries the Amu Darya flowed from the high Pamir Mountains into a lake so wide you could not see its far shore."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_002",
+    "beat_id": "event_03",
+    "causal_role": "intervention",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "So where does the water go? The Soviet Union looked at the dry plains of Kazakhstan, Uzbekistan and Turkmenistan and saw fields of cotton waiting. Through the 1960s it built the canals to carry both rivers out onto that thirsty land.",
+    "event": {
+     "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan.",
+     "claim_refs": [
+      "c02"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_003",
+    "beat_id": "event_05",
+    "causal_role": "false_resolution",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "And it worked. The cotton came, bale after bale of it, mostly by breaking fresh ground that had never been farmed. More cotton meant more land, and more land meant more water pulled away.",
+    "event": {
+     "text": "Cotton production rose, achieved mainly by expanding cultivation into previously uncultivated land.",
+     "claim_refs": [
+      "c04"
+     ]
+    },
+    "claim_refs": []
+   },
+   {
+    "scene_id": "scene_004",
+    "beat_id": "event_04",
+    "causal_role": "hinge",
+    "beat_part": 1,
+    "beat_part_count": 1,
+    "narration": "But Soviet hydrologists already knew.",
+    "event": {
+     "text": "Soviet hydrologists understood even before the main canals were built that diverting the water would have serious consequences for the sea.",
+     "claim_refs": [
+      "c43"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c43",
+      "narration_phrase": "But Soviet hydrologists already knew."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_005",
+    "beat_id": "event_06",
+    "causal_role": "mechanism",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "So upstream, the water fanned out across cotton; downstream, the old riverbed ran thinner each season. In 1961 the Syr Darya's gauge at Kazalinsk measured the flow reaching the sea.",
+    "event": {
+     "text": "The Aral's decline began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "claim_refs": [
+      "c05",
+      "c06"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c05",
+      "narration_phrase": "So upstream, the water fanned out across cotton; downstream, the old riverbed ran thinner each season."
+     },
+     {
+      "claim_id": "c06",
+      "narration_phrase": "So upstream, the water fanned out across cotton; downstream, the old riverbed ran thinner each season."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_005b",
+    "beat_id": "event_06b",
+    "causal_role": "mechanism",
+    "continues": "event_06",
+    "beat_part": 2,
+    "beat_part_count": 2,
+    "narration": "The reading came back as nothing. Not low. Zero. For that whole year, not one drop of the Syr Darya reached the Aral, and the sea had quietly begun to fall.",
+    "event": {
+     "text": "The Aral's decline began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "claim_refs": [
+      "c05",
+      "c06"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c05",
+      "narration_phrase": "For that whole year, not one drop of the Syr Darya reached the Aral, and the sea had quietly begun to fall."
+     },
+     {
+      "claim_id": "c06",
+      "narration_phrase": "For that whole year, not one drop of the Syr Darya reached the Aral, and the sea had quietly begun to fall."
+     }
+    ]
+   },
+   {
+    "scene_id": "scene_007",
+    "beat_id": "event_07",
+    "causal_role": "escalation",
+    "beat_part": 1,
+    "beat_part_count": 2,
+    "narration": "You might expect someone to pull back here. They did the opposite. By the mid-1960s the losses to the sea were plain to see, yet the planners kept adding cotton fields year after year.",
+    "event": {
+     "text": "Although losses to the Aral were evident by the mid-1960s, Soviet planners continued to increase the acreage devoted to cotton production well into the 1980s.",
+     "claim_refs": [
+      "c07"
+     ]
+    },
+    "claim_refs": [
+     {
+      "claim_id": "c07",
+      "narration_phrase": "By the mid-1960s the losses to the sea were plain to see, yet the planners kept adding cotton fields year after year."
+     }
+    ]
+   }
+  ],
+  "base_beats": [
+   {
+    "beat_id": "event_01",
+    "causal_role": "setup"
+   },
+   {
+    "beat_id": "event_03",
+    "causal_role": "intervention"
+   },
+   {
+    "beat_id": "event_05",
+    "causal_role": "false_resolution"
+   },
+   {
+    "beat_id": "event_04",
+    "causal_role": "hinge"
+   },
+   {
+    "beat_id": "event_06",
+    "causal_role": "mechanism"
+   },
+   {
+    "beat_id": "event_07",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_09",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_10",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_11",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_12",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_13",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_14",
+    "causal_role": "escalation"
+   },
+   {
+    "beat_id": "event_16",
+    "causal_role": "reversal"
+   },
+   {
+    "beat_id": "event_15",
+    "causal_role": "generalization"
+   },
+   {
+    "beat_id": "event_16:synthesis",
+    "causal_role": "synthesis",
+    "presentation_device": "synthesis"
+   },
+   {
+    "beat_id": "event_16:verdict",
+    "causal_role": "verdict",
+    "presentation_device": "verdict"
+   }
+  ],
+  "plan": {
+   "hook": "Imagine you're a fishing family on the Aral Sea, loading your morning catch into the cannery.",
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a fishing family on the Aral Sea, loading the morning catch from your boat into the cannery.",
+    "problem": "Your whole living comes off this water: in 1959 the Aral fleet hauled in close to 50,000 tonnes of fish, carp and bream and sturgeon, from a sea fed for centuries by two great rivers.",
+    "solution": "Then the state decides the desert should grow cotton, and in the 1960s it diverts the Amu Darya and Syr Darya onto new farmland across Kazakhstan, Uzbekistan and Turkmenistan.",
+    "transition": "The water that once reached your shore is turned instead into irrigation canals far upstream.",
+    "consequence": "In 1961 the sea begins to fall, and the Syr Darya station at Kazalinsk records no discharge into the Aral at all for the whole year.",
+    "question": "What does a plan that works cost the sea it drinks dry?",
+    "callback": {
+     "kind": "object",
+     "text": "the same fishing boat, left on bare sand where the water used to be"
+    },
+    "claim_refs": {},
+    "missing_claims": []
+   },
+   "beats": [
+    {
+     "beat_id": "event_01",
+     "beat": "Before 1960 the Aral Sea was the world's fourth-largest lake, about 68,000 square kilometres, fed for centuries by the Amu Darya flowing from the Pamir mountains.",
+     "event_function": "establishes_problem",
+     "caused_by": "",
+     "scope": "primary_story",
+     "event": {
+      "text": "Before 1960 the Aral Sea was the world's fourth-largest lake, about 68,000 square kilometres, fed for centuries by the Amu Darya flowing from the Pamir mountains.",
+      "claim_refs": [
+       "c08",
+       "c03"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_03",
+     "beat": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan.",
+     "event_function": "programme_imposed",
+     "caused_by": "scene_001",
+     "scope": "primary_story",
+     "event": {
+      "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan.",
+      "claim_refs": [
+       "c02"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_05",
+     "beat": "Cotton production rose, achieved mainly by expanding cultivation into previously uncultivated land.",
+     "event_function": "apparent_success",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "Cotton production rose, achieved mainly by expanding cultivation into previously uncultivated land.",
+      "claim_refs": [
+       "c04"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_04",
+     "beat": "Soviet hydrologists understood even before the main canals were built that diverting the water would have serious consequences for the sea.",
+     "event_function": "warning_recorded",
+     "caused_by": "scene_003",
+     "scope": "primary_story",
+     "event": {
+      "text": "Soviet hydrologists understood even before the main canals were built that diverting the water would have serious consequences for the sea.",
+      "claim_refs": [
+       "c43"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_06",
+     "beat": "The Aral's decline began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+     "event_function": "harm_pathway",
+     "caused_by": "scene_002",
+     "scope": "primary_story",
+     "event": {
+      "text": "The Aral's decline began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+      "claim_refs": [
+       "c05",
+       "c06"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_07",
+     "beat": "Although losses to the Aral were evident by the mid-1960s, Soviet planners continued to increase the acreage devoted to cotton production well into the 1980s.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_005",
+     "scope": "primary_story",
+     "event": {
+      "text": "Although losses to the Aral were evident by the mid-1960s, Soviet planners continued to increase the acreage devoted to cotton production well into the 1980s.",
+      "claim_refs": [
+       "c07"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_09",
+     "beat": "Salinity rose as the sea shrank, and 20 of the Aral's 24 native fish species disappeared between 1950 and 1980.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_007",
+     "scope": "primary_story",
+     "event": {
+      "text": "Salinity rose as the sea shrank, and 20 of the Aral's 24 native fish species disappeared between 1950 and 1980.",
+      "claim_refs": [
+       "c20",
+       "c19"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_10",
+     "beat": "Fish catches fell sharply through the 1960s and 1970s, and by around 1982-1983 all commercial fishing on the Aral had ground to a halt.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_009",
+     "scope": "primary_story",
+     "event": {
+      "text": "Fish catches fell sharply through the 1960s and 1970s, and by around 1982-1983 all commercial fishing on the Aral had ground to a halt.",
+      "claim_refs": [
+       "c21",
+       "c22"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_11",
+     "beat": "About sixty thousand jobs were lost by the mid-1980s.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_011",
+     "scope": "primary_story",
+     "event": {
+      "text": "About sixty thousand jobs were lost by the mid-1980s.",
+      "claim_refs": [
+       "c24"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_12",
+     "beat": "Moynaq, once a thriving fishing port, now lies roughly 150 km from the water, stranded in the Aralkum Desert and known for its ship graveyard.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_013",
+     "scope": "primary_story",
+     "event": {
+      "text": "Moynaq, once a thriving fishing port, now lies roughly 150 km from the water, stranded in the Aralkum Desert and known for its ship graveyard.",
+      "claim_refs": [
+       "c26",
+       "c28"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_13",
+     "beat": "Soviet-era cotton production required intense use of organochlorine pesticides, including aldrin and lindane, and blowing dust from the exposed lakebed, contaminated with agricultural chemicals, became a public health hazard, with dust storms carrying residual contaminants up to 500 km.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_015",
+     "scope": "primary_story",
+     "event": {
+      "text": "Soviet-era cotton production required intense use of organochlorine pesticides, including aldrin and lindane, and blowing dust from the exposed lakebed, contaminated with agricultural chemicals, became a public health hazard, with dust storms carrying residual contaminants up to 500 km.",
+      "claim_refs": [
+       "c30",
+       "c29",
+       "c31"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_14",
+     "beat": "Karakalpakstan, home to around 1.5 million people, has been hit hardest, with elevated mortality mostly from respiratory illness and a survey finding an 80 to 90 percent rate of anemia among women and children, described by the WHO as the highest anywhere.",
+     "event_function": "harm_accumulates",
+     "caused_by": "scene_017",
+     "scope": "primary_story",
+     "event": {
+      "text": "Karakalpakstan, home to around 1.5 million people, has been hit hardest, with elevated mortality mostly from respiratory illness and a survey finding an 80 to 90 percent rate of anemia among women and children, described by the WHO as the highest anywhere.",
+      "claim_refs": [
+       "c33",
+       "c34",
+       "c36"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_16",
+     "beat": "Since 1960 the Aral lost about 88 percent of its surface area and 92 percent of its water volume, splitting into separate bodies in 1986; a Kazakh dam completed in 2005 raised the North Aral by two metres and let some fishing resume, while the southern sea remains nearly completely dry.",
+     "event_function": "cost_reckoned",
+     "caused_by": "scene_019",
+     "scope": "primary_story",
+     "event": {
+      "text": "Since 1960 the Aral lost about 88 percent of its surface area and 92 percent of its water volume, splitting into separate bodies in 1986; a Kazakh dam completed in 2005 raised the North Aral by two metres and let some fishing resume, while the southern sea remains nearly completely dry.",
+      "claim_refs": [
+       "c10",
+       "c12",
+       "c45",
+       "c46"
+      ]
+     }
+    },
+    {
+     "beat_id": "event_15",
+     "beat": "In the early 20th century officials drained Owens Lake to supply water for Los Angeles, causing the lakebed to become the largest source of particulate pollution in the country.",
+     "event_function": "parallel_case",
+     "caused_by": "scene_021",
+     "scope": "parallel_case",
+     "event": {
+      "text": "In the early 20th century officials drained Owens Lake to supply water for Los Angeles, causing the lakebed to become the largest source of particulate pollution in the country.",
+      "claim_refs": [
+       "c48"
+      ]
+     }
+    }
+   ]
+  },
+  "known_claims": [
+   "c02",
+   "c03",
+   "c04",
+   "c05",
+   "c06",
+   "c07",
+   "c08",
+   "c09",
+   "c10",
+   "c11",
+   "c12",
+   "c14",
+   "c15",
+   "c16",
+   "c17",
+   "c18",
+   "c19",
+   "c20",
+   "c21",
+   "c22",
+   "c23",
+   "c24",
+   "c25",
+   "c26",
+   "c27",
+   "c28",
+   "c29",
+   "c30",
+   "c31",
+   "c33",
+   "c34",
+   "c35",
+   "c36",
+   "c37",
+   "c38",
+   "c39",
+   "c41",
+   "c42",
+   "c43",
+   "c44",
+   "c45",
+   "c46",
+   "c47",
+   "c48",
+   "c49",
+   "c50",
+   "c51",
+   "c52",
+   "c53",
+   "c54",
+   "c55",
+   "c56",
+   "c57",
+   "c58"
+  ],
+  "label": {
+   "words": 172,
+   "sec": 65.6,
+   "quote": "The reading came back as nothing."
+  },
+  "approved_plan": {
+   "title": "The Plan That Worked",
+   "hook": "Imagine you're a fishing family on the Aral Sea, loading the morning catch from your boat into the cannery.",
+   "throughline": "A state cotton plan that hit its targets while draining the world's fourth-largest lake and the livelihoods built on it.",
+   "opening_object": "a wooden fishing boat on the Aral shore",
+   "final_callback_object": "the same fishing boat, now stranded on dry sand",
+   "recurring_location": "a fishing port on the Aral Sea shore",
+   "style_mode": "educational",
+   "stages": [],
+   "parallel_cases": [
+    {
+     "domain": "Owens Lake, California, USA",
+     "problem": "Los Angeles needed water for a growing city",
+     "solution": "officials drained Owens Lake in the early 20th century to supply the city",
+     "result": "the lakebed became the largest manmade source of hazardous dust in the United States, and Los Angeles spent over $1 billion trying to suppress it"
+    },
+    {
+     "domain": "Lake Urmia, Iran",
+     "problem": "a hyper-saline lake under pressure in an arid region",
+     "solution": "water inflows fell over the past decade",
+     "result": "the level dropped more than 5 metres, salt rose from 185 to 220 g/L, and a salt desert of over 5,000 square kilometres formed with dust carried up to 300 km"
+    }
+   ],
+   "beats": [
+    {
+     "n": 1,
+     "beat_id": "event_01",
+     "beat": "The Aral Sea was the world's fourth-largest lake, fed for centuries by two rivers.",
+     "event_function": "establishes_problem",
+     "caused_by": "",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Before 1960 the Aral Sea was the world's fourth-largest lake, about 68,000 square kilometres, fed for centuries by the Amu Darya and Syr Darya flowing from the Pamir and Tian Shan mountains.",
+      "claim_refs": [
+       "c08",
+       "c03"
+      ]
+     },
+     "changes_state": {
+      "from": "a large inland sea sustained by two mountain-fed rivers",
+      "to": "a thriving sea whose inflow depends entirely on those two rivers"
+     }
+    },
+    {
+     "n": 2,
+     "beat_id": "event_02",
+     "beat": "In 1959 the Aral fleet landed close to 50,000 tonnes of fish.",
+     "event_function": "context",
+     "caused_by": "event_01",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "In 1959 the Aral's fishing fleet hauled in close to 50,000 metric tonnes of fish, mostly carp, bream, pike-perch, roach, barbel and a local sturgeon.",
+      "claim_refs": [
+       "c23"
+      ]
+     },
+     "changes_state": {
+      "from": "a sea fed by two rivers",
+      "to": "a sea supporting a large commercial fishery"
+     }
+    },
+    {
+     "n": 3,
+     "beat_id": "event_03",
+     "beat": "The Soviet Union ordered the rivers turned onto the desert to grow cotton.",
+     "event_function": "programme_imposed",
+     "caused_by": "event_01",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "In the 1960s the Soviet Union undertook a major water-diversion project on the arid plains of Kazakhstan, Uzbekistan and Turkmenistan.",
+      "claim_refs": [
+       "c02"
+      ]
+     },
+     "changes_state": {
+      "from": "two rivers flowing into the Aral Sea",
+      "to": "a state programme ordered to divert those rivers onto cotton land"
+     }
+    },
+    {
+     "n": 4,
+     "beat_id": "event_04",
+     "beat": "Soviet planners knew the diversions would drop the sea's level.",
+     "event_function": "warning_recorded",
+     "caused_by": "event_03",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Soviet hydrologists understood even before the main canals were built that diverting the water would have serious consequences for the sea.",
+      "claim_refs": [
+       "c43"
+      ]
+     },
+     "changes_state": {
+      "from": "a diversion ordered",
+      "to": "a diversion ordered despite foreseen harm to the sea"
+     }
+    },
+    {
+     "n": 5,
+     "beat_id": "event_05",
+     "beat": "Cotton output rose by pushing cultivation onto new land that drank more river water.",
+     "event_function": "apparent_success",
+     "caused_by": "event_03",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Cotton production rose, achieved mainly by expanding cultivation into previously uncultivated land.",
+      "claim_refs": [
+       "c04"
+      ]
+     },
+     "changes_state": {
+      "from": "a diversion programme begun",
+      "to": "cotton output rising on its own terms as more river water is drawn off"
+     }
+    },
+    {
+     "n": 6,
+     "beat_id": "event_06",
+     "beat": "The diverted rivers stopped reaching the sea.",
+     "event_function": "harm_pathway",
+     "caused_by": "event_05",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "The Aral's decline began in 1961, and that year the Syr Darya discharge station at Kazalinsk recorded no discharge at all into the sea for the year.",
+      "claim_refs": [
+       "c05",
+       "c06"
+      ]
+     },
+     "changes_state": {
+      "from": "rivers still feeding the sea",
+      "to": "the diverted rivers no longer delivering their water to the sea"
+     }
+    },
+    {
+     "n": 7,
+     "beat_id": "event_07",
+     "beat": "Planners kept expanding cotton acreage even as the sea's losses became clear.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_06",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Although losses to the Aral were evident by the mid-1960s, Soviet planners continued to increase the acreage devoted to cotton production well into the 1980s.",
+      "claim_refs": [
+       "c07"
+      ]
+     },
+     "changes_state": {
+      "from": "inflow failing",
+      "to": "inflow deliberately kept failing as acreage grew"
+     }
+    },
+    {
+     "n": 9,
+     "beat_id": "event_09",
+     "beat": "As the water shrank and turned salty, most fish species died off.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_07",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Salinity rose as the sea shrank, and 20 of the Aral's 24 native fish species disappeared between 1950 and 1980.",
+      "claim_refs": [
+       "c20",
+       "c19"
+      ]
+     },
+     "changes_state": {
+      "from": "a sea full of fish",
+      "to": "a sea too salty for most of its native fish"
+     }
+    },
+    {
+     "n": 10,
+     "beat_id": "event_10",
+     "beat": "Commercial fishing collapsed entirely.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_09",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Fish catches fell sharply through the 1960s and 1970s, and by around 1982-1983 all commercial fishing on the Aral had ground to a halt.",
+      "claim_refs": [
+       "c21",
+       "c22"
+      ]
+     },
+     "changes_state": {
+      "from": "a working fishery",
+      "to": "a fishery that had ceased entirely"
+     }
+    },
+    {
+     "n": 11,
+     "beat_id": "event_11",
+     "beat": "Tens of thousands of fishing jobs vanished and the ports emptied.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_10",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "About sixty thousand jobs were lost by the mid-1980s.",
+      "claim_refs": [
+       "c24"
+      ]
+     },
+     "changes_state": {
+      "from": "port towns living from the catch",
+      "to": "port towns losing their livelihood and their people"
+     }
+    },
+    {
+     "n": 12,
+     "beat_id": "event_12",
+     "beat": "Moynaq's shore retreated until boats sat in desert.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_11",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Moynaq, once a thriving fishing port, now lies roughly 150 km from the water, stranded in the Aralkum Desert and known for its ship graveyard.",
+      "claim_refs": [
+       "c26",
+       "c28"
+      ]
+     },
+     "changes_state": {
+      "from": "a fishing port on the water",
+      "to": "a port stranded 150 km inland on a salt desert"
+     }
+    },
+    {
+     "n": 13,
+     "beat_id": "event_13",
+     "beat": "The exposed seabed blew contaminated dust across the region.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_12",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Soviet-era cotton production required intense use of organochlorine pesticides, including aldrin and lindane, and blowing dust from the exposed lakebed, contaminated with agricultural chemicals, became a public health hazard, with dust storms carrying residual contaminants up to 500 km.",
+      "claim_refs": [
+       "c30",
+       "c29",
+       "c31"
+      ]
+     },
+     "changes_state": {
+      "from": "a retreating shoreline",
+      "to": "an exposed seabed spreading toxic dust across the region"
+     }
+    },
+    {
+     "n": 14,
+     "beat_id": "event_14",
+     "beat": "The people of Karakalpakstan carried the heaviest health toll.",
+     "event_function": "harm_accumulates",
+     "caused_by": "event_13",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Karakalpakstan, home to around 1.5 million people, has been hit hardest, with elevated mortality mostly from respiratory illness and a survey finding an 80 to 90 percent rate of anemia among women and children, described by the WHO as the highest anywhere.",
+      "claim_refs": [
+       "c33",
+       "c34",
+       "c36"
+      ]
+     },
+     "changes_state": {
+      "from": "dust spreading across the region",
+      "to": "a population bearing documented respiratory illness and record anemia"
+     }
+    },
+    {
+     "n": 15,
+     "beat_id": "event_15",
+     "beat": "The same disaster repeated at other drained lakes.",
+     "event_function": "parallel_case",
+     "caused_by": "event_13",
+     "scope": "parallel_case",
+     "parallel_case_id": "owens_lake_california",
+     "event": {
+      "text": "In the early 20th century officials drained Owens Lake to supply water for Los Angeles, causing the lakebed to become the largest source of particulate pollution in the country.",
+      "claim_refs": [
+       "c48"
+      ]
+     },
+     "changes_state": {
+      "from": "one state's drained sea",
+      "to": "a recognised pattern repeated where lakes are drained for water"
+     }
+    },
+    {
+     "n": 16,
+     "beat_id": "event_16",
+     "beat": "The sea split and shrank to a fraction of itself; a dam saved only the north.",
+     "event_function": "cost_reckoned",
+     "caused_by": "event_14",
+     "scope": "primary_story",
+     "parallel_case_id": "",
+     "event": {
+      "text": "Since 1960 the Aral lost about 88 percent of its surface area and 92 percent of its water volume, splitting into separate bodies in 1986; a Kazakh dam completed in 2005 raised the North Aral by two metres and let some fishing resume, while the southern sea remains nearly completely dry.",
+      "claim_refs": [
+       "c10",
+       "c12",
+       "c45",
+       "c46"
+      ]
+     },
+     "changes_state": {
+      "from": "the world's fourth-largest lake sustaining a fishery",
+      "to": "a sea at a fraction of its size, a dammed northern remnant and a nearly dry southern basin"
+     }
+    }
+   ],
+   "opening": {
+    "voice": "second_person",
+    "frame": "Imagine you're a fishing family on the Aral Sea, loading the morning catch from your boat into the cannery.",
+    "problem": "Your whole living comes off this water: in 1959 the Aral fleet hauled in close to 50,000 tonnes of fish, carp and bream and sturgeon, from a sea fed for centuries by two great rivers.",
+    "solution": "Then the state decides the desert should grow cotton, and in the 1960s it diverts the Amu Darya and Syr Darya onto new farmland across Kazakhstan, Uzbekistan and Turkmenistan.",
+    "transition": "The water that once reached your shore is turned instead into irrigation canals far upstream.",
+    "consequence": "In 1961 the sea begins to fall, and the Syr Darya station at Kazalinsk records no discharge into the Aral at all for the whole year.",
+    "question": "What does a plan that works cost the sea it drinks dry?",
+    "callback": {
+     "kind": "object",
+     "text": "the same fishing boat, left on bare sand where the water used to be"
+    }
+   },
+   "claim_refs": {
+    "problem": [
+     "c23",
+     "c08",
+     "c03"
+    ],
+    "solution": [
+     "c02",
+     "c55"
+    ],
+    "transition": [
+     "c04"
+    ],
+    "consequence": [
+     "c05",
+     "c06"
+    ]
+   },
+   "missing_claims": [
+    "The ledger does not name the specific decree, body or official who ordered the diversion, nor the stated date of that order beyond 'the 1960s'."
+   ],
+   "_plan_score": {
+    "score": 80.0,
+    "issues": [
+     "cold open: COLD_OPEN_MISSING",
+     "hook: 19 words over 18"
+    ],
+    "beats": 16,
+    "distinct_ratio": 1.0,
+    "compiled": true,
+    "cold_open_ok": false,
+    "target_events": 16
+   },
+   "_operator_edits": {
+    "date": "2026-10-14",
+    "by": "operator approval via Claude",
+    "edits": [
+     "beat 4 (Soviet hydrologists' advance warning) relabelled context -> warning_recorded so it is narrated as the turn",
+     "beat 8 (per-decade water-level rates, sourced only to unverified missedhistory.com claims c14/c15) removed",
+     "Owens Lake parallel case kept",
+     "2026-10-14 after the first spine check: wording of beats 3, 4, 5, 11, 13 and 15 narrowed to their verified quotes; unfetchable Britannica c55 and unverified c25 dropped; no facts added",
+     "2026-10-14 v3: beat 13 drops DDT (the c30 quote names aldrin and lindane only); beat 15 Owens Lake scoped as the parallel case owens_lake_california and cites c48 alone, worded to its quote"
+    ]
+   }
+  },
+  "deletion": {
+   "delete": [
+    "Two rivers fed it, and for centuries the Amu Darya flowed from the high Pamir Mountains into a lake so wide you could not see its far shore.",
+    "Picture it: the world's fourth-largest, about sixty-eight thousand square kilometres of water.",
+    "So where does the water go?",
+    "More cotton meant more land, and more land meant more water pulled away.",
+    "So upstream, the water fanned out across cotton; downstream, the old riverbed ran thinner each season."
+   ],
+   "expected_words": 97,
+   "must_keep": [
+    "The Soviet Union looked at the dry plains of Kazakhstan, Uzbekistan and Turkmenistan and saw fields of cotton waiting.",
+    "The reading came back as nothing."
+   ]
+  }
+ }
+}
