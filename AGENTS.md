@@ -248,3 +248,21 @@ When cut placement alone still fails, the run continues degraded, which blocks r
 `OPENING_RETRY=0` disables the retry. `OPENING_RETRY_ALLOW_BELOW_B=1` is an operator-only
 override; the routine never sets it. The grade is an editorial craft gate, not a retention
 prediction: it has not yet been calibrated against real audience retention.
+
+Ladder openings of removed_keystone, backfiring_solution and state_programme films at 225 s or
+more must reach their turn by 45 s: the sentence that first states the consequence in plain words
+must end within 116 spoken words, counted from the frame's first word (45 s at the slowest
+measured 2.588 words per second). The writer gets a 103-word (40 s) target: the opening rows are
+budgeted from it instead of the 20% mechanism deadline, and the freed words go to the body. The
+opening read quotes the turn sentence and `opening_turn.py` counts the words up to it; a quote
+that does not match one sentence falls back to a conservative structural measure. A late turn
+triggers the opening's single revision even at a read score of 80 or more; it is adopted only if
+the re-measured turn fits and the ledger, identity and re-read checks pass. A storyboard repair
+that pushes the turn past 116 words is refused. The turn's end time is measured from the TTS word
+timings and reported in `run_result.json` (`opening_turn`), `retention_readiness_open45.json` and
+`measure_vs_reference`; it is never part of the readiness score. A film still late after its one
+revision records `late_turn` {words, est_sec, measured_sec} in run_result and the topic report;
+it is not a degraded reason and does not block the private upload. For History the turn is the
+first harm stated plainly, and a recorded warning follows it as the hinge. The plan approval page
+prints the opening block, the compiled order and the turn budget, and flags an opening that cannot
+fit before any spend.

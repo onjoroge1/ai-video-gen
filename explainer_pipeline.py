@@ -14964,6 +14964,11 @@ def run_explainer_pipeline(
             json.dump(audio_timing, handle, indent=2, ensure_ascii=False)
         scenes = script.get("scenes", [])
         n = len(scenes)
+        # THE TURN, MEASURED (opening_turn): re-located on the narration the audio was bought for
+        # (the runtime fitter may have rewritten it) and timed from its word_times. Report-only:
+        # it is never part of the readiness score and no paid action follows from it.
+        if isinstance(script.get("_opening_turn"), dict):
+            _measure_turn_after_tts(script, audio_timing, prepared_audio, log)
         claim_validation = _validate_claims(script, research_dossier, aux_costs)
         retention_validation = validate_longform_story(script, question)
         script["_claim_validation"] = claim_validation
@@ -16634,6 +16639,9 @@ def run_explainer_pipeline(
         "retention_readiness": readiness,
         "opening_readiness_json_path": opening_readiness_json_path,
         "opening_retry": _opening_retry_result(opening_retry_record),
+        # THE TURN (opening_turn): where the first consequence ended, and `late_turn` when it was
+        # still past the limit after its one revision. Reported; never a degraded reason.
+        **_turn_result_fields(script, opening_readiness_json_path),
         "rendered_contract": rendered_contract,
         "short_grade":      short_grade,
         "i2v_requested":    i2v_requested,        # evidence states (long-form) or scenes (social)
