@@ -265,7 +265,12 @@ claim binding passes a hinge that only signals trouble (`UNSPOKEN_FROM_READ`). S
 late by this measure by construction, so they record `late_turn` and no revision is bought for
 it. A late shape-A turn triggers the opening's single revision even at a read score of 80 or
 more; it is adopted only if the re-measured turn fits and the ledger, identity and re-read checks
-pass. A storyboard repair that pushes the turn past 116 words is refused. The turn's end time is measured from the TTS word
+pass, and never if it grows the hinge past 10 words. A storyboard repair is never refused for the
+turn: a consequence repair on an on-time turn is told a word cap for its row, and a repair that
+still pushes the turn past 116 words is accepted and recorded as late (`pushed_late_by_repair`),
+because refusing it would stop the film. The read, its NONE and the revision are decided once,
+before media: a resumed run whose checkpoint already stamped the turn on the same narration does
+not read the opening again. The turn's end time is measured from the TTS word
 timings and reported in `run_result.json` (`opening_turn`), `retention_readiness_open45.json` and
 `measure_vs_reference`; it is never part of the readiness score. A film still late after its one
 revision records `late_turn` {words, est_sec, measured_sec} in run_result and the topic report;

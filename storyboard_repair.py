@@ -255,8 +255,11 @@ def plan(script, board):
 # undone here: the consequence repair may add 45 words to the row before the hinge and SOFT_HINGE
 # moves facts into it, and on the ladder no budget check ran on either (LATE_MECHANISM, the only
 # position check here, is advisory for ladder films). A repair that touches the rows up to the
-# turn is measured before and after, and one that PUSHES the turn past the limit is refused;
-# an opening already past it is not made un-repairable by this (it is recorded as late_turn).
+# turn is measured before and after. An on-time turn gives the consequence row a word cap the
+# prompt states (consequence_row_cap); a repair that still pushes the turn past the limit is
+# ACCEPTED and stamped late (pushed_late_by_repair), never refused for the turn: this repair runs
+# only on a failing storyboard, so a refusal would stop the film under the hard gate, and a late
+# turn is recorded, never a block (operator decision 3, 2026-10-14). run_result records late_turn.
 # The measure is opening_turn's enforced one -- the structural fallback since paid check (a) --
 # so the row a repair writes the consequence into is recorded (hint_scene_id) but the turn is
 # still counted to the hinge (shape A) or the end of the first mechanism beat (shape B).
@@ -300,7 +303,8 @@ def _turn_edit(script, scenes, counts, consequence_scene, hinge_scene, edited_ro
 
 
 def _check_turn(script, candidate, edit):
-    """Refuse a repair that pushes the turn past the limit; stamp the re-measured turn."""
+    """Stamp the re-measured turn on the candidate. Never refuses it (see the L4 notes above): a
+    repair that moves an on-time turn past the limit is stamped late with pushed_late_by_repair."""
     import opening_turn as ot
     turn = edit.get("turn") or {}
     if not turn:
@@ -309,12 +313,16 @@ def _check_turn(script, candidate, edit):
     if not after.get("measurable"):
         return
     limit = int(turn.get("limit_words") or ot.TURN_LIMIT_WORDS)
-    if int(turn["before_words"]) <= limit < int(after["turn_words"]):
-        raise ValueError(f"Repair pushes the opening's turn past {limit} words "
-                         f"({turn['before_words']} -> {after['turn_words']})")
     prior = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
     stamped = dict(after, applies=ot.script_rule(script),
                    late=ot.script_rule(script) and after["turn_words"] > limit)
+    if int(turn["before_words"]) <= limit < int(after["turn_words"]):
+        stamped["pushed_late_by_repair"] = {"before_words": int(turn["before_words"]),
+                                            "after_words": int(after["turn_words"])}
+    # The read's NONE binds the narration it judged (opening_turn.remeasure): a reply that leaves
+    # the turn window unchanged keeps it, so the storyboard still raises OPENING_CONSEQUENCE_UNSPOKEN.
+    if prior.get("consequence_spoken") is False and prior.get("digest") == after.get("digest"):
+        stamped["consequence_spoken"] = False
     for key in ("revised", "read_quote"):
         if key in prior:
             stamped[key] = prior[key]
@@ -431,15 +439,26 @@ def prompt(script, edit):
             f"may grow by up to {CONSEQUENCE_GROWTH_WORDS} words to hold it in the words of its "
             "claims. Nothing is lost, nothing is said twice. ")
            if edit.get("hinge_scene_id") else "")
-        + ((f"The scene {edit['consequence_scene_id']} is requested because the opening's "
-            "CONSEQUENCE was never spoken. Add to the END of that scene, in one to three "
-           if not edit.get("hinge_scene_id") else
-           f"The scene {edit['consequence_scene_id']} also carries the opening's CONSEQUENCE, in one to three "
-            "sentences, the ordinary act and what it released, as the plan states it: "
+        # The two openings are alternatives and the rest is shared. Until 2026-10-15 the
+        # conditional bound only the first literal, so a consequence-only repair was sent "Add to
+        # the END of that scene, in one to three " and nothing after it, while a SOFT_HINGE repair
+        # was told "Do not touch the hinge" beside the request to shorten it.
+        + (((f"The scene {edit['consequence_scene_id']} is requested because the opening's "
+             "CONSEQUENCE was never spoken. Add to the END of that scene, in one to three "
+             if not edit.get("hinge_scene_id") else
+             f"The scene {edit['consequence_scene_id']} also carries the opening's CONSEQUENCE, in "
+             "one to three ")
+            + "sentences, the ordinary act and what it released, as the plan states it: "
             f"\"{edit['consequence_text']}\" -- in the words of its claims {edit['consequence_claims']}, "
-            "so the sentences bind to them. Keep everything the scene already says; grow it by at most "
-            f"{CONSEQUENCE_GROWTH_WORDS} words. Do not touch the hinge; the body never tells "
-            "this again. ")
+            "so the sentences bind to them. "
+            # Under a turn cap the row may have to give up restatement to fit: "keep everything"
+            # beside "at most N words" contradicted the cap (2026-10-15).
+            + ("Keep every sourced fact the scene already says. "
+               if (edit.get("turn") or {}).get("consequence_row_cap") is not None else
+               "Keep everything the scene already says; grow it by at most "
+               f"{CONSEQUENCE_GROWTH_WORDS} words. ")
+            + ("The body never tells this again. " if edit.get("hinge_scene_id") else
+               "Do not touch the hinge; the body never tells this again. "))
            if edit.get("consequence_scene_id") else "")
         + ((f"THE TURN DEADLINE: the film's words from its first word through the end of the "
             f"turn must stay at or under {edit['turn']['limit_words']}, so scene "
@@ -588,6 +607,14 @@ def apply_response(script, edit, response):
             if (counts[index] < edit["original_counts"][index]
                     and (edit.get("turn") or {}).get("consequence_row_cap") is None):
                 raise ValueError("Repair shortened the consequence scene instead of adding the consequence")
+            # Asked to SPEAK the consequence: a reply that returns the row as it was, or only
+            # deletes from it, cannot have added it, cap or no cap. Without this the read's NONE
+            # expired with the changed digest and claim binding passed the unchanged row (2026-10-15).
+            if any(str(e).startswith(CONSEQUENCE_CODE) for e in edit["errors"]):
+                def _word_set(text):
+                    return set(re.findall(r"[a-z0-9']+", str(text or "").lower()))
+                if _word_set(scenes[index]["narration"]) <= _word_set(current.get(edit["consequence_scene_id"])):
+                    raise ValueError("Repair added nothing to the consequence scene")
     if edit.get("hinge_scene_id"):
         index = next((i for i, s in enumerate(scenes) if s["scene_id"] == edit["hinge_scene_id"]), None)
         if index is not None and counts[index] > int(edit.get("hinge_max_words") or cs.MAX_HINGE_WORDS):

@@ -115,10 +115,13 @@ def test_the_planner_prompt_is_the_ladder_and_states_the_turn(monkeypatch):
 def test_the_eval_assert_judges_turn_feasibility():
     sys.path.insert(0, os.path.join(ROOT, "evals", "promptfoo"))
     import asserts
-    plan = SAVED["bees_v16"]["plan"]
+    plan = copy.deepcopy(SAVED["bees_v16"]["plan"])
+    # dossier_killerbees.json holds c06 and c07 but not c08, which bees_v16's own plan also cites:
+    # paired as saved, the "passing" case failed on TURN_CONSEQUENCE_UNKNOWN_CLAIM unseen.
+    plan["opening"]["claim_refs"]["consequence"] = ["c06", "c07"]
     ok = asserts.plan_turn_feasible(json.dumps(plan), {"vars": {
         "engine": "removed_keystone", "dossier": "dossier_killerbees.json", "duration": 300}})
-    assert "shape A" in ok["reason"]
+    assert ok["pass"] is True and "shape A" in ok["reason"] and "feasible" in ok["reason"], ok
     bad = copy.deepcopy(plan)
     bad["opening"]["claim_refs"]["consequence"] = []
     out = asserts.plan_turn_feasible(json.dumps(bad), {"vars": {

@@ -59,8 +59,17 @@ def test_the_allocator_is_unchanged_off_scope():
     assert not ot.stamp("removed_keystone", 300, "")["applies"]
     assert not ot.stamp("mistaken_verdict", 300, "ladder")["applies"]
     assert not ot.stamp("removed_keystone", 180, "ladder")["applies"]
-    # Below 225 s the 20% share is already under the target, so the cap would change nothing.
-    short = runtime_word_bounds(200, 20)[0]
-    assert ep._causal_word_budgets(beats, short, entry["engine"], entry["hook"], turn_rule=True) != {}
+    # Below 225 s the cap WOULD change the rows (bees_v16 at 200 s: 27/27/27 -> 25/25/26), so short
+    # films, hook mode and the reveal engines are protected only by the call site's scope decision:
+    # pinned here, where a mutation that stamps "ladder" regardless of the mode survived.
+    short = runtime_word_bounds(200, len(beats))[0]
+    assert ep._causal_word_budgets(beats, short, entry["engine"], entry["hook"], turn_rule=True) != \
+        ep._causal_word_budgets(beats, short, entry["engine"], entry["hook"])
+    import inspect
+    source = inspect.getsource(ep._generate_script_chunked)
+    assert '_ladder = _opening_mode() == "ladder" and bool(_plan_opening(plan))' in source
+    assert ('_ot_budget.stamp(sheet_engine_id if causal_lane else "", duration_sec,\n'
+            '                                   "ladder" if _ladder else "")') in source
+    assert 'turn_rule=_turn_stamp["applies"]) if causal_lane else {})' in source
 
 

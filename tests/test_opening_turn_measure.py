@@ -248,3 +248,30 @@ def test_the_read_s_unspoken_finding_blocks_the_storyboard_until_the_narration_c
     assert issues == [], "claim binding alone passes it: that is the defect the read closes"
 
 
+def test_the_read_s_none_reaches_the_storyboard_on_the_narration_it_read():
+    # The one blocking path the read keeps (UNSPOKEN_FROM_READ): build_storyboard ->
+    # _consequence_unspoken_by_read -> validate_causal_story. A mutation returning False there
+    # survived every other test.
+    import illustrated_story as ist
+    with open(os.path.join(ROOT, "fixtures", "opening_turn", "writer_check_2026-10-15_bees_v16.json"),
+              encoding="utf-8") as handle:
+        check_b = json.load(handle)
+
+    def errors(stamp, hinge=None):
+        # _compiled_story: build_storyboard's repair_chain would otherwise rewrite the fixture's raw
+        # roles, move the window and drop the NONE by digest, which a compiled run never does.
+        script = _script("bees_v16", _compiled_story=True,
+                         _story_contract={"opening_object": "the honey jars"})
+        for scene, text in zip(script["scenes"], check_b["narration"]):
+            scene["narration"] = text
+        if stamp:
+            script["_opening_turn"] = dict(ot.measure_script(script), consequence_spoken=False,
+                                           digest=ot.window_digest(script["scenes"]))
+        if hinge:
+            script["scenes"][3]["narration"] = hinge
+        return ist.build_storyboard(script, "q")["validation"]["errors"]
+
+    assert any(e.startswith("OPENING_CONSEQUENCE_UNSPOKEN") for e in errors(True))
+    assert not any(e.startswith("OPENING_CONSEQUENCE_UNSPOKEN") for e in errors(False))
+    assert not any(e.startswith("OPENING_CONSEQUENCE_UNSPOKEN") for e in errors(
+        True, hinge="Except in October 1957 the grids came off, and twenty-six queens flew free."))

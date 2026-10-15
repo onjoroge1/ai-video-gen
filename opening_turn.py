@@ -45,7 +45,12 @@ MEASUREMENT.
     word_times. Report-only, never part of the readiness score (no third opening grade).
 
 If still late after the single revision, an unattended World film continues: `late_turn`
-{words, est_sec, measured_sec} is recorded in run_result and is NOT a degraded reason.
+{words, est_sec, measured_sec} is recorded in run_result and is NOT a degraded reason. A storyboard
+repair that pushes an on-time turn past the limit is accepted the same way and stamped
+`pushed_late_by_repair`; the turn is never the reason a repair is refused.
+
+The read, its NONE and the revision are decided once, before media: a resumed run whose checkpoint
+stamped the turn on the same narration (window_digest) keeps that stamp and reads nothing again.
 """
 from __future__ import annotations
 
@@ -353,7 +358,9 @@ def remeasure(script: dict) -> dict:
         turn["consequence_spoken"] = False
     if _text(prior.get("hint_scene_id")):
         turn["hint_scene_id"] = prior["hint_scene_id"]
-    for key in ("revised", "read_quote"):
+    # Reports that outlive the narration they were taken on: the revision outcome, the read's
+    # quote, a storyboard repair that pushed an on-time turn late, and a resumed read's NONE.
+    for key in ("revised", "read_quote", "pushed_late_by_repair", "resumed_read_none"):
         if key in prior:
             turn[key] = prior[key]
     return turn
@@ -429,7 +436,8 @@ def run_result_fields(script: dict | None) -> dict:
         return {}
     keep = ("applies", "turn_words", "est_sec", "measured_sec", "source", "shape", "scene",
             "quote", "late", "limit_words", "target_words", "revised", "locator",
-            "quote_turn_words", "quote_scene", "consequence_spoken", "read_quote")
+            "quote_turn_words", "quote_scene", "consequence_spoken", "read_quote",
+            "pushed_late_by_repair", "resumed_read_none")
     return {"opening_turn": {k: turn.get(k) for k in keep if k in turn},
             "late_turn": late_turn_record(turn)}
 

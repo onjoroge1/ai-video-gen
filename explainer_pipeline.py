@@ -2002,8 +2002,14 @@ def _evaluate_opening(script: dict, cost_sink=None, log=lambda message: None) ->
                          "turn? Tangibility: is the need something felt, seen or counted? "
                          "body_restates_opening: does the body re-tell the problem, the decision or the "
                          "consequence instead of continuing from it?" + turn_question}])
-        _charge(cost_sink, _ledger.GRADE, _msg_cost(response.usage), "opening editorial read")
+        _read_cost = _charge(cost_sink, _ledger.GRADE, _msg_cost(response.usage), "opening editorial read")
+        if isinstance(cost_sink, list):
+            # The read returns no cost, so a plain list sink (the pipeline's aux_costs) is its only
+            # record in run_result's actual_cost; this cannot be counted twice.
+            cost_sink.append(_read_cost)
         parsed, _pc = _parse_script_json(response.content[0].text)
+        if isinstance(cost_sink, list) and _pc:
+            cost_sink.append(_pc)
     except Exception as exc:                        # noqa: BLE001 - a read that failed is logged
         log(f"Opening read unavailable: {type(exc).__name__}: {str(exc)[:100]}")
         return None
@@ -2050,12 +2056,13 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
     per-row caps summing to the 103-word target (storyboard_repair.proportional_caps). The guards
     change with it, because the old ones made the trim impossible: rows may shrink freely and
     only the row receiving the consequence (or the hinge) may grow, by at most 20 words (the
-    +-15 rule held escobar's asked-for cut); a locked phrase may be cut whole only when its claim
-    carries neither the solution nor the consequence (locked words were 68-90 of the pre-turn
-    words in three films). Adopted only if: the re-measured turn is within 116 words, every
-    changed scene passes the ledger, the identity check is clean and the re-read scores no lower
-    and does not answer that NO sentence states the consequence. Otherwise the previous opening
-    stands.
+    +-15 rule held escobar's asked-for cut), and the hinge never past its 10 words (SOFT_HINGE);
+    a locked phrase may be cut whole only when its claim carries neither the solution nor the
+    consequence (locked words were 68-90 of the pre-turn words in three films). Adopted only if:
+    the re-measured turn is within 116 words, every changed scene passes the ledger, the identity
+    check is clean and the re-read scores no lower and does not answer that NO sentence states
+    the consequence. Otherwise the previous opening stands. Under the structural fallback the turn
+    is measured before the ledger checks and the re-read are bought, since neither can change it.
 
     THE MEASURE IS THE STRUCTURAL FALLBACK (opening_turn.TURN_LOCATOR, paid check (a) 2026-10-15:
     the read's quote matched 5/8 hand labels). Two things follow. A turn the fallback counts to
@@ -2189,8 +2196,10 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
     by_index = {int(r.get("id") or 0): " ".join(_s(r.get("narration")).split())
                 for r in (parsed or {}).get("scenes") or [] if isinstance(r, dict)}
     candidate = copy.deepcopy(script)
-    changed = 0
     hook = _s(script.get("hook")).strip()
+    # The free guards first, on every changed scene; the paid ones (the ledger, the re-read) only
+    # on a candidate that has passed them.
+    edits = []
     for i in span:
         new = by_index.get(i + 1)
         sc = candidate["scenes"][i]
@@ -2200,6 +2209,18 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
         if turn_rule:
             if i == 0 and hook and hook in old and hook not in new:
                 log("Opening revision held: scene 1 changed the frame"); return script, cost
+            if i == bounds.get("hinge"):
+                # The hinge may take the consequence but stays a turn of at most MAX_HINGE_WORDS,
+                # counted as causal_story._check_hinge counts it (chapter marker stripped).
+                # _ensure_hinge_fits_budget has already run, so a hinge this revision grew past the
+                # cap would reach the storyboard as a blocking SOFT_HINGE and spend the job's single
+                # storyboard repair (2026-10-15: a 15- and a 16-word hinge were adopted).
+                def _hinge_words(text):
+                    return _cs_rev._words(_cs_rev._MARKER.sub("", text).strip())
+                if _hinge_words(new) > max(_cs_rev.MAX_HINGE_WORDS, _hinge_words(old)):
+                    log(f"Opening revision held: the hinge (scene {i + 1}) runs {_hinge_words(new)} "
+                        f"words, past its {_cs_rev.MAX_HINGE_WORDS}-word cap (SOFT_HINGE)")
+                    return script, cost
             grew = len(new.split()) - len(old.split())
             if grew > (_ot.CONSEQUENCE_ROW_GROWTH_WORDS if i in growable else 0):
                 log(f"Opening revision held: scene {i + 1} grew by {grew} words"
@@ -2217,6 +2238,25 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
             if any(_s(r.get("narration_phrase")) and _s(r.get("narration_phrase")).casefold() not in new.casefold()
                    for r in sc.get("claim_refs") or [] if isinstance(r, dict)):
                 log(f"Opening revision held: scene {i + 1} dropped a sourced phrase"); return script, cost
+        edits.append((i, new))
+    if not edits:
+        log("Opening revision: no scene changed; keeping the opening"); return script, cost
+    # Bought for the turn: it must land inside the limit. Bought for the read's score: it may
+    # not move the turn later -- past the limit, or past where an already-late turn was.
+    allowed = (_ot.TURN_LIMIT_WORDS if late or not turn.get("late")
+               else int(turn.get("turn_words") or 0))
+    if turn_rule and _ot.TURN_LOCATOR != "quote":
+        # The enforcing structural fallback reads the narration alone, so the candidate's turn is
+        # known now; neither the ledger checks nor the re-read below can change it.
+        trial = copy.deepcopy(candidate)
+        for i, new in edits:
+            trial["scenes"][i]["narration"] = new
+        pre = _ot.measure_script(trial)
+        if pre.get("measurable") and int(pre.get("turn_words") or 0) > allowed:
+            log(f"Opening revision held: the turn still ends at word {pre.get('turn_words')} "
+                f"(limit {allowed}); the previous opening stands"); return script, cost
+    for i, new in edits:
+        sc = candidate["scenes"][i]
         ceiling = _sfm.scene_ceiling(sc, by_id, claims)
         if ceiling.strip():
             ok, why = expansion_survives_the_ledger(new, ceiling, cache=cache, cost_sink=cost_sink)
@@ -2224,9 +2264,7 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
                 log(f"Opening revision held: scene {i + 1} asserts more than its ceiling "
                     f"({'; '.join(str(d) for d in why)[:100]})"); return script, cost
         sc["narration"] = new
-        changed += 1
-    if not changed:
-        log("Opening revision: no scene changed; keeping the opening"); return script, cost
+    changed = len(edits)
     if turn_rule:
         unknown = _opening_identity_findings(candidate, dossier)
         if unknown:
@@ -2237,10 +2275,6 @@ def _revise_opening_once(script: dict, review: dict, dossier: dict | None, cost_
             f"{review.get('score')}; the previous opening stands"); return script, cost
     if turn_rule:
         again_turn = again.get("turn") or {}
-        # Bought for the turn: it must land inside the limit. Bought for the read's score: it may
-        # not move the turn later -- past the limit, or past where an already-late turn was.
-        allowed = (_ot.TURN_LIMIT_WORDS if late or not turn.get("late")
-                   else int(turn.get("turn_words") or 0))
         if again_turn.get("measurable") and int(again_turn.get("turn_words") or 0) > allowed:
             log(f"Opening revision held: the turn still ends at word {again_turn.get('turn_words')} "
                 f"(limit {allowed}); the previous opening stands"); return script, cost
@@ -2885,6 +2919,60 @@ def _record_opening_turn(script: dict, log=lambda message: None) -> dict:
                "before the mechanism; the consequence cited in opening.claim_refs.consequence) -- an "
                "approved sheet is never re-planned."))
     return turn
+
+
+def _settle_opening_read(script: dict, research_dossier: dict | None, aux_costs: list,
+                         output_dir: str, resumed: bool, log=lambda message: None) -> dict:
+    """The opening's editorial read, its single revision and the turn stamp (opening_turn).
+
+    ONE READ PER NARRATION, DECIDED BEFORE MEDIA. The read's NONE blocks at the storyboard and
+    LATE_TURN buys a revision, so both are pre-media decisions. The pipeline's storyboard block
+    runs again on every resume (local --resume and durable continuations), where a fresh,
+    stochastic read could fail a storyboard that already passed after TTS and images were bought,
+    or rewrite narration whose audio exists: restore_checkpoint leaves the media out of a
+    continuation's fresh dir, so has_media() cannot see them there (2026-10-15). A checkpoint that
+    stamped the turn on this exact narration -- the digest is kept current through the storyboard
+    repair and the TTS refit -- keeps its read, turn and revision outcome and nothing is bought.
+    One stamped on other narration is read again as a report only: it buys no revision, and its
+    NONE does not block (resumed_read_none).
+    """
+    import opening_turn as _ot
+    stamped = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
+    if (resumed and stamped.get("digest")
+            and stamped["digest"] == _ot.window_digest(script.get("scenes") or [])):
+        log(_ot.log_line(stamped, "checkpoint; not read again"))
+        return script
+    # THE EDITORIAL READ: semantic, whole-opening, reported; one revision with fallback.
+    review = _evaluate_opening(script, aux_costs, log)
+    if review:
+        script["_opening_review"] = review
+        if stamped:
+            log("Opening revision: this film's turn was already recorded before media; the read "
+                "is a report and buys no revision")
+        else:
+            import storyboard_repair as _sr_media
+            script, rev_cost = _revise_opening_once(
+                script, review, research_dossier, aux_costs, script.get("_entailment_cache"), log,
+                turn_revision=not _sr_media.has_media(output_dir))
+            # The revision call's own cost; its re-read and ledger checks reach the list through
+            # their sinks. Without it run_result's actual_cost left the revision out.
+            aux_costs.append(rev_cost)
+            if script.get("_opening_review", {}).get("revised_from"):
+                rederive_narration_bindings(script, log, research_dossier)
+    # THE TURN (opening_turn): where the first consequence ends on the opening that now stands --
+    # after its one revision -- recorded for the storyboard repair, the TTS measurement and the
+    # run record. Still late is recorded, never degraded.
+    _record_opening_turn(script, log)
+    turn = script.get("_opening_turn")
+    if stamped and isinstance(turn, dict):
+        if stamped.get("revised"):
+            turn["revised"] = True
+        if turn.get("consequence_spoken") is False:
+            turn["consequence_spoken"] = None
+            turn["resumed_read_none"] = True
+            log("  The re-read says no sentence states the consequence: a report here, not "
+                "OPENING_CONSEQUENCE_UNSPOKEN -- that finding binds only before media")
+    return script
 
 
 def _remeasured_turn(script: dict) -> dict:
@@ -14555,20 +14643,9 @@ def run_explainer_pipeline(
             if _unknown and _claim_ledger_hard():
                 raise ValueError("Opening names a person the dossier does not: "
                                  + "; ".join(f["message"] for f in _unknown))
-            # THE EDITORIAL READ: semantic, whole-opening, reported; one revision with fallback.
-            _review = _evaluate_opening(script, aux_costs, log)
-            if _review:
-                script["_opening_review"] = _review
-                import storyboard_repair as _sr_media
-                script, _rev_cost = _revise_opening_once(
-                    script, _review, research_dossier, aux_costs, script.get("_entailment_cache"), log,
-                    turn_revision=not _sr_media.has_media(output_dir))
-                if script.get("_opening_review", {}).get("revised_from"):
-                    rederive_narration_bindings(script, log, research_dossier)
-            # THE TURN (opening_turn): where the first consequence ends on the opening that now
-            # stands -- after its one revision -- recorded for the storyboard repair, the TTS
-            # measurement and the run record. Still late is recorded, never degraded.
-            _record_opening_turn(script, log)
+            # THE EDITORIAL READ, its one revision and THE TURN, once per narration, before media
+            # (_settle_opening_read).
+            script = _settle_opening_read(script, research_dossier, aux_costs, output_dir, resumed, log)
         # The evidence plan's callback state is labelled from the contract; equal labels are a
         # rule the planner is asked for and the plan gate enforces. Made true here.
         _align_callback_object(script, log)
@@ -14606,8 +14683,10 @@ def run_explainer_pipeline(
             scenes = script.get("scenes") or []
             script["_runtime_plan"] = plan_runtime(scenes, duration_sec)
             # L4: a storyboard repair may grow the row before the hinge (the consequence repair
-            # adds up to 45 words; SOFT_HINGE moves facts into it). storyboard_repair refuses one
-            # that pushes the turn past the limit; this re-measures whatever was accepted.
+            # adds up to 45 words; SOFT_HINGE moves facts into it). storyboard_repair caps that row
+            # for an on-time turn and stamps one it still pushed past the limit as late
+            # (pushed_late_by_repair) -- never refused for the turn, which would stop the film
+            # (operator decision 3). This re-measures whatever was accepted.
             if isinstance(script.get("_opening_turn"), dict):
                 script["_opening_turn"] = _remeasured_turn(script)
                 log(__import__("opening_turn").log_line(script["_opening_turn"], "after storyboard repair"))
