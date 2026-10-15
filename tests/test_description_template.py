@@ -60,7 +60,7 @@ USDA Agricultural Research Service:
 https://www.ars.usda.gov/news/2006/05/bees-on-the-move/
 
 Historical account:
-https://unused.example/old-page
+https://unused.example/mites
 
 What other animal introduction backfired? Tell us in the comments!
 
@@ -130,7 +130,46 @@ def test_only_sources_the_film_used_are_listed_most_used_first():
 def test_live_sources_the_film_did_not_use_are_dropped_and_reported():
     new, report = dt.rebuild(LIVE, _facts(), [])
     assert "unused.example" not in new
-    assert report["live_sources_dropped"] == ["https://unused.example/old-page"]
+    assert report["live_sources_dropped"] == ["https://unused.example/mites"]
+
+
+def test_an_operators_url_paragraphs_after_the_sources_are_kept_where_they_were():
+    live = LIVE.replace("What other animal introduction backfired?", (
+        "▶ All the backfire films: https://www.youtube.com/playlist?list=PLTMHWScI1ywg\n\n"
+        "Support the channel: https://ko-fi.com/bolt\n\n"
+        "🔔 Subscribe: https://www.youtube.com/@BoltExplainsTheWorld?sub_confirmation=1\n\n"
+        "What other animal introduction backfired?"))
+    # The ko-fi line looks exactly like a 'site: URL' source; it is kept because no claim in the
+    # film's research cites it. The playlist and channel lines end the sources section outright.
+    live = live.replace("Historical account:\nhttps://unused.example/mites",
+                        "Historical account:\nhttps://unused.example/mites\n\n"
+                        "Newsletter: https://bolt.example/newsletter")
+    new, report = dt.rebuild(live, _facts(), [])
+    for kept in ("▶ All the backfire films: https://www.youtube.com/playlist?list=PLTMHWScI1ywg",
+                 "Support the channel: https://ko-fi.com/bolt",
+                 "🔔 Subscribe: https://www.youtube.com/@BoltExplainsTheWorld?sub_confirmation=1",
+                 "Newsletter: https://bolt.example/newsletter"):
+        assert kept in new, kept
+    assert new.index("Newsletter:") < new.index("▶ All the backfire films") < new.index("Short version:")
+    assert report["live_sources_dropped"] == ["https://unused.example/mites"]
+    assert report["kept_custom_blocks"] == ["Newsletter: https://bolt.example/newsletter"]
+    again, _ = dt.rebuild(new, _facts(), [])
+    assert again == new
+
+
+def test_an_old_source_entry_outside_the_research_is_dropped_not_kept_as_a_custom_line():
+    # The live carp film lists NPS and the Army Corps as "Label:\nURL" entries its dossier never
+    # held: sources the film did not use, not operator lines to carry along headerless.
+    live = LIVE.replace("Historical account:\nhttps://unused.example/mites",
+                        "Historical account:\nhttps://unused.example/mites\n\n"
+                        "National Park Service — Invasive Carp Overview:\n"
+                        "https://www.nps.gov/miss/learn/nature/ascarpover.htm\n\n"
+                        "example.org: https://www.example.org/old-page")
+    new, report = dt.rebuild(live, _facts(), [])
+    assert "nps.gov" not in new and "example.org/old-page" not in new
+    assert report["kept_custom_blocks"] == []
+    assert "https://www.nps.gov/miss/learn/nature/ascarpover.htm" in report["live_sources_dropped"]
+    assert "https://www.example.org/old-page" in report["live_sources_dropped"]
 
 
 def test_citation_with_label_publisher_year_and_doi():
@@ -158,13 +197,29 @@ def test_citation_fields_are_only_what_the_url_or_operator_gives():
         "an upload folder dates the upload, not the work"
     assert dt.year_of("https://example.org/report-2019") == ""
     assert dt.publisher_of("https://science.nasa.gov/earth/x") == "NASA"
-    assert dt.publisher_of("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1/") == \
-        "U.S. National Library of Medicine"
     assert dt.citation_line({"label": "", "publisher": "", "site": "ua.news", "year": ""}) == "ua.news"
     # A label naming its publisher is not given the publisher twice.
     assert dt.citation_line({"label": "NASA Earth Observatory, World of Change", "publisher": "NASA",
                              "site": "earthobservatory.nasa.gov", "year": ""}) == \
         "NASA Earth Observatory, World of Change"
+
+
+def test_a_host_or_multi_journal_brand_is_never_named_as_the_publisher():
+    # nature.com/articles/s41598-... is Scientific Reports, not Nature; PubMed Central hosts other
+    # journals' papers (and must not fall through to nih.gov either).
+    for url, site in (("https://www.nature.com/articles/s41598-023-33028-y", "nature.com"),
+                      ("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3750330/", "ncbi.nlm.nih.gov"),
+                      ("https://pmc.ncbi.nlm.nih.gov/articles/PMC5100683/", "pmc.ncbi.nlm.nih.gov"),
+                      ("https://www.science.org/doi/10.1126/sciadv.abc", "science.org"),
+                      ("https://www.sciencedirect.com/science/article/pii/S1", "sciencedirect.com"),
+                      ("https://www.jstor.org/stable/123", "jstor.org")):
+        assert dt.publisher_of(url) == "", url
+        entry = dt.entries_from_pairs([("", url)])[0]
+        assert dt.citation_line(entry) == site
+    assert dt.publisher_of("https://www.nih.gov/news-events/x") == "U.S. National Institutes of Health"
+    # An operator's own label still wins.
+    entry = dt.entries_from_pairs([("Scientific Reports (2023)", "https://www.nature.com/articles/s41598-1")])[0]
+    assert dt.citation_line(entry) == "Scientific Reports (2023)"
 
 
 def test_source_labels_skip_generic_and_host_only_labels():
@@ -176,10 +231,27 @@ def test_source_labels_skip_generic_and_host_only_labels():
                       "U.S. Department of the Interior — Asian Carp Control"}
 
 
-def test_a_long_claim_becomes_a_shortened_finding_marked_as_such():
-    long = "Word " * 60
-    assert dt._finding(long).endswith("…") and len(dt._finding(long)) <= dt.MAX_FINDING_CHARS
+def test_a_finding_is_a_whole_claim_never_cut():
+    # A cut at the last comma kept only the false half of a claim that says it was false.
+    long = ("Officials reported the released toads had controlled the cane beetles in the sugar "
+            "fields across the whole coastal district, a claim later research showed to be false.")
+    assert len(long) > dt.MAX_FINDING_CHARS
+    script = {"scenes": [{"narration": "x", "claim_refs": ["L"]}],
+              "_research_dossier": {"claims": [{"claim_id": "L", "claim": long,
+                                                "source_url": "https://a.example/1"}]}}
+    assert dt.source_entries(script)[0]["finding"] == long
     assert "<" not in dt._finding("a < b and c > d")
+
+
+def test_a_shorter_claim_from_the_same_source_is_preferred_even_if_not_narrated():
+    long = "The breeding program meant to cross the bees with commercial stock " + "x " * 60 + \
+        "but queens and drones escaped and hybridized."
+    short = "Queens and drones escaped from the apiary and hybridized."
+    script = {"scenes": [{"narration": "x", "claim_refs": ["L"], "event": {"text": "e", "claim_refs": ["S"]}}],
+              "_research_dossier": {"claims": [
+                  {"claim_id": "L", "claim": long, "source_url": "https://a.example/1"},
+                  {"claim_id": "S", "claim": short, "source_url": "https://a.example/1"}]}}
+    assert dt.source_entries(script)[0]["finding"] == short
 
 
 # --- the promise ---------------------------------------------------------------------------------
@@ -193,6 +265,17 @@ def test_promise_is_present_only_when_the_films_ledger_earns_it():
     assert dt.promise_kind(_script(passed=False), TRANSCRIPT) == ""
     assert dt.promise_kind(_script(), TRANSCRIPT + " A sentence nobody checked.") == "", \
         "a transcript that differs from the checked narration gets no promise"
+    unjudged = _script()
+    unjudged["_claim_validation"] = {"passed": True, "retryable": True,
+                                     "structure_status": "STRUCTURE_PASS",
+                                     "errors": [{"code": "ENTAILMENT_UNAVAILABLE", "retryable": True}]}
+    assert dt.promise_kind(unjudged, TRANSCRIPT) == "", "a beat the judge never judged earns nothing"
+    unjudged["_claim_validation"] = {"passed": True, "structure_status": "STRUCTURE_PASS",
+                                     "errors": [{"code": "ENTAILMENT_UNAVAILABLE"}]}
+    assert dt.promise_kind(unjudged, TRANSCRIPT) == ""
+    soft_open = _script()
+    soft_open["_claim_validation"]["errors"] = [{"code": "OPENING_OVERSHOOT", "severity": "soft"}]
+    assert dt.promise_kind(soft_open, TRANSCRIPT) == "material"
     legacy = _script()
     legacy["scenes"] = [{k: v for k, v in s.items() if k != "event"} for s in legacy["scenes"]]
     legacy["_claim_validation"] = {"passed": True}
@@ -278,8 +361,68 @@ def test_people_lines_with_unsupported_numbers_or_names_are_dropped():
     unnamed = dt.check_people_line("Hacienda Napoles — An estate in Colombia.", TRANSCRIPT, claims)
     assert any("not named in the narration" in p for p in unnamed)
     # Sentence-initial ordinary words and possessives are not mistaken for names.
-    assert dt.check_people_line("Texas — After 1990, Kerr's bees' descendants lived there.",
+    assert dt.check_people_line("Warwick Kerr — After 1956, Kerr's African queens were in Brazil.",
                                 TRANSCRIPT, claims) == []
+    # ...and a fact about one name is not moved onto another: nothing the film says about Texas
+    # mentions Kerr or anyone living there.
+    joined = dt.check_people_line("Texas — After 1990, Kerr's bees' descendants lived there.",
+                                  TRANSCRIPT, claims)
+    assert any("unsupported wording" in p and "lived" in p for p in joined)
+
+
+# Real narration and claims from the hippos film (hFk6YVSa0xk, jobs/escobar-hippos).
+HIPPO_TRANSCRIPT = (
+    "The hippos descended from a small herd imported by Escobar now roam the Magdalena River "
+    "basin. In 1981, four hippos — three females and one male — were shipped from a zoo in the "
+    "United States to a private, open-door zoo on this estate. In 1993, Escobar was killed and the "
+    "zoo closed. Most of the animals died or were shipped to zoos. The hippos stayed. Picture that "
+    "doubling arriving at your own doorstep. Near Puerto Triunfo, Alvaro Molina was fishing when a "
+    "female hippo that had recently given birth moved beneath his canoe. Downstream, that flood of "
+    "waste rots, and fish die in sudden mass numbers along the current.")
+HIPPO_CLAIMS = [
+    {"claim": "Four hippos — three females and one male — were imported to Colombia in 1981 from a "
+              "zoo in the United States for Pablo Escobar's private zoo at Hacienda Nápoles."},
+    {"claim": "After Escobar was killed in a 1993 shootout with police, the hippos he imported were "
+              "left to roam freely in a hot savanna region of Antioquia."},
+    {"claim": "Álvaro Molina, a local near Puerto Triunfo, was attacked by a female hippo that had "
+              "recently given birth, which moved beneath his canoe and spilled him into the water "
+              "while he was fishing."},
+]
+
+
+def _hippo(line):
+    return dt.check_people_line(line, HIPPO_TRANSCRIPT, HIPPO_CLAIMS)
+
+
+def test_people_lines_may_not_change_what_happened_to_a_real_person():
+    # Every name and number here is in the support; the words are not, for THAT person.
+    killed = _hippo("Álvaro Molina — a fisherman near Puerto Triunfo who was killed by a hippo.")
+    assert any("unsupported wording" in p and "killed" in p and "fisherman" in p for p in killed)
+    longer = _hippo("Alvaro Molina — fishing near Puerto Triunfo when a female hippo moved beneath "
+                    "his canoe, which killed him.")
+    assert any("killed" in p for p in longer), "one false word in a long line is still false"
+    epithet = _hippo("Escobar — the murderous cocaine kingpin who brought four hippos to his ranch.")
+    assert any("kingpin" in p and "murderous" in p and "cocaine" in p for p in epithet)
+    assert _hippo("Escobar — the cartel boss who smuggled four hippos to his ranch")
+    # Faithful lines, in the film's own words, pass.
+    assert _hippo("Alvaro Molina — fishing near Puerto Triunfo when a female hippo moved beneath "
+                  "his canoe.") == []
+    assert _hippo("Escobar — imported four hippos to his private zoo at Hacienda Nápoles in 1981.") == []
+    assert _hippo("Escobar — killed in 1993, when the zoo closed.") == []
+
+
+def test_quantity_words_need_support_like_numbers():
+    assert dt.numbers_in("brought a dozen hippos, half the herd, twice, tenfold") == set()
+    assert dt.quantity_words_in("a dozen, half, twice, doubled, tenfold, a pair, manifold") == \
+        {"dozen", "half", "twice", "double", "tenfold", "pair"}
+    dozen = _hippo("Escobar — imported a dozen hippos to his private zoo.")
+    assert any("unsupported quantity ['dozen']" in p for p in dozen)
+    tenfold = _hippo("Escobar — the hippos he imported grew tenfold.")
+    assert any("unsupported quantity ['tenfold']" in p for p in tenfold)
+    twice = _hippo("Escobar — imported four hippos twice.")
+    assert any("unsupported quantity ['twice']" in p for p in twice)
+    # "doubling" is in the narration, so "doubled" is not an unsupported quantity.
+    assert not any("quantity" in p for p in _hippo("Escobar — his hippos doubled."))
 
 
 def test_numbers_in_reads_digits_words_and_scales_alike():
@@ -345,17 +488,44 @@ def test_rebuild_refuses_without_research_rather_than_deleting_the_sources():
         raise AssertionError("rebuild must refuse a job with no claims")
 
 
-def test_a_recut_opening_withholds_the_promise_and_counts_its_claims(tmp_path):
+def _recut_job(tmp_path, timing=True):
     (tmp_path / "_state.json").write_text(json.dumps({"script": _script()}))
     (tmp_path / "transcript.txt").write_text(TRANSCRIPT)
-    (tmp_path / "recut_opening.json").write_text(json.dumps({"splice_sec": 10, "scenes": [
+    # The opening replaces film time 0..10 s: the original scenes 1-2 (0 s and 4 s) are cut.
+    (tmp_path / "recut_opening.json").write_text(json.dumps({"splice_sec": 10.0, "scenes": [
         {"narration": "Research once ignored now opens the film.", "claim_refs": ["c4"]}]}))
     (tmp_path / "explainer.recut.mp4").write_bytes(b"")
+    if timing:
+        (tmp_path / "audio_timing_report.json").write_text(json.dumps({"scenes": [
+            {"scene": 1, "start_sec": 0.0}, {"scene": 2, "start_sec": 4.0},
+            {"scene": 3, "start_sec": 10.0}]}))
+
+
+def test_a_recut_film_is_its_opening_plus_the_scenes_after_the_splice(tmp_path):
+    _recut_job(tmp_path)
     facts = dt.load_job(str(tmp_path))
-    assert facts["recut"] and facts["transcript"].startswith("Research once ignored")
+    assert facts["recut"]
+    assert facts["transcript"] == ("Research once ignored now opens the film. "
+                                   "By 1990 their descendants had reached Texas.")
+    # The cut-out scenes are not spoken in the live film: their names are not "named in it".
+    assert any("not named in the narration" in p for p in dt.check_people_line(
+        "Warwick Kerr — Brought African queens to Brazil in 1956.", facts["transcript"],
+        dt.cited_claims(facts["script"])))
     new, report = dt.rebuild(LIVE, facts, [])
     assert report["promise_kind"] == "" and "Every factual line" not in new
     assert "https://unused.example/mites" in new, "the recut opening cites it"
+    assert "doi.org/10.1000/xyz.123" not in new, "only the cut-out scene cited Kerr's source"
     original = dt.load_job(str(tmp_path), recut=False)
     new, report = dt.rebuild(LIVE, original, [])
     assert report["promise_kind"] == "checked" and "unused.example/mites" not in new
+
+
+def test_a_recut_without_scene_timings_is_refused_not_guessed(tmp_path):
+    _recut_job(tmp_path, timing=False)
+    try:
+        dt.load_job(str(tmp_path))
+    except ValueError as exc:
+        assert "audio_timing_report.json" in str(exc)
+    else:
+        raise AssertionError("a recut whose splice cannot be placed must be refused")
+    assert dt.load_job(str(tmp_path), recut=False)["recut"] is False

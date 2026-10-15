@@ -15,7 +15,8 @@ Removed: "🔎 IN THIS VIDEO", "❓ QUESTIONS ANSWERED" and any "Tags:" line.
 
 Everything here is deterministic except people_and_places(), which makes ONE model call through a
 `complete(system, user) -> text` callable the caller supplies, and then keeps only the lines whose
-every number and proper noun appears in the film's transcript or in the claims it cites.
+every number, quantity word and proper noun appears in the film's transcript or in the claims it
+cites, and whose every other content word appears in what the film says about that name.
 
 Nothing in a citation is invented. The research artifacts hold a URL and the claims drawn from it,
 not a title, author or date, so a citation is the operator's own label for that URL when the
@@ -39,7 +40,7 @@ FINDING_MARK = "↳ "
 # YouTube's limit on snippet.description is 5000 BYTES, not characters (videos resource docs);
 # the section emojis are four bytes each and an em dash three.
 MAX_BYTES = 5000
-MAX_FINDING_CHARS = 160
+MAX_FINDING_CHARS = 160           # a longer claim is shown only when its source has no shorter one
 MIN_SOURCES_BEFORE_PEOPLE = 3      # trim sources to this many before touching People & Places
 MIN_PEOPLE_LINES = 2               # fewer surviving lines than this and the section is omitted
 MAX_PEOPLE_LINES = 7
@@ -54,8 +55,9 @@ PEOPLE_MODEL = "claude-haiku-5-5"
 # with no soft finding earns "every factual line was checked"; soft findings mean non-material
 # overshoot was let through while numbers, dates and names still had to pass, so the line says
 # exactly that; an older script validated by phrase-level joins is "tied to" a quoted passage. A
-# film whose ledger did not pass, or whose transcript no longer matches the narration that was
-# checked, gets no promise at all.
+# film whose ledger did not pass, passed with a beat the judge never judged (retryable /
+# ENTAILMENT_UNAVAILABLE), or whose transcript no longer matches the narration that was checked,
+# gets no promise at all.
 PROMISES = {
     "checked": "Every factual line in this film was checked against quoted passages from {where}.",
     "material": ("Every number, date and name in this film was checked against quoted passages "
@@ -74,13 +76,18 @@ _HEADER = re.compile(
     r"people\s*(?:&|and)\s*places(?:\s+in\s+this\s+film)?)\s*:?\s*$", re.I)
 _HASHTAGS = re.compile(r"^\s*(#[^\s#]+\s*)+$")
 _SHORT_LINK = re.compile(r"(youtube\.com/shorts/|youtu\.be/|youtube\.com/watch)", re.I)
+# Any YouTube link (a playlist, the channel page) or an @handle is the operator's, never research.
+_YOUTUBE_LINK = re.compile(r"(?:youtube\.com|youtu\.be)/|(?<![\w.])@[A-Za-z0-9_.-]{3,}", re.I)
 _FOOTER_START = re.compile(r"^(short version|full film|watch the short|subscribe\b|🤖|music:)", re.I)
 # Labels an operator wrote that say what kind of thing a source is, not which one.
 _GENERIC_LABELS = {"research paper", "historical account", "source", "sources", "study", "paper",
                    "article", "report", "research", "reference", "website", "link", "read more"}
 
-# Publisher named by a URL's domain. A fact about who runs the domain, never a guess about the
-# page; the most specific suffix wins.
+# Publisher named by a URL's domain. A fact about who runs the domain AND authored its pages,
+# never a guess about the page; the most specific suffix wins. Hosts and multi-journal brands are
+# not in it (_HOSTS): nature.com carries Scientific Reports and Nature Communications as well as
+# Nature, PubMed Central (ncbi.nlm.nih.gov) hosts other journals' papers, and so on. Their
+# citations print the site.
 PUBLISHERS = {
     "nasa.gov": "NASA",
     "nps.gov": "U.S. National Park Service",
@@ -92,7 +99,6 @@ PUBLISHERS = {
     "doi.gov": "U.S. Department of the Interior",
     "usace.army.mil": "U.S. Army Corps of Engineers",
     "nih.gov": "U.S. National Institutes of Health",
-    "ncbi.nlm.nih.gov": "U.S. National Library of Medicine",
     "cdc.gov": "U.S. Centers for Disease Control and Prevention",
     "loc.gov": "Library of Congress",
     "archives.gov": "U.S. National Archives",
@@ -107,13 +113,9 @@ PUBLISHERS = {
     "nytimes.com": "The New York Times",
     "reuters.com": "Reuters",
     "apnews.com": "Associated Press",
-    "nature.com": "Nature",
-    "science.org": "Science",
-    "sciencedirect.com": "ScienceDirect",
     "springer.com": "Springer",
     "frontiersin.org": "Frontiers",
     "plos.org": "PLOS",
-    "jstor.org": "JSTOR",
     "nber.org": "National Bureau of Economic Research",
     "worldbank.org": "World Bank",
     "who.int": "World Health Organization",
@@ -125,6 +127,9 @@ PUBLISHERS = {
     "iucnredlist.org": "IUCN Red List",
     "csiro.au": "CSIRO",
 }
+# Sites that host or brand other people's work: never named as its publisher (checked before
+# PUBLISHERS, so a PMC paper does not fall through to nih.gov either).
+_HOSTS = {"nature.com", "ncbi.nlm.nih.gov", "science.org", "sciencedirect.com", "jstor.org"}
 
 
 def _s(value) -> str:
@@ -151,6 +156,8 @@ def url_key(url: str) -> str:
 
 def publisher_of(url: str) -> str:
     host = site_of(url)
+    if any(host == h or host.endswith("." + h) for h in _HOSTS):
+        return ""
     for suffix in sorted(PUBLISHERS, key=len, reverse=True):
         if host == suffix or host.endswith("." + suffix):
             return PUBLISHERS[suffix]
@@ -210,16 +217,12 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", _s(text).replace("<", "‹").replace(">", "›")).strip()
 
 
-def _finding(text: str, limit: int = MAX_FINDING_CHARS) -> str:
-    text = _clean_text(text)
-    if len(text) <= limit:
-        return text
-    cut = text[:limit - 1]
-    for mark in ("; ", ", "):
-        at = cut.rfind(mark)
-        if at >= limit * 0.6:
-            return cut[:at].rstrip(" ,;") + "…"
-    return cut[:cut.rfind(" ")].rstrip(" ,;") + "…" if " " in cut else cut + "…"
+def _finding(text: str) -> str:
+    """A claim as the finding, whole. Never shortened: a cut lands before the clause the film
+    used ("..., but queens and drones escaped") or keeps only the false half of a claim that says
+    it was false. MAX_FINDING_CHARS only decides which claim to show (source_entries); compose()
+    drops whole least-used sources to stay under the byte limit."""
+    return _clean_text(text)
 
 
 def _claims_map(script: dict) -> dict[str, dict]:
@@ -267,7 +270,8 @@ def used_claims(script: dict) -> list[dict]:
 def source_entries(script: dict, labels: dict[str, str] | None = None) -> list[dict]:
     """One entry per source the film used, most-used first (scenes drawing on it), then by first
     appearance. `finding` is a claim the film took from the source, preferring one its narration
-    cites, then the most-cited, then the earliest -- a claim, never a paraphrase of one."""
+    cites, then the most-cited, then the earliest, and one of at most MAX_FINDING_CHARS over a
+    longer one -- a whole claim, never a paraphrase or a cut of one."""
     labels = labels or {}
     by_url: dict[str, dict] = {}
     for row in used_claims(script):
@@ -283,10 +287,11 @@ def source_entries(script: dict, labels: dict[str, str] | None = None) -> list[d
     for key, entry in by_url.items():
         ranked = sorted(entry["claims"], key=lambda r: (not r["narrated"], -len(r["scenes"]),
                                                         r["first_scene"]))
-        top = [r for r in ranked if r["narrated"] == ranked[0]["narrated"]]
         pick = ranked[0]
         if len(_clean_text(pick["claim"].get("claim"))) > MAX_FINDING_CHARS:
-            short = [r for r in top if len(_clean_text(r["claim"].get("claim"))) <= MAX_FINDING_CHARS]
+            # Any shorter claim the film used from this source, narrated or not, before a long
+            # one; with none, the long claim whole.
+            short = [r for r in ranked if len(_clean_text(r["claim"].get("claim"))) <= MAX_FINDING_CHARS]
             pick = short[0] if short else pick
         url = entry["url"]
         entries.append({
@@ -356,6 +361,13 @@ def promise_kind(script: dict, transcript: str = "") -> str:
     validation = (script or {}).get("_claim_validation")
     if not isinstance(validation, dict) or validation.get("passed") is not True:
         return ""
+    # validate_story_fact_model passes a ledger whose judge was unavailable or gave an invalid
+    # response for some beat (ENTAILMENT_UNAVAILABLE is retryable, so not blocking): that beat
+    # was never judged, and the film earns no promise.
+    if validation.get("retryable") or validation.get("skipped_for_structure") or any(
+            isinstance(e, dict) and (e.get("retryable") or e.get("code") == "ENTAILMENT_UNAVAILABLE")
+            for e in (validation.get("errors") or [])):
+        return ""
     scenes = [s for s in ((script or {}).get("scenes") or []) if isinstance(s, dict)]
     if transcript:
         narration = " ".join(_s(s.get("narration")) for s in scenes)
@@ -363,7 +375,10 @@ def promise_kind(script: dict, transcript: str = "") -> str:
             return ""                 # the film says something the ledger did not check
     has_events = any(isinstance(s.get("event"), dict) and _s(s["event"].get("text")) for s in scenes)
     if has_events or "structure_status" in validation:
-        return "material" if validation.get("soft_findings") else "checked"
+        # A soft overshoot outside the fidelity rows (the cold open's) is carried in errors only.
+        soft = validation.get("soft_findings") or any(
+            isinstance(e, dict) and e.get("severity") == "soft" for e in (validation.get("errors") or []))
+        return "material" if soft else "checked"
     return "tied"
 
 
@@ -379,7 +394,9 @@ PEOPLE_SYSTEM = (
     "Use ONLY the transcript and the cited research claims you are given. Pick 3 to 7 people, "
     "places or objects that the TRANSCRIPT names and that matter to the story; give each name "
     "exactly as the transcript spells it. For each, write ONE plain sentence (at most 25 words) "
-    "that retells its part in this story. Every number, date and name you write must appear in "
+    "that retells its part in this story, reusing the words of the transcript sentence or claim "
+    "that names it (a line whose words the film does not use about that name is discarded). "
+    "Every number, date and name you write must appear in "
     "the transcript or the claims. Say only what a single transcript sentence or a single claim "
     "says about that name: never join two facts into a new one (where, when, by whom or why "
     "something happened), never add a motive, a judgement or a label such as a job or an "
@@ -399,6 +416,18 @@ _TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "sev
 _SCALES = {"hundred": 100, "thousand": 1000, "million": 10 ** 6, "billion": 10 ** 9,
            "hundredth": 100, "thousandth": 1000}
 _VAGUE = {"dozens", "hundreds", "thousands", "millions", "billions"}
+# Words that state a quantity without a number (a dozen, half, twice, doubled, tenfold): a People &
+# Places line may use one only when the transcript or the claims do, compared by root so that
+# double / doubled / doubling are one. "score" is left out: its everyday sense is not a number.
+_QUANTITY_ROOTS = {
+    "dozen": "dozen", "half": "half", "halves": "half", "halved": "half", "halving": "half",
+    "quarter": "quarter", "quarters": "quarter", "quartered": "quarter",
+    "twice": "twice", "thrice": "thrice",
+    "double": "double", "doubles": "double", "doubled": "double", "doubling": "double",
+    "triple": "triple", "triples": "triple", "tripled": "triple", "tripling": "triple",
+    "quadruple": "quadruple", "quadruples": "quadruple", "quadrupled": "quadruple",
+    "quadrupling": "quadruple", "pair": "pair", "pairs": "pair", "couple": "couple",
+    "couples": "couple"}
 _DIGITS = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
 
 
@@ -460,6 +489,18 @@ def numbers_in(text: str) -> set[str]:
     return found
 
 
+def quantity_words_in(text: str) -> set[str]:
+    """The quantity words a text uses (see _QUANTITY_ROOTS), by root, plus any "<number>fold"."""
+    found: set[str] = set()
+    for token in re.findall(r"[a-z]+", _plain(text).lower()):
+        if token in _QUANTITY_ROOTS:
+            found.add(_QUANTITY_ROOTS[token])
+        elif token.endswith("fold") and (token[:-4] in _ONES or token[:-4] in _TENS
+                                         or token[:-4] in _SCALES or token[:-4] == "many"):
+            found.add(token)
+    return found
+
+
 _FUNCTION_WORDS = {
     "a", "an", "the", "in", "on", "at", "by", "for", "from", "after", "before", "when", "its", "his",
     "her", "their", "this", "that", "these", "those", "with", "as", "under", "over", "during",
@@ -509,12 +550,82 @@ def proper_noun_runs(text: str) -> list[tuple[list[str], bool]]:
     return runs
 
 
+# Words the wording gate does not ask the support for: grammar, not facts. Numbers and quantity
+# words are left to their own checks.
+_GRAMMAR_WORDS = _FUNCTION_WORDS | {
+    "is", "are", "was", "were", "be", "been", "being", "has", "have", "had", "did", "does", "do",
+    "him", "them", "our", "your", "would", "could", "should", "will", "can", "may", "might",
+    "must", "near", "who", "whom", "whose"}
+# Every content word of a line must be supported. A coverage allowance (one word in seven) was
+# tried and let "Alvaro Molina -- fishing near Puerto Triunfo when a female hippo moved beneath his
+# canoe, which killed him." through: the one unsupported word was the false one.
+WORDING_MIN_COVERAGE = 1.0
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ings", "ing", "edly", "ed", "es", "s", "ly"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            word = word[:-len(suffix)]
+            break
+    if word.endswith("i"):
+        word = word[:-1] + "y"                       # studied, studies -> study
+    elif word.endswith("e") and len(word) > 3:
+        word = word[:-1]                             # escape, escaped -> escap
+    if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiou":
+        word = word[:-1]                             # killed -> kill -> kil, kill -> kil
+    return word
+
+
+def _forms(word: str) -> set[str]:
+    once = _stem(word)
+    return {once, _stem(once)}
+
+
+def _content_words(text: str) -> list[str]:
+    out = []
+    for word in re.findall(r"[a-z]+", _plain(text).lower()):
+        if (len(word) < 3 or word in _GRAMMAR_WORDS or word in _ONES or word in _TENS
+                or word in _SCALES or word in _VAGUE or quantity_words_in(word)):
+            continue
+        out.append(word)
+    return out
+
+
+def _sentences(text: str) -> list[str]:
+    return [u for u in re.split(r"(?<=[.!?])[\"”’']?\s+", text or "") if u.strip()]
+
+
+def wording_support(line: str, transcript: str, claims: list) -> tuple[float, list[str]]:
+    """(coverage, unsupported words) of a People & Places line's wording.
+
+    The support is only what the film says about THAT name: the transcript sentences and cited
+    claims that mention one of the name's words (3+ letters). Every content word of the line (its
+    grammar, numbers and the name itself aside) must occur there, compared by a light stem. A
+    line can therefore not move a fact from one name to another ("killed" from Escobar's sentence
+    to Molina's) or add a label, motive or outcome ("kingpin", "murderous") the film never says."""
+    name, _, body = _s(line).partition(" — ")
+    keys = {w for w in re.findall(r"[a-z]+", _plain(name).lower())
+            if len(w) >= 3 and w not in _FUNCTION_WORDS}
+    claim_texts = [_s(c.get("claim") if isinstance(c, dict) else c) for c in (claims or [])]
+    units = [u for u in _sentences(transcript) + claim_texts
+             if keys & set(re.findall(r"[a-z]+", _plain(u).lower()))]
+    have: set[str] = set()
+    for unit in units:
+        for word in _content_words(unit):
+            have |= _forms(word)
+    name_forms = set().union(*(_forms(k) for k in keys)) if keys else set()
+    words = [w for w in _content_words(body) if not _forms(w) & name_forms]
+    missing = [w for w in words if not _forms(w) & have]
+    return (1 - len(missing) / len(words)) if words else 1.0, missing
+
+
 def check_people_line(line: str, transcript: str, claims: list) -> list[str]:
     """Why a People & Places line cannot be published; [] when it can.
 
-    Every number, year and proper noun in the line must appear in the transcript or in the claims
-    the film cites. Nothing else is accepted as evidence -- not the dossier's unused research, not
-    the model's knowledge."""
+    Every number, quantity word, year and proper noun in the line must appear in the transcript
+    or in the claims the film cites, and every other content word in what the film says about
+    that name (wording_support). Nothing else is accepted as evidence -- not the dossier's unused
+    research, not the model's knowledge."""
     problems = []
     line = _s(line)
     if " — " not in line or not line.split(" — ", 1)[0].strip() or not line.split(" — ", 1)[1].strip():
@@ -530,6 +641,9 @@ def check_people_line(line: str, transcript: str, claims: list) -> list[str]:
     missing = numbers_in(line) - numbers_in(support)
     if missing:
         problems.append(f"unsupported numbers {sorted(missing)}")
+    quantities = quantity_words_in(line) - quantity_words_in(support)
+    if quantities:
+        problems.append(f"unsupported quantity {sorted(quantities)}")
     for tokens, initial in proper_noun_runs(line):
         if initial and tokens and tokens[0].lower() in _FUNCTION_WORDS:
             tokens = tokens[1:]
@@ -543,6 +657,11 @@ def check_people_line(line: str, transcript: str, claims: list) -> list[str]:
             ok = _present(phrase, support, case=False)
         if not ok:
             problems.append(f"unsupported name {phrase!r}")
+    if " — " in line:
+        coverage, unsupported = wording_support(line, transcript, claims)
+        if coverage < WORDING_MIN_COVERAGE:
+            problems.append(f"unsupported wording {sorted(set(unsupported))} "
+                            f"(coverage {coverage:.2f})")
     return problems
 
 
@@ -654,12 +773,36 @@ def _is_footer(lines: list[str]) -> bool:
 
 
 def _is_source_continuation(lines: list[str]) -> bool:
-    """A block that still belongs to a sources section: it carries a source URL, and nothing in it
-    is a footer line (a Short link, the CTA, hashtags, the AI line)."""
+    """A block that may still belong to a sources section: it carries a URL, and nothing in it is
+    a footer line (a Short link, the CTA, hashtags, the AI line) or any YouTube link or @handle (a
+    playlist or channel line). rebuild() still keeps such a block when none of its URLs is in the
+    film's research (a ko-fi or newsletter line looks just like 'site: URL')."""
     if any(_FOOTER_START.match(l.strip()) or _HASHTAGS.match(l.strip()) or _SHORT_LINK.search(l)
-           for l in lines):
+           or _YOUTUBE_LINK.search(l) for l in lines):
         return False
     return any(_URL.search(l) for l in lines)
+
+
+def _source_shaped(lines: list[str]) -> bool:
+    """A block written the way a source list is: every line a bare URL, a "↳" finding, a citation
+    or "Label:" line directly above a bare URL, or "site: URL" whose label is the URL's own site.
+    "Support the channel: https://ko-fi.com/..." is not: its label is not its site."""
+    lines = [l.strip() for l in lines if l.strip()]
+    for n, line in enumerate(lines):
+        if re.fullmatch(r"https?://\S+", line) or line.startswith(FINDING_MARK.strip()):
+            continue
+        if not _URL.search(line):
+            if n + 1 < len(lines) and re.fullmatch(r"https?://\S+", lines[n + 1]):
+                continue
+            return False
+        label, _, rest = line.partition(": ")
+        url = _URL.search(rest)
+        if not (url and rest.strip() == url.group(0)):
+            return False
+        site = site_of(url.group(0))
+        if label.strip().lower().removeprefix("www.") not in (site, site.split(".", 1)[-1]):
+            return False
+    return bool(lines)
 
 
 def parse(text: str) -> dict:
@@ -668,12 +811,14 @@ def parse(text: str) -> dict:
     summary   the leading paragraphs, before the first managed section or footer line
     chapters  the ⏱️ CHAPTERS block, verbatim
     sources   the raw text of any SOURCES / RESEARCH section (labels are harvested from it)
+    source_blocks  that section's blocks after its header block, with their tail position
     people    existing People & Places lines
     tail      every other block after the summary, in its original order (Short links, CTA,
               hashtags, the AI line, music credits, operator lines)
     removed   the IN THIS VIDEO / QUESTIONS blocks, Tags: lines and promise lines dropped
     """
-    out = {"summary": [], "chapters": "", "sources": "", "people": [], "tail": [], "removed": []}
+    out = {"summary": [], "chapters": "", "sources": "", "people": [], "tail": [], "removed": [],
+           "source_blocks": []}
     section = ""
     in_tail = False
     for block in _blocks(text):
@@ -702,6 +847,9 @@ def parse(text: str) -> dict:
             continue
         if section == "sources" and _is_source_continuation(lines):
             out["sources"] += "\n".join(lines) + "\n\n"
+            # (where it would sit in the tail, the block): rebuild() puts it back there when it
+            # turns out to be the operator's, not research.
+            out["source_blocks"].append((len(out["tail"]), "\n".join(lines)))
             continue
         section = ""
         if not in_tail and not _is_footer(lines):
@@ -776,9 +924,11 @@ def load_job(job: str, recut: bool | None = None) -> dict:
     """{"script", "transcript", "recut"} from a finished job directory (no network, no provider).
 
     A re-cut opening (scripts/recut_opening.py: recut_opening.json beside explainer.recut.mp4)
-    put narration in the film that the claim ledger never judged. `recut` None detects it; when
-    it applies, the recut scenes' claims count as used, their narration joins the transcript the
-    People & Places lines are checked against, and the promise is withheld (rebuild)."""
+    put narration in the film that the claim ledger never judged, in place of the original
+    scenes before its splice. `recut` None detects it; when it applies, the film is the opening
+    plus the original scenes from the splice on (_recut_film): their claims count as used, their
+    narration is the transcript the People & Places lines are checked against, and the promise is
+    withheld (rebuild). Raises ValueError when the recut cannot be laid out exactly."""
     import os
     state_path = os.path.join(job, "_state.json")
     script: dict = {}
@@ -795,15 +945,50 @@ def load_job(job: str, recut: bool | None = None) -> dict:
     if os.path.isfile(transcript_path):
         with open(transcript_path, encoding="utf-8") as handle:
             transcript = handle.read().strip()
-    spec_path = os.path.join(job, "recut_opening.json")
     if recut is None:
-        recut = os.path.isfile(spec_path) and os.path.isfile(os.path.join(job, "explainer.recut.mp4"))
-    if recut and os.path.isfile(spec_path) and script:
-        with open(spec_path, encoding="utf-8") as handle:
-            opening = [s for s in (json.load(handle).get("scenes") or []) if isinstance(s, dict)]
-        script = {**script, "scenes": opening + list(script.get("scenes") or [])}
-        transcript = " ".join(_s(s.get("narration")) for s in opening) + "\n" + transcript
+        recut = has_recut(job)
+    if recut and script:
+        script, transcript = _recut_film(job, script)
     return {"script": script, "transcript": transcript, "recut": bool(recut)}
+
+
+def has_recut(job: str) -> bool:
+    import os
+    return (os.path.isfile(os.path.join(job, "recut_opening.json"))
+            and os.path.isfile(os.path.join(job, "explainer.recut.mp4")))
+
+
+def _recut_film(job: str, script: dict) -> tuple[dict, str]:
+    """(script, transcript) of the re-cut film: the new opening, then only the original scenes
+    that start at or after the splice. recut_opening.py replaces film time 0..splice_sec, so the
+    original scenes before it are not in the film, and their names and claims are not either.
+    Scene start times come from audio_timing_report.json; without it, or when it does not match
+    the script, the job is refused as a recut rather than guessed at."""
+    import os
+    spec_path = os.path.join(job, "recut_opening.json")
+    timing_path = os.path.join(job, "audio_timing_report.json")
+    if not os.path.isfile(spec_path):
+        raise ValueError(f"{job}: no recut_opening.json, so there is no re-cut film")
+    with open(spec_path, encoding="utf-8") as handle:
+        spec = json.load(handle) or {}
+    opening = [s for s in (spec.get("scenes") or []) if isinstance(s, dict)]
+    splice = float(spec.get("splice_sec") or 0)
+    if not os.path.isfile(timing_path):
+        raise ValueError(f"{job}: no audio_timing_report.json, so the original scenes the re-cut "
+                         "opening replaced cannot be told apart; refusing to treat it as a recut")
+    with open(timing_path, encoding="utf-8") as handle:
+        timing = [t for t in ((json.load(handle) or {}).get("scenes") or []) if isinstance(t, dict)]
+    timing.sort(key=lambda t: t.get("scene") if isinstance(t.get("scene"), int) else 0)
+    scenes = list(script.get("scenes") or [])
+    if splice <= 0 or not opening or len(timing) != len(scenes) or any(
+            not isinstance(t.get("start_sec"), (int, float)) for t in timing):
+        raise ValueError(f"{job}: recut_opening.json (splice {splice}, {len(opening)} opening "
+                         f"scenes) and audio_timing_report.json ({len(timing)} timed scenes for "
+                         f"{len(scenes)} script scenes) do not line up; refusing to guess the recut")
+    kept = [scene for scene, t in zip(scenes, timing) if float(t["start_sec"]) >= splice - 0.05]
+    film = opening + kept
+    transcript = " ".join(_s(s.get("narration")) for s in film if _s(s.get("narration")))
+    return {**script, "scenes": film}, transcript
 
 
 def cited_claims(script: dict) -> list[dict]:
@@ -838,10 +1023,23 @@ def rebuild(text: str, facts: dict, people: list[str] | None = None,
     dropped_people: list = []
     if people is None:
         people, dropped_people = recheck_people(parsed["people"], transcript, claims)
+    # A block after the sources header that is not written like a source entry and none of whose
+    # URLs is in the film's research (used or not) is the operator's -- a ko-fi, newsletter or
+    # website line -- and goes back where it was. An old "Label:\nURL" entry the research does not
+    # hold is a source the film did not use: dropped and reported, like any other.
+    research_keys = {url_key(c.get("source_url")) for c in _claims_map(script).values()
+                     if _s(c.get("source_url")).startswith("http")}
+    tail, custom, custom_keys = list(parsed["tail"]), [], set()
+    for position, block in parsed["source_blocks"]:
+        keys = {url_key(m.group(0)) for m in _URL.finditer(block)}
+        if keys and not keys & research_keys and not _source_shaped(block.split("\n")):
+            tail.insert(position + len(custom), block)
+            custom.append(block)
+            custom_keys |= keys
     # A re-cut opening's narration was never judged by the ledger: no promise for that film.
     kind = promise_kind(script, transcript) if entries and not facts.get("recut") else ""
     new, report = compose(parsed["summary"], promise=kind, chapters=parsed["chapters"],
-                          entries=entries, people=people, tail=parsed["tail"], limit=limit)
+                          entries=entries, people=people, tail=tail, limit=limit)
     live_urls = {url_key(m.group(0)): m.group(0).rstrip(".,;)")
                  for m in _URL.finditer(parsed["sources"])}
     used_keys = {url_key(e["url"]) for e in entries}
@@ -849,7 +1047,9 @@ def rebuild(text: str, facts: dict, people: list[str] | None = None,
         "promise_kind": kind,
         "recut": bool(facts.get("recut")),
         "removed": parsed["removed"],
-        "live_sources_dropped": [u for k, u in live_urls.items() if k not in used_keys],
+        "kept_custom_blocks": custom,
+        "live_sources_dropped": [u for k, u in live_urls.items()
+                                 if k not in used_keys and k not in custom_keys],
         "people_dropped": dropped_people,
         "summary_paragraphs": len(parsed["summary"]),
     })
