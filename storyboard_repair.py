@@ -216,6 +216,8 @@ def plan(script, board):
             restated.append({"scene_id": match.group(1), "re_tells": match.group(2)})
     if RESTATED_CODE in codes and not restated:
         return None    # a message this planner cannot place is not a bounded edit
+    turn = _turn_edit(script, scenes, counts, consequence_scene, hinge_scene,
+                      [ids.index(item["scene_id"]) for item in scene_edits])
     opening_plan = script.get("_opening") if isinstance(script.get("_opening"), dict) else {}
     planted = sorted(cs.lead_numbers({"line": script.get("hook"),
                                       "cold_open": script.get("_cold_open"),
@@ -244,7 +246,78 @@ def plan(script, board):
             "consequence_claims": (((script.get("_opening") or {}).get("claim_refs") or {})
                                    .get("consequence") or []),
             "consequence_text": str((script.get("_opening") or {}).get("consequence") or ""),
-            "deadline_fraction": pct, "original_counts": counts}
+            "deadline_fraction": pct, "original_counts": counts,
+            **({"turn": turn} if turn else {})}
+
+
+# ── L4: the turn by 45 seconds (opening_turn) ─────────────────────────────────────────────────
+# The read and its one revision run BEFORE this repair, so a turn checked only there can be
+# undone here: the consequence repair may add 45 words to the row before the hinge and SOFT_HINGE
+# moves facts into it, and on the ladder no budget check ran on either (LATE_MECHANISM, the only
+# position check here, is advisory for ladder films). A repair that touches the rows up to the
+# turn is measured before and after, and one that PUSHES the turn past the limit is refused;
+# an opening already past it is not made un-repairable by this (it is recorded as late_turn).
+def _turn_words(script, scenes, mode, row):
+    import opening_turn as ot
+    prior = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
+    if mode == "row":
+        return ot.measure_turn(scenes, script.get("_opening"), script.get("_story_engine"),
+                               row_hint=row, applies=True)
+    return ot.measure_turn(scenes, script.get("_opening"), script.get("_story_engine"),
+                           quote=str(prior.get("quote") or ""), applies=True)
+
+
+def _turn_edit(script, scenes, counts, consequence_scene, hinge_scene, edited_rows):
+    import opening_turn as ot
+    if not ot.script_rule(script):
+        return {}
+    bounds = ot.window(scenes)
+    if not bounds:
+        return {}
+    row = hinge_scene if hinge_scene is not None else consequence_scene
+    if row is None and not any(index <= bounds["hi"] for index in edited_rows):
+        return {}
+    mode = "row" if row is not None else "quote"
+    before = _turn_words(script, scenes, mode, row)
+    if not before.get("measurable"):
+        return {}
+    turn = {"limit_words": ot.TURN_LIMIT_WORDS, "mode": mode, "row": row,
+            "before_words": before["turn_words"]}
+    if consequence_scene is not None and before["turn_words"] <= ot.TURN_LIMIT_WORDS:
+        # What the consequence row may hold: the limit less every word before it and, when the
+        # turn is measured at the hinge, the rows between it and the hinge (the hinge at most ten).
+        between = 0
+        if row is not None and row > consequence_scene:
+            between = sum(min(counts[i], cs.MAX_HINGE_WORDS) if i == hinge_scene else counts[i]
+                          for i in range(consequence_scene + 1, row + 1))
+        turn["consequence_row_cap"] = max(
+            0, ot.TURN_LIMIT_WORDS - sum(counts[:consequence_scene]) - between)
+    return turn
+
+
+def _check_turn(script, candidate, edit):
+    """Refuse a repair that pushes the turn past the limit; stamp the re-measured turn."""
+    import opening_turn as ot
+    turn = edit.get("turn") or {}
+    if not turn:
+        return
+    after = _turn_words(script, candidate["scenes"], turn["mode"], turn.get("row"))
+    if not after.get("measurable"):
+        return
+    limit = int(turn.get("limit_words") or ot.TURN_LIMIT_WORDS)
+    if int(turn["before_words"]) <= limit < int(after["turn_words"]):
+        raise ValueError(f"Repair pushes the opening's turn past {limit} words "
+                         f"({turn['before_words']} -> {after['turn_words']})")
+    prior = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
+    stamped = dict(after, applies=ot.script_rule(script),
+                   late=ot.script_rule(script) and after["turn_words"] > limit)
+    for key in ("revised", "read_quote"):
+        if key in prior:
+            stamped[key] = prior[key]
+    if turn["mode"] == "row":
+        stamped["hint_scene_id"] = candidate["scenes"][turn["row"]].get("scene_id")
+        stamped["quote"] = ""
+    candidate["_opening_turn"] = stamped
 
 
 def _previous_scene_words(scene: dict) -> dict:
@@ -364,6 +437,13 @@ def prompt(script, edit):
             f"{CONSEQUENCE_GROWTH_WORDS} words. Do not touch the hinge; the body never tells "
             "this again. ")
            if edit.get("consequence_scene_id") else "")
+        + ((f"THE TURN DEADLINE: the film's words from its first word through the end of the "
+            f"turn must stay at or under {edit['turn']['limit_words']}, so scene "
+            f"{edit['consequence_scene_id']} may come back at most "
+            f"{edit['turn']['consequence_row_cap']} words: make room by cutting restatement or a "
+            "signpost in it, never a sourced fact, and say the consequence plainly. ")
+           if edit.get("consequence_scene_id") and (edit.get("turn") or {}).get("consequence_row_cap") is not None
+           else "")
         + ((f"The recap spans the scenes {edit['synthesis_scene_ids']}: return ALL of them, with "
             "the re-walk split across them in order and no beat told twice; a part that has "
             "nothing left to re-walk carries one joint sentence into the close. The caps below "
@@ -499,7 +579,10 @@ def apply_response(script, edit, response):
         if index is not None:
             if counts[index] > edit["original_counts"][index] + CONSEQUENCE_GROWTH_WORDS:
                 raise ValueError("Repair grew the consequence scene past its allowance")
-            if counts[index] < edit["original_counts"][index]:
+            # Under a turn cap the row may have to give up restatement to make room for the
+            # consequence; whether the consequence was added is the storyboard's question.
+            if (counts[index] < edit["original_counts"][index]
+                    and (edit.get("turn") or {}).get("consequence_row_cap") is None):
                 raise ValueError("Repair shortened the consequence scene instead of adding the consequence")
     if edit.get("hinge_scene_id"):
         index = next((i for i, s in enumerate(scenes) if s["scene_id"] == edit["hinge_scene_id"]), None)
@@ -538,6 +621,7 @@ def apply_response(script, edit, response):
     hook = str(script.get("hook") or "")
     if hook and hook in script["scenes"][0]["narration"] and hook not in scenes[0]["narration"]:
         raise ValueError("Repair changed the spoken hook")
+    _check_turn(script, candidate, edit)
     return candidate
 
 
@@ -600,6 +684,29 @@ def synthesis_length_plan(saved):
     return edit
 
 
+def proportional_caps(counts, limit, minimums):
+    """Exact per-row word caps summing to at most `limit`: each row keeps its minimum, and the rest
+    is shared in proportion to how far each row stands above its minimum (largest remainders
+    first), never growing a row past its current length. Shared by the opening-budget repair
+    below and the turn revision (explainer_pipeline._revise_opening_once)."""
+    slack = [max(0, count - minimum) for count, minimum in zip(counts, minimums)]
+    remaining = max(0, limit - sum(minimums))
+    total_slack = sum(slack)
+    additions = [0] * len(counts)
+    if total_slack:
+        exact = [remaining * value / total_slack for value in slack]
+        additions = [min(slack[i], math.floor(value)) for i, value in enumerate(exact)]
+        left = remaining - sum(additions)
+        order = sorted(range(len(counts)), key=lambda i: exact[i] - additions[i], reverse=True)
+        for i in order:
+            if left <= 0:
+                break
+            if additions[i] < slack[i]:
+                additions[i] += 1
+                left -= 1
+    return [minimums[i] + additions[i] for i in range(len(counts))]
+
+
 def budget_plan(script, board):
     """Give the retry exact per-scene caps whose sum cannot miss the deadline again."""
     edit = plan(script, board)
@@ -611,23 +718,8 @@ def budget_plan(script, board):
     minimums = [max(8, hook_words) if index == 0 else 6 for index in indexes]
     if sum(minimums) > edit["opening_word_limit"]:
         return None
-    slack = [max(0, counts[index] - minimums[position])
-             for position, index in enumerate(indexes)]
-    remaining = edit["opening_word_limit"] - sum(minimums)
-    total_slack = sum(slack)
-    additions = [0] * len(indexes)
-    if total_slack:
-        exact = [remaining * value / total_slack for value in slack]
-        additions = [min(slack[i], math.floor(value)) for i, value in enumerate(exact)]
-        left = remaining - sum(additions)
-        order = sorted(range(len(indexes)), key=lambda i: exact[i] - additions[i], reverse=True)
-        for i in order:
-            if left <= 0:
-                break
-            if additions[i] < slack[i]:
-                additions[i] += 1
-                left -= 1
-    caps = [minimums[i] + additions[i] for i in range(len(indexes))]
+    caps = proportional_caps([counts[index] for index in indexes], edit["opening_word_limit"],
+                             minimums)
     edit["scene_word_limits"] = {
         script["scenes"][index]["scene_id"]: caps[position]
         for position, index in enumerate(indexes)
