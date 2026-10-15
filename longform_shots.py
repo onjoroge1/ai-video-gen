@@ -54,12 +54,21 @@ def _timed_words(narration: str, word_times: list | None, duration: float, *,
     if not words:
         return []
     if word_times:
+        # THE SAME FILTER audio_timing APPLIES, so the shot compiler searches the words the
+        # timing gate searched. This copy kept `end > start` after audio_timing switched to
+        # `0 <= start <= end` (a81939e, 2026-08-26), so every zero-width Whisper word -- 5.2% of
+        # opening words across the saved jobs -- resolved in the timing report and vanished here.
+        # bees_v16b (published gCJh5oM8kwg): 'tilt', 'jar' and 'pour' were zero-width, the anchor
+        # "You tilt the jar to pour" never resolved, its cut was spread and marked unaligned, and
+        # the opening sat at 7/11 aligned -- 69 D on the semantic_sync cap. Fused tokens
+        # ("two-the") are split on the same joiners, for the same reason.
+        from audio_timing import _split_joined
         spoken = []
         try:
             for item in word_times:
-                word, start, end = item[0], float(item[1]), float(item[2])
-                if _clean_token(str(word)) and end > start:
-                    spoken.append((str(word), max(0.0, start), min(duration, end)))
+                word, start, end = str(item[0]), float(item[1]), float(item[2])
+                if _clean_token(word) and 0 <= start <= end <= duration + 0.25:
+                    spoken.extend(_split_joined(word, start, min(duration, end)))
         except (IndexError, TypeError, ValueError):
             spoken = []
         if spoken:

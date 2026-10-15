@@ -31,7 +31,10 @@ from durable_execution import current, canonical_hash, file_sha256, CooperativeY
 # failure this whole branch exists to stop doing.
 # Bumped 2026-09-30: a still held past MAX_VISUAL_STATE_SECONDS is now split into parts on the
 # same picture (timing and pixels), so every scene that carried a long hold cuts differently.
-ILLUSTRATED_RENDER_VERSION = "hold-split-2026-09-30-v1"
+# Bumped 2026-10-14 (timing): the shot compiler keeps zero-width Whisper words and splits fused
+# tokens, as audio_timing does, so an anchor containing one now resolves and its cut moves onto
+# its phrase.
+ILLUSTRATED_RENDER_VERSION = "zero-width-words-2026-10-14-v1"
 
 
 @lru_cache(maxsize=8)
