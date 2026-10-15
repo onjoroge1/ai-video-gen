@@ -188,7 +188,7 @@ def ink_world():
                                                                        else f"The History of Bread Part {i}"),
                           views=[5_000_000, 3_000_000, 900_000, 800_000, 700_000, 600_000, 500_000,
                                  400_000, 100_000, 50_000][i],
-                          days=20 + i * 10, seconds=660, desc=INK_DESC if top else "Short description.",
+                          days=30 + i * 10, seconds=660, desc=INK_DESC if top else "Short description.",
                           tags=[f"tag{j}" for j in (range(12) if top else range(3))],
                           loc={"en": {"title": INK_TITLE, "description": INK_DESC},
                                "de-DE": {"title": "Was taten die Menschen?", "description": "Alle Quellen"}}
@@ -271,6 +271,24 @@ def test_parse_inputs_mixes_dedupes_and_reports_errors():
     assert len(parsed["errors"]) == 1 and "vimeo" in parsed["errors"][0]
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("＠inkexplainer96", ("handle", "@inkexplainer96")),                       # full-width at sign (U+FF20)
+    ("​＠inkexplainer96‍", ("handle", "@inkexplainer96")),           # zero-width passengers
+    (" @ink⁠explainer96　", ("handle", "@inkexplainer96")),           # word joiner, ideographic space
+    ("ｈｔｔｐｓ：／／ｗｗｗ．ｙｏｕｔｕｂｅ．ｃｏｍ／＠inkexplainer96／videos", ("handle", "@inkexplainer96")),
+    ("https://youtu.be/４９_Ph2q6uIM?si=x", ("video", "49_Ph2q6uIM")),          # full-width digits
+    ("﻿https://youtu.be/49_Ph2q6uIM", ("video", "49_Ph2q6uIM")),           # byte-order mark
+    ("ＵＣpgrEMx8diLrw7YNQ6r3uUw", ("channel", INK)),
+])
+def test_inputs_are_nfkc_normalised_and_zero_width_free(text, expected):
+    assert vm.parse_input(text) == expected
+
+
+def test_full_width_handle_dedupes_with_the_ascii_one():
+    parsed = vm.parse_inputs(["＠inkexplainer96", "@inkexplainer96", "https://www.youtube.com/@InkExplainer96"])
+    assert parsed["channels"] == [("handle", "@inkexplainer96")] and not parsed["errors"]
+
+
 def test_iso_durations():
     assert vm.iso_duration_seconds("PT11M13S") == 673
     assert vm.iso_duration_seconds("PT1H2M3S") == 3723
@@ -310,10 +328,25 @@ def test_number_led_two_part_title_with_caps_year_you_emoji_and_hashtag():
     assert vm.analyze_title("WHY ROME FELL")["case_style"] == "upper"
 
 
+@pytest.mark.parametrize("title,question", [
+    ("What did Early Humans do when they got Sick", True),        # no '?', still a question
+    ("what is The IKEA Effect.", True),
+    ("What Happened to the Other Human Species", True),
+    ("Why Ancient Humans Were The Most TERRIFYING Animal Alive", False),   # wh-word, then a noun
+    ("How Rome Fell", False),
+    ("How to Build a Roman Road", False),
+    ("Do Animals Know When Another Animal is a Baby?", True),
+])
+def test_question_shaped_titles_without_a_question_mark(title, question):
+    t = vm.analyze_title(title)
+    assert t["is_question"] is question and (t["form"] == "question") is question, title
+    assert t["has_question_mark"] is ("?" in title)
+
+
 def test_ink_explainer_description_structure():
     d = vm.analyze_description(INK_DESC, INK_TITLE)
-    assert d["section_headers"] == ["📚 RESEARCH & SOURCES:", "PEOPLE & SITES MENTIONED IN THIS VIDEO:",
-                                    "🎨 Animation by Ink Explainer"]
+    # the credit line is a credit, not a section header
+    assert d["section_headers"] == ["📚 RESEARCH & SOURCES:", "PEOPLE & SITES MENTIONED IN THIS VIDEO:"]
     assert d["has_sources"] and d["has_people_places"]
     assert d["doi_count"] == 3 and d["dois"][0] == "10.1038/nature03052"
     assert d["url_count"] == 3 and d["domains"] == {"doi.org": 3} and d["youtube_links"] == 0
@@ -404,6 +437,33 @@ def test_ai_disclosure_needs_a_self_reference():
         assert d["ai_disclosure"] and d["ai_disclosure_phrase"] == phrase, text
 
 
+@pytest.mark.parametrize("text", [
+    "The best text-to-speech apps compared.",
+    "Is text to speech good enough for audiobooks?",
+    "How synthetic media is changing elections.",
+    "Scammers used AI-generated voices to steal millions.",
+    "Deepfakes made with AI fool banks.",
+    "In 1902 officials used text-to-speech",
+])
+def test_ai_as_the_topic_is_not_a_disclosure(text):
+    d = vm.analyze_description(text, "x")
+    assert not d["ai_disclosure"] and d["ai_disclosure_phrase"] == "", text
+
+
+@pytest.mark.parametrize("text,phrase", [
+    ("Voice: text-to-speech", ": text-to-speech"),
+    ("Narrated using text-to-speech.", "Narrated using text-to-speech"),
+    ("We used AI-generated illustrations for the maps.", "used AI-generated"),
+    ("Images generated with AI.", "generated with AI"),
+    ("This episode includes synthetic narration.", "includes synthetic narration"),
+    ("Some scenes in this film were made with AI tools.", "made with AI"),
+    ("Disclosed as altered/synthetic content.", "altered/synthetic"),
+])
+def test_ai_disclosure_about_the_video_itself(text, phrase):
+    d = vm.analyze_description(text, "x")
+    assert d["ai_disclosure"] and d["ai_disclosure_phrase"] == phrase, text
+
+
 def test_empty_description():
     d = vm.analyze_description("", "x")
     assert d["chars"] == 0 and d["lines"] == 0 and d["above_fold"] == "" and not d["section_headers"]
@@ -486,9 +546,12 @@ def test_quartile_comparison_states_observations_with_n():
     assert [v["id"] for v in q["bottom"]] == ["inklong0008", "inklong0009"]
     texts = [o["text"] for o in q["observations"]]
     assert "tags: median 12 in top (n=2) vs 3 in bottom (n=2)" in texts
-    assert "title is a question: 2/2 in top vs 0/2 in bottom" in texts
-    assert "sources/references section: 2/2 in top vs 0/2 in bottom" in texts
-    assert "translated titles (localizations): 2/2 in top vs 0/2 in bottom" in texts
+    for start in ("title is a question: 2/2 in top vs 0/2 in bottom",
+                  "sources/references section: 2/2 in top vs 0/2 in bottom",
+                  "translated titles (localizations): 2/2 in top vs 0/2 in bottom"):
+        line = next(t for t in texts if t.startswith(start))
+        # the top two are also the channel's two newest uploads: a template era, flagged as such
+        assert line.endswith("(era: the 2 uploads with it are all among the 2 newest of 10)")
     assert not any(t.startswith("duration") for t in texts)          # same duration: nothing to say
     assert any(t.startswith("title form: most often 'question'") for t in texts)
     # one video in a group of two is not a pattern: the hook word sits in 1/2 of the top quartile
@@ -498,6 +561,32 @@ def test_quartile_comparison_states_observations_with_n():
     first_median = next(i for i, o in enumerate(q["observations"]) if "median" in o["text"])
     assert all("median" not in o["text"] for o in q["observations"][:first_median])
     assert q["observations"][0]["score"] == 1.0
+
+
+def test_quartile_leaves_out_uploads_still_collecting_views():
+    vids = ink_world()
+    vids.append(video("inkyoung001", "A Ten Day Old Film", 20_000, days=10, seconds=660))
+    records = [vm.video_record(v, NOW) for v in vids]
+    channels = {INK: {"id": INK, "title": "Ink Explainer"}}
+    vm.add_channel_context(records, channels, {INK: records})
+    young = next(r for r in records if r["id"] == "inkyoung001")
+    assert young["outlier_multiple"] is not None and young["outlier_multiple"] < 0.1
+    q = vm.quartile_comparison(channels[INK], records)
+    assert q["n_long"] == 10 and q["q"] == 2 and q["min_age_days"] == 28
+    assert [v["id"] for v in q["young"]] == ["inkyoung001"]
+    assert "inkyoung001" not in [v["id"] for v in q["top"] + q["bottom"]]
+    assert [v["id"] for v in q["bottom"]] == ["inklong0008", "inklong0009"]
+
+
+def test_report_lists_young_uploads_apart_from_the_quartiles():
+    fake = fake_for_ink(extra_videos=[video("inkyoung001", "A Ten Day Old Film", 20_000, days=10, seconds=660)])
+    yt = vm.ReadOnlyYouTube(fake)
+    collected = vm.collect(yt, vm.parse_inputs(["@inkexplainer96"]), now=NOW)
+    result = vm.analyze(collected, name="ink", inputs=["@inkexplainer96"], token_channel="world", quota=yt.quota)
+    report = vm.render_report(result)
+    assert "- left out, still collecting views: " in report and "A Ten Day Old Film (20K, 10 d)" in report
+    assert "(young: still collecting views)" in report
+    assert "of 10; 1 younger than 28 d left out):" in vm.render_summary(result)
 
 
 def test_quartile_needs_eight_long_form_uploads():
@@ -723,3 +812,216 @@ def test_main_accepts_a_bare_video_id_that_starts_with_a_dash(tmp_path, monkeypa
 def test_main_refuses_when_no_input_is_usable(capsys):
     assert vm.main(["https://vimeo.com/1"]) == 2
     assert "no usable inputs" in capsys.readouterr().err
+
+
+def _quota_403():
+    import httplib2
+    from googleapiclient.errors import HttpError
+    body = json.dumps({"error": {"code": 403, "message": "The request cannot be completed because you have "
+                                 "exceeded your quota.", "errors": [{"message": "quota", "domain": "youtube.quota",
+                                                                     "reason": "quotaExceeded"}]}}).encode()
+    return HttpError(httplib2.Response({"status": 403}), body, uri="https://youtube.googleapis.com/youtube/v3/videos")
+
+
+def test_one_failed_token_keeps_the_other_channels_comparison(tmp_path, monkeypatch, capsys):
+    world, history = _ours_fakes()
+    ink = fake_for_ink()
+    ink.video_items = {**ink.video_items, **world.video_items}
+    ink.channel_items = {**ink.channel_items, **world.channel_items}
+    ink.uploads = {**ink.uploads, **world.uploads}
+    ink.privacy = world.privacy
+
+    def expired(name, kw):
+        raise RuntimeError("invalid_grant: Token has been expired or revoked.")
+    history.respond = expired
+    clients = {"world": ink, "history": history}
+    monkeypatch.setattr(vm, "_client", lambda name: clients[name])
+    assert vm.main(["@inkexplainer96", "--compare-ours", "--name", "x", "--out", str(tmp_path)]) == 0
+    data = json.loads((tmp_path / f"{dt.date.today().isoformat()}_x" / "videos.json").read_text(encoding="utf-8"))
+    assert list(data["ours"]) == ["world"] and data["compare_ours"]["n"]["ours"] == 3
+    assert any("history failed: invalid_grant" in w for w in data["warnings"])
+    assert "Theirs (n=10) vs ours (n=3):" in capsys.readouterr().out
+
+
+def test_quota_exhaustion_stops_the_run_and_still_reports_units(tmp_path, monkeypatch, capsys):
+    fake = fake_for_ink()
+    inner = fake.respond
+
+    def exhausted(name, kw):
+        if name == "playlistItems":
+            raise _quota_403()
+        return inner(name, kw)
+    fake.respond = exhausted
+    monkeypatch.setattr(vm, "_client", lambda name: fake)
+    with pytest.raises(Exception, match="quotaExceeded"):
+        vm.main(["@inkexplainer96", "--out", str(tmp_path)])
+    assert "API units used: 2 units" in capsys.readouterr().err
+    assert ("videos", "list") not in fake.methods()          # no further calls once the quota is gone
+
+
+# ---------------------------------------------------------------------------------------------
+# Review findings: analysers
+# ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("desc", [
+    "Sources:\nhttps://www.jstor.org/stable/123\nhttps://doi.org/10.1080/0000",            # label over bare links
+    "Sources & further reading:\nhttps://sites.google.com/view/sources-x",               # Kurzgesagt shape
+    "Sources & further reading: https://sites.google.com/view/sources-x",                # inline
+    "References: https://ve42.co/X",                                                     # Veritasium shape
+    "Sources\n- Smith (2004) A book\n- Lee (1968) Another",                              # mixed case, no colon
+    "Bibliography\nhttps://example.org/book",
+    "Works cited:\nhttps://example.org/paper",
+])
+def test_sources_section_in_plain_text_layouts(desc):
+    assert vm.analyze_description(desc, "x")["has_sources"], desc
+
+
+def test_sources_label_is_a_header_but_a_link_label_and_prose_are_not():
+    d = vm.analyze_description("Sources & further reading:\nhttps://sites.google.com/view/x", "x")
+    assert d["section_headers"] == ["Sources & further reading:"]
+    for text in ("NC State Extension:\nhttps://content.ces.ncsu.edu/bees",
+                 "References to the bounty appear in 1902 records.",
+                 "Research by A. Person\nResearch shows the bounty came from colonial records."):
+        d = vm.analyze_description(text, "x")
+        assert not d["has_sources"] and not d["section_headers"], text
+
+
+@pytest.mark.parametrize("desc", [
+    "Sources say otherwise", "Citations needed for this claim", "Further reading is below",
+    "References to the bounty appear in 1902 records.", "People mentioned it often",
+])
+def test_short_prose_starting_with_a_label_word_is_not_a_section(desc):
+    d = vm.analyze_description(desc, "x")
+    assert not d["has_sources"] and not d["has_people_places"], desc
+
+
+@pytest.mark.parametrize("desc", ["Sources and references\n- A", "Sources below 👇\n- A",
+                                  "Sources / further reading\nhttps://example.org"])
+def test_a_connector_or_below_keeps_a_label_without_a_colon(desc):
+    assert vm.analyze_description(desc, "x")["has_sources"], desc
+
+
+def test_people_places_needs_a_people_or_place_label():
+    assert not vm.analyze_description("BOOKS MENTIONED:\n- Guns, Germs and Steel", "x")["has_people_places"]
+    assert not vm.analyze_description("PRODUCTS MENTIONED\n- A lamp", "x")["has_people_places"]
+    assert vm.analyze_description("Places mentioned: Blombos Cave, Hohle Fels", "x")["has_people_places"]
+    assert not vm.analyze_description("0:00 Intro\n1:10 Places\n2:00 End", "x")["has_people_places"]
+
+
+def test_title_sentences_are_counted_without_a_final_period():
+    for title in ("The Plan Worked. That Was the Problem", "China Killed Every Sparrow. Then Came the Famine"):
+        t = vm.analyze_title(title)
+        assert t["sentences"] == 2 and t["form"] == "multi-sentence statement", title
+    assert vm.analyze_title("Mr. Smith Goes to Washington")["sentences"] == 1
+    assert vm.analyze_title("History of Rome Ep. 3")["sentences"] == 1
+    assert vm.analyze_title(OUR_TITLE)["sentences"] == 2
+
+
+def test_one_as_an_idiom_is_not_a_number():
+    t = vm.analyze_title("One of the Worst Plans in History")
+    assert t["starts_with"] == "other" and t["form"] == "statement" and not t["has_number"]
+    assert not vm.analyze_title("No One Knows Why This Village Is Empty")["has_number"]
+    assert not vm.analyze_title("The One Mistake That Sank Titanic")["has_number"]
+    t = vm.analyze_title("One Man Stopped a War")
+    assert t["starts_with"] == "number" and t["has_number"]
+
+
+def test_a_time_in_prose_above_the_chapter_list_is_not_a_chapter():
+    d = vm.analyze_description("Little Boy exploded over Hiroshima at 8:15\n\n0:00 The order\n"
+                               "1:10 The flight\n2:30 The blast", "x")
+    assert d["chapter_count"] == 3 and d["chapters_start_at_zero"] and d["chapters_valid"]
+    d = vm.analyze_description("As written in John 3:16\n00:00 Intro\n01:00 Two\n02:00 Three", "x")
+    assert d["chapters_valid"]
+    d = vm.analyze_description("Intro 0:15\nMiddle 1:00\nEnd 2:00", "x")
+    assert not d["chapters_start_at_zero"]
+
+
+def test_citations_and_prose_starting_with_a_credit_word_are_not_credits():
+    for line in ("▸ Music archaeology: the Hohle Fels flute (2009, Nature) https://doi.org/10.1038/nature08169",
+                 "Research shows the bounty came from colonial records."):
+        assert vm.analyze_description(line, "x")["credit_lines"] == [], line
+    for line in ("Music from Epidemic Sound", "Footage from British Pathé",
+                 "Special thanks to all of our Patreon supporters: A, B"):
+        assert vm.analyze_description(line, "x")["credit_lines"] == [line], line
+
+
+def test_a_commission_in_history_prose_is_not_an_affiliate_marker():
+    assert vm.analyze_description("In 1902 a commission investigated the cobra bounty.", "x")["sponsor_markers"] == []
+    assert vm.analyze_description("I earn a commission on purchases.", "x")["sponsor_markers"] == ["earn a commission"]
+
+
+def test_doi_stops_at_a_query_string_and_dedupes():
+    d = vm.analyze_description("https://doi.org/10.1016/j.cub.2020.01.001?via=ihub and doi:10.1016/J.CUB.2020.01.001.", "x")
+    assert d["doi_count"] == 1 and d["dois"] == ["10.1016/j.cub.2020.01.001"]
+    d = vm.analyze_description("https://www.tandfonline.com/doi/full/10.1080/123?scroll=top&needAccess=true", "x")
+    assert d["dois"] == ["10.1080/123"]
+
+
+def test_header_normalisation_absorbs_skin_tones_and_trailing_periods():
+    assert vm._normalize_header("Time stamps👇🏾") == vm._normalize_header("TIME STAMPS.") == "TIME STAMPS"
+    assert vm.analyze_title("Family 👨‍👩‍👧 trip 👍🏽")["emoji_count"] == 2
+
+
+# ---------------------------------------------------------------------------------------------
+# Review findings: patterns per kind, era notes, the comparison heading
+# ---------------------------------------------------------------------------------------------
+
+def test_patterns_and_summary_keep_shorts_apart_from_long_form():
+    fake = fake_for_ink()
+    yt = vm.ReadOnlyYouTube(fake)
+    collected = vm.collect(yt, vm.parse_inputs(["@inkexplainer96"]), now=NOW)
+    result = vm.analyze(collected, name="ink", inputs=["@inkexplainer96"], token_channel="world", quota=yt.quota)
+    by_kind = result["patterns_by_kind"]
+    assert by_kind["long"]["n"] == 10 and by_kind["short"]["n"] == 3 and result["patterns"]["n"] == 13
+    report = vm.render_report(result)
+    assert "**Long-form (n=10)**" in report and "**Shorts (n=3)**" in report
+    assert report.index("**Long-form (n=10)**") < report.index("**Shorts (n=3)**")
+    summary = vm.render_summary(result)
+    assert "Patterns below: long-form n=10 (Shorts in the report)" in summary
+    assert "Tags: median 3 (1-5 8/10 (80%), 11-20 2/10 (20%))" in summary      # the 3 Shorts' 0 tags are out
+    assert "sources/references section 2/10 (20%)" in summary
+
+
+def test_era_note_needs_the_rarer_side_inside_the_oldest_or_newest_span():
+    records = []
+    for i in range(12):                                   # i = age rank, 0 newest
+        desc = "Subscribe for more" if i in (10, 11) else "Nothing here"
+        records.append(vm.video_record(video(f"era{i:08d}", f"T{i}", 1000, days=10 + i * 10, desc=desc), NOW))
+    assert vm._era_note("desc_subscribe", records) == " (era: the 2 uploads with it are all among the 3 oldest of 12)"
+    records[10]["description_analysis"]["subscribe_cta"] = False
+    records[5]["description_analysis"]["subscribe_cta"] = True       # one old, one mid-life: no era
+    assert vm._era_note("desc_subscribe", records) == ""
+    assert vm._era_note("tag_count", records) == ""                    # no upload has a tag: no rarer side
+    assert vm._era_note("title_form", records) == ""                   # categories get no era note
+    # a count reads as "has any": the 3 oldest uploads have no URL at all
+    for i, r in enumerate(records):
+        r["description_analysis"]["url_count"] = 0 if i >= 9 else 4
+    assert vm._era_note("desc_urls", records) == " (era: the 3 uploads with none are all among the 3 oldest of 12)"
+
+
+def test_quartile_count_gets_an_era_note_only_when_one_side_has_none():
+    vids = ink_world()
+    # the two lowest (and oldest) long-form uploads carry no links; the others carry 1 or 3
+    for i, v in enumerate(vids[:10]):
+        links = "" if i >= 8 else " ".join(f"https://doi.org/10.1000/{i}.{j}" for j in range(3 if i < 2 else 1))
+        v["snippet"]["description"] += "\n" + links
+    records = [vm.video_record(v, NOW) for v in vids]
+    channels = {INK: {"id": INK, "title": "Ink Explainer"}}
+    vm.add_channel_context(records, channels, {INK: records})
+    texts = [o["text"] for o in vm.quartile_comparison(channels[INK], records)["observations"]]
+    urls = next(t for t in texts if t.startswith("description URLs"))
+    assert urls == ("description URLs: median 6 in top (n=2) vs 0 in bottom (n=2) "
+                    "(era: the 2 uploads with none are all among the 2 oldest of 10)")
+    tags = next(t for t in texts if t.startswith("tags:"))
+    assert "era" not in tags                                  # 12 vs 3: neither side has none
+
+
+def test_comparison_heading_names_only_the_channels_included():
+    fake = fake_for_ink()
+    yt = vm.ReadOnlyYouTube(fake)
+    collected = vm.collect(yt, vm.parse_inputs(["@inkexplainer96"]), now=NOW)
+    world, _ = _ours_fakes()
+    ours = vm.collect_ours({"world": vm.ReadOnlyYouTube(world, yt.quota)}, NOW)
+    result = vm.analyze(collected, name="ink", inputs=["@inkexplainer96"], token_channel="world", quota=yt.quota,
+                        ours=ours)
+    assert "## 4. Compared with ours (World public long-form)" in vm.render_report(result)

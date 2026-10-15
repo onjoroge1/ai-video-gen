@@ -38,6 +38,7 @@ import os
 import re
 import statistics
 import sys
+import unicodedata
 from urllib.parse import parse_qs, unquote, urlparse
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +51,7 @@ from youtube_channels import CHANNELS  # noqa: E402
 SHORT_MAX_SEC = 180          # same line as youtube_channel_report.py: <= 3 minutes is a Short
 MEDIAN_MIN = 3               # fewer videos of a kind than this gives no channel median
 QUARTILE_MIN_LONG = 8        # a channel needs this many long-form uploads for a quartile split
+QUARTILE_MIN_AGE_DAYS = 28   # younger uploads are still collecting views: left out of that split
 CAPTIONS_MAX_DEFAULT = 10
 VIDEO_PARTS = "snippet,contentDetails,statistics,status,topicDetails,localizations"
 CHANNEL_PARTS = "snippet,statistics,contentDetails"
@@ -147,11 +149,20 @@ CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 HANDLE_RE = re.compile(r"^@[\w.\-\u00b7]{3,100}$")
 YT_HOSTS = {"youtube.com", "youtu.be", "youtube-nocookie.com"}
 VIDEO_PATH_KINDS = {"shorts", "embed", "live", "v", "e"}
+# Invisible characters that ride along when a link or handle is copied from a phone or a web page.
+ZERO_WIDTH_RE = re.compile("[​‌‍‎‏⁠﻿­]")
+
+
+def normalize_input(text: str) -> str:
+    """NFKC (full-width '＠', '／', '：' and digits become ASCII) without zero-width characters,
+    surrounding whitespace or wrapping quotes/angle brackets."""
+    text = ZERO_WIDTH_RE.sub("", unicodedata.normalize("NFKC", text or ""))
+    return text.strip().strip("<>\"'").strip()
 
 
 def parse_input(text: str) -> tuple[str, str]:
     """('video', id) | ('channel', UC id) | ('handle', '@name') | ('username', name); else ValueError."""
-    raw = (text or "").strip().strip("<>\"'")
+    raw = normalize_input(text)
     if not raw:
         raise ValueError("empty input")
     if raw.startswith("@"):
@@ -258,12 +269,19 @@ def _rate(part, whole) -> float | None:
 # Title analysis
 # ---------------------------------------------------------------------------------------------
 
-EMOJI_RE = re.compile("(?:[\U0001F000-\U0001F3FA\U0001F400-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF"
-                      "\u2300-\u23FF\u3030\u303D\u3297\u3299]\ufe0f?|[#*0-9]\ufe0f\u20e3)")
+# One glyph: a base emoji with its optional variation selector and skin-tone modifier
+# (U+1F3FB-1F3FF), and any zero-width-joiner sequence, so "\uD83D\uDC47\uD83C\uDFFE" and "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67" count once.
+_EMOJI_CHAR = ("[\U0001F000-\U0001F3FA\U0001F400-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF"
+               "\u2300-\u23FF\u3030\u303D\u3297\u3299]\ufe0f?[\U0001F3FB-\U0001F3FF]?")
+EMOJI_RE = re.compile(f"(?:{_EMOJI_CHAR}(?:\u200D{_EMOJI_CHAR})*|[#*0-9]\ufe0f\u20e3)")
 NUMBER_WORDS = {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
                 "eleven", "twelve", "thirteen", "fifteen", "twenty", "thirty", "fifty", "hundred",
                 "hundreds", "thousand", "thousands", "million", "millions", "billion", "billions",
                 "trillion", "dozen", "dozens"}
+# "one" is not a count in "No One...", "The One Mistake", "One of the...".
+ONE_NOT_A_COUNT_BEFORE = {"no", "the", "any", "every", "each", "some", "this", "that"}
+# A period after these does not end a title sentence ("Mr. Smith", "Ep. 3").
+TITLE_ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "st", "mt", "jr", "sr", "vs", "ep", "pt", "vol"}
 WH_WORDS = {"what", "why", "how", "when", "who", "where", "which"}
 AUX_WORDS = {"is", "are", "can", "could", "do", "does", "did", "was", "were", "should", "would",
              "will", "has", "have", "had"}
@@ -289,7 +307,10 @@ def analyze_title(title: str) -> dict:
     words = _word_tokens(plain)
     lowered = [w.lower() for w in words]
     first = lowered[0] if lowered else ""
-    if first[:1].isdigit() or first in NUMBER_WORDS:
+    counts = [w in NUMBER_WORDS and not (w == "one" and (
+        (i and lowered[i - 1] in ONE_NOT_A_COUNT_BEFORE) or lowered[i + 1:i + 2] == ["of"]))
+        for i, w in enumerate(lowered)]
+    if first[:1].isdigit() or (counts and counts[0]):
         starts = "number"
     elif first in WH_WORDS:
         starts = first
@@ -308,12 +329,16 @@ def analyze_title(title: str) -> dict:
     else:
         starts = "other"
     has_digits = bool(re.search(r"\d", plain))
-    has_number_word = any(w in NUMBER_WORDS for w in lowered)
+    has_number_word = any(counts)
     caps_words = [w for w in words if len(w) >= 2 and sum(c.isalpha() for c in w) >= 2
                   and w.upper() == w and any(c.isupper() for c in w)]
     emoji = EMOJI_RE.findall(title)
     has_dash = bool(re.search(r"\s[-–—]\s", plain))
-    sentences = max(1, len(SENTENCE_END_RE.findall(plain.strip())))
+    # Count sentences, not terminators: "The Plan Worked. That Was the Problem" is two.
+    cut = plain.strip()
+    ends = [m.end() for m in SENTENCE_END_RE.finditer(cut)
+            if (_word_tokens(cut[:m.start()]) or [""])[-1].lower() not in TITLE_ABBREVIATIONS]
+    sentences = max(1, sum(1 for a, b in zip([0] + ends, ends + [len(cut)]) if _word_tokens(cut[a:b])))
     long_words = [w for w in words if len(w) >= 4 and w[:1].isalpha() and w[:1].lower() != w[:1].upper()]
     cap_share = (sum(w[:1].isupper() for w in long_words) / len(long_words)) if long_words else 0.0
     rest = [w for w in long_words[1:]] if long_words and words and long_words[0] == words[0] else long_words
@@ -328,7 +353,11 @@ def analyze_title(title: str) -> dict:
     else:
         case_style = "mixed"
     stripped = plain.strip()
-    is_question = "?" in title
+    # "What did Early Humans do when they got Sick" asks a question without the mark; "Why Ancient
+    # Humans Were the Most Terrifying Animal" (wh-word, then no auxiliary) is a statement.
+    has_question_mark = "?" in title
+    question_shaped = first in WH_WORDS and lowered[1:2] and (lowered[1] in AUX_WORDS or lowered[1] == "happened")
+    is_question = has_question_mark or bool(question_shaped)
     two_part = ":" in plain or "|" in plain or has_dash
     if is_question:
         form = "question"
@@ -342,6 +371,7 @@ def analyze_title(title: str) -> dict:
         form = "statement"
     return {
         "chars": len(title), "words": len(words), "is_question": is_question,
+        "has_question_mark": has_question_mark,
         "ends_with": stripped[-1:] if stripped[-1:] in ("?", ".", "!") else "other",
         "starts_with": starts, "first_word": first,
         "has_digits": has_digits, "has_number_word": has_number_word,
@@ -360,7 +390,8 @@ def analyze_title(title: str) -> dict:
 # ---------------------------------------------------------------------------------------------
 
 URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"]+", re.I)
-DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"<>]+")
+# A DOI ends at whitespace, a quote, or a URL query/fragment ("...001?via=ihub" is the same DOI).
+DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"<>?#&]+")
 TS = r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})"
 CHAPTER_START_RE = re.compile(rf"^\s*[\[(]?{TS}[\])]?(?=\s|$|[-–—:|.])")
 CHAPTER_END_RE = re.compile(rf"(?:^|\s)[\[(]?{TS}[\])]?\s*$")
@@ -370,41 +401,79 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[A-Za-z]{2,}")
 SUBSCRIBE_RE = re.compile(r"\bsubscrib(?:e|ing)\b|sub_confirmation|notification bell|hit the bell|"
                           r"ring the bell|turn on notifications|join (?:this|the|our|my) channel|"
                           r"become a member", re.I)
-# A bare "AI-generated" / "AI tools" is often the topic or a sponsor read, so the "AI <thing>" form
-# counts only after a self-referential verb or a label colon ("This video uses AI-generated images",
-# "Narration: AI voice"); "about AI-generated misinformation" and "the best AI tools" do not.
-AI_DISCLOSURE_RE = re.compile(
-    r"(?:\b(?:uses?|used|using|contains?|includes?|features?)\s+"
-    r"(?:some\s+|an?\s+)?|:\s*)"
-    r"AI[- ](?:generated|assisted|assistance|created|voice|voiced|narrat\w*|images?|illustrations?|"
-    r"art(?:work)?|animation|visuals?|tools?)\b"
-    r"|\bAI[- ](?:generated|assisted|created|voice|voiced|narrat\w*|images?|illustrations?|"
-    r"art(?:work)?|animation|visuals?|tools?)\s+(?:was|were|is|are|has been|have been)\s+used\b"
-    r"|\b(?:generated|created|made|produced|narrated|voiced|illustrated|animated|written)\s+"
-    r"(?:with|using|by|via)\s+(?:the\s+help\s+of\s+|assistance\s+from\s+)?"
-    r"(?:AI|artificial intelligence|generative AI)\b"
-    r"|\b(?:with|using)\s+AI\s+assistance\b"
-    r"|\bsynthetic\s+(?:voice|narration|media|content)\b"
-    r"|\baltered(?:/| or )synthetic\b"
-    r"|\btext[- ]to[- ]speech\b", re.I)
+# AI disclosure. "AI-generated", "text-to-speech" and "synthetic media" are often the topic or a
+# sponsor read, so each form needs the video to be talking about itself:
+#  - a label colon ("Narration: AI voice", "Voice: text-to-speech");
+#  - a passive "AI illustrations were used ...", or YouTube's own "altered/synthetic" wording;
+#  - a verb form ("uses AI-generated", "created with AI", "narrated using text-to-speech") only when
+#    its sentence starts there, or names this video/channel, "we"/"I", or a media noun before it
+#    ("This video uses ...", "Images generated with AI"). "Scammers used AI-generated voices",
+#    "Deepfakes made with AI fool banks" and "the best text-to-speech apps" are not disclosures.
+_AI_THING = (r"(?:AI[- ](?:generated|assisted|assistance|created|voice|voiced|narrat\w*|images?|"
+             r"illustrations?|art(?:work)?|animation|visuals?|tools?)|generative AI|"
+             r"synthetic\s+(?:voices?|narration|media|content|images?|visuals?)|text[- ]to[- ]speech)\b")
+AI_LABEL_RE = re.compile(r":\s*" + _AI_THING, re.I)
+AI_PASSIVE_RE = re.compile(r"\bAI[- ](?:generated|assisted|created|voice|voiced|narrat\w*|images?|"
+                           r"illustrations?|art(?:work)?|animation|visuals?|tools?)\s+"
+                           r"(?:was|were|is|are|has been|have been)\s+used\b"
+                           r"|\baltered(?:/| or )synthetic\b|\b(?:with|using)\s+AI\s+assistance\b", re.I)
+AI_VERB_RE = re.compile(
+    r"\b(?:uses?|used|using|contains?|includes?|including|features?|featuring)\s+(?:some\s+|an?\s+)?"
+    + _AI_THING
+    + r"|\b(?:generated|created|made|produced|narrated|voiced|illustrated|animated|written)\s+"
+      r"(?:with|using|by|via)\s+(?:the\s+help\s+of\s+|assistance\s+from\s+|an?\s+)?"
+      r"(?:AI|artificial intelligence|generative AI|text[- ]to[- ]speech|synthetic\s+voices?)\b", re.I)
+AI_SELF_RE = re.compile(r"\b(?:this|our)\s+(?:video|film|episode|documentary|short|channel|content|"
+                        r"animation|story|narration|visuals?|images?|illustrations?|voice(?:over)?)\b"
+                        r"|\b(?:we|i)\b", re.I)
+AI_MEDIA_SUBJECT_RE = re.compile(
+    r"(?:(?:all|the|some|most)\s+)?(?:images?|illustrations?|visuals?|art(?:work)?|animations?|"
+    r"narration|voice(?:over)?s?|music|thumbnails?|footage|script|maps?)"
+    r"(?:\s*(?:,|&|and)\s*\w+){0,3}(?:\s+(?:was|were|is|are|has been|have been))?", re.I)
+
+
+def ai_disclosure(text: str) -> str:
+    """The first AI-disclosure phrase in a description (see the comment above), or ''."""
+    found = [m for m in (AI_LABEL_RE.search(text), AI_PASSIVE_RE.search(text)) if m]
+    for m in AI_VERB_RE.finditer(text):
+        before = re.split(r"[.!?\n]", text[:m.start()])[-1]
+        core = _lead_strip(before)
+        if not core or AI_SELF_RE.search(before) or AI_MEDIA_SUBJECT_RE.fullmatch(core):
+            found.append(m)
+            break
+    return min(found, key=lambda m: m.start()).group(0) if found else ""
 SPONSOR_RE = re.compile(r"\bsponsored by\b|\bfor sponsoring\b|"
                         r"\bsponsors?:|\baffiliate links?\b|\bas an amazon associate\b|\bpromo code\b|"
                         r"\bdiscount code\b|\bcoupon code\b|\buse (?:my )?code\b|\bpaid promotion\b|"
-                        r"\b(?:earn|small|a) commission\b|\bfree trial\b|amzn\.to|geni\.us", re.I)
+                        r"\b(?:earn|receive|get|make)s? (?:a )?(?:small )?commission\b|\bsmall commission\b|"
+                        r"\bfree trial\b|amzn\.to|geni\.us", re.I)
 CREDIT_RE = re.compile(r"^(?:animation|animated|animator|art(?:work)?|illustrations?|illustrated|"
                        r"illustrator|music|score|soundtrack|sound design|narration|narrated|narrator|"
                        r"voice ?over|voiced|voice|edit(?:ed|ing|or)|written|writer|writing|"
                        r"script(?:ed)?|research(?:ed|er)?|thumbnails?|produced|producer|directed|"
                        r"director|motion design|graphics|footage|credits?|special thanks)\b"
-                       r"[^\n]{0,60}?(?:\bby\b|:\s*\S|\bfrom\b)", re.I)
+                       r"(?:(?:\s+\S+){0,3}?\s*(?:\bby\b|\bfrom\b)|[^\n:]{0,60}:\s*\S)", re.I)
 # A source citation whose title happens to start with a credit word ("▸ Animation in Palaeolithic
 # art: ... Azéma, 2012, Antiquity."): an "et al", a ", 2012" or a "(Cook, 2000)" marks a reference.
 CREDITS_WORD_RE = re.compile(r"\bcredits?\b", re.I)    # "SOURCES & CREDITS" still lists credits
-CITATION_RE = re.compile(r"\bet al\b|,\s*(?:1[5-9]|20)\d{2}\b|\([^()]*\b(?:1[5-9]|20)\d{2}[a-z]?\s*\)", re.I)
+CITATION_RE = re.compile(r"\bet al\b|,\s*(?:1[5-9]|20)\d{2}\b|\([^()]*\b(?:1[5-9]|20)\d{2}[a-z]?\b[^()]*\)"
+                         r"|\b10\.\d{4,9}/", re.I)
 SOURCES_HEADER_RE = re.compile(r"\b(?:sources?|references?|research|bibliography|citations?|"
                                r"further reading|reading list|studies|papers|cited)\b", re.I)
 PEOPLE_HEADER_RE = re.compile(r"\b(?:people|places|sites|locations|figures|characters|who'?s who|"
-                              r"mentioned|key players)\b", re.I)
+                              r"key players)\b", re.I)    # not a bare "mentioned": BOOKS MENTIONED
+# A sources or people label in any case, with or without a colon, with a URL on the same line or the
+# next: "Sources & further reading:" + link (Kurzgesagt), "References: https://ve42.co/X" (Veritasium),
+# "Sources" over bullets. "Research" is left out ("Research by X", "Research shows ..."). With a colon
+# the label may run 30 characters (no period: "References to the bounty appear in 1902 records." is
+# prose); without one it may only add a connector ("Sources & further reading") or a word such as
+# "below" or "mentioned", so "Sources say otherwise" and "Citations needed" are not labels.
+_LABEL_TAIL = (r"\b(?:[^:.\n]{0,30}:|(?:\s*(?:&|and|\+|/)\s*\w+(?:\s+\w+)?)?"
+               r"(?:\s+(?:below|here|used|cited|list|links?|mentioned|featured|referenced))?\s*$)")
+SOURCES_LINE_RE = re.compile(r"^(?:sources?|references?|bibliography|citations?|further reading|"
+                             r"reading list|works cited)" + _LABEL_TAIL, re.I)
+PEOPLE_LINE_RE = re.compile(r"^(?:people|places|sites|locations|key figures|historical figures|"
+                            r"characters|who'?s who|key players)" + _LABEL_TAIL, re.I)
 SOCIAL_DOMAINS = {"instagram.com", "tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.com",
                   "discord.gg", "discord.com", "threads.net", "linkedin.com", "reddit.com",
                   "bsky.app", "snapchat.com", "pinterest.com", "twitch.tv", "linktr.ee", "t.me",
@@ -430,11 +499,30 @@ def _lead_strip(line: str) -> str:
     return EMOJI_RE.sub("", line).strip().lstrip(BULLETS + " \u200d\ufe0f").strip()
 
 
+def _is_credit(line: str) -> bool:
+    """A short credit line ("Animation by X", "Music: Y"), not a citation that starts with a credit word."""
+    core = _lead_strip(line)
+    return len(line) <= 120 and bool(CREDIT_RE.match(core)) and not CITATION_RE.search(core)
+
+
+def _is_chapter_line(line: str) -> bool:
+    return bool(CHAPTER_START_RE.match(line) or CHAPTER_END_RE.search(line))
+
+
+def _sources_label(line: str) -> bool:
+    """A line that labels a sources section, in any layout (see SOURCES_LINE_RE)."""
+    return not _is_chapter_line(line) and bool(SOURCES_LINE_RE.match(_lead_strip(line)))
+
+
+def _people_label(line: str) -> bool:
+    return not _is_chapter_line(line) and bool(PEOPLE_LINE_RE.match(_lead_strip(line)))
+
+
 def _is_header(line: str, next_line: str = "") -> bool:
     s = line.strip()
     if not s or len(s) > 70 or URL_RE.search(s) or s.startswith("#") or s[0] in BULLETS:
         return False
-    if CHAPTER_START_RE.match(s) or CHAPTER_END_RE.search(s) or SEPARATOR_RE.match(s):
+    if _is_chapter_line(s) or SEPARATOR_RE.match(s):
         return False                                   # chapter lines (either timestamp side) are chapters
     core = _lead_strip(s).strip(" :-–—|")
     tokens = core.split()
@@ -447,8 +535,10 @@ def _is_header(line: str, next_line: str = "") -> bool:
         return True                                    # emoji-led short line, e.g. 🎨 Animation by X
     if len(tokens) <= 3 and CHAPTER_START_RE.match(next_line.strip()):
         return True                                    # Time stamps / Chapters, over the first timestamp
-    # Sources:  Chapters:  Further reading:  -- but not a link label ("NC State Extension:" + URL line)
-    return s.endswith(":") and len(tokens) <= 5 and not URL_RE.match(next_line.strip())
+    # Sources:  Chapters:  Further reading:  -- but not a link label ("NC State Extension:" + URL
+    # line), unless the label names a sources or people section ("Sources:" over a list of links)
+    return (s.endswith(":") and len(tokens) <= 5
+            and (not URL_RE.match(next_line.strip()) or _sources_label(s) or _people_label(s)))
 
 
 def _timestamp_seconds(match) -> int:
@@ -475,30 +565,35 @@ def analyze_description(description: str, title: str = "") -> dict:
         match = CHAPTER_START_RE.match(line) or CHAPTER_END_RE.search(line)
         if match:
             stamps.append(_timestamp_seconds(match))
+    if 0 in stamps:          # a chapter list starts at 0:00; a time in prose above it ("at 8:15") is not one
+        stamps = stamps[stamps.index(0):]
     starts_zero = bool(stamps) and stamps[0] == 0
     ascending = all(b > a for a, b in zip(stamps, stamps[1:]))
     hashtags = HASHTAG_RE.findall(no_urls)
     last = nonblank[-1] if nonblank else ""
     hashtags_at_end = bool(last) and not HASHTAG_RE.sub("", last).strip(" ,.·|")
-    header_at = {i for i, line in enumerate(nonblank)
-                 if _is_header(line, nonblank[i + 1] if i + 1 < len(nonblank) else "")}
+    credit_at = {i for i, line in enumerate(nonblank) if _is_credit(line)}
+    # a credit ("🎨 Animation by X", "🎵 Music: Y") is listed as a credit, not as a section header
+    header_at = {i for i, line in enumerate(nonblank) if i not in credit_at
+                 and _is_header(line, nonblank[i + 1] if i + 1 < len(nonblank) else "")}
     headers = [nonblank[i] for i in sorted(header_at)]
     fold_lines = nonblank[:2]
     above_fold = " / ".join(fold_lines)
     if len(above_fold) > 150:
         above_fold = above_fold[:149].rstrip() + "…"
-    ai = AI_DISCLOSURE_RE.search(text)
+    ai = ai_disclosure(text)
     credit_lines, in_sources = [], False
     for i, line in enumerate(nonblank):
-        if i in header_at:
-            in_sources = bool(SOURCES_HEADER_RE.search(line)) and not CREDITS_WORD_RE.search(line)
+        if i in header_at or _sources_label(line):
+            in_sources = ((bool(SOURCES_HEADER_RE.search(line)) or _sources_label(line))
+                          and not CREDITS_WORD_RE.search(line))
         elif SEPARATOR_RE.match(line):
             in_sources = False
         if in_sources and line[0] in BULLETS:
             continue                                   # a bulleted reference under a Sources header
-        core = _lead_strip(line)
-        if len(line) <= 120 and CREDIT_RE.match(core) and not CITATION_RE.search(core):
+        if i in credit_at:
             credit_lines.append(line)
+            in_sources = False                         # a credit line closes a sources list
     return {
         "chars": len(text), "words": len(_word_tokens(text)), "lines": len(lines),
         "nonblank_lines": len(nonblank),
@@ -517,10 +612,12 @@ def analyze_description(description: str, title: str = "") -> dict:
         "chapters_valid": len(stamps) >= 3 and starts_zero and ascending,
         "hashtags": hashtags, "hashtag_count": len(hashtags), "hashtags_at_end": hashtags_at_end,
         "emoji_count": len(EMOJI_RE.findall(text)),
-        "has_sources": any(SOURCES_HEADER_RE.search(h) for h in headers),
-        "has_people_places": any(PEOPLE_HEADER_RE.search(h) for h in headers),
+        "has_sources": (any(SOURCES_HEADER_RE.search(h) for h in headers)
+                        or any(_sources_label(line) for line in nonblank)),
+        "has_people_places": (any(PEOPLE_HEADER_RE.search(h) for h in headers)
+                              or any(_people_label(line) for line in nonblank)),
         "subscribe_cta": bool(SUBSCRIBE_RE.search(text)),
-        "ai_disclosure": bool(ai), "ai_disclosure_phrase": ai.group(0) if ai else "",
+        "ai_disclosure": bool(ai), "ai_disclosure_phrase": ai,
         "sponsor_markers": sorted({m.lower() for m in SPONSOR_RE.findall(text)}),
         "social_links": sorted({d for d in domains if d in SOCIAL_DOMAINS}),
         "support_links": sorted({d for d in domains if d in SUPPORT_DOMAINS}),
@@ -791,21 +888,68 @@ def compare_groups(a: list[dict], b: list[dict], a_label: str, b_label: str,
             "rows": rows, "observations": observations}
 
 
+FEATURE_BY_KEY = {key: (kind, getter) for key, _, kind, getter, _ in FEATURES}
+
+
+def _era_note(key: str, long_form: list[dict]) -> str:
+    """' (era: ...)' when the videos on the rarer side of a flag are all among a channel's oldest or
+    newest uploads -- a template change over time, which a quartile split can mistake for performance.
+
+    The rarer side (the videos with the flag, or without it) needs 2+ videos and must sit entirely
+    within the oldest or newest max(m, n // 4) uploads; '' otherwise. A count (URLs, DOIs, tags) is
+    read as a flag "has any": the 4 oldest uploads having no URLs at all is a template era too."""
+    kind, getter = FEATURE_BY_KEY.get(key, (None, None))
+    dated = [r for r in long_form if r.get("age_days") is not None]
+    if kind not in ("bool", "num") or len(dated) < QUARTILE_MIN_LONG:
+        return ""
+    by_age = sorted(dated, key=lambda r: r["age_days"])          # newest first
+    have = {r["id"] for r in by_age if (getter(r) or 0) > 0}
+    lack = {r["id"] for r in by_age} - have
+    words = ("with it", "without it") if kind == "bool" else ("with any", "with none")
+    side, ids = (words[0], have) if len(have) <= len(lack) else (words[1], lack)
+    m, n = len(ids), len(by_age)
+    if m < 2:
+        return ""
+    span = max(m, n // 4)
+    for end, group in (("newest", by_age[:span]), ("oldest", by_age[-span:])):
+        if ids <= {r["id"] for r in group}:
+            return f" (era: the {m} uploads {side} are all among the {span} {end} of {n})"
+    return ""
+
+
 def quartile_comparison(channel: dict, uploads: list[dict]) -> dict:
     """Top vs bottom quartile of a channel's long-form uploads by outlier multiple."""
-    long_form = [r for r in uploads if r["kind"] == "long" and r.get("outlier_multiple") is not None]
+    measured = [r for r in uploads if r["kind"] == "long" and r.get("outlier_multiple") is not None]
+    # Lifetime views of a 10-day-old upload are not comparable with a 5-month-old one's: an upload
+    # younger than QUARTILE_MIN_AGE_DAYS would sit in the bottom quartile only for being new.
+    young = [r for r in measured if r.get("age_days") is not None and r["age_days"] < QUARTILE_MIN_AGE_DAYS]
+    young_ids = {r["id"] for r in young}
+    long_form = [r for r in measured if r["id"] not in young_ids]
+
+    def brief(rows):
+        return [{"id": r["id"], "title": r["title"], "outlier_multiple": r["outlier_multiple"],
+                 "views": r["views"], "age_days": r["age_days"]} for r in rows]
     base = {"channel_id": channel.get("id"), "channel_title": channel.get("title"),
-            "n_long": len(long_form)}
+            "n_long": len(long_form), "min_age_days": QUARTILE_MIN_AGE_DAYS,
+            "young": brief(sorted(young, key=lambda r: r["age_days"]))}
     if len(long_form) < QUARTILE_MIN_LONG:
-        return {**base, "skipped": f"{len(long_form)} long-form uploads with a median; "
-                                   f"needs {QUARTILE_MIN_LONG}"}
+        return {**base, "skipped": f"{len(long_form)} long-form uploads with a median"
+                                   + (f" and {QUARTILE_MIN_AGE_DAYS}+ days old" if young else "")
+                                   + f"; needs {QUARTILE_MIN_LONG}"}
     ranked = sorted(long_form, key=lambda r: (-r["outlier_multiple"], -(r["views"] or 0)))
     q = len(ranked) // 4
     top, bottom = ranked[:q], ranked[-q:]
-    brief = [{"id": r["id"], "title": r["title"], "outlier_multiple": r["outlier_multiple"],
-              "views": r["views"], "age_days": r["age_days"]} for r in ranked]
-    return {**base, "q": q, "top": brief[:q], "bottom": brief[-q:],
-            **compare_groups(top, bottom, "top", "bottom")}
+    compared = compare_groups(top, bottom, "top", "bottom")
+    rows = {row["key"]: row for row in compared["rows"]}
+    for observation in compared["observations"]:
+        row = rows.get(observation["key"]) or {}
+        if row.get("type") == "num" and 0 not in (row["top"]["value"], row["bottom"]["value"]):
+            continue                    # a count gets an era note only when one side has none at all
+        note = _era_note(observation["key"], long_form)
+        if note:
+            observation["text"] += note
+            observation["era"] = note.strip(" ()")
+    return {**base, "q": q, "top": brief(top), "bottom": brief(bottom), **compared}
 
 
 def compare_with_ours(theirs: list[dict], ours: dict) -> dict:
@@ -861,7 +1005,7 @@ DESCRIPTION_FLAGS = [
 
 
 def _normalize_header(header: str) -> str:
-    return re.sub(r"\s+", " ", _lead_strip(header).strip(" :-–—|")).upper()
+    return re.sub(r"\s+", " ", _lead_strip(header).strip(" :-–—|.")).upper()
 
 
 def patterns(records: list[dict]) -> dict:
@@ -982,6 +1126,14 @@ def fetch_videos(yt, ids: list[str]) -> dict:
     return out
 
 
+QUOTA_REASONS = ("quotaExceeded", "dailyLimitExceeded")
+
+
+def _quota_exhausted(exc: Exception) -> bool:
+    """A 403 that will repeat for every later call today (so a per-item catch must not continue)."""
+    return any(r in f"{getattr(exc, 'error_details', '')} {exc}" for r in QUOTA_REASONS)
+
+
 def fetch_categories(yt, category_ids, warn=None) -> dict:
     """The static US category names, plus one videoCategories.list call for any id not in it."""
     names = dict(CATEGORY_NAMES)
@@ -991,6 +1143,8 @@ def fetch_categories(yt, category_ids, warn=None) -> dict:
             for item in yt.videoCategories().list(part="snippet", id=",".join(unknown)).execute().get("items") or []:
                 names[item["id"]] = item["snippet"]["title"]
         except Exception as exc:  # noqa: BLE001 - a name lookup must not sink the run
+            if _quota_exhausted(exc):
+                raise
             if warn:
                 warn(f"videoCategories.list failed for {unknown}: {str(exc)[:120]}")
     return names
@@ -1033,6 +1187,8 @@ def collect(yt, parsed: dict, *, uploads: int = 50, captions: bool = False,
         try:
             upload_lists[cid] = upload_ids(yt, playlist, uploads) if playlist and uploads > 0 else []
         except Exception as exc:  # noqa: BLE001 - one bad channel must not sink the run
+            if _quota_exhausted(exc):
+                raise
             errors.append(f"uploads of {ref[1]}: {str(exc)[:160]}")
             upload_lists[cid] = []
     items = fetch_videos(yt, parsed["videos"] + [v for ids in upload_lists.values() for v in ids])
@@ -1056,6 +1212,8 @@ def collect(yt, parsed: dict, *, uploads: int = 50, captions: bool = False,
             try:
                 baseline_lists[cid] = upload_ids(yt, playlist, uploads)
             except Exception as exc:  # noqa: BLE001
+                if _quota_exhausted(exc):
+                    raise
                 errors.append(f"baseline uploads of {cid}: {str(exc)[:160]}")
         more = [v for ids in baseline_lists.values() for v in ids if v not in items]
         if more:
@@ -1074,6 +1232,8 @@ def collect(yt, parsed: dict, *, uploads: int = 50, captions: bool = False,
             try:
                 tracks[vid] = fetch_caption_tracks(yt, vid)
             except Exception as exc:  # noqa: BLE001 - e.g. 403 when the owner hides tracks
+                if _quota_exhausted(exc):
+                    raise
                 tracks[vid] = [{"error": str(exc)[:160]}]
     records = {vid: video_record(item, now, categories, tracks.get(vid)) for vid, item in items.items()}
     channels = {cid: channel_record(item, "input" if cid in upload_lists else "seen")
@@ -1088,16 +1248,26 @@ def collect(yt, parsed: dict, *, uploads: int = 50, captions: bool = False,
 
 
 def collect_ours(clients: dict, now: dt.datetime, warn=None) -> dict:
-    """Our public long-form films per channel (world/history), through youtube_upload.channel_uploads."""
+    """Our public long-form films per channel (world/history), through youtube_upload.channel_uploads.
+    A channel whose token fails (e.g. invalid_grant on the first execute) is skipped with a warning;
+    the other channel's films are kept."""
     out = {}
     for name, yt in clients.items():
         cid = CHANNELS[name]["id"]
-        uploads = youtube_upload.channel_uploads(yt, cid)
-        public = [u["id"] for u in uploads if u.get("privacy") == "public"]
-        response = yt.channels().list(part=CHANNEL_PARTS, id=cid).execute()
-        channel = channel_record((response.get("items") or [{"id": cid}])[0], "ours")
-        items = fetch_videos(yt, public)
-        categories = fetch_categories(yt, {(it.get("snippet") or {}).get("categoryId") for it in items.values()}, warn)
+        try:
+            uploads = youtube_upload.channel_uploads(yt, cid)
+            public = [u["id"] for u in uploads if u.get("privacy") == "public"]
+            response = yt.channels().list(part=CHANNEL_PARTS, id=cid).execute()
+            channel = channel_record((response.get("items") or [{"id": cid}])[0], "ours")
+            items = fetch_videos(yt, public)
+            categories = fetch_categories(yt, {(it.get("snippet") or {}).get("categoryId")
+                                               for it in items.values()}, warn)
+        except Exception as exc:  # noqa: BLE001 - one channel's token must not drop the other's films
+            if _quota_exhausted(exc):
+                raise
+            if warn:
+                warn(f"--compare-ours: {name} failed: {str(exc)[:200]}")
+            continue
         records = [video_record(items[v], now, categories) for v in public if v in items]
         long_form = [r for r in records if r["kind"] == "long"]
         channel["n_uploads"], channel["n_public"], channel["n_public_long"] = (
@@ -1128,7 +1298,11 @@ def analyze(collected: dict, *, name: str, inputs: list[str], token_channel: str
         "baseline_video_count": len({r["id"] for c in collected["baseline_channels"]
                                      for r in collected["uploads"].get(c) or []}
                                     - set(collected["analyzed"])),
-        "videos": analyzed, "patterns": patterns(analyzed), "quartiles": quartiles,
+        "videos": analyzed, "patterns": patterns(analyzed),
+        # Shorts (near-empty descriptions) would otherwise drown out how the long-form films look
+        "patterns_by_kind": {kind: patterns(group) for kind in ("long", "short")
+                             if (group := [r for r in analyzed if r["kind"] == kind])},
+        "quartiles": quartiles,
         "ours": ours, "compare_ours": compare_with_ours(analyzed, ours) if ours else None,
     }
     if quota is not None:
@@ -1192,7 +1366,9 @@ def render_card(index: int, r: dict, channels: dict) -> list[str]:
     stand = []
     if r["outlier_multiple"] is not None:
         stand.append(f"**{r['outlier_multiple']}x** channel {r['kind']} median "
-                     f"({_abbr(r['channel_median_views'])}, {channel.get('median_basis', '')})")
+                     f"({_abbr(r['channel_median_views'])}, {channel.get('median_basis', '')})"
+                     + (" (young: still collecting views)" if r["age_days"] is not None
+                        and r["age_days"] < QUARTILE_MIN_AGE_DAYS else ""))
     if r["vpd_rank"]:
         stand.append(f"views/day rank {r['vpd_rank']}/{r['vpd_rank_of']} on channel")
     lines.append(f"- **Stats** {_n(r['views'])} views · {_n(r['views_per_day'])}/day · likes "
@@ -1278,6 +1454,47 @@ def _render_comparison(columns: list[tuple[str, dict, int]]) -> list[str]:
     return lines
 
 
+def _render_patterns(p: dict) -> list[str]:
+    """Section 2 lines for one patterns() result; shares are over its own n."""
+    n, out = p["n"], []
+    tags = p["tags"]
+    out.append(f"- **Tag count** median {_fmt_num(tags['count']['median'])} (min {_n(tags['count']['min'])}, "
+               f"max {_n(tags['count']['max'])}); buckets: {_counts(tags['buckets'], n)}; tag characters "
+               f"median {_fmt_num(tags['limit_chars']['median'])} of 500")
+    if tags["most_common"]:
+        out.append(f"  - most common tags: {_counts(tags['most_common'], limit=15)}")
+    title = p["title"]
+    out.append(f"- **Title forms** {_counts(title['forms'], n)}")
+    out.append(f"  - opener: {_counts(title['starts_with'], n)}")
+    out.append(f"  - case: {_counts(title['case_style'], n)}; length median {_fmt_num(title['chars']['median'])} "
+               f"chars ({_n(title['chars']['min'])}-{_n(title['chars']['max'])}), "
+               f"{_fmt_num(title['words']['median'])} words")
+    out.append(f"  - flags: {_counts(title['flags'], n, limit=20)}")
+    if title["hook_words"]:
+        out.append(f"  - hook words: {_counts(title['hook_words'])}")
+    langs = p["languages"]
+    out.append(f"- **Languages** default: {_counts(langs['default_language'], n)}; audio: "
+               f"{_counts(langs['default_audio_language'], n)}; translated titles in "
+               f"{_share(langs['with_translated_titles'], n)}; localizations per video median "
+               f"{_fmt_num(langs['localization_count']['median'])}")
+    out.append(f"  - localization languages: {_counts(langs['localization_codes'], n, limit=30)}")
+    out.append(f"- **Category mix** {_counts(p['categories'], n)}")
+    dur = p["duration"]
+    out.append(f"- **Duration** median {_clock(dur['seconds']['median'] or 0)}; "
+               f"{_counts(dur['buckets'], n)}")
+    desc = p["description"]
+    out.append(f"- **Description** length median {_fmt_num(desc['chars']['median'])} chars "
+               f"({_n(desc['chars']['min'])}-{_n(desc['chars']['max'])}); URLs median "
+               f"{_fmt_num(desc['url_count']['median'])}; hashtags median {_fmt_num(desc['hashtag_count']['median'])}")
+    out.append(f"  - features: {_counts(desc['features'], n, limit=30)}")
+    if desc["headers"]:
+        out.append(f"  - section headers: {_counts({_md(k): v for k, v in desc['headers'].items()}, n)}")
+    if desc["domains"]:
+        out.append(f"  - linked domains (videos linking): {_counts(desc['domains'], n)}")
+    if desc["hashtags"]:
+        out.append(f"  - hashtags: {_counts(desc['hashtags'], n, limit=15)}")
+    return out
+
 def render_report(result: dict) -> str:
     videos, channels, p = result["videos"], result["channels"], result["patterns"]
     n = len(videos)
@@ -1316,44 +1533,21 @@ def render_report(result: dict) -> str:
     for index, vid in enumerate(order, 1):
         out += render_card(index, by_id[vid], channels) + [""]
 
-    out += ["## 2. Patterns across the set", "", f"{n} videos; shares are k/n.", ""]
-    tags = p["tags"]
-    out.append(f"- **Tag count** median {_fmt_num(tags['count']['median'])} (min {_n(tags['count']['min'])}, "
-               f"max {_n(tags['count']['max'])}); buckets: {_counts(tags['buckets'], n)}; tag characters "
-               f"median {_fmt_num(tags['limit_chars']['median'])} of 500")
-    if tags["most_common"]:
-        out.append(f"  - most common tags: {_counts(tags['most_common'], limit=15)}")
-    title = p["title"]
-    out.append(f"- **Title forms** {_counts(title['forms'], n)}")
-    out.append(f"  - opener: {_counts(title['starts_with'], n)}")
-    out.append(f"  - case: {_counts(title['case_style'], n)}; length median {_fmt_num(title['chars']['median'])} "
-               f"chars ({_n(title['chars']['min'])}-{_n(title['chars']['max'])}), "
-               f"{_fmt_num(title['words']['median'])} words")
-    out.append(f"  - flags: {_counts(title['flags'], n, limit=20)}")
-    if title["hook_words"]:
-        out.append(f"  - hook words: {_counts(title['hook_words'])}")
-    langs = p["languages"]
-    out.append(f"- **Languages** default: {_counts(langs['default_language'], n)}; audio: "
-               f"{_counts(langs['default_audio_language'], n)}; translated titles in "
-               f"{_share(langs['with_translated_titles'], n)}; localizations per video median "
-               f"{_fmt_num(langs['localization_count']['median'])}")
-    out.append(f"  - localization languages: {_counts(langs['localization_codes'], n, limit=30)}")
-    out.append(f"- **Category mix** {_counts(p['categories'], n)}")
-    dur = p["duration"]
-    out.append(f"- **Duration** median {_clock(dur['seconds']['median'] or 0)}; "
-               f"{_counts(dur['buckets'], n)}")
-    desc = p["description"]
-    out.append(f"- **Description** length median {_fmt_num(desc['chars']['median'])} chars "
-               f"({_n(desc['chars']['min'])}-{_n(desc['chars']['max'])}); URLs median "
-               f"{_fmt_num(desc['url_count']['median'])}; hashtags median {_fmt_num(desc['hashtag_count']['median'])}")
-    out.append(f"  - features: {_counts(desc['features'], n, limit=30)}")
-    if desc["headers"]:
-        out.append(f"  - section headers: {_counts({_md(k): v for k, v in desc['headers'].items()}, n)}")
-    if desc["domains"]:
-        out.append(f"  - linked domains (videos linking): {_counts(desc['domains'], n)}")
-    if desc["hashtags"]:
-        out.append(f"  - hashtags: {_counts(desc['hashtags'], n, limit=15)}")
-
+    by_kind = result.get("patterns_by_kind") or {}
+    out += ["## 2. Patterns across the set", ""]
+    if len(p["kinds"]) > 1 and by_kind:
+        out += ["Long-form and Shorts are counted separately (Shorts usually carry near-empty "
+                "descriptions); shares are k/n within each block.", ""]
+        for kind, label in (("long", "Long-form"), ("short", "Shorts")):
+            if kind in by_kind:
+                out += [f"**{label} (n={by_kind[kind]['n']})**", ""] + _render_patterns(by_kind[kind]) + [""]
+        other = p["kinds"].get("other", 0)
+        if other:
+            out += [f"{other} live or zero-duration video(s) are in neither block.", ""]
+    else:
+        only = next(iter(p["kinds"]), "")
+        label = {"long": "long-form", "short": "Shorts"}.get(only, "videos")
+        out += [f"{n} {label}; shares are k/n.", ""] + _render_patterns(p)
     out += ["", "## 3. Top vs bottom quartile by outlier multiple", ""]
     if not result["quartiles"]:
         out.append("No channel inputs.")
@@ -1362,12 +1556,17 @@ def render_report(result: dict) -> str:
         if q.get("skipped"):
             out += [f"Skipped: {q['skipped']}.", ""]
             continue
-        out.append(f"{q['n_long']} long-form uploads; top and bottom {q['q']} by views / channel "
-                   "long-form median. Observations with n, not causes.")
+        out.append(f"{q['n_long']} long-form uploads at least {q.get('min_age_days', QUARTILE_MIN_AGE_DAYS)} days "
+                   f"old; top and bottom {q['q']} by views / channel long-form median. Observations with n, "
+                   "not causes.")
         out.append("- top: " + "; ".join(f"{v['outlier_multiple']}x {_md(v['title'])} ({_abbr(v['views'])}, "
                                           f"{_n(v['age_days'])} d)" for v in q["top"]))
         out.append("- bottom: " + "; ".join(f"{v['outlier_multiple']}x {_md(v['title'])} ({_abbr(v['views'])}, "
                                              f"{_n(v['age_days'])} d)" for v in q["bottom"]))
+        if q.get("young"):
+            out.append("- left out, still collecting views: " + "; ".join(
+                f"{v['outlier_multiple']}x {_md(v['title'])} ({_abbr(v['views'])}, {_n(v['age_days'])} d)"
+                for v in q["young"]))
         out += ["", "Observations:"] + [f"- {o['text']}" for o in q["observations"]] \
             + (["- none past the thresholds"] if not q["observations"] else [])
         top_s = {row["key"]: row["top"] for row in q["rows"]}
@@ -1376,7 +1575,8 @@ def render_report(result: dict) -> str:
 
     cmp = result.get("compare_ours")
     if cmp:
-        out += ["## 4. Compared with ours (World + History public long-form)", ""]
+        included = " + ".join(name.title() for name in result.get("ours") or {})
+        out += [f"## 4. Compared with ours ({included} public long-form)", ""]
         for name, entry in (result.get("ours") or {}).items():
             c = entry["channel"]
             out.append(f"- {name}: {c.get('title')} · subs {_n(c.get('subs'))} · {c.get('n_public', 0)} public "
@@ -1397,10 +1597,22 @@ def render_report(result: dict) -> str:
             f"- Channel median: over the latest uploads fetched for that channel, per kind, when it "
             f"has at least {MEDIAN_MIN}; outlier multiple = views / that median.",
             "- Quartiles: channel inputs with at least "
-            f"{QUARTILE_MIN_LONG} long-form uploads; a flag difference is listed at >= 25 points, "
-            "a median difference at >= 1.25x plus a minimum step.",
-            "- Section headers: ALL-CAPS lines, short emoji-led lines and short lines ending in ':'. "
+            f"{QUARTILE_MIN_LONG} long-form uploads that are {QUARTILE_MIN_AGE_DAYS}+ days old (younger ones are "
+            "still collecting views and are listed apart); a flag difference is listed at >= 25 points, "
+            "a median difference at >= 1.25x plus a minimum step. '(era: ...)' marks a flag (or a count "
+            "that is zero on one side, read as 'has any') whose rarer side sits entirely among the "
+            "channel's oldest or newest uploads: likely a template change over time rather than "
+            "anything that tracks views.",
+            "- Patterns: long-form and Shorts are counted separately when both are present.",
+            "- Section headers: ALL-CAPS lines, short emoji-led lines and short lines ending in ':'; a "
+            "credit line ('🎨 Animation by X') is counted as a credit, not a header. "
+            "A sources or people/places section is also recognised from a label in any case "
+            "('Sources & further reading:', 'References: <link>', 'Sources' over a list). "
             "Tag characters approximate YouTube's 500 count (commas, quotes around multi-word tags).",
+            "- Title question: a '?' or a wh-word followed by an auxiliary ('What did ...', 'Why is ...').",
+            "- AI disclosure: description text only. YouTube's altered/synthetic-content label is not "
+            "returned by videos.list (not even for our own uploads), so 0/n means no disclosure line in "
+            "the description, not that the label is off.",
             ""]
     return "\n".join(out)
 
@@ -1421,6 +1633,11 @@ def render_summary(result: dict, report_path: str = "") -> str:
         lines.append("Top by outlier multiple:")
         lines += [f"  {r['outlier_multiple']:>6}x {_abbr(r['views']):>6} {r['kind']:5} {r['title'][:70]}"
                   for r in ranked]
+    by_kind = result.get("patterns_by_kind") or {}
+    if "long" in by_kind and len(p["kinds"]) > 1:
+        p = by_kind["long"]
+        n = p["n"]
+        lines.append(f"Patterns below: long-form n={n} (Shorts in the report)")
     t, langs, desc = p["title"], p["languages"], p["description"]
     if n:
         lines.append(f"Tags: median {_fmt_num(p['tags']['count']['median'])} ({_counts(p['tags']['buckets'], n)})")
@@ -1434,7 +1651,9 @@ def render_summary(result: dict, report_path: str = "") -> str:
         if q.get("skipped"):
             lines.append(f"Quartiles {q['channel_title']}: skipped ({q['skipped']})")
         else:
-            lines.append(f"Quartiles {q['channel_title']} (top {q['q']} vs bottom {q['q']} of {q['n_long']}):")
+            young = (f"; {len(q['young'])} younger than {q['min_age_days']} d left out"
+                     if q.get("young") else "")
+            lines.append(f"Quartiles {q['channel_title']} (top {q['q']} vs bottom {q['q']} of {q['n_long']}{young}):")
             lines += [f"  - {o['text']}" for o in q["observations"][:4]] or ["  - none past the thresholds"]
     cmp = result.get("compare_ours")
     if cmp:
@@ -1511,8 +1730,12 @@ def main(argv: list[str] | None = None) -> int:
     quota = Quota()
     now = dt.datetime.now(dt.timezone.utc)
     yt = ReadOnlyYouTube(_client(args.channel), quota)
-    collected = collect(yt, parsed, uploads=args.channel_uploads, captions=args.captions,
-                        captions_max=args.captions_max, baseline=not args.no_baseline, now=now, warn=warn)
+    try:
+        collected = collect(yt, parsed, uploads=args.channel_uploads, captions=args.captions,
+                            captions_max=args.captions_max, baseline=not args.no_baseline, now=now, warn=warn)
+    except Exception:
+        print(f"video_metadata failed; API units used: {quota.summary()}", file=sys.stderr)
+        raise
     ours, ours_warnings = None, []
     if args.compare_ours:
         clients = {}
@@ -1522,7 +1745,7 @@ def main(argv: list[str] | None = None) -> int:
             except SystemExit as exc:          # _creds exits when a token slot is empty
                 ours_warnings.append(f"--compare-ours: {name} skipped ({exc})")
         try:
-            ours = collect_ours(clients, now, warn)
+            ours = collect_ours(clients, now, ours_warnings.append)
         except Exception as exc:  # noqa: BLE001 - the lookup itself is still worth writing
             ours_warnings.append(f"--compare-ours failed: {str(exc)[:200]}")
         for message in ours_warnings:
