@@ -142,6 +142,7 @@ class _Counted:
 # ---------------------------------------------------------------------------------------------
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+DASH_VIDEO_ID_RE = re.compile(r"^-[A-Za-z0-9_][A-Za-z0-9_-]{9}$")   # a bare ID argparse would misread
 CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 HANDLE_RE = re.compile(r"^@[\w.\-\u00b7]{3,100}$")
 YT_HOSTS = {"youtube.com", "youtu.be", "youtube-nocookie.com"}
@@ -369,9 +370,16 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[A-Za-z]{2,}")
 SUBSCRIBE_RE = re.compile(r"\bsubscrib(?:e|ing)\b|sub_confirmation|notification bell|hit the bell|"
                           r"ring the bell|turn on notifications|join (?:this|the|our|my) channel|"
                           r"become a member", re.I)
+# A bare "AI-generated" / "AI tools" is often the topic or a sponsor read, so the "AI <thing>" form
+# counts only after a self-referential verb or a label colon ("This video uses AI-generated images",
+# "Narration: AI voice"); "about AI-generated misinformation" and "the best AI tools" do not.
 AI_DISCLOSURE_RE = re.compile(
-    r"\bAI[- ](?:generated|assisted|assistance|created|voice|voiced|narrat\w*|images?|illustrations?|"
+    r"(?:\b(?:uses?|used|using|contains?|includes?|features?)\s+"
+    r"(?:some\s+|an?\s+)?|:\s*)"
+    r"AI[- ](?:generated|assisted|assistance|created|voice|voiced|narrat\w*|images?|illustrations?|"
     r"art(?:work)?|animation|visuals?|tools?)\b"
+    r"|\bAI[- ](?:generated|assisted|created|voice|voiced|narrat\w*|images?|illustrations?|"
+    r"art(?:work)?|animation|visuals?|tools?)\s+(?:was|were|is|are|has been|have been)\s+used\b"
     r"|\b(?:generated|created|made|produced|narrated|voiced|illustrated|animated|written)\s+"
     r"(?:with|using|by|via)\s+(?:the\s+help\s+of\s+|assistance\s+from\s+)?"
     r"(?:AI|artificial intelligence|generative AI)\b"
@@ -389,6 +397,10 @@ CREDIT_RE = re.compile(r"^(?:animation|animated|animator|art(?:work)?|illustrati
                        r"script(?:ed)?|research(?:ed|er)?|thumbnails?|produced|producer|directed|"
                        r"director|motion design|graphics|footage|credits?|special thanks)\b"
                        r"[^\n]{0,60}?(?:\bby\b|:\s*\S|\bfrom\b)", re.I)
+# A source citation whose title happens to start with a credit word ("▸ Animation in Palaeolithic
+# art: ... Azéma, 2012, Antiquity."): an "et al", a ", 2012" or a "(Cook, 2000)" marks a reference.
+CREDITS_WORD_RE = re.compile(r"\bcredits?\b", re.I)    # "SOURCES & CREDITS" still lists credits
+CITATION_RE = re.compile(r"\bet al\b|,\s*(?:1[5-9]|20)\d{2}\b|\([^()]*\b(?:1[5-9]|20)\d{2}[a-z]?\s*\)", re.I)
 SOURCES_HEADER_RE = re.compile(r"\b(?:sources?|references?|research|bibliography|citations?|"
                                r"further reading|reading list|studies|papers|cited)\b", re.I)
 PEOPLE_HEADER_RE = re.compile(r"\b(?:people|places|sites|locations|figures|characters|who'?s who|"
@@ -422,8 +434,8 @@ def _is_header(line: str, next_line: str = "") -> bool:
     s = line.strip()
     if not s or len(s) > 70 or URL_RE.search(s) or s.startswith("#") or s[0] in BULLETS:
         return False
-    if CHAPTER_START_RE.match(s) or SEPARATOR_RE.match(s):
-        return False
+    if CHAPTER_START_RE.match(s) or CHAPTER_END_RE.search(s) or SEPARATOR_RE.match(s):
+        return False                                   # chapter lines (either timestamp side) are chapters
     core = _lead_strip(s).strip(" :-–—|")
     tokens = core.split()
     cased = [c for c in core if c.isalpha() and c.lower() != c.upper()]
@@ -468,17 +480,24 @@ def analyze_description(description: str, title: str = "") -> dict:
     hashtags = HASHTAG_RE.findall(no_urls)
     last = nonblank[-1] if nonblank else ""
     hashtags_at_end = bool(last) and not HASHTAG_RE.sub("", last).strip(" ,.·|")
-    headers = [line for i, line in enumerate(nonblank)
-               if _is_header(line, nonblank[i + 1] if i + 1 < len(nonblank) else "")]
+    header_at = {i for i, line in enumerate(nonblank)
+                 if _is_header(line, nonblank[i + 1] if i + 1 < len(nonblank) else "")}
+    headers = [nonblank[i] for i in sorted(header_at)]
     fold_lines = nonblank[:2]
     above_fold = " / ".join(fold_lines)
     if len(above_fold) > 150:
         above_fold = above_fold[:149].rstrip() + "…"
     ai = AI_DISCLOSURE_RE.search(text)
-    credit_lines = []
-    for line in nonblank:
+    credit_lines, in_sources = [], False
+    for i, line in enumerate(nonblank):
+        if i in header_at:
+            in_sources = bool(SOURCES_HEADER_RE.search(line)) and not CREDITS_WORD_RE.search(line)
+        elif SEPARATOR_RE.match(line):
+            in_sources = False
+        if in_sources and line[0] in BULLETS:
+            continue                                   # a bulleted reference under a Sources header
         core = _lead_strip(line)
-        if len(line) <= 120 and CREDIT_RE.match(core):
+        if len(line) <= 120 and CREDIT_RE.match(core) and not CITATION_RE.search(core):
             credit_lines.append(line)
     return {
         "chars": len(text), "words": len(_word_tokens(text)), "lines": len(lines),
@@ -1473,7 +1492,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-baseline", action="store_true",
                     help="do not fetch uploads of channels seen only through a video input")
     ap.add_argument("--json", action="store_true", help="print the full result as JSON instead of the summary")
-    args = ap.parse_args(argv)
+    # A video ID may begin with "-" ("-cBcDeFgHiJ"); argparse would take it for an unknown option.
+    # A leading space hides the dash from argparse and is stripped again before parsing the inputs.
+    argv = list(sys.argv[1:] if argv is None else argv)
+    args = ap.parse_args([" " + a if DASH_VIDEO_ID_RE.match(a) else a for a in argv])
+    args.inputs = [a.strip() for a in args.inputs]
 
     parsed = parse_inputs(args.inputs)
     for error in parsed["errors"]:

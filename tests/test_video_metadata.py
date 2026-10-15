@@ -354,6 +354,8 @@ def test_chapters_must_start_at_zero_and_ascend():
     assert d["chapters_valid"] and d["section_headers"] == ["Time stamps"]
     d = vm.analyze_description("Intro - 0:00\nMiddle - 1:00\nEnd - 2:00", "x")
     assert d["chapter_count"] == 3 and d["chapters_valid"]
+    d = vm.analyze_description("INTRO 0:00\nTHE PROBLEM 1:23\nTHE FIX 4:56\nSources:\n▸ A book (1999)", "x")
+    assert d["chapter_count"] == 3 and d["section_headers"] == ["Sources:"]   # chapters are not headers
 
 
 def test_sponsor_social_support_and_credit_markers():
@@ -372,6 +374,34 @@ def test_sponsor_social_support_and_credit_markers():
     assert d["youtube_links"] == 2 and d["has_contact_email"] and d["subscribe_cta"]
     assert d["above_fold_has_url"]
     assert "commission" not in " ".join(d["sponsor_markers"])
+
+
+def test_bulleted_citations_are_not_credits():
+    desc = ("RESEARCH & SOURCES\n"
+            "▸ Animation in Palaeolithic art: a pre-echo of cinema. Marc Azéma and Florent Rivère, 2012, Antiquity.\n"
+            "▸ Research from the University of Cape Town found a link\n"
+            "• Footage from the 1936 newsreel: the parade\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Music: A Very Short Introduction (Cook, 2000)\n"
+            "Animation by Ink Explainer\n"
+            "▸ Music: Epidemic Sound")
+    d = vm.analyze_description(desc, "x")
+    assert d["credit_lines"] == ["Animation by Ink Explainer", "▸ Music: Epidemic Sound"]
+    d = vm.analyze_description("SOURCES & CREDITS\n• Music: Epidemic Sound\n• Narration by A. Voice", "x")
+    assert d["credit_lines"] == ["• Music: Epidemic Sound", "• Narration by A. Voice"]
+
+
+def test_ai_disclosure_needs_a_self_reference():
+    for text in ("Try the best AI tools for research at https://x.ai",
+                 "This video is about AI-generated misinformation in elections",
+                 "AI images of the pope went viral last spring"):
+        assert not vm.analyze_description(text, "x")["ai_disclosure"], text
+    for text, phrase in (("This video uses AI-generated images.", "uses AI-generated"),
+                         ("Narration: AI voice", ": AI voice"),
+                         ("AI illustrations were used for the maps", "AI illustrations were used"),
+                         ("Made with AI", "Made with AI")):
+        d = vm.analyze_description(text, "x")
+        assert d["ai_disclosure"] and d["ai_disclosure_phrase"] == phrase, text
 
 
 def test_empty_description():
@@ -678,6 +708,16 @@ def test_no_baseline_json_output_and_an_unresolved_username(tmp_path, monkeypatc
     assert any("--no-baseline" in w for w in data["warnings"])
     assert data["calls"] == {"channels.list": {"calls": 2, "units": 2}, "videos.list": {"calls": 1, "units": 1}}
     assert fake.methods() == {("channels", "list"), ("videos", "list")}
+
+
+def test_main_accepts_a_bare_video_id_that_starts_with_a_dash(tmp_path, monkeypatch, capsys):
+    other = video("-cBcDeFgHiJ", "How Salt Built Empires", 2_000_000, channel=OTHER, channel_title="Other")
+    fake = FakeYouTube(videos=[other], channels=[channel(OTHER, "Other", "@other")])
+    monkeypatch.setattr(vm, "_client", lambda name: fake)
+    assert vm.main(["-cBcDeFgHiJ", "--no-baseline", "--json", "--out", str(tmp_path)]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert [v["id"] for v in data["videos"]] == ["-cBcDeFgHiJ"]
+    assert data["inputs"] == ["-cBcDeFgHiJ"]
 
 
 def test_main_refuses_when_no_input_is_usable(capsys):
