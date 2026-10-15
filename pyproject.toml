@@ -50,6 +50,7 @@ py-modules = [
     "blob_compat",
     "charts_pipeline",
     "db",
+    "description_template",
     "durable_execution",
     "directed_full_film",
     "directed_longform",

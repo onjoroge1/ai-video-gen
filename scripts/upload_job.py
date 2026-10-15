@@ -19,7 +19,11 @@ Publishing stays a human decision in Studio.
 
 The description follows the channel template (audit, 2026-10-13): no "Tags:" list, the
 channel's own subscribe line, at most three hashtags, and the audience tags that tell YouTube
-who the film is for.
+who the film is for. Its body follows the film template (description_template, 2026-10-14):
+summary, sourcing promise, chapters, RESEARCH & SOURCES rebuilt from the job's own claims,
+PEOPLE & PLACES (one cheap fact-checked call when description.txt has none; --no-people skips
+it), then the Short link, CTA, hashtags and AI line. The layout report goes to
+<job>/description_template.json.
 """
 from __future__ import annotations
 
@@ -67,6 +71,7 @@ _OLD_CTA = re.compile(r"^Subscribe (for clear, no-spin explainers|to Bolt Explai
                       r"illustrated (stories|documentaries) about human decisions)", re.I)
 _HASHTAG_LINE = re.compile(r"^\s*(#\w+\s*)+$")
 MAX_HASHTAGS = 3
+SHORT_LINE_ROOM = 80          # bytes left free for "Short version: https://youtube.com/shorts/..."
 
 
 def upload_description(text: str, channel: str) -> str:
@@ -125,6 +130,64 @@ def audience_tags(job: str, transcript: str, channel: str = "world") -> list[str
     return tags
 
 
+def pipeline_tags_of(job: str) -> list[str]:
+    """The pipeline's architecture tags: pipeline_tags.json (2026-10-14 on), else an older job's
+    description "Tags:" line."""
+    path = os.path.join(job, "pipeline_tags.json")
+    if os.path.isfile(path):
+        try:
+            tags = json.load(open(path, encoding="utf-8")).get("tags") or []
+            if tags:
+                return [str(t) for t in tags]
+        except ValueError:
+            pass
+    if os.path.isfile(os.path.join(job, "description.txt")):
+        for line in open(os.path.join(job, "description.txt"), encoding="utf-8"):
+            if line.strip().lower().startswith("tags:"):
+                return [t.strip() for t in line.split(":", 1)[1].split(",") if t.strip()]
+    return []
+
+
+def template_description(job: str, text: str, people: bool = True, complete=None,
+                         log=print) -> str:
+    """`text` laid out in the film template from the job's own artifacts.
+
+    A job with no research artifacts keeps its text, minus the retired sections. People & Places
+    lines already in the text are re-checked; when there are none, one cheap model call writes
+    them (people=False skips it). Never raises: an upload must not fail on its description.
+    """
+    import description_template as dt
+    try:
+        facts = dt.load_job(job, recut=False)          # the uploader sends explainer.mp4
+        if not dt.cited_claims(facts["script"]):
+            log("description: no research artifacts in the job; retired sections removed only")
+            return dt.strip_retired(text) + "\n"
+        existing = dt.parse(text)["people"]
+        lines = None
+        spend: list[float] = []
+        if not existing and people:
+            if complete is None:
+                from dotenv import load_dotenv
+                load_dotenv(os.path.join(ROOT, ".env"))
+                complete = dt.anthropic_complete(spend)
+            lines, people_report = dt.people_and_places(
+                facts["transcript"], dt.cited_claims(facts["script"]), complete)
+        # Room for the "Short version:" line add_short_line puts in once the teaser is up.
+        new, report = dt.rebuild(text, facts, lines, limit=dt.MAX_BYTES - SHORT_LINE_ROOM)
+        if lines is not None:
+            report["people_generated"] = people_report
+        report["people_spend_usd"] = round(sum(spend), 6)
+        with open(os.path.join(job, "description_template.json"), "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=1, ensure_ascii=False)
+        log(f"description: template applied ({report['bytes']} bytes, {report['sources_listed']}/"
+            f"{report['sources_used']} sources, {report['people_listed']} people & places lines, "
+            f"promise {report['promise_kind'] or 'omitted'})")
+        return new + "\n"
+    except Exception as exc:  # noqa: BLE001 - the pipeline's own description still uploads
+        log(f"description: template not applied ({type(exc).__name__}: {str(exc)[:160]})")
+        return dt.strip_retired(text) + "\n"
+
+
 def build_tags(job: str, title: str, channel: str = "world") -> list[str]:
     """Researched tags for the job (tag_strategy), written to <job>/tags.json once and reused.
 
@@ -140,11 +203,7 @@ def build_tags(job: str, title: str, channel: str = "world") -> list[str]:
     transcript = ""
     if os.path.isfile(os.path.join(job, "transcript.txt")):
         transcript = open(os.path.join(job, "transcript.txt"), encoding="utf-8").read()
-    pipeline_tags = []
-    if os.path.isfile(os.path.join(job, "description.txt")):
-        for line in open(os.path.join(job, "description.txt"), encoding="utf-8"):
-            if line.strip().lower().startswith("tags:"):
-                pipeline_tags = [t.strip() for t in line.split(":", 1)[1].split(",") if t.strip()]
+    pipeline_tags = pipeline_tags_of(job)
     search = _search_phrase(job, title, pipeline_tags)
     videos, error = [], ""
     try:
@@ -170,6 +229,8 @@ def main(argv=None) -> int:
     parser.add_argument("--channel", default="world", choices=["world", "history"])
     parser.add_argument("--teaser", action="store_true",
                         help="upload the companion Short (teaser.mp4) after the full film")
+    parser.add_argument("--no-people", action="store_true",
+                        help="skip the People & Places call when description.txt has none")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     job = os.path.abspath(args.job)
@@ -201,9 +262,13 @@ def main(argv=None) -> int:
     if os.path.isfile(os.path.join(job, "description.txt")):
         # The tags travel in the tags field; the description's own "Tags:" line is removed.
         clean = os.path.join(job, "upload_description.txt")
+        # Footer rules first, then the template, whose byte budget is the last word on length.
+        body = template_description(
+            job, upload_description(open(os.path.join(job, "description.txt"),
+                                         encoding="utf-8").read(), args.channel),
+            people=not args.no_people)
         with open(clean, "w", encoding="utf-8") as handle:
-            handle.write(upload_description(
-                open(os.path.join(job, "description.txt"), encoding="utf-8").read(), args.channel))
+            handle.write(body)
         cmd += ["--description-file", clean]
     if os.path.isfile(os.path.join(job, "thumbnail.jpg")):
         cmd += ["--thumbnail", os.path.join(job, "thumbnail.jpg")]

@@ -2228,8 +2228,15 @@ async def explainer_preview_description(req: DescPreviewRequest):
         path = ep.generate_description(q, q, stub, d, question=q, video_format=fmt)
         text = open(path).read().strip()
         tags = []
+        # The description no longer carries a "Tags:" line (2026-10-14); its tags sit beside it.
+        tags_path = os.path.join(d, ep.PIPELINE_TAGS_FILE)
+        if os.path.isfile(tags_path):
+            try:
+                tags = json.load(open(tags_path)).get("tags") or []
+            except ValueError:
+                tags = []
         for line in text.splitlines():
-            if line.startswith("Tags:"):
+            if not tags and line.startswith("Tags:"):
                 tags = [t.strip() for t in line[5:].split(",") if t.strip()]
                 break
         return text, tags
