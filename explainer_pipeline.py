@@ -3778,11 +3778,22 @@ def _synthesis_must_echo(beats: list, beat: dict) -> list[dict]:
     return out
 
 
-def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str) -> dict:
+def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: str, *,
+                         turn_rule: bool = False) -> dict:
     """Allocate spoken words to the opening and body, without altering validation thresholds.
 
     The finalizer prepends the hook. Chapter markers must fit within each beat's allocation.
     These are writing budgets, not proof that the returned narration meets the timed gate.
+
+    `turn_rule` (opening_turn.rule_applies: a ladder opening of a backfire or History engine at
+    225 s or more): the opening group -- frame, need, decision, consequence, hinge -- is capped
+    at the TURN TARGET, 103 spoken words (40 s at the slowest measured 2.588 w/s), instead of the
+    20% mechanism deadline. That deadline was being spent as a target: 164-166 words at 300 s in
+    every saved job, and the turn landed at its end (146-179 words, 54-66 s). The words it frees
+    go to the body group, so the film's total is unchanged; the rows come out at ~25-40 words,
+    under the 49-word split cap, so the part-2 restatement scenes the read kept asking to trim
+    are not created at all. The mechanism can only move earlier, so LATE_MECHANISM cannot newly
+    fire.
     """
     import causal_story as cs
     import story_engines as se
@@ -3790,8 +3801,12 @@ def _causal_word_budgets(beats: list, total_words: int, engine_id: str, hook: st
         nature_channel.format_tag(_TOPIC_CHANNEL.get(), _CAUSAL_FORMAT_TAG).split())
     available = max(0, total_words - prefix_words)
     mechanism = next((i for i, b in enumerate(beats) if b.get("causal_role") == cs.MECHANISM), 0)
-    opening = max(0, int(total_words * se.mechanism_deadline_pct(
-        se.get(engine_id), cs.MECHANISM_DEADLINE_PCT)) - prefix_words)
+    opening_share = int(total_words * se.mechanism_deadline_pct(
+        se.get(engine_id), cs.MECHANISM_DEADLINE_PCT))
+    if turn_rule:
+        import opening_turn as _ot
+        opening_share = min(opening_share, _ot.TURN_TARGET_WORDS)
+    opening = max(0, opening_share - prefix_words)
     budgets = {}
     groups = [(beats[:mechanism], min(available, opening)),
               (beats[mechanism:], available - min(available, opening))] if mechanism else [(beats, available)]
@@ -5222,10 +5237,29 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     # REQUESTED count — without this recompute the total narration collapses to a 2-3 min video. The
     # clamp keeps each scene ~5-8s so cadence stays healthy even when the beat count runs low.
     wpm = max(14, min(20, total_words // max(1, n_scenes)))
+    import opening_turn as _ot_budget
+    # THE TURN BY 45 SECONDS: one decision for this sheet, carried on the script (`_turn_rule`) so
+    # the read, the revision, the storyboard repair and the run record all apply the same scope.
+    _turn_stamp = _ot_budget.stamp(sheet_engine_id if causal_lane else "", duration_sec,
+                                   "ladder" if _ladder else "")
+    _turn_shape = ""
     causal_budgets = (_causal_word_budgets(
         beats, runtime_word_bounds(duration_sec, n_scenes)[0],
         beats[0].get("_story_engine"),
-        (_s(plan.get("hook")) + " " + _plan_cold_open(plan)[0]).strip()) if causal_lane else {})
+        (_s(plan.get("hook")) + " " + _plan_cold_open(plan)[0]).strip(),
+        turn_rule=_turn_stamp["applies"]) if causal_lane else {})
+    if _turn_stamp["applies"]:
+        _mech_beat = next((b for b in beats if b.get("causal_role") == "mechanism"), None)
+        _turn_shape = _ot_budget.consequence_shape(
+            sheet_engine_id, _ot_budget.opening_consequence_claims(_plan_opening(plan)),
+            _ot_budget.event_claims(_mech_beat) if _mech_beat else [])
+        _turn_stamp["shape"] = _turn_shape
+        _pre = [b for b in beats[:next((i for i, b in enumerate(beats)
+                                        if b.get("causal_role") == "mechanism"), 0)]]
+        print(f"[turn] ladder {sheet_engine_id} at {duration_sec}s: opening group capped at "
+              f"{_ot_budget.TURN_TARGET_WORDS} words (limit {_ot_budget.TURN_LIMIT_WORDS}); shape "
+              f"{_turn_shape}; rows before the mechanism: "
+              + ", ".join(f"{_s(b.get('causal_role'))} {causal_budgets.get(b['n'])}" for b in _pre))
     if causal_lane:
         # ONE BEAT, SEVERAL SCENES. A beat whose budget exceeds what one scene can be illustrated
         # with becomes that many scene slots. Measured: the writer returns 4-6 visual states per
@@ -5402,11 +5436,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         if causal_lane and _ladder:
             import hook_patterns as _hp_open
             opening_direction += (
-                (" " + _hp_open.opening_writer_rules() + " OPENING PLAN (combine these beats; the "
+                (" " + _hp_open.opening_writer_rules(
+                    turn_rule=_turn_stamp["applies"], shape=_turn_shape,
+                    engine_id=sheet_engine_id) + " OPENING PLAN (combine these beats; the "
                  "claims they cite are in your ceiling -- say nothing a listed missing_claim "
                  "would be needed for): "
                  + json.dumps(_plan_opening(plan), ensure_ascii=False))
-                if is_first else (" " + _hp_open.opening_body_rule()))
+                if is_first else (" " + _hp_open.opening_body_rule(
+                    turn_rule=_turn_stamp["applies"], shape=_turn_shape)))
         if causal_lane and is_first and _cold_text:
             opening_direction += (
                 f' COLD OPEN: scene 1 is spoken as hook, then "{_cold_text}", then its own '
@@ -5887,6 +5924,9 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         # The human-first opening the planner wrote and the writer combined; the storyboard gate
         # routes the hook/cold-open/deadline codes to warnings for a script stamped with it.
         **({"_opening_contract": "ladder_v1", "_opening": _plan_opening(plan)} if _ladder else {}),
+        # The turn rule's scope, decided once at the budget (opening_turn); stamped on every
+        # causal-lane script so the read, the revision and the storyboard repair agree.
+        **({"_turn_rule": _turn_stamp} if causal_lane else {}),
         # Written under the joint rule, so the storyboard gate may hold it to the bands.
         "_sentence_mix_contract": (_cs.SENTENCE_MIX_CONTRACT
                                    if causal_lane and _roles.get("compiled") else ""),
