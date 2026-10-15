@@ -82,18 +82,40 @@ def test_the_shapes_match_the_plans():
                                 "history-aral-sea-v2")} == {"B"}
 
 
-def test_v14_never_states_it_and_the_read_saying_so_is_reported():
+def test_v14_never_states_it_and_the_read_saying_so_is_a_finding(monkeypatch):
     entry = SAVED["bees_v14"]
     turn = ot.measure_turn(entry["scenes"], entry["opening"], entry["engine"], quote="NONE")
     assert turn["consequence_spoken"] is False and turn["source"] == "fallback" and turn["late"]
     script = _script("bees_v14", _opening_turn=turn)
-    # Under the enforcing fallback the read's NONE is a report: the storyboard is not blocked on it.
-    assert not ot.read_says_unspoken(script)
-    assert "NO sentence states the consequence (report only)" in ot.log_line(turn, "read")
-    # Under the design's locator it is a finding, bound to the narration it judged.
-    assert ot.read_says_unspoken(script, locator="quote")
-    script["scenes"][2]["narration"] += " Then the grids came off and the queens left."
-    assert not ot.read_says_unspoken(script, locator="quote"), "a finding on old narration does not bind new words"
+    # The fallback says where; the read's NONE still says whether (UNSPOKEN_FROM_READ) ...
+    assert ot.UNSPOKEN_FROM_READ and ot.read_says_unspoken(script)
+    assert "OPENING_CONSEQUENCE_UNSPOKEN at the storyboard" in ot.log_line(turn, "read")
+    # ... bound to the narration it judged.
+    changed = copy.deepcopy(script)
+    changed["scenes"][2]["narration"] += " Then the grids came off and the queens left."
+    assert not ot.read_says_unspoken(changed), "a finding on old narration does not bind new words"
+    monkeypatch.setattr(ot, "UNSPOKEN_FROM_READ", False)
+    assert not ot.read_says_unspoken(script) and ot.read_says_unspoken(script, locator="quote")
+    assert "(report only)" in ot.log_line(turn, "read")
+
+
+_CHECK_B = os.path.join(ROOT, "fixtures", "opening_turn", "writer_check_2026-10-15_bees_v16.json")
+
+
+def test_paid_check_b_a_signal_only_hinge_is_on_time_by_the_fallback_and_caught_by_the_read():
+    """Writer check (b), 2026-10-15: bees_v16's opening rows written under the 103-word budget
+    closed on a hinge that only signals trouble. The shape-A fallback counts it as the turn, on
+    time; only the read's NONE says the consequence was never stated."""
+    with open(_CHECK_B, encoding="utf-8") as handle:
+        written = json.load(handle)
+    script = _script("bees_v16")
+    for scene, text in zip(script["scenes"], written["narration"]):
+        scene["narration"] = text
+    turn = ot.measure_script(script, quote=written["read_turn"])
+    assert (turn["turn_words"], turn["late"], turn["shape"]) == (116, False, "A")
+    assert turn["consequence_spoken"] is False
+    script["_opening_turn"] = turn
+    assert ot.read_says_unspoken(script)
 
 
 def test_a_quote_outside_the_window_or_across_two_sentences_is_refused():

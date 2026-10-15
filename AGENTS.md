@@ -258,7 +258,10 @@ turn is enforced by a conservative structural measure in `opening_turn.py`: the 
 when the consequence is its own fact (shape A), or the end of the first mechanism beat when the
 consequence is the mechanism's event (shape B, every state_programme film). The opening read also
 quotes the turn sentence, but that quote is a report only: in the paid check of 2026-10-15 it
-matched the hand labels on 5 of 8 saved openings, below the required 8 of 8. Shape-B films are
+matched the hand labels on 5 of 8 saved openings, below the required 8 of 8. When the read says
+that no sentence states the consequence, that answer still raises OPENING_CONSEQUENCE_UNSPOKEN at
+the storyboard: the structural measure says where the turn is, never whether it was said, and
+claim binding passes a hinge that only signals trouble (`UNSPOKEN_FROM_READ`). Shape-B films are
 late by this measure by construction, so they record `late_turn` and no revision is bought for
 it. A late shape-A turn triggers the opening's single revision even at a read score of 80 or
 more; it is adopted only if the re-measured turn fits and the ledger, identity and re-read checks

@@ -25,6 +25,8 @@ backfiring_solution and state_programme at a requested runtime of 225 s or more.
 MEASUREMENT.
   * ENFORCED BY THE STRUCTURAL FALLBACK ALONE since paid check (a), 2026-10-15 (TURN_LOCATOR):
     the read's quote matched the hand labels on 5 of the 8 saved openings, and the bar was 8/8.
+    The read's NONE (no sentence states it) still raises OPENING_CONSEQUENCE_UNSPOKEN
+    (UNSPOKEN_FROM_READ): the fallback says where, never whether.
   * By quote (reported; enforcing only under TURN_LOCATOR="quote"): the read's "turn" field is
     accepted only when it is a verbatim substring of ONE sentence between the first intervention
     row and the last part of the first mechanism beat; quote_turn_words is every spoken word
@@ -82,6 +84,15 @@ NONE_QUOTE = "NONE"
 # structural fallback alone: "fallback". The quote is still asked for and recorded beside it
 # (quote_turn_words, quote_scene, consequence_spoken) as a report. "quote" restores the design.
 TURN_LOCATOR = "fallback"
+# THE READ'S "NONE" STILL BLOCKS. The fallback is conservative about WHERE the consequence is
+# said, never about WHETHER: writer check (b), 2026-10-15, wrote bees_v16's opening under the new
+# budgets and closed it on a hinge that only signals trouble ("But a grid only works while it
+# stays on."). The fallback counts that hinge as the turn (116 words, on time) and claim binding
+# passes it, while the read answered NONE -- correctly, as it did for bees_v14 in check (a), with
+# no false NONE on the seven openings that do state it. So a NONE on the narration it judged
+# still raises OPENING_CONSEQUENCE_UNSPOKEN at the storyboard (read_says_unspoken). It can only
+# add a finding, never relax the fallback; False makes the read's answer a report as well.
+UNSPOKEN_FROM_READ = True
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _OPENING_ROWS = ("setup", "intervention", "false_resolution")
@@ -351,10 +362,10 @@ def remeasure(script: dict) -> dict:
 def read_says_unspoken(script: dict, locator: str | None = None) -> bool:
     """The opening read found no sentence stating the consequence, on the narration it read.
 
-    Under the "fallback" locator the read's turn answer is a report, NONE included, so this is
-    False and OPENING_CONSEQUENCE_UNSPOKEN stays with the claim-binding check (check (a) got
-    bees_v14's NONE right, but the bar was the whole field 8/8; see TURN_LOCATOR)."""
-    if (locator or TURN_LOCATOR).strip().lower() != "quote":
+    A blocking finding under the "quote" locator, and under the "fallback" one while
+    UNSPOKEN_FROM_READ holds (see there); otherwise a report, and OPENING_CONSEQUENCE_UNSPOKEN
+    is left to claim binding."""
+    if (locator or TURN_LOCATOR).strip().lower() != "quote" and not UNSPOKEN_FROM_READ:
         return False
     turn = script.get("_opening_turn") if isinstance(script.get("_opening_turn"), dict) else {}
     if turn.get("consequence_spoken") is not False:
@@ -435,7 +446,9 @@ def log_line(turn: dict, stage: str) -> str:
         report = (f" — the read quotes scene {turn.get('quote_scene')}, ending at word "
                   f"{turn['quote_turn_words']} (report only)")
     elif turn.get("consequence_spoken") is False:
-        report = " — the read says NO sentence states the consequence (report only)"
+        report = (" — the read says NO sentence states the consequence"
+                  + (" (OPENING_CONSEQUENCE_UNSPOKEN at the storyboard)"
+                     if UNSPOKEN_FROM_READ or turn.get("source") == "quote" else " (report only)"))
     return (f"Turn ({stage}): {turn['turn_words']} words to the end of the first consequence "
             f"(scene {turn['scene']}, {where}; ~{turn['est_sec']:.1f}s at {WORDS_PER_SECOND} w/s"
             f"{measured}) — target {TURN_TARGET_WORDS}, limit {TURN_LIMIT_WORDS}"
