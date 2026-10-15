@@ -69,6 +69,7 @@ from longform_research import (
     validate_research_dossier,
 )
 from longform_evidence import (
+    _anchor_key,
     compile_evidence_plan,
     state_count_rule as _state_count_rule,
     states_required_for_words,
@@ -12898,33 +12899,92 @@ def _repair_anchor_phrases(script: dict, log=lambda message: None) -> int:
         # spanning two describes no such moment.
         first_sentence = re.split(r"(?<=[.!?])\s+", narration.strip())[0] if narration.strip() else ""
         opening = " ".join(first_sentence.split()[:5])
+        # NO TWO BEATS OF A SCENE ON ONE MOMENT. The fallbacks below reach for fallbacks[0] or the
+        # first-sentence opening, which beat zero already holds, so a repaired beat landed on the
+        # instant of the scene's first picture: aral-v2 carried "Imagine you're a fishing family
+        # on the" beside beat zero's "Imagine you're a fishing family", and "And it worked." twice.
+        # Two states on one instant cannot both be cut on their words -- the shot compiler moves
+        # one, reports it unaligned, and the opening's semantic_sync cap follows. Duplicate means
+        # the same words OR the same starting word, since both resolve to the same timestamp.
+        taken_keys: set[str] = set()
+        taken_positions: set[int] = set()
+        last_position = -1
         for index, beat in enumerate(beats):
             if not isinstance(beat, dict):
                 continue
             anchor = _s(beat.get("anchor_phrase")).strip()
             wanted = opening if index == 0 else anchor
             if wanted and wanted.casefold() in haystack and (index or wanted == opening):
-                if beat.get("anchor_phrase") != wanted:
-                    # Keep what the model wrote whenever we overwrite it, on every path — an
-                    # anchor that silently changed is impossible to audit afterwards.
-                    beat["anchor_phrase_model"] = anchor
-                    beat["anchor_phrase"] = wanted
-                    repaired += 1
-                continue
-            replacement = ""
-            if index < len(fallbacks) and fallbacks[index].casefold() in haystack:
-                replacement = fallbacks[index]
+                chosen = wanted
+            elif index < len(fallbacks) and fallbacks[index].casefold() in haystack:
+                chosen = fallbacks[index]
             elif fallbacks and fallbacks[0].casefold() in haystack:
-                replacement = fallbacks[0]
+                chosen = fallbacks[0]
             else:
-                replacement = opening
-            if replacement and replacement != anchor:
+                chosen = opening
+            position = haystack.find(chosen.casefold()) if chosen else -1
+            if chosen and (_anchor_key(chosen) in taken_keys or position in taken_positions):
+                unique = _unique_anchor_phrase(
+                    narration, taken_keys, taken_positions, last_position)
+                if unique:
+                    chosen = unique
+                    position = haystack.find(chosen.casefold())
+            if chosen and beat.get("anchor_phrase") != chosen:
+                # Keep what the model wrote whenever we overwrite it, on every path — an
+                # anchor that silently changed is impossible to audit afterwards.
                 beat["anchor_phrase_model"] = anchor
-                beat["anchor_phrase"] = replacement
+                beat["anchor_phrase"] = chosen
                 repaired += 1
+            if chosen:
+                taken_keys.add(_anchor_key(chosen))
+                taken_positions.add(position)
+                last_position = max(last_position, position)
     if repaired:
         log(f"Anchor phrases: rewrote {repaired} to exact narration substrings")
     return repaired
+
+
+def _unique_anchor_phrase(narration: str, taken_keys: set, taken_positions: set,
+                          after: int) -> str:
+    """A verbatim phrase of this narration that no earlier beat in the scene starts on.
+
+    Clause starts first, as the fallbacks are; then four-word windows. Never across a full stop,
+    for the reason beat zero is clamped to its first sentence. Prefers a phrase after the previous
+    beat's, so the beats keep the narration's order; "" only when every word is already an anchor.
+    """
+    words = list(re.finditer(r"\S+", narration))
+    if not words:
+        return ""
+    clause_starts = {0} | {match.end() for match in re.finditer(
+        r"(?<=[.!?;:])\s+|\s+[—–]\s+", narration)}
+    candidates: list[tuple[int, int, str]] = []
+    for index, word in enumerate(words):
+        window = []
+        for item in words[index:index + 4]:
+            window.append(item)
+            if re.search(r"[.!?][\"'”’)\]]*$", item.group()):
+                break
+        if len(window) < 2:
+            continue
+        phrase = narration[window[0].start():window[-1].end()].rstrip(",;:")
+        # A phrase that also occurs EARLIER resolves to the earlier occurrence, in the timing
+        # search as in str.find, so it would not start where this window does.
+        if narration.casefold().find(phrase.casefold()) != word.start():
+            continue
+        rank = 0 if word.start() in clause_starts else 1
+        candidates.append((rank, word.start(), phrase))
+    for prefer_later in (True, False):
+        for rank in (0, 1):
+            for _rank, position, phrase in sorted(
+                    (c for c in candidates if c[0] == rank), key=lambda c: c[1]):
+                if prefer_later and position <= after:
+                    continue
+                if position in taken_positions or _anchor_key(phrase) in taken_keys:
+                    continue
+                if not _anchor_key(phrase):
+                    continue
+                return phrase
+    return ""
 
 
 
