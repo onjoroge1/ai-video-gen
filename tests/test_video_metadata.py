@@ -815,11 +815,20 @@ def test_main_refuses_when_no_input_is_usable(capsys):
 
 
 def _quota_403():
-    import httplib2
-    from googleapiclient.errors import HttpError
+    details = [{"message": "quota", "domain": "youtube.quota", "reason": "quotaExceeded"}]
+    try:
+        import httplib2
+        from googleapiclient.errors import HttpError
+    except ImportError:
+        # CI does not install the Google client; this stand-in carries what _quota_exhausted reads
+        # from the real HttpError: error_details and the reason in its text.
+        class HttpError(Exception):
+            error_details = details
+        return HttpError('<HttpError 403 when requesting https://youtube.googleapis.com/youtube/v3/videos '
+                         'returned "The request cannot be completed because you have exceeded your quota.". '
+                         'Details: "[{\'reason\': \'quotaExceeded\'}]">')
     body = json.dumps({"error": {"code": 403, "message": "The request cannot be completed because you have "
-                                 "exceeded your quota.", "errors": [{"message": "quota", "domain": "youtube.quota",
-                                                                     "reason": "quotaExceeded"}]}}).encode()
+                                 "exceeded your quota.", "errors": details}}).encode()
     return HttpError(httplib2.Response({"status": 403}), body, uri="https://youtube.googleapis.com/youtube/v3/videos")
 
 
