@@ -472,12 +472,16 @@ def main(argv=None) -> int:
         return 2
     live = video["snippet"].get("description", "")
     title = video["snippet"].get("title", "")
-    print(f"job binding: {bound}; cut: {cut} ({cut_why})")
-
     if not args.apply:
         new, report = propose(live, facts, people=not args.no_people,
                               refresh_people=args.refresh_people)
-        preview = render_preview(args.video_id, title, live, new, report)
+        # The saved preview carries what the terminal shows: binding, cut, a running title test.
+        notes = [f"job: {job}; binding: {bound}; cut: {cut} ({cut_why}); channel: {channel}"]
+        running = title_test_running(log_path, args.video_id)
+        if running:
+            notes.append("note: the change log records a title test on this video (--apply "
+                         f"refuses without --during-title-test): {running}")
+        preview = "\n".join(notes) + "\n" + render_preview(args.video_id, title, live, new, report)
         print(preview)
         if args.out:
             os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -485,12 +489,10 @@ def main(argv=None) -> int:
                 handle.write(preview)
         save_proposal(proposal_path, video_id=args.video_id, job=job, channel=channel, cut=cut,
                       live=live, proposed=new, report=report)
-        running = title_test_running(log_path, args.video_id)
-        if running:
-            print(f"note: the change log records a title test on this video: {running}")
         print(f"dry run: nothing sent; proposal saved to {proposal_path} (--apply publishes it)")
         return 0
 
+    print(f"job binding: {bound}; cut: {cut} ({cut_why})")
     if args.no_people or args.refresh_people:
         print("note: --no-people/--refresh-people shape the dry run; --apply publishes its proposal")
     try:

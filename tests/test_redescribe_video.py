@@ -339,3 +339,19 @@ def test_a_video_on_another_channel_is_refused(tmp_path, monkeypatch, capsys):
     assert rd.main(["VID12345678", "--job", str(job), "--log", str(tmp_path / "l.json"),
                     "--proposal", str(tmp_path / "p.json"), "--no-people"]) == 2
     assert "belongs to channel UC_someone_else" in capsys.readouterr().out
+
+
+def test_the_saved_preview_names_the_binding_and_a_running_title_test(tmp_path, monkeypatch):
+    job = _job(tmp_path)
+    yt = FakeYouTube(_video())
+    _Modules(monkeypatch, yt)
+    log = tmp_path / "log.json"
+    log.write_text(json.dumps({"entries": [{"video_id": "VID12345678",
+                                            "label": "Title A/B test (Studio Test & Compare) started"}]}))
+    out = tmp_path / "previews" / "VID12345678.txt"
+    assert rd.main(["VID12345678", "--job", str(job), "--log", str(log), "--no-people",
+                    "--proposal", str(tmp_path / "p.json"), "--out", str(out)]) == 0
+    text = out.read_text()
+    assert "binding: youtube.json; cut: original" in text
+    assert "title test on this video (--apply refuses without --during-title-test)" in text
+    assert "===== PROPOSED DESCRIPTION =====" in text and not yt.updates
