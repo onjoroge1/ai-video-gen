@@ -559,6 +559,10 @@ def feasibility_markdown(feasibility: dict) -> list[str]:
                 if feasibility.get("shape") == "A" else
                 "the consequence is the mechanism's event: say it plainly before the hinge, "
                 "and let the mechanism document it") + ")"]
+    if feasibility.get("shape") == "B" and TURN_LOCATOR != "quote":
+        lines.append("Measured structurally to the end of the first mechanism beat (shape B), so this "
+                     "film will record late_turn whatever the writing does; the read's quote of the "
+                     "turn sentence is reported beside it (paid check (a), 2026-10-15)")
     if feasibility.get("compiled_order"):
         lines.append("Compiled order: " + " -> ".join(feasibility["compiled_order"]))
     lines.append(f"Narrated beats before the mechanism: {feasibility.get('rows_before_mechanism')}"
