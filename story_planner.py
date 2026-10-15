@@ -61,8 +61,14 @@ def _words(text: str) -> set[str]:
 
 def planner_prompt(question: str, duration_sec: int, engine_id: str,
                    research_dossier: dict | None, *, operator_direction: str = "",
-                   series: str = "", improve_note: str = "", cast_free: bool = True) -> str:
-    """The exact beat-sheet request the pipeline sends for the causal lane."""
+                   series: str = "", improve_note: str = "", cast_free: bool = True,
+                   opening_mode: str | None = None) -> str:
+    """The exact beat-sheet request the pipeline sends for the causal lane.
+
+    `opening_mode` defaults to the pipeline's own (explainer_pipeline._opening_mode, "ladder"
+    unless OPENING_MODE says otherwise). It used to be left at factual_plan_prompt's default,
+    "hook", so the promptfoo planner eval asked for a cold open no production film is planned
+    with and could not test a ladder planning change at all."""
     import explainer_pipeline as ep
     import story_compiler
     from longform_research import claim_context_for_prompt
@@ -73,7 +79,9 @@ def planner_prompt(question: str, duration_sec: int, engine_id: str,
                   "actors the history had -- 'colonial officials', 'the bounty clerks', "
                   "'Delhi residents', 'the breeders' -- or use no name at all. Set "
                   "human_present and mascot_present to false on every scene.\n")
-    prompt = story_compiler.factual_plan_prompt(question, duration_sec, n_scenes, engine_id, cast_rules)
+    prompt = story_compiler.factual_plan_prompt(
+        question, duration_sec, n_scenes, engine_id, cast_rules,
+        opening_mode=opening_mode if opening_mode is not None else ep._opening_mode())
     claim_context = claim_context_for_prompt(research_dossier or {})
     if claim_context:
         prompt += (
@@ -200,9 +208,32 @@ def score_plan(plan: dict, engine_id: str, research_dossier: dict | None,
         score -= 10
         issues.append(f"{before} events before the incentive changes; budget is {budget}")
 
+    # THE TURN BY 45 SECONDS (opening_turn): can this sheet's opening reach its consequence by the
+    # 103-word target? Reported here and on the approval page, before any writing spend. Not
+    # scored: the scorer chooses between candidates, and a feasibility miss is an operator edit.
+    import hook_patterns
+    turn = opening_turn_feasibility(plan, engine_id, research_dossier, duration_sec,
+                                    myth=hook_patterns.myth_mode())
+    if turn.get("applies"):
+        issues.extend(f"turn: {issue}" for issue in turn.get("issues") or [])
+
     return {"score": round(max(0.0, score), 1), "issues": issues, "beats": len(beats),
             "distinct_ratio": round(ratio, 2), "compiled": bool(roles.get("passed")),
-            "cold_open_ok": not cold_issues, "target_events": target}
+            "cold_open_ok": not cold_issues, "target_events": target,
+            "engine": engine_id, "duration_sec": duration_sec, "turn": turn}
+
+
+def opening_turn_feasibility(plan: dict, engine_id: str, research_dossier: dict | None,
+                             duration_sec, *, opening_mode: str | None = None,
+                             myth: bool = False) -> dict:
+    import explainer_pipeline as ep
+    import opening_turn
+    try:
+        return opening_turn.plan_feasibility(
+            plan, engine_id, research_dossier, duration_sec,
+            opening_mode=opening_mode if opening_mode is not None else ep._opening_mode(), myth=myth)
+    except Exception as exc:  # noqa: BLE001 - a report never blocks choosing a plan
+        return {"applies": False, "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
 
 
 def choose_plan(scored: list[dict]) -> int:
@@ -217,15 +248,20 @@ def choose_plan(scored: list[dict]) -> int:
 
 def plan_markdown(plan: dict, report: dict | None = None, candidates: list[dict] | None = None) -> str:
     import story_fact_model as sfm
+    import opening_turn
     lines = [f"# {_text(plan.get('title'))}", "",
              f"Hook: {_text(plan.get('hook'))}",
              f"Cold open: {_text((plan.get('cold_open') or {}).get('text')) if isinstance(plan.get('cold_open'), dict) else _text(plan.get('cold_open'))}",
              f"Throughline: {_text(plan.get('throughline'))}",
              f"Opening object: {_text(plan.get('opening_object'))}", ""]
+    lines += opening_block_markdown(plan)
     if report:
         lines.append(f"Plan score: {report.get('score')}/100"
                      + (" — " + "; ".join(report.get("issues") or []) if report.get("issues") else ""))
         lines.append("")
+        turn_lines = opening_turn.feasibility_markdown(report.get("turn") or {})
+        if turn_lines:
+            lines += turn_lines + [""]
     if candidates:
         lines.append("Candidates: " + ", ".join(f"#{i + 1} {c.get('score')}" for i, c in enumerate(candidates)))
         lines.append("")
@@ -238,6 +274,30 @@ def plan_markdown(plan: dict, report: dict | None = None, candidates: list[dict]
     lines += ["", "To approve: copy plan.json to plan.approved.json (edit it first if you like) and "
                   "rerun the same request without --stop-after plan."]
     return "\n".join(lines) + "\n"
+
+
+def opening_block_markdown(plan: dict) -> list[str]:
+    """The planner's OPENING as the operator approves it: every beat, its cited claims and what
+    the ledger does not say. The History approval page printed none of it (aral-v2, 2026-10-14),
+    so an empty consequence citation and a warning planned as the turn went unseen."""
+    import explainer_pipeline as ep
+    opening = ep._plan_opening(plan)
+    if not opening:
+        return []
+    refs = opening.get("claim_refs") or {}
+    lines = ["Opening:"]
+    for key in ("voice", "frame", "problem", "solution", "transition", "consequence", "question"):
+        if _text(opening.get(key)):
+            cited = ", ".join(refs.get(key) or [])
+            lines.append(f"  {key}: {opening[key]}" + (f"  [{cited}]" if cited else ""))
+    callback = opening.get("callback") or {}
+    if _text(callback.get("text")):
+        lines.append(f"  callback ({callback.get('kind')}): {callback['text']}")
+    if not refs.get("consequence"):
+        lines.append("  (no claims cited for the consequence)")
+    for missing in opening.get("missing_claims") or []:
+        lines.append(f"  missing: {missing}")
+    return lines + [""]
 
 
 def write_plan_for_approval(output_dir: str, plan: dict, report: dict | None,

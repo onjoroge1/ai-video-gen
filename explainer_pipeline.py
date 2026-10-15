@@ -3378,6 +3378,15 @@ def _retrieve_blueprint(engine_id: str, adherence: str, target_runtime: float = 
         return ""
 
 
+def _turn_deadline_line() -> str:
+    """The spine prompt's position target for a film under the turn rule (opening_turn)."""
+    import opening_turn as _ot
+    return (f"Turn deadline: the first consequence is spoken by about {_ot.TURN_TARGET_WORDS} "
+            f"words ({_ot.TURN_TARGET_SEC:.0f}s), never past {_ot.TURN_LIMIT_WORDS} words "
+            f"({_ot.TURN_LIMIT_SEC:.0f}s), counted from the frame's first word; the mechanism "
+            "follows it. ")
+
+
 def _opening_mode() -> str:
     """How the film opens. "ladder" (default): the human-first opening -- frame, problem,
     solution, transition, consequence -- with no aftermath cold open (operator brief,
@@ -3396,11 +3405,26 @@ def _plan_opening(plan: dict) -> dict:
     out["callback"] = {"kind": _s(callback.get("kind")).strip().lower() or "object",
                        "text": _s(callback.get("text")).strip()}
     refs = raw.get("claim_refs") if isinstance(raw.get("claim_refs"), dict) else {}
+    # PLANNER SCHEMA DRIFT. history-aral-sea-v2's planner (and aral v1's) wrote claim_refs and
+    # missing_claims at the TOP level of the sheet, beside `opening` rather than inside it; the
+    # operator's approval copied them as they were. Read only inside `opening`, the film got no
+    # opening ceiling on any row and no consequence claims for the check. The top-level block is
+    # taken only when it is keyed by the opening's own beats and `opening` carries none.
+    top = plan.get("claim_refs") if isinstance(plan.get("claim_refs"), dict) else {}
+    from_top = (not any(isinstance(v, list) and v for v in refs.values())
+                and bool(set(top) & set(_OPENING_BEATS)))
+    if from_top:
+        refs = {k: v for k, v in top.items() if k in _OPENING_BEATS}
     out["claim_refs"] = {k: [_s(r).strip() for r in (v or []) if _s(r).strip()]
                          for k, v in refs.items() if isinstance(v, list)}
-    out["missing_claims"] = [_s(m).strip() for m in (raw.get("missing_claims") or [])
-                             if _s(m).strip()]
+    missing = raw.get("missing_claims") or []
+    if not missing and from_top and isinstance(plan.get("missing_claims"), list):
+        missing = plan.get("missing_claims") or []
+    out["missing_claims"] = [_s(m).strip() for m in missing if _s(m).strip()]
     return out if out["consequence"] else {}
+
+
+_OPENING_BEATS = ("problem", "solution", "transition", "consequence")
 
 
 # Which opening beats each ROW of the opening may speak (hook_patterns.OPENING_WRITER_RULES: the
@@ -4535,6 +4559,11 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
         'branch reveal / most counter-intuitive answer) · 76-82% false_relief · 83-92% final_escalation '
         '· 92-97% final_payoff (answers the title, resolves the exact experiment) · 97-100% resonant_end.'
     )
+    import opening_turn as _ot_spine
+    # Under the turn rule the ladder's position target is the CONSEQUENCE by 40 s, not the
+    # mechanism by 20% of runtime (the 60 s that the opening group was being filled to).
+    _turn_rule_for_sheet = causal_lane and _ot_spine.rule_applies(
+        sheet_engine_id, duration_sec, _opening_mode())
     if causal_lane:
         beat_prompt += (
             "\nILLUSTRATED STORY DIRECTION: The declared engine owns the order and timing. "
@@ -4548,9 +4577,10 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             "shape (the hook's planted number first, the opening object last), so do not supply "
             "one. Do not append an escalation after the reversal.\n"
             + f"Requested runtime: {duration_sec}s; total narration target: {total_words} words. "
-            f"Mechanism deadline: {engine_deadline}% of spoken runtime "
-            f"({duration_sec * engine_deadline / 100:.1f}s at the requested length). "
-            "Beat pct is its estimated START time as a percentage of runtime, not its list index. "
+            + (_turn_deadline_line() if _turn_rule_for_sheet else
+               f"Mechanism deadline: {engine_deadline}% of spoken runtime "
+               f"({duration_sec * engine_deadline / 100:.1f}s at the requested length). ")
+            + "Beat pct is its estimated START time as a percentage of runtime, not its list index. "
             "Make the opening beats shorter than the later demonstrations.\n"
             + blueprint_block)
     if causal_lane and _ef.map_for(sheet_engine_id):
@@ -4657,6 +4687,14 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
     if _approved:
         plan, _plan_cost = _approved, 0.0
         print(f"[plan] using the operator-approved beat sheet ({_planner.APPROVED_PLAN_FILE})")
+        # An approved sheet is never re-planned, so an opening that cannot reach its consequence
+        # by the turn target is said now, before the writing spend (opening_turn).
+        import hook_patterns as _hp_turn
+        _approved_turn = _planner.opening_turn_feasibility(
+            plan, sheet_engine_id, research_dossier, duration_sec, myth=_hp_turn.myth_mode())
+        if _approved_turn.get("applies"):
+            for _line in __import__("opening_turn").feasibility_markdown(_approved_turn):
+                print(f"[plan] {_line}")
     elif causal_lane:
         # DRAMATRON-STYLE: several candidate sheets, and the deterministic gates choose. One
         # sheet asked for once gave killer bees seven escalations on three facts (2026-10-02).
