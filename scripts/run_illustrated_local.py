@@ -25,6 +25,19 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env", override=False)
 
 
+def _add_ledger(summary: dict, out: Path) -> None:
+    # Spend across EVERY launch of this job, from the per-call ledger. actual_cost counts only
+    # the last launch's sinks, which on V13 (eight launches) understated the job's real spend.
+    try:
+        import usage_ledger
+        spend = usage_ledger.summarize(str(out / usage_ledger.LEDGER_FILENAME))
+        summary["ledger_total_usd"] = spend["total_usd"]
+        summary["ledger_by_provider"] = spend["by_provider"]
+        summary["ledger_by_kind"] = spend["by_kind"]
+    except Exception:  # noqa: BLE001 - accounting never fails the run record
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--question", required=True)
@@ -103,22 +116,21 @@ def main() -> int:
     except Exception as exc:  # the log file is the record; the exception text is the headline
         log(f"FAILED after {time.time() - started:.0f}s: {type(exc).__name__}: {exc}")
         (out / "run_error.txt").write_text(f"{type(exc).__name__}: {exc}\n")
+        if isinstance(exc, ep.OpeningBelowB):
+            # A deliberate stop, not a crash: say so in the run result, with the report that
+            # prices the options. The exception still propagates, so the run reads as stopped.
+            stopped = {"status": "stopped_opening_below_b", "stop_reason": str(exc),
+                       "opening_retry_report_path": exc.report_path,
+                       "opening_retry": ep._opening_retry_result(exc.decision)}
+            _add_ledger(stopped, out)
+            (out / "run_result.json").write_text(json.dumps(stopped, indent=2, default=str))
         raise
     summary = {k: result.get(k) for k in (
         "status", "output_path", "title", "hook", "scene_count", "duration_sec", "est_cost",
         "actual_cost", "degraded_reasons", "thumbnail_path", "transcript_path", "srt_path",
         "description_path", "technical_status", "automated_grade_status", "rendered_contract_path",
-        "storyboard_path", "generation_manifest_path")}
-    # Spend across EVERY launch of this job, from the per-call ledger. actual_cost above counts
-    # only this launch's sinks, which on V13 (eight launches) understated the job's real spend.
-    try:
-        import usage_ledger
-        spend = usage_ledger.summarize(str(out / usage_ledger.LEDGER_FILENAME))
-        summary["ledger_total_usd"] = spend["total_usd"]
-        summary["ledger_by_provider"] = spend["by_provider"]
-        summary["ledger_by_kind"] = spend["by_kind"]
-    except Exception:  # noqa: BLE001 - accounting never fails the run record
-        pass
+        "storyboard_path", "generation_manifest_path", "opening_retry")}
+    _add_ledger(summary, out)
     (out / "run_result.json").write_text(json.dumps(summary, indent=2, default=str))
     log(f"DONE in {time.time() - started:.0f}s: {json.dumps(summary, default=str)[:600]}")
     return 0
