@@ -10805,6 +10805,9 @@ def _build_chapters(scene_starts: list, picks: list) -> list:
 # written; scripts/youtube_upload.py keeps its copy as defence in depth.
 TAG_MAX_CHARS = 30
 TAG_TOTAL_CHARS = 480
+# The description's architecture tags, written beside description.txt now that the template has
+# no visible "Tags:" line. Readers fall back to an old job's Tags: line.
+PIPELINE_TAGS_FILE = "pipeline_tags.json"
 
 
 def api_safe_tags(tags) -> list[str]:
@@ -10822,19 +10825,40 @@ def api_safe_tags(tags) -> list[str]:
     return cleaned
 
 
+def _people_places_complete(cost_sink: list | None):
+    """The People & Places call: one cheap message, its cost in the run's sink at its own rate."""
+    import description_template as _dt
+
+    def complete(system: str, user: str) -> str:
+        r = _claude().messages.create(model=_dt.PEOPLE_MODEL, max_tokens=1500, system=system,
+                                      thinking={"type": "disabled"},
+                                      messages=[{"role": "user", "content": user}])
+        if cost_sink is not None:
+            usage = getattr(r, "usage", None)
+            cost_sink.append(_msg_cost(usage)
+                             if script_provider.active_provider() == script_provider.OPENAI
+                             else _usage_ledger.anthropic_cost(_dt.PEOPLE_MODEL, usage))
+        return _first_text(r)
+    return complete
+
+
 def generate_description(title: str, hook: str, transcript: str, out_dir: str,
                          cost_sink: list | None = None, question: str = "",
                          video_format: str = "landscape", scene_narr: list | None = None,
                          scene_durs: list | None = None,
-                         sources: list | None = None) -> str:
-    """Write a ready-to-paste, SEO-rich YouTube description (best-effort Claude; template fallback).
+                         sources: list | None = None, research: dict | None = None) -> str:
+    """Write a ready-to-paste YouTube description (best-effort Claude; template fallback).
 
-    Long-form gets the full package: keyword-front-loaded hook + summary, EXACT auto-chapters
-    (timestamps snapped to real per-scene audio durations, not estimated), an 'In this video'
-    keyword list, a 'Questions answered' block (search/voice bait), a soft CTA, hashtags, and a
-    plain-text tags line. Social shorts get a compact variant (summary + hashtags + tags — no
-    chapters/bullets). The LLM writes only the LANGUAGE; code owns the timestamps, YouTube chapter
-    rules, layout, and the mandatory AI-disclosure line. Any failure → the old simple template."""
+    Long-form follows the film template (description_template, operator 2026-10-14): summary,
+    the sourcing promise when the film's ledger earns it, EXACT auto-chapters (timestamps snapped
+    to real per-scene audio durations), RESEARCH & SOURCES built from the claims the narration
+    cites (`research` = description_template.film_research(script, transcript); bare (label, url)
+    `sources` still work), PEOPLE & PLACES from one cheap, fact-checked call, then the CTA,
+    hashtags and the mandatory AI-disclosure line. No "In this video", no "Questions answered",
+    no "Tags:" line: the tags go to pipeline_tags.json beside the description. Social shorts get
+    summary + hashtags. The LLM writes only the LANGUAGE; code owns the timestamps, YouTube
+    chapter rules, citations, layout and the disclosure. Any failure -> the old simple template."""
+    import description_template as _dt
     social = video_format == "social"
     # Exact scene-start times from real narration durations → frame-accurate chapters.
     scene_starts = []
@@ -10900,8 +10924,7 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
            'FIRST sentence names the topic + the core question", "chapters": [{"scene": <int scene '
            'number from the list>, "title": "3-6 word chapter label"}] (6-9 chapters that mark where '
            'the video SHIFTS topic — pick the scene number where each new section BEGINS; the first '
-           'should be scene 1), "in_this_video": ["5-7 keyword-rich bullets of what the viewer '
-           'learns"], "questions_answered": ["4-6 real search-style questions the video answers"], '
+           'should be scene 1), '
            '"hashtags": ["4-6 relevant hashtags WITHOUT the # sign"], "tags": ["~15-18 topic-specific '
            'tags following the TAG ARCHITECTURE, in order (5 exact-premise, 5 consequence, 3 '
            'subject-category, 2-4 format)"]}'
@@ -10924,25 +10947,32 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
         summary = _scrub_description_meta(_s(o.get("summary")))
         if not isinstance(o, dict) or not summary:
             raise ValueError("bad description JSON")
-        parts = [summary]
+        summary_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", summary) if p.strip()]
+        chapters_block = ""
         if want_chapters:
             chapters = _build_chapters(scene_starts, o.get("chapters") or [])
             if chapters:
-                parts.append("⏱️ CHAPTERS\n" + "\n".join(f"{ts} {ti}" for ts, ti in chapters))
+                chapters_block = "⏱️ CHAPTERS\n" + "\n".join(f"{ts} {ti}" for ts, ti in chapters)
+        entries, people, promise = [], [], ""
         if long_form:
-            itv = [_s(b).strip().lstrip("-•").strip() for b in (o.get("in_this_video") or []) if _s(b).strip()]
-            if itv:
-                parts.append("🔎 IN THIS VIDEO\n" + "\n".join(f"• {b}" for b in itv[:7]))
-            qa = [_s(q).strip() for q in (o.get("questions_answered") or []) if _s(q).strip()]
-            if qa:
-                parts.append("❓ QUESTIONS ANSWERED\n" + " ".join(qa[:6]))
-            if sources:
-                parts.append("📚 SOURCES\n" + "\n".join(f"{label}: {url}" for label, url in sources[:5]))
-            parts.append("Subscribe for clear, no-spin explainers on how the world really works — "
-                         "new videos regularly.")
+            entries = list((research or {}).get("entries") or _dt.entries_from_pairs(sources))
+            promise = _s((research or {}).get("promise"))
+            cited = (research or {}).get("claims") or []
+            if cited:
+                people, people_report = _dt.people_and_places(
+                    transcript, cited, _people_places_complete(cost_sink))
+                try:
+                    with open(os.path.join(out_dir, "people_places.json"), "w") as handle:
+                        json.dump(people_report, handle, indent=1, ensure_ascii=False)
+                except OSError:
+                    pass
+        tail = []
+        if long_form:
+            tail.append("Subscribe for clear, no-spin explainers on how the world really works — "
+                        "new videos regularly.")
         tags = [_s(t).strip().lstrip("#").strip() for t in (o.get("hashtags") or []) if _s(t).strip()]
         if tags:
-            parts.append(" ".join("#" + t.replace(" ", "") for t in tags[:6]))
+            tail.append(" ".join("#" + t.replace(" ", "") for t in tags[:6]))
         _raw_tags = [_s(t).strip() for t in (o.get("tags") or []) if _s(t).strip()]
         kw = api_safe_tags(_raw_tags)
         if len(kw) < len(_raw_tags):
@@ -10951,9 +10981,16 @@ def generate_description(title: str, hook: str, transcript: str, out_dir: str,
             print(f"[tags] {len(_raw_tags) - len(kw)} of {len(_raw_tags)} dropped as not API-safe: "
                   + "; ".join(t for t in _raw_tags if t not in kw)[:300])
         if kw:
-            parts.append("Tags: " + ", ".join(kw[:18]))   # full 5/5/3/2-4 architecture
-        parts.append(_DESC_DISCLOSURE)
-        desc = "\n\n".join(parts)
+            # The template has no "Tags:" line (2026-10-14); the 5/5/3/2-4 architecture travels
+            # beside the description for the uploader (scripts/upload_job.build_tags).
+            try:
+                with open(os.path.join(out_dir, PIPELINE_TAGS_FILE), "w") as handle:
+                    json.dump({"tags": kw[:18]}, handle, indent=1, ensure_ascii=False)
+            except OSError:
+                pass
+        tail.append(_DESC_DISCLOSURE)
+        desc, _layout = _dt.compose(summary_paragraphs, promise=promise, chapters=chapters_block,
+                                    entries=entries, people=people, tail=tail)
     except Exception:
         desc = (f"{hook}\n\n{title}\n\n#explainer #education #learning #science #howitworks\n\n"
                 + _DESC_DISCLOSURE)
@@ -15981,6 +16018,7 @@ def run_explainer_pipeline(
     #       thumbnail read it, and every number in it must be spoken in the finished narration.
     import backfire_packaging as _backfire
     import history_packaging as _history
+    import description_template as _desc_template
     # PACKAGING_STYLE=history (Bolt Explains History) wins over the engine test: a history film
     # must never go out as a FATAL ERROR split frame, whichever engine its planner chose.
     _history_packaged = _history.applies(video_format)
@@ -16004,7 +16042,8 @@ def run_explainer_pipeline(
         script.get("title", question), script.get("hook", ""), full_transcript, output_dir,
         cost_sink=aux_costs, question=question, video_format=video_format,
         scene_narr=rendered_narr, scene_durs=rendered_durs,
-        sources=description_sources(script) if video_format != "social" else None)
+        research=(_desc_template.film_research(script, full_transcript)
+                  if video_format != "social" else None))
     log("YouTube description written")
 
     # 4c-ii. Persist the social self-grade (if we graded one).

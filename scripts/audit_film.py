@@ -687,6 +687,14 @@ def audit_packaging(job: str) -> dict:
     meta = re.search(r"optimi[sz]ed layout|rank for key search|drive viewer engagement", desc, re.I)
     tags = next((l for l in desc.splitlines() if l.lower().startswith("tags:")), "")
     tag_list = [t.strip() for t in tags.split(":", 1)[-1].split(",") if t.strip()] if tags else []
+    # The description template has no "Tags:" line (2026-10-14): the pipeline's tags sit beside
+    # it in pipeline_tags.json, and the uploaded ones in tags.json.
+    for name in ("tags.json", "pipeline_tags.json"):
+        if not tag_list and os.path.isfile(os.path.join(job, name)):
+            try:
+                tag_list = list(json.load(open(os.path.join(job, name))).get("tags") or [])
+            except ValueError:
+                pass
     return _section("Packaging", [
         ("title within 100 chars", 0 < len(title) <= 100, f"{len(title)}: {title[:60]}", 1),
         ("description has chapters", "CHAPTERS" in desc, "yes" if "CHAPTERS" in desc else "missing", 2),

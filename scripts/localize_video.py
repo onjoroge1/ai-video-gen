@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Translated titles, descriptions and subtitles for a live video (operator, 2026-10-11).
 
-    python3 scripts/localize_video.py eWJr_iwUNx4 --job jobs/asian-carp [--langs es,pt,id,hi]
-                                      [--channel world] [--no-captions] [--dry-run]
+    python3 scripts/localize_video.py eWJr_iwUNx4 --job jobs/asian-carp [--langs es,pt,id,hi,de,fr,it]
+                                      [--channel world] [--no-captions] [--if-changed] [--dry-run]
 
 YouTube shows a localized title and description to viewers whose YouTube language matches, in
 search, suggestions and the home feed. The narration stays English, so each language also gets a
@@ -11,6 +11,17 @@ an English film. Translates the video's LIVE title and description (the operator
 Studio after upload), checks every translation keeps each number, URL and chapter timestamp, and
 writes <job>/localizations.json. Needs the youtube.force-ssl scope (scripts/youtube_oauth_setup.py).
 Existing localizations in other languages and existing caption tracks are left as they are.
+
+The film description template (description_template, 2026-10-14) survives translation: each
+source's citation line stays in its original language, its "↳" finding and the People & Places
+lines are translated, every number the English states must still be there, and no "↳" or People
+& Places line may state a number the English does not. A translation over YouTube's 5000-byte
+description limit (Hindi takes about 2.5 times the bytes) sheds, until it fits, "↳" findings one
+at a time from the least-used source up, then its People & Places section, then whole source
+entries from the end (fit_translation); only what it shed is excused from the checks. A
+language skipped for an unchanged English source is not retried until the English changes.
+--if-changed re-translates every language when the live English title or description changed,
+and otherwise only the languages not yet done.
 """
 from __future__ import annotations
 
@@ -20,21 +31,191 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 LANG_NAMES = {"es": "Spanish (Latin American)", "pt": "Portuguese (Brazilian)",
-              "id": "Indonesian", "hi": "Hindi", "de": "German", "fr": "French",
+              "id": "Indonesian", "hi": "Hindi", "de": "German", "fr": "French", "it": "Italian",
               "tr": "Turkish", "ko": "Korean", "ja": "Japanese", "ar": "Arabic"}
+# German, French and Italian added 2026-10-14 (operator); the routine passes its own --langs.
+DEFAULT_LANGS = "es,pt,id,hi,de,fr,it"
+# YouTube's description limit is 5000 BYTES (videos resource); one localization over it fails
+# the whole videos.update that carries every language.
+MAX_DESCRIPTION_BYTES = 5000
+FINDING_MARK = "↳"
+PEOPLE_MARK = "📍"
+RESEARCH_HEADER = "RESEARCH & SOURCES"
 MODEL = os.environ.get("LOCALIZE_MODEL", "claude-sonnet-5-5")
 _URL = re.compile(r"https?://\S+")
+_YOUTUBE = re.compile(r"(?:youtube\.com|youtu\.be)/", re.I)
 _TIMESTAMP = re.compile(r"^\s*(\d{1,2}:\d{2}(?::\d{2})?)\b", re.M)
 
 
-def _numbers(text: str) -> set[str]:
-    return set(re.findall(r"\d+(?:[.,]\d+)?", text or ""))
+# A number however a language groups or points it: 60,000 / 60.000 / 60 000 are 60000, 1.5 and
+# 1,5 are 1.5 (but 15 is not 1.5); native digits (Devanagari) read as ASCII. A grouped number never
+# starts right after a digit or a ':' -- "3:39 150 to 200" is 3, 39, 150 and 200, not 39150 -- and
+# chapter timestamps (checked on their own) are taken out of descriptions before numbers are
+# compared. Used for the title, the description and every subtitle cue alike: a literal compare
+# failed German/French/Italian (and es/pt/id) "1,5 Millionen" against "1.5 million".
+_GROUPED_NUMBER = re.compile(r"(?<![\d:])\d{1,3}(?:[,.\u00a0\u202f\u2009 ]\d{3})+(?!\d)"
+                             r"|\d+(?:[.,]\d+)?")
+_TIMESTAMP_PREFIX = re.compile(r"(?m)^\s*\d{1,2}:\d{2}(?::\d{2})?\b")
+
+
+def _ascii_digits(text: str) -> str:
+    return "".join(str(unicodedata.decimal(ch)) if ch.isdecimal() and not ch.isascii() else ch
+                   for ch in text or "")
+
+
+def _number_forms(token: str) -> frozenset[str]:
+    """The values a written number can mean. "60,000" and "60.000" are 60000 in one convention and
+    60.000 in the other, so both; "60 000" is only 60000; "1.5" and "1,5" are only 1.5."""
+    groups = re.split(r"\D", token)
+    forms = set()
+    if len(groups) == 1:
+        forms.add(groups[0].lstrip("0") or "0")
+    else:
+        if len(groups[0]) <= 3 and all(len(g) == 3 for g in groups[1:]):
+            forms.add("".join(groups).lstrip("0") or "0")
+        if len(groups) == 2 and token[len(groups[0])] in ".,":
+            forms.add(f"{groups[0].lstrip('0') or '0'}.{groups[1]}")
+    return frozenset(forms)
+
+
+def number_tokens(text: str, timestamps: bool = True) -> list[tuple[str, frozenset[str]]]:
+    """(as written, its possible values) for each number in `text`; `timestamps` False first takes
+    out line-leading chapter timestamps."""
+    text = _ascii_digits(text)
+    if not timestamps:
+        text = _TIMESTAMP_PREFIX.sub("", text)
+    return [(m.group(0), _number_forms(m.group(0))) for m in _GROUPED_NUMBER.finditer(text)]
+
+
+def lost_numbers(source: str, translated: str, timestamps: bool = True) -> list[str]:
+    """The numbers of `source` (as written) that `translated` does not state in any convention."""
+    have: set[str] = set()
+    for _, forms in number_tokens(translated, timestamps):
+        have |= forms
+    return sorted({token for token, forms in number_tokens(source, timestamps) if not forms & have})
+
+
+def description_numbers(text: str) -> set[str]:
+    """Every value the numbers of a description (timestamps aside) can mean."""
+    return set().union(*(forms for _, forms in number_tokens(text, timestamps=False)))
+
+
+def _blocks(text: str) -> list[list[str]]:
+    return [b.split("\n") for b in re.split(r"\n[ \t]*\n", (text or "").strip()) if b.strip()]
+
+
+def _join(blocks: list[list[str]]) -> str:
+    return "\n\n".join("\n".join(b) for b in blocks if any(l.strip() for l in b))
+
+
+def _bare_url(line: str) -> str:
+    line = line.strip()
+    return line if re.fullmatch(r"https?://\S+", line) else ""
+
+
+def research_entries(blocks: list[list[str]]) -> list[dict]:
+    """The template's research entries, in order: {"block", "url", "citation", "finding"}.
+
+    The section starts at the block whose first line starts with 📚 (in any language) and runs
+    through the following blocks shaped like an entry: a citation line, a bare URL, optionally a
+    "↳" finding. The first entry shares the header's block. A YouTube link (a Short, a playlist)
+    is never a source: it ends the section, so a two-line "Short version:" block is not shed."""
+    start = next((i for i, b in enumerate(blocks) if b and b[0].strip().startswith("📚")), None)
+    if start is None:
+        return []
+    out = []
+    for index in range(start, len(blocks)):
+        lines = blocks[index][1:] if index == start else blocks[index]
+        urls = [(n, _bare_url(l)) for n, l in enumerate(lines) if _bare_url(l)]
+        if urls and _YOUTUBE.search(urls[0][1]):
+            break
+        if not urls or urls[0][0] == 0:
+            if index == start:
+                continue
+            break
+        n, url = urls[0]
+        after = [l.strip() for l in lines[n + 1:]]
+        out.append({"block": index, "url": url, "citation": lines[n - 1].strip(),
+                    "finding": next((l for l in after if l.startswith(FINDING_MARK)), "")})
+    return out
+
+
+def _people_block(blocks: list[list[str]]) -> int | None:
+    return next((i for i, b in enumerate(blocks) if b and b[0].strip().startswith(PEOPLE_MARK)), None)
+
+
+def strip_sections(text: str, findings=(), sources=(), people: bool = False) -> str:
+    """`text` without the "↳" lines under the URLs in `findings`, the whole entries of the URLs
+    in `sources` (the 📚 header too once no entry is left), and the People & Places block."""
+    findings, sources = set(findings) | set(sources), set(sources)
+    blocks = _blocks(text)
+    entries = research_entries(blocks)
+    for entry in entries:
+        block = blocks[entry["block"]]
+        if entry["url"] in sources:
+            header = block[0] if entry["block"] == entries[0]["block"] else None
+            others = [e for e in entries if e["url"] not in sources]
+            blocks[entry["block"]] = [header] if header is not None and others else []
+        elif entry["url"] in findings:
+            blocks[entry["block"]] = [l for l in block if not l.strip().startswith(FINDING_MARK)]
+    if people:
+        index = _people_block(blocks)
+        if index is not None:
+            blocks[index] = []
+    return _join(blocks)
+
+
+def fit_translation(translated: dict, limit: int = MAX_DESCRIPTION_BYTES) -> dict:
+    """A translated description cut to YouTube's byte limit, shedding only as much as it must: "↳"
+    findings one at a time from the last (least-used) source up, then the People & Places
+    section, then whole source entries from the end. The summary, chapters, links and footer are
+    never cut. `_removed` records what went, for check_translation; main() copies only the title
+    and description into the localization."""
+    desc = translated.get("description", "")
+    removed = {"findings": [], "people": False, "sources": []}
+
+    def over(text):
+        return len(text.encode("utf-8")) > limit
+
+    while over(desc):
+        entries = research_entries(_blocks(desc))
+        with_finding = [e for e in entries if e["finding"]]
+        if with_finding:
+            removed["findings"].append(with_finding[-1]["url"])
+            desc = strip_sections(desc, findings=[with_finding[-1]["url"]])
+        elif not removed["people"] and _people_block(_blocks(desc)) is not None:
+            removed["people"] = True
+            desc = strip_sections(desc, people=True)
+        elif entries:
+            removed["sources"].append(entries[-1]["url"])
+            desc = strip_sections(desc, sources=[entries[-1]["url"]])
+        else:
+            break
+    out = {**translated, "description": desc}
+    if any(removed.values()):
+        out["_removed"] = removed
+    return out
+
+
+def citations(description: str) -> dict[str, str]:
+    """{url: citation line} for the template's research section: a source's citation stays in its
+    own language. An older description's free-form labels are not held to it."""
+    if RESEARCH_HEADER not in (description or ""):
+        return {}
+    return {e["url"]: e["citation"] for e in research_entries(_blocks(description))
+            if e["citation"] and not _URL.search(e["citation"])
+            and not e["citation"].startswith(("📚", "📍", "⏱", FINDING_MARK))}
+
+
+def citation_lines(description: str) -> list[str]:
+    return list(citations(description).values())
 
 
 def check_translation(source: dict, translated: dict) -> list[str]:
@@ -43,17 +224,55 @@ def check_translation(source: dict, translated: dict) -> list[str]:
     title, desc = translated.get("title", ""), translated.get("description", "")
     if not title.strip() or len(title) > 100:
         problems.append(f"title empty or over 100 characters ({len(title)})")
-    if len(desc) > 5000:
-        problems.append(f"description over 5000 characters ({len(desc)})")
-    missing = _numbers(source["title"]) - _numbers(title)
+    size = len(desc.encode("utf-8"))
+    if size > MAX_DESCRIPTION_BYTES:
+        problems.append(f"description over {MAX_DESCRIPTION_BYTES} bytes ({size})")
+    missing = lost_numbers(source["title"], title)
     if missing:
-        problems.append(f"title lost numbers {sorted(missing)}")
-    for url in _URL.findall(source["description"]):
+        problems.append(f"title lost numbers {missing}")
+    # The English is held to the translation minus ONLY what fit_translation removed, never
+    # minus whatever the model happened to drop (a lost "↳" or 📍 marker is a lost section).
+    removed = translated.get("_removed") or {}
+    gone_findings = set(removed.get("findings") or [])
+    gone_sources = set(removed.get("sources") or [])
+    english = strip_sections(source["description"], findings=gone_findings, sources=gone_sources,
+                             people=bool(removed.get("people")))
+    for url in _URL.findall(english):
         if url not in desc:
             problems.append(f"description lost URL {url}")
-    lost = set(_TIMESTAMP.findall(source["description"])) - set(_TIMESTAMP.findall(desc))
+    lost = set(_TIMESTAMP.findall(english)) - set(_TIMESTAMP.findall(desc))
     if lost:
         problems.append(f"description lost chapter timestamps {sorted(lost)}")
+    lost = lost_numbers(english, desc, timestamps=False)
+    if lost:
+        problems.append(f"description lost numbers {lost}")
+    english_blocks, desc_blocks = _blocks(english), _blocks(desc)
+    have = {e["url"]: e for e in research_entries(desc_blocks)}
+    for entry in research_entries(english_blocks):
+        if entry["finding"] and not (have.get(entry["url"]) or {}).get("finding"):
+            problems.append(f"description lost the finding under {entry['url']}")
+    expected = sum(1 for l in english.split("\n") if l.strip().startswith(FINDING_MARK))
+    found = sum(1 for l in desc.split("\n") if l.strip().startswith(FINDING_MARK))
+    if found != expected:
+        problems.append(f"description has {found} '{FINDING_MARK}' finding lines, not {expected}")
+    people_en, people_tr = _people_block(english_blocks), _people_block(desc_blocks)
+    if people_en is not None:
+        if people_tr is None:
+            problems.append("description lost the People & Places section")
+        elif len(desc_blocks[people_tr]) != len(english_blocks[people_en]):
+            problems.append(f"description has {len(desc_blocks[people_tr]) - 1} People & Places "
+                            f"lines, not {len(english_blocks[people_en]) - 1}")
+    # A finding or People & Places line may not state a number the English never does.
+    claimed = [l for l in desc.split("\n") if l.strip().startswith(FINDING_MARK)]
+    if people_tr is not None:
+        claimed += desc_blocks[people_tr][1:]
+    added = lost_numbers("\n".join(claimed), source["description"], timestamps=False)
+    if added:
+        problems.append(f"description added numbers {added}")
+    kept = {l.strip() for l in desc.split("\n")}
+    for url, line in citations(source["description"]).items():
+        if url not in gone_sources and line not in kept:
+            problems.append(f"description changed a source citation: {line[:80]}")
     return problems
 
 
@@ -80,7 +299,11 @@ def translate_metadata(title: str, description: str, lang: str) -> dict:
         "not more than 45 (es and id read it that way, 2026-10-11). "
         "Translate the description faithfully: keep every number exactly, every "
         "URL unchanged, every chapter line's timestamp unchanged (translate only its label), "
-        "hashtags unchanged, line breaks kept. Add no claim the English does not make. "
+        "hashtags unchanged, line breaks and blank lines kept, every emoji kept. In the research "
+        "and sources section, the line just above each URL names the source: copy it exactly as "
+        "written, in its original language; translate only the lines that start with '↳' (keep "
+        "the '↳'). In the people and places section, keep each name as spelled, keep the ' — ' "
+        "after it and translate the rest of the line. Add no claim the English does not make. "
         "Return ONLY JSON {\"title\": \"...\", \"description\": \"...\"}.")
     return _ask(system, json.dumps({"title": title, "description": description}, ensure_ascii=False))
 
@@ -114,16 +337,48 @@ def translate_captions(cues: list[dict], lang: str) -> list[dict]:
             raise ValueError(f"{lang}: {len(texts)} caption cues back for {len(batch)} sent")
         out += [{**cue, "text": str(text).strip()} for cue, text in zip(batch, texts)]
     for source, translated in zip(cues, out):
-        if _numbers(source["text"]) - _numbers(translated["text"]):
-            raise ValueError(f"{lang}: cue {source['index']} lost a number")
+        lost = lost_numbers(source["text"], translated["text"])
+        if lost:
+            raise ValueError(f"{lang}: cue {source['index']} lost a number {lost}")
     return out
+
+
+def plan_languages(previous: dict, source: dict, wanted: list[str], video_id: str,
+                   if_changed: bool) -> tuple[list[str], str, bool]:
+    """(languages to translate now, a note, whether existing caption tracks need nothing).
+
+    Without --if-changed, or with no record for this video: every requested language. With it: a
+    changed live English title or description (a retitle, or a re-described film) re-translates
+    every requested language's metadata; an unchanged one translates only the languages not yet
+    done (de/fr/it added 2026-10-14), so adding languages does not re-buy the others."""
+    if not (if_changed and previous.get("video_id") == video_id):
+        return wanted, "", False
+    languages = previous.get("languages") or {}
+    # A language skipped for this same English (Hindi over the byte limit, say) would fail the
+    # same way again: it is done until the English changes, so unchanged runs buy nothing.
+    done = {lang for lang, entry in languages.items()
+            if isinstance(entry, dict) and isinstance(entry.get("metadata"), dict)
+            and (entry["metadata"].get("title") or entry["metadata"].get("skipped"))}
+    if previous.get("source") == source:
+        missing = [lang for lang in wanted if lang not in done]
+        if not missing:
+            return [], "unchanged: live title and description match the localized source; nothing to do", False
+        return missing, f"live title and description unchanged; translating the missing {missing}", False
+    # The narration and its subtitles have not changed, so existing caption tracks are kept --
+    # unless a language's track failed before (captions_error), which this run may retry; main()
+    # still skips every language that already has a track on YouTube.
+    keep = set(wanted) <= set(languages) and not any(
+        isinstance(languages.get(lang), dict) and languages[lang].get("captions_error")
+        for lang in wanted)
+    return (wanted, "live title or description changed since the last localization; re-translating",
+            keep)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("video_id")
     parser.add_argument("--job", required=True)
-    parser.add_argument("--langs", default="es,pt,id,hi")
+    parser.add_argument("--langs", default=DEFAULT_LANGS)
     parser.add_argument("--channel", default="world", choices=["world", "history"])
     parser.add_argument("--no-captions", action="store_true")
     parser.add_argument("--if-changed", action="store_true",
@@ -160,28 +415,26 @@ def main(argv=None) -> int:
             previous = json.load(open(record_path, encoding="utf-8"))
         except ValueError:
             previous = {}
-    wanted = [l.strip() for l in args.langs.split(",") if l.strip()]
-    if args.if_changed and previous.get("video_id") == args.video_id:
-        done = {lang for lang, entry in (previous.get("languages") or {}).items()
-                if isinstance(entry.get("metadata"), dict) and entry["metadata"].get("title")}
-        if previous.get("source") == source and set(wanted) <= done:
-            print("unchanged: live title and description match the localized source; nothing to do")
-            return 0
-        if previous.get("source") != source:
-            # A retitle in Studio: re-translate the metadata; the narration and its subtitles
-            # have not changed, so existing caption tracks are kept.
-            args.no_captions = args.no_captions or set(wanted) <= set(
-                (previous.get("languages") or {}).keys())
-            print("live title or description changed since the last localization; re-translating")
+    wanted, note, keep_captions = plan_languages(
+        previous, source, [l.strip() for l in args.langs.split(",") if l.strip()],
+        args.video_id, args.if_changed)
+    if note:
+        print(note)
+    if not wanted:
+        return 0
+    args.no_captions = args.no_captions or keep_captions
     # Runs for a subset of languages add to the record instead of replacing it.
     record = {"video_id": args.video_id, "source": source, "model": MODEL,
               "languages": dict(previous.get("languages") or {}) if previous.get("video_id") == args.video_id else {}}
     for lang in wanted:
         entry: dict = {}
-        translated = translate_metadata(source["title"], source["description"], lang)
+        translated = fit_translation(translate_metadata(source["title"], source["description"], lang))
         problems = check_translation(source, translated)
-        if problems:      # one retry, then skip the language rather than ship a broken one
-            translated = translate_metadata(source["title"], source["description"], lang)
+        # One retry, then skip the language rather than ship a broken one. Size alone is not
+        # retried: fit_translation has already shed all it may, and a new call would not fit.
+        if problems and not all(p.startswith("description over") for p in problems):
+            translated = fit_translation(
+                translate_metadata(source["title"], source["description"], lang))
             problems = check_translation(source, translated)
         if problems:
             entry["metadata"] = {"skipped": problems}

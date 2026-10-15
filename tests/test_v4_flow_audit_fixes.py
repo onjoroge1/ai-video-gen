@@ -174,8 +174,11 @@ def test_a_short_long_form_film_still_ships_sources_and_chapters(monkeypatch, tm
     text = open(path, encoding="utf-8").read()
     assert "SOURCES" in text and "okstate.edu" in text
     assert "CHAPTERS" in text, "13 scenes 7.9s apart give more than three chapter slots"
-    assert "IN THIS VIDEO" in text
-    assert "far too long to survive" not in text, "the Tags line is API-safe"
+    # The film template (2026-10-14) retired IN THIS VIDEO, QUESTIONS and the Tags: line; the
+    # API-safe tags travel in pipeline_tags.json instead.
+    assert "IN THIS VIDEO" not in text and "QUESTIONS" not in text and "Tags:" not in text
+    tags = json.load(open(tmp_path / ep.PIPELINE_TAGS_FILE))["tags"]
+    assert tags == ["killer bees explained"], "the over-long tag is dropped as not API-safe"
 
 
 def test_a_two_scene_film_keeps_its_sources_without_chapters(monkeypatch, tmp_path):
