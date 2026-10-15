@@ -235,3 +235,16 @@ One `render_disk_recovery_v1` continuation may resume an exact checkpoint after 
 in `error` or `storage_error`, subject to the same no-lease, no-reservation, remaining-budget and
 only-unfinished-zero-cost-FFmpeg checks. A consumed disk marker blocks another requeue. This is
 infrastructure recovery under the existing approval, not a new video or a relaxed quality gate.
+
+The illustrated lane's 45-second opening must grade at least B (80) on Retention Readiness with
+no hard failure before the full film is bought. A 69 D is almost always the semantic_sync cap: too
+few cuts land on their narration phrase. `opening_retry.py` first re-cuts the paid opening at $0
+(drop crowded crops, re-anchor to the clause start, drop crowded pictures down to the opening
+floor; never the callback source or a paid motion state), then may make one checked anchor-rebind
+model call. Its decision is saved to `opening_retry.json` and replayed on resume only if a $0
+re-score still matches. When no re-cut can reach B, the shortfall is in the script, and the run
+stops with `OpeningBelowB` and `opening_retry_report.txt` before the later images are bought.
+When cut placement alone still fails, the run continues degraded, which blocks routine uploads.
+`OPENING_RETRY=0` disables the retry. `OPENING_RETRY_ALLOW_BELOW_B=1` is an operator-only
+override; the routine never sets it. The grade is an editorial craft gate, not a retention
+prediction: it has not yet been calibrated against real audience retention.
