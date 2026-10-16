@@ -3940,6 +3940,44 @@ def expansion_survives_the_ledger(new_narration: str, event_text: str, *,
 _MIX_EDIT_MAX_GROWTH = 15          # words a rewritten scene may gain
 
 
+_MIX_ADDRESS_RULE = (
+    "- an INTERPRETIVE or VIEWER-ADDRESSED sentence restates THIS scene's own "
+    "event from the viewer's side (\"you\", \"your\", \"imagine\", "
+    "\"picture\") or compares and evaluates it; it adds no fact.\n")
+# Witness films ban "Picture/Imagine/Think about" after the role frame (hook_patterns.WITNESS_*),
+# and the rule above asks for exactly that: Chernobyl's gate edit (2026-10-16) ran after the
+# witness polish and put "Imagine leaving your home knowing you would never return to it." and
+# "Picture the one shield built to hold it all back, now punctured itself." into the film.
+_MIX_WITNESS_ADDRESS_RULE = (
+    "- a VIEWER-ADDRESSED sentence is a plain second-person STATEMENT of THIS scene's own fact, "
+    "as it fell on the people there (\"If you lived there, you were not going home.\", \"Your "
+    "street was inside the line.\"); an INTERPRETIVE sentence compares or evaluates the event. "
+    "Neither adds a fact. THIS IS A WITNESS FILM: no sentence may begin \"Picture\", \"Imagine\" "
+    "or \"Think about\", and no sentence may be rhetorical filler that carries no fact, cause or "
+    "turn (\"Think about that.\", \"Let that sink in.\") -- such a rewrite is thrown away and the "
+    "draft line stays. Keep agency literal: say what struck what, never a reflexive (\"punctured "
+    "itself\") the event does not state.\n")
+
+
+def _mix_edit_witness_defect(scenes: list, index: int, new: str) -> str:
+    """The witness defect a sentence-mix rewrite of scene `index` would ADD, or "": a FILLER
+    sentence the draft scene did not have, else any (scene, code) script_editor's witness check
+    reports on the edited script and not on the draft (a continuation re-telling its beat, a
+    recapping close). Free, so it is asked before the judge is paid."""
+    import script_editor as _se
+    sc = scenes[index - 1]
+    edited = {**sc, "narration": new}
+    had = {s.casefold() for s in _se.witness_filler_sentences(sc)}
+    filler = [s for s in _se.witness_filler_sentences(edited) if s.casefold() not in had]
+    if filler:
+        return f"FILLER ({filler[0][:40]!r})"
+
+    def _keys(rows):
+        return {(d["scene"], d["code"]) for d in _se.detect_witness_defects({"scenes": rows})}
+    new_defects = sorted(_keys(scenes[:index - 1] + [edited] + scenes[index:]) - _keys(scenes))
+    return f"{new_defects[0][1]} on scene {new_defects[0][0]}" if new_defects else ""
+
+
 def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=None,
                                  cache: dict | None = None, log=print,
                                  stage: str = "generation") -> tuple[list, float, bool]:
@@ -3955,10 +3993,18 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
     MAX_HINGE_WORDS, and never touches scene 1 (its lead is the hook and cold open). Then the
     bands are measured again and both readings are logged with the scenes held and why.
 
+    In witness mode (hook_patterns.witness_mode) the address is asked for as a plain "you"
+    statement, and a rewrite that adds a witness defect the draft did not have -- a FILLER
+    "Picture/Imagine/Think about" sentence above all -- is held back before the judge is paid.
+    The gate edit runs after the witness polish, so nothing downstream would catch it.
+
     Same shape as the length top-up and _ensure_hinge_fits_budget; returns (scenes, cost, changed).
     """
     import causal_story as _cs
+    import hook_patterns as _hp
     import story_fact_model as _sfm
+
+    witness = _hp.witness_mode()
 
     def _texts():
         return ([_s(sc.get("narration")) for sc in scenes],
@@ -4052,10 +4098,8 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
                        "question the viewer would now ask. Refer back ONLY by pronoun or article; a "
                        "hinge joint is the gap form, never a question, and a hinge stays at most "
                        f"{_HINGE_WORDS} words.\n"
-                       "- an INTERPRETIVE or VIEWER-ADDRESSED sentence restates THIS scene's own "
-                       "event from the viewer's side (\"you\", \"your\", \"imagine\", "
-                       "\"picture\") or compares and evaluates it; it adds no fact.\n"
-                       "You may NOT add a number, date, place, named person, quantity or motive that "
+                       + (_MIX_WITNESS_ADDRESS_RULE if witness else _MIX_ADDRESS_RULE)
+                       + "You may NOT add a number, date, place, named person, quantity or motive that "
                        "neither the scene's `event` nor its `claims_cited` contain -- a judge refuses "
                        "the rewrite and the draft line stays. Every phrase in `locked_phrases` is "
                        "sourced and MUST appear verbatim (a joint may be added IN FRONT of such a "
@@ -4094,6 +4138,10 @@ def _ensure_sentence_mix_in_band(scenes: list, dossier: dict | None, cost_sink=N
                    and _s(ref.get("narration_phrase")).casefold() not in new.casefold()]
         if missing:
             held.append(f"{index}: dropped a sourced phrase ({missing[0][:40]!r})")
+            continue
+        added = _mix_edit_witness_defect(scenes, index, new) if witness else ""
+        if added:
+            held.append(f"{index}: witness {added}")
             continue
         ceiling = _sfm.scene_ceiling(sc, by_id, claims)
         if not ceiling.strip():
