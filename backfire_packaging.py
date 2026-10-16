@@ -32,7 +32,8 @@ import nature_channel
 # Both world-channel intervention shapes: "we introduced X" and "we removed X". The reference set
 # has one of each (a rat bounty that bred rats; sparrows and cats removed, locusts and rabbits
 # exploded). Indictment and power-reversal films are a different promise and keep the default look.
-ENGINES = frozenset({"backfiring_solution", "removed_keystone"})
+# unfolding_consequence (2026-10-15): a fix and what it released -- the same World promise.
+ENGINES = frozenset({"backfiring_solution", "removed_keystone", "unfolding_consequence"})
 HEADLINE = ("FATAL", "ERROR")
 YELLOW = (250, 232, 20)
 RED = (255, 28, 28)

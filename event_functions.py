@@ -128,6 +128,18 @@ COST_RECKONED = "cost_reckoned"
 # History rather than a natural disaster. Optional: many programmes left no recorded warning.
 WARNING_RECORDED = "warning_recorded"
 
+# --- the unfolding_consequence family (Bolt Explains the World, present consequence) ----------
+# A fix is adopted -- a safety test, a seawall, a plant, a practice -- and what it released is
+# still unfolding today. Nobody exploits a reward, so changes_incentive has no referent (Chernobyl,
+# 2026-10-15: the planner filed the evacuation as the incentive), and no species is moved. Every
+# step is a recorded fact, so nothing is derived; CONSEQUENCE_PATHWAY is the documented physical
+# link (the core exploded and scattered long-lived isotopes), not a relationship to compute.
+# ESTABLISHES_PROBLEM, APPARENT_SUCCESS and WARNING_RECORDED are shared with the other shapes.
+FIX_ADOPTED = "fix_adopted"
+CONSEQUENCE_PATHWAY = "consequence_pathway"
+CONSEQUENCE_SPREADS = "consequence_spreads"
+STILL_UNFOLDING = "still_unfolding"
+
 EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXPLOIT_BEHAVIOR,
                    COMPOUNDS_EXPLOIT, OUTCOME_STATE,
                    PLAN_PROPOSED, GAINS_BACKING, OPPOSITION_MOUNTS, COLLAPSE_CAUSE,
@@ -139,6 +151,7 @@ EVENT_FUNCTIONS = (ESTABLISHES_PROBLEM, CHANGES_INCENTIVE, APPARENT_SUCCESS, EXP
                    CONSTRAINT_FOUND, OUTCOME_FOR_YOUNG,
                    PROGRAMME_IMPOSED, HARM_PATHWAY, HARM_ACCUMULATES, COST_RECKONED,
                    WARNING_RECORDED,
+                   FIX_ADOPTED, CONSEQUENCE_PATHWAY, CONSEQUENCE_SPREADS, STILL_UNFOLDING,
                    CONTEXT, PARALLEL_CASE)
 
 # Deliberately NOT load-bearing. It reads like the natural home for the ending and it is a trap:
@@ -251,11 +264,27 @@ WHAT_EACH_FUNCTION_IS = {
                    "the sea at a fraction of its size, the toll published, the programme "
                    "repealed and what it left behind. Exactly one beat. 'The programme failed' "
                    "is not enough: say what became of the people or the place",
-    WARNING_RECORDED: "a documented moment when the programme's own experts, officials or critics "
+    WARNING_RECORDED: "a documented moment when the programme's (or the fix's) own experts, officials or critics "
                       "stated the harm it would cause, before or while it was carried out: who "
                       "said it, when, as the record gives it. Not the harm itself, and never a "
                       "motive -- it records that the cost was known, not why it was accepted. "
                       "At most one beat",
+    FIX_ADOPTED: "the moment the fix was deliberately carried out or adopted -- a test run, a "
+                 "defence built, a plant opened, a product or practice put into use -- with who "
+                 "did it and what it was meant to achieve, as the record gives it. Exactly one "
+                 "beat; the problem it answered is establishes_problem",
+    CONSEQUENCE_PATHWAY: "the documented physical link between what the fix did and the "
+                         "consequence it released, stated as a recorded fact: 'the core exploded "
+                         "and scattered radioactive material', 'the wave overtopped the wall'. "
+                         "Not a motive, and not yet the reach of the consequence",
+    CONSEQUENCE_SPREADS: "a further documented step of the consequence, in the order it "
+                         "happened: land closed, people moved, a substance persisting, a second "
+                         "structure needed, a new failure. May repeat; each one a distinct sourced "
+                         "step -- a further reach, a further scale, a further cost",
+    STILL_UNFOLDING: "the consequence as it stands TODAY, as current record: what is still "
+                     "closed, burning, leaking, spreading or being repaired, and what that costs. "
+                     "Exactly one beat, from a recent source. 'The fix failed' is not enough: say "
+                     "what the place or the people live with now",
 }
 
 
@@ -489,9 +518,44 @@ STATE_PROGRAMME = EngineFunctionMap(
                    "is shown, returning to the opening; no new facts and no motive attributed to "
                    "anyone the story has not shown deciding"})
 
+# World's present-consequence shape (2026-10-15): state_programme's milestones for a fix rather
+# than a state programme, closing on World's tool device (a question the viewer can reuse) rather
+# than History's verdict. apparent_success and warning_recorded are optional, as there.
+UNFOLDING_CONSEQUENCE = EngineFunctionMap(
+    "unfolding_consequence",
+    required=(ESTABLISHES_PROBLEM, FIX_ADOPTED, CONSEQUENCE_PATHWAY, CONSEQUENCE_SPREADS,
+              STILL_UNFOLDING),
+    to_role={ESTABLISHES_PROBLEM: "setup",
+             FIX_ADOPTED: "intervention",
+             APPARENT_SUCCESS: "false_resolution",
+             WARNING_RECORDED: "hinge",
+             CONSEQUENCE_PATHWAY: "mechanism",
+             CONSEQUENCE_SPREADS: "escalation",
+             STILL_UNFOLDING: "reversal",
+             PARALLEL_CASE: "generalization",
+             OUTCOME_STATE: "context", CONTEXT: "context"},
+    # A physical consequence is described as a process ("caesium-137 has a half-life of 30
+    # years"), which the classifier files as mechanism -- the same refusal state_programme and
+    # removed_keystone carry an exception for. Boundary A still rules on every beat.
+    claim_kinds={"setup": ("event", "context", "outcome", "mechanism"),
+                 "escalation": ("event", "context", "outcome", "mechanism"),
+                 "reversal": ("event", "context", "outcome", "mechanism")},
+    role_meanings={
+        "setup": "the problem the fix was meant to solve, as it stood before the fix",
+        "intervention": "the fix carried out or adopted, and what it was meant to achieve",
+        "false_resolution": "the fix working, or looking like it worked, on its own terms",
+        "hinge": "the record that the danger was known: a warning given, a flaw reported",
+        "mechanism": "how the fix released the consequence, as a recorded physical fact",
+        "escalation": "the consequence spreading or persisting, one further documented step each "
+                      "scene",
+        "reversal": "what the place or the people live with today",
+        "tool": "a narration device, not a fact: one useful question the viewer can reuse, "
+                "returning to the opening; no new facts"})
+
 MAPS = {engine.engine_id: engine
         for engine in (BACKFIRING_SOLUTION, ALMOST_HAPPENED_PLAN, REMOVED_KEYSTONE,
-                       MISTAKEN_VERDICT, STRANGE_BEHAVIOUR, STATE_PROGRAMME)}
+                       MISTAKEN_VERDICT, STRANGE_BEHAVIOUR, STATE_PROGRAMME,
+                       UNFOLDING_CONSEQUENCE)}
 
 
 def map_for(engine_id: str) -> EngineFunctionMap | None:

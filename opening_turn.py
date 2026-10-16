@@ -19,7 +19,7 @@ on a ladder opening (the 10-07 contract made the shorts-fitted ones advisory); i
 semantically, by the opening read's verbatim "turn" quote, and checked deterministically.
 
 SCOPE. OPENING_MODE=ladder (contract ladder_v1, myth included) films of removed_keystone,
-backfiring_solution and state_programme at a requested runtime of 225 s or more. Below 225 s the
+backfiring_solution, state_programme and unfolding_consequence at a requested runtime of 225 s or more. Below 225 s the
 20% cap is already under 45 s; hook mode and the reveal engines are untouched.
 
 MEASUREMENT.
@@ -65,7 +65,8 @@ TURN_TARGET_SEC = 40.0
 WORDS_PER_SECOND = SLOWEST_MEASURED_WORDS_PER_SECOND
 TURN_LIMIT_WORDS = int(TURN_LIMIT_SEC * WORDS_PER_SECOND)     # 116
 TURN_TARGET_WORDS = int(TURN_TARGET_SEC * WORDS_PER_SECOND)   # 103
-TURN_ENGINES = frozenset({"removed_keystone", "backfiring_solution", "state_programme"})
+TURN_ENGINES = frozenset({"removed_keystone", "backfiring_solution", "state_programme",
+                          "unfolding_consequence"})
 TURN_MIN_RUNTIME_SEC = 225.0
 LATE_TURN = "LATE_TURN"
 # The one opening row that may GROW in the turn revision: the row that receives the consequence
@@ -204,7 +205,8 @@ def consequence_shape(engine_id: str | None, consequence_claims, mechanism_claim
     """A: the consequence is its own fact, told before the mechanism. B: it is (part of) the
     mechanism's event -- always for state_programme, whose harm_pathway IS the mechanism -- or
     unknown, which is measured as B because B never under-measures."""
-    if _text(engine_id).lower() == "state_programme":
+    # unfolding_consequence: consequence_pathway IS the mechanism, as harm_pathway is.
+    if _text(engine_id).lower() in ("state_programme", "unfolding_consequence"):
         return "B"
     wanted = {_text(c) for c in consequence_claims or [] if _text(c)}
     if not wanted:
