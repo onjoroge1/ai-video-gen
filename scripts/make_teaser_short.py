@@ -10,8 +10,17 @@ headline, and a closing "full story" card. Two picture modes, chosen automatical
   pillarbox the images are gone: the finished landscape frame sits in the middle third of the
             canvas over a blurred, enlarged copy of itself. Lower quality; still correct.
 
+Pacing (2026-10-16): a Short is judged on "viewed vs swiped away", and the film's shot plan
+re-frames one still several times (push to detail, pull to wide, pan) -- which the old reframe
+flattened into one centred window, so the Chernobyl Short held its first picture for 10.6 s.
+Now every hold longer than --max-hold seconds is split, and consecutive shots of the same
+image get different 9:16 windows (wide left/centre/right, or a close-up on the image's busiest
+detail) with varied movement. --inserts adds extra pictures (e.g. native vertical images) over
+exact time ranges.
+
     python3 scripts/make_teaser_short.py jobs/canetoad01 [--seconds 55] [--out teaser.mp4]
                                          [--headline "THE 101-CANE-TOAD MISTAKE"] [--mode auto]
+                                         [--max-hold 2.6] [--inserts inserts.json]
 
 Writes <job>/teaser.mp4 and <job>/teaser_package.json (title, description, tags). Buys nothing.
 """
@@ -25,13 +34,16 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from media_binaries import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe_bin  # noqa: E402
 
 W, H, FPS = 1080, 1920, 30
+MAX_HOLD = 2.6               # longest a Short holds one framing (s)
+MIN_PART = 1.1               # a split part is never shorter than this (s)
+CLOSE = 0.62                 # close-up window height as a share of the image height
 SAFE_BOTTOM = 330            # Shorts UI (title, buttons) covers roughly the bottom 17%
 FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
@@ -91,7 +103,12 @@ def _cut_point(cues: list[dict], target: float, floor: float = 35.0) -> float:
 
 
 def _phrases(cues: list[dict], until: float, words_per_chunk: int = 4) -> list[dict]:
-    """Split each cue into short chunks timed proportionally to their character share."""
+    """Split each cue into short chunks timed proportionally to their character share.
+
+    Timed across the cue's FULL span, then cut at `until`. Timing a cut cue over only the part
+    before the cut squeezed all of its words into that window: a one-cue-per-scene caption file
+    (Chernobyl, 2026-10-16) showed "EMERGENCY SHUTDOWN BUTTON" 6 s before the cut it never
+    reaches. Chunks also end at sentence ends, so a caption never straddles two sentences."""
     out = []
     for cue in cues:
         if cue["start"] >= until:
@@ -99,10 +116,16 @@ def _phrases(cues: list[dict], until: float, words_per_chunk: int = 4) -> list[d
         words = cue["text"].split()
         if not words:
             continue
-        chunks = [words[i:i + words_per_chunk] for i in range(0, len(words), words_per_chunk)]
+        chunks, cur = [], []
+        for w in words:
+            cur.append(w)
+            if len(cur) >= words_per_chunk or re.search(r"[.!?]$", w):
+                chunks.append(cur); cur = []
+        if cur:
+            chunks.append(cur)
         total_chars = sum(len(" ".join(c)) for c in chunks) or 1
         t = cue["start"]
-        span = min(cue["end"], until) - cue["start"]
+        span = cue["end"] - cue["start"]
         for chunk in chunks:
             share = len(" ".join(chunk)) / total_chars
             start, end = t, t + share * span
@@ -153,7 +176,9 @@ def _text_png(path: str, lines: list[list[tuple[str, tuple]]], size: int, y: int
 def _headline_lines(headline: str, size: int) -> list[list[tuple[str, tuple]]]:
     """Headline wrapped to the frame, first line yellow, rest white: the thumbnail grammar."""
     probe = ImageDraw.Draw(Image.new("RGBA", (W, H)))
-    lines = _wrap(probe, headline.upper(), _font(size), W - 140)[:3]
+    # "|" forces a line break ("CHERNOBYL|40 YEARS LATER"); each part still wraps to the frame.
+    lines = [ln for part in headline.upper().split("|")
+             for ln in _wrap(probe, part.strip(), _font(size), W - 140)][:3]
     return [[(w, YELLOW if i == 0 else WHITE) for w in line.split()]
             for i, line in enumerate(lines)]
 
@@ -180,8 +205,120 @@ def _shots_until(job: str, until: float) -> list[dict]:
         else:
             return []          # any missing picture -> fall back to pillarbox for the whole cut
         shots.append({"start": start, "end": min(until, start + float(fr.get("duration") or 0)),
-                      "image": path})
+                      "image": path, "motion": fr.get("motion") or "",
+                      "transition": fr.get("transition") or ""})
     return shots
+
+
+def split_long(shots: list[dict], max_hold: float = MAX_HOLD, min_part: float = MIN_PART) -> list[dict]:
+    """Split every hold longer than max_hold into equal parts no shorter than min_part."""
+    out = []
+    for shot in shots:
+        d = shot["end"] - shot["start"]
+        n = max(1, min(int(-(-d // max_hold)), int(d // min_part) or 1))
+        for k in range(n):
+            part = dict(shot, start=shot["start"] + d * k / n, end=shot["start"] + d * (k + 1) / n)
+            if k:
+                part["transition"] = "split"
+            out.append(part)
+    return out
+
+
+def apply_inserts(shots: list[dict], inserts: list[dict]) -> list[dict]:
+    """Lay extra pictures over exact [start, end) ranges, trimming the shots they cover."""
+    out = list(shots)
+    for ins in sorted(inserts or [], key=lambda x: float(x["start"])):
+        a, b = float(ins["start"]), float(ins["end"])
+        kept = []
+        for s in out:
+            if s["end"] <= a or s["start"] >= b:
+                kept.append(s)
+                continue
+            if s["start"] < a:
+                kept.append(dict(s, end=a))
+            if s["end"] > b:
+                kept.append(dict(s, start=b, transition="hard_cut"))
+        kept.append({"start": a, "end": b, "image": ins["image"], "motion": ins.get("motion", ""),
+                     "transition": "hard_cut", "inserted": True})
+        out = sorted((s for s in kept if s["end"] - s["start"] > 0.05), key=lambda s: s["start"])
+    return out
+
+
+def candidate_windows(image_path: str) -> dict:
+    """9:16 windows of a picture, scored by edge density so a crop lands on the subject.
+
+    Returns {"wide": [...], "close": [...]}, each a list of (score, (x, y, w, h)) best first, in
+    source pixels. A picture already narrower than 9:16 has one wide window: itself."""
+    with Image.open(image_path) as im:
+        iw, ih = im.size
+        small = im.convert("L").resize((max(1, iw // 4), max(1, ih // 4)))
+    edges = small.filter(ImageFilter.FIND_EDGES)
+    px = edges.load(); sw, sh = edges.size
+
+    def score(x, y, w, h):
+        x0, y0, x1, y1 = x // 4, y // 4, max(x // 4 + 1, (x + w) // 4), max(y // 4 + 1, (y + h) // 4)
+        tot = n = 0
+        for yy in range(y0, min(y1, sh), 2):
+            for xx in range(x0, min(x1, sw), 2):
+                tot += px[xx, yy]; n += 1
+        return tot / max(1, n)
+
+    wide, close = [], []
+    cw = min(iw, int(ih * 9 / 16))
+    free = iw - cw
+    for f in ((0.5,) if free <= 0 else (0.0, 0.5, 1.0)):
+        x = int(free * f)
+        wide.append((score(x, 0, cw, ih), (x, 0, cw, ih)))
+    ch = int(ih * CLOSE); ccw = min(iw, int(ch * 9 / 16))
+    for fy in (0.0, 0.5, 1.0):
+        for fx in (0.0, 0.25, 0.5, 0.75, 1.0):
+            x, y = int((iw - ccw) * fx), int((ih - ch) * fy)
+            close.append((score(x, y, ccw, ch), (x, y, ccw, ch)))
+    wide.sort(key=lambda t: -t[0]); close.sort(key=lambda t: -t[0])
+    return {"wide": wide, "close": close}
+
+
+_MOVES = ("push_in", "pull_out", "pan_right", "pan_left")
+
+
+def assign_framing(shots: list[dict]) -> list[dict]:
+    """Give each shot a window and a move; repeats of one picture never reuse a framing back to
+    back, and the film's hints (push_to_detail, pull_to_wide, pan_*) steer the choice."""
+    cache, used, out, prev_img, run, last = {}, {}, [], None, 0, None
+    for i, shot in enumerate(shots):
+        img = shot["image"]
+        if img not in cache:
+            cache[img] = candidate_windows(img)
+        cands = cache[img]
+        run = run + 1 if img == prev_img else 0
+        hint = f"{shot.get('transition', '')} {shot.get('motion', '')}"
+        wide = [w for _, w in cands["wide"]]
+        close = [w for _, w in cands["close"]]
+        if shot.get("inserted"):
+            # An inserted picture may carry blank paper margins: take the busiest window of any kind.
+            pool = [w for _, w in sorted(cands["wide"] + cands["close"], key=lambda t: -t[0])]
+        elif "push_to_detail" in hint:
+            pool = close
+        elif "pull_to_wide" in hint or run == 0 or not close:
+            pool = wide
+        else:
+            pool = close if run % 2 else wide
+        # Next-best window of this kind not yet used for this picture, cycling once all are used.
+        seen = used.setdefault(img, [])
+        fresh = [w for w in pool if w not in seen and w != last]
+        window = fresh[0] if fresh else next((w for w in pool if w != last), pool[0])
+        seen.append(window)
+        if "pan_right" in hint:
+            move = "pan_right"
+        elif "pan_left" in hint:
+            move = "pan_left"
+        elif "pull_to_wide" in hint:
+            move = "pull_out"
+        else:
+            move = _MOVES[(i + run) % len(_MOVES)]
+        out.append(dict(shot, window=window, move=move))
+        prev_img, last = img, window
+    return out
 
 
 def _reframe_video(shots: list[dict], out_path: str, tmp: str) -> None:
@@ -191,11 +328,18 @@ def _reframe_video(shots: list[dict], out_path: str, tmp: str) -> None:
         n = max(1, int(round(d * FPS)))
         with Image.open(shot["image"]) as im:
             iw, ih = im.size
-        # 9:16 window of the source, slow push 1.0 -> 1.07 centred; zoompan works in source px.
-        cw = int(ih * 9 / 16)
+        x, y, cw, ch = shot.get("window") or ((iw - int(ih * 9 / 16)) // 2, 0, int(ih * 9 / 16), ih)
+        move = shot.get("move") or "push_in"
+        z = {"push_in": f"min(1+0.08*on/{n},1.08)", "pull_out": f"max(1.08-0.08*on/{n},1)"}.get(move, "1.08")
+        if move == "pan_right":
+            px = f"(iw-iw/zoom)*on/{n}"
+        elif move == "pan_left":
+            px = f"(iw-iw/zoom)*(1-on/{n})"
+        else:
+            px = "iw/2-(iw/zoom/2)"
         clip = os.path.join(tmp, f"shot_{i:03d}.mp4")
-        vf = (f"crop={cw}:{ih}:(iw-{cw})/2:0,scale=2160:3840,"
-              f"zoompan=z='min(1+0.07*on/{n},1.07)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        vf = (f"crop={cw}:{ch}:{x}:{y},scale=2160:3840,"
+              f"zoompan=z='{z}':x='{px}':y='ih/2-(ih/zoom/2)'"
               f":d={n}:s={W}x{H}:fps={FPS},format=yuv420p")
         _run([_ffmpeg_bin(), "-v", "error", "-y", "-loop", "1", "-i", shot["image"],
               "-t", f"{d:.3f}", "-vf", vf, "-r", str(FPS), "-an", clip])
@@ -221,6 +365,10 @@ def main() -> int:
     ap.add_argument("--out", default="")
     ap.add_argument("--headline", default="")
     ap.add_argument("--mode", choices=("auto", "reframe", "pillarbox"), default="auto")
+    ap.add_argument("--max-hold", type=float, default=MAX_HOLD,
+                    help="longest a single framing is held, seconds (reframe mode)")
+    ap.add_argument("--inserts", default="",
+                    help="JSON list of {start, end, image[, motion]} laid over exact time ranges")
     args = ap.parse_args()
     job = os.path.abspath(args.job)
     film = os.path.join(job, "explainer.mp4")
@@ -245,6 +393,9 @@ def main() -> int:
 
     shots = _shots_until(job, until) if args.mode != "pillarbox" else []
     mode = "reframe" if shots else "pillarbox"
+    if shots:
+        inserts = json.load(open(args.inserts)) if args.inserts else []
+        shots = assign_framing(split_long(apply_inserts(shots, inserts), args.max_hold))
     if args.mode == "reframe" and not shots:
         sys.exit("reframe requested but the job's scene images are missing")
 
@@ -265,7 +416,9 @@ def main() -> int:
         head_size = 70
         for candidate in (92, 84, 76, 70):
             lines = _headline_lines(headline, candidate)
-            if len(lines) <= 2 and all(len(line) > 1 or len(lines) == 1 for line in lines):
+            # A forced break ("|") is intentional, so a one-word line there is not an orphan.
+            if len(lines) <= 2 and ("|" in headline
+                                    or all(len(line) > 1 or len(lines) == 1 for line in lines)):
                 head_size = candidate
                 break
         head_lines = _headline_lines(headline, head_size)
@@ -310,6 +463,8 @@ def main() -> int:
         description = first[:300].rstrip() + "\n\nFull story on the channel. #Shorts"
     package = {
         "teaser": out_path, "mode": mode, "seconds": until, "source_title": title,
+        "shots": len(shots), "pictures": len({s["image"] for s in shots}),
+        "longest_hold": round(max((s["end"] - s["start"] for s in shots), default=0.0), 2),
         "title": (title if not re.search(r"\sMistake\s+That\s", title, re.I) else
                   (headline.title() if headline.isupper() else headline))[:88] + " #Shorts",
         "description": description, "phrases": len(phrases),
