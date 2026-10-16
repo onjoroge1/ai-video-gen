@@ -76,6 +76,17 @@ _RECAP = re.compile(r"\btrace\b[^.!?]*\b(?:back|chain|once more)\b|\bthe whole c
                     r"\bonce more\b|\bto recap\b|\blet'?s recap\b", re.I)
 
 
+def witness_filler_sentences(scene: dict) -> list[str]:
+    """Every "Picture/Imagine/Think about" sentence of one scene that witness mode calls FILLER:
+    none in the opening rows, where the role frame is allowed. detect_witness_defects reports the
+    first; a later edit that must not ADD one (the sentence-mix gate) compares the whole list."""
+    import causal_story as cs
+    if _text(scene.get("causal_role") or scene.get("role")).lower() in cs.OPENING_ROLES:
+        return []
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", _text(scene.get("narration")))
+            if _FILLER_LEAD.search(s.strip())]
+
+
 def detect_witness_defects(script: dict) -> list[dict]:
     """Witness-mode defects: a "Picture/Imagine/Think about" sentence outside the opening rows
     (the role frame there is allowed), a continuation scene that re-tells its own beat, and a
@@ -88,10 +99,9 @@ def detect_witness_defects(script: dict) -> list[dict]:
     for i, scene in enumerate(scenes, 1):
         role = _text(scene.get("causal_role") or scene.get("role")).lower()
         sentences = re.split(r"(?<=[.!?])\s+", _text(scene.get("narration")))
-        if role not in cs.OPENING_ROLES:
-            lead = next((s for s in sentences if _FILLER_LEAD.search(s.strip())), "")
-            if lead:
-                out.append({"scene": i, "code": FILLER, "note": lead.strip()[:80], "witness": True})
+        fillers = witness_filler_sentences(scene)
+        if fillers:
+            out.append({"scene": i, "code": FILLER, "note": fillers[0][:80], "witness": True})
         if role in cs.CLOSING_ROLES:
             recap = next((s for s in sentences if _RECAP.search(s)), "")
             if recap:
