@@ -76,6 +76,8 @@ ENGINE_ROLE_ORDER = {
                             "escalation", "reversal", "synthesis", "takeaway"),
     "state_programme": ("setup", "intervention", "false_resolution", "mechanism",
                         "escalation", "reversal", "synthesis", "takeaway"),
+    "unfolding_consequence": ("setup", "intervention", "false_resolution", "mechanism",
+                              "escalation", "reversal", "synthesis", "takeaway"),
 }
 _DEFAULT_ORDER = ("setup", "intervention", "mechanism", "escalation", "reversal", "synthesis",
                   "takeaway")

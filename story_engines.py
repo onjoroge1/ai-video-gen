@@ -32,6 +32,7 @@ REMOVED_KEYSTONE = "removed_keystone"
 MISTAKEN_VERDICT = "mistaken_verdict"
 STRANGE_BEHAVIOUR = "strange_behaviour"
 STATE_PROGRAMME = "state_programme"
+UNFOLDING_CONSEQUENCE = "unfolding_consequence"
 
 
 # REVEAL_DEADLINE_PCT: engines whose principle IS the reveal cannot state it in the first fifth.
@@ -252,6 +253,30 @@ ENGINES: dict[str, dict[str, Any]] = {
         "closing": cs.VERDICT,
         "audience_before": "the programme looks like progress, or necessity",
         "audience_after": "the cost was part of the plan, and people paid it",
+    },
+    UNFOLDING_CONSEQUENCE: {
+        "name": "The Unfolding Consequence",
+        # World's present-consequence films (operator, 2026-10-15): a past fix whose physical
+        # consequence is STILL unfolding, told from today. None of World's compiled shapes fitted.
+        # Chernobyl's planned sheet (2026-10-15) was handed backfiring_solution, filed the
+        # evacuation as `changes_incentive`, and its mechanism would have compiled as "The reward
+        # was paid for ..." for a safety test that paid no reward -- the Macquarie failure again.
+        # removed_keystone needs a species; state_programme is History's and closes on a verdict.
+        # Same milestone order as state_programme, with World's tool close.
+        "premise": ("A deliberate FIX -- a safety measure, an engineered defence, a product, a "
+                    "plant or a practice adopted to solve a problem -- sets loose a PHYSICAL "
+                    "consequence in land, water, air, bodies or places that is STILL UNFOLDING "
+                    "today. Nobody exploits a reward and no species re-sorts an ecosystem: the fix "
+                    "itself, or what it released, is the cause, and the story is told from the "
+                    "present."),
+        "reference": "Chernobyl's 1986 safety test and the zone still closed (World brief)",
+        "sequence": (cs.SETUP, cs.INTERVENTION, cs.FALSE_RESOLUTION, cs.HINGE, cs.MECHANISM,
+                     cs.ESCALATION, cs.REVERSAL, cs.GENERALIZATION, cs.SYNTHESIS, cs.TOOL),
+        "required": (cs.SETUP, cs.INTERVENTION, cs.MECHANISM, cs.ESCALATION, cs.REVERSAL,
+                     cs.TOOL),
+        "closing": cs.TOOL,
+        "audience_before": "the fix made things safer, or solved the problem",
+        "audience_after": "the fix released something that is still unfolding today",
     },
 }
 

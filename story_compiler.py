@@ -998,6 +998,13 @@ def presentation_beats(beats: list[dict], engine_id: str, hook: str = "",
             # A state programme's turn is the cost, not an exploit and not a broken promise: the
             # Aral diversions DID grow the cotton. Say what the plan cost, and never say anyone
             # meant the harm unless an accepted event shows them deciding it.
+            # A fix's turn is what it released: nobody exploited it and it did not "seem to work"
+            # unless an apparent_success beat says so.
+            "unfolding_consequence":
+                "Name what the fix set loose, in one short sentence that OPENS AS THE GAP "
+                "('Except ...', 'But ...', 'Not quite:') and is never a question: the physical "
+                "consequence the fix released. Do not say anyone exploited anything, and "
+                "attribute no intent the events do not show. No new historical detail.",
             "state_programme":
                 "Name the cost the programme carried, in one short sentence that OPENS AS THE GAP "
                 "('Except ...', 'But ...', 'Not quite:') and is never a question: what the "

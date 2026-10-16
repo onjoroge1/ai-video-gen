@@ -35,6 +35,8 @@ _MOODS = {
     "removed_keystone": ("uneasy", 84, "minor"),
     # A state programme and its cost: slow and grave, closer to the indictment than the backfire.
     "state_programme": ("grave", 86, "minor"),
+    # A fix whose consequence is still unfolding: as grave as a programme's cost, not resolved.
+    "unfolding_consequence": ("grave", 86, "minor"),
     # A verdict overturned: the story opens as an accusation and ends as care. Tense and minor
     # while the case stands, so the reversal's energy (already the peak in _ROLE_ENERGY) reads as
     # relief rather than more tension. Slightly quicker than the indictment engine, because a

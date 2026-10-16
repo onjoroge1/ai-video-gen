@@ -21,7 +21,8 @@ from turn_fixture import (LABELLED, ROOT, SAVED,
 def test_the_constants_are_the_decision():
     assert ot.TURN_LIMIT_WORDS == 116 and ot.TURN_TARGET_WORDS == 103
     assert ot.WORDS_PER_SECOND == 2.588 and ot.TURN_LIMIT_SEC == 45.0
-    assert ot.TURN_ENGINES == {"removed_keystone", "backfiring_solution", "state_programme"}
+    assert ot.TURN_ENGINES == {"removed_keystone", "backfiring_solution", "state_programme",
+                               "unfolding_consequence"}
 
 
 @pytest.mark.parametrize("job", sorted(LABELLED))
