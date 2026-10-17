@@ -44,6 +44,15 @@ W, H, FPS = 1080, 1920, 30
 MAX_HOLD = 2.6               # longest a Short holds one framing (s)
 MIN_PART = 1.1               # a split part is never shorter than this (s)
 CLOSE = 0.62                 # close-up window height as a share of the image height
+# Call to action (2026-10-17): the Chernobyl Short drew 725 views in a day while the film it
+# teases had 25, and its only pointer was a 2.6 s "FULL STORY ON THE CHANNEL" card. The card now
+# names the action (the Short's related-video link sits just above its title), stays up longer,
+# and a short spoken line in the film's narrator voice says the same thing.
+END_CARD_SEC = 4.0
+SPOKEN_CTA = "The full story is in the film linked below."
+CTA_VOICE = "echo"           # explainer_pipeline.generate_tts default: the films' narrator
+CTA_GAP_SEC, CTA_TAIL_SEC = 0.25, 0.35
+END_CARD_LINES = [[("FULL", None), ("FILM:", None)], [("TAP", None), ("THE", None), ("LINK", None), ("BELOW", None)]]
 SAFE_BOTTOM = 330            # Shorts UI (title, buttons) covers roughly the bottom 17%
 FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
@@ -358,6 +367,47 @@ def _pillarbox_video(film: str, until: float, out_path: str) -> None:
           "-filter_complex", vf, "-r", str(FPS), "-an", out_path])
 
 
+def cta_timeline(until: float, cta_sec: float = 0.0, end_card_sec: float = END_CARD_SEC) -> dict:
+    """When the spoken line starts, when the card appears, and how long the Short runs.
+
+    The narration still ends at `until` (a sentence boundary); the spoken line follows after a
+    short gap, and the end card covers the last end_card_sec of the Short either way."""
+    cta_start = until + CTA_GAP_SEC if cta_sec > 0 else until
+    total = cta_start + cta_sec + CTA_TAIL_SEC if cta_sec > 0 else until
+    return {"cta_start": round(cta_start, 3), "total": round(total, 3),
+            "end_card_at": round(max(0.0, total - end_card_sec), 3)}
+
+
+def _spoken_cta(text: str, out_path: str, voice: str = CTA_VOICE) -> str:
+    """One short TTS line in the narrator's voice (OpenAI tts-1-hd, about $0.001)."""
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.expanduser("~/ai-video-gen-local"), ".env"))
+    load_dotenv(os.path.join(ROOT, ".env"))
+    from openai import OpenAI
+    resp = OpenAI().audio.speech.create(model="tts-1-hd", voice=voice, input=text, response_format="mp3")
+    with open(out_path, "wb") as handle:
+        for chunk in resp.iter_bytes():
+            handle.write(chunk)
+    return out_path
+
+
+def _audio(film: str, until: float, out_path: str, cta_mp3: str = "") -> None:
+    """The film's own audio to the cut (faded), then, when given, the spoken line after a gap."""
+    fade = f"afade=t=out:st={max(0, until - 0.7):.3f}:d=0.7"
+    if not cta_mp3:
+        _run([_ffmpeg_bin(), "-v", "error", "-y", "-t", f"{until:.3f}", "-i", film, "-vn",
+              "-af", fade, "-c:a", "aac", "-b:a", "160k", out_path])
+        return
+    fmt = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
+    graph = (f"[0:a]atrim=0:{until:.3f},asetpts=PTS-STARTPTS,{fade},{fmt}[a0];"
+             f"anullsrc=r=44100:cl=stereo,atrim=0:{CTA_GAP_SEC},{fmt}[g0];"
+             f"[1:a]{fmt}[a1];"
+             f"anullsrc=r=44100:cl=stereo,atrim=0:{CTA_TAIL_SEC},{fmt}[g1];"
+             f"[a0][g0][a1][g1]concat=n=4:v=0:a=1[out]")
+    _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", film, "-i", cta_mp3, "-filter_complex", graph,
+          "-map", "[out]", "-c:a", "aac", "-b:a", "160k", out_path])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("job")
@@ -367,6 +417,9 @@ def main() -> int:
     ap.add_argument("--mode", choices=("auto", "reframe", "pillarbox"), default="auto")
     ap.add_argument("--max-hold", type=float, default=MAX_HOLD,
                     help="longest a single framing is held, seconds (reframe mode)")
+    ap.add_argument("--spoken-cta", default=SPOKEN_CTA,
+                    help="line spoken after the narration in the narrator's voice")
+    ap.add_argument("--no-spoken-cta", action="store_true", help="end on the card alone")
     ap.add_argument("--inserts", default="",
                     help="JSON list of {start, end, image[, motion]} laid over exact time ranges")
     args = ap.parse_args()
@@ -405,10 +458,24 @@ def main() -> int:
             _reframe_video(shots, base, tmp)
         else:
             _pillarbox_video(film, until, base)
+        cta_mp3, cta_sec = "", 0.0
+        if not args.no_spoken_cta and args.spoken_cta.strip():
+            try:
+                cta_mp3 = _spoken_cta(args.spoken_cta.strip(), os.path.join(tmp, "cta.mp3"))
+                cta_sec = _duration(cta_mp3)
+            except Exception as exc:  # noqa: BLE001 - the card still carries the action
+                print(f"spoken call to action skipped ({type(exc).__name__}: {str(exc)[:120]})")
+                cta_mp3, cta_sec = "", 0.0
+        timeline = cta_timeline(until, cta_sec)
         audio = os.path.join(tmp, "audio.m4a")
-        _run([_ffmpeg_bin(), "-v", "error", "-y", "-t", f"{until:.3f}", "-i", film, "-vn",
-              "-af", f"afade=t=out:st={max(0, until - 0.7):.3f}:d=0.7", "-c:a", "aac",
-              "-b:a", "160k", audio])
+        _audio(film, until, audio, cta_mp3)
+        if timeline["total"] > until:
+            # Hold the last frame under the card while the spoken line plays.
+            held = os.path.join(tmp, "base_held.mp4")
+            _run([_ffmpeg_bin(), "-v", "error", "-y", "-i", base, "-vf",
+                  f"tpad=stop_mode=clone:stop_duration={timeline['total'] - until + 0.1:.3f}",
+                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", held])
+            base = held
 
         overlays = []       # (png, start, end)
         head_png = os.path.join(tmp, "headline.png")
@@ -424,9 +491,9 @@ def main() -> int:
         head_lines = _headline_lines(headline, head_size)
         head_y = 150 if mode == "reframe" else 110
         _text_png(head_png, head_lines, size=head_size, y=head_y, stroke=10)
-        overlays.append((head_png, 0.0, until))
+        overlays.append((head_png, 0.0, timeline["total"]))
         cap_y = H - SAFE_BOTTOM - 260
-        end_card_at = max(0.0, until - 2.6)
+        end_card_at = timeline["end_card_at"]
         # The closing card owns the caption band; the last phrase fragment yields to it.
         phrases = [dict(ph, end=min(ph["end"], end_card_at)) for ph in phrases
                    if ph["start"] < end_card_at]
@@ -438,10 +505,10 @@ def main() -> int:
                       size=68, y=cap_y, stroke=7, pill=True)
             overlays.append((png, ph["start"], ph["end"]))
         end_png = os.path.join(tmp, "end.png")
-        _text_png(end_png, [[("FULL", YELLOW), ("STORY", YELLOW)],
-                            [("ON", WHITE), ("THE", WHITE), ("CHANNEL", WHITE)]],
+        _text_png(end_png, [[(w, YELLOW) for w, _ in END_CARD_LINES[0]],
+                            [(w, WHITE) for w, _ in END_CARD_LINES[1]]],
                   size=84, y=cap_y - 40, stroke=9, pill=True)
-        overlays.append((end_png, end_card_at, until))
+        overlays.append((end_png, end_card_at, timeline["total"]))
 
         cmd = [_ffmpeg_bin(), "-v", "error", "-y", "-i", base, "-i", audio]
         for png, _, _ in overlays:
@@ -464,6 +531,7 @@ def main() -> int:
     package = {
         "teaser": out_path, "mode": mode, "seconds": until, "source_title": title,
         "shots": len(shots), "pictures": len({s["image"] for s in shots}),
+        "duration": timeline["total"], "spoken_cta": bool(cta_mp3), "end_card_at": timeline["end_card_at"],
         "longest_hold": round(max((s["end"] - s["start"] for s in shots), default=0.0), 2),
         "title": (title if not re.search(r"\sMistake\s+That\s", title, re.I) else
                   (headline.title() if headline.isupper() else headline))[:88] + " #Shorts",
