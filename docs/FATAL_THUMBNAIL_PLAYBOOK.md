@@ -59,6 +59,21 @@ triggers earn the click. Design every panel against them:
 | Elephant's Foot (arch reframe) | FATAL FUEL | 1996-style black-and-white photo: man beside the Foot | the same mass today, ember cracks, dosimeter pinned red |
 | Demon Core | FATAL SLIP | bare fingers, screwdriver in the gap, blue light leaking | physicist's face lit blue, colleagues shielding their eyes |
 
+## The title: a question in words the cold viewer knows
+
+Operator rule, 2026-10-17: question titles drive traffic. Chernobyl, the channel's clearest performer,
+is "Why Can't Anyone Live at Chernobyl, 40 Years Later?".
+
+- **Write the title as the film's own question.** The thumbnail shows the danger; the title asks the question.
+- **Lead with a term the broad audience already knows.**
+  - Explain a niche term or leave it out, even when it is the search keyword.
+  - "Elephant's Foot" went live in a statement title and was retitled.
+  - The new title is "Why Is Chernobyl's Melted Reactor Fuel Waking Up 40 Years Later?", because most browsers do not know the term.
+  - The keyword stays in the tags, the description and the Short.
+- **Stakes, then question,** where a known stake exists: "The Demon Core Killed a Scientist. Why Did They Keep Testing It by Hand?"
+- **Don't repeat the thumbnail's words,** and keep it to about 70 characters.
+- **After retitling a live film,** re-sync its translations with `scripts/localize_video.py <id> --job <job> --langs <existing> --if-changed`.
+
 ## Accuracy before upload
 
 The pipeline's packaging is written from the run question. On 2026-10-17 it drew two failures:
