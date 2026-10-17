@@ -1,0 +1,266 @@
+{
+ "slug": "animals-nobody-can-stop",
+ "title": "Why Can't Anyone Stop These 4 Animals People Brought In?",
+ "question": "Why can't anyone stop the animals people brought in?",
+ "summary": "Hippos in Colombia, carp in America's rivers, cane toads across Australia and African bees across the Americas: four animals people brought in on purpose, and why none of them can be stopped.",
+ "channel": "world",
+ "voice": "echo",
+ "engine": "removed_keystone",
+ "style": "Ink-and-cut-paper editorial storybook illustration, layered torn paper with ink contour lines and paper grain, muted warm palette, tropical Queensland sugar-cane country.",
+ "intro": [
+  {
+   "text": "You'd think an animal brought in on purpose could be taken back out.",
+   "rhetorical": true,
+   "job": "jobs/escobar-hippos-v2",
+   "scene": 0
+  },
+  {
+   "text": "It almost never can.",
+   "rhetorical": true,
+   "job": "jobs/asian-carp-v2",
+   "scene": 0
+  },
+  {
+   "text": "In October 1957, near Rio Claro in Brazil, a local beekeeper noticed the queen excluders on some hive boxes and removed them.",
+   "claims": [
+    "c06",
+    "c04"
+   ],
+   "job": "jobs/bees_v16"
+  },
+  {
+   "text": "Four animals, four countries, each brought in by people who thought they had a reason.",
+   "rhetorical": true,
+   "job": "jobs/escobar-hippos-v2",
+   "scene": 1
+  },
+  {
+   "text": "So why can't anyone stop them?",
+   "rhetorical": true,
+   "job": "jobs/asian-carp-v2",
+   "scene": 1
+  }
+ ],
+ "entries": [
+  {
+   "rank": 4,
+   "label": "Escobar's hippos",
+   "place": "Colombia",
+   "job": "jobs/escobar-hippos-v2",
+   "beats": [
+    {
+     "text": "Near Puerto Triunfo, Álvaro Molina was fishing when something moved beneath his canoe and spilled him into the water.",
+     "claims": [
+      "c33"
+     ]
+    },
+    {
+     "text": "It was a hippo, a female that had recently given birth.",
+     "claims": [
+      "c34"
+     ]
+    },
+    {
+     "text": "In the 1980s, Pablo Escobar imported four hippos for the private zoo on his estate.",
+     "claims": [
+      "c01",
+      "c04"
+     ]
+    },
+    {
+     "text": "When he was killed in 1993, most of his animals went to zoos. The hippos were too difficult to capture, so they stayed.",
+     "claims": [
+      "c08",
+      "c09"
+     ]
+    },
+    {
+     "text": "In the Magdalena River basin, nothing hunts them, and a 2022 study estimated that around 170 now roam free.",
+     "claims": [
+      "c11",
+      "c19"
+     ]
+    },
+    {
+     "text": "Sterilization and sending them to zoos have not worked, and Colombia has approved plans to cull up to 80.",
+     "claims": [
+      "c32",
+      "c30"
+     ]
+    }
+   ]
+  },
+  {
+   "rank": 3,
+   "label": "Asian carp",
+   "place": "United States",
+   "job": "jobs/asian-carp-v2",
+   "beats": [
+    {
+     "text": "In 2015, a 19-year-old being towed on an inner tube on the Mississippi was struck in the face by a leaping carp, and it broke his nose.",
+     "claims": [
+      "c24"
+     ]
+    },
+    {
+     "text": "Silver carp leap up to fifteen feet out of the water when a boat spooks them.",
+     "claims": [
+      "c18"
+     ]
+    },
+    {
+     "text": "In the 1970s, they were brought to American fish ponds to keep the water clear of algae.",
+     "claims": [
+      "c01",
+      "c05"
+     ]
+    },
+    {
+     "text": "They got into the rivers, and with no native fish big enough to eat them, they spread.",
+     "claims": [
+      "c07",
+      "c45"
+     ]
+    },
+    {
+     "text": "In parts of the Mississippi and Illinois rivers, they now make up more than ninety-five percent of the fish.",
+     "claims": [
+      "c46"
+     ]
+    },
+    {
+     "text": "And they are about ten miles from the electric barriers that stand between them and the Great Lakes.",
+     "claims": [
+      "c29",
+      "c47"
+     ]
+    }
+   ]
+  },
+  {
+   "rank": 2,
+   "label": "Cane toads",
+   "place": "Australia",
+   "job": "jobs/canetoad01",
+   "beats": [
+    {
+     "text": "In 1935, Queensland's Bureau of Sugar Experiment Stations released 2,400 cane toads to eat the beetles attacking its sugar cane.",
+     "claims": [
+      "c04",
+      "c01",
+      "c11"
+     ],
+     "image": "a crowd of brown cane toads spilling from wooden crates onto the edge of a sugar-cane field in the 1930s, a man in a hat watching"
+    },
+    {
+     "text": "No one had checked whether the toads would even eat those beetles.",
+     "claims": [
+      "c07"
+     ],
+     "image": "a single cane toad on bare soil looking up at tall cane stalks, a beetle far out of reach near the top"
+    },
+    {
+     "text": "They could not reach them: the beetles lived high on the cane stalks.",
+     "claims": [
+      "c32"
+     ],
+     "image": "close view of a scarab beetle clinging high on a sugar-cane stalk, the ground far below"
+    },
+    {
+     "text": "In 1936, entomologist Walter Froggatt warned that the toad, with no enemies and breeding all year, could become as great a pest as the rabbit.",
+     "claims": [
+      "c08"
+     ],
+     "image": "a 1930s entomologist in a waistcoat writing a letter at a desk lit by a lamp, a jar holding a toad beside him"
+    },
+    {
+     "text": "One bite can kill the predators that try to eat it, from northern quolls to freshwater crocodiles.",
+     "claims": [
+      "c22",
+      "c41"
+     ],
+     "image": "a small spotted quoll creeping toward a large cane toad at night in dry grass, tension in the frame, no gore"
+    },
+    {
+     "text": "And the toads are speeding up, now moving west by as much as sixty kilometres a year.",
+     "claims": [
+      "c15"
+     ],
+     "image": "a wave of cane toads crossing a red dirt road at dusk toward the west, the outback stretching ahead"
+    }
+   ]
+  },
+  {
+   "rank": 1,
+   "label": "African bees",
+   "place": "Brazil to the United States",
+   "job": "jobs/bees_v16",
+   "beats": [
+    {
+     "text": "Back to that beekeeper. When he removed the excluders, twenty-six African queens and their swarms flew into the forest.",
+     "claims": [
+      "c07"
+     ]
+    },
+    {
+     "text": "They had been brought from South Africa in 1956 to breed bees that would make more honey in Brazil's heat.",
+     "claims": [
+      "c01",
+      "c02",
+      "c03"
+     ]
+    },
+    {
+     "text": "Instead, they crossed with local bees, and the hybrids kept the African bees' fierce defence.",
+     "claims": [
+      "c11",
+      "c40"
+     ]
+    },
+    {
+     "text": "They chase people as far as 400 metres, and far more of them sting.",
+     "claims": [
+      "c14",
+      "c19"
+     ]
+    },
+    {
+     "text": "They spread through South America, reached Mexico in 1985 and Texas in 1990.",
+     "claims": [
+      "c25",
+      "c26"
+     ]
+    },
+    {
+     "text": "In 1993 came the first recorded death from their stings in the United States.",
+     "claims": [
+      "c42"
+     ]
+    },
+    {
+     "text": "And wherever they arrive, they breed with gentler bees until the gentler bees disappear.",
+     "claims": [
+      "c55"
+     ]
+    }
+   ]
+  }
+ ],
+ "outro": [
+  {
+   "text": "Each one landed somewhere with nothing to stop it, and spread faster than anyone moved to stop it.",
+   "rhetorical": true,
+   "job": "jobs/escobar-hippos-v2",
+   "scene": 2
+  },
+  {
+   "text": "It started with twenty-six queens near Rio Claro. Their descendants have since been found as far north as Utah.",
+   "claims": [
+    "c07",
+    "c04",
+    "c57"
+   ],
+   "job": "jobs/bees_v16"
+  }
+ ]
+}
