@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 import causal_story as cs
+import story_shape
 
 
 CINEMATIC = "cinematic"
@@ -441,7 +442,10 @@ def build_storyboard(script: dict, question: str) -> dict:
         "estimated_runtime_sec": round(spoken, 1),
         "validation": {"passed": not validation_errors, "errors": validation_errors,
                        "warnings": [f"{w['code']}: {w['message']}"
-                                    for w in causal.get("warnings") or []]},
+                                    for w in causal.get("warnings") or []]
+                       # The middle and the ending (story_shape, operator 2026-10-17): advisory, so
+                       # a film is never stopped for its cadence, but every finding is logged.
+                       + [f"{w['code']}: {w['message']}" for w in story_shape.findings(scenes)]},
     }
     script["_illustrated_story"] = storyboard
     return storyboard

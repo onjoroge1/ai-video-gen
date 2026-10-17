@@ -5933,6 +5933,8 @@ def _generate_script_chunked(question, duration_sec, style, image_guidance, n_sc
             + _cadence_rule_block(effective_story_format)
             + opening_direction
             + ending_direction
+            # The middle and the ending (story_shape, operator 2026-10-17); the opening is unchanged.
+            + (__import__("story_shape").writer_rules(is_last) if causal_lane else "")
             + (' This batch contains the ENDING: after the peak, write ONE brief false-relief beat, then '
                'the FINAL ESCALATION, then a FINAL PAYOFF that answers the TITLE and resolves the EXACT '
                'experiment posed at the start (do NOT drift to a different scenario), then close on ONE '
@@ -12877,10 +12879,13 @@ _SCRIPT_GRADE_SYSTEM = (
     "on whether a viewer will STAY and want more. Score 0-100 on five axes:\n"
     "- hook: do the first 1-2 lines hit a concrete gut-punch/stake within ~10s AND leave an OPEN "
     "LOOP (a dangling mystery), instead of a flat assertion or slow setup?\n"
-    "- story: does the MIDDLE escalate (each beat adds a new stake/complication/clue) and KEEP THE "
-    "VIEWER GUESSING (the answer stays genuinely uncertain), not plateau into a fact-list?\n"
-    "- ending: does the climax land as ONE earned payoff and the final line resonate (specific + "
-    "shareable), not a generic 'remember to...' PSA?\n"
+    "- story: does the MIDDLE stay on the title question -- each beat answers part of it and leaves "
+    "a sharper version, escalating, with one midpoint turn that changes what the viewer believes -- "
+    "and KEEP THE HUMAN STORY (the person from the opening returns at the turns), not plateau into a "
+    "fact-list, detour into side stories, or ask questions it answers in the next breath?\n"
+    "- ending: does the ending answer the title question in one plain sentence, return to the "
+    "opening person or object with a changed meaning, and stop -- not a general lesson, advice to the "
+    "viewer, or a 'remember to...' PSA?\n"
     "- repetition: is each core idea stated ONCE (no concept re-explained, no answer re-stated)? A "
     "single 2-4 sentence recap of the whole chain placed just before the ending is a structural beat "
     "the format uses deliberately; do not count that one beat as repetition.\n"
