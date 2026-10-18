@@ -1,0 +1,118 @@
+{
+ "slug": "plastic-recycling",
+ "topic": "Plastic recycling",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready for symbol and collection economics; conditional for a broad fraud verdict narrative",
+ "decision": "29 June 1989: SPI President Larry Thomas promoted the Council for Solid Waste Solutions advertising campaign, as recited in California’s complaint.",
+ "human": "Coy Smith, recycling operator, interviewed firsthand about bins filling with plastics he could not sell.",
+ "current_type": "2026 enforcement settlements; collection economics and labeling remain live issues.",
+ "angle": "The Recycling Symbol That Filled Bins With Trash",
+ "gaps": {
+  "named_person": "met: Smith, original interview with recycling operator",
+  "dated_current_consequence": "met: January 2026 enforcement settlements",
+  "legacy_only": false,
+  "decision_gap": "1989 campaign chronology is recited in a complaint; no adjudicated finding of broad fraudulent intent."
+ },
+ "sources": [
+  {
+   "id": "P01",
+   "url": "https://oag.ca.gov/system/files/attachments/press-docs/Complaint_People%20v.%20Exxon%20Mobil%20et%20al.pdf",
+   "title": "People v Exxon Mobil complaint",
+   "publisher": "California Attorney General",
+   "date": "2024-09-23",
+   "kind": "court complaint; allegations",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF pp. 48–49, native paragraphs 142–145",
+     "fact": "California’s complaint describes the 1988 Council for Solid Waste Solutions and Larry Thomas’s 29 June 1989 letter promoting the July 1989 advertising campaign."
+    },
+    {
+     "location": "PDF pp. 56–58, native paragraphs 167–174",
+     "fact": "Complaint’s account of resin identification codes, lobbying and consumer interpretation. These are allegations and supporting materials recited in a pleading, not a liability judgment."
+    }
+   ]
+  },
+  {
+   "id": "P02",
+   "url": "https://www.epa.gov/facts-and-figures-about-materials-waste-and-recycling/plastics-material-specific-data",
+   "title": "Plastics: Material-Specific Data",
+   "publisher": "US EPA",
+   "date": "data year 2018; page current at retrieval",
+   "kind": "official statistics",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P62–P65, Overview",
+     "fact": "EPA’s U.S. municipal-waste plastics estimate is an 8.7% recycling rate for 2018. Rates differ substantially by plastic product type."
+    }
+   ]
+  },
+  {
+   "id": "P03",
+   "url": "https://www.ftc.gov/business-guidance/resources/environmental-claims-summary-green-guides",
+   "title": "Environmental Claims: Summary of the Green Guides",
+   "publisher": "US Federal Trade Commission",
+   "date": "2012-10",
+   "kind": "official marketing guidance",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P253–P256, Recyclable",
+     "fact": "FTC guidance distinguishes unqualified recyclable claims from claims requiring qualification when suitable facilities are unavailable to at least 60% of consumers or communities."
+    }
+   ]
+  },
+  {
+   "id": "P04",
+   "url": "https://www.northcountrypublicradio.org/news/npr/897692090/how-big-oil-misled-the-public-into-believing-plastic-would-be-recycled",
+   "title": "How Big Oil Misled The Public Into Believing Plastic Would Be Recycled",
+   "publisher": "NPR original interviews; North Country Public Radio syndication",
+   "date": "2020 original NPR report; syndication page date metadata is invalid",
+   "kind": "recorded firsthand interviews with recycling operators and industry leaders; secondary narration separated",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P110–P119, Coy Smith interview",
+     "fact": "Smith described numbered-arrow symbols prompting customers to put plastics he could not sell into recycling bins."
+    },
+    {
+     "location": "HTML P56, P77–P82, Larry Thomas interview",
+     "fact": "Thomas’s own recollections provide firsthand industry testimony; the journalist’s wider narrative is a separate evidential category."
+    }
+   ]
+  },
+  {
+   "id": "P05",
+   "url": "https://www.oag.ca.gov/news/press-releases/attorney-general-bonta-announces-335-million-settlement-plastic-bag",
+   "title": "Attorney General Bonta Announces $3.35 Million Settlement with Plastic Bag Manufacturers",
+   "publisher": "California Attorney General",
+   "date": "2026-01-16",
+   "kind": "official enforcement announcement",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P114–P121; datePublished in saved HTML",
+     "fact": "16 January 2026 announcement: $3.35 million settlements with three plastic-bag producers resolve allegations about unlawful recyclability marketing; the page also describes the separate 2026 checkout-bag rules."
+    }
+   ]
+  },
+  {
+   "id": "P06",
+   "url": "https://www.govinfo.gov/content/pkg/CHRG-117shrg52125/html/CHRG-117shrg52125.htm",
+   "title": "Examining the Impact of Plastic Use and Identifying Solutions for Reducing Plastic Waste",
+   "publisher": "US Senate Environment and Public Works Committee",
+   "date": "2022-12-15",
+   "kind": "congressional hearing; differing witness positions",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P1, native hearing heading THURSDAY, DECEMBER 15, 2022; witness statements of Judith Enck and Matthew Seaholm",
+     "fact": "Primary public record of opposing accounts of plastic recycling and waste policy; statements are the witnesses’ positions, not a congressional finding."
+    }
+   ]
+  }
+ ],
+ "excluded": []
+}

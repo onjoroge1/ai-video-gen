@@ -74,6 +74,62 @@ def fetch_page_text(url: str, *, session: requests.Session | None = None) -> str
     return html_to_text(payload)
 
 
+PDF_MAX_BYTES = 80_000_000        # official reports run long: the British Titanic inquiry is 41.7 MB
+MIN_DOCUMENT_WORDS = 150          # a 200 response with a sentence or two is a challenge page, not a document
+
+
+def _pdf_text(body: bytes) -> str:
+    """Text of a PDF via poppler's pdftotext in reading order, or "" without it or on failure.
+    An image-only PDF comes back empty, which is the right answer: there is nothing to quote."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    tool = shutil.which("pdftotext")
+    if not tool or not body.startswith(b"%PDF"):
+        return ""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "doc.pdf")
+        with open(path, "wb") as handle:
+            handle.write(body)
+        try:
+            done = subprocess.run([tool, "-enc", "UTF-8", path, "-"], capture_output=True, timeout=120)
+        except Exception:
+            return ""
+    return _WS.sub(" ", done.stdout.decode("utf-8", errors="replace")).strip() if done.returncode == 0 else ""
+
+
+def fetch_document_text(url: str, *, session: requests.Session | None = None,
+                        min_words: int = MIN_DOCUMENT_WORDS) -> str:
+    """Readable text for an operator-supplied document, PDFs included; "" if it cannot be read.
+
+    fetch_page_text deliberately refuses PDFs: research citations are substring-matched against
+    pages and most PDFs behind search results are abstracts or scans. An operator source pack is
+    different: its documents were checked to load as full text, and the official reports among
+    them are PDFs. A body under min_words is treated as unreadable, because a challenge page or a
+    PDF-looking URL that returns a stub is not the document. Never raises.
+    """
+    if not str(url or "").startswith("https://"):
+        return ""
+    client = session or requests
+    try:
+        response = client.get(url, timeout=max(FETCH_TIMEOUT_SEC, 60.0), stream=True,
+                              headers={"User-Agent": USER_AGENT,
+                                       "Accept": "text/html,application/xhtml+xml,application/pdf,text/plain"})
+        response.raise_for_status()
+        kind = str(response.headers.get("Content-Type") or "").lower()
+        body = response.raw.read(PDF_MAX_BYTES, decode_content=True) or b""
+        if "pdf" in kind or body.startswith(b"%PDF"):
+            text = _pdf_text(body)
+        elif kind and not any(t in kind for t in ("html", "text", "xml", "json")):
+            return ""
+        else:
+            text = html_to_text(body[:MAX_BYTES].decode(response.encoding or "utf-8", errors="replace"))
+    except Exception:
+        return ""
+    return text if len(text.split()) >= min_words else ""
+
+
 _SENTENCE = re.compile(r"[^.!?]{25,400}[.!?]")
 
 # Words that reverse or hollow out a sentence's commitment. `_content_words` drops anything four
@@ -188,12 +244,15 @@ def repair_quote(claim_text: str, quote: str, page_text: str, *, min_overlap: fl
 
 
 def verify_claims(claims: list, *, max_workers: int = 6, repair: bool = True,
-                  log=lambda message: None) -> dict:
+                  log=lambda message: None, prefetched: dict | None = None) -> dict:
     """Check each claim's support_quote against text fetched from its own source_url.
 
     Annotates claims in place with `quote_verified` and, on success, records the page text length
     that backed it. Returns a summary. Unreachable pages and absent quotes both count as
     unverified — the point is that a citation nobody can open is not evidence.
+
+    `prefetched` maps a URL to text this run already read (a source pack's documents, PDFs
+    included); those pages are used as read instead of fetched again. It changes nothing else.
     """
     targets = [claim for claim in claims or []
                if isinstance(claim, dict) and str(claim.get("source_url") or "").strip()]
@@ -202,10 +261,13 @@ def verify_claims(claims: list, *, max_workers: int = 6, repair: bool = True,
         return {"verified": 0, "unverified": len(targets), "fetched": 0, "pages": {}}
 
     session = requests.Session()
-    pages: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=min(max_workers, len(urls))) as pool:
-        for url, text in zip(urls, pool.map(lambda u: fetch_page_text(u, session=session), urls)):
-            pages[url] = text
+    pages: dict[str, str] = {url: (prefetched or {}).get(url, "") for url in urls
+                             if (prefetched or {}).get(url)}
+    to_fetch = [url for url in urls if url not in pages]
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as pool:
+            for url, text in zip(to_fetch, pool.map(lambda u: fetch_page_text(u, session=session), to_fetch)):
+                pages[url] = text
     fetched = sum(1 for text in pages.values() if text)
     log(f"Claim verification: fetched {fetched}/{len(urls)} cited pages")
 

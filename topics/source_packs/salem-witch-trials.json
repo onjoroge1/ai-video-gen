@@ -1,0 +1,125 @@
+{
+ "slug": "salem-witch-trials",
+ "topic": "Salem witch trials",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready evergreen; 2026 development concerns legal recognition and memory",
+ "decision": "31 May 1692: William Stoughton’s writ directed named prisoners before the special court on 2 June; Phips’s letter acknowledges commissioning that court.",
+ "human": "Mary Esty’s petition; Isaac Esty’s 8 September 1710 restitution petition describing bereavement, stigma and expenses.",
+ "current_type": "Posthumous legal repair, including enacted 2022 amendment and a pending 2026 bill; not continuing physical harm to seventeenth-century victims.",
+ "angle": "Salem’s Trials Ended. Clearing the Names Took Centuries.",
+ "gaps": {
+  "named_person": "met: Mary and Isaac Esty, contemporary petitions",
+  "dated_current_consequence": "institutional legacy only, with a dated pending 2026 legislative step",
+  "legacy_only": true,
+  "decision_gap": null
+ },
+ "sources": [
+  {
+   "id": "S01",
+   "url": "https://salem.lib.virginia.edu/n45.html",
+   "title": "SWP No. 045: Mary Esty",
+   "publisher": "University of Virginia transcription of court records",
+   "date": "1692 records",
+   "kind": "archival court record and first-person petition",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P140–P143, Mary Esty petition; P7, case heading",
+     "fact": "Mary Esty, condemned and executed in September 1692, petitioned the judges to reconsider their process so that others would not suffer unjustly."
+    }
+   ]
+  },
+  {
+   "id": "S02",
+   "url": "https://malegislature.gov/Bills/194/H5154",
+   "title": "H.5154: Exonerating certain individuals accused of witchcraft",
+   "publisher": "Massachusetts General Court",
+   "date": "2026 legislative record",
+   "kind": "official pending bill",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P145–P157, Bill History; H.5154 in the 194th General Court",
+     "fact": "Latest action: favorable committee report and referral; not enactment."
+    }
+   ]
+  },
+  {
+   "id": "S03",
+   "url": "https://salem.lib.virginia.edu/n163.html",
+   "title": "SWP No. 163: Two Letters of Governor William Phips",
+   "publisher": "University of Virginia transcription of original letters",
+   "date": "1692-10-12 and 1693-02-21",
+   "kind": "contemporary governor's correspondence",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P9–P10; SWP 163.1, 12 October 1692 letter",
+     "fact": "Phips’s account of commissioning and court conduct."
+    },
+    {
+     "location": "HTML P16–P19; SWP 163.2",
+     "fact": "Old-style-year dating of subsequent letter."
+    }
+   ]
+  },
+  {
+   "id": "S04",
+   "url": "https://malegislature.gov/Laws/SessionLaws/Acts/2022/Chapter126",
+   "title": "Acts of 2022, Chapter 126, section 105",
+   "publisher": "Massachusetts General Court",
+   "date": "2022-07-28",
+   "kind": "enacted law",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P4782; Acts 2022, Chapter 126, SECTION 105; HTML P4929 approval date",
+     "fact": "Law approved 28 July 2022 added Elizabeth Johnson Jr. to the earlier exoneration legislation."
+    }
+   ]
+  },
+  {
+   "id": "S05",
+   "url": "https://salem.lib.virginia.edu/n173.html",
+   "title": "SWP No. 173: Reversal of Attainder and Restitution",
+   "publisher": "University of Virginia transcription of court and legislative records",
+   "date": "1710–1750 records",
+   "kind": "contemporary petitions, restitution and legislative records",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P145–P153, petition dated 8 September 1710",
+     "fact": "Isaac Esty described his wife Mary’s death, stigma, months of imprisonment, travel and maintenance costs, and requested restitution."
+    }
+   ]
+  },
+  {
+   "id": "S07",
+   "url": "https://salem.lib.virginia.edu/n164.html",
+   "title": "Court of Oyer and Terminer: SWP No. 164",
+   "publisher": "University of Virginia Salem Witch Trials Documentary Archive",
+   "date": "1692 (archival records)",
+   "kind": "original court documents, scholarly archive transcription",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P9–P12; SWP 164.1; Mass. Archives Vol. 135, No. 25",
+     "fact": "31 May 1692 court-preparation records include Stoughton’s writ directing named prisoners to appear at the special court on 2 June."
+    },
+    {
+     "location": "HTML P15–P19; SWP 164.2",
+     "fact": "Oaths of Attorney General Thomas Newton and clerk Stephen Sewall on 2 June 1692 before William Stoughton."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "S06",
+   "url": "https://digitalarchives.sec.state.ma.us/the-trials/",
+   "status": 200,
+   "reason": "HTTP 200 but only 212 bytes and one word; no usable archive content."
+  }
+ ]
+}

@@ -1,0 +1,120 @@
+{
+ "slug": "bhopal-disaster",
+ "topic": "Bhopal",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready with corporate decision attribution; individual shutdown author is unresolved",
+ "decision": "June 1984: UCIL’s MIC refrigeration became non-operational; individual author not identified. Alternative: 14–15 February 1989 Supreme Court settlement orders.",
+ "human": "Aziza Sultan, survivor with a published firsthand account of escaping with her children.",
+ "current_type": "Long-term care and compensation legacy; latest verified care period ends March 2025.",
+ "angle": "Why Bhopal’s Disaster Outlasted Its Final Settlement",
+ "gaps": {
+  "named_person": "met: Sultan, firsthand published testimony",
+  "dated_current_consequence": "qualified freshness: care reporting ends March 2025; no October 2026 patient measurement",
+  "legacy_only": false,
+  "decision_gap": "Individual author of refrigeration shutdown not identified; organization identified. The 1989 settlement provides a precisely attributed alternative institutional decision."
+ },
+ "sources": [
+  {
+   "id": "B01",
+   "url": "https://www.bhopal.com/content/dam/corp/documents/ucc/cp-judgement-2023.pdf",
+   "title": "Union of India v Union Carbide, curative judgment",
+   "publisher": "Supreme Court of India; hosted by Union Carbide",
+   "date": "2023-03-14",
+   "kind": "court judgment mirrored by litigant",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF pp. 4–5, native paragraphs 4–6",
+     "fact": "The Supreme Court records the 14–15 February 1989 settlement orders and UCC’s $470 million payment obligation."
+    },
+    {
+     "location": "PDF p. 34, native paragraph 51",
+     "fact": "The Court dismissed the curative petitions on 14 March 2023."
+    }
+   ]
+  },
+  {
+   "id": "B02",
+   "url": "https://www.icmr.gov.in/icmrobject/uploads/Static/1771930940_icmrannualreport2024-25englishversion-2.pdf",
+   "title": "ICMR Annual Report 2024–25",
+   "publisher": "Indian Council of Medical Research",
+   "date": "reporting period 2024-04 to 2025-03; current report retrieved 2026-10-18",
+   "kind": "official annual report",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 85; printed p. 79; Chapter 6 introduction",
+     "fact": "BMHRC continued its dedicated care mandate during April 2024–March 2025; it also served the wider Central Indian population."
+    },
+    {
+     "location": "PDF p. 87; printed p. 81; Table 28",
+     "fact": "Department attendance statistics are hospital activity totals and must not be described as counts solely of gas victims."
+    }
+   ]
+  },
+  {
+   "id": "B04",
+   "url": "https://archive.sambhavnabhopal.org/wp-content/uploads/tainacan-items/39388/39980/TechnicalDocuments_1985MAR_BhopalMICIncident_UCC.pdf",
+   "title": "Bhopal Methyl Isocyanate Incident Investigation Team Report",
+   "publisher": "Union Carbide; archived by Sambhavna",
+   "date": "1985-03",
+   "kind": "operator technical investigation",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 26; printed p. 23; section 6.0",
+     "fact": "Refrigeration shutdown, reaction-temperature implications and acknowledged uncertainty about the accident scenario."
+    }
+   ]
+  },
+  {
+   "id": "B05",
+   "url": "https://www.bhopal.org/news/the-bhopal-marathon-azizas-story/",
+   "title": "The Bhopal Marathon: Aziza's Story",
+   "publisher": "Bhopal Medical Appeal",
+   "date": "2013-01-05",
+   "kind": "first-person survivor account; advocacy host",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P83–P94, Aziza’s Story; datePublished in saved HTML",
+     "fact": "Aziza Sultan’s firsthand account of fleeing with her children and experiencing a miscarriage; published 5 January 2013. Her employment description belongs to that account’s date."
+    }
+   ]
+  },
+  {
+   "id": "B07",
+   "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10691511/",
+   "title": "Survival Analysis for Cohort of Bhopal Gas Disaster Victims during 1985–2015",
+   "publisher": "Original ICMR researchers; PubMed Central full text",
+   "date": "2023",
+   "kind": "original peer-reviewed cohort analysis",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P41, Methods and Materials; P55, Materials and Methods",
+     "fact": "Original retrospective analysis follows outcomes in an exposed and unexposed cohort of 92,320 people using 1985–2015 records."
+    },
+    {
+     "location": "HTML P293, Discussion limitations",
+     "fact": "Cohort attrition, changes in collection methods, and limitations of verbal autopsies constrain interpretation."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "B03",
+   "url": "https://www.bhopal.net/what-happened/that-night-december-3-1984/in-their-words/",
+   "status": 202,
+   "reason": "HTTP 202, 230 bytes and one extracted word. Not a usable full-text testimony page for this pipeline."
+  },
+  {
+   "id": "B06",
+   "url": "https://bmhrc.ac.in/writereaddata/CMS/202601101122320894709November-2025.pdf",
+   "status": 502,
+   "reason": "HTTP 502; full text was not acquired."
+  }
+ ]
+}

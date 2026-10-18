@@ -1,0 +1,129 @@
+{
+ "slug": "great-pacific-garbage-patch",
+ "topic": "Great Pacific Garbage Patch",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready; engineering and ecology story with operator interests disclosed",
+ "decision": "8 September 2018: Boyan Slat’s organization launched System 001 from San Francisco.",
+ "human": "Glen Kissack, operations chief, records his own experience crossing the patch and describes the 2026 field strategy.",
+ "current_type": "July 2026 announced field testing; outcomes after that announcement unverified.",
+ "angle": "Why Cleaning the Pacific Means Chasing Moving Targets",
+ "gaps": {
+  "named_person": "met: Kissack, named operator records his own at-sea experience",
+  "dated_current_consequence": "qualified outcome: July 2026 field-test announcement is verified; subsequent results are not",
+  "legacy_only": false,
+  "decision_gap": null
+ },
+ "sources": [
+  {
+   "id": "G01",
+   "url": "https://marinedebris.noaa.gov/discover-marine-debris/garbage-patches",
+   "title": "Garbage Patches",
+   "publisher": "NOAA Marine Debris Program",
+   "date": "undated current page",
+   "kind": "official scientific guidance",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P77–P79, What are garbage patches?",
+     "fact": "The patch is a dispersed accumulation, not a solid floating island; much debris is small and not readily visible."
+    },
+    {
+     "location": "HTML P86 and P91",
+     "fact": "NOAA distinguishes uncertain human-health effects from known debris problems and explains why complete removal is difficult."
+    }
+   ]
+  },
+  {
+   "id": "G02",
+   "url": "https://theoceancleanup.com/updates/integrating-new-technologies-to-tackle-the-great-pacific-garbage-patch/",
+   "title": "Integrating New Technologies to Tackle the Great Pacific Garbage Patch",
+   "publisher": "The Ocean Cleanup",
+   "date": "2026-07-09",
+   "kind": "operator field-research update",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P68–P74; datePublished in saved HTML",
+     "fact": "9 July 2026 operator update describes planned July–August field testing of its Smart Steering Strategy; a possible doubling is a simulation result, not a demonstrated field outcome."
+    },
+    {
+     "location": "HTML P83–P86, author biography",
+     "fact": "Head of Operations Glen Kissack identifies his own experience crossing the garbage patch."
+    }
+   ]
+  },
+  {
+   "id": "G03",
+   "url": "https://theoceancleanup.com/press/press-releases/the-worlds-first-ocean-cleanup-system-launched-from-san-francisco/",
+   "title": "The World's First Ocean Cleanup System Launched from San Francisco",
+   "publisher": "The Ocean Cleanup",
+   "date": "2018-09-08",
+   "kind": "operator contemporary launch record",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P62–P69, launch announcement",
+     "fact": "Boyan Slat’s organization launched System 001 from San Francisco on 8 September 2018; the stated objectives included testing the technology and gathering performance data."
+    }
+   ]
+  },
+  {
+   "id": "G04",
+   "url": "https://assets.theoceancleanup.com/app/uploads/2019/04/Lebreton2018_SciRep.pdf",
+   "title": "Evidence that the Great Pacific Garbage Patch is rapidly accumulating plastic",
+   "publisher": "Lebreton et al., Scientific Reports; author-hosted PDF",
+   "date": "2018-03-22",
+   "kind": "peer-reviewed original field and modelling research",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 1, Abstract; PDF p. 2, sampling description",
+     "fact": "Lebreton et al. estimate 79,000 tonnes within a 45,000–129,000 interval over about 1.6 million km², using 2015/2016 surveys. These are historical modeled estimates, not a 2026 inventory."
+    }
+   ]
+  },
+  {
+   "id": "G05",
+   "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10159152/",
+   "title": "High concentrations of floating neustonic life in the plastic-rich North Pacific Garbage Patch",
+   "publisher": "Helm et al., PLOS Biology; NIH PMC archive",
+   "date": "2023",
+   "kind": "peer-reviewed original field research",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P38–P39, Abstract; P48, study design; P87–P99, Results",
+     "fact": "Chong et al.’s 2023 study reports relatively high concentrations of floating life in sampled parts of the patch."
+    },
+    {
+     "location": "HTML P84, statistical analysis",
+     "fact": "Site selection and modeling choices matter; the study is not a randomized experiment on cleanup harm."
+    }
+   ]
+  },
+  {
+   "id": "G07",
+   "url": "https://research-portal.uu.nl/ws/portalfiles/portal/270263391/Egger_2024_Environ._Res._Ecology_3_035002.pdf",
+   "title": "Densities of neuston often not elevated within plastic hotspots territory inside the North Pacific Garbage Patch",
+   "publisher": "Egger et al., Environmental Research: Ecology; Utrecht University repository",
+   "date": "2024-07-11",
+   "kind": "peer-reviewed original year-round field research",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 3, publication date, affiliations and Abstract; PDF p. 9, Discussion",
+     "fact": "Egger et al., published 11 July 2024, find that neuston is often not elevated in plastic hotspots within the patch; authors discuss sampling limitations and seasonal variability. Several authors are affiliated with The Ocean Cleanup."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "G06",
+   "url": "https://theoceancleanup.com/press/press-releases/the-ocean-cleanup-nearly-five-fold-increase-in-north-pacific-garbage-patch-plastic-fragments-seven-year-study-reveals/",
+   "status": 200,
+   "reason": "Accessible supplemental/duplicate source; not required for core claims."
+  }
+ ]
+}

@@ -517,7 +517,11 @@ def validate_research_dossier(dossier: dict) -> dict:
     """Validate provider output without trusting its self-reported source quality."""
     errors: list[dict] = []
     claims = dossier.get("claims") if isinstance(dossier, dict) else None
-    citation_urls = {_canonical_url(_text(url)) for url in (dossier.get("citation_urls") or []) if _text(url)}
+    # Operator source-pack URLs were read by this run rather than returned by search; they count as
+    # observed. A dossier without a pack has none, so this check is unchanged for it.
+    citation_urls = {_canonical_url(_text(url)) for url in
+                     list(dossier.get("citation_urls") or []) + list(dossier.get("operator_source_urls") or [])
+                     if _text(url)}
     citation_records: dict[str, list[str]] = {}
     for record in dossier.get("citation_records") or []:
         if not isinstance(record, dict):

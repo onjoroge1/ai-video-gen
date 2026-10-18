@@ -1,0 +1,109 @@
+{
+ "slug": "titanic-lifeboat-rules",
+ "topic": "Titanic lifeboats",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready evergreen; current significance is institutional legacy",
+ "decision": "1894–1912: Board of Trade retained a boat scale capped at 10,000 tons; nautical adviser Sir Alfred Chalmers explained the advice behind retention.",
+ "human": "Charles Herbert Lightoller, sworn Senate testimony on 19 April 1912.",
+ "current_type": "Continuing safety-regulation legacy; no fresh 2026 consequence demonstrated by this bundle.",
+ "angle": "Why Titanic Passed Inspection Without Enough Lifeboats",
+ "gaps": {
+  "named_person": "met: Lightoller, sworn contemporary testimony",
+  "dated_current_consequence": "institutional legacy only: current official account of inherited safety system; no fresh 2026 event established",
+  "legacy_only": true,
+  "decision_gap": "Retention of regulatory scale is a dated decision process, not a single documented removal order."
+ },
+ "sources": [
+  {
+   "id": "T04",
+   "url": "https://titanicinquiry.org/BOTApp/BOTApp02.php",
+   "title": "British inquiry appendix: Report of Survey",
+   "publisher": "Board of Trade survey transcribed by Titanic Inquiry Project",
+   "date": "1912-04-03",
+   "kind": "contemporary official survey",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P18–P20, survey date; P71–P104, Life-Saving Appliances table",
+     "fact": "3 April 1912 Board of Trade survey records 14 boats accommodating 910, two accommodating 80, and four collapsibles accommodating 188; sum: 20 boats and 1,178 places."
+    }
+   ]
+  },
+  {
+   "id": "T05",
+   "url": "https://www.imo.org/en/ourwork/safety/pages/historyoflsa-default.aspx",
+   "title": "History of life-saving appliances requirements",
+   "publisher": "International Maritime Organization",
+   "date": "undated current official page",
+   "kind": "official regulatory history",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P11–P12, 1914 and 1929 SOLAS Conventions",
+     "fact": "IMO traces the first SOLAS lifesaving provisions to the Titanic disaster; the 1914 convention did not enter into force because of World War I."
+    },
+    {
+     "location": "HTML P25 and P29–P30, LSA Code",
+     "fact": "The code was adopted in June 1996 and entered into force on 1 July 1998; this is an institutional legacy, not a new 2026 event."
+    }
+   ]
+  },
+  {
+   "id": "T07",
+   "url": "https://www.govinfo.gov/content/pkg/SERIALSET-06179_00_00-019-0933-0000/pdf/SERIALSET-06179_00_00-019-0933-0000.pdf",
+   "title": "Loss of the Steamship Titanic: British formal investigation report (complete transfer attempt)",
+   "publisher": "British Government; US Senate/GovInfo copy",
+   "date": "1912-07-30",
+   "kind": "official inquiry report; initial T01 truncated locally at 35MB",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF pp. 62–64, Board of Trade administration",
+     "fact": "Boat scale, Chalmers’s explanation and inquiry criticism."
+    }
+   ]
+  },
+  {
+   "id": "T08",
+   "url": "https://www.titanicinquiry.org/USInq2/AmInq01Lightoller02.php",
+   "title": "US Senate Titanic Inquiry, Day 1: Charles H. Lightoller, continuation",
+   "publisher": "US Senate testimony transcribed by Titanic Inquiry Project",
+   "date": "1912-04-19",
+   "kind": "firsthand sworn testimony, archive transcription",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P68–P90, native Senate questions 790–812",
+     "fact": "On 19 April 1912, Charles Lightoller described staying as the ship sank, the last boat still being worked, and the difficulty getting it over the bulwarks."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "T01",
+   "url": "https://www.govinfo.gov/content/pkg/SERIALSET-06179_00_00-019-0933-0000/pdf/SERIALSET-06179_00_00-019-0933-0000.pdf",
+   "status": 200,
+   "reason": "Initial local 35 MB read cap truncated the download. This was a local pipeline limitation, not a publisher block. The complete same document succeeded as T07 at 41,734,704 bytes."
+  },
+  {
+   "id": "T02",
+   "url": "https://www.titanicinquiry.org/BOTInq/BOTReport/botRepBOT.php",
+   "status": 200,
+   "reason": "Accessible supplemental/duplicate source; not required for core claims."
+  },
+  {
+   "id": "T03",
+   "url": "https://www.titanicinquiry.org/USInq2/AmInq01Lightoller01.php",
+   "status": 200,
+   "reason": "Accessible supplemental/duplicate source; not required for core claims."
+  },
+  {
+   "id": "T06",
+   "url": "https://wwwcdn.imo.org/localresources/en/OurWork/Safety/Documents/surviving.FIN.pdf",
+   "status": 200,
+   "reason": "Accessible supplemental/duplicate source; not required for core claims."
+  }
+ ]
+}

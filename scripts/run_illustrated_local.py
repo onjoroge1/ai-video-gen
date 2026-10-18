@@ -79,6 +79,9 @@ def main() -> int:
     parser.add_argument("--packaging", choices=("world", "history"), default="world",
                         help="title and thumbnail style: world (FATAL ERROR backfire packaging for "
                              "backfire engines) or history (Bolt Explains History)")
+    parser.add_argument("--source-pack", default="",
+                        help="slug (topics/source_packs/<slug>.json) or path of an operator source pack: "
+                             "primary documents research fetches itself and quotes verbatim (source_pack.py)")
     parser.add_argument("--stop-after", choices=("plan", "script"), default="",
                         help="plan: write plan.json/plan_for_approval.md and stop (copy to "
                              "plan.approved.json to approve); script: stop after the narration")
@@ -94,6 +97,11 @@ def main() -> int:
         os.environ["ILLUSTRATED_MUSIC"] = "1"
     if args.packaging == "history":
         os.environ["PACKAGING_STYLE"] = "history"
+    if args.source_pack:
+        import source_pack
+        if source_pack.load_pack(args.source_pack) is None:     # fail before any paid call
+            parser.error(f"--source-pack {args.source_pack!r}: no such pack")
+        os.environ["SOURCE_PACK"] = args.source_pack
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     log_path = out / "run.log"

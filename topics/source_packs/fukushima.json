@@ -1,0 +1,103 @@
+{
+ "slug": "fukushima",
+ "topic": "Fukushima seawall",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready; strong current ecology consequence",
+ "decision": "31 July 2008; TEPCO’s Sakae Muto and Masao Yoshida retained the existing tsunami assessment approach while commissioning further expert work.",
+ "human": "Masao Yoshida, plant superintendent during the accident; his recollection is recorded in TEPCO’s investigation.",
+ "current_type": "Physical recovery and displacement continue; 2026 dated sources.",
+ "angle": "The Tsunami Risk Fukushima Put on Hold",
+ "gaps": {
+  "named_person": "met: Yoshida, attributed operator-record recollection",
+  "dated_current_consequence": "met: 2026 debris work and evacuation reporting",
+  "legacy_only": false,
+  "decision_gap": null
+ },
+ "sources": [
+  {
+   "id": "F01",
+   "url": "https://www-pub.iaea.org/MTCD/Publications/PDF/Pub1710-ReportByTheDG-Web.pdf",
+   "title": "The Fukushima Daiichi Accident: Report by the Director General",
+   "publisher": "IAEA",
+   "date": "2015",
+   "kind": "official investigation report",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 44, accident sequence",
+     "fact": "Tsunami overran the barrier; inundation disabled pumps, generators and electrical equipment, producing station blackout in Units 1–5."
+    },
+    {
+     "location": "PDF p. 20, Summary",
+     "fact": "Organizational assumptions about nuclear safety were insufficiently challenged."
+    }
+   ]
+  },
+  {
+   "id": "F02",
+   "url": "https://www.tepco.co.jp/en/press/corp-com/release/betu12_e/images/120620e0104.pdf",
+   "title": "Fukushima Nuclear Accidents Investigation Report",
+   "publisher": "TEPCO",
+   "date": "2012-06-20",
+   "kind": "operator investigation report",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF pp. 44–45; printed pp. 28–29",
+     "fact": "2008 decision, responsible officers and countermeasure uncertainties."
+    },
+    {
+     "location": "PDF p. 41; printed p. 25",
+     "fact": "Location-specific trial flood calculation."
+    },
+    {
+     "location": "PDF p. 119; printed p. 103",
+     "fact": "Yoshida’s emergency recollection."
+    }
+   ]
+  },
+  {
+   "id": "F03",
+   "url": "https://www.tepco.co.jp/en/decommission/progress/fuel-debris/index-e.html",
+   "title": "Fuel Debris Portal",
+   "publisher": "TEPCO",
+   "date": "latest listed update 2026-06-23; observed 2026-10-18",
+   "kind": "operator operational status",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P48–P54, Latest updates / fuel debris retrieval",
+     "fact": "Announcements dated 23 June and 23 April 2026 document continuing internal investigations and trial retrieval work."
+    },
+    {
+     "location": "HTML P45",
+     "fact": "Displayed temperature/status measurements were last updated 12 March 2026, not at this research retrieval time."
+    }
+   ]
+  },
+  {
+   "id": "F04",
+   "url": "https://www.pref.fukushima.lg.jp/site/portal-english/en-1-4-1.html",
+   "title": "Transition of the number of evacuees",
+   "publisher": "Fukushima Prefecture",
+   "date": "data as of 2026-05-01; page observed 2026-10-18",
+   "kind": "official statistics",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P160–P164, Transition of the number of evacuees",
+     "fact": "Official page reports 22,625 evacuees as of 1 May 2026, with 18,684 outside the prefecture, 3,936 within, and 5 unknown destinations; many remain unable to return."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "F05",
+   "url": "https://www.nrc.gov/docs/ML1118/ML111861807.pdf",
+   "status": 403,
+   "reason": "HTTP 403 on the NRC URL; stopped without retries or circumvention. Four other fully readable primary Fukushima documents are sufficient."
+  }
+ ]
+}
