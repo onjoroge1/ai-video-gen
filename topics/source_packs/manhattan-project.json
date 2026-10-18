@@ -1,0 +1,127 @@
+{
+ "slug": "manhattan-project",
+ "topic": "Manhattan Project / Trinity",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready when narrowed to Trinity and the compensation consequence",
+ "decision": "16 July 1945: the Manhattan Project under General Leslie Groves conducted the Trinity detonation.",
+ "human": "Tina Cordova, cancer survivor and downwinder organizer, describing her own experience and her father Anastacio’s illnesses in Senate testimony.",
+ "current_type": "RECA eligibility expansion and a new online application portal in January 2026.",
+ "angle": "The First Atomic Test Left a Bill America Is Still Paying",
+ "gaps": {
+  "named_person": "met: Cordova, Senate testimony; personal medical causation remains unproven",
+  "dated_current_consequence": "met: January 2026 claims portal and current expanded compensation program",
+  "legacy_only": false,
+  "decision_gap": "Scope deliberately narrowed to Trinity; no claim that it caused every Manhattan Project legacy."
+ },
+ "sources": [
+  {
+   "id": "N01",
+   "url": "https://www.justice.gov/civil/reca",
+   "title": "Radiation Exposure Compensation Act",
+   "publisher": "US Department of Justice",
+   "date": "2026 current program page",
+   "kind": "official program guidance",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P101, P104, P111–P115, Downwinders",
+     "fact": "Current DOJ RECA page describes the July 2025 reauthorization and expanded eligibility including New Mexico, and says regulations are being revised during 2026."
+    }
+   ]
+  },
+  {
+   "id": "N02",
+   "url": "https://www.justice.gov/jmd/media/1434346/dl?inline=",
+   "title": "FY 2027 RECA Trust Fund budget justification",
+   "publisher": "US Department of Justice",
+   "date": "2026",
+   "kind": "official budget report",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 5; printed p. 1; Overview",
+     "fact": "DOJ states that its new online RECA application portal went live on 29 January 2026. Budget estimates are projections, not payments already made."
+    }
+   ]
+  },
+  {
+   "id": "N05",
+   "url": "https://dceg.cancer.gov/research/how-we-study/exposure-assessment/trinity/community-summary",
+   "title": "Summary of Findings from the Study of the Trinity Nuclear Test",
+   "publisher": "US National Cancer Institute study team",
+   "date": "2020-09 findings; current summary",
+   "kind": "original researchers' summary and uncertainty explanation",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P49–P51 and P90–P93, cancer-risk estimates and limitations",
+     "fact": "NCI’s reconstruction estimates a range of excess cancer risks and emphasizes historical-data uncertainties."
+    },
+    {
+     "location": "HTML P67 and P82",
+     "fact": "NCI explicitly says its reconstructed information does not establish a dose for a specific individual."
+    }
+   ]
+  },
+  {
+   "id": "N06",
+   "url": "https://www.abomb1.org/trinity/groves1.html",
+   "title": "Groves memorandum to Secretary of War, The Test",
+   "publisher": "Leslie Groves; historical transcription mirror",
+   "date": "1945-07-18",
+   "kind": "contemporary military memorandum transcription",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P5–P10, date and test report; P40, signature",
+     "fact": "18 July 1945 memorandum from General Leslie Groves to the Secretary of War reports the Trinity test. This is a transcription on an independent historical site, not a government-hosted scan."
+    }
+   ]
+  },
+  {
+   "id": "N07",
+   "url": "https://www.judiciary.senate.gov/imo/media/doc/28846BA0-5056-A066-60EF-B28F0CA4F0D7/06-27-18%20Cordova%20Testimony.pdf",
+   "title": "Tina Cordova testimony on Radiation Exposure Compensation Program",
+   "publisher": "US Senate Judiciary Committee",
+   "date": "2018-06-27 (2026 URL is a rehosting path)",
+   "kind": "first-person congressional testimony",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF pp. 1–2, dated opening and identity; PDF p. 4, family account",
+     "fact": "27 June 2018 Senate testimony: Tina Cordova identifies herself as a cancer survivor and recounts her father Anastacio Cordova’s illnesses and family costs. Her individual and inherited-damage causal assertions are testimony, not established medical findings."
+    }
+   ]
+  },
+  {
+   "id": "N08",
+   "url": "https://www.energy.gov/sites/default/files/maprod/documents/DE99001330.pdf",
+   "title": "The Manhattan Project: Making the Atomic Bomb",
+   "publisher": "US Department of Energy; F. G. Gosling",
+   "date": "1999-01",
+   "kind": "official documentary history/report",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 3, January 1999 edition; PDF pp. 23–24, Groves in command; PDF p. 58, The Trinity Test",
+     "fact": "DOE’s official history identifies Groves’s project leadership and the 16 July 1945 Trinity detonation at 5:30 a.m."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "N03",
+   "url": "https://docs.house.gov/meetings/II/II10/20260318/118996/HHRG-119-II10-Wstate-CordovaT-20260318.pdf",
+   "status": 200,
+   "reason": "Public PDF downloaded successfully, but native extraction returned zero words. Image-only document requires a separate OCR and visual validation step; not used as textual evidence."
+  },
+  {
+   "id": "N04",
+   "url": "https://home.army.mil/wsmr/contact/public-affairs-office/trinity-site-open-house/trinity-site-history",
+   "status": 502,
+   "reason": "HTTP 502; full text was not acquired."
+  }
+ ]
+}

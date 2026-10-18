@@ -3396,6 +3396,10 @@ _TOPIC_CHANNEL: contextvars.ContextVar = contextvars.ContextVar("reelforge_topic
 # Planner control for the causal lane: where to write/read the plan approval files and whether
 # to stop after the plan. Set per run next to the channel; read by _generate_script_chunked.
 _PLAN_CONTROL: contextvars.ContextVar = contextvars.ContextVar("reelforge_plan_control", default={})
+# The operator's source pack for this run (source_pack.py), or None. Set per run from the
+# SOURCE_PACK environment variable (the launcher's --source-pack); read by generate_research_dossier,
+# so the main research request and the focused supplement both see it without new parameters.
+_SOURCE_PACK: contextvars.ContextVar = contextvars.ContextVar("reelforge_source_pack", default=None)
 
 
 def _feasible_engines(duration_sec: float, channel: str | None = None) -> list[str]:
@@ -6472,7 +6476,8 @@ def _bind_support_quotes(dossier: dict) -> dict:
     return dossier
 
 
-def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -> dict:
+def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None,
+                                   prefetched: dict | None = None) -> dict:
     """Establish the provider-observed-evidence invariant by reading the cited pages ourselves.
 
     `validate_research_dossier` requires each support quote to appear in a citation record for its
@@ -6493,7 +6498,8 @@ def _verify_claims_against_sources(dossier: dict, *, log=lambda message: None) -
         log(f"Claim verification unavailable ({exc}); leaving provider records in place")
         return dossier
 
-    summary = claim_verify.verify_claims(claims, log=log)
+    summary = (claim_verify.verify_claims(claims, log=log, prefetched=prefetched) if prefetched
+               else claim_verify.verify_claims(claims, log=log))
     if not summary.get("fetched"):
         # Not one page could be retrieved. That is an outage or a sandbox, not evidence that every
         # claim is unsupported — dropping them all would blame the ledger for the network. Leave
@@ -6707,9 +6713,23 @@ def _strip_evidence_labels(dossier: dict) -> dict:
     return dossier
 
 
+def _load_source_pack(ref: str, log=lambda message: None) -> dict | None:
+    """The run's source pack by slug or path, or None. A named pack that is missing is an operator
+    error worth stopping for, not a silent fall back to search-only research."""
+    if not (ref or "").strip():
+        return None
+    import source_pack
+    pack = source_pack.load_pack(ref)
+    if pack is None:
+        raise ValueError(f"Source pack {ref!r} not found (looked for topics/source_packs/<slug>.json or a .json path)")
+    log(f"Source pack: {pack.get('slug') or ref} ({len(pack.get('sources') or [])} documents)")
+    return pack
+
+
 def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                               log=lambda message: None, evidence_gaps: list | None = None,
-                              duration_sec: float = 90.0, required_evidence: str = "") -> dict:
+                              duration_sec: float = 90.0, required_evidence: str = "",
+                              source_pack: dict | None = None) -> dict:
     """Build a cited, pre-script claim ledger with server-side web search.
 
     The claim target SCALES WITH RUNTIME. It was a flat 22-28 regardless, so a 300-second film
@@ -6725,6 +6745,16 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     of the chain.
     """
     claims_low, claims_high = research_claim_target(duration_sec)
+    # An operator source pack is fetched before the request exists, because its verbatim passages
+    # are part of the request. With no pack the request is byte-identical to what it was, so every
+    # cached dossier and ledger key without a pack is untouched (2026-10-18).
+    pack = source_pack if source_pack is not None else _SOURCE_PACK.get()
+    pack_prepared: dict = {}
+    pack_text = ""
+    if pack:
+        import source_pack as _source_pack
+        pack_prepared = _source_pack.prepare(pack, log=log)
+        pack_text = _source_pack.prompt_paragraph(pack_prepared)
     # BYTE-IDENTICAL WHERE THE FLOOR BINDS. At 60-120s the scaled target is exactly the 22-28 this
     # prompt was calibrated on, so the request must be the same STRING as well as the same numbers:
     # the durable ledger keys paid stages on it, and the research cache keys on it too. Emitting a
@@ -6769,6 +6799,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
         + (f"REQUIRED EVIDENCE named by the operator -- search for each named page and return each "
            f"item as its own claim, quoted from that page, using a URL from your search results "
            f"(still omit any you cannot support): {required_evidence} " if required_evidence else "")
+        + pack_text
         + "Ask for more than the video "
         "needs on purpose: every claim is checked by fetching its page, and a measured run kept "
         "8 of 18 — the rest died on paywalls and quotes that were not on the page. Budget for "
@@ -6847,6 +6878,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
             "and generic blog sources do not qualify. If the evidence is missing, omit the "
             "claim; never manufacture support for the proposed story.\n"
             + json.dumps(evidence_gaps, ensure_ascii=False) + "\n"
+            + (pack_text + "\n" if pack_text else "")
             + schema.replace("12 claims", "2 claims"))
         prompt += ("\nUse Anthropic's native inline web-search citations on every "
                    "support_quote. The JSON text must remain valid when citation annotations are "
@@ -7004,6 +7036,13 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                                    if _s(key[1]) or key[0] not in excerpt_urls]
     dossier["citation_urls"] = sorted({url for turn in responses
                                        for url in _provider_citation_urls(turn)})
+    if pack_prepared.get("observed_urls"):
+        # Read by us, not returned by search: kept apart from citation_urls, whose meaning is
+        # "the provider's web search returned this", and accepted beside it by the provenance gates.
+        dossier["operator_source_urls"] = list(pack_prepared["observed_urls"])
+        dossier["source_pack"] = {"slug": pack_prepared.get("slug", ""),
+                                  "readable": len(pack_prepared["observed_urls"]),
+                                  "unreadable": list(pack_prepared.get("unreadable") or [])}
     dossier["web_search_max_uses"] = request["tools"][0]["max_uses"]
     dossier["research_response_count"] = len(responses)
     dossier["research_pause_continuations"] = len(responses) - 1
@@ -7017,7 +7056,7 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     log(f"Research sources: excluded {source_filter['excluded_count']} disallowed "
         f"candidate(s); checking {source_filter['retained_count']} remaining claim(s)")
     _bind_support_quotes(dossier)
-    _verify_claims_against_sources(dossier, log=log)
+    _verify_claims_against_sources(dossier, log=log, prefetched=pack_prepared.get("pages"))
     # A directly contradicted candidate is unusable evidence, not a reason to discard the entire
     # independently verified ledger. Preserve it in the audit trail and keep it out of prompts.
     dossier = quarantine_contradicted_claims(dossier)
@@ -7026,7 +7065,8 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     # not allowed to fail 27 verified claims with it. Measured on the emperor penguin research
     # (2026-09-25): 22 claims verified, 2 cited unobserved URLs, whole dossier refused. A dossier
     # whose EVERY claim is model-only still fails, under the same code as before.
-    observed = {_canonical_url(url) for url in dossier.get("citation_urls") or []}
+    observed = {_canonical_url(url) for url in
+                list(dossier.get("citation_urls") or []) + list(dossier.get("operator_source_urls") or [])}
     unobserved = [claim for claim in dossier.get("claims") or []
                   if isinstance(claim, dict)
                   and _canonical_url(_s(claim.get("source_url"))) not in observed]
@@ -14004,6 +14044,7 @@ def run_explainer_pipeline(
     # otherwise need a new positional-safe keyword for a value only the Nature channel sets.
     _TOPIC_CHANNEL.set((topic_channel or "").strip().lower())
     _PLAN_CONTROL.set({"output_dir": output_dir, "stop_after_plan": bool(stop_after_plan)})
+    _SOURCE_PACK.set(_load_source_pack(os.environ.get("SOURCE_PACK", ""), log))
     output_dir = os.path.abspath(output_dir)   # absolute so ffmpeg concat lists never double the path
     os.makedirs(output_dir, exist_ok=True)
     stable_standard_longform = _stable_standard_longform(

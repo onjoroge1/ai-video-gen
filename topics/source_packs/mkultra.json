@@ -1,0 +1,114 @@
+{
+ "slug": "mkultra",
+ "topic": "MKUltra / Montreal experiments",
+ "as_of": "2026-10-18",
+ "built_from": "ChatGPT consequence research audit, brief E",
+ "readiness": "Ready; strong live litigation consequence with legal-stage precision",
+ "decision": "13 April 1953: CIA Director Allen Dulles approved MKULTRA. Montreal-specific funding: Subproject 68 approved 4 March 1957.",
+ "human": "Lana Ponting, whose age, treatment allegations and alleged later damage are described in the authorization judgment.",
+ "current_type": "Class action authorized July 2025; leave to appeal refused November 2025; counsel reports proceedings instituted.",
+ "angle": "Why MKUltra’s Victims Are Still Going to Court",
+ "gaps": {
+  "named_person": "met with legal-stage qualification: Ponting allegations and supporting records in authorization judgment",
+  "dated_current_consequence": "met: 2025 authorization and appellate decision, with current counsel report that proceedings are instituted",
+  "legacy_only": false,
+  "decision_gap": "No final liability judgment; Montreal treatment period is broader than CIA grant interval."
+ },
+ "sources": [
+  {
+   "id": "M02",
+   "url": "https://clg.org/pdf/9/1/0/2/Judgment-Granting-Authorization.pdf",
+   "title": "Allan Memorial Institute: judgment granting class action authorization",
+   "publisher": "Quebec Superior Court; plaintiff counsel host",
+   "date": "2025-07-31",
+   "kind": "court judgment",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 1 and p. 3, native paragraphs 1–6",
+     "fact": "Authorization, defendants and alleged period."
+    },
+    {
+     "location": "PDF pp. 25–26, native paragraphs 135–140",
+     "fact": "Ponting’s account and evidential threshold."
+    },
+    {
+     "location": "PDF p. 31; printed p. 29; footnote 95",
+     "fact": "Montreal-specific funding dates."
+    }
+   ]
+  },
+  {
+   "id": "M03",
+   "url": "https://www.intelligence.senate.gov/wp-content/uploads/2024/08/sites-default-files-hearings-95mkultra.pdf",
+   "title": "Project MKULTRA: The CIA's Program of Research in Behavioral Modification",
+   "publisher": "US Senate Select Committee on Intelligence",
+   "date": "1977-08-03",
+   "kind": "official congressional hearing",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 88, 1977 report appendix",
+     "fact": "Allen Dulles approved MKULTRA on 13 April 1953, with special arrangements departing from usual contracting and audit requirements."
+    },
+    {
+     "location": "PDF p. 72, destruction of records",
+     "fact": "The record describes the January 1973 destruction of MKULTRA files on verbal orders transmitted by Sidney Gottlieb from Richard Helms."
+    }
+   ]
+  },
+  {
+   "id": "M04",
+   "url": "https://clg.org/pdf/7/5/8/1/Judgment-on-Immunity-Court-of-Appeal.pdf",
+   "title": "Allan Memorial litigation: judgment on US sovereign immunity",
+   "publisher": "Quebec Court of Appeal; plaintiff counsel copy",
+   "date": "2023-10-02",
+   "kind": "court judgment",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 21, native paragraphs 64–65; judgment dated 2 October 2023",
+     "fact": "The Court of Appeal upheld the United States’ immunity; dismissal on immunity does not adjudicate whether the underlying events happened."
+    }
+   ]
+  },
+  {
+   "id": "M05",
+   "url": "https://clg.org/Class-Action/List-of-Class-Actions/Allan-Memorial-Institute-Experiments-Class-Action",
+   "title": "Allan Memorial Institute Experiments Class Action",
+   "publisher": "Consumer Law Group, counsel conducting the case",
+   "date": "undated status page; observed 2026-10-18",
+   "kind": "first-party litigation status and notices",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "HTML P43, News and status updates; Application to Institute Proceedings link",
+     "fact": "Case counsel reports that the action has been instituted and describes forthcoming steps; the latest update is undated and must be attributed to counsel as observed on retrieval."
+    }
+   ]
+  },
+  {
+   "id": "M06",
+   "url": "https://clg.org/pdf/7/4/0/2/Judgment-Rejecting-Permission-to-Appeal.pdf",
+   "title": "Royal Victoria Hospital application for permission to appeal authorization judgment",
+   "publisher": "Quebec Court of Appeal, court document hosted by plaintiff counsel",
+   "date": "2025-11-13",
+   "kind": "appellate court judgment",
+   "content_type": "application/pdf",
+   "facts": [
+    {
+     "location": "PDF p. 1, date and judge; PDF p. 6, native paragraphs 11–14",
+     "fact": "On 13 November 2025, Justice Geneviève Marcotte rejected the hospital’s request for permission to appeal authorization. Individuals would still have to establish their own direct or indirect victim status."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "M01",
+   "url": "https://www.cia.gov/readingroom/docs/PROJECT%20MKULTRA%2C%20THE%20CIAS%5B12885086%5D.pdf",
+   "status": 200,
+   "reason": "HTTP 200 returned an unrelated CIA HTML page at a PDF-looking URL. Sufficient word count was a false positive; content rejected."
+  }
+ ]
+}
