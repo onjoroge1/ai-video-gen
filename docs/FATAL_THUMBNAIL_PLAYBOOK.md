@@ -135,10 +135,19 @@ The ladder (`HYPOTHESES` in the script; `--next-hypothesis` prints the first one
 |---|---|---|
 | H1 | picture | The thumbnail shows what the title asks, not the backstory (Chernobyl, started 10-18) |
 | H2 | picture | A human face in danger beats an object, or a figure seen from behind |
-| H3 | headline | The word matters: FATAL vs. a word from the film vs. no text |
+| H3 | headline | An evaluative word (FATAL ___) vs. a neutral identifier from the film (e.g. FATAL FUEL vs. MELTED FUEL: same word count, size and position) vs. no text |
 | H4 | picture | A famous icon beats a new scene |
 | H5 | picture | A split (cause → consequence) beats one hero image |
 | H6 | style | Illustrated, matching the film, beats photoreal |
+
+**Why H3 tests tone (10-18 field evidence).**
+- **Sample:** a ChatGPT research pass coded 37 ecology comparison thumbnails without seeing their results.
+- **Result:** thumbnails with no evaluative word reached 2× their channel's usual views 53% of the time (26% fell below half of it). Those with one ("THIS IS INSANE", "DISTURBING", "IMPOSSIBLE") reached 2× 29% of the time (53% fell below half).
+- **Limits:** the labelled group is heavy on one channel's off-topic clickbait. Only EyeTech has five or more in both groups (71% vs. 33%).
+- **Why it matters:** FATAL is an evaluative word, so this test checks our own convention, not just a wording preference.
+- **Arms:** keep the scene, the second word's size and the title fixed; change only the first word.
+
+The same pass found no thumbnail of a figure seen from behind (H2's third arm is new evidence) and only two split layouts. Captions of 1–3 words beat 4 or more in all three channels.
 
 A spec names the control and the overrides. A variant that keeps the control's picture reuses its
 background, so a headline test costs one image:

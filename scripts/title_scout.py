@@ -139,11 +139,13 @@ def pattern_lift(rows: list[dict]) -> list[dict]:
     return sorted(out, key=lambda r: -(r["lift"] or 0))
 
 
-def channel_history(get, uploads: str, back_to: str = "", max_pages: int = 4, cushion: int = 30) -> list[dict]:
+def channel_history(get, uploads: str, back_to: str = "", max_pages: int = 4, cushion: int = 30,
+                    info: dict | None = None) -> list[dict]:
     """The channel's public long-form uploads, oldest first, with exact views. Shorts and past live
     streams are left out: they are not the upload a viewer compares a film with. Pages back until
     `cushion` uploads predate `back_to` (a ten-upload comparison window plus each of those uploads'
-    own preceding ten, with room for Shorts), or max_pages."""
+    own preceding ten, with room for Shorts), or max_pages. `info`, when given, records the pages read
+    and whether older uploads remained unread (a truncated history must not pass for a complete one)."""
     if not uploads:
         return []
     ids, dates, token = [], [], None
@@ -158,8 +160,12 @@ def channel_history(get, uploads: str, back_to: str = "", max_pages: int = 4, cu
                 ids.append(cd["videoId"])
                 dates.append(cd.get("videoPublishedAt", ""))
         token = page.get("nextPageToken")
+        if info is not None:
+            info["pages"] = info.get("pages", 0) + 1
         if not token or (back_to and sum(1 for d in dates if d and d < back_to) >= cushion):
             break
+    if info is not None:
+        info["more"] = bool(token)
     out = []
     for batch in osc._batches(ids):
         for v in get("videos", part="snippet,statistics,contentDetails,liveStreamingDetails",
@@ -167,10 +173,12 @@ def channel_history(get, uploads: str, back_to: str = "", max_pages: int = 4, cu
             sn = v.get("snippet", {})
             if "liveStreamingDetails" in v or sn.get("liveBroadcastContent", "none") != "none":
                 continue
-            if osc.seconds(v.get("contentDetails", {}).get("duration")) < osc.LONG_FORM_SEC:
+            duration = osc.seconds(v.get("contentDetails", {}).get("duration"))
+            if duration < osc.LONG_FORM_SEC:
                 continue
             out.append({"video_id": v["id"], "title": sn.get("title", ""), "channel": sn.get("channelTitle", ""),
-                        "published": sn.get("publishedAt", ""), "views": int(v.get("statistics", {}).get("viewCount") or 0)})
+                        "published": sn.get("publishedAt", ""), "views": int(v.get("statistics", {}).get("viewCount") or 0),
+                        "duration_sec": duration})
     return sorted(out, key=lambda h: h["published"])
 
 

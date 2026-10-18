@@ -33,7 +33,8 @@ EXPERIMENT_LOG = os.path.join(ROOT, "jobs", "yt", "experiments", "THUMBNAIL_LOG.
 HYPOTHESES = [
     ("H1", "picture", "The thumbnail shows what the title asks, not the backstory."),
     ("H2", "picture", "A human face in danger beats an object, or a figure seen from behind."),
-    ("H3", "headline", "The word matters: FATAL vs. a word from the film vs. no text."),
+    ("H3", "headline", "An evaluative word (FATAL ___) vs. a neutral identifier from the film, same word "
+                       "count, size and position, vs. no text."),
     ("H4", "picture", "A famous icon beats a new scene."),
     ("H5", "picture", "A split (cause -> consequence) beats one hero image."),
     ("H6", "style", "Illustrated, matching the film, beats photoreal."),
