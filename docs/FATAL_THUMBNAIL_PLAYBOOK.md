@@ -121,3 +121,47 @@ Before setting a thumbnail, check:
 - **FATAL SLIP v1:** the left read as "a man prying a metal ball", because nothing signalled a bomb core. The scare on the right was small figures in aftermath.
 
 In the feed test, v2 of each read instantly and v1 did not.
+
+## Experiments: three thumbnails per film, one hypothesis each
+
+Operator, 2026-10-18. Each new film ships with three thumbnails: the playbook control plus two variants
+that each change ONE thing. The test runs in Studio's Test & Compare, which splits impressions at random
+on the same video and picks the winner by watch-time share. One hypothesis per film, and no title change
+while it runs.
+
+The ladder (`HYPOTHESES` in the script; `--next-hypothesis` prints the first one the log hasn't started):
+
+| Id | Variable | Hypothesis |
+|---|---|---|
+| H1 | picture | The thumbnail shows what the title asks, not the backstory (Chernobyl, started 10-18) |
+| H2 | picture | A human face in danger beats an object, or a figure seen from behind |
+| H3 | headline | The word matters: FATAL vs. a word from the film vs. no text |
+| H4 | picture | A famous icon beats a new scene |
+| H5 | picture | A split (cause → consequence) beats one hero image |
+| H6 | style | Illustrated, matching the film, beats photoreal |
+
+A spec names the control and the overrides. A variant that keeps the control's picture reuses its
+background, so a headline test costs one image:
+
+```json
+{"hypothesis_id": "H2", "hypothesis": "A face in danger beats an object or a figure from behind.",
+ "variable": "picture",
+ "control": {"name": "A", "first": "FATAL", "word": "COIL", "left": "...", "right": "<a face, close to the threat>"},
+ "variants": [{"name": "B", "right": "<the threat alone, no person>", "note": "object only"},
+              {"name": "C", "right": "<the person seen from behind>", "note": "figure from behind"}]}
+```
+
+```bash
+python3 scripts/make_fatal_thumbnail.py jobs/<job> --variants spec.json --set-control
+python3 scripts/make_fatal_thumbnail.py jobs/<job> --record-result H2 --verdict winner --winner B --shares A=31,B=44,C=25
+```
+
+Outputs:
+- `thumbs/<test>_A|B|C.jpg`
+- the feed sheet beside the live reference
+- `thumbs/<test>.json`
+- an entry in `jobs/yt/experiments/THUMBNAIL_LOG.md` (git-ignored: analytics stay out of the public repo)
+
+The FATAL guardrail applies to every variant. YouTube doesn't expose Test & Compare results through the
+API: record them from Studio. Many small-channel tests will end "inconclusive". That is a result too: the
+variable isn't the bottleneck.
