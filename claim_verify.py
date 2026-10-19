@@ -115,7 +115,10 @@ def fetch_document_text(url: str, *, session: requests.Session | None = None,
     try:
         response = client.get(url, timeout=max(FETCH_TIMEOUT_SEC, 60.0), stream=True,
                               headers={"User-Agent": USER_AGENT,
-                                       "Accept": "text/html,application/xhtml+xml,application/pdf,text/plain"})
+                                       # XML too: Europe PMC serves open-access full text only as
+                                       # application/xml and answers any other Accept with 406.
+                                       "Accept": "text/html,application/xhtml+xml,application/xml,text/xml,"
+                                                 "application/pdf,text/plain"})
         response.raise_for_status()
         kind = str(response.headers.get("Content-Type") or "").lower()
         body = response.raw.read(PDF_MAX_BYTES, decode_content=True) or b""
