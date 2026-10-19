@@ -166,6 +166,7 @@ class _Session:
 
     def get(self, url, **kwargs):
         assert "application/pdf" in kwargs["headers"]["Accept"]
+        assert "application/xml" in kwargs["headers"]["Accept"], "Europe PMC full text is XML-only"
         return _Response(self.body, self.kind)
 
 
@@ -205,3 +206,9 @@ def test_document_fetch_reads_a_pdf():
     text = claim_verify.fetch_document_text("https://x.gov/r.pdf", session=_Session(_tiny_pdf(words), "application/pdf"))
     assert "fourteen lifeboats" in text
     assert claim_verify.fetch_document_text("https://x.gov/r.pdf", session=_Session(_tiny_pdf("short"), "application/pdf")) == ""
+
+
+def test_document_fetch_reads_xml_full_text():
+    article = ("<article><body><p>" + PAGE + "</p></body></article>").encode()
+    text = claim_verify.fetch_document_text("https://www.ebi.ac.uk/x/fullTextXML", session=_Session(article, "application/xml"))
+    assert "fourteen lifeboats with 910 places" in text
