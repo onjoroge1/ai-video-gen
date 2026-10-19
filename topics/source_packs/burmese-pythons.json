@@ -1,0 +1,217 @@
+{
+ "slug": "burmese-pythons",
+ "topic": "Burmese pythons: from paid hunters to robot rabbits",
+ "as_of": "2026-10-19",
+ "built_from": "operator research check 2026-10-19 (Claude), sources confirmed readable by our fetcher",
+ "readiness": "Ready; the robot-rabbit results are unpublished, so the close is 'still unfolding'",
+ "decision": "Spring 2017: Florida began paying contracted hunters to remove pythons (SFWMD Python Elimination Program, FWC PATRIC/Python Action Team).",
+ "human": "Mike Kirkland, SFWMD lead invasive animal biologist; Robert McCleery, University of Florida wildlife ecologist (both quoted on the record).",
+ "current_type": "Robot rabbit decoys deployed from summer 2025; preliminary results were expected by summer 2026 and none are published as of 2026-10-19.",
+ "angle": "Why Is Florida Building Robot Rabbits to Catch Its Pythons?",
+ "gaps": {
+  "robot_results": "No published count of pythons detected or removed at robot-rabbit pens.",
+  "fleet_size": "Coverage differs (40 rebuilt toy rabbits per ABC; 120 deployed per AP; about 90 per a 2026 secondary report). Use only what a fetched source states.",
+  "causation": "The robots replaced live rabbit lures because live rabbits were costly to keep; do not say the robots exist because pythons ate the wild rabbits."
+ },
+ "sources": [
+  {
+   "id": "P01",
+   "url": "https://myfwc.com/wildlifehabitats/nonnatives/python/action-team/",
+   "title": "Python Action Team - Removing Invasive Constrictors (PATRIC)",
+   "publisher": "Florida Fish and Wildlife Conservation Commission",
+   "date": "current page, observed 2026-10-19",
+   "kind": "state agency program page",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "program description",
+     "fact": "After this program launched in spring 2017, the number and rate of Burmese pythons removed from the wild increased."
+    },
+    {
+     "location": "program description",
+     "fact": "As of April 2025, over 23,500 pythons have been removed from natural areas in the state of Florida; over 11,000 by FWC PATRIC and SFWMD PEP contractors since program inception."
+    }
+   ]
+  },
+  {
+   "id": "P02",
+   "url": "https://www.sfwmd.gov/our-work/python-program",
+   "title": "Python Elimination Program",
+   "publisher": "South Florida Water Management District",
+   "date": "current page, observed 2026-10-19",
+   "kind": "district program page",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "research section",
+     "fact": "Researchers released 95 adult marsh rabbits in areas of the Everglades known to harbor pythons; within 11 months pythons accounted for 77 percent of rabbit deaths."
+    },
+    {
+     "location": "news list",
+     "fact": "SFWMD Python Elimination Program grows bigger with Broward and Collier counties expansion (June 16, 2017)."
+    }
+   ]
+  },
+  {
+   "id": "P03",
+   "url": "https://www.sfwmd.gov/news-events/news/dyk-using-robotic-rabbits-remove-invasive-pythons",
+   "title": "DYK: Using Robotic Rabbits to Remove Invasive Pythons",
+   "publisher": "South Florida Water Management District",
+   "date": "2025-07-22",
+   "kind": "district news",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "body",
+     "fact": "Scientists from the District and the University of Florida have teamed up to use robotic rabbit decoys."
+    },
+    {
+     "location": "body",
+     "fact": "Solar-powered, remote-controlled robots designed to look like rabbits produce a heat signature and emit a smell designed to attract pythons."
+    },
+    {
+     "location": "body",
+     "fact": "The robots are equipped with cameras that monitor for pythons and notify District officials when a snake is detected, so a python removal agent can be dispatched."
+    }
+   ]
+  },
+  {
+   "id": "P04",
+   "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11210459/fullTextXML",
+   "title": "Mammalian lures monitored with time-lapse cameras increase detection of pythons and other snakes (PeerJ 12:e17577)",
+   "publisher": "PeerJ via Europe PMC (public domain)",
+   "date": "2024-06-24",
+   "kind": "peer-reviewed study",
+   "content_type": "application/xml",
+   "facts": [
+    {
+     "location": "Abstract, Results",
+     "fact": "We recorded 21 independent detections of pythons at treatment pens with lures and one detection at a control pen without lures."
+    },
+    {
+     "location": "Abstract, Results",
+     "fact": "Time-lapse cameras detected almost 40 times more snakes than visual surveys; we did not detect any pythons with python detection dogs."
+    },
+    {
+     "location": "Methods",
+     "fact": "Domesticated rabbits were used as live lures in pens monitored with time-lapse game cameras."
+    }
+   ]
+  },
+  {
+   "id": "P05",
+   "url": "https://www.usgs.gov/publications/marsh-rabbit-mortalities-tie-pythons-precipitous-decline-mammals-everglades",
+   "title": "Marsh rabbit mortalities tie pythons to the precipitous decline of mammals in the Everglades",
+   "publisher": "U.S. Geological Survey (Proceedings of the Royal Society B)",
+   "date": "2015",
+   "kind": "peer-reviewed study (abstract page)",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "Abstract",
+     "fact": "Pythons accounted for 77% of rabbit mortalities within 11 months of their translocation to Everglades National Park, and python predation appeared to preclude the persistence of rabbit populations in the park."
+    },
+    {
+     "location": "Abstract",
+     "fact": "On control sites outside the park, no rabbits were killed by pythons."
+    }
+   ]
+  },
+  {
+   "id": "P06",
+   "url": "https://www.usgs.gov/publications/estimating-detection-probability-burmese-pythons-few-detections-and-zero-recapture",
+   "title": "Estimating detection probability for Burmese Pythons with few detections and zero recapture events",
+   "publisher": "U.S. Geological Survey (Journal of Herpetology)",
+   "date": "2020",
+   "kind": "peer-reviewed study (abstract page)",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "Abstract",
+     "fact": "Detection probability ranged from 0.0001 to 0.0146; detection probabilities for Burmese Pythons are therefore likely below 0.05."
+    },
+    {
+     "location": "Abstract",
+     "fact": "Traditional capture-recapture or visual surveys are unlikely to yield accurate information on python population size or trends without cost-prohibitive effort."
+    }
+   ]
+  },
+  {
+   "id": "P07",
+   "url": "https://www.usgs.gov/publications/mammalian-scent-lures-fail-increase-detections-invasive-burmese-pythons-python",
+   "title": "Mammalian scent lures fail to increase detections of invasive Burmese pythons",
+   "publisher": "U.S. Geological Survey",
+   "date": "observed 2026-10-19",
+   "kind": "peer-reviewed study (abstract page)",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "Abstract",
+     "fact": "Mammalian scent lures alone are insufficient to attract pythons; since live mammals can attract pythons but scent lures cannot, future studies could examine a lure combining heat, visual and movement stimuli."
+    }
+   ]
+  },
+  {
+   "id": "P08",
+   "url": "https://abcnews.com/US/florida-snake-hunters-deploy-robotic-rabbits-capture-invasive/story?id=124376519",
+   "title": "Florida snake hunters deploy robotic rabbits to capture invasive Burmese pythons",
+   "publisher": "ABC News",
+   "date": "2025-08-05",
+   "kind": "news report",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "body",
+     "fact": "The researchers replaced the stuffing in 40 toy rabbits with electrical components powered by solar energy and waterproofed them."
+    },
+    {
+     "location": "body",
+     "fact": "Robert McCleery, a University of Florida wildlife ecologist: 'We want to capture all of the processes that an actual rabbit would give off.'"
+    }
+   ]
+  },
+  {
+   "id": "P09",
+   "url": "https://www.route-fifty.com/emerging-tech/2025/08/florida-enlists-robot-bunnies-manage-invasive-pythons/407458/",
+   "title": "Florida enlists robot bunnies to manage invasive pythons",
+   "publisher": "Route Fifty",
+   "date": "2025-08",
+   "kind": "news report",
+   "content_type": "text/html",
+   "facts": [
+    {
+     "location": "body",
+     "fact": "Officials hope to have preliminary results by next summer."
+    },
+    {
+     "location": "body",
+     "fact": "Burmese pythons are not native to Florida; they were brought through the exotic pet trade and escaped their enclosures or were released, said Mike Kirkland of the South Florida Water Management District."
+    },
+    {
+     "location": "body",
+     "fact": "The pythons have reduced the population of fur-bearing animals by up to 95%, he explained."
+    }
+   ]
+  }
+ ],
+ "excluded": [
+  {
+   "id": "X1",
+   "url": "https://peerj.com/articles/17577",
+   "status": "403",
+   "reason": "blocks our fetcher; same text used via Europe PMC (P04)"
+  },
+  {
+   "id": "X2",
+   "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11210459/",
+   "status": "200",
+   "reason": "bot check page, no article text"
+  },
+  {
+   "id": "X3",
+   "url": "https://pubs.usgs.gov/publication/70144030",
+   "status": "200",
+   "reason": "no readable text; USGS publication page used instead (P05)"
+  }
+ ]
+}
