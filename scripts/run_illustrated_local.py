@@ -104,6 +104,10 @@ def main() -> int:
         os.environ["SOURCE_PACK"] = args.source_pack
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
+    # The exact command, so a rescue can resume with the same flags (scripts/rescue_script.py).
+    if not args.resume:
+        import shlex
+        (out / "run_command.txt").write_text(" ".join(shlex.quote(a) for a in [sys.executable] + sys.argv) + "\n")
     log_path = out / "run.log"
     direction = Path(args.direction_file).read_text() if args.direction_file else ""
 
