@@ -116,3 +116,9 @@ def test_a_judge_outage_is_not_a_pass(monkeypatch):
     res = rs.run_gates(_script(), "Q?", grades=2, judge_claims=lambda s: outage, grader=lambda s: {"overall": 80, "notes": ""})
     assert not res["claims"]["passed"] and "judge unavailable" in res["claims"]["errors"][0]
     assert res["retention"]["errors"] == ["SCENE_COUNT_MISMATCH"] and res["grade_mean"] == 80 and not res["passed"]
+
+
+def test_report_reads_storyboard_string_errors():
+    failed = {"script": _script(), "stage": "illustrated-storyboard", "source": "semantic_failure_illustrated-storyboard.json",
+              "report": {"errors": ["DUPLICATE_ROLE: setup may appear only once, found 4"]}}
+    assert "DUPLICATE_ROLE" in rs.report_text(failed) and "setup may appear only once" in rs.report_text(failed)
