@@ -76,6 +76,12 @@ def main() -> int:
                         help="plan no recap (synthesis) scene before the close")
     parser.add_argument("--music", action="store_true",
                         help="add the locally composed chamber score (ILLUSTRATED_MUSIC=1)")
+    parser.add_argument("--palette", choices=("plates", "natural"), default="plates",
+                        help="plates: each story role on its own coloured paper stock; natural: "
+                             "true-to-life colour with the role carried by light (World, 2026-10-21)")
+    parser.add_argument("--music-mix", choices=("ducked", "ambient_pad"), default="ducked",
+                        help="ducked: the score ducks under the voice; ambient_pad: a low, steady "
+                             "blurred bed with no ducking (World, 2026-10-21)")
     parser.add_argument("--packaging", choices=("world", "history"), default="world",
                         help="title and thumbnail style: world (FATAL ERROR backfire packaging for "
                              "backfire engines) or history (Bolt Explains History)")
@@ -95,6 +101,10 @@ def main() -> int:
         os.environ["SYNTHESIS_DEVICE"] = "off"
     if args.music:
         os.environ["ILLUSTRATED_MUSIC"] = "1"
+    if args.palette == "natural":
+        os.environ["ILLUSTRATED_PALETTE"] = "natural"
+    if args.music_mix == "ambient_pad":
+        os.environ["MUSIC_MIX"] = "ambient_pad"
     if args.packaging == "history":
         os.environ["PACKAGING_STYLE"] = "history"
     if args.source_pack:

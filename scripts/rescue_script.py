@@ -87,6 +87,10 @@ def launch_flags(job: str) -> dict:
     m = re.search(r"--opening\s+(myth|witness)", text)
     if m:
         env["OPENING_HOOK"] = m.group(1)
+    if re.search(r"--palette\s+natural", text):
+        env["ILLUSTRATED_PALETTE"] = "natural"
+    if re.search(r"--music-mix\s+ambient_pad", text):
+        env["MUSIC_MIX"] = "ambient_pad"
     return env
 
 
