@@ -255,6 +255,8 @@ def music_mix_filter(duration_sec: float, drops: list[float] | None = None) -> s
     duration = float(duration_sec)
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("Music mix needs a positive duration")
+    if (os.environ.get("MUSIC_MIX", "") or "").strip().lower() == "ambient_pad":
+        return ambient_pad_filter(duration)
     volume = "1"
     for t in reversed(drops or []):
         if math.isfinite(t) and 0 <= t <= duration:
@@ -269,4 +271,25 @@ def music_mix_filter(duration_sec: float, drops: list[float] | None = None) -> s
         f"afade=t=out:st={duration - fade:.3f}:d={fade:.3f}[bed];"
         "[bed][side]sidechaincompress=threshold=0.025:ratio=6:attack=12:release=300[ducked];"
         "[voice][ducked]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[mix]"
+    )
+
+
+def ambient_pad_filter(duration_sec: float) -> str:
+    """MUSIC_MIX=ambient_pad (operator choice, 2026-10-21): a low, steady bed that fills the
+    pauses without drawing attention. The ducked mix above pumps: a 6:1 duck under every
+    sentence springs back within 0.3 s in each pause, and story turns dip to 18%. Here the score's
+    top end is cut hard (melody blurs into a wash), a soft multi-tap echo smears it further, a
+    compressor flattens it, and it sits at -34 LUFS under -18 LUFS narration (16 dB down) with
+    no ducking and no turn drops, so its level never moves. Chosen from a three-way A/B on the
+    lionfish opening (current / low-steady / pad)."""
+    duration = float(duration_sec)
+    fade = min(2.0, duration / 3)
+    return (
+        "[0:a]loudnorm=I=-18:TP=-2:LRA=9,aformat=sample_rates=32000:channel_layouts=stereo[voice];"
+        f"[1:a]atrim=duration={duration:.3f},asetpts=PTS-STARTPTS,"
+        "highpass=f=120,lowpass=f=1600,aecho=0.8:0.85:120|260|420:0.35|0.25|0.18,"
+        "acompressor=threshold=-32dB:ratio=6:attack=80:release=1500,"
+        "loudnorm=I=-34:TP=-6:LRA=2,aformat=sample_rates=32000:channel_layouts=stereo,"
+        f"afade=t=in:d={fade:.3f},afade=t=out:st={duration - fade:.3f}:d={fade:.3f}[bed];"
+        "[voice][bed]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[mix]"
     )

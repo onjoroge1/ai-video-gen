@@ -10,6 +10,7 @@ Keeping those responsibilities pure makes the lane cheap to test and safe to rem
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -522,9 +523,38 @@ _STAGING = (
     "with calm negative space around the hero so the frame reads in half a second.")
 
 
+# NATURAL PALETTE (operator, 2026-10-21). The coloured stocks above print a whole scene in one hue:
+# on the lionfish film the blueprint-blue mechanism plate turned red-and-white lionfish blue and
+# the magenta escalation plate read as a cheap filter. A side-by-side of one scene (single-hue
+# plate vs natural colour, same medium quality) settled it for World. Natural colour keeps the
+# role rhythm through LIGHT, not paper: the colours of the place stay true in every scene.
+NATURAL_PLATES = {
+    "setup": "Natural full colour, true to life: the real colours of the place and its animals; soft "
+             "early-morning light.",
+    "intervention": "Natural full colour, true to life; clear, bright daylight.",
+    "false_resolution": "Natural full colour, true to life; the brightest, most hopeful light in the film.",
+    "hinge": "Natural full colour, true to life, in low dusk light with long shadows; the darkest scene, "
+             "but the place keeps its true colours.",
+    "mechanism": "Natural full colour, true to life; cooler, clearer light that shows how things work.",
+    "escalation": "Natural full colour, true to life; late-afternoon light turning amber.",
+    "reversal": "Natural full colour, true to life; warm golden light.",
+    "generalization": "Natural full colour, true to life; warm golden light.",
+}
+_NATURAL_SUFFIX = (" Colour is varied and true to life, never a single-hue tint, duotone or monochrome "
+                   "wash; animals keep their real markings.")
+
+
+def natural_palette() -> bool:
+    """ILLUSTRATED_PALETTE=natural (World, 2026-10-21); the coloured stocks stay the default."""
+    return (os.environ.get("ILLUSTRATED_PALETTE", "") or "").strip().lower() == "natural"
+
+
 def plate_for(role: str) -> str:
-    """The paper stock this story role is printed on."""
-    return PLATES.get((role or "").strip().lower(), _DEFAULT_PLATE)
+    """The paper stock this story role is printed on (or, natural palette, its light)."""
+    key = (role or "").strip().lower()
+    if natural_palette():
+        return NATURAL_PLATES.get(key, NATURAL_PLATES["setup"]) + _NATURAL_SUFFIX
+    return PLATES.get(key, _DEFAULT_PLATE)
 
 
 def visual_style_suffix(framing: str = "", role: str = "", people: bool = True) -> str:
@@ -551,9 +581,11 @@ def visual_style_suffix(framing: str = "", role: str = "", people: bool = True) 
         "once, from one camera. Never a grid, never panels, never a storyboard sheet, never "
         "borders, gutters, insets, numbered boxes or caption strips. "
         " Visual treatment: hand-drawn editorial history illustration with layered cut-paper "
-        "shapes on clean ivory stock. " + figures + "Visible ink "
-        "contour lines, restrained crosshatching, flat gouache colour blocks and a little paper "
-        "grain. A single small mustard-yellow paper accent marks the changing story object, on every "
+        + ("shapes. " if natural_palette() else "shapes on clean ivory stock. ") + figures + "Visible ink "
+        "contour lines, restrained crosshatching, flat gouache colour blocks and "
+        + ("a faint, fine paper texture, clean and crisp, never mottled or speckled. A single"
+           if natural_palette() else "a little paper grain. A single")
+        + " small mustard-yellow paper accent marks the changing story object, on every "
         "plate. Readable silhouettes, layered foreground, middle ground and "
         "background, one unmistakable story action per frame. Reuse the same clothing colours, props and location design "
         "whenever they recur. Composition must read instantly at phone size. "
