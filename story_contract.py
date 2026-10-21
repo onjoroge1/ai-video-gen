@@ -63,8 +63,9 @@ RUBRIC = (
                             "imagined situations are framed aloud and never leak into a fact about "
                             "a named person."),
     ("specificity", "Concrete, surprising details; every number serves the story."),
-    ("voice", "It sounds spoken: short sentences, sources named only where it matters, no rewind to "
-              "history before the question; humour and personality come from the situation."),
+    ("voice", "It sounds spoken: short sentences, few numbers, sources named only where it matters, "
+              "no rewind to history before the question; humour and personality come from the "
+              "situation (credited when present, never required)."),
 )
 RUBRIC_IDS = tuple(item for item, _ in RUBRIC)
 # The scale. v2 scored 3 on every item under a bare 0-3 (2026-10-21), so the top no longer
@@ -504,6 +505,27 @@ def question_overlap(a: str, b: str) -> float:
     return len(wa & wb) / len(wa | wb) if wa and wb else 0.0
 
 
+_NO_FIX_PENALTY = re.compile(r"(ends? on (a |an )?(failure|constraint|limit|dispute)|(no|little|without|lacks?) "
+                             r"(real |clear )?resolution|unresolved|no (happy|clear) ending|bleak|"
+                             r"depressing|without a fix|rather than an answer)", re.I)
+
+
+def question_choice_penalties(contract: dict) -> list[dict]:
+    """A candidate marked down for ending on an honest partial answer (operator 2026-10-21): an
+    error, so the contract goes back once with the rule restated."""
+    out = []
+    for i, c in enumerate(contract.get("question_candidates") or []):
+        if not isinstance(c, dict):
+            continue
+        scores = c.get("scores") or {}
+        if _NO_FIX_PENALTY.search(_text(c.get("reason"))) and int(scores.get("deliverable") or 0) < 3:
+            out.append({"code": "QUESTION_PENALISED_FOR_NO_FIX",
+                        "message": f"candidate {i + 1} ({_text(c.get('question'))!r}) is marked down because "
+                                   "its ending is a constraint or a partial answer; that is a valid ending. "
+                                   "Re-score it on curiosity, support and deliverable alone"})
+    return out
+
+
 def validate_question_choice(contract: dict, commission: str, known) -> list[dict]:
     """Three scored candidates, the chosen one is the central question, and it is not the
     commission title restated."""
@@ -557,6 +579,8 @@ Write the story contract.
   (curiosity_gap); the claim IDs that support it; the answer the ending could deliver from the
   evidence; and scores 0-3 for curiosity (a gap the title does not already close), support (the
   evidence establishes the pieces) and deliverable (an ending the evidence can actually give).
+  An honest partial answer, a named constraint, or a cost the evidence shows is a valid ending: do
+  not mark a question down because its answer is not a fix or a happy resolution.
   Then choose one (chosen: its index, 0-2) and say why.
 - central_question: the chosen candidate's question, word for word. It must be one the evidence
   can actually answer.
@@ -694,6 +718,7 @@ def validate_contract(contract: dict, known_claims, commission: str = "") -> dic
         warn("NO_TANGENTS_LEFT_OUT", "no tangent was deliberately left out")
 
     errors.extend(validate_question_choice(contract, commission, known))
+    errors.extend(question_choice_penalties(contract))
     unknown = sorted({c for c in contract_claim_ids(contract) if c not in known})
     if unknown:
         err("UNKNOWN_CLAIM", "the contract cites claims the dossier does not have: " + ", ".join(unknown))
@@ -785,7 +810,9 @@ twelve words on average, one idea each; a long sentence is two. Name a source on
 listener needs to know who says so, about once or twice a spoken minute, never in every sentence.
 Do not rewind to origins or history before the viewer has the question and the person's want; tell
 backstory later, briefly, only where the story needs it. Never mention the research, the claims,
-the brief, the title or the contract: the listener has none of them."""
+the brief, the title or the contract: the listener has none of them. Use few numbers -- about one or
+two a spoken minute -- and only ones the story turns on. Never count obstacles ("a third limit"):
+each development changes the answer, it is not the next item on a list."""
 
 
 def _contract_block(contract: dict) -> str:
@@ -913,6 +940,16 @@ LENGTH_MAX_RATIO = 1.10
 MEAN_SENTENCE_MAX = 15.0
 SENTENCE_FLAG_WORDS = 30          # a flag, not a blocker: v2 itself has one 31-word sentence
 ATTRIBUTIONS_PER_MINUTE_MAX = 2.0
+# Numbers a spoken minute. v2 1.9, v1 3.9, lane draft 2 5.1 (same definitions, 2026-10-21).
+NUMBERS_PER_MINUTE_MAX = 2.0
+# Humour that comes from the situation, the calibration the reviewer is given (lionfish v2).
+HUMOR_EXAMPLES = ("A fish dressed like it's expecting photographers.",
+                  "One fish. A very busy mouth.",
+                  "Government advice you could serve with lemon.")
+# Parallel-obstacle framing: "a third limit", "the second wall" -- the compiled lane's list middle.
+_LIST_FRAMING_RE = re.compile(
+    r"\b(second|third|fourth|fifth|final|last|another|one more|next)\s+(?:big\s+|real\s+)?"
+    r"(limit|limits|problem|obstacle|wall|catch|barrier|hurdle|snag|complication|setback)\b", re.I)
 
 _SENTENCE_RE = re.compile(r'[^.!?]+[.!?]+["”’)]*')
 _NUMBER_WORDS = (r"(?:zero|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
@@ -938,6 +975,11 @@ def is_backstory(sentence: str, this_year: int | None = None) -> bool:
     return any(int(y) < this_year - BACKSTORY_YEARS_BACK for y in _YEAR_RE.findall(sentence))
 
 
+def minutes_floor(words: int) -> float:
+    """Spoken minutes, never less than one: a rate is not measured on a 25-second passage."""
+    return max(1.0, words / WORDS_PER_SECOND / 60.0)
+
+
 def spoken_sentences(text: str) -> list[str]:
     return [m.strip() for m in _SENTENCE_RE.findall(_text(text)) if m.strip()]
 
@@ -956,6 +998,8 @@ def voice_metrics(text: str) -> dict:
             "sentences_over_30": sum(n > SENTENCE_FLAG_WORDS for n in lengths),
             "longest_sentence_words": max(lengths) if lengths else 0,
             "numbers_per_100w": round(100.0 * numbers / words, 1) if words else 0.0,
+            "numbers_per_minute": round(numbers / minutes, 2) if minutes else 0.0,
+            "numbers": numbers,
             "attributions_per_100w": round(100.0 * attributions / words, 1) if words else 0.0,
             "attributions_per_minute": round(attributions / minutes, 2) if minutes else 0.0,
             "est_runtime_sec": round(words / WORDS_PER_SECOND, 1)}
@@ -1032,13 +1076,24 @@ def validate_narration(sentences: list[dict], known_claims, duration_sec: int,
                                   "Cut whole passages the story does not need; do not compress sentences"})
     elif target and words < 0.75 * target:
         warnings.append({"code": "LENGTH_SHORT", "message": f"{words} words for a ~{target}-word target"})
+    if voice["numbers"] > NUMBERS_PER_MINUTE_MAX * minutes_floor(voice["words"]):
+        errors.append({"code": "NUMBER_DENSE",
+                       "message": f"{voice['numbers_per_minute']} numbers a spoken minute (limit "
+                                  f"{NUMBERS_PER_MINUTE_MAX:g}): keep only the numbers the story turns on; "
+                                  "say the rest in words or cut them"})
+    for i, s in enumerate(sentences, 1):
+        framing = _LIST_FRAMING_RE.search(s["text"])
+        if framing:
+            errors.append({"code": "LIST_FRAMING",
+                           "message": f"sentence {i} counts obstacles ({framing.group(0)!r}): a "
+                                      "parallel list, not a development; show what this one changes "
+                                      "or cut it"})
     if voice["mean_sentence_words"] > MEAN_SENTENCE_MAX:
         errors.append({"code": "SENTENCE_MEAN_LONG",
                        "message": f"mean sentence is {voice['mean_sentence_words']} words (limit "
                                   f"{MEAN_SENTENCE_MAX:g}, aim ~12): split long sentences, one idea each"})
     # Counted against at least one minute, so one "NOAA" in a 25-second test passage is not a rate.
-    minutes = max(1.0, voice["words"] / WORDS_PER_SECOND / 60.0)
-    if voice["attributions_per_minute"] * (voice["words"] / WORDS_PER_SECOND / 60.0) > ATTRIBUTIONS_PER_MINUTE_MAX * minutes:
+    if voice["attributions_per_minute"] * (voice["words"] / WORDS_PER_SECOND / 60.0) > ATTRIBUTIONS_PER_MINUTE_MAX * minutes_floor(voice["words"]):
         errors.append({"code": "ATTRIBUTION_DENSE",
                        "message": f"{voice['attributions_per_minute']} source attributions a spoken minute "
                                   f"(limit {ATTRIBUTIONS_PER_MINUTE_MAX:g}): keep attribution where the "
@@ -1112,7 +1167,15 @@ Review it.
    Scale: {RUBRIC_SCALE}
    Measured voice (count, not opinion): {json.dumps(voice_metrics(narration_text(sentences)))}
    Judge voice as a listener: long sentences, stacked attributions ("according to", "researchers
-   found") and early rewinds to history lose people.
+   found") and early rewinds to history lose people. Credit humour that comes from the situation
+   (calibration, from another film: {' / '.join(HUMOR_EXAMPLES)}); never ask for jokes, and its
+   absence is not a defect.
+7. development_removal: for EACH contract development, find its passage and ask whether removing
+   it would change the ANSWER to the central question. A development that does not change the
+   answer is a side story (true and interesting is not enough): mark changes_answer false. Flag
+   any "first / second / third limit"-style counting as a parallel-obstacle list.
+8. numbers_without_purpose: every number in the narration that the story does not turn on, quoted
+   with its sentence number.
    Every score of 0 or 1 needs an editorial objective.
 6. editorial_objectives: AT MOST THREE, the ones that matter most. Each with its location
    (sentence numbers), the problem, the repair objective, and the material to preserve.
@@ -1127,13 +1190,17 @@ Reply with JSON only:
   "factual_blockers": [{{"sentences": [7], "problem": "...", "fix": "..."}}],
   "rubric": [{{"item": "human_entry", "score": 2, "quote": "...", "note": "..."}}],
   "editorial_objectives": [{{"sentences": [9, 12], "problem": "...", "objective": "...", "preserve": "..."}}],
+  "development_removal": [{{"development": 1, "sentences": [11, 19], "changes_answer": true, "note": "..."}}],
+  "parallel_obstacle_lists": [{{"sentences": [54], "quote": "..."}}],
+  "numbers_without_purpose": [{{"sentence": 23, "number": "...", "note": "..."}}],
   "overall": "one paragraph"}}"""
 
 
 def quote_in(quote: str, text: str) -> bool:
     """Is the quotation in the text? An ellipsis joins fragments; each must be there, in order."""
     hay = _norm(text)
-    parts = [_norm(p) for p in re.split(r"\.\.\.|…", _text(quote))]
+    # Reviewers number sentences ("[34] ..."); the markers are theirs, not the narration's.
+    parts = [_norm(re.sub(r"\[\d+\]", " ", p)) for p in re.split(r"\.\.\.|…", _text(quote))]
     parts = [p for p in parts if p]
     pos = 0
     for part in parts:
@@ -1167,6 +1234,27 @@ def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict) -> 
     # Every 0-1 score needs a repair objective. One the reviewer named but did not tie to an
     # objective is added from its own note; the list stays at MAX_EDITORIAL_OBJECTIVES, and
     # anything past it is kept as deferred rather than silently dropped.
+    # A development the narration already left out has nothing to cut: it is reported, not repaired.
+    side = [d for d in (raw or {}).get("development_removal") or []
+            if isinstance(d, dict) and d.get("changes_answer") is False and d.get("sentences")]
+    lists = [x for x in (raw or {}).get("parallel_obstacle_lists") or [] if isinstance(x, dict)]
+    numbers = [x for x in (raw or {}).get("numbers_without_purpose") or [] if isinstance(x, dict)]
+    structural = []
+    for d in side:
+        structural.append({"sentences": d.get("sentences") or [], "problem": f"development {d.get('development')} "
+                           f"does not change the answer to the central question: {_text(d.get('note'))}",
+                           "objective": "cut this side story or merge what it changes into a development that matters",
+                           "preserve": "", "from_removal_test": True})
+    if lists:
+        structural.append({"sentences": [n for x in lists for n in x.get("sentences") or []],
+                           "problem": "parallel-obstacle list: " + "; ".join(_text(x.get("quote")) for x in lists),
+                           "objective": "drop the counting; keep each passage only for what it changes",
+                           "preserve": "", "from_removal_test": True})
+    if numbers:
+        structural.append({"sentences": [x.get("sentence") for x in numbers],
+                           "problem": "numbers with no story purpose: " + "; ".join(_text(x.get("number")) for x in numbers),
+                           "objective": "cut these numbers or say them in words", "preserve": ""})
+    objectives = structural + [o for o in objectives]
     covered = " ".join(_norm(json.dumps(o)) for o in objectives)
     for row in rubric:
         if row["score"] <= 1 and row["item"].replace("_", " ") not in covered and row["item"] not in covered:
@@ -1189,6 +1277,10 @@ def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict) -> 
         "rubric_total": sum(r["score"] for r in rubric),
         "rubric_max": 3 * len(RUBRIC_IDS),
         "editorial_objectives": objectives,
+        "development_removal": [d for d in (raw or {}).get("development_removal") or [] if isinstance(d, dict)],
+        "side_stories": side,
+        "parallel_obstacle_lists": lists,
+        "numbers_without_purpose": numbers,
         "deferred_objectives": deferred,
         "overall": _text((raw or {}).get("overall")),
     }
@@ -1278,9 +1370,11 @@ _FIX = {
     "SENTENCE_MEAN_LONG": "split long sentences: one idea each, about twelve words on average",
     "ATTRIBUTION_DENSE": "drop attributions the listener does not need; keep them only where who-says-so matters",
     "BACKSTORY_BEFORE_QUESTION": "move the origin story after the question and the person's want, and shorten it",
+    "NUMBER_DENSE": "keep only the numbers the story turns on; say the rest in words or cut them",
+    "LIST_FRAMING": "drop the counting ('a third limit'); keep the passage only if it changes the answer, else cut it",
 }
 _DELIVERY_CODES = {"LENGTH_OVER", "PROMPT_LEAK", "SENTENCE_MEAN_LONG", "ATTRIBUTION_DENSE",
-                   "BACKSTORY_BEFORE_QUESTION"}
+                   "BACKSTORY_BEFORE_QUESTION", "NUMBER_DENSE", "LIST_FRAMING"}
 
 
 def narration_status(candidate: dict) -> tuple[str, list[str]]:
@@ -1336,6 +1430,7 @@ def narration_markdown(question: str, chosen: dict, candidates: list[dict], budg
               f"| sentences > 25 words | {voice['sentences_over_25']} | |",
               f"| sentences > 30 words | {voice['sentences_over_30']} (longest {voice['longest_sentence_words']}) | flagged |",
               f"| numbers / 100 words | {voice['numbers_per_100w']} | |",
+              f"| numbers / spoken minute | {voice.get('numbers_per_minute')} | ≤ {NUMBERS_PER_MINUTE_MAX:g} |",
               f"| attributions / 100 words | {voice['attributions_per_100w']} | |",
               f"| attributions / spoken minute | {voice['attributions_per_minute']} | ≤ {ATTRIBUTIONS_PER_MINUTE_MAX:g} |", ""]
     errs = (chosen.get("validation") or {}).get("errors") or []
@@ -1351,6 +1446,15 @@ def narration_markdown(question: str, chosen: dict, candidates: list[dict], budg
             f"- sentences {o.get('sentences')}: {o.get('problem')} → {o.get('objective')}"
             + (f" (preserve: {o.get('preserve')})" if o.get("preserve") else "")
             for o in review["editorial_objectives"]] + [""]
+    if review.get("development_removal"):
+        lines += ["## Removal test per development", ""] + [
+            f"- development {d.get('development')} (sentences {d.get('sentences')}): "
+            + ("changes the answer" if d.get("changes_answer") else "**side story: does not change the answer**")
+            + f" — {_text(d.get('note'))}" for d in review["development_removal"]] + [""]
+    if review.get("numbers_without_purpose"):
+        lines += ["## Numbers without a story purpose (reviewer)", ""] + [
+            f"- sentence {x.get('sentence')}: {x.get('number')} — {_text(x.get('note'))}"
+            for x in review["numbers_without_purpose"]] + [""]
     rec = review.get("reconstruction") or {}
     lines += ["## Blind reconstruction (reviewer saw only the narration)", "",
               f"- question: {rec.get('central_question')} (heard at ~{rec.get('question_position')}: “{rec.get('question_quote')}”)",
@@ -1434,8 +1538,14 @@ class LaneRun:
         key = canonical_hash({"q": self.question, "evidence": evidence, "d": self.duration_sec,
                               "dir": self.direction, "v": LANE_VERSION})
         cached = self.state.get("contract", key)
+        errors = None
+        if cached is not None:
+            # A contract bought under older checks is re-checked under the current ones.
+            recheck = validate_contract(cached["contract"], self.known, self.question)
+            if not recheck["passed"]:
+                errors, cached = recheck["errors"], None
         if cached is None:
-            errors, total = None, 0.0
+            total = 0.0
             for attempt in range(2):
                 raw, cost = self._call("contract", "writer", CONTRACT_SYSTEM, contract_prompt(
                     self.question, dossier, evidence, self.duration_sec, self.direction, errors), 16000)

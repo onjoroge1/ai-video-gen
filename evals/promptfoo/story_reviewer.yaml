@@ -1,24 +1,25 @@
 # The story-contract lane's reviewer, calibrated against the operator (docs/STORY_CONTRACT_LANE.md,
-# measuring plan step 3). Three lionfish narrations: v2 (the Carlson / full-freezer rewrite), the
-# lane's first narration (jobs/lionfish-contract, sha 34c3e8f2: 1,321 words, mean sentence 21) and
-# v1 (the compiled catalogue). The reviewer must rank v2 > lane v3 > v1 in EVERY presentation order
-# (all six), with verbatim-quoted reasons for each step. No film is rendered.
+# measuring plan step 3). Four lionfish narrations: v2 (the Carlson / full-freezer rewrite), v1 (the
+# compiled catalogue), lane draft 1 ("old", sha 34c3e8f2: 1,321 words, mean sentence 21) and lane
+# draft 2 ("new", sha 5aca77ae). Operator order (2026-10-21, revised): v2 > v1 > old, and v2 > new >
+# old; new against v1 is deliberately not asserted. Eight presentation orders (four rotations and
+# their reverses: every script in every position twice), on both reviewer defaults.
 #
 #   cd /Users/obadiah/ai-video-gen-local
 #   set -a; source <(grep -E '^(OPENAI|ANTHROPIC)_API_KEY=' .env); set +a
 #   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/story_reviewer.yaml
-description: "Story-contract reviewer ranks the lionfish story > the lane's first draft > the catalogue"
+description: "Story-contract reviewer orders the lionfish narrations as the operator does"
 
 providers:
   # The lane's two reviewer defaults (story_contract.DEFAULT_MODELS).
   - id: openai:chat:gpt-5.6-luna
     label: luna
     config:
-      max_completion_tokens: 16000
+      max_completion_tokens: 20000
   - id: anthropic:messages:claude-sonnet-5-5
     label: sonnet
     config:
-      max_tokens: 8000
+      max_tokens: 12000
 
 prompts:
   - id: file://prompts.py:story_reviewer
@@ -29,29 +30,34 @@ defaultTest:
     # Neutral brief: neither film's own title, so the commission cannot pick the winner.
     question: "Florida's lionfish invasion, and the plan to eat it"
     duration: 300
-    # Comma-separated strings: promptfoo expands a list-valued var into one test case per item.
-    expected: "narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt"
+    # Strings, not lists: promptfoo expands a list-valued var into one test case per item.
+    pairs: "narration_lionfish_v2.txt>narration_lionfish_v1.txt;narration_lionfish_v1.txt>narration_lionfish_contract_v3.txt;narration_lionfish_v2.txt>narration_lionfish_contract_v4.txt;narration_lionfish_contract_v4.txt>narration_lionfish_contract_v3.txt"
   assert:
-    - type: is-json
     - type: python
-      value: file://asserts.py:reviewer_ranks
+      value: file://asserts.py:reviewer_orders_pairs
 
 tests:
-  - description: "order v1 v2 v3"
+  - description: "order v2 v1 old new"
     vars:
-      narrations: "narration_lionfish_v1.txt,narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt"
-  - description: "order v1 v3 v2"
+      narrations: "narration_lionfish_v2.txt,narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt,narration_lionfish_contract_v4.txt"
+  - description: "order v1 old new v2"
     vars:
-      narrations: "narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v2.txt"
-  - description: "order v2 v1 v3"
+      narrations: "narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt,narration_lionfish_contract_v4.txt,narration_lionfish_v2.txt"
+  - description: "order old new v2 v1"
     vars:
-      narrations: "narration_lionfish_v2.txt,narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt"
-  - description: "order v2 v3 v1"
+      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_contract_v4.txt,narration_lionfish_v2.txt,narration_lionfish_v1.txt"
+  - description: "order new v2 v1 old"
     vars:
-      narrations: "narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt"
-  - description: "order v3 v1 v2"
+      narrations: "narration_lionfish_contract_v4.txt,narration_lionfish_v2.txt,narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt"
+  - description: "order new old v1 v2"
     vars:
-      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt,narration_lionfish_v2.txt"
-  - description: "order v3 v2 v1"
+      narrations: "narration_lionfish_contract_v4.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt,narration_lionfish_v2.txt"
+  - description: "order v2 new old v1"
     vars:
-      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_v2.txt,narration_lionfish_v1.txt"
+      narrations: "narration_lionfish_v2.txt,narration_lionfish_contract_v4.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt"
+  - description: "order v1 v2 new old"
+    vars:
+      narrations: "narration_lionfish_v1.txt,narration_lionfish_v2.txt,narration_lionfish_contract_v4.txt,narration_lionfish_contract_v3.txt"
+  - description: "order old v1 v2 new"
+    vars:
+      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt,narration_lionfish_v2.txt,narration_lionfish_contract_v4.txt"

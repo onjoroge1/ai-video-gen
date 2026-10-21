@@ -172,39 +172,35 @@ def _quote_in(quote: str, text: str) -> bool:
     return sc.quote_in(quote, text)
 
 
-def reviewer_ranks(output, context) -> dict:
-    """The reviewer ranks the narrations in the expected order (vars.expected: fixture names, best
-    first), and backs each adjacent step with at least one reason quoting the higher narration
-    verbatim -- two for the top step (story-contract lane calibration)."""
+def reviewer_orders_pairs(output, context) -> dict:
+    """Only the asserted pairs must hold (vars.pairs: "hi>lo;hi>lo", fixture names), plus at least
+    two reasons overall whose quotations are verbatim in the narration they praise."""
     v = context.get("vars") or {}
     import story_contract as sc
     try:
         data = sc.parse_json_reply(output if isinstance(output, str) else json.dumps(output))
     except ValueError as exc:
         return {"pass": False, "score": 0.0, "reason": f"not a JSON object: {exc}"}
-    names = v["narrations"] if isinstance(v.get("narrations"), list) else str(v["narrations"]).split(",")
-    names = [n.strip() for n in names]
+    names = [n.strip() for n in str(v["narrations"]).split(",")]
     label = {n: chr(ord("A") + i) for i, n in enumerate(names)}
-    expected = [label[n.strip()] for n in (v["expected"] if isinstance(v["expected"], list) else str(v["expected"]).split(","))]
-    if len(names) < 2:
-        return {"pass": False, "score": 0.0, "reason": f"only {len(names)} narration(s) in the case"}
-    ranking = [str(x).strip().upper() for x in data.get("ranking") or []]
     texts = {}
     for n in names:
         with open(os.path.join(HERE, "fixtures", n), encoding="utf-8") as handle:
             texts[label[n]] = handle.read()
-    reasons = [r for r in data.get("reasons") or [] if isinstance(r, dict) and r.get("reason")]
-    problems = []
-    if ranking != expected:
-        problems.append(f"ranked {ranking}, expected {expected}")
-    for k, (hi, lo) in enumerate(zip(expected, expected[1:])):
-        quoted = [r for r in reasons if str(r.get("higher")).upper() == hi
-                  and _quote_in(r.get("quote_higher"), texts[hi])]
-        need = 2 if k == 0 else 1
-        if len(quoted) < need:
-            problems.append(f"{hi} over {lo}: {len(quoted)} verbatim-quoted reason(s), need {need}")
-    rub = {lab: sum(int(x or 0) for x in ((data.get("scripts") or {}).get(lab, {}).get("rubric") or {}).values()
-                    if str(x).lstrip("-").isdigit()) for lab in label.values()}
-    return {"pass": not problems, "score": 0.0 if problems else 1.0,
-            "reason": ("; ".join(problems) or f"ranked {ranking} as expected") + f"; rubric totals {rub}; "
-                      + " | ".join(str(r.get("reason"))[:100] for r in reasons[:3])}
+    ranking = [str(x).strip().upper() for x in data.get("ranking") or []]
+    pos = {lab: i for i, lab in enumerate(ranking)}
+    problems, held = [], 0
+    for pair in str(v["pairs"]).split(";"):
+        hi, lo = (label[x.strip()] for x in pair.split(">"))
+        if hi in pos and lo in pos and pos[hi] < pos[lo]:
+            held += 1
+        else:
+            problems.append(f"{pair.strip()} ({hi}>{lo}) not held")
+    reasons = [r for r in data.get("reasons") or [] if isinstance(r, dict)]
+    quoted = [r for r in reasons if str(r.get("higher")).upper() in texts
+              and _quote_in(r.get("quote_higher"), texts[str(r.get("higher")).upper()])]
+    if len(quoted) < 2:
+        problems.append(f"{len(quoted)} verbatim-quoted reasons, need 2")
+    inv = {lab: n.replace("narration_lionfish_", "").replace(".txt", "") for n, lab in label.items()}
+    return {"pass": not problems, "score": held / max(1, len(str(v["pairs"]).split(";"))),
+            "reason": f"ranking {[inv.get(x, x) for x in ranking]}; " + ("; ".join(problems) or "all pairs held")}

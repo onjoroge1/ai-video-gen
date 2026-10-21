@@ -309,3 +309,45 @@ NOT approved):
 - Spend: 15 calls, 188,100 input and 80,372 output tokens, $1.75 (opus $1.14, sonnet $0.61). That
   includes three calls lost to two bugs fixed in this iteration: a thinking block read as the
   reply, and a review cut off at max_tokens.
+
+## Third iteration (operator, 2026-10-21)
+
+1. **Eval order corrected** to the operator's: v2 > v1 > lane draft 1 (34c3e8f2), and v2 > lane
+   draft 2 (5aca77ae) > draft 1; draft 2 against v1 is not asserted. Four narrations, eight orders
+   (four rotations and their reverses), luna and sonnet; `asserts.py:reviewer_orders_pairs`.
+   Result ($0.54): 9 of 16 cases passed (luna 5/8, sonnet 4/8). By pair: v2 > v1 16/16, draft 2 >
+   draft 1 16/16, v1 > draft 1 13/16 (all three misses on sonnet), **v2 > draft 2 11/16**. Draft 2
+   was ranked first in 5 orders, so the reviewer cannot yet reliably separate the reference from
+   the lane's best draft. Not tuned.
+2. **Numbers cap:** `NUMBER_DENSE` above 2 numbers a spoken minute (v2 1.85; v1 3.9; draft 2
+   5.15), a blocker. The reviewer lists `numbers_without_purpose`, which become an objective.
+3. **Removal test per development** (`development_removal`): a development whose passage would not
+   change the answer is a side story and becomes the first objective; one already absent from the
+   narration is reported, not repaired. `LIST_FRAMING` is a deterministic blocker for counted
+   obstacles ("a third limit", "the second wall"; draft 2 sentence 54, v1's walls); the reviewer
+   also reports `parallel_obstacle_lists`.
+4. **Question scoring:** an honest partial answer or a named constraint is a valid ending.
+   Marking a candidate down for it ("ends on a constraint with little resolution", "rather than an
+   answer") is `QUESTION_PENALISED_FOR_NO_FIX`, an error that sends the contract back for its one
+   corrected attempt; a cached contract is re-checked under the current rules.
+5. **Humour:** the reviewer credits situational humour under `voice`, calibrated on three v2 lines
+   (`HUMOR_EXAMPLES`), and is told never to ask for jokes.
+
+**Dry run 3** (`jobs/lionfish-contract-v3`, Anthropic, contract approved as written for the
+test, narration NOT approved):
+- The first contract marked the paradox question down for "a constraint with little resolution"
+  (7/9); the rule sent it back, and the corrected contract scored it 9/9. Chosen (9/9, a tie):
+  "If divers can pull a record 36,000 lionfish out of Florida waters in one summer, why does the
+  hunt never get to end?" Others: "Why would a seafood market built to destroy lionfish eventually
+  undermine itself?" (9/9, kept as the complication); "Why did a federal food agency frown on the
+  campaign to eat lionfish?" (8/9).
+- Narration v3 of 3 (sha 26d0bc52): 650 words (target 776), ~251 s, 70 sentences, mean 9.3, 0 over
+  25, 1.4 numbers / 100 words (2.15 a minute), 1.7 attributions / 100 words (2.63 a minute).
+  Question at sentence 10 of 70. Ciguatera was cut by the writer. No factual blockers; rubric 17/24.
+- **Status `not_ready`**: NUMBER_DENSE (2.15 > 2) and ATTRIBUTION_DENSE (2.63 > 2) still open
+  after both repairs. Candidate 2 (4c92c659) had only ATTRIBUTION_DENSE but two factual blockers,
+  so the factually clean v3 was offered.
+- Spend: $1.81.
+- Two reporting bugs found and fixed after the run: the reviewer's "side story" flag on
+  developments already absent from the narration became "cut this" objectives in the repair notes,
+  and quotes carrying the reviewer's "[34]" sentence markers failed verification.

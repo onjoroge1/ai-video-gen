@@ -582,3 +582,70 @@ def test_quote_check_accepts_ellipsis_fragments_in_order():
     assert sc.quote_in("Spread alone would just be a curiosity. ... Even the dinner plate has limits.", text)
     assert not sc.quote_in("Even the dinner plate has limits ... Spread alone", text)
     assert not sc.quote_in("", text)
+
+
+# ── third round: numbers, side stories, list framing, question scoring, humour ────────────────
+
+def test_numbers_are_capped_per_spoken_minute_and_the_reference_passes():
+    for name, dense in (("v2", False), ("v1", True), ("contract_v3", True), ("contract_v4", True)):
+        report = sc.validate_narration(_as_sentences(_fixture_text(f"narration_lionfish_{name}.txt")), {"c1"}, 300)
+        assert ("NUMBER_DENSE" in {e["code"] for e in report["errors"]}) is dense, name
+
+
+def test_counting_obstacles_is_a_parallel_list_blocker():
+    for text, flagged in (("Then came a third limit: food safety.", True), ("The second wall is depth.", True),
+                          ("Lionfish were first reported in 1985.", False), ("Another fish moved in.", False)):
+        sents = [{"text": text, "claim_ids": ["c1"], "kind": "event", "part": "development_1"}]
+        codes = {e["code"] for e in sc.validate_narration(sents, {"c1"}, 60)["errors"]}
+        assert ("LIST_FRAMING" in codes) is flagged, text
+    report = sc.validate_narration(_as_sentences(_fixture_text("narration_lionfish_v2.txt")), {"c1"}, 300)
+    assert "LIST_FRAMING" not in {e["code"] for e in report["errors"]}
+
+
+def test_side_stories_lists_and_purposeless_numbers_become_objectives_first():
+    raw = _clean_review()
+    raw["editorial_objectives"] = [{"objective": "tighten the close", "problem": "p"}]
+    raw["development_removal"] = [{"development": 1, "changes_answer": True},
+                                  {"development": 5, "sentences": [54, 58], "changes_answer": False,
+                                   "note": "ciguatera does not change what the hunting is for"}]
+    raw["parallel_obstacle_lists"] = [{"sentences": [54], "quote": "Then came a third limit"}]
+    raw["numbers_without_purpose"] = [{"sentence": 55, "number": "194", "note": "sample size"}]
+    review = sc.normalize_review(raw, SENTENCES, {})
+    objectives = review["editorial_objectives"]
+    assert len(objectives) == sc.MAX_EDITORIAL_OBJECTIVES
+    assert "does not change the answer" in objectives[0]["problem"]
+    assert "parallel-obstacle list" in objectives[1]["problem"] and "194" in objectives[2]["problem"]
+    assert review["deferred_objectives"][0]["objective"] == "tighten the close"
+    assert len(review["side_stories"]) == 1
+
+
+def test_a_question_marked_down_for_an_honest_partial_answer_is_reported():
+    cands = _contract()["question_candidates"]
+    bad = dict(cands[2], reason="A strong paradox, but it ends on failure with no resolution.",
+               scores={"curiosity": 3, "support": 3, "deliverable": 2})
+    report = sc.validate_contract(_contract(question_candidates=[cands[0], cands[1], bad]),
+                                  {"c1", "c2", "c3", "c4", "c5"}, "Lionfish")
+    assert "QUESTION_PENALISED_FOR_NO_FIX" in {e["code"] for e in report["errors"]}
+    for reason in ("it ends on a constraint with little resolution", "an unresolved dispute rather than an answer"):
+        c = dict(bad, reason=reason)
+        r = sc.validate_contract(_contract(question_candidates=[cands[0], cands[1], c]), {"c1", "c2", "c3", "c4", "c5"}, "x")
+        assert "QUESTION_PENALISED_FOR_NO_FIX" in {e["code"] for e in r["errors"]}, reason
+    prompt = sc.contract_prompt("q", DOSSIER, {}, 300)
+    assert "honest partial answer" in prompt and "not a fix" in prompt
+
+
+def test_the_reviewer_credits_situational_humour_but_never_requires_it():
+    prompt = sc.review_b_prompt("q", _contract(), SENTENCES, DOSSIER, {})
+    assert all(example in prompt for example in sc.HUMOR_EXAMPLES)
+    assert "never ask for jokes" in prompt and "development_removal" in prompt
+    assert "numbers_without_purpose" in prompt
+
+
+def test_an_already_absent_development_is_reported_not_repaired_and_markers_are_ignored():
+    raw = _clean_review()
+    raw["development_removal"] = [{"development": 6, "sentences": [], "changes_answer": False, "note": "absent"}]
+    review = sc.normalize_review(raw, SENTENCES, {})
+    assert not review["side_stories"] and not review["editorial_objectives"]
+    assert len(review["development_removal"]) == 1
+    assert sc.quote_in("[1] Paul Carlson made seventy-three dive trips. ... [3] \"My freezer is full.\"",
+                       " ".join(x["text"] for x in SENTENCES))
