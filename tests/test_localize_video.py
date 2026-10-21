@@ -1,6 +1,10 @@
 """Localized metadata keeps every number, link and chapter; subtitles keep their timings."""
+import json
 import os
 import sys
+import types
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import localize_video as lv  # noqa: E402
@@ -166,7 +170,7 @@ def test_subtitles_in_decimal_comma_languages_keep_their_numbers(monkeypatch):
     replies = {"de": ["Heimat von rund 1,5 Millionen Menschen", "und 60.000 Arbeitsplätze"],
                "fr": ["qui abritait environ 1,5 million de personnes", "et 60 000 emplois"]}
     for lang, texts in replies.items():
-        monkeypatch.setattr(lv, "_ask", lambda system, user, max_tokens=0, t=texts: {"cues": t})
+        monkeypatch.setattr(lv, "_ask", lambda system, user, *rest, t=texts: {"cues": t})
         assert [c["text"] for c in lv.translate_captions(cues, lang)] == texts
     monkeypatch.setattr(lv, "_ask", lambda *a, **k: {"cues": ["rund 15 Millionen", "und 60.000"]})
     try:
@@ -308,9 +312,7 @@ class _FakeLocalizeYouTube:
         return self
 
 
-def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_path, monkeypatch):
-    import types
-    yt = _FakeLocalizeYouTube("Short English.")
+def _stub_youtube(monkeypatch, yt):
     monkeypatch.setitem(sys.modules, "dotenv", types.SimpleNamespace(load_dotenv=lambda *a, **k: None))
     monkeypatch.setitem(sys.modules, "youtube_upload", types.SimpleNamespace(_creds=lambda ch: None))
     monkeypatch.setitem(sys.modules, "googleapiclient", types.ModuleType("googleapiclient"))
@@ -318,12 +320,92 @@ def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_
                         types.SimpleNamespace(build=lambda *a, **k: yt))
     monkeypatch.setitem(sys.modules, "googleapiclient.http",
                         types.SimpleNamespace(MediaIoBaseUpload=None))
+
+
+def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_path, monkeypatch):
+    yt = _FakeLocalizeYouTube("Short English.")
+    _stub_youtube(monkeypatch, yt)
     calls = []
     monkeypatch.setattr(lv, "translate_metadata", lambda title, desc, lang: calls.append(lang) or {
         "title": "T", "description": "क" * 1700})
     assert lv.main(["VID", "--job", str(tmp_path), "--langs", "hi", "--no-captions", "--dry-run"]) == 0
     assert calls == ["hi"], "a size-only failure is not retried"
-    import json
     record = json.loads((tmp_path / "localizations.json").read_text())
     assert record["languages"]["hi"]["metadata"]["skipped"][0].startswith("description over")
     assert not yt.updates
+
+
+def test_each_language_is_held_to_the_english_it_was_translated_from(tmp_path, monkeypatch):
+    # One language per run: the record's "source" follows the last run, so es, translated from the
+    # old English, read as current once de was translated from the new one (2026-10-16).
+    yt = _FakeLocalizeYouTube("Old English.")
+    _stub_youtube(monkeypatch, yt)
+    calls = []
+    monkeypatch.setattr(lv, "translate_metadata", lambda title, desc, lang: calls.append(lang) or {
+        "title": title, "description": desc})
+    run = ["VID", "--job", str(tmp_path), "--no-captions", "--dry-run", "--langs"]
+    assert lv.main(run + ["es"]) == 0
+    yt.snippet["description"] = "New English."
+    assert lv.main(run + ["de"]) == 0
+    record = json.loads((tmp_path / "localizations.json").read_text())
+    assert record["source"]["description"] == "New English."
+    assert record["languages"]["es"]["source_sha256"] == lv.source_sha256(
+        {"title": "T", "description": "Old English."})
+    calls.clear()
+    assert lv.main(run + ["es,de", "--if-changed"]) == 0
+    assert calls == ["es"], "de already matches the live English; es does not"
+    assert lv.main(run + ["es,de", "--if-changed"]) == 0
+    assert calls == ["es"], "both current now: no model call"
+
+
+class _FakeClient:
+    def __init__(self, text, stop_reason):
+        self.calls = []
+        self.messages = self
+        self.reply = types.SimpleNamespace(stop_reason=stop_reason,
+                                           content=[types.SimpleNamespace(type="text", text=text)])
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.reply
+
+
+def test_a_reply_cut_at_max_tokens_names_the_language_and_the_cap(monkeypatch):
+    # 5Kh7BiFDJMU, 2026-10-16: the cut reply surfaced as json.loads' "Unterminated string".
+    monkeypatch.setattr(lv, "_client", lambda: _FakeClient('{"title": "चेर्नोबिल", "description": "अधू',
+                                                           "max_tokens"))
+    with pytest.raises(lv.ReplyTruncated, match=r"^hi: .*max_tokens=12000"):
+        lv.translate_metadata("Chernobyl", "Short English.", "hi")
+    cues = [{"index": "1", "time": "00:00:00,000 --> 00:00:02,000", "text": "It began."}]
+    with pytest.raises(lv.ReplyTruncated, match=r"^de: the subtitle cues 1-1 reply .*max_tokens=8000"):
+        lv.translate_captions(cues, "de")
+
+
+def test_metadata_asks_for_a_cap_that_fits_a_template_description(monkeypatch):
+    client = _FakeClient('{"title": "T-de", "description": "D-de"}', "end_turn")
+    monkeypatch.setattr(lv, "_client", lambda: client)
+    title, description = "T" * 51, "x" * 4866          # the Chernobyl sizes that overflowed 4,000
+    assert lv.translate_metadata(title, description, "de") == {"title": "T-de", "description": "D-de"}
+    cap = client.calls[0]["max_tokens"]
+    assert cap == lv.metadata_max_tokens(title, description) > 12000
+    # Never below the 12,000 that fit Hindi, never past the SDK's non-streaming ceiling
+    # (128,000 tokens an hour, 10 minutes).
+    assert lv.metadata_max_tokens("T", "short") == 12000
+    assert lv.metadata_max_tokens("T", "x" * 9000) == 20000 < 128000 * 600 // 3600
+
+
+def test_a_record_from_before_the_hash_keeps_its_languages_on_their_own_english(tmp_path, monkeypatch):
+    # A record without per-language hashes: es and de came from "Old English.". Re-syncing es alone
+    # after the English changed must not leave de reading current against the new "source".
+    (tmp_path / "localizations.json").write_text(json.dumps({
+        "video_id": "VID", "source": {"title": "T", "description": "Old English."}, "languages": {
+            lang: {"metadata": {"title": f"T-{lang}", "description": "d"}} for lang in ("es", "de")}}))
+    yt = _FakeLocalizeYouTube("New English.")
+    _stub_youtube(monkeypatch, yt)
+    calls = []
+    monkeypatch.setattr(lv, "translate_metadata", lambda title, desc, lang: calls.append(lang) or {
+        "title": title, "description": desc})
+    run = ["VID", "--job", str(tmp_path), "--no-captions", "--dry-run", "--if-changed", "--langs"]
+    assert lv.main(run + ["es"]) == 0 and calls == ["es"]
+    assert lv.main(run + ["es,de"]) == 0
+    assert calls == ["es", "de"], "de was still translated from the old English"
