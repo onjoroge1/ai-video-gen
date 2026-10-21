@@ -36,21 +36,31 @@ DOSSIER = {"claims": [
      "support_quote": "will reduce their catch rates", "source_url": "https://example.org/c"},
     {"claim_id": "c5", "claim": "Partial removals produced similar gains in 30% less time.", "claim_kind": "outcome",
      "support_quote": "partial removals took 30% less time", "source_url": "https://example.org/d"},
+    {"claim_id": "c6", "claim": "Florida divers removed a record 36,187 lionfish in the 2026 Lionfish Challenge.",
+     "claim_kind": "event", "support_quote": "removed 36,187 invasive lionfish ... 2026", "source_url": "https://example.org/e"},
 ]}
+KNOWN = {"c1", "c2", "c3", "c4", "c5", "c6"}
 
 
 def _contract(**overrides):
-    q = "What happens when you get good at catching the thing you're paid to catch?"
+    q = "Florida asked people to eat lionfish in 2010; why are divers still pulling record numbers out?"
     contract = {
         "topic": "Lionfish removal in Florida",
         "question_candidates": [
             {"question": "Why is Florida asking people to eat lionfish?", "claim_ids": ["c3"],
              "scores": {"curiosity": 1, "support": 3, "deliverable": 3}},
-            {"question": q, "claim_ids": ["c4", "c5"], "scores": {"curiosity": 3, "support": 3, "deliverable": 3}},
+            {"question": q, "claim_ids": ["c4", "c5"], "scores": {"curiosity": 3, "support": 3, "deliverable": 3},
+             "names_decision": True, "asks_consequence": True,
+             "topic_fit": {"screened": True, "verdict": "fits", "channel": "world", "reason": "a deliberate campaign"}},
             {"question": "Can a freezer save a reef?", "claim_ids": ["c2"],
              "scores": {"curiosity": 2, "support": 1, "deliverable": 1}}],
         "chosen": 1, "chosen_reason": "the paradox the title does not give away",
         "central_question": q,
+        "decision": {"what": "NOAA launched an 'Eat Lionfish' campaign", "who": "NOAA", "when": "2010",
+                     "kind": "animal_targeted", "claim_ids": ["c3"]},
+        "consequence": {"what": "divers remove lionfish by the thousand, and thinner reefs pay less",
+                        "claim_ids": ["c1", "c4"]},
+        "still_unfolding": {"what": "a record 36,187 removed in 2026", "as_of": "2026", "claim_ids": ["c6"]},
         "ending_answer": "The fishery can run out of profit before the reef runs out of lionfish, so "
                          "the target becomes enough removal per reef, not the last fish.",
         "human_perspective": {"person": "Paul Carlson", "want": "the hunt", "action": "73 dive trips",
@@ -86,12 +96,18 @@ SENTENCES = [
     {"text": "Removing just enough lionfish gave similar gains in less time.", "claim_ids": ["c5"],
      "kind": "event", "part": "development_2"},
     {"text": "Seventy-three trips, and a full freezer.", "claim_ids": [], "kind": "framing", "part": "ending"},
+    {"text": "And this year divers set a record anyway.", "claim_ids": ["c6"], "kind": "event", "part": "ending"},
 ]
 
 
 class FakeCaller:
     """Canned replies by stage; counts calls. `review_b` is a list consumed in order (last repeats)."""
     provider = "anthropic"
+
+    def text(self, *, role, stage, system, user, max_tokens=4000):
+        self.calls.append(stage)
+        return json.dumps({"episode": "Eat Lionfish campaign", "channel": "world", "verdict": "fits",
+                           "reason": "a deliberate campaign with a documented aftermath"}), 0.001
 
     def __init__(self, review_b=None, fail_on=None):
         self.calls = []
@@ -103,7 +119,8 @@ class FakeCaller:
         if stage in self.fail_on:
             raise RuntimeError(f"provider died during {stage}")
         if stage == "evidence":
-            return {"claim_kinds": {"c1": "event", "c2": "event", "c3": "event", "c4": "model", "c5": "event"},
+            return {"claim_kinds": {"c1": "event", "c2": "event", "c3": "event", "c4": "model", "c5": "event",
+                                    "c6": "event"},
                     "human_material": [{"type": "object", "person": "Paul Carlson", "detail": "full freezer",
                                         "claim_ids": ["c2"], "serves_person": "his reward",
                                         "serves_problem": "the plan working", "does_both": True}]}, 0.01
@@ -123,7 +140,8 @@ class FakeCaller:
         if stage == "review_blind":
             return {"central_question": "what happens when you get good at it", "question_position": 0.1,
                     "main_idea": "success thins profit", "human": "Paul Carlson", "pivotal_discovery":
-                    "partial removal", "ending_answer": "enough per reef"}, 0.005
+                    "partial removal", "ending_answer": "enough per reef", "decision": "NOAA's 2010 campaign",
+                    "consequence": "divers remove thousands", "still_unfolding": "a 2026 record"}, 0.005
         if stage == "review_contract":
             reply = self.review_b.pop(0) if len(self.review_b) > 1 else self.review_b[0]
             return reply, 0.01
@@ -238,11 +256,11 @@ def test_select_prefers_a_factually_clean_candidate_over_a_higher_rubric():
 # ── contract validation ───────────────────────────────────────────────────────────────────────
 
 def _codes(contract):
-    return {e["code"] for e in sc.validate_contract(contract, {"c1", "c2", "c3", "c4", "c5"})["errors"]}
+    return {e["code"] for e in sc.validate_contract(contract, KNOWN)["errors"]}
 
 
 def test_a_complete_contract_passes():
-    report = sc.validate_contract(_contract(), {"c1", "c2", "c3", "c4", "c5"})
+    report = sc.validate_contract(_contract(), KNOWN)
     assert report["passed"], report["errors"]
 
 
@@ -477,7 +495,7 @@ def test_narration_validation_flags_prompt_language_leaking_into_the_story():
 # ── question choice, length and spoken voice (operator fixes after the first dry run) ─────────
 
 def test_the_contract_proposes_three_questions_and_may_not_restate_the_title():
-    known = {"c1", "c2", "c3", "c4", "c5"}
+    known = KNOWN
     title = "Lionfish Have No Predators in the Atlantic. Why Is Florida Asking People to Eat Them?"
     assert sc.validate_contract(_contract(), known, title)["passed"]
     two = _contract(question_candidates=_contract()["question_candidates"][:2])
@@ -494,7 +512,7 @@ def test_the_contract_proposes_three_questions_and_may_not_restate_the_title():
 def test_the_contract_markdown_shows_all_three_candidates_and_the_choice(tmp_path):
     md = sc.contract_markdown(_contract(), {"passed": True, "errors": [], "warnings": []}, {}, DOSSIER,
                               "Lionfish Have No Predators", "sha")
-    assert md.count("total ") == 3 and "← chosen" in md and "paid to catch" in md
+    assert md.count("total ") == 3 and "← chosen" in md and "record numbers" in md
 
 
 def _metrics(name):
@@ -528,10 +546,10 @@ def test_the_first_lane_narration_is_blocked_for_length_voice_and_leaks():
 def test_backstory_before_the_question_and_the_want_is_a_blocker():
     contract = _contract()
     early = [{"text": "Lionfish were first reported off Florida in 1985.", "claim_ids": ["c3"], "kind": "event", "part": "opening"}] + SENTENCES
-    codes = {e["code"] for e in sc.validate_narration(early, set("c1 c2 c3 c4 c5".split()), 60, contract)["errors"]}
+    codes = {e["code"] for e in sc.validate_narration(early, KNOWN, 60, contract)["errors"]}
     assert "BACKSTORY_BEFORE_QUESTION" in codes
     late = SENTENCES[:2] + [dict(SENTENCES[1], text="Why?")] + [early[0]] + SENTENCES[2:]
-    codes = {e["code"] for e in sc.validate_narration(late, set("c1 c2 c3 c4 c5".split()), 60, contract)["errors"]}
+    codes = {e["code"] for e in sc.validate_narration(late, KNOWN, 60, contract)["errors"]}
     assert "BACKSTORY_BEFORE_QUESTION" not in codes
     assert not sc.is_backstory("In the summer of 2025, he made seventy-three dive trips.", 2026)
     assert sc.is_backstory("The story has to go back to the reef.", 2026)
@@ -624,11 +642,11 @@ def test_a_question_marked_down_for_an_honest_partial_answer_is_reported():
     bad = dict(cands[2], reason="A strong paradox, but it ends on failure with no resolution.",
                scores={"curiosity": 3, "support": 3, "deliverable": 2})
     report = sc.validate_contract(_contract(question_candidates=[cands[0], cands[1], bad]),
-                                  {"c1", "c2", "c3", "c4", "c5"}, "Lionfish")
+                                  KNOWN, "Lionfish")
     assert "QUESTION_PENALISED_FOR_NO_FIX" in {e["code"] for e in report["errors"]}
     for reason in ("it ends on a constraint with little resolution", "an unresolved dispute rather than an answer"):
         c = dict(bad, reason=reason)
-        r = sc.validate_contract(_contract(question_candidates=[cands[0], cands[1], c]), {"c1", "c2", "c3", "c4", "c5"}, "x")
+        r = sc.validate_contract(_contract(question_candidates=[cands[0], cands[1], c]), KNOWN, "x")
         assert "QUESTION_PENALISED_FOR_NO_FIX" in {e["code"] for e in r["errors"]}, reason
     prompt = sc.contract_prompt("q", DOSSIER, {}, 300)
     assert "honest partial answer" in prompt and "not a fix" in prompt
@@ -649,3 +667,143 @@ def test_an_already_absent_development_is_reported_not_repaired_and_markers_are_
     assert len(review["development_removal"]) == 1
     assert sc.quote_in("[1] Paul Carlson made seventy-three dive trips. ... [3] \"My freezer is full.\"",
                        " ".join(x["text"] for x in SENTENCES))
+
+
+# ── the World consequence model (operator 2026-10-15; lane rule 2026-10-21) ──────────────────
+
+def _claims_with_kinds(dossier, kinds):
+    out = {}
+    for c in dossier["claims"]:
+        c = dict(c)
+        c["story_kind"] = kinds.get(c["claim_id"], "event")
+        out[c["claim_id"]] = c
+    return out
+
+
+def test_lionfish_v2_fails_the_consequence_rule():
+    """The uploaded v2: a forward-hypothetical question and a MODEL result as its consequence."""
+    claims = _claims_with_kinds(_lionfish_dossier(), json.loads(_fixture_text("lionfish_v2_story_kinds.json")))
+    q = "What Happens When Florida Gets Good at Catching Lionfish?"
+    v2 = _contract(central_question=q,
+                   question_candidates=[dict(c, question=q if i == 1 else c["question"],
+                                             claim_ids=["c77"], topic_fit=None) for i, c in enumerate(
+                                                 _contract()["question_candidates"])],
+                   decision={"what": "NOAA's 'Eat Lionfish' campaign", "when": "2010", "kind": "animal_targeted",
+                             "claim_ids": ["c31"]},
+                   consequence={"what": "the fishery can become less worth working as removals succeed",
+                                "claim_ids": ["c77", "c78", "c80"]},
+                   still_unfolding={"what": "a record 2026 Lionfish Challenge", "as_of": "2026", "claim_ids": ["c85"]})
+    codes = {e["code"] for e in sc.validate_contract(v2, claims, q, consequence_rule=True)["errors"]}
+    assert {"QUESTION_HYPOTHETICAL", "CONSEQUENCE_NOT_DOCUMENTED"} <= codes, codes
+    assert sc.is_hypothetical_question(q)
+    assert not sc.is_hypothetical_question("Why are Florida's divers still pulling record numbers of lionfish out?")
+
+
+PYTHONS = {"claims": [
+    {"claim_id": "p1", "claim_kind": "event", "source_url": "https://www.route-fifty.com/emerging-tech/2025/08/",
+     "claim": "Burmese pythons were brought through the exotic pet trade and escaped their enclosures or were released.",
+     "support_quote": "Burmese pythons are not native to Florida; they were brought through the exotic pet trade and "
+                      "escaped their enclosures or were released"},
+    {"claim_id": "p2", "claim_kind": "outcome", "source_url": "https://www.route-fifty.com/emerging-tech/2025/08/",
+     "claim": "The pythons have reduced the population of fur-bearing animals by up to 95%.",
+     "support_quote": "The pythons have reduced the population of fur-bearing animals by up to 95%"},
+    {"claim_id": "p3", "claim_kind": "outcome", "source_url": "https://www.usgs.gov/publications/marsh-rabbit-mortalities",
+     "claim": "Pythons accounted for 77% of rabbit mortalities within 11 months of translocation to Everglades National Park.",
+     "support_quote": "Pythons accounted for 77% of rabbit mortalities within 11 months of their translocation to "
+                      "Everglades National Park"},
+    {"claim_id": "p4", "claim_kind": "event", "source_url": "https://myfwc.com/wildlifehabitats/nonnatives/python/",
+     "claim": "As of April 2025, over 23,500 pythons have been removed from natural areas in Florida.",
+     "support_quote": "As of April 2025, over 23,500 pythons have been removed from natural areas in the state of Florida"},
+    {"claim_id": "p5", "claim_kind": "event", "source_url": "https://myfwc.com/wildlifehabitats/nonnatives/python/",
+     "claim": "Florida began paying contracted hunters to remove pythons in spring 2017.",
+     "support_quote": "After this program launched in spring 2017, the number and rate of Burmese pythons removed "
+                      "from the wild increased"},
+]}
+
+
+def _pythons_contract():
+    q = "Florida let pet pythons into the Everglades; why are hunters still pulling them out by the thousand?"
+    return {
+        "topic": "Burmese pythons in the Everglades",
+        "question_candidates": [
+            {"question": q, "claim_ids": ["p1", "p2"], "names_decision": True, "asks_consequence": True,
+             "scores": {"curiosity": 3, "support": 3, "deliverable": 3},
+             "topic_fit": {"screened": True, "verdict": "fits", "channel": "world", "reason": "introduced animal"}},
+            {"question": "Why did Florida start paying python hunters in 2017?", "claim_ids": ["p5"],
+             "names_decision": True, "asks_consequence": True, "scores": {"curiosity": 2, "support": 3, "deliverable": 2}},
+            {"question": "Where did the Everglades' rabbits go?", "claim_ids": ["p3"], "names_decision": False,
+             "asks_consequence": True, "scores": {"curiosity": 2, "support": 2, "deliverable": 2}}],
+        "chosen": 0, "chosen_reason": "names the introduction and asks about what it still causes",
+        "central_question": q,
+        "ending_answer": "Because the pets that escaped are still eating the Everglades: hunters have taken "
+                         "over 23,500 and the mammals have not come back.",
+        "decision": {"what": "Burmese pythons imported through the exotic pet trade, released or escaped",
+                     "who": "pet owners and the trade", "when": "1980s-1990s", "kind": "animal_introduced",
+                     "claim_ids": ["p1"]},
+        "consequence": {"what": "fur-bearing mammals down by up to 95%", "claim_ids": ["p2", "p3"]},
+        "still_unfolding": {"what": "over 23,500 removed as of April 2025", "as_of": "2025", "claim_ids": ["p4"]},
+        "human_perspective": {"person": "a contracted python hunter", "want": "paid removals", "action": "night hunts",
+                              "reward": "", "claim_ids": {"want": ["p5"], "action": ["p4"]}},
+        "reasonable_attempt": {"what": "pay hunters", "why_it_made_sense": "removals rose", "claim_ids": ["p5"]},
+        "complication": {"what": "pythons are nearly invisible", "mechanism": "detection below 5%", "claim_ids": ["p4"]},
+        "developments": [{"what_happens": "the mammals vanish", "what_it_changes": "the reef of the Everglades loses its prey base",
+                          "why_next_matters": "so Florida pays hunters", "claim_ids": ["p2"]},
+                         {"what_happens": "hunters are paid", "what_it_changes": "removals climb into the thousands",
+                          "why_next_matters": "", "claim_ids": ["p4"]}],
+        "recurring_image": None,
+        "forbidden_claims": ["pythons can be eradicated"],
+        "tangents_left_out": [{"tangent": "robot rabbits", "why": "no results yet"}],
+    }
+
+
+def test_a_pythons_style_introduction_still_eating_the_everglades_passes():
+    claims = _claims_with_kinds(PYTHONS, {})
+    report = sc.validate_contract(_pythons_contract(), claims, "Burmese pythons", consequence_rule=True)
+    assert report["passed"], report["errors"]
+
+
+def test_each_consequence_rule_failure_is_named():
+    claims = _claims_with_kinds(PYTHONS, {"p2": "model", "p3": "interpretation"})
+    base = _pythons_contract()
+
+    def codes(**over):
+        return {e["code"] for e in sc.validate_contract(dict(base, **over), claims, "x", consequence_rule=True)["errors"]}
+    assert "CONSEQUENCE_NOT_DOCUMENTED" in codes()                       # only a model + an interpretation
+    claims = _claims_with_kinds(PYTHONS, {})
+    assert "DECISION_NOT_DELIBERATE" in codes(decision=dict(base["decision"], kind="accident"))
+    assert "DECISION_UNDATED" in codes(decision=dict(base["decision"], when="", what="pets released"))
+    assert "STILL_UNFOLDING_NOT_PRESENT" in codes(still_unfolding={"what": "the 2017 programme", "claim_ids": ["p5"]})
+    assert "STILL_UNFOLDING_MISSING" in codes(still_unfolding={})
+    cands = base["question_candidates"]
+    off = dict(cands[0], topic_fit={"screened": True, "verdict": "no_story", "channel": "neither", "reason": "x"})
+    assert "QUESTION_NOT_WORLD" in codes(question_candidates=[off] + cands[1:])
+    assert "QUESTION_NOT_CONSEQUENCE" in codes(question_candidates=[dict(cands[0], asks_consequence=False)] + cands[1:])
+    # History and Nature are not held to the World rule
+    assert sc.validate_contract(dict(base, decision={}), claims, "x", consequence_rule=False)["passed"]
+    assert sc.consequence_rule_applies("") and sc.consequence_rule_applies("world")
+    assert not sc.consequence_rule_applies("history")
+
+
+def test_the_blind_reader_must_recover_the_chain_and_the_ending_must_be_today():
+    raw = _clean_review()
+    raw["ending_from_today"] = False
+    review = sc.normalize_review(raw, SENTENCES, {"decision": "NOAA's campaign", "consequence": "none",
+                                                 "still_unfolding": ""}, consequence_rule=True)
+    codes = [b["code"] for b in review["consequence_blockers"]]
+    assert codes.count("CONSEQUENCE_CHAIN_MISSED") == 2 and "ENDING_NOT_FROM_TODAY" in codes
+    assert sc.needs_repair(review)
+    assert review["rubric_max"] == 3 * (len(sc.RUBRIC) + 1)
+    status, reasons = sc.narration_status({"review": review, "validation": {"errors": []}})
+    assert status == "not_ready" and any("could not recover" in r for r in reasons)
+    early_end = [dict(x, claim_ids=[] if x["claim_ids"] == ["c6"] else x["claim_ids"]) for x in SENTENCES]
+    report = sc.validate_narration(early_end, KNOWN, 60, _contract(), consequence_rule=True)
+    assert "ENDING_NOT_FROM_TODAY" in {e["code"] for e in report["errors"]}
+
+
+def test_the_contract_stage_screens_every_candidate_with_topic_fit(tmp_path):
+    caller = FakeCaller()
+    with pytest.raises(sc.ContractApprovalRequired):
+        _lane(tmp_path, caller).run()
+    assert caller.calls.count("topic_fit") == 3
+    md = (tmp_path / sc.CONTRACT_MD).read_text()
+    assert md.count("topic_fit: fits (world)") == 3 and "World consequence model" in md

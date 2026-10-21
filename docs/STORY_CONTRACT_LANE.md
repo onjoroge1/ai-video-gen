@@ -351,3 +351,42 @@ test, narration NOT approved):
 - Two reporting bugs found and fixed after the run: the reviewer's "side story" flag on
   developments already absent from the narration became "cut this" objectives in the repair notes,
   and quotes carrying the reviewer's "[34]" sentence markers failed verification.
+
+## The World consequence rule (operator, 2026-10-21)
+
+The operator's verdict on the uploaded lionfish v2 was "not a consequence video": its central
+consequence was a bioeconomic MODEL result ("can become less worth making") and its question a
+forward hypothetical. The World model (operator 2026-10-15) is now the lane's default for
+`--topic-channel world` or unset; History and Nature are not held to it
+(`consequence_rule_applies`).
+
+- **Contract fields:** `decision` (what, who, when with a year, kind among `DECISION_KINDS`:
+  animal introduced/removed/targeted, invention or product adopted, rule enforced; claim IDs),
+  `consequence` (claim IDs) and `still_unfolding` (as_of, claim IDs).
+  `validate_consequence_model` checks them:
+  - `DECISION_MISSING`, `DECISION_NOT_DELIBERATE` (accidents are out), `DECISION_UNDATED`;
+  - `CONSEQUENCE_MISSING`, or `CONSEQUENCE_NOT_DOCUMENTED` when the consequence cites no claim
+    whose story_kind is event and whose ledger kind is event or outcome. A model or an
+    interpretation may explain the mechanism but may not BE the consequence;
+  - `STILL_UNFOLDING_MISSING`, or `STILL_UNFOLDING_NOT_PRESENT` when no cited documented claim
+    carries a year within five years.
+- **Questions:** each candidate says whether it names the decision and asks about its consequence.
+  Each is also run through `topic_fit.screen(channel="world")`, one small reviewer call apiece,
+  and the result is shown in `contract_for_approval.md`. Rules on the chosen question:
+  - a forward hypothetical ("what happens when/if", "what would happen") is
+    `QUESTION_HYPOTHETICAL`;
+  - one that doesn't name the decision or ask its consequence is `QUESTION_NOT_CONSEQUENCE`;
+  - one the screen refuses or places outside World is `QUESTION_NOT_WORLD`.
+  A hypothetical candidate that is not chosen is reported (`CANDIDATE_HYPOTHETICAL`).
+- **Blind pass:** the reader reconstructs decision → consequence → still unfolding from the
+  narration alone. A miss (`CONSEQUENCE_CHAIN_MISSED`), or an ending that does not answer from
+  today (`ENDING_NOT_FROM_TODAY`, from the reviewer and deterministically when no ending sentence
+  cites a `still_unfolding` claim), blocks. These go to repair inside the same two-pass budget;
+  if one is still open, the status is `not_ready`. The rubric gains `consequence_chain` on
+  World films.
+- **Tests:**
+  - lionfish v2's contract fails with `QUESTION_HYPOTHETICAL` and `CONSEQUENCE_NOT_DOCUMENTED`,
+    using the claim kinds the lane's evidence stage gave that dossier
+    (`fixtures/lionfish_v2_story_kinds.json`: c77 interpretation, c78 model, c80 interpretation);
+  - a pythons contract built from verbatim facts in the burmese-pythons pack passes: pet trade
+    1980s-1990s → mammals down up to 95% → 23,500 removed as of April 2025.

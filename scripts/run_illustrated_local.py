@@ -84,7 +84,8 @@ def _run_story_contract_lane(args, out: Path, direction: str, log):
                                                source_pack=pack, log=log)
         (out / "research_dossier.json").write_text(json.dumps(dossier, indent=1, ensure_ascii=False))
     lane = sc.LaneRun(question=args.question, output_dir=str(out), duration_sec=args.duration,
-                      direction=direction, dossier=dossier, pack=pack, log=log)
+                      direction=direction, dossier=dossier, pack=pack, log=log,
+                      topic_channel=args.topic_channel)
 
     def stop(status: str, message: str, path: str = "", details: dict | None = None, code: int = 0):
         result = {"status": status, "lane": sc.LANE, "stop_reason": message, "approval_path": path,

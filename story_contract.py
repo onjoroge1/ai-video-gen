@@ -67,7 +67,16 @@ RUBRIC = (
               "no rewind to history before the question; humour and personality come from the "
               "situation (credited when present, never required)."),
 )
-RUBRIC_IDS = tuple(item for item, _ in RUBRIC)
+CONSEQUENCE_RUBRIC = ("consequence_chain", "A listener can name the past deliberate decision, its "
+                      "documented consequence, and the dated sign it is still unfolding today; the "
+                      "ending answers the question from today.")
+
+
+def rubric_items(consequence_rule: bool = False) -> tuple:
+    return RUBRIC + ((CONSEQUENCE_RUBRIC,) if consequence_rule else ())
+
+
+RUBRIC_IDS = tuple(item for item, _ in RUBRIC) + (CONSEQUENCE_RUBRIC[0],)
 # The scale. v2 scored 3 on every item under a bare 0-3 (2026-10-21), so the top no longer
 # separated a good narration from a very good one: a 3 now has to name what is distinctive.
 RUBRIC_SCALE = """0 = absent or wrong. 1 = present but generic or muddled. 2 = solid: does the job
@@ -347,6 +356,19 @@ class Caller:
         return (getattr(usage, "input_tokens", 0) * rate_in
                 + getattr(usage, "output_tokens", 0) * rate_out) / 1_000_000
 
+    def text(self, *, role: str, stage: str, system: str, user: str, max_tokens: int = 4000):
+        """(raw text, cost_usd): for judges that parse their own reply (topic_fit.screen)."""
+        import usage_ledger
+        model = model_for(role, self.provider)
+        response = self._client().messages.create(model=model, max_tokens=max_tokens, system=system,
+                                                  messages=[{"role": "user", "content": user}])
+        cost = self._cost(model, response.usage)
+        if self.provider == "openai":
+            usage_ledger.record("openai", "message", cost, model=model, caller=f"story_contract.{stage}",
+                                usage=response.usage)
+        self.costs.append({"stage": stage, "model": model, "cost_usd": round(cost, 6)})
+        return reply_text(response), cost
+
     def call(self, *, role: str, stage: str, system: str, user: str, max_tokens: int = 8000):
         """(parsed JSON, cost_usd). One retry when the reply is not parseable JSON.
 
@@ -487,6 +509,105 @@ def apply_claim_kinds(dossier: dict, evidence: dict) -> dict:
     return out
 
 
+# ── the World consequence model (operator 2026-10-15; lane rule 2026-10-21) ───────────────────
+#
+# A World film tells a past DELIBERATE decision or fix -- an animal introduced, removed or
+# targeted; an invention or product adopted; a rule enforced -- whose documented consequence is
+# STILL unfolding today, told from today. Accidents with no deliberate fix behind them are out, and
+# so is a story that ends in the past. Lionfish v2 failed it ("not a consequence video"): its
+# central consequence was a bioeconomic MODEL result and its question a forward hypothetical.
+WORLD_CHANNELS = ("", "world")
+DECISION_KINDS = ("animal_introduced", "animal_removed", "animal_targeted", "invention_adopted",
+                  "product_adopted", "rule_enforced")
+CONSEQUENCE_LEDGER_KINDS = ("event", "outcome")      # the ledger's claim_kind
+PRESENT_YEARS = 5                                    # "today" = a claim dated within five years
+_HYPOTHETICAL_RE = re.compile(r"^\s*(what (happens|would happen|will happen|could happen|if)|"
+                              r"what'?s next|imagine|suppose|could|would|will)\b|\bwhat if\b|"
+                              r"\bwhat happens (when|if)\b", re.I)
+_YEAR4 = re.compile(r"\b(1[5-9]\d\d|20\d\d)s?\b")   # "1985", "1980s"
+
+
+def consequence_rule_applies(topic_channel: str = "") -> bool:
+    return _text(topic_channel).lower() in WORLD_CHANNELS
+
+
+def documented_consequence_claim(claim: dict) -> bool:
+    """A claim that can BE a consequence: documented (story_kind event), and in the ledger an event
+    or an outcome. A model or an interpretation may explain the mechanism, never be the
+    consequence."""
+    if not isinstance(claim, dict):
+        return False
+    story = _text(claim.get("story_kind")).lower()
+    if story and story != "event":
+        return False
+    return _text(claim.get("claim_kind")).lower() in CONSEQUENCE_LEDGER_KINDS
+
+
+def _years(*texts) -> list[int]:
+    return [int(y) for t in texts for y in _YEAR4.findall(_text(t))]
+
+
+def is_hypothetical_question(question: str) -> bool:
+    return bool(_HYPOTHETICAL_RE.search(_text(question)))
+
+
+def validate_consequence_model(contract: dict, claims: dict, this_year: int | None = None) -> list[dict]:
+    """decision -> documented consequence -> still unfolding today, each bound to claims."""
+    this_year = this_year or int(time.strftime("%Y"))
+    errors = []
+
+    def err(code, message):
+        errors.append({"code": code, "message": message})
+
+    decision = contract.get("decision") if isinstance(contract.get("decision"), dict) else {}
+    d_ids = [c for c in decision.get("claim_ids") or [] if c in claims]
+    if not _text(decision.get("what")) or not d_ids:
+        err("DECISION_MISSING", "name the past deliberate decision or fix, with the claims that document it")
+    kind = _text(decision.get("kind")).lower()
+    if kind not in DECISION_KINDS:
+        err("DECISION_NOT_DELIBERATE", f"decision.kind {kind or '(none)'!r} is not a deliberate fix "
+            f"({', '.join(DECISION_KINDS)}); an accident with no fix behind it is not a World film")
+    if not _years(decision.get("when"), decision.get("what")):
+        err("DECISION_UNDATED", "the decision needs a date (decision.when, a year)")
+
+    cons = contract.get("consequence") if isinstance(contract.get("consequence"), dict) else {}
+    c_ids = [c for c in cons.get("claim_ids") or [] if c in claims]
+    if not _text(cons.get("what")) or not c_ids:
+        err("CONSEQUENCE_MISSING", "name the documented consequence of the decision, with its claims")
+    elif not any(documented_consequence_claim(claims[c]) for c in c_ids):
+        kinds = ", ".join(f"{c} ({_text(claims[c].get('story_kind')) or _text(claims[c].get('claim_kind'))})" for c in c_ids)
+        err("CONSEQUENCE_NOT_DOCUMENTED", f"the consequence rests only on {kinds}: a model result or an "
+            "interpretation may explain the mechanism but may not BE the consequence; cite a documented "
+            "event or outcome")
+
+    now = contract.get("still_unfolding") if isinstance(contract.get("still_unfolding"), dict) else {}
+    n_ids = [c for c in now.get("claim_ids") or [] if c in claims]
+    recent = [c for c in n_ids if documented_consequence_claim(claims[c]) and any(
+        y >= this_year - PRESENT_YEARS for y in _years(claims[c].get("claim"), claims[c].get("support_quote")))]
+    if not _text(now.get("what")) or not n_ids:
+        err("STILL_UNFOLDING_MISSING", "name the documented, dated sign that the consequence is still unfolding today")
+    elif not recent:
+        err("STILL_UNFOLDING_NOT_PRESENT", f"no cited claim is a documented event dated within {PRESENT_YEARS} "
+            f"years ({this_year - PRESENT_YEARS} or later): the film must be told from today")
+
+    question = _text(contract.get("central_question"))
+    if is_hypothetical_question(question):
+        err("QUESTION_HYPOTHETICAL", f"{question!r} is a forward hypothetical; ask about the decision's consequence")
+    cands = [c for c in contract.get("question_candidates") or [] if isinstance(c, dict)]
+    try:
+        chosen = cands[int(contract.get("chosen"))]
+    except (TypeError, ValueError, IndexError):
+        chosen = {}
+    if chosen and (chosen.get("names_decision") is False or chosen.get("asks_consequence") is False):
+        err("QUESTION_NOT_CONSEQUENCE", "the chosen question must name (or clearly imply) the decision and ask about its consequence")
+    screen = chosen.get("topic_fit") if isinstance(chosen.get("topic_fit"), dict) else {}
+    if screen.get("screened") and (screen.get("verdict") == "no_story" or
+                                   (screen.get("channel") and screen.get("channel") != "world")):
+        err("QUESTION_NOT_WORLD", f"topic_fit screens the chosen question as {screen.get('verdict')} "
+            f"({screen.get('channel') or 'no channel'}): {screen.get('reason')}")
+    return errors
+
+
 # ── the contract ──────────────────────────────────────────────────────────────────────────────
 
 CONTRACT_SYSTEM = """You are a documentary story editor. You plan a story around ONE question a \
@@ -550,8 +671,23 @@ def validate_question_choice(contract: dict, commission: str, known) -> list[dic
     return errors
 
 
+WORLD_MODEL_PROMPT = """THIS IS A WORLD FILM. It tells ONE past DELIBERATE decision or fix -- an animal
+introduced, removed or targeted; an invention or product adopted; or a rule enforced -- and its
+documented consequence, which is STILL unfolding today, told from today. Accidents with no deliberate
+fix behind them are out, and so is a story that ends in the past.
+- decision: what was decided, by whom, when (a year), its kind, and the claims documenting it.
+- consequence: what it documentably caused. Cite at least one claim of kind event that the ledger
+  marks event or outcome. A model's projection or an expert's interpretation may explain the
+  mechanism but may NOT be the consequence.
+- still_unfolding: the dated, documented present-day sign that it continues (a claim dated within
+  the last five years).
+- Every question candidate must name, or clearly imply, the decision and ask about its consequence.
+  Never a forward hypothetical ("what happens when/if ...", "what would happen ...").
+- The ending answers the consequence question from today."""
+
+
 def contract_prompt(question: str, dossier: dict, evidence: dict, duration_sec: int,
-                    direction: str = "", errors: list | None = None) -> str:
+                    direction: str = "", errors: list | None = None, consequence_rule: bool = False) -> str:
     material = json.dumps((evidence or {}).get("human_material") or [], ensure_ascii=False, indent=1)
     gaps = json.dumps((evidence or {}).get("evidence_gaps") or [], ensure_ascii=False)
     fix = ""
@@ -570,7 +706,7 @@ Human material, ranked (prefer a detail that serves both the person and the prob
 
 Leads without a supporting claim (you may NOT state these as fact): {gaps}
 
-Write the story contract.
+{(WORLD_MODEL_PROMPT + chr(10) + chr(10)) if consequence_rule else ''}Write the story contract.
 - question_candidates: FIRST propose three genuinely different central questions. Do not take the
   commission's wording as the question: it names the topic, and its own question is often one the
   viewer can already answer from the title. Look in the evidence for the surprise -- a paradox, a
@@ -605,9 +741,13 @@ Reply with JSON only:
 {{"topic": "...",
   "question_candidates": [{{"question": "...", "curiosity_gap": "...", "claim_ids": [],
                             "ending_answer": "...", "scores": {{"curiosity": 0, "support": 0, "deliverable": 0}},
+                            "names_decision": true, "asks_consequence": true,
                             "reason": "..."}}, ...3],
   "chosen": 0, "chosen_reason": "...",
   "central_question": "...", "ending_answer": "...",
+  "decision": {{"what": "...", "who": "...", "when": "year", "kind": "{'|'.join(DECISION_KINDS)}", "claim_ids": []}},
+  "consequence": {{"what": "...", "claim_ids": []}},
+  "still_unfolding": {{"what": "...", "as_of": "year", "claim_ids": []}},
   "human_perspective": {{"person": "...", "want": "...", "action": "...", "reward": "...",
                          "claim_ids": {{"want": [], "action": [], "reward": []}}}},
   "reasonable_attempt": {{"what": "...", "why_it_made_sense": "...", "claim_ids": []}},
@@ -637,8 +777,12 @@ def contract_claim_ids(contract: dict) -> list[str]:
     return list(dict.fromkeys(_text(i) for i in ids if _text(i)))
 
 
-def validate_contract(contract: dict, known_claims, commission: str = "") -> dict:
-    """Deterministic checks on a story contract. {'passed', 'errors', 'warnings'}."""
+def validate_contract(contract: dict, known_claims, commission: str = "",
+                      consequence_rule: bool = False) -> dict:
+    """Deterministic checks on a story contract. {'passed', 'errors', 'warnings'}.
+
+    known_claims: claim IDs, or {id: claim} (needed for the World consequence rule's kinds)."""
+    claims = known_claims if isinstance(known_claims, dict) else {}
     known = set(known_claims or [])
     errors, warnings = [], []
 
@@ -719,6 +863,12 @@ def validate_contract(contract: dict, known_claims, commission: str = "") -> dic
 
     errors.extend(validate_question_choice(contract, commission, known))
     errors.extend(question_choice_penalties(contract))
+    if consequence_rule:
+        errors.extend(validate_consequence_model(contract, claims))
+        for i, c in enumerate(contract.get("question_candidates") or []):
+            if isinstance(c, dict) and is_hypothetical_question(c.get("question")) and str(i) != str(contract.get("chosen")):
+                warnings.append({"code": "CANDIDATE_HYPOTHETICAL",
+                                 "message": f"candidate {i + 1} is a forward hypothetical and may not be chosen"})
     unknown = sorted({c for c in contract_claim_ids(contract) if c not in known})
     if unknown:
         err("UNKNOWN_CLAIM", "the contract cites claims the dossier does not have: " + ", ".join(unknown))
@@ -755,10 +905,21 @@ def contract_markdown(contract: dict, validation: dict, evidence: dict, dossier:
                       f"   - scores: curiosity {sc_.get('curiosity')}, support {sc_.get('support')}, "
                       f"deliverable {sc_.get('deliverable')} (total {total}/9)",
                       f"   - curiosity gap: {_text(c.get('curiosity_gap'))}",
+                      f"   - consequence question: names decision {c.get('names_decision')}, asks consequence "
+                      f"{c.get('asks_consequence')}" + (", **forward hypothetical**" if is_hypothetical_question(c.get("question")) else "")
+                      + (f"; topic_fit: {(c.get('topic_fit') or {}).get('verdict')} "
+                         f"({(c.get('topic_fit') or {}).get('channel') or '—'}) — {(c.get('topic_fit') or {}).get('reason')}"
+                         if isinstance(c.get("topic_fit"), dict) else ""),
                       f"   - ending it could deliver: {_text(c.get('ending_answer'))}{cites(c.get('claim_ids'))}",
                       f"   - {_text(c.get('reason'))}"]
         lines += ["", f"Why this one: {_text(contract.get('chosen_reason'))}",
                   f"(overlap with the commission title: {question_overlap(contract.get('central_question'), question):.2f})"]
+    if any(isinstance(contract.get(k), dict) for k in ("decision", "consequence", "still_unfolding")):
+        dec, con, now = (contract.get(k) or {} for k in ("decision", "consequence", "still_unfolding"))
+        lines += ["", "## World consequence model", "",
+                  f"- **Decision** ({_text(dec.get('kind'))}, {_text(dec.get('when'))}): {_text(dec.get('what'))}{cites(dec.get('claim_ids'))}",
+                  f"- **Consequence:** {_text(con.get('what'))}{cites(con.get('claim_ids'))}",
+                  f"- **Still unfolding** (as of {_text(now.get('as_of'))}): {_text(now.get('what'))}{cites(now.get('claim_ids'))}"]
     lines += ["", f"**Topic.** {_text(contract.get('topic'))}", "",
               f"**Central question.** {_text(contract.get('central_question'))}", "",
               f"**The answer the ending delivers.** {_text(contract.get('ending_answer'))}", "",
@@ -903,7 +1064,7 @@ Return it as a list of sentences, in order, each with:
   yourself...", "suppose...") and never attributed to a named person; "framing" for sentences that
   assert nothing ("One fish.");
 - part: which contract part it serves.
-Never make the contract's forbidden claims.
+Never make the contract's forbidden claims.{chr(10) + "This is a World film: the listener must hear the past deliberate decision, its documented consequence, and the dated sign it is still unfolding; the ending answers the question from today, citing the contract's still_unfolding claims." if (contract or {}).get("still_unfolding") else ""}
 
 Reply with JSON only: {_narration_schema()}"""
 
@@ -1030,7 +1191,7 @@ _PROMPT_LEAK = re.compile(r"\b(supplied|the (claims?|dossier|contract|brief|evid
 
 
 def validate_narration(sentences: list[dict], known_claims, duration_sec: int,
-                       contract: dict | None = None) -> dict:
+                       contract: dict | None = None, consequence_rule: bool = False) -> dict:
     known = set(known_claims or [])
     errors, warnings = [], []
     if not sentences:
@@ -1066,6 +1227,13 @@ def validate_narration(sentences: list[dict], known_claims, duration_sec: int,
             errors.append({"code": "BACKSTORY_BEFORE_QUESTION",
                            "message": f"sentence {i} rewinds to origin or backstory before the central "
                                       f"question and the person's want are both heard (by sentence {gate + 1})"})
+    if consequence_rule and contract and sentences:
+        present = set((contract.get("still_unfolding") or {}).get("claim_ids") or [])
+        ending = [x for x in sentences if _text(x.get("part")).startswith("ending")] or sentences[-4:]
+        if present and not any(set(x["claim_ids"]) & present for x in ending):
+            errors.append({"code": "ENDING_NOT_FROM_TODAY",
+                           "message": "the ending cites none of the still-unfolding claims ("
+                                      + ", ".join(sorted(present)) + "): answer the question from today"})
     voice = voice_metrics(narration_text(sentences))
     words = voice["words"]
     target = int(duration_sec * WORDS_PER_SECOND)
@@ -1124,19 +1292,26 @@ From the narration alone, reconstruct:
 - main_idea: what the film is really about, in one sentence;
 - human: the person the viewer follows and their want or reward ("none" if no one);
 - pivotal_discovery: the turn or discovery the story hinges on;
-- ending_answer: the answer the ending gives to the central question ("none" if it does not answer).
+- ending_answer: the answer the ending gives to the central question ("none" if it does not answer);
+- decision: the past deliberate decision or fix the story is about, with its date ("none" if you cannot tell);
+- consequence: what that decision documentably caused ("none" if you cannot tell);
+- still_unfolding: how the narration says it continues today, with the date ("none" if it does not).
 
 Reply with JSON only:
 {{"central_question": "...", "question_quote": "...", "question_position": 0.1,
-  "main_idea": "...", "human": "...", "pivotal_discovery": "...", "ending_answer": "..."}}"""
+  "main_idea": "...", "human": "...", "pivotal_discovery": "...", "ending_answer": "...",
+  "decision": "...", "consequence": "...", "still_unfolding": "..."}}"""
 
 
 def review_b_prompt(question: str, contract: dict, sentences: list[dict], dossier: dict,
-                    reconstruction: dict) -> str:
+                    reconstruction: dict, consequence_rule: bool = False) -> str:
     ids = set(c for s in sentences for c in s["claim_ids"])
     numbered = "\n".join(f"[{i}] ({s['kind']}; {', '.join(s['claim_ids']) or '-'}) {s['text']}"
                          for i, s in enumerate(sentences, 1))
-    rubric = "\n".join(f"- {item}: {desc}" for item, desc in RUBRIC)
+    rubric = "\n".join(f"- {item}: {desc}" for item, desc in rubric_items(consequence_rule))
+    chain = ("\n9. consequence_chain: did the blind reader recover the contract's decision, consequence "
+             "and still-unfolding sign? Does the ending answer the question from today (ending_from_today)?"
+             if consequence_rule else "")
     return f"""Commission: {question}
 
 The story contract the narration was meant to execute:
@@ -1175,13 +1350,17 @@ Review it.
    answer is a side story (true and interesting is not enough): mark changes_answer false. Flag
    any "first / second / third limit"-style counting as a parallel-obstacle list.
 8. numbers_without_purpose: every number in the narration that the story does not turn on, quoted
-   with its sentence number.
+   with its sentence number.{chain}
    Every score of 0 or 1 needs an editorial objective.
 6. editorial_objectives: AT MOST THREE, the ones that matter most. Each with its location
    (sentence numbers), the problem, the repair objective, and the material to preserve.
 
 Reply with JSON only:
-{{"reconstruction_match": {{"central_question": {{"match": true, "note": "..."}},
+{{"ending_from_today": true,
+  "reconstruction_match": {{"central_question": {{"match": true, "note": "..."}},
+                            "decision": {{"match": true, "note": "..."}},
+                            "consequence": {{"match": true, "note": "..."}},
+                            "still_unfolding": {{"match": true, "note": "..."}},
                             "human": {{"match": true, "note": "..."}},
                             "pivotal_discovery": {{"match": true, "note": "..."}},
                             "ending_answer": {{"match": true, "note": "..."}}}},
@@ -1211,7 +1390,29 @@ def quote_in(quote: str, text: str) -> bool:
     return bool(parts)
 
 
-def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict) -> dict:
+_NONE = {"", "none", "n/a", "unclear", "unknown", "cannot tell"}
+
+
+def consequence_blockers(raw: dict, reconstruction: dict) -> list[dict]:
+    """The blind reader must recover decision -> consequence -> still unfolding; a miss blocks."""
+    out = []
+    match = (raw or {}).get("reconstruction_match") or {}
+    for key, label in (("decision", "the deliberate decision"), ("consequence", "its documented consequence"),
+                       ("still_unfolding", "that it is still unfolding today")):
+        heard = _norm((reconstruction or {}).get(key))
+        missed = heard in _NONE or (isinstance(match.get(key), dict) and match[key].get("match") is False)
+        if missed:
+            out.append({"code": "CONSEQUENCE_CHAIN_MISSED", "problem": f"a listener given only the narration "
+                        f"could not recover {label} (blind reader: {(reconstruction or {}).get(key) or 'none'})",
+                        "fix": f"say {label} plainly, where the listener needs it"})
+    if (raw or {}).get("ending_from_today") is False:
+        out.append({"code": "ENDING_NOT_FROM_TODAY", "problem": "the ending does not answer the question from today",
+                    "fix": "end on the dated present-day consequence, answering the question"})
+    return out
+
+
+def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict,
+                     consequence_rule: bool = False) -> dict:
     text_norm = narration_text(sentences)
     rubric, seen = [], set()
     for row in (raw or {}).get("rubric") or []:
@@ -1228,7 +1429,7 @@ def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict) -> 
         quote = _text(row.get("quote"))
         rubric.append({"item": item, "score": score, "quote": quote, "note": _text(row.get("note")),
                        "quote_verified": quote_in(quote, text_norm)})
-    missing = [i for i in RUBRIC_IDS if i not in seen]
+    missing = [i for i, _ in rubric_items(consequence_rule) if i not in seen]
     objectives = [o for o in (raw or {}).get("editorial_objectives") or [] if isinstance(o, dict)
                   and _text(o.get("objective"))]
     # Every 0-1 score needs a repair objective. One the reviewer named but did not tie to an
@@ -1275,7 +1476,8 @@ def normalize_review(raw: dict, sentences: list[dict], reconstruction: dict) -> 
         "rubric": rubric,
         "rubric_missing": missing,
         "rubric_total": sum(r["score"] for r in rubric),
-        "rubric_max": 3 * len(RUBRIC_IDS),
+        "rubric_max": 3 * len(rubric_items(consequence_rule)),
+        "consequence_blockers": consequence_blockers(raw, reconstruction) if consequence_rule else [],
         "editorial_objectives": objectives,
         "development_removal": [d for d in (raw or {}).get("development_removal") or [] if isinstance(d, dict)],
         "side_stories": side,
@@ -1326,7 +1528,8 @@ def compare_prompt(question: str, narration_a: str, narration_b: str, duration_s
 
 
 def needs_repair(review: dict) -> bool:
-    return bool((review or {}).get("factual_blockers") or (review or {}).get("editorial_objectives"))
+    return bool((review or {}).get("factual_blockers") or (review or {}).get("editorial_objectives")
+                or (review or {}).get("consequence_blockers"))
 
 
 REPAIR_SYSTEM = WRITER_SYSTEM + """ You are revising your narration against an editor's notes. \
@@ -1371,10 +1574,11 @@ _FIX = {
     "ATTRIBUTION_DENSE": "drop attributions the listener does not need; keep them only where who-says-so matters",
     "BACKSTORY_BEFORE_QUESTION": "move the origin story after the question and the person's want, and shorten it",
     "NUMBER_DENSE": "keep only the numbers the story turns on; say the rest in words or cut them",
+    "ENDING_NOT_FROM_TODAY": "end on the dated present-day consequence, answering the question from today",
     "LIST_FRAMING": "drop the counting ('a third limit'); keep the passage only if it changes the answer, else cut it",
 }
 _DELIVERY_CODES = {"LENGTH_OVER", "PROMPT_LEAK", "SENTENCE_MEAN_LONG", "ATTRIBUTION_DENSE",
-                   "BACKSTORY_BEFORE_QUESTION", "NUMBER_DENSE", "LIST_FRAMING"}
+                   "BACKSTORY_BEFORE_QUESTION", "NUMBER_DENSE", "LIST_FRAMING", "ENDING_NOT_FROM_TODAY"}
 
 
 def narration_status(candidate: dict) -> tuple[str, list[str]]:
@@ -1382,7 +1586,8 @@ def narration_status(candidate: dict) -> tuple[str, list[str]]:
     review = candidate.get("review") or {}
     errors = (candidate.get("validation") or {}).get("errors") or []
     factual = list(review.get("factual_blockers") or []) + [e for e in errors if e["code"] not in _DELIVERY_CODES]
-    delivery = [e for e in errors if e["code"] in _DELIVERY_CODES]
+    delivery = [e for e in errors if e["code"] in _DELIVERY_CODES] + [
+        {"message": b["problem"]} for b in review.get("consequence_blockers") or []]
     if factual:
         return "evidence_gap", [b.get("problem") or b.get("message") for b in factual]
     if delivery:
@@ -1437,6 +1642,9 @@ def narration_markdown(question: str, chosen: dict, candidates: list[dict], budg
     if errs:
         lines += ["## ✗ Not ready: deterministic blockers still open", ""] + [
             f"- **{e['code']}**: {e['message']}" for e in errs] + [""]
+    if review.get("consequence_blockers"):
+        lines += ["## ✗ Consequence chain (World): blockers", ""] + [
+            f"- **{b['code']}**: {b['problem']}" for b in review["consequence_blockers"]] + [""]
     if review.get("factual_blockers"):
         lines += ["## ✗ Open factual blockers", ""] + [
             f"- sentences {b.get('sentences')}: {b.get('problem')} — fix: {b.get('fix')}"
@@ -1460,6 +1668,7 @@ def narration_markdown(question: str, chosen: dict, candidates: list[dict], budg
               f"- question: {rec.get('central_question')} (heard at ~{rec.get('question_position')}: “{rec.get('question_quote')}”)",
               f"- main idea: {rec.get('main_idea')}", f"- human: {rec.get('human')}",
               f"- pivot: {rec.get('pivotal_discovery')}", f"- ending answer: {rec.get('ending_answer')}",
+              f"- decision → consequence → still unfolding: {rec.get('decision')} → {rec.get('consequence')} → {rec.get('still_unfolding')}",
               f"- mismatches with the contract: {', '.join(review.get('reconstruction_mismatches') or []) or 'none'}", "",
               f"## Rubric ({review.get('rubric_total')}/{review.get('rubric_max')}) — describes, never loops", ""]
     for r in review.get("rubric") or []:
@@ -1491,6 +1700,7 @@ class LaneRun:
     pack: dict | None = None
     caller: object = None
     log: object = print
+    topic_channel: str = ""
 
     def __post_init__(self):
         os.makedirs(self.output_dir, exist_ok=True)
@@ -1498,6 +1708,7 @@ class LaneRun:
         self.budget = RepairBudget(self.output_dir)
         self.caller = self.caller or Caller()
         self.known = {c["claim_id"] for c in _claims(self.dossier)}
+        self.consequence_rule = consequence_rule_applies(self.topic_channel)
 
     def _path(self, name: str) -> str:
         return os.path.join(self.output_dir, name)
@@ -1526,7 +1737,7 @@ class LaneRun:
         approved_path = self._path(CONTRACT_APPROVED)
         if os.path.isfile(approved_path):
             approved = _read_json(approved_path, None)
-            check = validate_contract(approved, self.known, self.question)
+            check = validate_contract(approved, self._claim_map(evidence), self.question, self.consequence_rule)
             sha = canonical_hash(approved)
             if not check["passed"]:
                 with open(self._path(CONTRACT_MD), "w", encoding="utf-8") as h:
@@ -1541,16 +1752,20 @@ class LaneRun:
         errors = None
         if cached is not None:
             # A contract bought under older checks is re-checked under the current ones.
-            recheck = validate_contract(cached["contract"], self.known, self.question)
+            recheck = validate_contract(cached["contract"], self._claim_map(evidence), self.question,
+                                        self.consequence_rule)
             if not recheck["passed"]:
                 errors, cached = recheck["errors"], None
         if cached is None:
             total = 0.0
             for attempt in range(2):
                 raw, cost = self._call("contract", "writer", CONTRACT_SYSTEM, contract_prompt(
-                    self.question, dossier, evidence, self.duration_sec, self.direction, errors), 16000)
+                    self.question, dossier, evidence, self.duration_sec, self.direction, errors,
+                    self.consequence_rule), 16000)
                 total += cost
-                check = validate_contract(raw, self.known, self.question)
+                if self.consequence_rule:
+                    total += self._screen_candidates(raw)
+                check = validate_contract(raw, self._claim_map(evidence), self.question, self.consequence_rule)
                 if check["passed"]:
                     break
                 errors = check["errors"]
@@ -1571,6 +1786,28 @@ class LaneRun:
             f"{CONTRACT_APPROVED} (edited or not) and rerun.", path=self._path(CONTRACT_MD),
             details={"contract_sha256": sha})
 
+    def _claim_map(self, evidence: dict) -> dict:
+        return {c["claim_id"]: c for c in _claims(apply_claim_kinds(self.dossier, evidence))}
+
+    def _screen_candidates(self, contract: dict) -> float:
+        """topic_fit's World screen on each candidate question (one small reviewer call each)."""
+        import topic_fit
+        total = [0.0]
+
+        def judge(prompt: str, system: str = "") -> str:
+            text, cost = self.caller.text(role="reviewer", stage="topic_fit", system=system, user=prompt,
+                                          max_tokens=4000)
+            total[0] += cost
+            return text
+
+        for c in contract.get("question_candidates") or []:
+            if isinstance(c, dict) and _text(c.get("question")):
+                try:
+                    c["topic_fit"] = topic_fit.screen(c["question"], channel="world", judge=judge)
+                except Exception as exc:  # noqa: BLE001 - a screen outage is not a verdict
+                    c["topic_fit"] = {"verdict": "unknown", "screened": False, "reason": str(exc)[:120]}
+        return total[0]
+
     # 3-6. openings, narration, review, repairs
     def _review(self, sentences: list[dict], contract: dict, contract_sha: str, dossier: dict) -> dict:
         text = narration_text(sentences)
@@ -1585,8 +1822,9 @@ class LaneRun:
         out = self.state.get("review_b:" + key_b[:16], key_b)
         if out is None:
             raw, cost = self._call("review_contract", "reviewer", REVIEW_B_SYSTEM,
-                                   review_b_prompt(self.question, contract, sentences, dossier, rec), 24000)
-            out = normalize_review(raw, sentences, rec)
+                                   review_b_prompt(self.question, contract, sentences, dossier, rec,
+                                                   self.consequence_rule), 24000)
+            out = normalize_review(raw, sentences, rec, self.consequence_rule)
             self.state.put("review_b:" + key_b[:16], key_b, out, cost)
         return out
 
@@ -1597,7 +1835,7 @@ class LaneRun:
         for c in self.state.candidates(contract_sha):
             if c["sha256"] == sha:
                 return c
-        validation = validate_narration(sentences, self.known, self.duration_sec, contract)
+        validation = validate_narration(sentences, self.known, self.duration_sec, contract, self.consequence_rule)
         return self.state.add_candidate({"source": source, "sentences": sentences, "sha256": sha,
                                          "contract_sha256": contract_sha, "validation": validation})
 
@@ -1643,7 +1881,8 @@ class LaneRun:
             extra = [{"sentences": [], "code": e["code"], "problem": e["message"],
                       "fix": _FIX.get(e["code"], "cite a listed claim or cut the assertion")}
                      for e in (current.get("validation") or {}).get("errors") or []]
-            notes["factual_blockers"] = list(review.get("factual_blockers") or []) + extra
+            notes["factual_blockers"] = (list(review.get("factual_blockers") or []) + extra
+                                         + list(review.get("consequence_blockers") or []))
             raw, cost = self._call(f"repair_{n}", "writer", REPAIR_SYSTEM, repair_prompt(
                 self.question, contract, current["sentences"], notes, dossier, self.duration_sec), 24000)
             self.state.data.setdefault("costs", []).append({"stage": f"repair_{n}", "cost_usd": round(cost, 6)})
