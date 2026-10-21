@@ -165,3 +165,28 @@ def template_no_repeats(output, context) -> dict:
     dupes = ep.duplicate_narration(scenes)
     return {"pass": not dupes, "score": 0.0 if dupes else 1.0,
             "reason": "; ".join(f"{d['scene']}~{d['duplicate_of']}" for d in dupes) or "no repeats"}
+
+
+def _quote_in(quote: str, text: str) -> bool:
+    norm = lambda x: re.sub(r"[^a-z0-9 ]", "", re.sub(r"\s+", " ", (x or "").lower())).strip()
+    return bool(norm(quote)) and norm(quote) in norm(text)
+
+
+def reviewer_prefers(output, context) -> dict:
+    """The reviewer prefers the expected narration and backs it with at least two reasons whose
+    quotations really are in that narration (story-contract lane calibration)."""
+    v = context.get("vars") or {}
+    data = _json(output)
+    if not isinstance(data, dict):
+        return {"pass": False, "score": 0.0, "reason": "not a JSON object"}
+    expected = str(v.get("expected") or "").upper()
+    preferred = str(data.get("preferred") or "").upper()
+    with open(os.path.join(HERE, "fixtures", v["narration_" + expected.lower()]), encoding="utf-8") as handle:
+        text = handle.read()
+    reasons = [r for r in data.get("reasons") or [] if isinstance(r, dict) and r.get("reason")]
+    quoted = [r for r in reasons if _quote_in(r.get("quote_preferred"), text)]
+    ok = preferred == expected and len(quoted) >= 2
+    return {"pass": ok, "score": 1.0 if ok else 0.0,
+            "reason": f"preferred {preferred or '?'} (expected {expected}); {len(quoted)}/{len(reasons)} "
+                      "reasons quote the preferred narration verbatim: "
+                      + " | ".join(str(r.get("reason"))[:120] for r in reasons[:3])}

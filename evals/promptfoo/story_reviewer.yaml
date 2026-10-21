@@ -1,0 +1,43 @@
+# The story-contract lane's reviewer, calibrated against the operator (docs/STORY_CONTRACT_LANE.md,
+# measuring plan step 3): on lionfish v1 (the compiled catalogue, jobs/lionfish-invasion) against v2
+# (the Carlson / full-freezer rewrite) it must prefer v2 and cite reasons that quote it verbatim.
+# Both orders, so a position bias cannot pass. No film is rendered.
+#
+#   cd /Users/obadiah/ai-video-gen-local
+#   set -a; source <(grep -E '^OPENAI_API_KEY=' .env); set +a
+#   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/story_reviewer.yaml
+description: "Story-contract reviewer prefers the lionfish story over the catalogue"
+
+providers:
+  # The lane's OpenAI reviewer default (story_contract.DEFAULT_MODELS). Add
+  # anthropic:messages:claude-sonnet-5-5 to calibrate the Anthropic reviewer too.
+  - id: openai:chat:gpt-5.6-luna
+    label: luna
+    config:
+      max_completion_tokens: 12000
+
+prompts:
+  - id: file://prompts.py:story_reviewer
+    label: story_reviewer
+
+defaultTest:
+  vars:
+    # Neutral brief: neither film's own title, so the commission cannot pick the winner.
+    question: "Florida's lionfish invasion, and the plan to eat it"
+    duration: 300
+  assert:
+    - type: is-json
+    - type: python
+      value: file://asserts.py:reviewer_prefers
+
+tests:
+  - description: v1 shown first (A = catalogue, B = story)
+    vars:
+      narration_a: narration_lionfish_v1.txt
+      narration_b: narration_lionfish_v2.txt
+      expected: B
+  - description: v2 shown first (A = story, B = catalogue)
+    vars:
+      narration_a: narration_lionfish_v2.txt
+      narration_b: narration_lionfish_v1.txt
+      expected: A
