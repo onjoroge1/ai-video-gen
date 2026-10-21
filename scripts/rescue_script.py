@@ -282,7 +282,9 @@ def install(job: str, state: dict, style_mode: str = "") -> str:
 
 def report_text(failed: dict) -> str:
     script, rep = failed["script"], failed["report"]
-    errors = [e for e in rep.get("errors") or []]
+    # The storyboard reports its errors as "CODE: message" strings; the ledger as dicts.
+    errors = [e if isinstance(e, dict) else {"code": str(e).split(":", 1)[0], "message": str(e).split(":", 1)[-1].strip()}
+              for e in rep.get("errors") or []]
     by_scene = {}
     for e in errors:
         by_scene.setdefault(e.get("scene") or "", []).append(e)
