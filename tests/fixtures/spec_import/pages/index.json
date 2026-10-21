@@ -1,0 +1,86 @@
+{
+ "https://blogs.ifas.ufl.edu/news/2023/02/19/uf-study-helps-explain-why-market-for-invasive-lionfish-remains-small/": {
+  "chars": 2202,
+  "fetched_at": "2026-10-21T17:07:25",
+  "file": "163072220696f55c.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://cbs12.com/news/local/florida-divers-remove-record-36187-invasive-lionfish-in-statewide-challenge-2026-lionfish-challenge-533-participants-1468-dive-trips-may-22-september-14": {
+  "chars": 1022,
+  "fetched_at": "2026-10-21T17:07:24",
+  "file": "6e986f6e389c896d.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://media.fisheries.noaa.gov/dam-migration/lionfish_factsheet.pdf": {
+  "chars": 1036,
+  "fetched_at": "2026-10-21T17:07:22",
+  "file": "152a1c58045c6a00.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://myfwc.com/fishing/saltwater/recreational/lionfish/": {
+  "chars": 1044,
+  "fetched_at": "2026-10-21T17:07:24",
+  "file": "af79308a2c332986.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://myfwc.com/news/all-news/lionfish-winners-925/": {
+  "chars": 958,
+  "fetched_at": "2026-10-21T17:07:20",
+  "file": "d55e755261589a23.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://myfwc.com/wildlifehabitats/nonnatives/marine-species/lionfish/": {
+  "chars": 935,
+  "fetched_at": "2026-10-21T17:07:24",
+  "file": "66a2d5af4fb2b407.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://nas.er.usgs.gov/queries/FactSheet.aspx?speciesID=963": {
+  "chars": 3628,
+  "fetched_at": "2026-10-21T17:07:22",
+  "file": "52282d4cca0fc8ec.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://oceanservice.noaa.gov/facts/lionfish.html": {
+  "chars": 936,
+  "fetched_at": "2026-10-21T17:07:21",
+  "file": "8f2f2de761f76d4f.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://sciencedaily.com/releases/2010/08/100807205021.htm": {
+  "chars": 940,
+  "fetched_at": "2026-10-21T17:07:19",
+  "file": "0929a1cc205bc913.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC3296711/fullTextXML": {
+  "chars": 1012,
+  "fetched_at": "2026-10-21T17:07:25",
+  "file": "1cc6df39ba7e443d.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:10.1007/s10530-023-02998-5&resultType=core&format=xml": {
+  "chars": 1723,
+  "fetched_at": "2026-10-21T17:07:21",
+  "file": "795f29ebbbbf30ad.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:10.1890/13-0979.1&resultType=core&format=xml": {
+  "chars": 2271,
+  "fetched_at": "2026-10-21T17:07:26",
+  "file": "6a71c876bff72f65.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://www.int-res.com/articles/meps2008/367/m367p233.pdf": {
+  "chars": 940,
+  "fetched_at": "2026-10-21T17:07:23",
+  "file": "5545c236ef9b7e79.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ },
+ "https://www.wgcu.org/environment/2025-09-23/winners-announced-in-fwcs-annual-lionfish-challenge": {
+  "chars": 1111,
+  "fetched_at": "2026-10-21T17:07:20",
+  "file": "ce5037393f932a3e.txt",
+  "note": "trimmed: page head + 250 chars around each spec quote"
+ }
+}
