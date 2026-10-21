@@ -168,25 +168,43 @@ def template_no_repeats(output, context) -> dict:
 
 
 def _quote_in(quote: str, text: str) -> bool:
-    norm = lambda x: re.sub(r"[^a-z0-9 ]", "", re.sub(r"\s+", " ", (x or "").lower())).strip()
-    return bool(norm(quote)) and norm(quote) in norm(text)
+    import story_contract as sc
+    return sc.quote_in(quote, text)
 
 
-def reviewer_prefers(output, context) -> dict:
-    """The reviewer prefers the expected narration and backs it with at least two reasons whose
-    quotations really are in that narration (story-contract lane calibration)."""
+def reviewer_ranks(output, context) -> dict:
+    """The reviewer ranks the narrations in the expected order (vars.expected: fixture names, best
+    first), and backs each adjacent step with at least one reason quoting the higher narration
+    verbatim -- two for the top step (story-contract lane calibration)."""
     v = context.get("vars") or {}
-    data = _json(output)
-    if not isinstance(data, dict):
-        return {"pass": False, "score": 0.0, "reason": "not a JSON object"}
-    expected = str(v.get("expected") or "").upper()
-    preferred = str(data.get("preferred") or "").upper()
-    with open(os.path.join(HERE, "fixtures", v["narration_" + expected.lower()]), encoding="utf-8") as handle:
-        text = handle.read()
+    import story_contract as sc
+    try:
+        data = sc.parse_json_reply(output if isinstance(output, str) else json.dumps(output))
+    except ValueError as exc:
+        return {"pass": False, "score": 0.0, "reason": f"not a JSON object: {exc}"}
+    names = v["narrations"] if isinstance(v.get("narrations"), list) else str(v["narrations"]).split(",")
+    names = [n.strip() for n in names]
+    label = {n: chr(ord("A") + i) for i, n in enumerate(names)}
+    expected = [label[n.strip()] for n in (v["expected"] if isinstance(v["expected"], list) else str(v["expected"]).split(","))]
+    if len(names) < 2:
+        return {"pass": False, "score": 0.0, "reason": f"only {len(names)} narration(s) in the case"}
+    ranking = [str(x).strip().upper() for x in data.get("ranking") or []]
+    texts = {}
+    for n in names:
+        with open(os.path.join(HERE, "fixtures", n), encoding="utf-8") as handle:
+            texts[label[n]] = handle.read()
     reasons = [r for r in data.get("reasons") or [] if isinstance(r, dict) and r.get("reason")]
-    quoted = [r for r in reasons if _quote_in(r.get("quote_preferred"), text)]
-    ok = preferred == expected and len(quoted) >= 2
-    return {"pass": ok, "score": 1.0 if ok else 0.0,
-            "reason": f"preferred {preferred or '?'} (expected {expected}); {len(quoted)}/{len(reasons)} "
-                      "reasons quote the preferred narration verbatim: "
-                      + " | ".join(str(r.get("reason"))[:120] for r in reasons[:3])}
+    problems = []
+    if ranking != expected:
+        problems.append(f"ranked {ranking}, expected {expected}")
+    for k, (hi, lo) in enumerate(zip(expected, expected[1:])):
+        quoted = [r for r in reasons if str(r.get("higher")).upper() == hi
+                  and _quote_in(r.get("quote_higher"), texts[hi])]
+        need = 2 if k == 0 else 1
+        if len(quoted) < need:
+            problems.append(f"{hi} over {lo}: {len(quoted)} verbatim-quoted reason(s), need {need}")
+    rub = {lab: sum(int(x or 0) for x in ((data.get("scripts") or {}).get(lab, {}).get("rubric") or {}).values()
+                    if str(x).lstrip("-").isdigit()) for lab in label.values()}
+    return {"pass": not problems, "score": 0.0 if problems else 1.0,
+            "reason": ("; ".join(problems) or f"ranked {ranking} as expected") + f"; rubric totals {rub}; "
+                      + " | ".join(str(r.get("reason"))[:100] for r in reasons[:3])}

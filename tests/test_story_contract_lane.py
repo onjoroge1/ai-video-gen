@@ -40,9 +40,17 @@ DOSSIER = {"claims": [
 
 
 def _contract(**overrides):
+    q = "What happens when you get good at catching the thing you're paid to catch?"
     contract = {
         "topic": "Lionfish removal in Florida",
-        "central_question": "What happens when you get good at catching the thing you're paid to catch?",
+        "question_candidates": [
+            {"question": "Why is Florida asking people to eat lionfish?", "claim_ids": ["c3"],
+             "scores": {"curiosity": 1, "support": 3, "deliverable": 3}},
+            {"question": q, "claim_ids": ["c4", "c5"], "scores": {"curiosity": 3, "support": 3, "deliverable": 3}},
+            {"question": "Can a freezer save a reef?", "claim_ids": ["c2"],
+             "scores": {"curiosity": 2, "support": 1, "deliverable": 1}}],
+        "chosen": 1, "chosen_reason": "the paradox the title does not give away",
+        "central_question": q,
         "ending_answer": "The fishery can run out of profit before the reef runs out of lionfish, so "
                          "the target becomes enough removal per reef, not the last fish.",
         "human_perspective": {"person": "Paul Carlson", "want": "the hunt", "action": "73 dive trips",
@@ -139,7 +147,7 @@ def _objection_review():
 
 
 def _lane(tmp_path, caller):
-    return sc.LaneRun(question="What Happens When Florida Gets Good at Catching Lionfish?",
+    return sc.LaneRun(question="Lionfish Have No Predators in the Atlantic. Why Is Florida Asking People to Eat Them?",
                       output_dir=str(tmp_path), duration_sec=60, dossier=DOSSIER, caller=caller,
                       log=lambda m: None)
 
@@ -462,5 +470,115 @@ def test_narration_validation_flags_prompt_language_leaking_into_the_story():
               "claim_ids": ["c1"], "kind": "interpretation", "part": "opening"},
              {"text": "That is the title's problem in practical form.", "claim_ids": [], "kind": "framing",
               "part": "opening"}]
-    codes = [w["code"] for w in sc.validate_narration(sents, {"c1"}, 60)["warnings"]]
-    assert codes.count("PROMPT_LEAK") == 2
+    codes = [e["code"] for e in sc.validate_narration(sents, {"c1"}, 60)["errors"]]
+    assert codes.count("PROMPT_LEAK") == 2          # a blocker, not a warning
+
+
+# ── question choice, length and spoken voice (operator fixes after the first dry run) ─────────
+
+def test_the_contract_proposes_three_questions_and_may_not_restate_the_title():
+    known = {"c1", "c2", "c3", "c4", "c5"}
+    title = "Lionfish Have No Predators in the Atlantic. Why Is Florida Asking People to Eat Them?"
+    assert sc.validate_contract(_contract(), known, title)["passed"]
+    two = _contract(question_candidates=_contract()["question_candidates"][:2])
+    assert "QUESTION_CANDIDATES" in {e["code"] for e in sc.validate_contract(two, known, title)["errors"]}
+    wrong = _contract(chosen=0)
+    assert "QUESTION_NOT_CHOSEN" in {e["code"] for e in sc.validate_contract(wrong, known, title)["errors"]}
+    cands = _contract()["question_candidates"]
+    same = _contract(central_question="Why Is Florida Asking People to Eat Lionfish With No Predators?",
+                     question_candidates=[cands[0], dict(cands[1], question="Why Is Florida Asking People "
+                                          "to Eat Lionfish With No Predators?"), cands[2]])
+    assert "QUESTION_IS_TITLE" in {e["code"] for e in sc.validate_contract(same, known, title)["errors"]}
+
+
+def test_the_contract_markdown_shows_all_three_candidates_and_the_choice(tmp_path):
+    md = sc.contract_markdown(_contract(), {"passed": True, "errors": [], "warnings": []}, {}, DOSSIER,
+                              "Lionfish Have No Predators", "sha")
+    assert md.count("total ") == 3 and "← chosen" in md and "paid to catch" in md
+
+
+def _metrics(name):
+    return sc.voice_metrics(_fixture_text(name))
+
+
+def test_voice_metrics_separate_the_reference_from_the_failures():
+    v1, v2, v3 = (_metrics(f"narration_lionfish_{n}.txt") for n in ("v1", "v2", "contract_v3"))
+    assert v2["mean_sentence_words"] < 10 < v1["mean_sentence_words"] < 15 < v3["mean_sentence_words"]
+    assert v2["sentences_over_25"] == 2 and v1["sentences_over_25"] == 6 and v3["sentences_over_25"] == 17
+    assert v2["attributions_per_minute"] <= sc.ATTRIBUTIONS_PER_MINUTE_MAX < v3["attributions_per_minute"]
+    assert v3["words"] > 1300 and 800 < v2["words"] < 900
+
+
+def _as_sentences(text, contract=None):
+    return [{"text": x, "claim_ids": ["c1"], "kind": "event", "part": "opening"} for x in sc.spoken_sentences(text)]
+
+
+def test_the_reference_narration_clears_every_voice_and_length_blocker():
+    report = sc.validate_narration(_as_sentences(_fixture_text("narration_lionfish_v2.txt")), {"c1"}, 300)
+    assert report["passed"], report["errors"]
+
+
+def test_the_first_lane_narration_is_blocked_for_length_voice_and_leaks():
+    report = sc.validate_narration(_as_sentences(_fixture_text("narration_lionfish_contract_v3.txt")), {"c1"}, 300)
+    codes = {e["code"] for e in report["errors"]}
+    assert {"LENGTH_OVER", "SENTENCE_MEAN_LONG", "ATTRIBUTION_DENSE", "PROMPT_LEAK"} <= codes
+    assert "cut to about 776 words" in next(e["message"] for e in report["errors"] if e["code"] == "LENGTH_OVER")
+
+
+def test_backstory_before_the_question_and_the_want_is_a_blocker():
+    contract = _contract()
+    early = [{"text": "Lionfish were first reported off Florida in 1985.", "claim_ids": ["c3"], "kind": "event", "part": "opening"}] + SENTENCES
+    codes = {e["code"] for e in sc.validate_narration(early, set("c1 c2 c3 c4 c5".split()), 60, contract)["errors"]}
+    assert "BACKSTORY_BEFORE_QUESTION" in codes
+    late = SENTENCES[:2] + [dict(SENTENCES[1], text="Why?")] + [early[0]] + SENTENCES[2:]
+    codes = {e["code"] for e in sc.validate_narration(late, set("c1 c2 c3 c4 c5".split()), 60, contract)["errors"]}
+    assert "BACKSTORY_BEFORE_QUESTION" not in codes
+    assert not sc.is_backstory("In the summer of 2025, he made seventy-three dive trips.", 2026)
+    assert sc.is_backstory("The story has to go back to the reef.", 2026)
+
+
+def test_an_overlong_narration_goes_back_for_cuts_within_the_shared_budget(tmp_path):
+    long = [dict(SENTENCES[0], text=" ".join(["word"] * 12) + ".") for _ in range(20)] + SENTENCES
+
+    class Long(FakeCaller):
+        def call(self, **kw):
+            if kw["stage"] == "narration" or kw["stage"].startswith("repair_"):
+                self.calls.append(kw["stage"])
+                assert kw["stage"] == "narration" or "the limit" in kw["user"]
+                return {"sentences": [dict(x, text=x["text"].replace("word", kw["stage"][:6], 1)) for x in long]}, 0.0
+            return super().call(**kw)
+    caller = Long()
+    with pytest.raises(sc.ContractApprovalRequired):
+        _lane(tmp_path, caller).run()
+    _approve_contract(tmp_path)
+    with pytest.raises(sc.NarrationApprovalRequired) as stop:
+        _lane(tmp_path, caller).run()
+    assert [c for c in caller.calls if c.startswith("repair_")] == ["repair_1", "repair_2"]
+    assert stop.value.details["status"] == "not_ready"
+    record = json.loads((tmp_path / sc.NARRATION_FILE).read_text())
+    assert any("over the ~155-word target" in r for r in record["not_ready_reasons"])
+    md = (tmp_path / sc.NARRATION_MD).read_text()
+    assert "LENGTH_OVER" in md and "mean sentence" in md and "attributions / spoken minute" in md
+
+
+def test_the_rank_prompt_carries_every_narration_and_the_widened_scale():
+    text = sc.rank_prompt("q", ["one.", "two.", "three."])
+    assert "NARRATION C" in text and "distinctive" in text and '"ranking"' in text
+
+
+def test_reply_text_skips_thinking_blocks():
+    class B:
+        def __init__(self, type, text=None):
+            self.type = type
+            if text is not None:
+                self.text = text
+    class R:
+        content = [B("thinking"), B("text", '{"a": 1}')]
+    assert sc.parse_json_reply(sc.reply_text(R())) == {"a": 1}
+
+
+def test_quote_check_accepts_ellipsis_fragments_in_order():
+    text = "Spread alone would just be a curiosity. What matters is what they do. Even the dinner plate has limits."
+    assert sc.quote_in("Spread alone would just be a curiosity. ... Even the dinner plate has limits.", text)
+    assert not sc.quote_in("Even the dinner plate has limits ... Spread alone", text)
+    assert not sc.quote_in("", text)

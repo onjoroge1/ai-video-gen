@@ -66,10 +66,13 @@ def _text_fixture(name: str) -> str:
 
 
 def story_reviewer(context: dict) -> list[dict]:
-    """The story-contract lane's reviewer, comparing two narrations of one commission."""
+    """The story-contract lane's reviewer, ranking narrations of one commission.
+
+    vars.narrations: fixture file names in presentation order (labelled A, B, C...)."""
     import story_contract as sc
     v = context.get("vars") or {}
-    user = sc.compare_prompt(v["question"], _text_fixture(v["narration_a"]),
-                             _text_fixture(v["narration_b"]), int(v.get("duration") or 300))
+    names = v["narrations"] if isinstance(v.get("narrations"), list) else str(v["narrations"]).split(",")
+    user = sc.rank_prompt(v["question"], [_text_fixture(n.strip()) for n in names],
+                          int(v.get("duration") or 300))
     return [{"role": "system", "content": sc.REVIEW_B_SYSTEM},
             {"role": "user", "content": user}]

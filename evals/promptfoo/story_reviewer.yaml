@@ -1,20 +1,24 @@
 # The story-contract lane's reviewer, calibrated against the operator (docs/STORY_CONTRACT_LANE.md,
-# measuring plan step 3): on lionfish v1 (the compiled catalogue, jobs/lionfish-invasion) against v2
-# (the Carlson / full-freezer rewrite) it must prefer v2 and cite reasons that quote it verbatim.
-# Both orders, so a position bias cannot pass. No film is rendered.
+# measuring plan step 3). Three lionfish narrations: v2 (the Carlson / full-freezer rewrite), the
+# lane's first narration (jobs/lionfish-contract, sha 34c3e8f2: 1,321 words, mean sentence 21) and
+# v1 (the compiled catalogue). The reviewer must rank v2 > lane v3 > v1 in EVERY presentation order
+# (all six), with verbatim-quoted reasons for each step. No film is rendered.
 #
 #   cd /Users/obadiah/ai-video-gen-local
-#   set -a; source <(grep -E '^OPENAI_API_KEY=' .env); set +a
+#   set -a; source <(grep -E '^(OPENAI|ANTHROPIC)_API_KEY=' .env); set +a
 #   PROMPTFOO_PYTHON=/opt/homebrew/bin/python3 npx promptfoo@latest eval -c evals/promptfoo/story_reviewer.yaml
-description: "Story-contract reviewer prefers the lionfish story over the catalogue"
+description: "Story-contract reviewer ranks the lionfish story > the lane's first draft > the catalogue"
 
 providers:
-  # The lane's OpenAI reviewer default (story_contract.DEFAULT_MODELS). Add
-  # anthropic:messages:claude-sonnet-5-5 to calibrate the Anthropic reviewer too.
+  # The lane's two reviewer defaults (story_contract.DEFAULT_MODELS).
   - id: openai:chat:gpt-5.6-luna
     label: luna
     config:
-      max_completion_tokens: 12000
+      max_completion_tokens: 16000
+  - id: anthropic:messages:claude-sonnet-5-5
+    label: sonnet
+    config:
+      max_tokens: 8000
 
 prompts:
   - id: file://prompts.py:story_reviewer
@@ -25,19 +29,29 @@ defaultTest:
     # Neutral brief: neither film's own title, so the commission cannot pick the winner.
     question: "Florida's lionfish invasion, and the plan to eat it"
     duration: 300
+    # Comma-separated strings: promptfoo expands a list-valued var into one test case per item.
+    expected: "narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt"
   assert:
     - type: is-json
     - type: python
-      value: file://asserts.py:reviewer_prefers
+      value: file://asserts.py:reviewer_ranks
 
 tests:
-  - description: v1 shown first (A = catalogue, B = story)
+  - description: "order v1 v2 v3"
     vars:
-      narration_a: narration_lionfish_v1.txt
-      narration_b: narration_lionfish_v2.txt
-      expected: B
-  - description: v2 shown first (A = story, B = catalogue)
+      narrations: "narration_lionfish_v1.txt,narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt"
+  - description: "order v1 v3 v2"
     vars:
-      narration_a: narration_lionfish_v2.txt
-      narration_b: narration_lionfish_v1.txt
-      expected: A
+      narrations: "narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v2.txt"
+  - description: "order v2 v1 v3"
+    vars:
+      narrations: "narration_lionfish_v2.txt,narration_lionfish_v1.txt,narration_lionfish_contract_v3.txt"
+  - description: "order v2 v3 v1"
+    vars:
+      narrations: "narration_lionfish_v2.txt,narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt"
+  - description: "order v3 v1 v2"
+    vars:
+      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_v1.txt,narration_lionfish_v2.txt"
+  - description: "order v3 v2 v1"
+    vars:
+      narrations: "narration_lionfish_contract_v3.txt,narration_lionfish_v2.txt,narration_lionfish_v1.txt"

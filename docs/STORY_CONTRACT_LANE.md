@@ -254,3 +254,58 @@ the shape `jobs/lionfish-v2/hand_build.py` resumed with.
   1,320 words against a ~776-word target; the contract planned 9 developments, one a list of
   spread dates the contract check cannot see; two sentences leak prompt language (now flagged as
   `PROMPT_LEAK`) that the reviewer did not mark.
+
+## Second iteration (operator fixes, 2026-10-21)
+
+After the first dry run (1,321 words, mean sentence 21, backstory rewind at sentence 7, the
+paradox at sentence 54 of 61, the reviewer's 23/24) the operator asked for four fixes:
+
+1. **Question choice.** The contract proposes three candidate central questions, each scored 0-3
+   for curiosity (a gap the title does not already close), support and deliverable, and chooses
+   one; `contract_for_approval.md` shows all three. `QUESTION_IS_TITLE` refuses a chosen question
+   whose content words overlap the commission title by 0.6 or more (Jaccard).
+2. **Length enforced.** Over 110% of the word target (`duration x 2.588 w/s`) is `LENGTH_OVER`, a
+   blocker that goes back for cuts inside the shared two-pass budget. Still over after the budget:
+   status `not_ready`, with the overage in `not_ready_reasons`.
+3. **Spoken voice** (`voice_metrics`, the table in `narration_for_approval.md`). Blockers:
+   mean sentence over 15 words (`SENTENCE_MEAN_LONG`), more than 2 source attributions a spoken
+   minute (`ATTRIBUTION_DENSE`, counted against at least one minute), origin or backstory before
+   both the central question and the person are heard (`BACKSTORY_BEFORE_QUESTION`: a rewind cue
+   or a year more than ten years back), and `PROMPT_LEAK`. A sentence over 30 words is a flag, not
+   a blocker, because the reference v2 has one 31-word sentence. Writer and reviewer prompts carry
+   the same rules; the reviewer sees the measured numbers. Definitions: sentences split at `.!?`;
+   numbers are digit groups and number words; attributions are "according to", said/says/told,
+   reported, researchers, scientists, experts, study/studies, model/modelled/projected/estimated,
+   surveys, NOAA/USGS/FWC, officials. On the three lionfish scripts these give v1 832 words / mean
+   14.1 / 6 over 25 / 1.68 attributions a minute; v2 838 / 8.8 / 2 / 1.30; lane draft 1 1,321 /
+   21.0 / 17 / 2.94. v2 clears every blocker.
+4. **Reviewer calibration.** The rubric's 3 now means "distinctive", and the quote and note must
+   name what is distinctive. `story_reviewer.yaml` ranks three scripts (v2, lane draft 1 at sha
+   34c3e8f2, v1) in all six presentation orders on gpt-5.6-luna and claude-sonnet-5-5, expecting
+   v2 > draft 1 > v1.
+
+**Eval result (2026-10-21, $0.34):** 11 of 12 cases parsed (one luna reply was not JSON). Both
+reviewers ranked v2 first in all 11. Both ranked **v1 above draft 1** in all 11, so the expected
+order fails on that step. That is the judges disagreeing with the expected order, not noise: draft
+1 is 59% longer than v1 with sentences half as long again. The rubric was not tuned to force the
+order. Whether draft 1 should beat v1 is an operator decision. (The first attempt at this eval
+passed list-valued vars, which promptfoo expands into one case per item; every case saw one
+narration and the run, $1.49, was discarded. The vars are comma-separated strings now.)
+
+**Dry run 2** (`jobs/lionfish-contract-v2`, Anthropic: claude-opus-5-5 writes, claude-sonnet-5-5
+reviews; the same cached dossier; the contract approved as written for the test; the narration
+NOT approved):
+- Question chosen: "If Florida can never eat its way out of the lionfish invasion, what is all the
+  hunting and eating actually for?" (9/9). Candidates: "Why does turning lionfish into a delicacy
+  work against itself?" (8/9, the v2 paradox; judged to end on failure with no resolution); "Can a
+  fish with no predators find one at the dinner table?" (6/9, "essentially the title restated").
+- Narration v3 of 3 (sha 5aca77ae): 723 words (target 776), ~279 s, 79 sentences, mean 8.9 words,
+  0 over 25, longest 20, 3.3 numbers and 0.8 attributions per 100 words, 1.29 attributions a
+  minute. The question is heard at sentence 10 of 79; the paradox ("the better the harvest works,
+  the worse it pays") at sentence 48. The aquarium-trade origin is at sentences 14-18, after the
+  question.
+- Reviewer: 20/24, no factual blockers, 3 open objectives; status `ready_with_open_objectives`.
+  Candidates: v1 3 blockers / ATTRIBUTION_DENSE, v2 4 blockers, v3 0.
+- Spend: 15 calls, 188,100 input and 80,372 output tokens, $1.75 (opus $1.14, sonnet $0.61). That
+  includes three calls lost to two bugs fixed in this iteration: a thinking block read as the
+  reply, and a review cut off at max_tokens.
