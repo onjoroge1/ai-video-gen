@@ -226,3 +226,78 @@ def test_an_address_shortfall_sends_only_enough_scenes(monkeypatch):
     rows = json.loads(fake.last["messages"][0]["content"].split("\n\n", 1)[1].rsplit("\n\nReturn ONLY", 1)[0])
     assert 1 <= len(rows) <= 5, [r["id"] for r in rows]
     assert all(r["id"] != 1 for r in rows)
+
+
+# ── Witness mode (OPENING_HOOK=witness) ──────────────────────────────────────────────────────
+# Chernobyl (2026-10-16): the gate edit ran after the witness polish and asked for "imagine" /
+# "picture" lines, so "Imagine leaving your home knowing you would never return to it." reached
+# the film. In witness mode the address is a plain "you" statement and a FILLER rewrite is held.
+IMAGINE_LINE = "Colonies grew and swarmed. Imagine your own hive splitting in two."
+PLAIN_YOU_LINE = "Colonies grew and swarmed. If you kept bees there, your hive split in two."
+
+
+def _run_mix_edit(monkeypatch, narration_3, hook):
+    import json
+    if hook:
+        monkeypatch.setenv("OPENING_HOOK", hook)
+    else:
+        monkeypatch.delenv("OPENING_HOOK", raising=False)
+    fake = _FakeClaude(json.dumps({"scenes": [{"id": 3, "narration": narration_3}]}))
+    monkeypatch.setattr(ep, "_claude", lambda: fake)
+    monkeypatch.setattr(ep, "_msg_cost", lambda usage: 0.01)
+    judged = []
+    monkeypatch.setattr(ep, "expansion_survives_the_ledger",
+                        lambda new, ceiling, **kw: (judged.append(new) or True, []))
+    lines = []
+    out, _cost, changed = ep._ensure_sentence_mix_in_band(
+        _scenes_for_edit(), DOSSIER, [], {}, log=lines.append, stage="gate")
+    return out, changed, "\n".join(lines), fake.last["messages"][0]["content"], judged
+
+
+def test_witness_mode_holds_back_a_rewrite_that_adds_an_imagine_line(monkeypatch):
+    out, changed, log, prompt, judged = _run_mix_edit(monkeypatch, IMAGINE_LINE, "witness")
+    assert out[2]["narration"] == "Colonies grew and swarmed."
+    assert not changed
+    assert "witness FILLER ('Imagine your own hive splitting in two.')" in log
+    assert IMAGINE_LINE not in judged, "the free check runs before the judge is paid"
+    assert ep._MIX_WITNESS_ADDRESS_RULE in prompt and ep._MIX_ADDRESS_RULE not in prompt
+
+
+def test_witness_mode_keeps_a_plain_second_person_rewrite(monkeypatch):
+    out, changed, log, prompt, judged = _run_mix_edit(monkeypatch, PLAIN_YOU_LINE, "witness")
+    assert out[2]["narration"] == PLAIN_YOU_LINE and changed
+    assert judged == [PLAIN_YOU_LINE]
+    assert "1 scene(s) rewritten (3)" in log and "witness" not in log
+    assert cs.classify_sentence("If you kept bees there, your hive split in two.") == "address"
+
+
+def test_witness_mode_holds_a_rewrite_that_adds_a_recap_to_the_close(monkeypatch):
+    """The detector's other codes count too: a close that starts re-walking the chain is held."""
+    scenes = _scenes_for_edit()
+    scenes[2]["causal_role"] = "tool"
+    recap = "Colonies grew and swarmed. So trace the whole chain back to your own hive."
+    assert ep._mix_edit_witness_defect(scenes, 3, recap) == "CLOSE_RECAP on scene 3"
+    assert ep._mix_edit_witness_defect(scenes, 3, PLAIN_YOU_LINE) == ""
+
+
+def test_witness_mode_does_not_hold_a_filler_the_draft_already_had(monkeypatch):
+    """Held is what the rewrite ADDS: a draft's own surviving FILLER (reported by the polish)
+    does not veto a rewrite that keeps it and adds a plain line."""
+    scenes = _scenes_for_edit()
+    scenes[2]["narration"] = "Colonies grew and swarmed. Picture the hives."
+    assert ep._mix_edit_witness_defect(
+        scenes, 3, "Colonies grew and swarmed. Picture the hives. Your hive split too.") == ""
+    assert ep._mix_edit_witness_defect(
+        scenes, 3, "Colonies grew and swarmed. Picture the hives. Imagine yours.").startswith("FILLER")
+
+
+def test_outside_witness_mode_the_mix_edit_is_unchanged(monkeypatch):
+    out, changed, log, prompt, judged = _run_mix_edit(monkeypatch, IMAGINE_LINE, "")
+    assert out[2]["narration"] == IMAGINE_LINE and changed
+    assert judged == [IMAGINE_LINE]
+    assert ep._MIX_ADDRESS_RULE in prompt and ep._MIX_WITNESS_ADDRESS_RULE not in prompt
+    assert ('("you", "your", "imagine", "picture") or compares and evaluates it; it adds no '
+            'fact.') in prompt
+    out, changed, log, prompt, judged = _run_mix_edit(monkeypatch, IMAGINE_LINE, "myth")
+    assert out[2]["narration"] == IMAGINE_LINE, "myth mode is not witness mode"
+    assert ep._MIX_WITNESS_ADDRESS_RULE not in prompt
