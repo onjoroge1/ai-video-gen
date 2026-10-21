@@ -390,3 +390,39 @@ forward hypothetical. The World model (operator 2026-10-15) is now the lane's de
     (`fixtures/lionfish_v2_story_kinds.json`: c77 interpretation, c78 model, c80 interpretation);
   - a pythons contract built from verbatim facts in the burmese-pythons pack passes: pet trade
     1980s-1990s → mammals down up to 95% → 23,500 removed as of April 2025.
+
+### Three Gorges r2 fixes (2026-10-21)
+
+The rerun on 0334af8 (`jobs/three-gorges-contract-r2`) failed. It had swapped the commissioned
+decision (the dam) for the 2020-21 fishing ban, a cleaner chain the dossier also held but never
+tied to the dam, and it had chosen a question the screen marked `needs_narrowing` while another
+`fits`.
+- **Commissioned decision:** the contract states `commissioned_decision` from the commission. The
+  decision must share at least two content words with it (or with the commission title when it is
+  absent, which is warned), and the commissioned decision must share two with the title. Otherwise
+  `DECISION_NOT_COMMISSIONED`. One word is not enough: the ban shared only "Yangtze". The prompt
+  says a different decision in the dossier is a development or a tangent, never a substitute.
+- **The screen:** `topic_fit` received `channel="world"` and still answered "history", because its
+  own taxonomy sends state infrastructure to History and wants a backfire for World. Its
+  `no_story` still refuses (`QUESTION_NOT_WORLD`). Its channel is reported
+  (`QUESTION_SCREEN_CHANNEL`), not refused.
+- **needs_narrowing:** choosing a `needs_narrowing` candidate while another `fits` is
+  `QUESTION_NEEDS_NARROWING`.
+- **Support for the sediment question:** it was marked down by the five-year present rule ("the
+  latest dated sediment figure is from 2014"), not by the event/outcome binding. A documented
+  condition that has held since a date ("since 2003 ... has been reduced") now counts as the
+  present when nothing newer is dated, with the warning `STILL_UNFOLDING_UNDATED_PRESENT` (the
+  narration must say how recent the figure is). An interpretation may carry the causal attribution
+  (`consequence.attribution_claim_ids`, e.g. c22 "65% ... attributed to the dam") as long as the
+  consequence itself cites a documented event or outcome.
+- **Kinds:** `project_built` (a dam, canal or other engineering fix) joins the deliberate-decision
+  kinds. This is a judgment call: the operator's list named animals, products and rules, and Three
+  Gorges was commissioned for this lane.
+- **Tests:** `fixtures/three_gorges_claims.json` holds 14 claims copied verbatim from the cached
+  dossier, the dam chain plus the fishing-ban chain:
+  - the dam contract passes;
+  - the ban contract and the exact r2 decision text are refused;
+  - needs_narrowing over fits is refused;
+  - attribution alone cannot be the consequence.
+  Run against the real r2 `contract.json`, the validator now returns `DECISION_NOT_COMMISSIONED`
+  and `QUESTION_NEEDS_NARROWING`.

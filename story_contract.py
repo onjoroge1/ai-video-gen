@@ -517,8 +517,10 @@ def apply_claim_kinds(dossier: dict, evidence: dict) -> dict:
 # so is a story that ends in the past. Lionfish v2 failed it ("not a consequence video"): its
 # central consequence was a bioeconomic MODEL result and its question a forward hypothetical.
 WORLD_CHANNELS = ("", "world")
+# project_built: a dam, canal or other engineering fix built to solve a problem (Three Gorges was
+# commissioned for this lane, 2026-10-21; the operator's list named animals, products and rules).
 DECISION_KINDS = ("animal_introduced", "animal_removed", "animal_targeted", "invention_adopted",
-                  "product_adopted", "rule_enforced")
+                  "product_adopted", "rule_enforced", "project_built")
 CONSEQUENCE_LEDGER_KINDS = ("event", "outcome")      # the ledger's claim_kind
 PRESENT_YEARS = 5                                    # "today" = a claim dated within five years
 _HYPOTHETICAL_RE = re.compile(r"^\s*(what (happens|would happen|will happen|could happen|if)|"
@@ -547,14 +549,26 @@ def _years(*texts) -> list[int]:
     return [int(y) for t in texts for y in _YEAR4.findall(_text(t))]
 
 
+# "Since 2003, ... has fallen", "since 2011 ... has carried out": a documented condition that has held
+# from a date with no end -- present-day evidence when nothing newer is dated (Three Gorges sediment).
+_ONGOING_RE = re.compile(r"\bsince (?:the )?(?:\w+ )?(1[89]\d\d|20\d\d)\b|\b(still|continues?|continuing|"
+                         r"remains?|ongoing|to this day|has been|have been)\b", re.I)
+
+
+def is_ongoing_claim(claim: dict) -> bool:
+    return bool(_ONGOING_RE.search(_text(claim.get("claim")) + " " + _text(claim.get("support_quote"))))
+
+
 def is_hypothetical_question(question: str) -> bool:
     return bool(_HYPOTHETICAL_RE.search(_text(question)))
 
 
-def validate_consequence_model(contract: dict, claims: dict, this_year: int | None = None) -> list[dict]:
+def validate_consequence_model(contract: dict, claims: dict, this_year: int | None = None,
+                               commission: str = "", warnings: list | None = None) -> list[dict]:
     """decision -> documented consequence -> still unfolding today, each bound to claims."""
     this_year = this_year or int(time.strftime("%Y"))
     errors = []
+    warnings = warnings if warnings is not None else []
 
     def err(code, message):
         errors.append({"code": code, "message": message})
@@ -569,6 +583,27 @@ def validate_consequence_model(contract: dict, claims: dict, this_year: int | No
             f"({', '.join(DECISION_KINDS)}); an accident with no fix behind it is not a World film")
     if not _years(decision.get("when"), decision.get("what")):
         err("DECISION_UNDATED", "the decision needs a date (decision.when, a year)")
+    # THE COMMISSIONED DECISION. Three Gorges r2 (2026-10-21) swapped the dam for the 2020 fishing
+    # ban, a cleaner chain the dossier also held; the claims never tie the ban to the dam. A second
+    # decision found in the research is a tangent or a development, never a substitute.
+    # Two shared content words, not one: the r2 ban shared only "Yangtze" with the dam commission.
+    commissioned = _text(contract.get("commissioned_decision"))
+
+    def anchored(text, anchor):
+        words = _content_words(anchor)
+        return len(_content_words(text) & words) >= min(2, len(words))
+
+    if commission:
+        anchor = commissioned or commission
+        if not commissioned:
+            warnings.append({"code": "COMMISSIONED_DECISION_MISSING",
+                             "message": "no commissioned_decision; the decision is checked against the commission title"})
+        if commissioned and not anchored(commissioned, commission):
+            err("DECISION_NOT_COMMISSIONED", f"commissioned_decision {commissioned!r} is not the decision the "
+                f"commission names ({commission!r})")
+        elif _text(decision.get("what")) and not anchored(decision.get("what"), anchor):
+            err("DECISION_NOT_COMMISSIONED", f"the decision ({_text(decision.get('what'))[:90]!r}) is not the "
+                f"commissioned one ({anchor!r}); a different decision in the dossier is a tangent, not a substitute")
 
     cons = contract.get("consequence") if isinstance(contract.get("consequence"), dict) else {}
     c_ids = [c for c in cons.get("claim_ids") or [] if c in claims]
@@ -584,11 +619,18 @@ def validate_consequence_model(contract: dict, claims: dict, this_year: int | No
     n_ids = [c for c in now.get("claim_ids") or [] if c in claims]
     recent = [c for c in n_ids if documented_consequence_claim(claims[c]) and any(
         y >= this_year - PRESENT_YEARS for y in _years(claims[c].get("claim"), claims[c].get("support_quote")))]
+    ongoing = [c for c in n_ids if documented_consequence_claim(claims[c]) and is_ongoing_claim(claims[c])]
     if not _text(now.get("what")) or not n_ids:
         err("STILL_UNFOLDING_MISSING", "name the documented, dated sign that the consequence is still unfolding today")
-    elif not recent:
+    elif not recent and not ongoing:
         err("STILL_UNFOLDING_NOT_PRESENT", f"no cited claim is a documented event dated within {PRESENT_YEARS} "
-            f"years ({this_year - PRESENT_YEARS} or later): the film must be told from today")
+            f"years ({this_year - PRESENT_YEARS} or later), or a documented condition that has held since a "
+            "date: the film must be told from today")
+    elif not recent:
+        latest = max(_years(*[claims[c].get("claim") for c in n_ids]) or [0])
+        warnings.append({"code": "STILL_UNFOLDING_UNDATED_PRESENT",
+                         "message": f"the present rests on an ongoing condition ({', '.join(ongoing)}), the latest "
+                                    f"dated figure is {latest or 'undated'}: the narration must say how recent it is"})
 
     question = _text(contract.get("central_question"))
     if is_hypothetical_question(question):
@@ -600,11 +642,19 @@ def validate_consequence_model(contract: dict, claims: dict, this_year: int | No
         chosen = {}
     if chosen and (chosen.get("names_decision") is False or chosen.get("asks_consequence") is False):
         err("QUESTION_NOT_CONSEQUENCE", "the chosen question must name (or clearly imply) the decision and ask about its consequence")
+    # topic_fit's own taxonomy sends state infrastructure to HISTORY and wants a backfire for WORLD,
+    # narrower than the consequence model (Three Gorges r2: every candidate came back "history" with
+    # channel="world" passed). Its verdict decides; its channel is reported.
     screen = chosen.get("topic_fit") if isinstance(chosen.get("topic_fit"), dict) else {}
-    if screen.get("screened") and (screen.get("verdict") == "no_story" or
-                                   (screen.get("channel") and screen.get("channel") != "world")):
-        err("QUESTION_NOT_WORLD", f"topic_fit screens the chosen question as {screen.get('verdict')} "
-            f"({screen.get('channel') or 'no channel'}): {screen.get('reason')}")
+    if screen.get("screened") and screen.get("verdict") == "no_story":
+        err("QUESTION_NOT_WORLD", f"topic_fit screens the chosen question as no_story: {screen.get('reason')}")
+    elif screen.get("screened") and screen.get("channel") and screen.get("channel") != "world":
+        warnings.append({"code": "QUESTION_SCREEN_CHANNEL", "message": f"topic_fit places the chosen question "
+                         f"in {screen.get('channel')} by its own taxonomy (verdict {screen.get('verdict')}); reported only"})
+    fits = [c for c in cands if (c.get("topic_fit") or {}).get("verdict") == "fits"]
+    if screen.get("verdict") == "needs_narrowing" and fits:
+        err("QUESTION_NEEDS_NARROWING", "the chosen question screens needs_narrowing while another candidate "
+            f"fits ({_text(fits[0].get('question'))!r}); choose a candidate that fits")
     return errors
 
 
@@ -675,12 +725,18 @@ WORLD_MODEL_PROMPT = """THIS IS A WORLD FILM. It tells ONE past DELIBERATE decis
 introduced, removed or targeted; an invention or product adopted; or a rule enforced -- and its
 documented consequence, which is STILL unfolding today, told from today. Accidents with no deliberate
 fix behind them are out, and so is a story that ends in the past.
-- decision: what was decided, by whom, when (a year), its kind, and the claims documenting it.
+- commissioned_decision: the decision the COMMISSION names, in its own words (here: from
+  "{commission}"). The film's decision IS that one. A different decision you find in the research
+  (a later rule, a rescue programme) is a development or a tangent, never a substitute.
+- decision: the commissioned decision -- what, by whom, when (a year), its kind, and its claims.
 - consequence: what it documentably caused. Cite at least one claim of kind event that the ledger
   marks event or outcome. A model's projection or an expert's interpretation may explain the
-  mechanism but may NOT be the consequence.
-- still_unfolding: the dated, documented present-day sign that it continues (a claim dated within
-  the last five years).
+  mechanism or attribute the cause (attribution_claim_ids, e.g. "65% of the decline is attributed to
+  the dam") but may NOT be the consequence itself.
+- still_unfolding: the documented present-day sign that it continues: a claim dated within the last
+  five years, or, when nothing newer is dated, a documented condition that has held since a date
+  ("since 2003 ... has fallen"); then the narration says how recent the latest figure is. Do not
+  mark a candidate down for that alone.
 - Every question candidate must name, or clearly imply, the decision and ask about its consequence.
   Never a forward hypothetical ("what happens when/if ...", "what would happen ...").
 - The ending answers the consequence question from today."""
@@ -706,7 +762,7 @@ Human material, ranked (prefer a detail that serves both the person and the prob
 
 Leads without a supporting claim (you may NOT state these as fact): {gaps}
 
-{(WORLD_MODEL_PROMPT + chr(10) + chr(10)) if consequence_rule else ''}Write the story contract.
+{(WORLD_MODEL_PROMPT.replace("{commission}", question) + chr(10) + chr(10)) if consequence_rule else ''}Write the story contract.
 - question_candidates: FIRST propose three genuinely different central questions. Do not take the
   commission's wording as the question: it names the topic, and its own question is often one the
   viewer can already answer from the title. Look in the evidence for the surprise -- a paradox, a
@@ -745,8 +801,9 @@ Reply with JSON only:
                             "reason": "..."}}, ...3],
   "chosen": 0, "chosen_reason": "...",
   "central_question": "...", "ending_answer": "...",
+  "commissioned_decision": "...",
   "decision": {{"what": "...", "who": "...", "when": "year", "kind": "{'|'.join(DECISION_KINDS)}", "claim_ids": []}},
-  "consequence": {{"what": "...", "claim_ids": []}},
+  "consequence": {{"what": "...", "claim_ids": [], "attribution_claim_ids": []}},
   "still_unfolding": {{"what": "...", "as_of": "year", "claim_ids": []}},
   "human_perspective": {{"person": "...", "want": "...", "action": "...", "reward": "...",
                          "claim_ids": {{"want": [], "action": [], "reward": []}}}},
@@ -864,7 +921,7 @@ def validate_contract(contract: dict, known_claims, commission: str = "",
     errors.extend(validate_question_choice(contract, commission, known))
     errors.extend(question_choice_penalties(contract))
     if consequence_rule:
-        errors.extend(validate_consequence_model(contract, claims))
+        errors.extend(validate_consequence_model(contract, claims, commission=commission, warnings=warnings))
         for i, c in enumerate(contract.get("question_candidates") or []):
             if isinstance(c, dict) and is_hypothetical_question(c.get("question")) and str(i) != str(contract.get("chosen")):
                 warnings.append({"code": "CANDIDATE_HYPOTHETICAL",
@@ -917,8 +974,10 @@ def contract_markdown(contract: dict, validation: dict, evidence: dict, dossier:
     if any(isinstance(contract.get(k), dict) for k in ("decision", "consequence", "still_unfolding")):
         dec, con, now = (contract.get(k) or {} for k in ("decision", "consequence", "still_unfolding"))
         lines += ["", "## World consequence model", "",
+                  f"- **Commissioned decision:** {_text(contract.get('commissioned_decision')) or '—'}",
                   f"- **Decision** ({_text(dec.get('kind'))}, {_text(dec.get('when'))}): {_text(dec.get('what'))}{cites(dec.get('claim_ids'))}",
-                  f"- **Consequence:** {_text(con.get('what'))}{cites(con.get('claim_ids'))}",
+                  f"- **Consequence:** {_text(con.get('what'))}{cites(con.get('claim_ids'))}"
+                  + (f"; attribution{cites(con.get('attribution_claim_ids'))}" if con.get("attribution_claim_ids") else ""),
                   f"- **Still unfolding** (as of {_text(now.get('as_of'))}): {_text(now.get('what'))}{cites(now.get('claim_ids'))}"]
     lines += ["", f"**Topic.** {_text(contract.get('topic'))}", "",
               f"**Central question.** {_text(contract.get('central_question'))}", "",

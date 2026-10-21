@@ -767,7 +767,8 @@ def test_each_consequence_rule_failure_is_named():
     base = _pythons_contract()
 
     def codes(**over):
-        return {e["code"] for e in sc.validate_contract(dict(base, **over), claims, "x", consequence_rule=True)["errors"]}
+        return {e["code"] for e in sc.validate_contract(dict(base, **over), claims, "Burmese pythons",
+                                                        consequence_rule=True)["errors"]}
     assert "CONSEQUENCE_NOT_DOCUMENTED" in codes()                       # only a model + an interpretation
     claims = _claims_with_kinds(PYTHONS, {})
     assert "DECISION_NOT_DELIBERATE" in codes(decision=dict(base["decision"], kind="accident"))
@@ -807,3 +808,127 @@ def test_the_contract_stage_screens_every_candidate_with_topic_fit(tmp_path):
     assert caller.calls.count("topic_fit") == 3
     md = (tmp_path / sc.CONTRACT_MD).read_text()
     assert md.count("topic_fit: fits (world)") == 3 and "World consequence model" in md
+
+
+# ── Three Gorges r2 (2026-10-21): decision drift, the screen's channel, the ongoing present ──
+
+TG_COMMISSION = "China Built the World's Biggest Dam to Tame the Yangtze. What Did the River Do Next?"
+
+
+def _tg_claims():
+    data = json.loads(_fixture_text("three_gorges_claims.json"))
+    return {c["claim_id"]: c for c in data["claims"]}
+
+
+def _tg_fit(verdict="fits", channel="history"):
+    return {"screened": True, "verdict": verdict, "channel": channel, "reason": "screen"}
+
+
+def _tg_dam_contract(**over):
+    q = "The Three Gorges Dam was built to hold back the Yangtze's floods. What happened to the mud it also held back?"
+    ban = "After China pulled its boats off the dammed Yangtze in a ten-year fishing ban, did the river's animals come back?"
+    contract = dict(_pythons_contract(),
+        topic="The Three Gorges Dam and the Yangtze's sediment",
+        question_candidates=[
+            {"question": ban, "claim_ids": ["c42", "c45"], "names_decision": True, "asks_consequence": True,
+             "scores": {"curiosity": 3, "support": 3, "deliverable": 3}, "topic_fit": _tg_fit("needs_narrowing")},
+            {"question": q, "claim_ids": ["c21", "c23", "c24"], "names_decision": True, "asks_consequence": True,
+             "scores": {"curiosity": 3, "support": 3, "deliverable": 3}, "topic_fit": _tg_fit("fits")},
+            {"question": "When China filled the Three Gorges reservoir, how did the land around it respond?",
+             "claim_ids": ["c05"], "names_decision": True, "asks_consequence": True,
+             "scores": {"curiosity": 2, "support": 2, "deliverable": 2}, "topic_fit": _tg_fit("needs_narrowing")}],
+        chosen=1, central_question=q,
+        commissioned_decision="China built the Three Gorges Dam to tame the Yangtze's floods",
+        decision={"what": "the Three Gorges Dam, approved in 1992, built from 1994, impounding from 2003",
+                  "who": "China's National People's Congress", "when": "1994", "kind": "project_built",
+                  "claim_ids": ["c01", "c02", "c05"]},
+        consequence={"what": "the reservoir traps the river's mud: 1.73 billion tons retained, Datong flux 320 -> 145 Mt/yr",
+                     "claim_ids": ["c21", "c24"], "attribution_claim_ids": ["c22"]},
+        still_unfolding={"what": "since 2003 the sediment reaching the estuary has stayed below 0.15 billion tons a year",
+                         "as_of": "2014", "claim_ids": ["c23"]},
+        ending_answer="The river is still starved of mud downstream, two decades on.",
+        human_perspective={"person": "the Three Gorges Corporation's operators", "want": "breeding carp",
+                           "action": "ecological reservoir releases", "reward": "",
+                           "claim_ids": {"want": ["c31"], "action": ["c31"]}},
+        reasonable_attempt={"what": "tame the floods", "why_it_made_sense": "floods every decade",
+                            "claim_ids": ["c03"]},
+        complication={"what": "the dam holds back mud as well as water", "mechanism": "a still reservoir drops its sediment",
+                      "claim_ids": ["c24"]},
+        developments=[{"what_happens": "the reservoir fills with mud", "what_it_changes": "the estuary loses its sediment supply",
+                       "why_next_matters": "so the downstream channel erodes", "claim_ids": ["c24", "c23"]},
+                      {"what_happens": "the flux at Datong collapses", "what_it_changes": "the decline is pinned on the dam",
+                       "why_next_matters": "", "claim_ids": ["c21", "c22"]}],
+        forbidden_claims=["the fishing ban was a response to the dam"])
+    contract.update(over)
+    return contract
+
+
+def _tg_codes(contract, *, warnings=False):
+    report = sc.validate_contract(contract, _tg_claims(), TG_COMMISSION, consequence_rule=True)
+    rows = report["warnings"] if warnings else report["errors"]
+    return {e["code"] for e in rows}
+
+
+def test_the_commissioned_dam_with_an_ongoing_sediment_present_passes():
+    report = sc.validate_contract(_tg_dam_contract(), _tg_claims(), TG_COMMISSION, consequence_rule=True)
+    assert report["passed"], report["errors"]
+    warned = {w["code"] for w in report["warnings"]}
+    # nothing newer than 2014 is dated, so the present rests on "since 2003 ... has been reduced"
+    assert "STILL_UNFOLDING_UNDATED_PRESENT" in warned
+    # topic_fit's own taxonomy said "history": reported, not refused
+    assert "QUESTION_SCREEN_CHANNEL" in warned
+
+
+def test_a_cleaner_unrelated_decision_in_the_dossier_cannot_replace_the_commissioned_one():
+    ban = _tg_dam_contract(
+        chosen=0, central_question=_tg_dam_contract()["question_candidates"][0]["question"],
+        commissioned_decision="China built the Three Gorges Dam to tame the Yangtze's floods",
+        decision={"what": "a ten-year ban on commercial fishing in Yangtze reserves from 2020 and the main stem from 2021",
+                  "who": "Chinese national authorities", "when": "2021", "kind": "rule_enforced",
+                  "claim_ids": ["c42", "c43"]},
+        consequence={"what": "finless porpoises rose to 1,249 by 2022", "claim_ids": ["c45", "c46"]},
+        still_unfolding={"what": "1,426 porpoises in 2025", "as_of": "2025", "claim_ids": ["c47"]})
+    assert "DECISION_NOT_COMMISSIONED" in _tg_codes(ban)
+    # a commissioned_decision that is not the commission's own is refused too
+    assert "DECISION_NOT_COMMISSIONED" in _tg_codes(dict(ban, commissioned_decision="the 2021 fishing ban"))
+
+
+def test_a_needs_narrowing_question_is_never_chosen_over_one_that_fits():
+    tg = _tg_dam_contract()
+    cands = tg["question_candidates"]
+    picked_narrow = dict(tg, chosen=2, central_question=cands[2]["question"])
+    assert "QUESTION_NEEDS_NARROWING" in _tg_codes(picked_narrow)
+    only_narrow = [dict(c, topic_fit=_tg_fit("needs_narrowing")) for c in cands]
+    assert "QUESTION_NEEDS_NARROWING" not in _tg_codes(dict(picked_narrow, question_candidates=only_narrow))
+    refused = [cands[0], dict(cands[1], topic_fit=_tg_fit("no_story")), cands[2]]
+    assert "QUESTION_NOT_WORLD" in _tg_codes(dict(tg, question_candidates=refused))
+
+
+def test_an_interpretation_may_carry_the_attribution_but_not_be_the_consequence():
+    tg = _tg_dam_contract()
+    assert "CONSEQUENCE_NOT_DOCUMENTED" not in _tg_codes(tg)       # c21/c24 events + c22 attribution
+    only_attribution = dict(tg, consequence={"what": "65% of the decline is the dam's", "claim_ids": ["c22"]})
+    assert "CONSEQUENCE_NOT_DOCUMENTED" in _tg_codes(only_attribution)
+    stale = dict(tg, still_unfolding={"what": "1.73 billion tons by 2014", "as_of": "2014", "claim_ids": ["c24"]})
+    assert "STILL_UNFOLDING_NOT_PRESENT" in _tg_codes(stale)        # dated, closed, not ongoing
+
+
+def test_the_contract_prompt_anchors_the_commission_and_allows_an_ongoing_present():
+    prompt = sc.contract_prompt(TG_COMMISSION, {"claims": []}, {}, 300, consequence_rule=True)
+    assert TG_COMMISSION in prompt and "never a substitute" in prompt
+    assert "since 2003" in prompt and "attribution_claim_ids" in prompt and "project_built" in prompt
+
+
+def test_the_r2_contract_shape_without_a_commissioned_decision_is_refused():
+    """The actual r2 decision text: it shares only "Yangtze" with the commission."""
+    r2 = _tg_dam_contract(chosen=0, central_question=_tg_dam_contract()["question_candidates"][0]["question"],
+                          commissioned_decision="",
+                          decision={"what": "A ten-year ban on commercial fishing. It started in 332 Yangtze reserves and "
+                                            "protection zones on 1 January 2020 and was extended to the main stem and "
+                                            "major tributaries from January 2021.",
+                                    "when": "2021", "kind": "rule_enforced", "claim_ids": ["c42", "c43"]},
+                          consequence={"what": "porpoises rose to 1,249", "claim_ids": ["c45", "c46"]},
+                          still_unfolding={"what": "1,426 in 2025", "as_of": "2025", "claim_ids": ["c47"]})
+    codes = _tg_codes(r2)
+    assert {"DECISION_NOT_COMMISSIONED", "QUESTION_NEEDS_NARROWING"} <= codes, codes
+    assert "COMMISSIONED_DECISION_MISSING" in _tg_codes(r2, warnings=True)
