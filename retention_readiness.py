@@ -114,8 +114,19 @@ def score_retention_readiness(
     audio_cues: list[dict],
     *,
     preview: dict | None = None,
+    report_only_components: tuple | None = None,
 ) -> dict:
-    """Return a 0-100 Retention Readiness Score (RRS) and an auditable rubric."""
+    """Return a 0-100 Retention Readiness Score (RRS) and an auditable rubric.
+
+    report_only_components: component names scored and printed but left out of the grade. None
+    reads the lane's policy off the script (story_contract_policy: the story-contract lane reports
+    "Narrative propulsion", which measures role labels that lane does not use); every other script
+    gets () and exactly the grade it had before.
+    """
+    if report_only_components is None:
+        import story_contract_policy
+        report_only_components = story_contract_policy.readiness_report_only(script)
+    report_only = set(report_only_components or ())
     scenes = script.get("scenes") or []
     checks = validation.get("checks") or {}
     errors = {x.get("code") for x in validation.get("errors") or []}
@@ -338,13 +349,18 @@ def score_retention_readiness(
         technical_notes.append(f"opening preview is only {preview_duration:.1f}s")
     components.append(_component("Technical delivery", technical, 5, technical_notes))
 
-    total = sum(c["score"] for c in components)
+    for c in components:
+        if c["name"] in report_only:
+            c["report_only"] = True
+            c["notes"] = list(c["notes"]) + ["report only on this lane; not part of the grade"]
+    counted = [c for c in components if not c.get("report_only")]
+    total = sum(c["score"] for c in counted)
     # Grade on what could actually be assessed. Keeping a 100-point denominator while an axis was
     # never measured is the same error as the 999-second sentinel, one step later: it turns a
     # missing validator into a low grade for the video. `score` stays the raw sum so nothing is
     # inflated; the grade is taken from the percentage of the assessed maximum.
-    assessed_max = sum(c["assessed_max"] for c in components)
-    nominal_max = sum(c["max"] for c in components)
+    assessed_max = sum(c["assessed_max"] for c in counted)
+    nominal_max = sum(c["max"] for c in counted)
     graded = round(100.0 * total / assessed_max) if assessed_max else 0
     hard_failures = []
     if sub_min:
@@ -379,6 +395,7 @@ def score_retention_readiness(
         "assessed_max": assessed_max,
         "nominal_max": nominal_max,
         "unmeasured": sorted(set(unmeasured)),
+        "report_only_components": sorted(report_only & {c["name"] for c in components}),
         "grade": grade,
         "label": label,
         "passed": graded >= 70 and not hard_failures,
