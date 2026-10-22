@@ -426,3 +426,16 @@ tied to the dam, and it had chosen a question the screen marked `needs_narrowing
   - attribution alone cannot be the consequence.
   Run against the real r2 `contract.json`, the validator now returns `DECISION_NOT_COMMISSIONED`
   and `QUESTION_NEEDS_NARROWING`.
+
+### Still unfolding means the consequence (2026-10-22)
+
+Consequence Video Brief 01 (lionfish) used the 2026 harvest report as its present-day sign, and the
+brief itself called it "not proof of reef recovery". That shows the decision carrying on, not its
+consequence, and the check accepted it because it asked only for a recent documented claim.
+Now a present-day claim counts only when `consequence_bound`: the consequence cites it too, or it
+shares at least two of the consequence's own words (words the decision does not use). Otherwise
+the error is `STILL_UNFOLDING_NOT_CONSEQUENCE`. A source URL's year now dates a claim stated in the
+present ("the pythons have reduced ...", a 2025 article), never a past-tense finding. The pythons
+fixture now cites the mammal decline as still unfolding; its removal count is refused as the
+remedy carrying on. The Three Gorges dam contract still passes (c23's sediment discharge shares the
+consequence's sediment and tonnage).

@@ -555,8 +555,40 @@ _ONGOING_RE = re.compile(r"\bsince (?:the )?(?:\w+ )?(1[89]\d\d|20\d\d)\b|\b(sti
                          r"remains?|ongoing|to this day|has been|have been)\b", re.I)
 
 
+_PRESENT_TENSE_RE = re.compile(r"\b(is|are|has|have|remains?|continues?)\b", re.I)
+
+
 def is_ongoing_claim(claim: dict) -> bool:
     return bool(_ONGOING_RE.search(_text(claim.get("claim")) + " " + _text(claim.get("support_quote"))))
+
+
+def _claim_years(claim: dict) -> list[int]:
+    """Years a claim is dated by: in its text or quote; or its source URL's year when the claim is
+    stated in the present ("the pythons have reduced ..." in a 2025 article). A URL year never
+    dates a past-tense finding: a publication date is not the date of older fieldwork."""
+    years = _years(claim.get("claim"), claim.get("support_quote"))
+    if _PRESENT_TENSE_RE.search(_text(claim.get("support_quote")) or _text(claim.get("claim"))):
+        years += [int(y) for y in re.findall(r"/(20\d\d)/", _text(claim.get("source_url")))]
+    return years
+
+
+def _subject_words(text: str) -> set:
+    return {w for w in _content_words(text) if w.isalpha()}
+
+
+def consequence_bound(claim_id: str, claims: dict, decision: dict, consequence: dict) -> bool:
+    """Is this present-day claim about the CONSEQUENCE, not the decision carrying on? Bound when
+    the consequence cites it too, or when it shares two of the consequence's own words -- words
+    the decision does not use. A harvest count ("36,187 lionfish removed in 2026") shows the hunt
+    continuing, not what it changed (Consequence Video Brief 01, 2026-10-22)."""
+    if claim_id in (consequence.get("claim_ids") or []):
+        return True
+    decision_words = _subject_words(" ".join([_text(decision.get("what"))] + [
+        _text(claims[c].get("claim")) for c in decision.get("claim_ids") or [] if c in claims]))
+    consequence_words = _subject_words(" ".join([_text(consequence.get("what"))] + [
+        _text(claims[c].get("claim")) for c in consequence.get("claim_ids") or [] if c in claims]))
+    own = consequence_words - decision_words
+    return len(_subject_words(claims[claim_id].get("claim")) & own) >= 2
 
 
 def is_hypothetical_question(question: str) -> bool:
@@ -618,7 +650,7 @@ def validate_consequence_model(contract: dict, claims: dict, this_year: int | No
     now = contract.get("still_unfolding") if isinstance(contract.get("still_unfolding"), dict) else {}
     n_ids = [c for c in now.get("claim_ids") or [] if c in claims]
     recent = [c for c in n_ids if documented_consequence_claim(claims[c]) and any(
-        y >= this_year - PRESENT_YEARS for y in _years(claims[c].get("claim"), claims[c].get("support_quote")))]
+        y >= this_year - PRESENT_YEARS for y in _claim_years(claims[c]))]
     ongoing = [c for c in n_ids if documented_consequence_claim(claims[c]) and is_ongoing_claim(claims[c])]
     if not _text(now.get("what")) or not n_ids:
         err("STILL_UNFOLDING_MISSING", "name the documented, dated sign that the consequence is still unfolding today")
@@ -626,7 +658,11 @@ def validate_consequence_model(contract: dict, claims: dict, this_year: int | No
         err("STILL_UNFOLDING_NOT_PRESENT", f"no cited claim is a documented event dated within {PRESENT_YEARS} "
             f"years ({this_year - PRESENT_YEARS} or later), or a documented condition that has held since a "
             "date: the film must be told from today")
-    elif not recent:
+    elif not [c for c in recent + ongoing if consequence_bound(c, claims, decision, cons)]:
+        err("STILL_UNFOLDING_NOT_CONSEQUENCE", "the present-day claims (" + ", ".join(sorted(set(recent + ongoing)))
+            + ") show the decision carrying on, not its consequence: still_unfolding must show the "
+            "CONSEQUENCE continuing today (a harvest count shows the hunt, not what it changed)")
+    elif not [c for c in recent if consequence_bound(c, claims, decision, cons)]:
         latest = max(_years(*[claims[c].get("claim") for c in n_ids]) or [0])
         warnings.append({"code": "STILL_UNFOLDING_UNDATED_PRESENT",
                          "message": f"the present rests on an ongoing condition ({', '.join(ongoing)}), the latest "
@@ -733,7 +769,9 @@ fix behind them are out, and so is a story that ends in the past.
   marks event or outcome. A model's projection or an expert's interpretation may explain the
   mechanism or attribute the cause (attribution_claim_ids, e.g. "65% of the decline is attributed to
   the dam") but may NOT be the consequence itself.
-- still_unfolding: the documented present-day sign that it continues: a claim dated within the last
+- still_unfolding: the documented present-day sign that the CONSEQUENCE continues -- not that the
+  decision does (a harvest count, a programme renewed or a tournament held shows the fix carrying on,
+  not what it changed). A claim dated within the last
   five years, or, when nothing newer is dated, a documented condition that has held since a date
   ("since 2003 ... has fallen"); then the narration says how recent the latest figure is. Do not
   mark a candidate down for that alone.

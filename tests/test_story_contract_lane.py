@@ -58,8 +58,8 @@ def _contract(**overrides):
         "central_question": q,
         "decision": {"what": "NOAA launched an 'Eat Lionfish' campaign", "who": "NOAA", "when": "2010",
                      "kind": "animal_targeted", "claim_ids": ["c3"]},
-        "consequence": {"what": "divers remove lionfish by the thousand, and thinner reefs pay less",
-                        "claim_ids": ["c1", "c4"]},
+        "consequence": {"what": "divers remove lionfish by the thousand, a record 36,187 in 2026",
+                        "claim_ids": ["c1", "c6"]},
         "still_unfolding": {"what": "a record 36,187 removed in 2026", "as_of": "2026", "claim_ids": ["c6"]},
         "ending_answer": "The fishery can run out of profit before the reef runs out of lionfish, so "
                          "the target becomes enough removal per reef, not the last fish.",
@@ -704,7 +704,8 @@ PYTHONS = {"claims": [
      "claim": "Burmese pythons were brought through the exotic pet trade and escaped their enclosures or were released.",
      "support_quote": "Burmese pythons are not native to Florida; they were brought through the exotic pet trade and "
                       "escaped their enclosures or were released"},
-    {"claim_id": "p2", "claim_kind": "outcome", "source_url": "https://www.route-fifty.com/emerging-tech/2025/08/",
+    {"claim_id": "p2", "claim_kind": "outcome",
+     "source_url": "https://www.route-fifty.com/emerging-tech/2025/08/florida-enlists-robot-rabbits-hunt-invasive-pythons/407379/",
      "claim": "The pythons have reduced the population of fur-bearing animals by up to 95%.",
      "support_quote": "The pythons have reduced the population of fur-bearing animals by up to 95%"},
     {"claim_id": "p3", "claim_kind": "outcome", "source_url": "https://www.usgs.gov/publications/marsh-rabbit-mortalities",
@@ -741,7 +742,10 @@ def _pythons_contract():
                      "who": "pet owners and the trade", "when": "1980s-1990s", "kind": "animal_introduced",
                      "claim_ids": ["p1"]},
         "consequence": {"what": "fur-bearing mammals down by up to 95%", "claim_ids": ["p2", "p3"]},
-        "still_unfolding": {"what": "over 23,500 removed as of April 2025", "as_of": "2025", "claim_ids": ["p4"]},
+        # The consequence itself, stated in the present in a 2025 article -- not the removals (p4), which
+        # show the remedy carrying on.
+        "still_unfolding": {"what": "in 2025 the pythons have still cut fur-bearing animals by up to 95%",
+                            "as_of": "2025", "claim_ids": ["p2"]},
         "human_perspective": {"person": "a contracted python hunter", "want": "paid removals", "action": "night hunts",
                               "reward": "", "claim_ids": {"want": ["p5"], "action": ["p4"]}},
         "reasonable_attempt": {"what": "pay hunters", "why_it_made_sense": "removals rose", "claim_ids": ["p5"]},
@@ -932,3 +936,50 @@ def test_the_r2_contract_shape_without_a_commissioned_decision_is_refused():
     codes = _tg_codes(r2)
     assert {"DECISION_NOT_COMMISSIONED", "QUESTION_NEEDS_NARROWING"} <= codes, codes
     assert "COMMISSIONED_DECISION_MISSING" in _tg_codes(r2, warnings=True)
+
+
+# ── still unfolding must be the CONSEQUENCE (Consequence Video Brief 01, 2026-10-22) ──────────
+
+def test_a_harvest_count_shows_the_hunt_continuing_not_the_consequence():
+    """Brief 01's shape: decision = the eat-lionfish campaign, consequence = the Biscayne comparison,
+    'still unfolding' = the 2026 harvest report, which the brief itself calls 'not proof of reef
+    recovery'."""
+    claims = {
+        "b1": {"claim_id": "b1", "claim_kind": "event", "story_kind": "event",
+               "claim": "NOAA encouraged eating lionfish and a seafood market to mitigate the species' impacts on reefs.",
+               "support_quote": "encouraging a seafood market as one way to mitigate the species' impacts on reef communities."},
+        "b2": {"claim_id": "b2", "claim_kind": "outcome", "story_kind": "event",
+               "claim": "Monthly removals at Biscayne National Park reduced lionfish density, but native prey fish "
+                        "density showed no significant increase attributable to removals.",
+               "support_quote": "monthly removals effectively reduced lionfish density"},
+        "b3": {"claim_id": "b3", "claim_kind": "event", "story_kind": "event",
+               "claim": "In the 2026 Lionfish Challenge, 533 registered participants removed 36,187 lionfish over 1,468 dive trips.",
+               "support_quote": "533 registered participants removed 36,187 lionfish over 1,468 dive trips"},
+    }
+    decision = {"what": "NOAA's campaign to eat lionfish and remove them", "when": "2010", "kind": "animal_targeted",
+                "claim_ids": ["b1"]}
+    consequence = {"what": "removals cut lionfish density, but native prey fish showed no significant gain",
+                   "claim_ids": ["b2"]}
+    assert not sc.consequence_bound("b3", claims, decision, consequence)
+    contract = _contract(decision=decision, consequence=consequence,
+                         still_unfolding={"what": "36,187 removed in 2026", "as_of": "2026", "claim_ids": ["b3"]})
+    codes = {e["code"] for e in sc.validate_contract(contract, claims, "Florida lionfish", consequence_rule=True)["errors"]}
+    assert "STILL_UNFOLDING_NOT_CONSEQUENCE" in codes, codes
+
+
+def test_the_pythons_removals_are_the_remedy_and_the_mammal_decline_is_the_consequence():
+    claims = _claims_with_kinds(PYTHONS, {})
+    base = _pythons_contract()
+    removals = dict(base, still_unfolding={"what": "23,500 removed by April 2025", "as_of": "2025", "claim_ids": ["p4"]})
+    codes = {e["code"] for e in sc.validate_contract(removals, claims, "Burmese pythons", consequence_rule=True)["errors"]}
+    assert "STILL_UNFOLDING_NOT_CONSEQUENCE" in codes, codes
+    assert sc.validate_contract(base, claims, "Burmese pythons", consequence_rule=True)["passed"]
+
+
+def test_a_source_url_year_dates_only_a_present_tense_claim():
+    present = {"claim": "The pythons have reduced fur-bearing animals by up to 95%.",
+               "support_quote": "The pythons have reduced the population of fur-bearing animals by up to 95%",
+               "source_url": "https://example.org/news/2025/08/story"}
+    past = dict(present, claim="Pythons accounted for 77% of rabbit deaths.",
+                support_quote="Pythons accounted for 77% of rabbit mortalities")
+    assert 2025 in sc._claim_years(present) and 2025 not in sc._claim_years(past)
