@@ -8612,6 +8612,10 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
     """
     client = _openai()
     valid_refs = [p for p in (reference_paths or []) if os.path.exists(p)]
+    # IMAGE_QUALITY overrides the gpt-image-2 quality tier (default "medium"). It is part of the
+    # durable stage request, so a resumed run at another tier buys new images instead of
+    # restoring the old tier's; the default leaves every existing stage key unchanged.
+    quality = os.environ.get("IMAGE_QUALITY", "medium")
 
     def _call(idempotency_key: str | None = None):
         extra_headers = ({"Idempotency-Key": idempotency_key} if idempotency_key else None)
@@ -8623,7 +8627,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
                     image=files if len(files) > 1 else files[0],
                     prompt=prompt,
                     size=size,
-                    quality="medium",
+                    quality=quality,
                     extra_headers=extra_headers,
                 )
             finally:
@@ -8633,7 +8637,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
             model=IMAGE_MODEL,
             prompt=prompt,
             size=size,          # 1536x1024 (landscape) or 1024x1536 (portrait)
-            quality="medium",
+            quality=quality,
             n=1,
             extra_headers=extra_headers,
         )
@@ -8647,7 +8651,7 @@ def generate_image(prompt: str, output_path: str, reference_paths: list[str] | N
         rel = os.path.relpath(os.path.abspath(output_path), runtime.output_dir)
         refs = [{"path": os.path.basename(path), "sha256": sha256_file(path)} for path in valid_refs]
         request = {"model": IMAGE_MODEL, "prompt": prompt, "size": size,
-                   "quality": "medium", "references": refs}
+                   "quality": quality, "references": refs}
         stage_key = "image:" + canonical_hash({"output": rel, "request": request})[:32]
 
         def _durable_call(idempotency_key: str):
