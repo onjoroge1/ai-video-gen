@@ -99,3 +99,28 @@ def test_the_ladder_opening_ends_before_the_mechanism_scene():
     assert le._opening_scene_count(pinned, ladder=True) == 5, "ends before the mechanism"
     script = {"_opening_contract": "ladder_v1", "_story_contract": {}, "scenes": pinned}
     assert le.build_continuity_pack(script)["opening_scene_count"] == 5
+
+
+def test_the_opening_ends_where_the_environment_changes():
+    """Wild pigs (2026-10-23): a present-day cold open on an office-park lawn followed by 1769
+    and the 1920s pinned the historical scenes to the office park; they were drawn beside a
+    parking lot."""
+    envs = ["office park", "colonial coast", "1920s railyard", "mountain cabin"] + ["forest"] * 6
+    scenes = [{"causal_role": "setup", "environment_type": env} for env in envs]
+    assert le._opening_scene_count(scenes) == 1
+    assert le._opening_scene_count(scenes, ladder=True) == 1
+
+    plain = [{"causal_role": "setup"} for _ in range(10)]
+    assert le._opening_scene_count(plain) == 3, "no environment_type: the 30% window"
+    same = [{"causal_role": "setup", "environment_type": "office park"} for _ in range(10)]
+    assert le._opening_scene_count(same) == 3, "one environment throughout: unchanged"
+    partial = [dict(scene) for scene in same]
+    partial[1].pop("environment_type")
+    partial[2]["environment_type"] = ""
+    assert le._opening_scene_count(partial) == 3, "a scene that declares no environment stays"
+    late = [dict(scene) for scene in same]
+    late[5]["environment_type"] = "forest"
+    assert le._opening_scene_count(late) == 3, "a change after the window does not widen it"
+    unset = [dict(scene) for scene in scenes]
+    unset[0].pop("environment_type")
+    assert le._opening_scene_count(unset) == 3, "no first-act environment: unchanged"

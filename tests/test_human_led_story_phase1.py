@@ -219,6 +219,30 @@ def test_renderer_submits_both_identity_references_to_image_edit(monkeypatch, tm
     assert output.read_bytes() == b"result"
 
 
+@pytest.mark.parametrize("env,expected", [(None, "medium"), ("high", "high"), ("low", "low")])
+def test_image_quality_reads_the_environment(monkeypatch, tmp_path, env, expected):
+    if env is None:
+        monkeypatch.delenv("IMAGE_QUALITY", raising=False)
+    else:
+        monkeypatch.setenv("IMAGE_QUALITY", env)
+    captured = {}
+
+    class FakeImages:
+        def _respond(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                data=[SimpleNamespace(b64_json=base64.b64encode(b"result").decode())],
+                usage=None,
+            )
+
+        edit = generate = _respond
+
+    monkeypatch.setattr(pipeline, "_openai", lambda: SimpleNamespace(images=FakeImages()))
+    monkeypatch.setattr(pipeline, "_image_cost_from_usage", lambda _response: 0.0)
+    pipeline.generate_image("A hog on an office-park lawn", str(tmp_path / "scene.jpg"))
+    assert captured["quality"] == expected
+
+
 def test_safe_fallback_respects_declared_cast():
     human_only = pipeline.safe_image_prompt({
         "human_present": True, "mascot_present": False, "text_overlay": "THE MARK"})
