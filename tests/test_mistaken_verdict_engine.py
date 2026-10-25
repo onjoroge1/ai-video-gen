@@ -118,7 +118,8 @@ def test_every_nature_candidate_hints_one_of_the_channels_two_engines():
 
 def test_the_screen_knows_the_third_channel_and_keeps_the_animal_tie_rule():
     assert "three documentary channels" in tf._SYSTEM
-    assert "ANIMALS WIN TIES" in tf._SYSTEM
+    # The animal tie rule survives the 2026-10-24 broadening inside the World rule.
+    assert "campaign against an animal population is WORLD" in tf._SYSTEM
     assert "NATURE TAKES ONLY WHAT ANIMALS DO" in tf._SYSTEM
     prompt = tf._prompt("Why does the giant Pacific octopus stop eating once she lays her eggs?",
                         tf.signals("x"))

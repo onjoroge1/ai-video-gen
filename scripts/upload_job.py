@@ -62,13 +62,15 @@ def _description_without_tag_line(path: str) -> str:
 
 # The pipeline's generic line said nothing about what the channel is; the audit rewrote every
 # film to this one (2026-10-13). A channel without its own line keeps whatever the film had.
-CTAS = {"world": "Subscribe to Bolt Explains the World for illustrated true stories of fixes "
-                 "that backfired.",
+# World broadened 2026-10-24: "human decisions that can't be undone".
+CTAS = {"world": "Subscribe to Bolt Explains the World for true stories of human decisions that "
+                 "can't be undone.",
         # Matches the History channel description (2026-10-14).
         "history": "Subscribe to Bolt Explains History for true stories of what governments "
                    "imposed, and what it cost."}
 _OLD_CTA = re.compile(r"^Subscribe (for clear, no-spin explainers|to Bolt Explains the World for "
-                      r"illustrated (stories|documentaries) about human decisions)", re.I)
+                      r"(illustrated (stories|documentaries) about human decisions|illustrated true "
+                      r"stories of fixes that backfired))", re.I)
 _HASHTAG_LINE = re.compile(r"^\s*(#\w+\s*)+$")
 MAX_HASHTAGS = 3
 SHORT_LINE_ROOM = 80          # bytes left free for "Short version: https://youtube.com/shorts/..."
