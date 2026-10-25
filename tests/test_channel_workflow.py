@@ -85,7 +85,7 @@ def test_refresh_keeps_supported_format_and_channel_metadata(monkeypatch, tmp_pa
     assert app._load_trending() == data
 
 
-def test_animal_priority_is_checked_against_selected_channel(monkeypatch):
+def test_the_screened_channel_is_checked_against_selected_channel(monkeypatch):
     monkeypatch.setenv('TOPIC_FIT', 'on')
     seen = []
     def create(**call):
@@ -104,7 +104,7 @@ def test_rejection_does_not_reintroduce_the_inversion_rule(monkeypatch):
     monkeypatch.setattr(ep, '_claude', lambda: SimpleNamespace(messages=SimpleNamespace(
         create=lambda **_: response({'verdict': 'no_story', 'channel': 'neither',
                                     'reason': 'unrealized proposal'}))))
-    with pytest.raises(ValueError, match='Harm does not have to reverse'):
+    with pytest.raises(ValueError, match='does not have to reverse the intended result'):
         ep.screen_topic_fit('American hippo-import proposal', log=lambda _: None)
 
 

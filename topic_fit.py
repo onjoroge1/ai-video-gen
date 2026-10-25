@@ -10,7 +10,10 @@ intent. That was derived from a corpus which happens to be mostly backfires, and
 pattern into a law -- it would have refused the Aral Sea, where the river diversion did exactly
 what it was designed to do. Cotton grew. The lake was the price, not a reversal.
 
-    world    an intervention aimed at an ANIMAL POPULATION, and what happened to it afterwards.
+    world    (broadened 2026-10-24) one deliberate human decision whose consequence is still
+             unfolding today and hard to undo -- animals, chemicals, dams, reactors, bombs,
+             products, designs. The paragraph below is the original, animal-only test.
+             An intervention aimed at an ANIMAL POPULATION, and what happened to it afterwards.
              Hanoi's rat bounty, China's sparrows, Australia's cane toads, Hawaii's mongooses.
              The intervention must TARGET the animals: a river diversion that ruined a fishery is
              not this channel, because nobody was intervening on the fish.
@@ -40,26 +43,33 @@ import re
 FITS, NEEDS_NARROWING, NO_STORY = "fits", "needs_narrowing", "no_story"
 
 WORLD, HISTORY, NATURE = "world", "history", "nature"
-EDITORIAL_VERSION = "bolt_three_channels_v4_world_backfires"
+EDITORIAL_VERSION = "bolt_three_channels_v5_world_cant_undo"
 CHANNELS = {
     WORLD: {
         "name": "Bolt Explains the World",
-        "banner": "GOOD INTENTIONS. UNEXPECTED CONSEQUENCES.",
-        "promise": "What people did to fix a problem -- and what happened next.",
-        # Widened 2026-10-12 to the operator's mixed schedule (decided 2026-10-09): animal
-        # interventions, inventions adopted and rules enforced. Radium Girls was refused here as
-        # "not an animal-population campaign" before a word was researched.
-        "requires": "ONE deliberate fix -- an animal population introduced, removed or TARGET the "
-                    "animals with a bounty or campaign; an invention or product adopted; or a "
-                    "rule or incentive enforced -- and a documented consequence its makers did "
-                    "not intend, ideally the opposite of the fix's purpose",
-        "examples": "Hanoi's 1902 rat-tail bounty and the rat farms it created; Australia's cane "
-                    "toads, introduced against beetles and now the pest; radium sold as a health "
-                    "product and painted on watch dials; leaded petrol adopted to stop engine "
-                    "knock; Mexico City's one-day-a-week car ban and the extra cars it brought",
-        "excludes": "general animal facts, animal quizzes, food explainers, unrealized proposals "
-                    "such as the American hippo-import plan, accidents with no deliberate fix "
-                    "behind them, and daily news",
+        # Broadened 2026-10-24 (operator): "human decisions that can't be undone", no longer
+        # animal backfires first. Demand measured the same day: Chernobyl 1.5M, Boeing 737 MAX
+        # 575K, Agent Orange 350K, OxyContin 299K against 100-250K for our invasive-species films.
+        # The screen refused "Colorado River / Lake Mead" for World as a History programme.
+        "banner": "HUMAN DECISIONS THAT CAN'T BE UNDONE.",
+        "promise": "They did X. Now Y. -- one deliberate decision, told from today, whose "
+                   "consequence is still unfolding and hard to undo.",
+        "requires": "ONE named, deliberate human decision -- an animal brought in or wiped out; "
+                    "a product, chemical or drug made and sold; a dam, canal, water deal or other "
+                    "infrastructure built; a reactor sealed or waste stored; a bombing or "
+                    "defoliation campaign; an engineering or design choice; a rule or incentive "
+                    "enforced -- and a documented consequence of that decision that is STILL "
+                    "UNFOLDING today and hard to undo. The consequence need not be the opposite "
+                    "of the intent, and it need not be ecological",
+        "examples": "Australia's cane toads; Escobar's hippos; the sealed fuel inside Chernobyl "
+                    "that is reacting again; the 1922 Colorado River Compact and Lake Mead's "
+                    "shortage; Boeing's MCAS and the FAA's production cap; Agent Orange and the "
+                    "dioxin still being dug out at Bien Hoa; Purdue's OxyContin marketing and the "
+                    "opioid settlement; the WWII bombs Germany still evacuates for",
+        "excludes": "accidents with no deliberate decision behind them (Titanic, Beirut port); "
+                    "finished stories whose consequence is over (Theranos, Lehman, the emu war); "
+                    "unrealized proposals; general animal facts and quizzes; daily or partisan "
+                    "political news; celebrity controversies",
     },
     HISTORY: {
         "name": "Bolt Explains History",
@@ -383,12 +393,14 @@ _SYSTEM = (
         f"  examples: {spec['examples']}\n"
         f"  excludes: {spec['excludes']}"
         for key, spec in CHANNELS.items())
-    + "\n\nANIMALS WIN TIES. A state-run campaign against an animal population belongs to WORLD, "
-      "not HISTORY, even though a government ran it. Otherwise HISTORY absorbs almost everything "
-      "and the channels collapse back into one.\n"
-      "BACKFIRES GO TO WORLD. A fix whose consequence undercut its own purpose -- a product, an "
-      "invention, a rule or an incentive -- belongs to WORLD, even when a company or a state made "
-      "it. HISTORY keeps state programmes judged by what they cost the people subjected to them.\n"
+    + "\n\nSTILL UNFOLDING GOES TO WORLD. When the decision's consequence is still unfolding "
+      "today and the film can be told from the present -- a lake still falling, fuel still "
+      "reacting, bombs still being found, a cleanup still under way -- it belongs to WORLD, even "
+      "when a state or a company made the decision. A state-run campaign against an animal "
+      "population is WORLD too.\n"
+      "HISTORY KEEPS THE PAST. A state programme judged by what it cost the people subjected to "
+      "it, told as history, belongs to HISTORY. A finished story with nothing still unfolding "
+      "belongs to neither WORLD nor, unless it is a state programme, HISTORY.\n"
       "NATURE TAKES ONLY WHAT ANIMALS DO. If a human programme is anywhere in the causal chain, "
       "the question belongs to WORLD or HISTORY. NATURE needs either a RECORDED misreading of "
       "the behaviour (a name, a label, a textbook line) or a behaviour that LOOKS like neglect "
@@ -414,9 +426,10 @@ def _prompt(question: str, found: dict, channel: str = "") -> str:
         "documented constraint and function? Say which shape.\n"
         "2. CHANNEL — world, history, nature, or neither, by the definitions above.\n"
         "3. AFTERMATH — for WORLD or HISTORY: what documented thing happened afterwards, to the "
-        "animal population or to the people subjected to the programme. This need NOT be the "
-        "opposite of what was intended: a programme that achieved its aim at enormous cost still "
-        "qualifies for HISTORY, and foreseen harm still counts. For NATURE: the documented "
+        "animals, the place, the people or the programme's subjects. For WORLD it must be still "
+        "unfolding today (a consequence you could report on this year), not only in the past. "
+        "This need NOT be the opposite of what was intended: a programme that achieved its aim at "
+        "enormous cost still qualifies for HISTORY, and foreseen harm still counts. For NATURE: the documented "
         "evidence that corrected the reading, or the documented function of the behaviour for "
         "the young.\n\n"
         'Return ONLY JSON: {"episode":"the intervention or behaviour in a short phrase, or empty",'

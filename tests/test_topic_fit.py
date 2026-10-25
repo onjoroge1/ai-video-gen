@@ -97,8 +97,9 @@ def test_the_judge_is_told_what_the_series_actually_is():
                           "aftermath": "", "channel": "world", "narrower_question": ""})
     tf.screen("Why did the bounty backfire?", judge=judge)
     assert "Bolt Explains the World" in seen["system"] and "Bolt Explains History" in seen["system"]
-    assert "ANIMALS WIN TIES" in seen["system"], \
-        "otherwise HISTORY absorbs a state-run animal campaign and the split collapses"
+    assert "STILL UNFOLDING GOES TO WORLD" in seen["system"], \
+        "otherwise HISTORY absorbs every state decision whose consequence is still unfolding"
+    assert "campaign against an animal population is WORLD" in seen["system"]
     # The inversion LAW is gone. It was derived from a corpus that is mostly backfires and would
     # have refused the Aral Sea, where the diversion did exactly what it was designed to do.
     assert "need NOT be the opposite" in seen["prompt"]
@@ -188,12 +189,32 @@ def test_a_programme_that_worked_and_cost_everything_is_not_refused():
 
 
 def test_world_takes_backfires_of_any_fix_not_only_animals():
-    """2026-10-12: Radium Girls was refused as 'not an animal-population campaign'. The mixed
-    schedule (animals, inventions, rules) is World's promise; HISTORY keeps state programmes
-    judged by their human cost."""
+    """2026-10-12: Radium Girls was refused as 'not an animal-population campaign'. Products,
+    rules and incentives stay World's; HISTORY keeps state programmes told as the past."""
     requires = tf.CHANNELS[tf.WORLD]["requires"]
-    assert "invention or product adopted" in requires and "rule or incentive enforced" in requires
-    assert "BACKFIRES GO TO WORLD" in tf._SYSTEM and "ANIMALS WIN TIES" in tf._SYSTEM
+    assert "product, chemical or drug" in requires and "rule or incentive enforced" in requires
+    assert "STILL UNFOLDING GOES TO WORLD" in tf._SYSTEM and "HISTORY KEEPS THE PAST" in tf._SYSTEM
+
+
+def test_world_is_human_decisions_that_cannot_be_undone():
+    """2026-10-24, operator: World broadened from animal backfires to any deliberate human
+    decision whose consequence is still unfolding and hard to undo. The old screen BLOCKED
+    "Colorado River / Lake Mead" for World as a History programme."""
+    world = tf.CHANNELS[tf.WORLD]
+    for kind in ("animal brought in", "chemical", "dam", "reactor sealed", "bombing",
+                 "engineering or design choice"):
+        assert kind in world["requires"], kind
+    assert "STILL UNFOLDING" in world["requires"] and "need not be ecological" in world["requires"]
+    for example in ("Lake Mead", "MCAS", "Agent Orange", "OxyContin", "WWII bombs"):
+        assert example in world["examples"], example
+    assert "accidents with no deliberate decision" in world["excludes"]
+    assert "finished stories" in world["excludes"]
+    judge, seen = _judge({"verdict": "fits", "channel": "world", "episode": "e", "intent": "i",
+                          "aftermath": "a", "reason": "r", "narrower_question": ""})
+    tf.screen("The 1922 compact split the Colorado River. Why is Lake Mead running dry?",
+              channel=tf.WORLD, judge=judge)
+    assert "still unfolding today" in seen["prompt"], "World's aftermath must be ongoing"
+    assert tf.EDITORIAL_VERSION.endswith("world_cant_undo")
 
 
 def test_the_channel_can_be_asserted_and_still_challenged():
@@ -219,10 +240,9 @@ def test_the_ui_channels_and_the_screen_share_one_definition():
     world, history, nature = (c["niche"] for c in app.CHANNELS)
     assert "READ as neglect, cruelty, theft or abandonment" in nature, \
         "the Nature channel's boundary: a recorded misreading, not a nature fact"
-    assert "TARGET the animals" in world and "invention or product adopted" in world, \
+    assert "STILL UNFOLDING" in world and "animal brought in or wiped out" in world, \
         "the World/History boundary, stated to the operator"
-    assert "TARGET the animals" in tf.CHANNELS[tf.WORLD]["requires"]
-    assert "ANIMALS WIN TIES" in tf._SYSTEM
+    assert "STILL UNFOLDING GOES TO WORLD" in tf._SYSTEM
     # The rule that would otherwise refuse the history channel's own first episode.
     assert "SUCCEEDED at its stated aim" in history
     assert "no requirement that the outcome invert" in history
