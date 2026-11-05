@@ -41,7 +41,7 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 TITLE_MAX_CHARS = 70
 TITLE_ATTEMPTS = 2
-VERSION = "backfire_packaging_v3"
+VERSION = "backfire_packaging_v4"
 
 _HEADLINE_FONTS = (
     "/System/Library/Fonts/Supplemental/Impact.ttf",
@@ -208,7 +208,8 @@ def propose_headlines(title: str, transcript: str, rejected: list[str] | None = 
     return [str(h).strip().upper() for h in found or [] if str(h).strip()][:5]
 
 
-def title_valid(candidate: str, transcript: str) -> bool:
+def story_title_valid(candidate: str, transcript: str) -> bool:
+    """The v3 story-sentence titles, kept for WORLD_TITLE_SERIES=story."""
     text = (candidate or "").strip()
     if not text or len(text) > TITLE_MAX_CHARS or _OLD_FORMULA.match(text):
         return False
@@ -219,10 +220,95 @@ def title_valid(candidate: str, transcript: str) -> bool:
     return numbers_supported(text, transcript or "")
 
 
+# ── Field Guide series titles (operator, 2026-11-05) ───────────────────────────
+# The Can't Undo Field Guide: every animal film is a numbered entry with one of two titles that
+# put the viewer in the story ("you"), after the Depth Theory read (2026-11-05: one 4.7M film,
+# follow-ups holding ~43K views a day, the second-person frame quoted in the top comment). The
+# channel's own evidence favours Why statements over questions, so there is no question mark.
+#   MEET:  "Why You Can Now Meet A Hippo In Colombia" / "Why You Can Meet A Wolf In Yellowstone Again"
+#   NEVER: "Why You'll Never Meet A Thylacine" / "Why You'll Probably Never Meet A Wild Axolotl"
+# Their exact slot ("Why You'd Never Want To Meet A ___") was cloned by 10+ channels in 4 days.
+_SERIES_MEET = re.compile(r"^Why You Can (?:Now )?Meet (A|An) ([A-Z][\w'-]*(?: [A-Za-z][\w'-]*)*)$")
+_SERIES_NEVER = re.compile(
+    r"^Why You'll (?:Probably )?Never Meet (A|An) ([A-Z][\w'-]*(?: [A-Za-z][\w'-]*)*)$")
+_SERIES_SMALL = {"a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to",
+                 "with", "no"}
+
+
+def _fold(word: str) -> str:
+    """Singular-folded, so the title's "Wolf" is told by a narration that says "wolves"."""
+    word = re.sub(r"'s$", "", word.lower().strip("'"))
+    if len(word) > 4 and word.endswith("ves"):
+        return word[:-3] + "f"
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    return re.sub(r"(?<=[a-z]{3})(es|s)$", "", word)
+
+
+def series_title_valid(candidate: str, transcript: str) -> bool:
+    """A Field Guide title: one of the two shapes, correct article, every word told in the film.
+
+    The animal (the first capitalised word after the article that the transcript names) must be
+    spoken, as must the place after "In"; numbers must be spoken. "Again" is allowed only on the
+    MEET shape (a return: wolves to Yellowstone)."""
+    text = (candidate or "").strip()
+    if not text or len(text) > TITLE_MAX_CHARS or any(ch in text for ch in ':?!."“”()\n'):
+        return False
+    match = _SERIES_MEET.match(text) or _SERIES_NEVER.match(text)
+    if not match:
+        return False
+    article, rest = match.group(1), match.group(2)
+    words = rest.split()
+    if (article == "An") != (words[0][0].lower() in "aeiou"):
+        return False
+    if words[-1] == "Again" and not text.startswith("Why You Can Meet"):
+        return False
+    if text.startswith("Why You Can Meet") and words[-1] != "Again":
+        return False                     # without "Now", only a return reads right
+    if any(w[0].islower() and w.lower() not in _SERIES_SMALL for w in words):
+        return False                     # title case
+    spoken = {_fold(w) for w in re.findall(r"[A-Za-z']+", transcript or "")}
+    content = [w for w in words if w.lower() not in _SERIES_SMALL and w != "Again"]
+    if not content or any(_fold(w) not in spoken for w in content):
+        return False
+    return numbers_supported(text, transcript or "")
+
+
+def title_series() -> str:
+    """WORLD_TITLE_SERIES: field_guide (default since 2026-11-05) or story (the v3 sentences)."""
+    value = (os.environ.get("WORLD_TITLE_SERIES") or "field_guide").strip().lower()
+    return "story" if value == "story" else "field_guide"
+
+
+def title_valid(candidate: str, transcript: str) -> bool:
+    if title_series() == "story":
+        return story_title_valid(candidate, transcript)
+    return series_title_valid(candidate, transcript)
+
+
+_SERIES_TITLE_SYSTEM = (
+    "You title films in The Can't Undo Field Guide, a YouTube series about animals that people "
+    "changed for good. Every title puts the viewer in the story and uses exactly ONE of these "
+    "shapes, in title case: (a) \"Why You Can Now Meet A <Animal> In <Place>\" when people moved, "
+    "released or let loose the animal and it now lives where it should not (\"Why You Can Now "
+    "Meet A Hippo In Colombia\"); (b) \"Why You Can Meet A <Animal> In <Place> Again\" when people "
+    "brought it back (\"Why You Can Meet A Wolf In Yellowstone Again\"); (c) \"Why You'll Never "
+    "Meet A <Animal>\" or \"Why You'll Probably Never Meet A <Animal>\" when people wiped it out "
+    "or nearly did (\"Why You'll Never Meet A Thylacine\"). A short describing phrase is allowed "
+    "(\"A Wild Axolotl\", \"An Elephant With No Tusks\"). Use \"An\" before a vowel. The animal "
+    "is singular, and the animal and place are words the transcript speaks. Rules: at most 70 "
+    "characters; no colon, question mark, full stop, quotation marks or emoji; every number must "
+    "appear in the transcript; no claim the transcript does not make. Return ONLY JSON: "
+    "{\"title\": \"...\"}"
+)
+
+
 def propose_title(title: str, question: str, transcript: str, cost_sink: list | None = None,
                   log=lambda message: None) -> str | None:
     """One or two model calls; None keeps the film's existing title."""
     import explainer_pipeline as ep
+
+    system = _SERIES_TITLE_SYSTEM if title_series() == "field_guide" else _TITLE_SYSTEM
 
     if title_valid(title, transcript):
         return title.strip()
@@ -232,7 +318,7 @@ def propose_title(title: str, question: str, transcript: str, cost_sink: list | 
                 f"\nTRANSCRIPT (the only source of numbers and claims):\n{transcript[:6000]}")
         try:
             response = ep._claude().messages.create(
-                model=ep.ANTHROPIC_MODEL, max_tokens=200, system=_TITLE_SYSTEM,
+                model=ep.ANTHROPIC_MODEL, max_tokens=200, system=system,
                 messages=[{"role": "user", "content": user}])
             if cost_sink is not None:
                 cost_sink.append(ep._msg_cost(response.usage))
