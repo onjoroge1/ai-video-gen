@@ -63,6 +63,7 @@ from longform_research import (
     parse_research_dossier_text,
     filter_disallowed_source_claims,
     quarantine_contradicted_claims,
+    quarantine_invalid_confidence_claims,
     _canonical_url,
     claim_context_for_prompt,
     validate_claim_joins,
@@ -7060,6 +7061,19 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
     # A directly contradicted candidate is unusable evidence, not a reason to discard the entire
     # independently verified ledger. Preserve it in the audit trail and keep it out of prompts.
     dossier = quarantine_contradicted_claims(dossier)
+    # A confidence value that names no level costs that claim, not the ledger: the Chernobyl research
+    # (2026-10-15) refused 43 usable claims for one. A plain variant of a level ("High ",
+    # "medium-high") is normalized instead of dropped.
+    dossier = quarantine_invalid_confidence_claims(dossier)
+    confidence_filter = dossier["confidence_filter"]
+    if confidence_filter["normalized"]:
+        log(f"Research confidence: normalized {len(confidence_filter['normalized'])} claim(s) — "
+            + ", ".join(f"{item['claim_id'] or '?'} {item['from']!r} -> {item['to']}"
+                        for item in confidence_filter["normalized"][:4]))
+    for entry in [entry for entry in dossier["excluded_claims"]
+                  if entry.get("reason") == "invalid_confidence"][:4]:
+        log(f"  ✗ dropped {entry['claim'].get('claim_id') or '?'}: confidence "
+            f"{repr(entry['claim'].get('confidence'))[:40]} is not high, medium or speculative")
     # A claim citing a URL the provider's web search never returned is unverifiable by
     # construction: nobody read that page. It is dropped like a quote that is not on its page,
     # not allowed to fail 27 verified claims with it. Measured on the emperor penguin research
@@ -7116,6 +7130,12 @@ def generate_research_dossier(question: str, *, cost_sink: list | None = None,
                     f"{type(exc).__name__}: {exc}")
         codes = collections.Counter(_s(item.get("code")) for item in validation["errors"])
         searches = dossier.get("web_search_requests") or 0
+        if confidence_filter["excluded_count"] and not confidence_filter["retained_count"]:
+            raise ValueError(
+                "Research dossier failed before scripting "
+                f"[invalid_confidencex{confidence_filter['excluded_count']}]: no remaining claim's "
+                "confidence names high, medium or speculative, so no ledger survived to script "
+                "from.")
         if source_filter["excluded_count"] and not (dossier.get("claims") or []):
             raise ValueError(
                 "Research dossier has no usable claims after excluding disallowed sources "

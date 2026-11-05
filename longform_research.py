@@ -414,6 +414,80 @@ def quarantine_contradicted_claims(dossier: dict) -> dict:
     return result
 
 
+# Words that plainly name one of the three levels. "low" is the schema's third level under another
+# name; reading it as "speculative" can only ask the narration for more care than its author meant.
+_CONFIDENCE_WORDS = {"high": "high", "medium": "medium", "moderate": "medium",
+                     "low": "speculative", "speculative": "speculative"}
+_CONFIDENCE_RANK = {"speculative": 0, "medium": 1, "high": 2}
+
+
+def normalize_confidence(value: Any) -> str:
+    """The allowed level a provider's confidence value plainly names, or "" when it names none.
+
+    Only spelling is forgiven: case, surrounding whitespace, and a two-level compound such as
+    "medium-high" or "Medium/High", which takes the LOWER level. Down is the only safe direction to
+    round, because "speculative" is what obliges the narration to hedge (`unhedged_speculation`)
+    and rounding up would quietly lift that obligation. Anything else -- "very likely", "probable",
+    a number -- names no level, and choosing one would be inventing the provider's judgement.
+    """
+    if not isinstance(value, str):
+        return ""
+    words = re.fullmatch(r"\s*([a-z]+)(?:\s*[-/_ ]\s*([a-z]+))?\s*", value.casefold())
+    if not words:
+        return ""
+    levels = [_CONFIDENCE_WORDS.get(word) for word in words.groups() if word]
+    if not all(levels):
+        return ""
+    return min(levels, key=_CONFIDENCE_RANK.__getitem__)
+
+
+def quarantine_invalid_confidence_claims(dossier: dict) -> dict:
+    """Normalize a claim's confidence spelling; quarantine a claim whose value names no level.
+
+    One malformed row failed the whole ledger. Measured on the Chernobyl research (2026-10-15): 43
+    otherwise usable claims and $1.02 of research refused for `invalid_confidencex1`. The row is
+    now excluded the way a self-contradictory row is, with its reason in the audit trail.
+
+    THE GATE IS NOT WEAKENED. validate_research_dossier still rejects any value outside
+    CONFIDENCE_LEVELS; it sees a normalized value or no row at all. The value is rewritten on the
+    claim, rather than accepted loosely by the validator, because the story checks compare it
+    exactly: a "Speculative " left in place would pass a lenient validator and then escape the
+    hedging rule in validate_claim_joins. Count-based gates downstream still decide whether enough
+    evidence survived.
+    """
+    result = copy.deepcopy(dossier)
+    retained, excluded = [], list(result.get("excluded_claims") or [])
+    normalized, dropped = [], 0
+    for claim in result.get("claims") or []:
+        if not isinstance(claim, dict):
+            retained.append(claim)  # The validator reports a non-object row as invalid_claim.
+            continue
+        raw = claim.get("confidence")
+        if _text(raw) in CONFIDENCE_LEVELS:
+            # What the validator already accepted stays byte-identical, so a ledger that passed
+            # before keeps the same claims, evidence hash and handoff key.
+            retained.append(claim)
+            continue
+        level = normalize_confidence(raw)
+        if not level:
+            excluded.append({"claim": claim, "reason": "invalid_confidence"})
+            dropped += 1
+            continue
+        normalized.append({"claim_id": _text(claim.get("claim_id")), "from": raw, "to": level})
+        claim["confidence"] = level
+        retained.append(claim)
+    result["claims"] = retained
+    result["excluded_claims"] = excluded
+    result["confidence_filter"] = {
+        "version": 1,
+        "candidate_count": len(retained) + dropped,
+        "retained_count": len(retained),
+        "excluded_count": dropped,
+        "normalized": normalized,
+    }
+    return result
+
+
 def _issue(code: str, message: str, *, claim_id: str = "", scene: int | None = None) -> dict:
     item = {"code": code, "message": message}
     if claim_id:
