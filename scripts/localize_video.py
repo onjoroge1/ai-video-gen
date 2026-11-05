@@ -20,12 +20,13 @@ description limit (Hindi takes about 2.5 times the bytes) sheds, until it fits, 
 at a time from the least-used source up, then its People & Places section, then whole source
 entries from the end (fit_translation); only what it shed is excused from the checks. A
 language skipped for an unchanged English source is not retried until the English changes.
---if-changed re-translates every language when the live English title or description changed,
-and otherwise only the languages not yet done.
+--if-changed re-translates each language translated from a different English than the live title
+and description (each language records the hash of its own source), plus the languages not yet done.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -281,12 +282,34 @@ def _client():
     return anthropic.Anthropic()
 
 
-def _ask(system: str, user: str, max_tokens: int = 4000) -> dict:
+class ReplyTruncated(RuntimeError):
+    """The model stopped at max_tokens, so its JSON is cut off: raise the cap, do not parse it."""
+
+
+def _ask(system: str, user: str, max_tokens: int, lang: str, part: str) -> dict:
     response = _client().messages.create(model=MODEL, max_tokens=max_tokens, system=system,
                                          messages=[{"role": "user", "content": user}])
+    # A cut reply used to surface as json.loads' "Unterminated string" (5Kh7BiFDJMU, 2026-10-16).
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        raise ReplyTruncated(f"{lang}: the {part} reply stopped at max_tokens={max_tokens} before "
+                             "its JSON closed; raise the cap")
     text = next(b.text for b in response.content if getattr(b, "type", "") == "text")
     match = re.search(r"\{.*\}", text, re.S)
     return json.loads(match.group(0) if match else text)
+
+
+# Output tokens for one title + description. A 4,866-character template description took more than
+# 4,000 in de/fr/it/id/hi (only es and pt fit; 5Kh7BiFDJMU, 2026-10-16) and Hindi fit in 12,000;
+# Devanagari is the most token-hungry. Three tokens per English character, never below 12,000 and
+# never above 20,000: the SDK refuses a non-streaming request over about 21,333 (10 minutes).
+METADATA_MIN_TOKENS = 12000
+METADATA_MAX_TOKENS = 20000
+METADATA_TOKENS_PER_CHAR = 3
+
+
+def metadata_max_tokens(title: str, description: str) -> int:
+    wanted = METADATA_TOKENS_PER_CHAR * (len(title) + len(description))
+    return min(METADATA_MAX_TOKENS, max(METADATA_MIN_TOKENS, wanted))
 
 
 def translate_metadata(title: str, description: str, lang: str) -> dict:
@@ -305,7 +328,8 @@ def translate_metadata(title: str, description: str, lang: str) -> dict:
         "the '↳'). In the people and places section, keep each name as spelled, keep the ' — ' "
         "after it and translate the rest of the line. Add no claim the English does not make. "
         "Return ONLY JSON {\"title\": \"...\", \"description\": \"...\"}.")
-    return _ask(system, json.dumps({"title": title, "description": description}, ensure_ascii=False))
+    return _ask(system, json.dumps({"title": title, "description": description}, ensure_ascii=False),
+                metadata_max_tokens(title, description), lang, "title and description")
 
 
 def parse_srt(text: str) -> list[dict]:
@@ -331,7 +355,7 @@ def translate_captions(cues: list[dict], lang: str) -> list[dict]:
     for start in range(0, len(cues), 25):
         batch = cues[start:start + 25]
         reply = _ask(system, json.dumps({"cues": [c["text"] for c in batch]}, ensure_ascii=False),
-                     max_tokens=8000)
+                     8000, lang, f"subtitle cues {batch[0]['index']}-{batch[-1]['index']}")
         texts = reply.get("cues") or []
         if len(texts) != len(batch):
             raise ValueError(f"{lang}: {len(texts)} caption cues back for {len(batch)} sent")
@@ -343,35 +367,53 @@ def translate_captions(cues: list[dict], lang: str) -> list[dict]:
     return out
 
 
+def source_sha256(source: dict) -> str:
+    """The hash of an English title + description, stored on each language it was translated from."""
+    return hashlib.sha256(json.dumps({"title": source.get("title", ""),
+                                      "description": source.get("description", "")},
+                                     ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def plan_languages(previous: dict, source: dict, wanted: list[str], video_id: str,
                    if_changed: bool) -> tuple[list[str], str, bool]:
     """(languages to translate now, a note, whether existing caption tracks need nothing).
 
-    Without --if-changed, or with no record for this video: every requested language. With it: a
-    changed live English title or description (a retitle, or a re-described film) re-translates
-    every requested language's metadata; an unchanged one translates only the languages not yet
-    done (de/fr/it added 2026-10-14), so adding languages does not re-buy the others."""
+    Without --if-changed, or with no record for this video: every requested language. With it:
+    each language whose metadata was translated from a different English than the live title and
+    description (a retitle, or a re-described film) is re-translated, and so is each language not
+    yet done (de/fr/it added 2026-10-14); the rest cost nothing. Each language is held to the
+    English it was translated from (source_sha256), not to the record's "source", which is only
+    the last run's: run one language at a time and a later run's English would otherwise mark an
+    earlier language current (2026-10-16). An entry from before the per-language hash falls back
+    to the record's "source"."""
     if not (if_changed and previous.get("video_id") == video_id):
         return wanted, "", False
     languages = previous.get("languages") or {}
+    live = source_sha256(source)
+    legacy = source_sha256(previous["source"]) if isinstance(previous.get("source"), dict) else None
     # A language skipped for this same English (Hindi over the byte limit, say) would fail the
     # same way again: it is done until the English changes, so unchanged runs buy nothing.
     done = {lang for lang, entry in languages.items()
             if isinstance(entry, dict) and isinstance(entry.get("metadata"), dict)
             and (entry["metadata"].get("title") or entry["metadata"].get("skipped"))}
-    if previous.get("source") == source:
-        missing = [lang for lang in wanted if lang not in done]
-        if not missing:
-            return [], "unchanged: live title and description match the localized source; nothing to do", False
-        return missing, f"live title and description unchanged; translating the missing {missing}", False
+    missing = [lang for lang in wanted if lang not in done]
+    changed = [lang for lang in wanted if lang in done
+               and languages[lang].get("source_sha256", legacy) != live]
+    todo = [lang for lang in wanted if lang in missing or lang in changed]
+    if not todo:
+        return [], "unchanged: live title and description match the localized source; nothing to do", False
+    if not changed:
+        return todo, f"live title and description unchanged; translating the missing {missing}", False
+    note = f"live title or description changed since {changed} were localized; re-translating"
+    if missing:
+        note += f", and translating the missing {missing}"
     # The narration and its subtitles have not changed, so existing caption tracks are kept --
     # unless a language's track failed before (captions_error), which this run may retry; main()
     # still skips every language that already has a track on YouTube.
-    keep = set(wanted) <= set(languages) and not any(
+    keep = set(todo) <= set(languages) and not any(
         isinstance(languages.get(lang), dict) and languages[lang].get("captions_error")
-        for lang in wanted)
-    return (wanted, "live title or description changed since the last localization; re-translating",
-            keep)
+        for lang in todo)
+    return todo, note, keep
 
 
 def main(argv=None) -> int:
@@ -423,9 +465,17 @@ def main(argv=None) -> int:
     if not wanted:
         return 0
     args.no_captions = args.no_captions or keep_captions
-    # Runs for a subset of languages add to the record instead of replacing it.
+    # Runs for a subset of languages add to the record instead of replacing it. "source" is this
+    # run's English; each language keeps the source_sha256 of the English it was translated from.
     record = {"video_id": args.video_id, "source": source, "model": MODEL,
               "languages": dict(previous.get("languages") or {}) if previous.get("video_id") == args.video_id else {}}
+    # An entry from before the per-language hash was translated, as far as the record knows, from
+    # the previous "source": pin that before this run's English replaces it.
+    if record["languages"] and isinstance(previous.get("source"), dict):
+        pinned = source_sha256(previous["source"])
+        record["languages"] = {lang: {**entry, "source_sha256": pinned}
+                               if isinstance(entry, dict) and "source_sha256" not in entry else entry
+                               for lang, entry in record["languages"].items()}
     for lang in wanted:
         entry: dict = {}
         translated = fit_translation(translate_metadata(source["title"], source["description"], lang))
@@ -442,6 +492,7 @@ def main(argv=None) -> int:
             localizations[lang] = {"title": translated["title"],
                                    "description": translated["description"]}
             entry["metadata"] = localizations[lang]
+        entry["source_sha256"] = source_sha256(source)
         if cues and lang not in existing_tracks:
             try:
                 translated_cues = translate_captions(cues, lang)
