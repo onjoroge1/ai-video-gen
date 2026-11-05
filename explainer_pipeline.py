@@ -6670,15 +6670,16 @@ def screen_topic_fit(question: str, cost_sink: list | None = None, log=print, *,
     if topic_fit.blocks(result):
         raise ValueError(
             "Topic does not fit these channels: " + (result.get("reason") or "no documented intervention and aftermath")
-            + ". Choose an animal-population intervention or a historical government program "
-            "with documented consequences. Harm does not have to reverse the intended result."
+            + ". Choose one deliberate human decision whose consequence is still unfolding (World) "
+            "or a historical government program with documented harm (History). The consequence "
+            "does not have to reverse the intended result."
             + (f' Narrower question that would fit: "{result["narrower_question"]}"'
                if result.get("narrower_question") else ""))
     if (channel and result.get("verdict") == topic_fit.FITS
             and result.get("channel") in topic_fit.CHANNELS
             and result["channel"] != channel and topic_fit.enforced()):
         raise ValueError("This topic belongs to " + topic_fit.CHANNELS[result["channel"]]["name"]
-                         + ". Select that channel before generating; animal interventions take priority.")
+                         + ". Select that channel before generating.")
     return result
 
 
