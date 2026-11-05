@@ -200,6 +200,12 @@ def _semantic_anchor(
             return span[0], beat
     return None
 
+# One picture (all its hold-split parts and crops together) may stay on screen at most this long:
+# a new picture every few seconds in the opening, never a long slideshow hold after it.
+OPENING_WINDOW_SECONDS = 45.0
+OPENING_PICTURE_HOLD_SECONDS = 4.0
+PICTURE_HOLD_SECONDS = 6.0
+
 
 def _shot(
     kind: str,
@@ -760,6 +766,27 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
         and s.get("verified_visible_information")
         and s.get("semantic_aligned")
     )
+    # PICTURE holds, not shot holds. A hold_split part and a detail_reframe crop both show the
+    # SAME accepted picture, so the 3.5 s per-shot ceiling above can pass while the viewer looks
+    # at one picture for far longer. Measured on the thylacine film (2026-11-05): every shot was
+    # under 3.5 s, yet one zoo picture held 0-10 s as four camera moves and the operator saw
+    # "one image for 16 seconds" in the opening. Consecutive shots of one picture are one hold.
+    picture_runs: list[tuple[float, float]] = []
+    run_key, run_start, run_len, clock = None, 0.0, 0.0, 0.0
+    for shot in shots:
+        seconds = float(shot.get("duration") or 0.0)
+        key = (shot.get("source_asset_id") if shot.get("asset_strategy") == "detail_reframe"
+               and shot.get("source_asset_id") else shot.get("source")) or id(shot)
+        if key == run_key:
+            run_len += seconds
+        else:
+            if run_key is not None:
+                picture_runs.append((run_start, run_len))
+            run_key, run_start, run_len = key, clock, seconds
+        clock += seconds
+    if run_key is not None:
+        picture_runs.append((run_start, run_len))
+    opening_runs = [length for start, length in picture_runs if start < OPENING_WINDOW_SECONDS]
     distinct_sources = {
         s.get("source") for s in shots
         if s.get("source") and s.get("asset_strategy") in {"master", "distinct"}
@@ -787,6 +814,11 @@ def shot_plan_metrics(plan: list[list[dict]]) -> dict:
             2,
         ),
         "max_still_seconds": round(max(stills), 2) if stills else 0.0,
+        "max_picture_seconds": round(max((l for _, l in picture_runs), default=0.0), 2),
+        "max_opening_picture_seconds": round(max(opening_runs, default=0.0), 2),
+        "picture_hold_ceiling_seconds": PICTURE_HOLD_SECONDS,
+        "opening_picture_hold_ceiling_seconds": OPENING_PICTURE_HOLD_SECONDS,
+        "distinct_picture_count": len(picture_runs),
         "over_ceiling_still_count": len(over_ceiling),
         "visual_state_ceiling_seconds": MAX_VISUAL_STATE_SECONDS,
         "visual_changes_per_minute": round(
