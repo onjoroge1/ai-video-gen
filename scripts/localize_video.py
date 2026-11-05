@@ -281,12 +281,39 @@ def _client():
     return anthropic.Anthropic()
 
 
-def _ask(system: str, user: str, max_tokens: int = 4000) -> dict:
-    response = _client().messages.create(model=MODEL, max_tokens=max_tokens, system=system,
-                                         messages=[{"role": "user", "content": user}])
+METADATA_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["title", "description"],
+                   "properties": {"title": {"type": "string"}, "description": {"type": "string"}}}
+CUES_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["cues"],
+               "properties": {"cues": {"type": "array", "items": {"type": "string"}}}}
+# The model thinks before it answers and the thinking counts against max_tokens: a 4000 cap cut
+# Hindi's description off mid-string on every try and Italian's on one (Italian used 3533 of
+# 4000 in a passing reply), 2026-10-19.
+MAX_TOKENS = 16000
+# "the mid-1980s" came back in Italian as "metà degli anni '80" and the subtitle track was
+# refused for a lost 1980 (2026-10-19). The number check stays strict; the prompts ask for digits.
+DIGITS_RULE = ("Write every number in digits, never in words and never shortened: a year keeps all "
+               "four digits, and so does a decade, so 'the mid-1980s' keeps 1980 (Italian 'metà "
+               "degli anni 1980', never 'anni '80' or 'anni ottanta'; German 'Mitte der 1980er'; "
+               "French 'milieu des années 1980').")
+
+
+class ReplyCutOff(ValueError):
+    """The model stopped before its JSON was complete (max_tokens, or a refusal)."""
+
+
+def _ask(system: str, user: str, schema: dict, max_tokens: int = MAX_TOKENS) -> dict:
+    """The reply as JSON matching `schema`. Structured output has the API escape every quote, so a
+    straight-quoted quotation in the description cannot break the parse; a reply that stopped
+    early is reported as cut off, not as a JSON error halfway through a string."""
+    response = _client().messages.create(
+        model=MODEL, max_tokens=max_tokens, system=system,
+        messages=[{"role": "user", "content": user}],
+        output_config={"format": {"type": "json_schema", "schema": schema}})
+    if response.stop_reason != "end_turn":
+        raise ReplyCutOff(f"reply stopped early: {response.stop_reason} after "
+                          f"{response.usage.output_tokens} of {max_tokens} output tokens")
     text = next(b.text for b in response.content if getattr(b, "type", "") == "text")
-    match = re.search(r"\{.*\}", text, re.S)
-    return json.loads(match.group(0) if match else text)
+    return json.loads(text)
 
 
 def translate_metadata(title: str, description: str, lang: str) -> dict:
@@ -304,8 +331,20 @@ def translate_metadata(title: str, description: str, lang: str) -> dict:
         "written, in its original language; translate only the lines that start with '↳' (keep "
         "the '↳'). In the people and places section, keep each name as spelled, keep the ' — ' "
         "after it and translate the rest of the line. Add no claim the English does not make. "
-        "Return ONLY JSON {\"title\": \"...\", \"description\": \"...\"}.")
-    return _ask(system, json.dumps({"title": title, "description": description}, ensure_ascii=False))
+        + DIGITS_RULE + " Return the translated title and description.")
+    return _ask(system, json.dumps({"title": title, "description": description}, ensure_ascii=False),
+                METADATA_SCHEMA)
+
+
+def _translated_metadata(source: dict, lang: str) -> tuple[dict, list[str]]:
+    """(the fitted translation, its problems). A reply cut off or unreadable is a problem for that
+    language, not the end of the run: Hindi's crash on 2026-10-19 stopped every language after
+    it and the videos.update that carries them all."""
+    try:
+        translated = fit_translation(translate_metadata(source["title"], source["description"], lang))
+    except ValueError as exc:  # ReplyCutOff, or JSON that does not parse
+        return {}, [f"translation failed: {type(exc).__name__}: {str(exc)[:200]}"]
+    return translated, check_translation(source, translated)
 
 
 def parse_srt(text: str) -> list[dict]:
@@ -325,13 +364,13 @@ def render_srt(cues: list[dict]) -> str:
 def translate_captions(cues: list[dict], lang: str) -> list[dict]:
     system = (
         f"Translate documentary narration subtitles into {LANG_NAMES.get(lang, lang)}. Keep each "
-        "cue's meaning and every number exactly; natural spoken style; no additions. Return ONLY "
-        "JSON {\"cues\": [\"...\", ...]} with exactly as many strings as cues given, in order.")
+        "cue's meaning and every number exactly; natural spoken style; no additions. "
+        + DIGITS_RULE + " Return exactly as many cues as given, in order.")
     out = []
     for start in range(0, len(cues), 25):
         batch = cues[start:start + 25]
         reply = _ask(system, json.dumps({"cues": [c["text"] for c in batch]}, ensure_ascii=False),
-                     max_tokens=8000)
+                     CUES_SCHEMA)
         texts = reply.get("cues") or []
         if len(texts) != len(batch):
             raise ValueError(f"{lang}: {len(texts)} caption cues back for {len(batch)} sent")
@@ -428,14 +467,11 @@ def main(argv=None) -> int:
               "languages": dict(previous.get("languages") or {}) if previous.get("video_id") == args.video_id else {}}
     for lang in wanted:
         entry: dict = {}
-        translated = fit_translation(translate_metadata(source["title"], source["description"], lang))
-        problems = check_translation(source, translated)
+        translated, problems = _translated_metadata(source, lang)
         # One retry, then skip the language rather than ship a broken one. Size alone is not
         # retried: fit_translation has already shed all it may, and a new call would not fit.
         if problems and not all(p.startswith("description over") for p in problems):
-            translated = fit_translation(
-                translate_metadata(source["title"], source["description"], lang))
-            problems = check_translation(source, translated)
+            translated, problems = _translated_metadata(source, lang)
         if problems:
             entry["metadata"] = {"skipped": problems}
         else:
