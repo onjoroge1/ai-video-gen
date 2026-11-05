@@ -119,6 +119,7 @@ from retention_readiness import (
     write_readiness_report,
 )
 import opening_retry as _opening_retry
+import story_contract_policy as _lane_policy
 
 
 def _context_map(executor, fn, items):
@@ -2973,6 +2974,21 @@ def _settle_opening_read(script: dict, research_dossier: dict | None, aux_costs:
             log("  The re-read says no sentence states the consequence: a report here, not "
                 "OPENING_CONSEQUENCE_UNSPOKEN -- that finding binds only before media")
     return script
+
+
+def _record_lane_turn(script: dict, log=lambda message: None) -> dict:
+    """The story-contract lane's turn: the structural measure, stamped as a report only.
+
+    No opening read is bought and no revision is made; the blind reviewer's reconstruction
+    already said where the question lands. late_turn is still recorded for the run result.
+    """
+    import opening_turn as _ot
+    if not _ot.script_rule(script):
+        return {}
+    turn = dict(_ot.measure_script(script), report_only=True, lane=_lane_policy.LANE, revised=False)
+    script["_opening_turn"] = turn
+    log(_ot.log_line(turn, "story_contract lane, report only"))
+    return turn
 
 
 def _remeasured_turn(script: dict) -> dict:
@@ -8229,15 +8245,25 @@ def _opening_degraded_reason(record: dict, readiness: dict | None,
     return reason
 
 
-def _stop_if_opening_below_b(record: dict, output_dir: str, log=print) -> None:
+def _stop_if_opening_below_b(record: dict, output_dir: str, log=print,
+                              script: dict | None = None) -> None:
     """Part 2: stop a script-shortfall opening before the later scenes are bought.
 
     Only `script_shortfall` stops. An opening whose re-cut ceiling allows B but whose cuts could
-    not be placed continues with its best attempt and is marked degraded instead.
+    not be placed continues with its best attempt and is marked degraded instead. On the
+    story-contract lane the operator approved the exact narration, so a below-B opening continues
+    and is marked degraded rather than stopped (story_contract_policy).
     """
     if not isinstance(record, dict) or record.get("outcome") != "script_shortfall":
         return
     before = record.get("before") or {}
+    if _lane_policy.opening_below_b_action(script) == "degraded":
+        log(f"⚠ [story_contract lane] the 45-second opening scores {before.get('score')} "
+            f"{before.get('grade')} (re-cut ceiling {record.get('ceiling')}); continuing on the "
+            "approved narration, and the film will be marked degraded")
+        record["continued_below_b"] = True
+        record["lane_policy"] = _lane_policy.LANE
+        return
     if _opening_below_b_allowed():
         log(f"⚠ OPENING_RETRY_ALLOW_BELOW_B=1 — continuing past a {before.get('score')} "
             f"{before.get('grade')} opening (re-cut ceiling {record.get('ceiling')}); the film "
@@ -9514,7 +9540,7 @@ def _prepare_longform_audio(script: dict, dossier: dict, aud_dir: str, voice: st
                 "Measured audio timing failed: "
                 + "; ".join(error["message"] for error in non_runtime[:6])
             )
-        if attempt >= 2 or not _runtime_is_enforced():
+        if attempt >= 2 or not _runtime_is_enforced() or _lane_policy.is_lane(script):
             # Nothing to gain from re-rendering audio to hit an advisory target, and the rewrite
             # would invalidate every binding derived from the narration just measured.
             break
@@ -14755,12 +14781,14 @@ def run_explainer_pipeline(
             rederive_narration_bindings(script, log, research_dossier)
         # Last chance before the gate that measures it. LONG_HOOK was the single remaining
         # failure on an otherwise renderable draft — 19 words against a budget of 18.
-        script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
         # SOFT_HINGE is the same class of failure as LONG_HOOK and reached the gate unrepaired:
         # 13 words against a budget of 10 killed a draft whose research, script, fact-check and
-        # grading were already bought.
-        script, _hinge_cost = _ensure_hinge_fits_budget(
-            script, aux_costs, log, research_dossier)
+        # grading were already bought. Both are engine templates that rewrite narration, so the
+        # story-contract lane (approved word for word) skips them.
+        if _lane_policy.engine_templates_applied(script):
+            script, _hook_cost = _ensure_hook_fits_budget(script, aux_costs)
+            script, _hinge_cost = _ensure_hinge_fits_budget(
+                script, aux_costs, log, research_dossier)
         # Same class as LONG_HOOK / SOFT_HINGE: a sentence-shape miss on a validated draft gets
         # one more bounded edit here, before the gate that measures it -- a replan, the
         # fact-check or the refit may have rewritten the openings since generation.
@@ -14781,8 +14809,13 @@ def run_explainer_pipeline(
                 raise ValueError("Opening names a person the dossier does not: "
                                  + "; ".join(f["message"] for f in _unknown))
             # THE EDITORIAL READ, its one revision and THE TURN, once per narration, before media
-            # (_settle_opening_read).
-            script = _settle_opening_read(script, research_dossier, aux_costs, output_dir, resumed, log)
+            # (_settle_opening_read). The story-contract lane measures the turn as a report only:
+            # no read is bought, no revision rewrites the approved opening.
+            if _lane_policy.turn_report_only(script):
+                _record_lane_turn(script, log)
+            else:
+                script = _settle_opening_read(script, research_dossier, aux_costs, output_dir,
+                                              resumed, log)
         # The evidence plan's callback state is labelled from the contract; equal labels are a
         # rule the planner is asked for and the plan gate enforces. Made true here.
         _align_callback_object(script, log)
@@ -14814,7 +14847,8 @@ def run_explainer_pipeline(
                     len(_span[-1]["situation"].split()) if _span else 0))
             for _w in (storyboard.get("validation") or {}).get("warnings") or []:
                 log(f"  ⚠ [STORYBOARD, advisory] {_w}")
-        if not (storyboard.get("validation") or {}).get("passed"):
+        if (not (storyboard.get("validation") or {}).get("passed")
+                and _lane_policy.engine_templates_applied(script)):
             script, storyboard = _repair_illustrated_storyboard(
                 script, question, research_dossier, output_dir, aux_costs, log)
             scenes = script.get("scenes") or []
@@ -15189,6 +15223,10 @@ def run_explainer_pipeline(
             "Script passed every pre-spend gate and is awaiting operator approval "
             "(stop_after_script). Rerun the same request without stop_after_script to render; "
             "SCRIPT_CACHE=1 reuses this exact script.")
+    # The story-contract lane: TTS and images are bought only on the narration the operator
+    # approved by hash. A stage above that rewrote a word stops here with the new version written
+    # for review (story_contract_policy.check_approved_narration).
+    _lane_policy.check_approved_narration(script, output_dir)
     log("stage:Preparing narration and visual assets...")
     _preflight_verifier_credit(log)
 
@@ -15928,7 +15966,7 @@ def run_explainer_pipeline(
         # so neither the gate render nor its blind judge is bought for an opening the run will
         # refuse, and no armed-lane gate below can ask a person to approve it first. One whose
         # cuts could not be placed continues with its best attempt and is marked degraded below.
-        _stop_if_opening_below_b(opening_retry_record, output_dir, log)
+        _stop_if_opening_below_b(opening_retry_record, output_dir, log, script=script)
         log(f"stage:Rendering 45-second gate ({opening_stop}/{len(scenes)} planned scenes)...")
         try:
             (first_minute_preview_path, opening_metrics, opening_cues,

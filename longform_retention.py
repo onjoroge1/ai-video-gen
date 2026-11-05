@@ -370,8 +370,13 @@ def validate_longform_story(script: dict, question: str = "") -> dict:
         import illustrated_story
         import story_compiler
         import event_functions
+        import story_contract_policy
         compiled = (script.get("_spine") or {}).get("compiled") or {}
-        if (not compiled.get("passed") or not event_functions.map_for(script.get("_story_engine"))
+        # The story-contract lane has no compiled spine: its narration was approved against a
+        # story contract (story_contract_policy), so this compiled-lane artifact is not asked of it.
+        if story_contract_policy.is_lane(script):
+            checks["lane"] = story_contract_policy.LANE
+        elif (not compiled.get("passed") or not event_functions.map_for(script.get("_story_engine"))
                 or any(s.get("_story_compiler_version") != story_compiler.COMPILER_VERSION
                        for s in scenes)):
             errors.append(_issue("unvalidated_compiled_story", "The compiled factual contract is missing or stale."))

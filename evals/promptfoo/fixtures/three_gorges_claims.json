@@ -1,0 +1,117 @@
+{
+ "_note": "14 claims copied verbatim from jobs/three-gorges-contract/research_dossier.json (2026-10-21) with the lane's story_kind; the dam chain plus the unrelated 2020-21 fishing-ban chain",
+ "claims": [
+  {
+   "claim_id": "c01",
+   "claim": "A dam at Three Gorges on the Changjiang (Yangtze) had been considered since the 1930s, and construction was approved by China's National People's Congress in 1992.",
+   "claim_kind": "event",
+   "support_quote": "Three Gorges has been considered for a dam site on the Changjiang since the 1930s. Dam construction was approved by the Chinese National People’s Congress during 1992.",
+   "source_url": "https://www.frontiersin.org/articles/10.3389/feart.2022.1065688",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c02",
+   "claim": "The Three Gorges Dam was first proposed in 1919, but construction did not begin until 1994.",
+   "claim_kind": "event",
+   "support_quote": "The construction of the giant Three Gorges Dam was first proposed in 1919, but construction did not begin until 1994.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC2878251/fullTextXML",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c03",
+   "claim": "The main justification for the dam was flood control, intended to prevent disastrous floods that had occurred roughly every decade along the lower plains of the Yangtze.",
+   "claim_kind": "context",
+   "support_quote": "The main justification for the dam is flood control; by regulating water flow it is designed to prevent disastrous floods that have occurred every decade along the lower plains regions of the Yangtze River.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC3323517/fullTextXML",
+   "story_kind": "interpretation"
+  },
+  {
+   "claim_id": "c05",
+   "claim": "Construction commenced in 1994, the first 700MW generating unit was completed in July 2003, and the project impounded water from June 2003.",
+   "claim_kind": "event",
+   "support_quote": "Construction of the project commenced in 1994 and the first 700MW unit was completed in July 2003.",
+   "source_url": "https://www.nsenergybusiness.com/news/newschina-completes-worlds-largest-hydroelectric-project-050712/",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c21",
+   "claim": "Mean sediment flux at Datong fell from 507 Mt/yr (1950-1968) to 320 Mt/yr before the dam, then to 145 Mt/yr after the dam's closure.",
+   "claim_kind": "outcome",
+   "support_quote": "Sediment flux at Datong between 1950 and 1968 averaged 507 Mt/yr, but after 1968, due to dam construction, it declined to an average of 320 Mt/yr during the pre-TGD decade; after closing of the TGD, it declined to 145 Mt/yr.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC4648474/fullTextXML",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c22",
+   "claim": "Approximately 30% of the total decline in Yangtze sediment flux, and 65% of the decline since 2003, can be attributed to the Three Gorges Dam.",
+   "claim_kind": "mechanism",
+   "support_quote": "Approximately 30% of the total decline and 65% of the decline since 2003 can be attributed to the TGD",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC4648474/fullTextXML",
+   "story_kind": "interpretation"
+  },
+  {
+   "claim_id": "c23",
+   "claim": "Since the dam's completion in 2003, suspended sediment discharge into the estuary fell from about 0.43 billion tons/yr (1950-2000) to less than 0.15 billion tons/yr, a decline of about 70%.",
+   "claim_kind": "outcome",
+   "support_quote": "Since the world's largest river engineering project, the Three Gorges Dam (TGD), was completed in 2003, the suspended sediment discharge from the river into the estuary has been reduced from 0.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC5377575/fullTextXML",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c24",
+   "claim": "Up to 1.73 billion tons of sediment was retained in the Three Gorges Reservoir between June 2003 and December 2014.",
+   "claim_kind": "outcome",
+   "support_quote": "73 × 10 9 t sediment was retained in TGR from June 2003 to December 2014.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC5066318/fullTextXML",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c31",
+   "claim": "Since 2011 the Three Gorges Corporation has carried out ecological reservoir operations to promote the breeding of the four major Chinese carps.",
+   "claim_kind": "event",
+   "support_quote": "Since 2011, the Three Gorges Corporation has also carried out ecological operations to promote the breeding of FMCC, preliminarily solving the problem of the reduction in broodstock and the weakening of rising water processes during spawning periods",
+   "source_url": "https://mdpi-res.com/d_attachment/water/water-10-01487/article_deploy/water-10-01487.pdf",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c42",
+   "claim": "A 10-year fishing ban was launched across the Yangtze River Basin from January 2021 as a major national conservation initiative.",
+   "claim_kind": "event",
+   "support_quote": "a “10-year fishing ban” plan (TYFB) was launched from January 2021.",
+   "source_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC9047000/fullTextXML",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c43",
+   "claim": "Commercial fishing was banned in 332 natural reserves and protection zones along the Yangtze on 1 January 2020, and one year later extended to the main stem and major tributaries.",
+   "claim_kind": "event",
+   "support_quote": "Exactly one year later, the same 10-year fishing ban was extended to the Yangtze River’s main stem and major tributaries.",
+   "source_url": "https://www.sixthtone.com/news/1009065",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c45",
+   "claim": "A 2022 survey found the Yangtze finless porpoise population reached 1,249, up 23.42% from five years earlier, which officials attributed to the 2021 fishing ban.",
+   "claim_kind": "outcome",
+   "support_quote": "the number of Yangtze finless porpoises has reached 1,249, up 23.",
+   "source_url": "https://english.www.gov.cn/statecouncil/ministries/202302/28/content_WS63fdfe52c6d0a757729e761d.html",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c46",
+   "claim": "Before the recovery, the finless porpoise population in the Yangtze mainstream plummeted 64%, from 1,225 in 2006 to 445 in 2017, facing a serious risk of extinction.",
+   "claim_kind": "outcome",
+   "support_quote": "between 2006 and 2017, the porpoise population in the mainstream of the Yangtze plummeted from 1,225 to 445, a drop of 64 percent.",
+   "source_url": "https://www.chinadaily.com.cn/a/202408/13/WS66baae67a3104e74fddb9a63.html",
+   "story_kind": "event"
+  },
+  {
+   "claim_id": "c47",
+   "claim": "A 2025 survey put the Yangtze finless porpoise population at 1,426, up 177 from 2022, a continued recovery since the 2021 fishing ban, though the species remains critically endangered at about half its 1990s numbers.",
+   "claim_kind": "outcome",
+   "support_quote": "The population of the Yangtze finless porpoise, the only freshwater porpoise species in China's longest river, has risen to 1,426 in 2025",
+   "source_url": "https://www.chinadaily.com.cn/a/202601/31/WS697d3fa5a310d6866eb36b4a.html",
+   "story_kind": "event"
+  }
+ ]
+}

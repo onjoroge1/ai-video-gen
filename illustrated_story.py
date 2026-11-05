@@ -394,6 +394,16 @@ def build_storyboard(script: dict, question: str) -> dict:
         "steps": steps,
     }, engine)
 
+    # THE STORY-CONTRACT LANE (story_contract_policy): its narration was approved word for word
+    # against a story contract, not planned from engine roles, so the engine templates -- role
+    # order, escalation count, hinge/hook/close/synthesis shapes, sentence-mix bands -- are
+    # reported, never blocking. The segmenter's integrity checks stay hard.
+    import story_contract_policy as _lane_policy
+    lane_reported: list = []
+    if _lane_policy.is_lane(script):
+        kept, lane_reported = _lane_policy.split_storyboard_issues(causal.get("errors") or [])
+        causal = dict(causal, errors=kept)
+
     # Bring the location count inside the budget BEFORE measuring it. The check stays: a collapse
     # that cannot reach the budget is a real failure and must still stop the run.
     location_moves = collapse_locations(beats)
@@ -446,7 +456,11 @@ def build_storyboard(script: dict, question: str) -> dict:
                                     for w in causal.get("warnings") or []]
                        # The middle and the ending (story_shape, operator 2026-10-17): advisory, so
                        # a film is never stopped for its cadence, but every finding is logged.
-                       + [f"{w['code']}: {w['message']}" for w in story_shape.findings(scenes)]},
+                       # Not applied on the story-contract lane: its contract replaces them.
+                       + ([] if _lane_policy.is_lane(script) else
+                          [f"{w['code']}: {w['message']}" for w in story_shape.findings(scenes)])
+                       + [f"{_lane_policy.REPORT_PREFIX}{w['code']}: {w['message']}"
+                          for w in lane_reported]},
     }
     script["_illustrated_story"] = storyboard
     return storyboard

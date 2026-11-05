@@ -45,3 +45,6 @@ references/transcripts/*.wav
 *\ [0-9].md
 *\ [0-9].txt
 evals/promptfoo/out_*.json
+
+# written by tests/test_verifier_outage_and_phrase_matcher.py on each run
+tests/*.verdict.json

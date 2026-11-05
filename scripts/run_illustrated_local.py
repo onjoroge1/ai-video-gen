@@ -9,6 +9,12 @@ Usage:
         --out jobs/<slug> --duration 300 --max-cost 12
 
 Resume a stopped run with the same --out and --resume.
+
+The story-contract lane (docs/STORY_CONTRACT_LANE.md) runs beside the compiled one:
+    python scripts/run_illustrated_local.py --lane story_contract --question "..." \
+        --out jobs/<slug> --dossier jobs/<other>/research_dossier.json --stop-after script
+It stops for the contract (copy contract.json to contract.approved.json) and for the exact
+narration (--approve-narration <sha256>), then segments it and resumes the existing pipeline.
 """
 import argparse
 import json
@@ -53,6 +59,71 @@ def _add_turn(summary: dict, out: Path) -> None:
         pass
 
 
+def _run_story_contract_lane(args, out: Path, direction: str, log):
+    """The lane's pre-media stages. Returns an exit code when it stops for the operator, or None
+    once the approved narration is segmented into <out>/_state.json for the pipeline to resume."""
+    import shutil
+    import story_contract as sc
+    import usage_ledger
+    usage_ledger.set_job_dir(str(out))
+    pack = None
+    if args.source_pack:
+        import source_pack
+        pack = source_pack.load_pack(args.source_pack)
+    dossier_path = Path(args.dossier).resolve() if args.dossier else out / "research_dossier.json"
+    if dossier_path.is_file():
+        dossier = json.loads(dossier_path.read_text())
+        log(f"story_contract: dossier {dossier_path} ({len(dossier.get('claims') or [])} claims; "
+            "no research bought)")
+        if dossier_path != out / "research_dossier.json":
+            shutil.copyfile(dossier_path, out / "research_dossier.json")
+    else:
+        import explainer_pipeline as ep
+        log("story_contract: no cached dossier; running the existing research")
+        dossier = ep.generate_research_dossier(args.question, duration_sec=args.duration,
+                                               source_pack=pack, log=log)
+        (out / "research_dossier.json").write_text(json.dumps(dossier, indent=1, ensure_ascii=False))
+    lane = sc.LaneRun(question=args.question, output_dir=str(out), duration_sec=args.duration,
+                      direction=direction, dossier=dossier, pack=pack, log=log,
+                      topic_channel=args.topic_channel)
+
+    def stop(status: str, message: str, path: str = "", details: dict | None = None, code: int = 0):
+        result = {"status": status, "lane": sc.LANE, "stop_reason": message, "approval_path": path,
+                  "details": details or {}, "repair_passes_used": lane.budget.used(),
+                  "repair_passes_max": lane.budget.maximum}
+        _add_ledger(result, out)
+        (out / "run_result.json").write_text(json.dumps(result, indent=2, default=str))
+        log(f"story_contract: {status}: {message}")
+        log(f"story_contract: spend so far ${result.get('ledger_total_usd', 0):.4f} "
+            f"{json.dumps(result.get('ledger_by_provider') or {})}")
+        return code
+
+    try:
+        record = lane.run(stop_after=args.stop_after, approve_narration=args.approve_narration)
+        state = lane.segment(record)
+    except sc.LaneStop as exc:
+        return stop(exc.status, str(exc), exc.path, exc.details,
+                    code=3 if isinstance(exc, sc.ContractInvalid) else 0)
+    state_path = out / "_state.json"
+    if state_path.is_file():
+        try:
+            prior = json.loads(state_path.read_text()).get("script") or {}
+        except ValueError:
+            prior = {}
+        meta = prior.get("_story_contract_lane") or {}
+        if meta.get("approved_narration_sha256") != record["sha256"]:
+            backup = out / f"_state.pre_story_contract_{time.strftime('%Y%m%d_%H%M%S')}.json"
+            shutil.copyfile(state_path, backup)
+            log(f"story_contract: kept the previous checkpoint as {backup.name}")
+        else:
+            log("story_contract: checkpoint already holds this approved narration; resuming it")
+            return None
+    state_path.write_text(json.dumps(state, ensure_ascii=False))
+    log(f"story_contract: segmented {len(state['script']['scenes'])} scenes (words unchanged) -> "
+        f"{state_path}; resuming the pipeline on the approved narration")
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--question", required=True)
@@ -88,9 +159,19 @@ def main() -> int:
     parser.add_argument("--source-pack", default="",
                         help="slug (topics/source_packs/<slug>.json) or path of an operator source pack: "
                              "primary documents research fetches itself and quotes verbatim (source_pack.py)")
-    parser.add_argument("--stop-after", choices=("plan", "script"), default="",
+    parser.add_argument("--stop-after", choices=("plan", "contract", "script"), default="",
                         help="plan: write plan.json/plan_for_approval.md and stop (copy to "
-                             "plan.approved.json to approve); script: stop after the narration")
+                             "plan.approved.json to approve); script: stop after the narration. "
+                             "story_contract lane: contract (= plan) stops at the story contract, "
+                             "script at the narration for approval")
+    parser.add_argument("--lane", choices=("compiled", "story_contract"), default="compiled",
+                        help="compiled: the engine lane (default, unchanged); story_contract: the "
+                             "contract-first lane beside it (story_contract.py)")
+    parser.add_argument("--dossier", default="",
+                        help="story_contract lane: a cached research_dossier.json to plan from (no "
+                             "research spend); default <out>/research_dossier.json, else research runs")
+    parser.add_argument("--approve-narration", default="",
+                        help="story_contract lane: approve the narration with this exact sha256")
     args = parser.parse_args()
 
     if args.engine:
@@ -137,7 +218,14 @@ def main() -> int:
             handle.write(line + "\n")
 
     log(f"launch question={args.question!r} duration={args.duration} cap=${args.max_cost:.2f} "
-        f"resume={args.resume} out={out}")
+        f"resume={args.resume} out={out}" + (f" lane={args.lane}" if args.lane != "compiled" else ""))
+    if args.lane == "story_contract":
+        stopped = _run_story_contract_lane(args, out, direction, log)
+        if stopped is not None:
+            return stopped
+        args.resume = True        # continue from the segmented _state.json
+    elif args.stop_after == "contract":
+        parser.error("--stop-after contract is for --lane story_contract (use plan)")
     started = time.time()
     try:
         result = ep.run_explainer_pipeline(
