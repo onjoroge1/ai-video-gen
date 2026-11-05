@@ -46,18 +46,18 @@ def test_spoken_numbers_reads_compounds_the_way_a_narrator_says_them():
 
 def test_title_is_a_story_sentence_and_numbers_are_spoken():
     """v3 (2026-10-11): a plain sentence and a turn, not the "The <X> Mistake That <Y>" label."""
-    assert bp.title_valid("Australia Released 102 Toads to Save Its Sugar. Big Mistake.", TRANSCRIPT)
-    assert bp.title_valid("Queensland Brought In Toads to Eat Beetles (Then They Spread)", TRANSCRIPT)
+    assert bp.story_title_valid("Australia Released 102 Toads to Save Its Sugar. Big Mistake.", TRANSCRIPT)
+    assert bp.story_title_valid("Queensland Brought In Toads to Eat Beetles (Then They Spread)", TRANSCRIPT)
     # The old label formula is refused now, with or without a valid number.
-    assert not bp.title_valid("The 102-Toad Mistake That Poisoned Australia's Predators", TRANSCRIPT)
+    assert not bp.story_title_valid("The 102-Toad Mistake That Poisoned Australia's Predators", TRANSCRIPT)
     # A number the narration never speaks is the same defect as an unsupported claim.
-    assert not bp.title_valid("Australia Released 3,000 Toads. Big Mistake.", TRANSCRIPT)
+    assert not bp.story_title_valid("Australia Released 3,000 Toads. Big Mistake.", TRANSCRIPT)
     # Shape, punctuation and length are hard rules.
-    assert not bp.title_valid("Why Cane Toads Backfired", TRANSCRIPT)
-    assert not bp.title_valid("Toads: Why It Backfired. Badly.", TRANSCRIPT)
-    assert not bp.title_valid("Did the Toads Backfire? Yes.", TRANSCRIPT)
-    assert not bp.title_valid("Australia " + "Really " * 12 + "Released Toads. Oops.", TRANSCRIPT)
-    assert not bp.title_valid("", TRANSCRIPT)
+    assert not bp.story_title_valid("Why Cane Toads Backfired", TRANSCRIPT)
+    assert not bp.story_title_valid("Toads: Why It Backfired. Badly.", TRANSCRIPT)
+    assert not bp.story_title_valid("Did the Toads Backfire? Yes.", TRANSCRIPT)
+    assert not bp.story_title_valid("Australia " + "Really " * 12 + "Released Toads. Oops.", TRANSCRIPT)
+    assert not bp.story_title_valid("", TRANSCRIPT)
 
 
 def test_headline_is_per_film_with_a_fixed_fallback():
@@ -338,3 +338,46 @@ def test_headline_sits_on_a_dark_band_in_the_consequence_panel(tmp_path):
     # The left panel and the lower right panel are untouched.
     for spot in ((40, 8), (1200, 650)):
         assert abs(sum(banded.convert("RGB").getpixel(spot)) - sum(plain.convert("RGB").getpixel(spot))) < 12
+
+
+LIONFISH = ("Florida would like you to eat an invasion. Lionfish are native to the Indo-Pacific. "
+            "The aquarium trade is the most likely way they reached the Atlantic. The 2026 Lionfish "
+            "Challenge removed a record 36,187 fish.")
+
+
+def test_field_guide_series_titles_are_the_default(monkeypatch):
+    """Operator 2026-11-05: animal films are numbered Field Guide entries with a "you" title."""
+    monkeypatch.delenv("WORLD_TITLE_SERIES", raising=False)
+    assert bp.title_series() == "field_guide"
+    assert bp.title_valid("Why You Can Now Meet A Lionfish In Florida", LIONFISH)
+    assert bp.title_valid("Why You Can Now Meet A Lionfish In The Atlantic", LIONFISH)
+    # The v3 sentence shape is refused under the series default.
+    assert not bp.title_valid("Florida Hunted 36,187 Lionfish. They Kept Breeding.", LIONFISH)
+    monkeypatch.setenv("WORLD_TITLE_SERIES", "story")
+    assert bp.title_valid("Florida Hunted 36,187 Lionfish. They Kept Breeding.", LIONFISH)
+
+
+def test_field_guide_title_shapes_and_grounding():
+    wolves = "Wolves were killed off in Yellowstone. In 1995 people brought wolves back to Yellowstone."
+    thylacine = "The thylacine was hunted for a bounty until the last one died."
+    axolotl = "A wild axolotl lives only in the canals of Xochimilco."
+    elephants = "After the war many elephants were born with no tusks."
+    assert bp.series_title_valid("Why You Can Meet A Wolf In Yellowstone Again", wolves)
+    assert bp.series_title_valid("Why You'll Never Meet A Thylacine", thylacine)
+    assert bp.series_title_valid("Why You'll Probably Never Meet A Wild Axolotl", axolotl)
+    assert bp.series_title_valid("Why You Can Now Meet An Elephant With No Tusks", elephants)
+    # Article agreement.
+    assert not bp.series_title_valid("Why You Can Now Meet A Elephant With No Tusks", elephants)
+    assert not bp.series_title_valid("Why You'll Never Meet An Thylacine", thylacine)
+    # "Again" only on a return; a bare "Can Meet" needs "Again".
+    assert not bp.series_title_valid("Why You'll Never Meet A Thylacine Again", thylacine)
+    assert not bp.series_title_valid("Why You Can Meet A Wolf In Yellowstone", wolves)
+    # Every content word is spoken: no animal or place the film never names.
+    assert not bp.series_title_valid("Why You Can Now Meet A Lionfish In Texas", LIONFISH)
+    assert not bp.series_title_valid("Why You'll Never Meet A Tasmanian Tiger", thylacine)
+    # Their slot, questions, punctuation and length are refused.
+    assert not bp.series_title_valid("Why You'd Never Want To Meet A Lionfish", LIONFISH)
+    assert not bp.series_title_valid("Why You Can Now Meet A Lionfish In Florida?", LIONFISH)
+    assert not bp.series_title_valid("why you can now meet a lionfish in florida", LIONFISH)
+    assert not bp.series_title_valid("Why You Can Now Meet A Lionfish In " + "Florida " * 8, LIONFISH)
+    assert not bp.series_title_valid("", LIONFISH)
