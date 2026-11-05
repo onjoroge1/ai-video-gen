@@ -87,3 +87,34 @@ def test_lead_is_restored_after_a_pass_dropped_it():
     assert any(r["claim_id"] == "c14" for r in script["scenes"][0]["claim_refs"])
     assert not ep._ensure_lead_spoken(script)          # idempotent: nothing to change the second time
     assert script["scenes"][0]["narration"] == first
+
+
+def test_hook_that_opens_the_first_sentence_is_not_spoken_twice():
+    """Wild pigs (2026-10-23): hook "On a Monday" before "On a Monday in July 2026, ..." was
+    prepended as its own sentence and the film opened "On a Monday. On a Monday in July..."."""
+    scenes = [{"narration": "On a Monday in July 2026, a hog crossed an office-park lawn.",
+               "chapter": 1},
+              {"narration": "In 1769 the first pigs arrived.", "chapter": 1}]
+    cs.finalize_narration(scenes, hook="On a Monday")
+    first = scenes[0]["narration"]
+    assert first == "On a Monday in July 2026, a hog crossed an office-park lawn."
+    cs.finalize_narration(scenes, hook="On a Monday")
+    assert scenes[0]["narration"] == first, "a second pass changes nothing"
+
+    with_cold_open = [{"narration": "On a Monday in July 2026, a hog crossed a lawn.",
+                       "chapter": 1}]
+    cs.finalize_narration(with_cold_open, hook="On a Monday.",
+                          cold_open="the sprinklers came up full of mud")
+    first = with_cold_open[0]["narration"]
+    assert first == ("The sprinklers came up full of mud. "
+                     "On a Monday in July 2026, a hog crossed a lawn.")
+    assert first.casefold().count("on a monday") == 1
+    cs.finalize_narration(with_cold_open, hook="On a Monday.",
+                          cold_open="the sprinklers came up full of mud")
+    assert with_cold_open[0]["narration"] == first
+
+
+def test_hook_matching_only_part_of_a_word_is_still_spoken():
+    scenes = [{"narration": "On a Mondayish afternoon a hog crossed the lawn.", "chapter": 1}]
+    cs.finalize_narration(scenes, hook="On a Monday")
+    assert scenes[0]["narration"].startswith("On a Monday. On a Mondayish")

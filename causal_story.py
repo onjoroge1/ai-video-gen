@@ -2058,8 +2058,16 @@ def finalize_narration(scenes: list[dict], hook: str = "", format_tag: str = "",
                 # Promise, then the damage, then the (optional) tag. The cold open is the
                 # aftermath sentence the planner wrote; it puts a visible consequence inside the
                 # first ten seconds instead of after the setup.
-                lead = " ".join(p for p in (_sentence(hook), _sentence(cold_open),
-                                            _sentence(format_tag)) if p).strip()
+                # A hook that is already the opening words of the scene's first sentence ("On a
+                # Monday" before "On a Monday in July 2026, ...") is spoken; prepending it as its
+                # own sentence made the film open "On a Monday. On a Monday in July..." (wild
+                # pigs, 2026-10-23).
+                hook_core = _text(hook).rstrip(".").strip()
+                hook_spoken = bool(hook_core) and bool(
+                    re.match(re.escape(hook_core) + r"\b", body, re.IGNORECASE))
+                lead = " ".join(p for p in ("" if hook_spoken else _sentence(hook),
+                                            _sentence(cold_open), _sentence(format_tag))
+                                if p).strip()
             marker = _spoken(chapter) if is_chapter_opener and speaks_chapter_markers() else ""
             wanted = " ".join(part for part in (lead, marker, body) if part).strip()
             if wanted != narration:
