@@ -355,6 +355,13 @@ def score_retention_readiness(
         hard_failures.append("long_visual_hold")
     if same_source_hard:
         hard_failures.append("same_source_jump_cuts")
+    # One picture held under several camera moves is still one picture (longform_shots).
+    if "max_picture_seconds" in shot_metrics and (
+            float(shot_metrics.get("max_picture_seconds") or 0)
+            > float(shot_metrics.get("picture_hold_ceiling_seconds") or 6.0)
+            or float(shot_metrics.get("max_opening_picture_seconds") or 0)
+            > float(shot_metrics.get("opening_picture_hold_ceiling_seconds") or 4.0)):
+        hard_failures.append("long_picture_hold")
     if hard_failures:
         graded = min(graded, 69)
     if graded >= 90:
