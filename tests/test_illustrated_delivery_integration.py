@@ -171,10 +171,13 @@ def fixture_story():
     script['_story_contract']['final_callback_object'] = 'the workshop table'
     claims, citations = [], []
     for index, scene in enumerate(script['scenes']):
-        # Unique words prevent an artificial repeated anchor from matching twice.
+        # Unique words prevent an artificial repeated anchor from matching twice. Spelled in
+        # letters: the content-word gates read [a-z]+ runs, so 'workshop3word7' was the pair
+        # {workshop, word} in every scene and DUPLICATE_NARRATION rightly refused the script.
         if scene['causal_role'] not in {'hinge', 'tool'}:
             count = max(10, len(scene['narration'].split()))
-            scene['narration'] = ' '.join(f'workshop{index}word{n}' for n in range(count)) + '.'
+            scene['narration'] = ' '.join('token' + chr(97 + index) + chr(97 + n // 26)
+                                          + chr(97 + n % 26) for n in range(count)) + '.'
         text = scene['narration']
         scene['image_prompt'] = 'A red workshop table with a visibly changing counter.'
         scene['mascot_present'] = index == 0
@@ -285,6 +288,10 @@ def test_illustrated_request_survives_restart_and_delivers_mp4(monkeypatch, tmp_
     # The chamber score is opt-in since the 2026-10-07 flow validation (narration only by
     # default); this test still exercises the locally composed bed end to end.
     monkeypatch.setenv('ILLUSTRATED_MUSIC', '1')
+    # Token narration cannot earn a B on the opening's craft grade (it scores 62 D), and the
+    # below-B stop is pinned in test_opening_retry. The override keeps the retry deciding,
+    # recording and replaying across the restart; the film is delivered as degraded.
+    monkeypatch.setenv('OPENING_RETRY_ALLOW_BELOW_B', '1')
     # Explicitly retain the deployed sourcing and illustrated gate defaults.
     for name in ('ILLUSTRATED_STORYBOARD_HARD', 'CLAIM_LEDGER_HARD', 'LONGFORM_RESEARCH_MODE',
                  'DIAGNOSTIC_RENDER', 'RUNTIME_HARD'):

@@ -88,6 +88,18 @@ MUTATIONS = {
     "MULTI_SENTENCE_HOOK": lambda s: s["hook"].update(line="One thing. Two things."),
     "SUBJECT_NOT_WITHHELD": lambda s: s["hook"].update(line="How the cobras got much worse."),
     "SUBJECT_NEVER_PAID_OFF": lambda s: s["hook"].update(withheld_subject="zebras"),
+    # The cold open is held only when the hook declares it; the cobra reference declares none and
+    # must keep validating, so each mutation sets the flag and breaks one shape rule. The clean
+    # control below proves the flag alone fires none of the last four.
+    "COLD_OPEN_MISSING":   lambda s: s["hook"].update(require_cold_open=True),
+    "LONG_COLD_OPEN":      lambda s: s["hook"].update(require_cold_open=True,
+                                                      cold_open=" ".join(["word"] * 23)),
+    "MULTI_SENTENCE_COLD_OPEN": lambda s: s["hook"].update(
+        require_cold_open=True, cold_open="The streets are empty. The cages are full."),
+    "COLD_OPEN_META":      lambda s: s["hook"].update(require_cold_open=True,
+                                                      cold_open="In this video, a cobra farm burns."),
+    "COLD_OPEN_RESTATES_HOOK": lambda s: s["hook"].update(require_cold_open=True,
+                                                          cold_open=s["hook"]["line"]),
     "SOFT_HINGE":          lambda s: s["steps"][3].update(situation=" ".join(["word"] * 25)),
     "HINGE_IS_A_QUESTION": lambda s: s["steps"][3].update(situation="So which one was it?"),
     "HINGE_IS_A_SIGNPOST": lambda s: s["steps"][3].update(situation="Here is the thing."),
@@ -195,6 +207,13 @@ MUTATIONS = {
 def test_the_reference_fixture_is_clean():
     """Every mutation below is measured against this, so it must start with zero errors."""
     assert _codes(_base()) == set()
+
+
+def test_a_well_formed_cold_open_is_clean():
+    """The cold-open mutations must fire on the sentence they break, not on the flag they set."""
+    assert _codes(_mutate(lambda s: s["hook"].update(
+        require_cold_open=True,
+        cold_open="Freed cobras crawl from a burned breeding farm into the street."))) == set()
 
 
 @pytest.mark.parametrize("code", sorted(MUTATIONS))
