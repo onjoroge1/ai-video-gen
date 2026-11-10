@@ -1,6 +1,10 @@
 """Localized metadata keeps every number, link and chapter; subtitles keep their timings."""
+import json
 import os
 import sys
+import types
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import localize_video as lv  # noqa: E402
@@ -166,7 +170,7 @@ def test_subtitles_in_decimal_comma_languages_keep_their_numbers(monkeypatch):
     replies = {"de": ["Heimat von rund 1,5 Millionen Menschen", "und 60.000 Arbeitsplätze"],
                "fr": ["qui abritait environ 1,5 million de personnes", "et 60 000 emplois"]}
     for lang, texts in replies.items():
-        monkeypatch.setattr(lv, "_ask", lambda system, user, max_tokens=0, t=texts: {"cues": t})
+        monkeypatch.setattr(lv, "_ask", lambda system, user, schema, t=texts: {"cues": t})
         assert [c["text"] for c in lv.translate_captions(cues, lang)] == texts
     monkeypatch.setattr(lv, "_ask", lambda *a, **k: {"cues": ["rund 15 Millionen", "und 60.000"]})
     try:
@@ -307,10 +311,11 @@ class _FakeLocalizeYouTube:
         self.updates.append(body)
         return self
 
+    def execute(self):
+        return {}
 
-def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_path, monkeypatch):
-    import types
-    yt = _FakeLocalizeYouTube("Short English.")
+
+def _stub_google(monkeypatch, yt):
     monkeypatch.setitem(sys.modules, "dotenv", types.SimpleNamespace(load_dotenv=lambda *a, **k: None))
     monkeypatch.setitem(sys.modules, "youtube_upload", types.SimpleNamespace(_creds=lambda ch: None))
     monkeypatch.setitem(sys.modules, "googleapiclient", types.ModuleType("googleapiclient"))
@@ -318,12 +323,113 @@ def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_
                         types.SimpleNamespace(build=lambda *a, **k: yt))
     monkeypatch.setitem(sys.modules, "googleapiclient.http",
                         types.SimpleNamespace(MediaIoBaseUpload=None))
+
+
+def test_a_translation_over_the_byte_limit_is_skipped_without_a_second_call(tmp_path, monkeypatch):
+    yt = _FakeLocalizeYouTube("Short English.")
+    _stub_google(monkeypatch, yt)
     calls = []
     monkeypatch.setattr(lv, "translate_metadata", lambda title, desc, lang: calls.append(lang) or {
         "title": "T", "description": "क" * 1700})
     assert lv.main(["VID", "--job", str(tmp_path), "--langs", "hi", "--no-captions", "--dry-run"]) == 0
     assert calls == ["hi"], "a size-only failure is not retried"
-    import json
     record = json.loads((tmp_path / "localizations.json").read_text())
     assert record["languages"]["hi"]["metadata"]["skipped"][0].startswith("description over")
     assert not yt.updates
+
+
+# --- the pythons film, 2026-10-19 -----------------------------------------------------------------
+
+QUOTED = ("📍 PEOPLE & PLACES IN THIS FILM\nBob McCleery — Robert McCleery, a wildlife ecologist at the "
+          "University of Florida, said: \"We want to capture all of the processes that an actual "
+          "rabbit would give off.\"")
+
+
+class _FakeMessages:
+    """messages.create that records each request and answers with the next scripted reply."""
+
+    def __init__(self, *replies):
+        self.replies, self.requests = list(replies), []
+
+    def create(self, **request):
+        self.requests.append(request)
+        text, stop = self.replies.pop(0)
+        return types.SimpleNamespace(
+            stop_reason=stop, usage=types.SimpleNamespace(output_tokens=request["max_tokens"]),
+            content=[types.SimpleNamespace(type="thinking", thinking=""),
+                     types.SimpleNamespace(type="text", text=text)])
+
+
+def _fake_client(monkeypatch, *replies):
+    messages = _FakeMessages(*replies)
+    monkeypatch.setattr(lv, "_client", lambda: types.SimpleNamespace(messages=messages))
+    return messages
+
+
+def test_a_quoted_description_comes_back_through_a_schema_and_keeps_its_quotation(monkeypatch):
+    italian = ("📍 PERSONE E LUOGHI IN QUESTO FILM\nBob McCleery — Robert McCleery, ecologo della "
+               "fauna selvatica all'Università della Florida, ha detto: \"Vogliamo riprodurre tutti "
+               "i processi che emetterebbe un coniglio vero.\"")
+    reply = json.dumps({"title": "Perché la Florida costruisce conigli robot?", "description": italian},
+                       ensure_ascii=False)
+    messages = _fake_client(monkeypatch, (reply, "end_turn"))
+    out = lv.translate_metadata("Why Is Florida Building Robot Rabbits?", QUOTED, "it")
+    assert out["description"] == italian and '"Vogliamo' in out["description"]
+    request = messages.requests[0]
+    # The reply is held to this schema, so the API escapes the quotation's quotes itself.
+    assert request["output_config"]["format"] == {"type": "json_schema", "schema": lv.METADATA_SCHEMA}
+    assert request["max_tokens"] >= 16000
+    assert json.loads(request["messages"][0]["content"])["description"] == QUOTED
+    assert "four digits" in request["system"]
+    assert lv.check_translation({"title": "T", "description": QUOTED},
+                                {"title": "T", "description": italian}) == []
+
+
+def test_a_reply_cut_off_at_max_tokens_is_reported_as_cut_off_not_as_bad_json(monkeypatch):
+    # Hindi, 2026-10-19: every output token spent and the description string never closed.
+    cut = '{"title": "फ़्लोरिडा रोबोट खरगोश क्यों बना रहा है?", "description": "बर्मीज़ अजगर'
+    _fake_client(monkeypatch, (cut, "max_tokens"))
+    with pytest.raises(lv.ReplyCutOff, match="max_tokens after 16000 of 16000 output tokens"):
+        lv.translate_metadata("T", QUOTED, "hi")
+
+
+def test_a_language_whose_reply_is_cut_off_twice_is_skipped_and_the_rest_still_go_out(tmp_path, monkeypatch):
+    yt = _FakeLocalizeYouTube("Short English.")
+    _stub_google(monkeypatch, yt)
+    calls = []
+
+    def translate(title, description, lang):
+        calls.append(lang)
+        if lang == "hi":
+            raise lv.ReplyCutOff("reply stopped early: max_tokens after 16000 of 16000 output tokens")
+        return {"title": "T-it", "description": "Breve."}
+    monkeypatch.setattr(lv, "translate_metadata", translate)
+    assert lv.main(["VID", "--job", str(tmp_path), "--langs", "hi,it", "--no-captions"]) == 0
+    assert calls == ["hi", "hi", "it"], "a cut-off reply gets the one retry, then the run moves on"
+    record = json.loads((tmp_path / "localizations.json").read_text())
+    assert record["languages"]["hi"]["metadata"]["skipped"][0].startswith("translation failed: ReplyCutOff")
+    assert record["languages"]["it"]["metadata"]["title"] == "T-it"
+    [update] = yt.updates
+    assert update["localizations"]["it"]["title"] == "T-it" and "hi" not in update["localizations"]
+
+
+def test_subtitles_are_asked_for_four_digit_years_and_a_shortened_decade_is_still_refused(monkeypatch):
+    cues = [{"index": "1", "time": "00:00:00,000 --> 00:00:34,080",
+             "text": "Released pets brought them there by the mid-1980s."}]
+    asked = []
+
+    def answer(text):
+        return lambda system, user, schema: asked.append((system, schema)) or {"cues": [text]}
+    monkeypatch.setattr(lv, "_ask", answer("Animali domestici liberati li portarono lì entro la "
+                                           "metà degli anni 1980."))
+    assert lv.translate_captions(cues, "it")[0]["text"].endswith("anni 1980.")
+    system, schema = asked[0]
+    assert "four digits" in system and "never 'anni '80'" in system and schema is lv.CUES_SCHEMA
+    for kept in ("Mitte der 1980er Jahre", "au milieu des années 1980", "1980 के दशक के मध्य तक",
+                 "१९८० के दशक के मध्य तक"):
+        assert lv.lost_numbers(cues[0]["text"], kept) == [], kept
+    # The check stays strict: the decade written short is a lost number.
+    for short in ("entro la metà degli anni '80.", "entro la metà degli anni ottanta."):
+        monkeypatch.setattr(lv, "_ask", answer(short))
+        with pytest.raises(ValueError, match=r"cue 1 lost a number \['1980'\]"):
+            lv.translate_captions(cues, "it")
