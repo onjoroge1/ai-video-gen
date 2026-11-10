@@ -95,6 +95,18 @@ def _opening_scene_count(scenes: list[dict], ladder: bool = False) -> int:
             None)
         if first_mechanism:
             count = min(count, first_mechanism)
+    # The opening also ends where the story leaves the first-act location. Wild pigs
+    # (2026-10-23): a present-day cold open (an office-park lawn) followed by 1769 and the 1920s
+    # pinned all three historical scenes to the office park -- the verifier required it -- and
+    # the 1920s boxcar, the Smoky Mountains cabin and the Ural boar were drawn beside a parking
+    # lot. A scene that declares a different environment is not in the first act.
+    first_env = _text(scenes[0].get("environment_type"))
+    if first_env:
+        moved = next((index for index, scene in enumerate(scenes[1:count], 1)
+                      if _text(scene.get("environment_type"))
+                      and _text(scene.get("environment_type")) != first_env), None)
+        if moved:
+            count = moved
     return count
 
 
