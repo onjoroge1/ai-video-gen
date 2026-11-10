@@ -439,7 +439,7 @@ def run_result_fields(script: dict | None) -> dict:
     keep = ("applies", "turn_words", "est_sec", "measured_sec", "source", "shape", "scene",
             "quote", "late", "limit_words", "target_words", "revised", "locator",
             "quote_turn_words", "quote_scene", "consequence_spoken", "read_quote",
-            "pushed_late_by_repair", "resumed_read_none")
+            "pushed_late_by_repair", "resumed_read_none", "report_only", "lane")
     return {"opening_turn": {k: turn.get(k) for k in keep if k in turn},
             "late_turn": late_turn_record(turn)}
 

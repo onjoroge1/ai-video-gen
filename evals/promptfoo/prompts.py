@@ -58,3 +58,21 @@ def template(context: dict) -> list[dict]:
                           operator_direction=v.get("direction") or "")
     return [{"role": "system", "content": st._SYSTEM},
             {"role": "user", "content": user}]
+
+
+def _text_fixture(name: str) -> str:
+    with open(os.path.join(HERE, "fixtures", name), encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
+def story_reviewer(context: dict) -> list[dict]:
+    """The story-contract lane's reviewer, ranking narrations of one commission.
+
+    vars.narrations: fixture file names in presentation order (labelled A, B, C...)."""
+    import story_contract as sc
+    v = context.get("vars") or {}
+    names = v["narrations"] if isinstance(v.get("narrations"), list) else str(v["narrations"]).split(",")
+    user = sc.rank_prompt(v["question"], [_text_fixture(n.strip()) for n in names],
+                          int(v.get("duration") or 300))
+    return [{"role": "system", "content": sc.REVIEW_B_SYSTEM},
+            {"role": "user", "content": user}]
