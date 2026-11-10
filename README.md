@@ -180,6 +180,30 @@ once with `DATABASE_URL` set to seed the metadata table. A first render also cre
 row automatically. `MUSIC_<MOOD>_URL` and `MUSIC_<MOOD>_SHA256` can point a track at Vercel Blob or
 another CDN without a code change.
 
+## Submitting your own research and script (spec import)
+
+When you already have the research and the narration (for example a ChatGPT rewrite), ReelForge can
+check it and make the video without writing anything itself:
+
+1. Copy `topics/specs/TEMPLATE.md` to `topics/specs/<slug>.md`. Fill in the decision, the documented
+   consequence, the dated sign that it is still unfolding, the question, the ending answer, the human,
+   the claims we cannot make, and the full narration. Give every factual sentence its source URL and
+   the exact quote from that page.
+2. Run the check. It fetches every cited page itself and makes no provider calls, so it costs nothing:
+   `python3 scripts/import_spec.py topics/specs/<slug>.md --out jobs/<slug>`
+3. Read `jobs/<slug>/verification_report.md`. Each sentence is marked ✅ supported, ⚠ paraphrased or
+   recovered, ❌ not on the page or 🚫 page unreachable. The report also gives the World consequence
+   verdict and the voice metrics. ReelForge never rewrites your narration: a failing line gets a
+   suggestion in the report, and you edit the spec and run the check again.
+4. When the report says **Ready to approve: YES**, approve that exact narration by its hash, with a hard
+   cost ceiling:
+   `python3 scripts/import_spec.py topics/specs/<slug>.md --out jobs/<slug> --approve <sha256> --max-cost 6`
+   This builds the research dossier and the pipeline state, then resumes the normal render. The claim
+   ledger, storyboard, TTS, images and render all run unchanged, and the claim ledger stays hard.
+
+`topics/specs/lionfish-v2.md` is a worked example. All its quotes verify, but it fails the consequence
+check, as the operator ruled. The full format is in [docs/SPEC_IMPORT.md](docs/SPEC_IMPORT.md).
+
 ## Topic ROI v2
 
 Topic research is aligned to three Bolt lanes—Earth, Physics, and Space—and generates separate Short
