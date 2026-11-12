@@ -32,7 +32,7 @@ FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 )
 COLORS = {"red": (214, 40, 40), "green": (60, 190, 90), "orange": (222, 110, 40), "white": (255, 255, 255),
-          "gold": (255, 200, 70)}
+          "gold": (255, 200, 70), "dim": (70, 70, 76)}
 CARD_BG = {"dark": (12, 12, 14, 225), "red": (214, 40, 40, 240), "tag": (12, 12, 14, 170)}
 
 
@@ -74,7 +74,9 @@ class Words:
             off += dur
         return cls(out, texts)
 
-    def find(self, ref: str) -> float:
+    def find(self, ref: str, after: float | None = None) -> float:
+        """Start of a spoken word/phrase. "word#n" counts from the top of the film; a plain word
+        means the first occurrence at or after `after` (the shot being written)."""
         m = re.fullmatch(r"\s*([^#+\-]+?)(?:#(\d+))?\s*([+-]\s*[\d.]+)?\s*", ref)
         if not m:
             raise SpecError(f"bad time reference {ref!r}")
@@ -82,10 +84,13 @@ class Words:
         if not toks:
             raise SpecError(f"bad time reference {ref!r}")
         nth = int(m.group(2) or 1)
+        floor = after if (after is not None and not m.group(2)) else None
         delta = float(m.group(3).replace(" ", "")) if m.group(3) else 0.0
         seen = 0
         for i in range(len(self.words) - len(toks) + 1):
             if [w[0] for w in self.words[i:i + len(toks)]] == toks:
+                if floor is not None and self.words[i][1] < floor - 0.02:
+                    continue
                 seen += 1
                 if seen == nth:
                     return round(self.words[i][1] + delta, 3)
@@ -101,7 +106,7 @@ class Words:
         return any(a - window <= t <= b + window and tok in tokens(txt) for a, b, txt in self.texts)
 
 
-def resolve_time(v, words: Words | None, shot_start: float | None = None) -> float:
+def resolve_time(v, words: Words | None, shot_start: float | None = None, after: float | None = None) -> float:
     if isinstance(v, (int, float)):
         return float(v)
     if isinstance(v, str) and v.strip().startswith("+"):
@@ -110,7 +115,7 @@ def resolve_time(v, words: Words | None, shot_start: float | None = None) -> flo
         return shot_start + float(v.strip()[1:])
     if words is None:
         raise SpecError(f"word time {v!r} needs narration word timings")
-    return words.find(str(v))
+    return words.find(str(v), after if after is not None else shot_start)
 
 
 def media_duration(path: str) -> float:
@@ -179,7 +184,10 @@ class Renderer:
 
     # -- layout
     def _layout(self, shots: list[dict]) -> list[dict]:
-        starts = [resolve_time(s["start"], self.words) for s in shots]
+        starts, prev = [], None
+        for s in shots:
+            prev = resolve_time(s["start"], self.words, after=prev)
+            starts.append(prev)
         if not starts or abs(starts[0] - self.start) > 1e-6:
             raise SpecError("the first shot must start at audio.start")
         out = []
@@ -208,11 +216,23 @@ class Renderer:
                             if k in r:
                                 r["_" + k] = resolve_time(r[k], self.words, t0)
                         r["_build"] = [resolve_time(x, self.words, t0) for x in r["build"]]
+                if o.get("type") == "chart":
+                    for pnt in o["points"]:
+                        pnt["_at"] = resolve_time(pnt["at"], self.words, None, after=0.0)
+                if o.get("type") == "dots":
+                    o["_build"] = [resolve_time(x, self.words, None, after=0.0) for x in o["build"]]
+                    for st in o.get("states", []):
+                        st["_at"] = resolve_time(st["at"], self.words, None, after=0.0)
+                if o.get("type") == "bars":
+                    o["rows"] = [dict(r) for r in o["rows"]]
+                    for r in o["rows"]:
+                        r["_at"] = resolve_time(r.get("at", o["_at"]), self.words, t0)
                 if o.get("type") == "path" and "label" in o:
                     o["label"]["_at"] = resolve_time(o["label"].get("at", o.get("at", t0)), self.words, t0)
                 ovs.append(o)
             out.append({"name": s.get("name", f"shot{i + 1}"), "t0": t0, "t1": t1, "bg": segs, "overlays": ovs,
-                        "vignette": s.get("vignette", 0), "carry": s.get("carry", [])})
+                        "vignette": s.get("vignette", 0), "carry": s.get("carry", []),
+                        "shows": s.get("shows")})
         return out
 
     # -- camera
@@ -425,8 +445,92 @@ class Renderer:
                          (mid[0], mid[1] + lb.get("dy", -40)), t - lb["_at"], "cc")
         elif typ == "icon_rows":
             self.icon_rows(f, d, o, t)
+        elif typ == "chart":
+            self.chart(f, d, o, t)
+        elif typ == "dots":
+            self.dots(f, d, o, t)
+        elif typ == "statement":
+            self.statement(f, o, age, fade)
+        elif typ == "bars":
+            self.bars(f, d, o, t)
         else:
             raise SpecError(f"unknown overlay type {typ!r}")
+
+    def statement(self, f, o, age, fade):
+        """One or two spoken words filling the frame over a darkened picture: the answer to a
+        question the narration just asked ("SQUID.", "YES."). Busy paintings stay out of its way."""
+        u = ease(age / 0.2)
+        if fade is not None:
+            u *= min(1.0, max(0.0, fade / 0.2))
+        f.paste(Image.blend(f, Image.new("RGB", f.size, (6, 8, 12)), o.get("dim", 0.78) * u))
+        font = self.font(o.get("size", 230))
+        l, tp, r, b = font.getbbox(o["text"])
+        im = Image.new("RGBA", (r - l + 8, b - tp + 8), (0, 0, 0, 0))
+        ImageDraw.Draw(im).text((4 - l, 4 - tp), o["text"], font=font, fill=color(o.get("color", "white")) + (255,))
+        self.pop(f, im, tuple(o.get("pos", (W / 2, H / 2))), age, "cc", fade)
+
+    def bars(self, f, d, o, t):
+        """Horizontal bars on one scale, each filling when its number is spoken (YOU vs the animal)."""
+        x0, y0, w = o.get("x", 620), o.get("y", 380), o.get("w", 900)
+        bh, gap = o.get("bar", 64), o.get("gap", 150)
+        vmax = float(o.get("vmax", max(r["v"] for r in o["rows"])))
+        for i, r in enumerate(o["rows"]):
+            age = t - r["_at"]
+            if age < 0:
+                continue
+            y = y0 + i * gap
+            self.pop(f, self.card_img(r["label"], o.get("size", 66)), (x0 - 36, y + bh / 2), age, "rc")
+            d.rectangle([x0, y, x0 + w, y + bh], fill=(12, 12, 14), outline=(255, 255, 255), width=3)
+            fill_w = w * (r["v"] / vmax) * ease((age - 0.15) / o.get("dur", 0.7))
+            if fill_w >= 1:
+                d.rectangle([x0 + 3, y + 3, x0 + max(4, fill_w - 3), y + bh - 3], fill=color(r.get("color", "white")))
+            if r.get("value") and age > 0.5:
+                self.pop(f, self.card_img(r["value"], o.get("size", 66), r.get("style", "dark")),
+                         (x0 + w * r["v"] / vmax + 30, y + bh / 2), age - 0.5, "lc")
+
+    def chart(self, f, d, o, t):
+        """A line that grows point by point. Points are spaced evenly: it shows order, not a time scale."""
+        x0, y0, w, h = o.get("box", (260, 200, 1400, 640))
+        vmax = float(o.get("vmax", max(p["v"] for p in o["points"])))
+        pts = o["points"]
+        n = len(pts)
+        xy = [(x0 + (i + 0.5) * w / n, y0 + h - h * p["v"] / vmax) for i, p in enumerate(pts)]
+        d.line([(x0, y0 + h), (x0 + w, y0 + h)], fill=(255, 255, 255), width=4)
+        for i, p in enumerate(pts):
+            if t < p["_at"]:
+                break
+            age = t - p["_at"]
+            if i:
+                u = ease(age / 0.45)
+                a, b = xy[i - 1], xy[i]
+                d.line([a, (lerp(a[0], b[0], u), lerp(a[1], b[1], u))], fill=color(p.get("color", "gold")), width=9)
+            if age >= 0.3 or i == 0:
+                c = xy[i]; r = 15
+                col = color(p.get("color", "gold"))
+                d.ellipse([c[0] - r, c[1] - r, c[0] + r, c[1] + r], fill=col, outline=(255, 255, 255), width=4)
+                lab_y, anc = (c[1] + 40, "ct") if p.get("below") else (c[1] - 40, "cb")
+                self.pop(f, self.card_img(p["label"], 66, p.get("style", "dark")), (c[0], lab_y), age - 0.3, anc)
+                if p.get("sub"):
+                    self.pop(f, self.card_img(p["sub"], 46, "tag"), (c[0], y0 + h + 22), age - 0.3, "ct")
+
+    def dots(self, f, d, o, t):
+        """n dots that build in, then change colour in groups (eight lost, seventeen bred...)."""
+        n, per, r, gap = o["n"], o.get("per_row", 16), o.get("r", 26), o.get("gap", 78)
+        x0 = o.get("x", (W - (per - 1) * gap) / 2)
+        y0 = o.get("y", 300)
+        b0, b1 = o["_build"]
+        shown = int(n * ease((t - b0) / max(0.2, b1 - b0))) if t > b0 else 0
+        cols = [(235, 235, 240)] * n
+        for st in o.get("states", []):
+            if t < st["_at"]:
+                continue
+            first, cnt = st.get("first", 0), st.get("count", n)
+            k = int(cnt * ease((t - st["_at"]) / st.get("dur", 0.5)))
+            for i in range(first, min(n, first + k)):
+                cols[i] = color(st["color"])
+        for i in range(shown):
+            cx, cy = x0 + (i % per) * gap, y0 + (i // per) * gap
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=cols[i], outline=(0, 0, 0), width=2)
 
     def icon_rows(self, f, d, o, t):
         s, gap, x0, per = o.get("icon", 46), o.get("gap", 58), o.get("x", 700), o.get("per_row", 16)
@@ -502,8 +606,29 @@ class Renderer:
         for s in self.shots:
             for o in s["overlays"]:
                 texts = []
-                if o.get("type", "card") in ("card", "callout"):
+                if s["t0"] - 0.05 > o["_at"] or o["_at"] >= s["t1"]:
+                    if not o.get("carry"):
+                        bad.append(f"{s['name']}: overlay at {o['_at']:.2f}s is outside the shot {s['t0']:.2f}-{s['t1']:.2f}")
+                if o.get("recap"):                 # repeats a line already spoken earlier in the film
+                    for tok in tokens(o["text"]):
+                        known = any(w == tok for w, _, _ in self.words.words)
+                        earlier = any(w == tok and st <= o["_at"] + window for w, st, _ in self.words.words)
+                        scripted = any(st <= o["_at"] + window and tok in tokens(txt) for st, _, txt in self.words.texts)
+                        if not (earlier or (not known and scripted)):
+                            bad.append(f"{s['name']}: recap card {o['text']!r} says {tok!r}, never spoken before it")
+                    continue
+                if o.get("type") == "chart":
+                    for pnt in o["points"]:
+                        for tok in tokens(pnt["label"] + " " + pnt.get("sub", "")):
+                            if not self.words.spoken_near(tok, pnt["_at"], window):
+                                bad.append(f"{s['name']}: chart point {pnt['label']!r} says {tok!r}, not spoken near {pnt['_at']:.1f}s")
+                if o.get("type", "card") in ("card", "callout", "statement"):
                     texts.append(o["text"])
+                if o.get("type") == "bars":
+                    for r in o["rows"]:
+                        for tok in tokens(r["label"] + " " + r.get("value", "")):
+                            if not self.words.spoken_near(tok, r["_at"], window):
+                                bad.append(f"{s['name']}: bar {r['label']!r} says {tok!r}, not spoken near {r['_at']:.1f}s")
                 if o.get("type") == "path" and o.get("label"):
                     texts.append(o["label"]["text"])
                 if o.get("type") == "icon_rows":
@@ -513,6 +638,36 @@ class Renderer:
                         if not self.words.spoken_near(tok, o["_at"], window):
                             bad.append(f"{s['name']}: card {txt!r} says {tok!r}, not spoken within {window:g}s of {o['_at']:.1f}s")
         return bad
+
+    PRESENCE = {"animal": 20.0, "you": 90.0}
+
+    def check_presence(self) -> list[str]:
+        """Stretches where the film's subject or the viewer's stand-in is off screen for too long.
+
+        A shot lists who is in the picture: "shows": ["animal", "you"] (or [] for neither). The spec's
+        "presence" table sets the longest allowed gap in seconds per name; the defaults come from the
+        2026-11-12 read of the reference film, where the animal is almost never off screen and the
+        diver keeps returning. A spec with no "shows" at all is not checked."""
+        if not any(s["shows"] is not None for s in self.shots):
+            return []
+        limits = {**self.PRESENCE, **self.spec.get("presence", {})}
+        out = [f"{s['name']}: no \"shows\" list (use [] when neither is in the picture)"
+               for s in self.shots if s["shows"] is None]
+        for who, limit in limits.items():
+            if not limit:
+                continue
+            last, names = self.start, []
+            for s in self.shots + [None]:
+                if s is None or who in (s["shows"] or []):
+                    end = self.end if s is None else s["t0"]
+                    if end - last > limit + 1e-6:
+                        out.append(f"{who} off screen {end - last:.0f}s ({last:.1f}-{end:.1f}, limit {limit:g}s): "
+                                   + ", ".join(names))
+                    if s is not None:
+                        last, names = s["t1"], []
+                else:
+                    names.append(s["name"])
+        return out
 
     def sample_times(self) -> list[float]:
         ts = []

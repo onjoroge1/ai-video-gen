@@ -98,3 +98,45 @@ def test_camera_keeps_the_window_inside_the_picture(tmp_path):
         _, (x0, y0, x1, y1) = r.camera(src, g, t)
         assert x0 >= 0 and y0 >= 0 and x1 <= 1536 + 1e-6 and y1 <= 1024 + 1e-6
         assert (x1 - x0) / (y1 - y0) == pytest.approx(16 / 9)
+
+
+def test_statement_and_bars_draw_and_obey_the_card_rule(tmp_path):
+    r = df.load(make_spec(tmp_path, [
+        {"type": "statement", "text": "POISON.", "at": "Poison", "color": "red"},
+        {"type": "bars", "at": "Poison+0.2", "rows": [{"label": "FARM HORSE", "v": 32, "value": "32 PAIRS"},
+                                                {"label": "THIS ONE", "v": 33, "at": "this one", "color": "red"}]},
+    ]), words())
+    assert r.check_cards() == []
+    t = r.words.find("Poison")
+    before, after = r.frame(t - 0.1), r.frame(t + 0.6)
+    assert after.getpixel((40, 40))[1] < before.getpixel((40, 40))[1] * 0.5     # the picture is dimmed
+    assert after.crop((500, 400, 1420, 680)).getchannel("R").getextrema()[1] > 190   # and the red word is drawn
+    bad = df.load(make_spec(tmp_path, [{"type": "statement", "text": "SQUID.", "at": "Poison"}]), words())
+    assert any("squid" in p for p in bad.check_cards())
+    bad = df.load(make_spec(tmp_path, [{"type": "bars", "at": 0, "rows": [{"label": "WOLVES", "v": 7}]}]), words())
+    assert any("wolves" in p for p in bad.check_cards())
+
+
+def presence_spec(tmp_path, shows, presence=None):
+    p = make_spec(tmp_path, [])
+    spec = json.load(open(p))
+    spec["audio"]["end"] = 100.0
+    spec["shots"] = [{"name": f"s{i}", "start": i * 10, "bg": {"still": "images/a.jpg"}, **({} if sh is None else {"shows": sh})}
+                     for i, sh in enumerate(shows)]
+    if presence:
+        spec["presence"] = presence
+    json.dump(spec, open(p, "w"))
+    return df.load(p, words())
+
+
+def test_presence_reports_long_stretches_without_the_animal_or_you(tmp_path):
+    both = ["animal", "you"]
+    assert presence_spec(tmp_path, [None] * 10).check_presence() == []          # untagged spec: not checked
+    assert presence_spec(tmp_path, [both, ["animal"], [], ["animal"], both] + [["animal"]] * 5).check_presence() == []
+    gaps = presence_spec(tmp_path, [both, [], [], [], both] + [["animal"]] * 5).check_presence()
+    assert len(gaps) == 1 and gaps[0].startswith("animal off screen 30s") and "s1, s2, s3" in gaps[0]
+    gaps = presence_spec(tmp_path, [["animal"]] * 10).check_presence()           # YOU never appears
+    assert len(gaps) == 1 and gaps[0].startswith("you off screen 100s")
+    assert presence_spec(tmp_path, [["animal"]] * 10, {"you": 0}).check_presence() == []
+    gaps = presence_spec(tmp_path, [both, None] + [both] * 8).check_presence()
+    assert len(gaps) == 1 and "s1" in gaps[0] and "shows" in gaps[0]

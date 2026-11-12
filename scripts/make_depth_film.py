@@ -7,6 +7,7 @@
   python scripts/make_depth_film.py SPEC clips        # buy missing I2V clips (fal)                 (paid)
   python scripts/make_depth_film.py SPEC frames       # contact sheet only                          ($0)
   python scripts/make_depth_film.py SPEC render [--sbs]   # <name>.mp4 (+ side_by_side.mp4)         ($0)
+  python scripts/make_depth_film.py SPEC join         # spec's "prepend" cut + <name>.mp4, full source audio ($0)
 
 Paid steps refuse to start when ledger.jsonl spend plus the planned purchases would pass the
 spec's cap_usd. Existing stills/clips are never re-bought unless named with --force.
@@ -158,10 +159,30 @@ def buy(r, kind, names):
         todo = [n for n in todo if n not in wave]
 
 
+def join(r, name):
+    """Prepend a finished opening (an accepted pilot) without re-encoding it, then lay the film's own
+    unbroken audio over the joined picture, so neither cut's fade lands at the seam."""
+    import subprocess
+    first = os.path.normpath(os.path.join(r.base, r.spec["prepend"]))
+    rest = os.path.join(r.base, name + ".mp4")
+    seam = df.media_duration(first)
+    if abs(seam - r.start) > 0.05:
+        raise SystemExit(f"refused: {first} runs {seam:.3f}s but this cut starts at {r.start:.3f}s")
+    lst = os.path.join(r.base, "join.txt")
+    with open(lst, "w") as f:
+        f.write(f"file '{first}'\nfile '{rest}'\n")
+    out = os.path.join(r.base, name + "_full.mp4")
+    src = os.path.join(r.job, r.spec["audio"]["source"])
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-i", src,
+                    "-map", "0:v", "-map", "1:a", "-c", "copy", "-t", f"{r.end:.3f}", "-movflags", "+faststart", out], check=True)
+    os.remove(lst)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("spec")
-    ap.add_argument("cmd", choices=("check", "plan", "stills", "clips", "frames", "render"))
+    ap.add_argument("cmd", choices=("check", "plan", "stills", "clips", "frames", "render", "join"))
     ap.add_argument("--force", nargs="*", default=[], help="re-buy these stills/clips")
     ap.add_argument("--sbs", action="store_true", help="also write side_by_side.mp4 against audio.source")
     ap.add_argument("--allow-unspoken", action="store_true", help="skip the spoken-words card rule (operator only)")
@@ -173,7 +194,12 @@ def main(argv=None) -> int:
         for s in r.shots:
             print(f"{s['t0']:6.2f}-{s['t1']:6.2f}  {s['name']}")
         print("\n".join(problems) or "cards: every word is spoken nearby")
-        return 1 if problems else 0
+        gaps = r.check_presence()
+        if not any(s["shows"] is not None for s in r.shots):
+            print('presence: not checked (no shot has a "shows" list)')
+        else:
+            print("\n".join(gaps) or "presence: the animal and YOU stay on screen")
+        return 1 if problems or gaps else 0
     if problems and not a.allow_unspoken and a.cmd in ("frames", "render"):
         print("\n".join(problems)); return 1
     if a.cmd == "plan":
@@ -187,6 +213,8 @@ def main(argv=None) -> int:
         print(f"spent so far ${spent(r):.2f} of cap ${float(r.spec.get('cap_usd', 0)):.2f}")
         return 0
     name = r.spec.get("name", "depth")
+    if a.cmd == "join":
+        print("wrote", join(r, name)); return 0
     sheet = r.contact_sheet(os.path.join(r.base, "contact_sheet.jpg"))
     print("wrote", sheet)
     if a.cmd == "render":

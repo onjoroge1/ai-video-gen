@@ -95,11 +95,16 @@ How a still's camera move works:
 | `inset` | `still`, plus `pt` + `offset` or `pos`, and `radius`. A circular picture. |
 | `path` | `from`, `to`, `lift`, `dur`, `label: {text, at}`. A dashed arc; the label sits at its midpoint. |
 | `icon_rows` | `rows: [{label, at, build: [t0, t1], n, y, count, count_at, count_style, highlight_last}]`. 16 icons per row, so "33" puts its odd pair alone, in red. |
+| `statement` | `text`, `color`, `size` (230), `dim` (0.78). One or two spoken words fill the frame over the darkened picture. Use it for the answer to a question the narration just asked ("SQUID.", "YES."). |
+| `bars` | `rows: [{label, v, at, value, color, style}]`, `vmax`, `x`, `y`, `w`. Bars on one scale, each filling when its number is spoken. Use it to put the viewer next to the animal (your speed against its speed). |
+
+**Who is in the picture** (`shows`). Give every shot `"shows": ["animal", "you"]`, or `[]` when neither is visible. `check` then reports every stretch where the animal is off screen for more than 20 s or YOU for more than 90 s, and names the shots to repaint. Set other limits with a top-level `"presence": {"animal": 20, "you": 90}`; 0 switches one off. A spec with no `shows` at all is not checked. `render` is not blocked.
 
 ## Making a new film in this format
 
 1. **Copy a spec.** The reference is `jobs/chernobyl-horses/pilot60/depth.json`; a copy is kept in `docs/examples/depth_chernobyl_horses_pilot60.json`. Keep its `vars.YOU`, so the same character appears in every film.
-2. **Write one shot every 2–6 s.** Put a card on every belief, every turn and every number. Prefer a graphic to scenery wherever the line explains something.
-3. **Reuse the film's existing pictures** in `images/`. Buy stills only where the "you" character or a new composition is needed. Generate the "you" stills from the first "you" still (`refs: ["@you_road", ...]`) so the person stays the same.
-4. **Run `check` → `plan` → `stills` → `frames`.** Review the contact sheet. Then run `clips` → `render --sbs`.
-5. **Check the result:** `render` writes a 1440p film with the source audio. Before uploading, compare it against the old cut in `side_by_side.mp4`.
+2. **Keep the animal and YOU on screen.** In the Chernobyl horses film the horse was off screen for 74 s during the war section and YOU for 179 s in the middle; the reference film this format comes from almost never loses its animal. A shot about soldiers, fire or a document still shows the animal or YOU in the frame. Tag `shows` on every shot and run `check`.
+3. **Write one shot every 2–6 s.** Put a card on every belief, every turn and every number. Prefer a graphic to scenery wherever the line explains something.
+4. **Reuse the film's existing pictures** in `images/`. Buy stills only where the "you" character or a new composition is needed. Generate the "you" stills from the first "you" still (`refs: ["@you_road", ...]`) so the person stays the same.
+5. **Run `check` → `plan` → `stills` → `frames`.** Review the contact sheet. Then run `clips` → `render --sbs`.
+6. **Check the result:** `render` writes a 1440p film with the source audio. Before uploading, compare it against the old cut in `side_by_side.mp4`.
