@@ -78,3 +78,14 @@ def test_build_log_with_traceback_is_not_a_result(tmp_path):
     assert p._build_json(str(tmp_path)) == {}
     (tmp_path / "build.log").write_text("drawing...\n{\n \"gate_pass\": true,\n \"gate\": {}\n}\n")
     assert p._build_json(str(tmp_path)) == {"gate_pass": True, "gate": {}}
+
+
+def test_next_slot_weekdays_once_weekends_twice():
+    import datetime as dt
+    now = dt.datetime(2026, 11, 21, 18, 0, tzinfo=dt.timezone.utc)  # Saturday 1 PM ET
+    assert p.next_slot(set(), now) == "2026-11-21T20:00:00Z"       # Sat 3 PM ET
+    taken = {"2026-11-21T20:00", "2026-11-22T20:00"}
+    assert p.next_slot(taken, now) == "2026-11-22T14:00:00Z"       # Sun 9 AM ET
+    taken |= {"2026-11-22T14:00"}
+    assert p.next_slot(taken, now) == "2026-11-23T20:00:00Z"       # Monday: 3 PM only
+    assert p.next_slot(set(), dt.datetime(2026, 11, 21, 19, 0, tzinfo=dt.timezone.utc)) == "2026-11-22T14:00:00Z"

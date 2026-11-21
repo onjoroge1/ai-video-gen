@@ -7,11 +7,12 @@ Stages (default: all, in order; each stops the run on a blocking failure):
   script   story rules on spec.json (deterministic checks + one Claude read, cached by script hash)
   build    make_native_short.py -> builder gate -> loudness.py (-14 LUFS) -> Claude reads frame 1
   meta     meta.json (title / description / tags): drafted by Claude if missing, always validated
-  upload   Field Guide, private + scheduled 20:00Z (one Short a day), cover, synthetic flag,
+  upload   Field Guide, private + scheduled in the next free house slot (weekdays 3 PM ET,
+           weekends 9 AM and 3 PM ET), cover, synthetic flag,
            then the 20 Studio auto-translate languages (title + description)
 
 Options:
-  --at 2026-11-23T20:00:00Z   slot to use (default: next day with no scheduled Field Guide upload)
+  --at 2026-11-23T20:00:00Z   slot to use (default: next free house slot, see SLOTS_ET)
   --replace VIDEO_ID          take that upload's slot; after the new upload succeeds the old one is
                               set private with no schedule (kept, not deleted)
   --accept-draft              allow upload with Claude-drafted metadata nobody has approved
@@ -58,7 +59,10 @@ LOUDNESS = os.path.join(ROOT, "scripts/fg_loudness.py")
 LOCALIZE = os.path.join(ROOT, "scripts/fg_localize_short.py")
 LOG = os.path.join(ROOT, "jobs/yt/fg_production_log.json")
 MODEL = "claude-opus-5-5"
-SLOT_HOUR_Z = 20  # 3 PM ET
+# Publish slots in New York time (operator 11-16: one a day at 3 PM; 11-21: weekends carry two, 9 AM
+# and 3 PM, after a Saturday double held up). Weekday index: Monday 0 .. Sunday 6.
+SLOTS_ET = {d: [(15, 0)] for d in range(5)} | {5: [(9, 0), (15, 0)], 6: [(9, 0), (15, 0)]}
+MIN_LEAD = dt.timedelta(hours=2)  # never schedule a slot this close to now
 HEDGES = re.compile(r"\b(maybe|perhaps|might|may have|nobody knows|no one knows|no one is sure|"
                     r"scientists (?:aren't|are not) sure|unclear|by one count|some say|could be|"
                     r"it's possible|remains a mystery|we may never know)\b", re.I)
@@ -315,19 +319,35 @@ def _yt():
     return build("youtube", "v3", credentials=_creds("fieldguide"), cache_discovery=False)
 
 
-def scheduled_days(yt) -> dict[str, str]:
-    """{YYYY-MM-DD: video_id} for Field Guide uploads that are private with a future publishAt."""
+def scheduled_times(yt) -> set[str]:
+    """UTC 'YYYY-MM-DDTHH:MM' of every Field Guide upload that is private with a publishAt."""
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     from youtube_upload import channel_uploads
     me = yt.channels().list(part="id", mine=True).execute()["items"][0]["id"]
     ids = [v["id"] for v in channel_uploads(yt, me) if v["privacy"] == "private"]
-    out = {}
+    out = set()
     for i in range(0, len(ids), 50):
         for item in yt.videos().list(part="status", id=",".join(ids[i:i + 50])).execute()["items"]:
             at = item["status"].get("publishAt")
             if at:
-                out[at[:10]] = item["id"]
+                out.add(at[:16])
     return out
+
+
+def next_slot(taken: set[str], now: dt.datetime | None = None) -> str:
+    """The first house slot (SLOTS_ET) at least MIN_LEAD from now that no scheduled upload holds."""
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    now = now or dt.datetime.now(dt.timezone.utc)
+    day = now.astimezone(ny).date()
+    for _ in range(366):
+        for hour, minute in SLOTS_ET[day.weekday()]:
+            slot = dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=ny).astimezone(dt.timezone.utc)
+            key = slot.strftime("%Y-%m-%dT%H:%M")
+            if slot >= now + MIN_LEAD and key not in taken:
+                return key + ":00Z"
+        day += dt.timedelta(days=1)
+    raise SystemExit("no free slot within a year")
 
 
 def stage_upload(job: str, rep: Report, args, meta: dict) -> None:
@@ -344,11 +364,7 @@ def stage_upload(job: str, rep: Report, args, meta: dict) -> None:
     elif args.at:
         at = args.at
     else:
-        taken = scheduled_days(yt)
-        day = dt.date.today() + dt.timedelta(days=1)
-        while day.isoformat() in taken:
-            day += dt.timedelta(days=1)
-        at = f"{day.isoformat()}T{SLOT_HOUR_Z:02d}:00:00Z"
+        at = next_slot(scheduled_times(yt))
     print(f"upload: {meta['title']!r} -> {at}" + (f" (replacing {args.replace})" if old else ""))
     desc_file = os.path.join(job, "description.txt")
     open(desc_file, "w").write(meta["description"])
