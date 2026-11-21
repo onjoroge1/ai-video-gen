@@ -89,3 +89,12 @@ def test_next_slot_weekdays_once_weekends_twice():
     taken |= {"2026-11-22T14:00"}
     assert p.next_slot(taken, now) == "2026-11-23T20:00:00Z"       # Monday: 3 PM only
     assert p.next_slot(set(), dt.datetime(2026, 11, 21, 19, 0, tzinfo=dt.timezone.utc)) == "2026-11-22T14:00:00Z"
+
+
+def test_cue_words_checked_before_build():
+    ok = {"beats": [{"text": "Only one female has pups.", "pictures": [{}, {"from": "one"}, {"from": "pups"}]}]}
+    assert p.cue_problems(ok) == []
+    bad = {"beats": [{"text": "One female has all the pups.", "pictures": [{}, {"from": "only"}]}]}
+    assert "cue 'only'" in p.cue_problems(bad)[0]
+    out_of_order = {"beats": [{"text": "pups before one", "pictures": [{}, {"from": "one"}, {"from": "pups"}]}]}
+    assert p.cue_problems(out_of_order)

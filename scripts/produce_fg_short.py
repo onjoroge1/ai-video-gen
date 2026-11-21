@@ -228,9 +228,31 @@ def _build_json(job: str) -> dict:
     return {}
 
 
+def cue_problems(spec: dict) -> list[str]:
+    """Each later picture's "from" word must appear in its line, after the previous cue (the builder
+    stops mid-render otherwise, after the voice and earlier pictures are bought)."""
+    norm = lambda w: re.sub(r"\W", "", w.lower())
+    out = []
+    for i, beat in enumerate(spec.get("beats", [])):
+        words, k = [norm(w) for w in beat["text"].split()], 0
+        for pic in beat.get("pictures", [])[1:]:
+            cue = norm(pic.get("from", ""))
+            while k < len(words) and words[k] != cue:
+                k += 1
+            if k == len(words):
+                out.append(f"line {i + 1}: cue {pic.get('from')!r} not in order in {beat['text']!r}")
+                break
+            k += 1
+    return out
+
+
 def stage_build(job: str, rep: Report) -> None:
     short = os.path.join(job, "short.mp4")
     spec = os.path.join(job, "spec.json")
+    cues = cue_problems(json.load(open(spec)))
+    rep.rule("picture-cues", not cues, "; ".join(cues) or "every picture cue is in its line", True)
+    if cues:
+        return
     fresh = os.path.isfile(short) and os.path.getmtime(short) > os.path.getmtime(spec)
     if not fresh:
         print("build: make_native_short.py (cached pictures and narration are reused)")
