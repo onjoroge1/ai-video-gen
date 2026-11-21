@@ -213,9 +213,15 @@ def stage_script(job: str, rep: Report) -> None:
 
 
 def _build_json(job: str) -> dict:
+    """The builder prints its result as a JSON object on its own lines; a crashed build prints a
+    traceback (which can contain braces) and no result."""
     text = open(os.path.join(job, "build.log")).read()
-    start = text.find("{")
-    return json.loads(text[start:]) if start >= 0 else {}
+    for start in [m.start() + 1 for m in re.finditer(r"\n\{\n", "\n" + text)][::-1]:
+        try:
+            return json.JSONDecoder().raw_decode(text[start - 1:])[0]
+        except ValueError:
+            continue
+    return {}
 
 
 def stage_build(job: str, rep: Report) -> None:
@@ -230,6 +236,10 @@ def stage_build(job: str, rep: Report) -> None:
         if result.get("gate_pass"):
             subprocess.run([PY, LOUDNESS, job], cwd=ROOT, check=True)
     result = _build_json(job)
+    if not result:
+        tail = open(os.path.join(job, "build.log")).read().strip().splitlines()[-1:] or ["?"]
+        rep.rule("built", False, f"builder failed: {tail[0][:300]}", True)
+        return
     for name, (value, ok) in (result.get("gate") or {}).items():
         rep.rule(f"gate:{name}", bool(ok), str(value), True)
     if not os.path.isfile(short):

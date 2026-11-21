@@ -71,3 +71,10 @@ def test_research_found_via_spec(tmp_path, monkeypatch):
     research = json.loads(p.research_of(str(job)))
     assert research == {"safe_claims": ["it worked"], "avoid": ["born before X"]}
     assert p.research_of(str(tmp_path / "nowhere")) == ""
+
+
+def test_build_log_with_traceback_is_not_a_result(tmp_path):
+    (tmp_path / "build.log").write_text("Traceback...\nopenai.BadRequestError: Error code: 400 - {'error': {'x': 1}}\n")
+    assert p._build_json(str(tmp_path)) == {}
+    (tmp_path / "build.log").write_text("drawing...\n{\n \"gate_pass\": true,\n \"gate\": {}\n}\n")
+    assert p._build_json(str(tmp_path)) == {"gate_pass": True, "gate": {}}
