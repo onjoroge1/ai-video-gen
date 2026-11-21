@@ -59,3 +59,15 @@ def test_override_is_recorded_not_blocking(tmp_path):
     p.stage_meta(job, rep)
     assert rep.data["rules"]["title-matches-line1"]["status"] == "override"
     assert "title-matches-line1" not in rep.blocked
+
+
+def test_research_found_via_spec(tmp_path, monkeypatch):
+    pack = tmp_path / "pack.json"
+    pack.write_text(json.dumps({"safe_claims": ["it worked"], "exaggerations_to_avoid": ["born before X"]}))
+    monkeypatch.setattr(p, "ROOT", str(tmp_path))
+    job = tmp_path / "job"
+    job.mkdir()
+    (job / "spec.json").write_text(json.dumps({"source_pack": "pack.json", "beats": []}))
+    research = json.loads(p.research_of(str(job)))
+    assert research == {"safe_claims": ["it worked"], "avoid": ["born before X"]}
+    assert p.research_of(str(tmp_path / "nowhere")) == ""

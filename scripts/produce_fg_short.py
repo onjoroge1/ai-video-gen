@@ -80,7 +80,8 @@ R4 OPENING (warning): line 1 states an impossibility about a named animal (not j
 question). Line 2 escalates or raises the stakes; FAIL if line 2 rewinds to backstory, a date, or a
 definition.
 ACCURACY (blocking): FAIL if the ending claims more than the earlier lines support (overstated cause,
-certainty the script itself undercuts).
+certainty the script itself undercuts). When RESEARCH is given below, a claim the research supports counts
+as supported even if no earlier line restates it, and a claim the research lists under "avoid" fails.
 
 Return ONLY JSON: {"R1": {"pass": bool, "why": str, "fix": str}, "R3": {...}, "R4": {...},
 "ACCURACY": {...}}. "fix" is a concrete rewrite of the failing line(s) using only facts already in the
@@ -125,10 +126,10 @@ def claude(prompt: str, images: list[bytes] | None = None) -> dict:
     if msg.stop_reason == "refusal":
         raise SystemExit("Claude declined the request")
     text = "".join(b.text for b in msg.content if b.type == "text")
-    found = re.search(r"\{.*\}", text, re.S)
-    if not found:
+    start = text.find("{")
+    if start < 0:
         raise SystemExit(f"no JSON in Claude reply: {text[:300]}")
-    return json.loads(found.group(0))
+    return json.JSONDecoder().raw_decode(text[start:])[0]  # ignores any text after the object
 
 
 def load_env() -> None:
@@ -137,6 +138,25 @@ def load_env() -> None:
         m = re.match(r"\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$", line)
         if m and m.group(1) not in os.environ:
             os.environ[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+
+
+def research_of(job: str) -> str:
+    """The Short's source pack (safe claims + claims to avoid), found via spec.json or a handoff*.json
+    in the job folder or its parent. Empty when the Short has none."""
+    pack = ""
+    for folder in (job, os.path.dirname(job)):
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if name == "spec.json" or (name.startswith("handoff") and name.endswith(".json")):
+                try:
+                    pack = pack or json.load(open(os.path.join(folder, name))).get("source_pack", "")
+                except (ValueError, OSError, AttributeError):
+                    pass
+    path = os.path.join(ROOT, pack) if pack else ""
+    if not path or not os.path.isfile(path):
+        return ""
+    data = json.load(open(path))
+    return json.dumps({"safe_claims": data.get("safe_claims", []),
+                       "avoid": data.get("exaggerations_to_avoid", [])}, ensure_ascii=False)
 
 
 def lines_of(job: str) -> list[str]:
@@ -176,11 +196,15 @@ def stage_script(job: str, rep: Report) -> None:
     rewind = re.search(r"\b(1[5-9]\d\d|20[0-2]\d)\b", l2)
     rep.rule("R4-line2", l2_sec <= 5.0 and not rewind,
              f"line 2 ~{l2_sec:.1f} s" + (f", date rewind {rewind.group(0)}" if rewind else ""), False)
-    key = hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16]
+    research = research_of(job)
+    key = hashlib.sha256(("\n".join(lines) + research).encode()).hexdigest()[:16]
     cache = rep.data.get("script_read", {})
     if cache.get("key") != key:
         numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(lines))
-        cache = {"key": key, "read": claude(SCRIPT_RULES + "\n\nScript:\n" + numbered)}
+        prompt = SCRIPT_RULES + "\n\nScript:\n" + numbered
+        if research:
+            prompt += "\n\nRESEARCH (verified source pack for this Short):\n" + research
+        cache = {"key": key, "read": claude(prompt)}
         rep.data["script_read"] = cache
     read = cache["read"]
     for name, blocking in (("R1", True), ("ACCURACY", True), ("R3", False), ("R4", False)):
